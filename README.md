@@ -145,10 +145,18 @@ rather than arithmetic — waste that was cheaper to fix than to rewrite:
   It drew a full float64 uniform to produce one Rademacher sign. Generating bits instead
   is ~2.4× faster. Better: for `multiplier_kind="normal"` the max-t law has a closed form
   — `xi @ IC` is a linear map of a Gaussian — so the whole resampling loop collapses to
-  one covariance and a draw from an *m*-dimensional normal. That is the same distribution,
-  not an approximation, and it is **80–360× faster** while never allocating a
-  `(n_replicates, n)` array. The default stays `"rademacher"` so reported critical values
-  do not move; prefer `"normal"` for large `n`.
+  one covariance and a draw from an *m*-dimensional normal, which is **80–360× faster**
+  and never allocates a `(n_replicates, n)` array.
+
+  That speed is not free, and `multiplier_kind` still defaults to `"rademacher"`. The
+  closed form exists *because* the Gaussian max-t law depends on the influence curves only
+  through their covariance — so `"normal"` is a plug-in normal approximation rather than a
+  resampling scheme, and it cannot see the leverage a `1/g(W)` clever covariate produces
+  under weak overlap. Simulated against a brute-force max-t distribution, it is biased
+  conservative there (+0.14 on a true 2.16 at n=200, +0.07 at n=2,000), while `"rademacher"`
+  stays within 0.02. On well-behaved influence curves all three kinds agree. Use `"normal"`
+  when *n* is large, the curves are well behaved, and resampling actually shows up in a
+  profile.
 - **The cluster bootstrap rebuilt its membership index inside every replicate**, an
   `O(n_clusters × n)` scan per draw. Building it once is **24–160× cheaper** per replicate,
   which a 1000-replicate cluster bootstrap pays back a thousand times over.

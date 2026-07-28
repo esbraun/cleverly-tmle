@@ -610,6 +610,47 @@ class TestSimultaneousBands:
         exact = multiplier_critical_value(ic, se, kind="normal", **kwargs)  # type: ignore[arg-type]
         assert exact == pytest.approx(resampled, abs=0.02)
 
+    def test_gaussian_multipliers_see_only_the_covariance(self) -> None:
+        """Why ``"rademacher"`` is the default and ``"normal"`` is an opt-in speed trade.
+
+        The Gaussian max-t law depends on the influence curves only through their
+        covariance -- that is exactly why it has a closed form.  Feed it two matrices
+        with an identical cross-product but wildly different tails and it returns the
+        *same number*; the two-point multipliers do not.  Under weak overlap a TMLE
+        influence curve has heavy tails, which is the information ``"normal"`` discards.
+        """
+        rng = np.random.default_rng(0)
+        n, m = 400, 3
+        mix = np.array([[1.0, 0.0, 0.0], [0.8, 0.6, 0.0], [0.3, 0.0, 0.95]])
+        heavy = rng.standard_t(df=2.5, size=(n, m)) @ mix.T
+        heavy = heavy - heavy.mean(axis=0)
+
+        # Orthonormal, zero-sum columns times the Cholesky factor of heavy's
+        # cross-product: Gaussian tails, byte-identical second moments.
+        basis = rng.normal(size=(n, m))
+        basis = basis - basis.mean(axis=0)
+        orthonormal, _ = np.linalg.qr(basis)
+        light = orthonormal @ np.linalg.cholesky(heavy.T @ heavy).T
+        light = light - light.mean(axis=0)
+        np.testing.assert_allclose(heavy.T @ heavy, light.T @ light, rtol=1e-9)
+
+        # Tails really are different: standardised fourth moments of ~15 versus ~3.
+        assert ((heavy / heavy.std(axis=0)) ** 4).mean() > 6.0
+        assert ((light / light.std(axis=0)) ** 4).mean() < 4.0
+
+        se = heavy.std(axis=0, ddof=1) / np.sqrt(n)
+        kwargs = {"n": n, "n_replicates": 20_000, "random_state": 0}
+        gaussian = [
+            multiplier_critical_value(ic, se, kind="normal", **kwargs)  # type: ignore[arg-type]
+            for ic in (heavy, light)
+        ]
+        two_point = [
+            multiplier_critical_value(ic, se, kind="rademacher", **kwargs)  # type: ignore[arg-type]
+            for ic in (heavy, light)
+        ]
+        assert gaussian[0] == pytest.approx(gaussian[1], abs=1e-12)
+        assert two_point[0] != pytest.approx(two_point[1], abs=1e-12)
+
     def test_the_exact_gaussian_path_handles_a_singular_covariance(self) -> None:
         """The default estimand set is rank-deficient, and that must not be an error.
 
