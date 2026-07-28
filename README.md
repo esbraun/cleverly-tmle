@@ -125,14 +125,49 @@ infrastructure; the following variants plug into them:
 ### On native acceleration
 
 A Rust extension for the numerical kernels was planned. `benchmarks/bench_tmle.py` says it
-is not worth building: **the targeting step is 0.36% of a full fit**, and the multiplier
-bootstrap costs 60 ms at n=5000 with 500 draws. Nuisance estimation dominates, and that
-already runs in compiled code (scikit-learn, LightGBM). Rewriting a 0.36% slice in Rust
-buys 0.36% at best.
+is not worth building. Profiling a full fit by module (`cProfile`, total time):
 
-The one place that *did* matter turned out to be thread scheduling rather than arithmetic:
-nuisance fits now run single-threaded by default so that parallelism happens across folds
-and candidates instead of inside each fit (see `cleverly.learners.set_thread_limit`).
+| fit | cleverly-authored code | scikit-learn + LightGBM |
+| --- | --- | --- |
+| n=5,000, `library="default"` | **0.5%** | 44% |
+| n=20,000, `library="glm"` | 22% | 17% |
+
+The targeting step is 1.5–1.7% of a `glm` fit and does not appear at all in a `default`
+one — it is a 2×2 Newton solve with a closed-form Hessian. Nuisance estimation dominates,
+and it already runs in compiled code. Note how much the preset matters: `glm` is the
+cheapest library available, so it makes every other line's share look several times larger
+than it is. Benchmark with `--library default` before drawing a conclusion.
+
+The 22% figure above is almost entirely *one* function, and profiling it turned up waste
+rather than arithmetic — waste that was cheaper to fix than to rewrite:
+
+- **The multiplier bootstrap was 92–95% multiplier *generation* and 2–3% matrix product.**
+  It drew a full float64 uniform to produce one Rademacher sign. Generating bits instead
+  is ~2.4× faster. Better: for `multiplier_kind="normal"` the max-t law has a closed form
+  — `xi @ IC` is a linear map of a Gaussian — so the whole resampling loop collapses to
+  one covariance and a draw from an *m*-dimensional normal. That is the same distribution,
+  not an approximation, and it is **80–360× faster** while never allocating a
+  `(n_replicates, n)` array. The default stays `"rademacher"` so reported critical values
+  do not move; prefer `"normal"` for large `n`.
+- **The cluster bootstrap rebuilt its membership index inside every replicate**, an
+  `O(n_clusters × n)` scan per draw. Building it once is **24–160× cheaper** per replicate,
+  which a 1000-replicate cluster bootstrap pays back a thousand times over.
+- `cluster_sums` used `np.add.at`, which is unbuffered; `np.bincount` is ~2× faster.
+
+None of that needed Rust, and the package stays pure-Python. The other place that mattered
+turned out to be thread scheduling rather than arithmetic: nuisance fits run
+single-threaded by default so parallelism happens across folds and candidates instead of
+inside each fit (see `cleverly.learners.set_thread_limit`).
+
+**When to revisit this.** Native code pays where the nuisance estimator is *not* an
+scikit-learn model, and today none of them is. The trigger is **HAL** (highly adaptive
+lasso) and its undersmoothed variant: a zero-order spline basis of `n × O(n·d)` binary
+indicators that scikit-learn's lasso cannot take, where basis enumeration, sparse assembly
+and coordinate descent are a natural fit for a native extension — R's `hal9001` ships a C++
+backend for exactly this. The EP-learner benefits *through* HAL rather than on its own; its
+other cost is targeting a *k*-dimensional score with *k* = basis size, which is BLAS-bound
+and already fine. Longitudinal and survival TMLE are weaker cases: the loop over timepoints
+is Python, but each body is a nuisance fit, so they stay scikit-learn-bound.
 
 The measurement is reproducible — rerun the benchmark before revisiting this.
 
