@@ -135,8 +135,8 @@ The measurement is reproducible — rerun the benchmark before revisiting this.
 uv venv && uv pip install -e ".[dev]"
 ruff check . && ruff format --check .
 mypy src/cleverly
-pytest -m "not slow" -q     # fast tier, ~5 minutes
-pytest -m slow -q           # statistical validation tier (nightly in CI)
+pytest -m "not slow" -q     # fast tier, ~90 seconds
+pytest -m slow -q           # statistical validation tier (nightly in CI, ~1 hour)
 python benchmarks/bench_tmle.py
 ```
 

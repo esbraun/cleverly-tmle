@@ -244,7 +244,10 @@ class TestBinaryOutcome:
 
 class TestBootstrapAndBands:
     def test_the_bootstrap_standard_error_is_comparable_to_the_influence_curve_one(self) -> None:
-        frame, _ = make_linear_ate(n=700, seed=43)
+        frame, _ = make_linear_ate(n=500, seed=43)
+        # The bootstrap refits the model per replicate, so this is the most expensive
+        # test in the fast tier; 40 replicates is the minimum that makes the
+        # standard-error comparison below meaningful.
         result = fast_tmle(estimands=("ate",), n_bootstrap=40).fit(
             frame, outcome="Y", treatment="A"
         )

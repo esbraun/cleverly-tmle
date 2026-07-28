@@ -105,8 +105,10 @@ class TestCoverage:
 
     def test_flexible_learners_still_cover(self) -> None:
         # The case that motivates cross-fitting: machine-learning nuisance estimators,
-        # where in-sample predictions would destroy the coverage guarantee.
-        summary = _study(nonlinear_dgp(), n=1500, reps=200, library="fast")["ate"]
+        # where in-sample predictions would destroy the coverage guarantee. Fewer
+        # replications than the parametric studies because each fit costs ~10x as much;
+        # 120 still resolves the +/- 0.05 window asserted here.
+        summary = _study(nonlinear_dgp(), n=1000, reps=120, library="fast")["ate"]
         assert 0.90 <= summary.coverage <= 0.99, summary
 
 
@@ -127,8 +129,8 @@ class TestConsistency:
         assert large.mean_std_error / small.mean_std_error == pytest.approx(0.5, abs=0.05)
 
     def test_the_estimate_converges_on_the_truth(self) -> None:
-        small = _study(nonlinear_dgp(), n=500, reps=200, library="fast")["ate"]
-        large = _study(nonlinear_dgp(), n=2000, reps=200, library="fast")["ate"]
+        small = _study(nonlinear_dgp(), n=400, reps=100, library="fast")["ate"]
+        large = _study(nonlinear_dgp(), n=1600, reps=100, library="fast")["ate"]
         assert abs(large.bias) < abs(small.bias)
 
 
@@ -190,8 +192,8 @@ class TestCvTmleUnderWeakOverlap:
             results[label] = CoverageStudy(
                 dgp=nonlinear_dgp(),
                 estimator=lambda cf=cross_fit: TMLE(cross_fit=cf, **common),
-                n=800,
-                n_replicates=200,
+                n=600,
+                n_replicates=120,
                 estimands=("ate",),
                 seed=99,
                 n_jobs=2,

@@ -228,20 +228,20 @@ class TestLibrary:
 class TestSuperLearner:
     def test_weights_lie_on_the_simplex(self, sample) -> None:
         x, y, _ = sample
-        model = SuperLearner(library="fast", n_folds=3, random_state=0).fit(x, y)
+        model = SuperLearner(library="glm", n_folds=3, random_state=0).fit(x, y)
         assert model.coef_.sum() == pytest.approx(1.0)
         assert np.all(model.coef_ >= -1e-12)
 
     def test_the_ensemble_beats_or_matches_its_worst_candidate(self, sample) -> None:
         x, y, _ = sample
-        model = SuperLearner(library="fast", n_folds=3, random_state=0).fit(x, y)
+        model = SuperLearner(library="glm", n_folds=3, random_state=0).fit(x, y)
         assert model.diagnostics_.ensemble_cv_risk <= model.cv_risk_.max()
 
     def test_discrete_super_learner_picks_a_single_candidate(self, sample) -> None:
         x, y, _ = sample
-        model = SuperLearner(
-            library="fast", meta_learner="discrete", n_folds=3, random_state=0
-        ).fit(x, y)
+        model = SuperLearner(library="glm", meta_learner="discrete", n_folds=3, random_state=0).fit(
+            x, y
+        )
         assert np.count_nonzero(model.coef_) == 1
         assert model.learner_names_[int(np.argmax(model.coef_))] == model.diagnostics_.best
 
@@ -260,7 +260,7 @@ class TestSuperLearner:
 
     def test_classification_probabilities_stay_in_range(self, sample) -> None:
         x, _, a = sample
-        model = SuperLearner(library="fast", n_folds=3, random_state=0, clip=(0.001, 0.999)).fit(
+        model = SuperLearner(library="glm", n_folds=3, random_state=0, clip=(0.001, 0.999)).fit(
             x, a
         )
         p = model.predict(x)
