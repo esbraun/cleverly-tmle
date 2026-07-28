@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -387,7 +388,7 @@ class TMLE:
                 random_state=self.random_state,
                 cluster=data.cluster,
             )
-            result = _replace_result(result, simultaneous=bands)
+            result = replace(result, simultaneous=bands)
 
         if self.n_bootstrap:
             bootstrap = run_bootstrap(
@@ -822,12 +823,6 @@ def _score_of(
     """``mean(w * h * (Y - Q*))`` per clever-covariate column."""
     residual = np.where(observed, scaled - targeted.observed, 0.0)
     return np.asarray(((weights * residual)[:, None] * submodel.observed).mean(axis=0), dtype=float)
-
-
-def _replace_result(result: TMLEResult, **changes: Any) -> TMLEResult:
-    from dataclasses import replace
-
-    return replace(result, **changes)
 
 
 def tmle(

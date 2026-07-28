@@ -132,13 +132,16 @@ The measurement is reproducible — rerun the benchmark before revisiting this.
 ## Development
 
 ```bash
-uv sync --all-extras
-uv run ruff check . && uv run ruff format --check .
-uv run mypy src/cleverly
-uv run pytest -m "not slow" -q     # fast tier
-uv run pytest -m slow -q           # statistical validation tier (nightly in CI)
-uv run python benchmarks/bench_tmle.py
+uv venv && uv pip install -e ".[dev]"
+ruff check . && ruff format --check .
+mypy src/cleverly
+pytest -m "not slow" -q     # fast tier, ~5 minutes
+pytest -m slow -q           # statistical validation tier (nightly in CI)
+python benchmarks/bench_tmle.py
 ```
+
+`noxfile.py` wraps the same steps (`nox -s lint typecheck tests`), and the fast tier runs on
+Python 3.10–3.13 in CI.
 
 ## References
 
