@@ -1,0 +1,55 @@
+"""cleverly: targeted maximum likelihood estimation for Python.
+
+Quickstart
+----------
+>>> from cleverly import TMLE
+>>> from cleverly.datasets import make_nonlinear_ate
+>>> frame, truth = make_nonlinear_ate(n=1000, seed=0)
+>>> result = TMLE(random_state=0).fit(frame, outcome="Y", treatment="A")
+>>> print(result.summary())                                        # doctest: +SKIP
+
+The estimator takes pandas or polars dataframes interchangeably and returns results
+in whichever backend it was given.  Every result carries its influence curves, so
+:attr:`~cleverly.estimators.base.TMLEResult.sensitivity` and
+:attr:`~cleverly.estimators.base.TMLEResult.validation` need no refitting.
+"""
+
+from __future__ import annotations
+
+from ._version import __version__
+from .data import CausalData
+from .estimators import (
+    ALL_ESTIMANDS,
+    DEFAULT_ESTIMANDS,
+    TMLE,
+    TMLEResult,
+    TMLEResultSet,
+    tmle,
+)
+from .exceptions import (
+    CleverlyError,
+    ConvergenceWarning,
+    DataError,
+    NotFittedError,
+    PositivityWarning,
+)
+from .inference import ParameterEstimate
+from .learners import SuperLearner
+
+__all__ = [
+    "ALL_ESTIMANDS",
+    "DEFAULT_ESTIMANDS",
+    "TMLE",
+    "CausalData",
+    "CleverlyError",
+    "ConvergenceWarning",
+    "DataError",
+    "NotFittedError",
+    "ParameterEstimate",
+    "PositivityWarning",
+    "SuperLearner",
+    "TMLEResult",
+    "TMLEResultSet",
+    "__version__",
+    "tmle",
+]

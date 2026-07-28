@@ -1,0 +1,248 @@
+"""Dataframe-backend parity and the public result API.
+
+The promise the library makes is "pandas in, pandas out; polars in, polars out", with
+*identical numbers* either way.  Identical, not merely close: the two paths differ only
+in how the data is unwrapped, so any numerical discrepancy would signal that one of them
+is quietly reordering or recasting something.
+"""
+
+from __future__ import annotations
+
+import narwhals as nw
+import numpy as np
+import pandas as pd
+import polars as pl
+import pytest
+
+from cleverly import TMLE
+from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
+from tests.conftest import fast_tmle
+
+ESTIMANDS = ("ate", "att", "atc", "ey1", "ey0")
+
+
+@pytest.fixture(scope="module")
+def paired_fits() -> tuple[object, object]:
+    pandas_frame, _ = make_linear_ate(n=900, seed=91, backend="pandas")
+    polars_frame, _ = make_linear_ate(n=900, seed=91, backend="polars")
+    columns = {"outcome": "Y", "treatment": "A"}
+    return (
+        fast_tmle(estimands=ESTIMANDS).fit(pandas_frame, **columns),
+        fast_tmle(estimands=ESTIMANDS).fit(polars_frame, **columns),
+    )
+
+
+class TestBackendParity:
+    def test_the_generators_agree_across_backends(self) -> None:
+        pandas_frame, _ = make_linear_ate(n=200, seed=92, backend="pandas")
+        polars_frame, _ = make_linear_ate(n=200, seed=92, backend="polars")
+        assert np.allclose(pandas_frame["Y"].to_numpy(), polars_frame["Y"].to_numpy())
+
+    @pytest.mark.parametrize("estimand", ESTIMANDS)
+    def test_estimates_are_bit_identical(self, paired_fits, estimand: str) -> None:
+        from_pandas, from_polars = paired_fits
+        assert from_pandas.psi(estimand) == from_polars.psi(estimand)
+        assert from_pandas[estimand].std_error == from_polars[estimand].std_error
+        assert from_pandas[estimand].ci == from_polars[estimand].ci
+        assert from_pandas[estimand].pvalue == from_polars[estimand].pvalue
+
+    def test_influence_curves_are_identical(self, paired_fits) -> None:
+        from_pandas, from_polars = paired_fits
+        for estimand in ESTIMANDS:
+            assert np.array_equal(
+                from_pandas[estimand].influence_curve,
+                from_polars[estimand].influence_curve,
+            )
+
+    def test_results_come_back_in_the_input_backend(self, paired_fits) -> None:
+        from_pandas, from_polars = paired_fits
+        assert isinstance(from_pandas.to_frame(), pd.DataFrame)
+        assert isinstance(from_polars.to_frame(), pl.DataFrame)
+        assert isinstance(from_pandas.influence_frame(), pd.DataFrame)
+        assert isinstance(from_polars.influence_frame(), pl.DataFrame)
+
+    def test_diagnostic_frames_follow_the_backend_too(self, paired_fits) -> None:
+        from_pandas, from_polars = paired_fits
+        assert isinstance(
+            from_pandas.sensitivity.truncation_curve([0.01], estimands=["ate"]), pd.DataFrame
+        )
+        assert isinstance(
+            from_polars.sensitivity.truncation_curve([0.01], estimands=["ate"]), pl.DataFrame
+        )
+
+    def test_the_summaries_are_identical_text(self, paired_fits) -> None:
+        from_pandas, from_polars = paired_fits
+        assert from_pandas.summary() == from_polars.summary()
+
+    def test_a_polars_fit_with_every_role(self) -> None:
+        frame, _ = make_missing_outcome(n=900, seed=93, backend="polars")
+        frame = frame.with_columns(
+            pl.Series("w", np.linspace(0.5, 1.5, len(frame))),
+            pl.Series("cl", np.repeat(np.arange(len(frame) // 10), 10).astype(float)),
+        )
+        result = fast_tmle(estimands=("ate",)).fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2", "W3"],
+            delta="Delta",
+            weights="w",
+            id="cl",
+        )
+        assert isinstance(result.to_frame(), pl.DataFrame)
+        assert result.data.n_clusters == 90
+        assert result.validation.score_check().passed
+
+
+class TestResultApi:
+    def test_mapping_style_access(self, paired_fits) -> None:
+        result, _ = paired_fits
+        assert "ate" in result
+        assert set(result) == set(ESTIMANDS)
+        assert result["ate"] is result.ate
+        assert result.psi("ate") == result.ate.psi
+
+    def test_an_unrequested_estimand_gives_a_helpful_error(self, paired_fits) -> None:
+        result, _ = paired_fits
+        with pytest.raises(KeyError, match="was not requested"):
+            result["rr"]
+
+    def test_the_tidy_frame_has_one_row_per_estimand(self, paired_fits) -> None:
+        result, _ = paired_fits
+        frame = nw.from_native(result.to_frame(), eager_only=True)
+        assert len(frame) == len(ESTIMANDS)
+        assert frame["estimand"].to_list() == list(ESTIMANDS)
+        assert {"psi", "std_err", "ci_lower", "ci_upper", "p_value"} <= set(frame.columns)
+
+    def test_the_influence_frame_has_one_column_per_estimand(self, paired_fits) -> None:
+        result, _ = paired_fits
+        frame = nw.from_native(result.influence_frame(), eager_only=True)
+        assert set(frame.columns) == set(ESTIMANDS)
+        assert len(frame) == result.n
+
+    def test_the_summary_reports_the_configuration_actually_used(self, paired_fits) -> None:
+        result, _ = paired_fits
+        text = result.summary()
+        assert "Targeted maximum likelihood estimation" in text
+        assert "cross-fitted over 5 folds" in text
+        assert "propensity truncated to" in text
+        # The resolved outcome bounds are reported, not just the request.
+        assert "outcome scaled from" in text
+        for estimand in ESTIMANDS:
+            assert estimand in text
+
+    def test_the_config_records_resolved_values(self, paired_fits) -> None:
+        result, _ = paired_fits
+        config = result.config
+        assert config.family == "gaussian"
+        assert config.estimands == ESTIMANDS
+        assert config.n_folds == 5
+        assert 0.0 < config.g_bounds[0] < 0.5
+        assert config.q_bounds is not None
+
+    def test_the_score_property_is_the_mean_influence_curve(self, paired_fits) -> None:
+        result, _ = paired_fits
+        for estimand in ESTIMANDS:
+            estimate = result[estimand]
+            assert estimate.score == pytest.approx(float(estimate.influence_curve.mean()))
+
+    def test_diagnostics_are_cached_across_calls(self, paired_fits) -> None:
+        result, _ = paired_fits
+        assert result.sensitivity is result.sensitivity
+        assert result.validation is result.validation
+
+    def test_estimates_expose_a_dict_form(self, paired_fits) -> None:
+        result, _ = paired_fits
+        row = result["ate"].to_dict()
+        assert row["estimand"] == "ate"
+        assert row["scale"] == "difference"
+
+    def test_a_ratio_estimate_reports_its_log_scale(self) -> None:
+        frame, _ = make_binary_outcome(n=900, seed=94)
+        result = fast_tmle(estimands=("rr", "or")).fit(frame, outcome="Y", treatment="A")
+        for name in ("rr", "or"):
+            estimate = result[name]
+            assert estimate.scale == "ratio"
+            assert estimate.log_psi is not None
+            assert estimate.psi == pytest.approx(np.exp(estimate.log_psi))
+            assert "log_psi" in estimate.to_dict()
+
+    def test_alpha_sig_widens_the_reported_interval(self) -> None:
+        frame, _ = make_linear_ate(n=700, seed=95)
+        narrow = fast_tmle(estimands=("ate",), alpha_sig=0.05).fit(
+            frame, outcome="Y", treatment="A"
+        )
+        wide = fast_tmle(estimands=("ate",), alpha_sig=0.01).fit(frame, outcome="Y", treatment="A")
+        assert (wide["ate"].ci[1] - wide["ate"].ci[0]) > (narrow["ate"].ci[1] - narrow["ate"].ci[0])
+        assert "99% CI" in wide.summary()
+
+    def test_causal_data_can_be_passed_directly(self) -> None:
+        from cleverly import CausalData
+
+        frame, truth = make_linear_ate(n=800, seed=96)
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ate",)).fit(data)
+        low, high = result["ate"].ci
+        assert low <= truth["ate"] <= high
+
+    def test_the_nuisance_fits_are_retained_for_reuse(self, paired_fits) -> None:
+        result, _ = paired_fits
+        nuisance = result.nuisance
+        assert nuisance.propensity.shape == (result.n,)
+        assert nuisance.outcome.observed.shape == (result.n,)
+        # The raw, untruncated propensity is what makes the truncation curve cheap.
+        assert nuisance.propensity.min() < result.config.g_bounds[1]
+        bounded = nuisance.bounded_propensity((0.2, 0.8))
+        assert bounded.min() >= 0.2
+        assert bounded.max() <= 0.8
+
+
+class TestPackageSurface:
+    def test_the_top_level_namespace_is_importable(self) -> None:
+        import cleverly
+
+        for name in cleverly.__all__:
+            assert hasattr(cleverly, name), name
+
+    def test_the_version_is_exposed(self) -> None:
+        import cleverly
+
+        assert cleverly.__version__.count(".") >= 2
+
+    def test_submodules_export_what_they_advertise(self) -> None:
+        import importlib
+
+        for module_name in (
+            "cleverly.data",
+            "cleverly.datasets",
+            "cleverly.estimators",
+            "cleverly.fluctuation",
+            "cleverly.inference",
+            "cleverly.learners",
+            "cleverly.sensitivity",
+            "cleverly.utils",
+            "cleverly.validation",
+        ):
+            module = importlib.import_module(module_name)
+            for name in module.__all__:
+                assert hasattr(module, name), f"{module_name}.{name}"
+
+    def test_the_readme_quickstart_runs(self) -> None:
+        """The example in the README, executed as written."""
+        from cleverly.datasets import make_nonlinear_ate
+
+        frame, truth = make_nonlinear_ate(n=800, seed=0, backend="polars")
+        est = TMLE(
+            outcome_learner="glm",
+            treatment_learner="glm",
+            n_folds=4,
+            estimands=("ate", "att", "atc", "ey1", "ey0"),
+            random_state=0,
+        )
+        res = est.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"])
+        assert isinstance(res.summary(), str)
+        assert isinstance(res.to_frame(), pl.DataFrame)
+        assert isinstance(res.estimates["ate"].psi, float)
+        assert len(res.estimates["ate"].ci) == 2
+        assert res.estimates["ate"].influence_curve.shape == (800,)
+        assert "ate" in truth

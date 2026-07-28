@@ -1,0 +1,160 @@
+# cleverly
+
+Targeted maximum likelihood estimation (TMLE) for Python — with sensitivity analysis and
+validation diagnostics treated as first-class parts of the estimator, not afterthoughts.
+
+`cleverly` is a Python counterpart to the R targeted-learning ecosystem (`tmle`, `tlverse`/`tmle3`).
+It takes **pandas or polars** dataframes interchangeably (via [narwhals](https://narwhals-dev.github.io/narwhals/)),
+returns results in whichever backend you handed it, and every estimator ships with:
+
+- **influence-curve based inference**, plus cluster-robust variance, targeted bootstrap, and
+  simultaneous (max-t) confidence intervals across estimands;
+- **sensitivity analysis** — positivity/overlap diagnostics, truncation curves,
+  omitted-variable-bias bounds with robustness values, E-values, and MNAR tilt analysis;
+- **validation** — nuisance-model calibration and cross-validated risk, an explicit check that the
+  efficient-influence-function score equation was solved, refutation tests, and a reusable
+  simulation harness that measures bias and confidence-interval coverage.
+
+## Install
+
+```bash
+pip install cleverly              # core: numpy, scipy, scikit-learn, narwhals, joblib
+pip install "cleverly[all]"       # + pandas, polars, lightgbm, matplotlib
+```
+
+## Quickstart
+
+```python
+from cleverly import TMLE
+from cleverly.datasets import make_nonlinear_ate
+
+frame, truth = make_nonlinear_ate(n=2000, seed=0, backend="polars")  # or "pandas"
+
+est = TMLE(estimands=("ate", "att", "atc", "ey1", "ey0"))
+res = est.fit(
+    frame,
+    outcome="Y",
+    treatment="A",
+    covariates=["W1", "W2", "W3", "W4"],
+)
+
+print(res.summary())
+print(f"true ATE = {truth['ate']:.4f}")
+
+res.to_frame()  # tidy results, in the backend you passed in
+res.estimates["ate"].psi  # point estimate
+res.estimates["ate"].ci  # (lower, upper)
+res.estimates["ate"].influence_curve
+```
+
+```
+              psi     std_err      ci_lower    ci_upper     p_value
+ate      1.982031    0.061142      1.862195    2.101867    0.000000
+att      1.994884    0.078210      1.841595    2.148173    0.000000
+...
+```
+
+### Sensitivity
+
+```python
+res.sensitivity.positivity()  # overlap, effective sample size, weight mass
+res.sensitivity.truncation_curve()  # estimate vs propensity-truncation bound
+res.sensitivity.omitted_variable(cf_y=0.03, cf_d=0.03)
+res.sensitivity.robustness_value()  # confounding strength that would null the effect
+res.sensitivity.benchmark(["W1", "W2"])  # calibrate cf_y/cf_d against observed covariates
+res.sensitivity.evalue()  # VanderWeele-Ding E-value (binary outcomes)
+res.sensitivity.missingness_tilt()  # MNAR exponential tilt (needs `delta=`)
+```
+
+### Validation
+
+```python
+res.validation.nuisance()  # CV AUC/Brier/calibration for g, CV R^2/MSE for Q, SL weights
+res.validation.score_check()  # did targeting solve mean(EIF) = 0?
+res.validation.refute()  # placebo treatment, random common cause, subset stability
+```
+
+```python
+from cleverly.validation import CoverageStudy
+
+study = CoverageStudy(dgp=make_nonlinear_ate, estimator=lambda: TMLE(), n_reps=200, n=1000)
+study.run().to_frame()  # bias, mc_se, mean_std_err, coverage, ci_width, type I error
+```
+
+## What is implemented
+
+Classic point-treatment TMLE for a binary treatment, at feature parity with R's `tmle` package
+plus the pieces that matter from `tmle3` and the literature:
+
+| Capability | Notes |
+| --- | --- |
+| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` |
+| Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
+| Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete) |
+| Cross-fitting | out-of-fold nuisance fits; stratified and cluster-respecting folds |
+| CV-TMLE | fold-wise targeting with pooled cross-validated influence curve |
+| Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
+| Fluctuation | logistic or linear; clever covariate or weighted (`target_weights`, R's `target.gwt`) |
+| Missing outcomes | `delta=` with its own nuisance model, entering the clever covariate |
+| Controlled direct effect | `intermediate=` (R's `Z`), with `P(Z=1 | A, W)` estimated |
+| Weights | observation weights for biased sampling / survey designs |
+| Clustering | `id=` for cluster-level influence-curve variance and cluster bootstrap |
+| Bounds | propensity truncation (`g_bounds`), outcome bounds (`q_bounds`), `alpha` shrinkage |
+| Screening | pre-screening of covariates for the treatment model (`prescreenW.g`, `min_retain`) |
+| Inference | IC-based, cluster-robust, targeted bootstrap, multiplier bootstrap, delta method |
+
+## Roadmap
+
+The base classes (`estimators/base.py`, `inference/`, `learners/`, `fluctuation/`) are shared
+infrastructure; the following variants plug into them:
+
+- collaborative TMLE (C-TMLE) with data-adaptive covariate selection for `g`
+- marginal structural model TMLE (`tmleMSM`) and multi-valued / categorical treatments
+- longitudinal TMLE (`ltmle`) for time-varying treatments and censoring
+- survival TMLE (`survtmle`) and competing risks
+- stochastic-intervention / shift TMLE (`txshift`, `tmle3shift`)
+- doubly-robust TMLE with nonparametric inference (`drtmle`)
+
+### On native acceleration
+
+A Rust extension for the numerical kernels was planned. `benchmarks/bench_tmle.py` says it
+is not worth building: **the targeting step is 0.36% of a full fit**, and the multiplier
+bootstrap costs 60 ms at n=5000 with 500 draws. Nuisance estimation dominates, and that
+already runs in compiled code (scikit-learn, LightGBM). Rewriting a 0.36% slice in Rust
+buys 0.36% at best.
+
+The one place that *did* matter turned out to be thread scheduling rather than arithmetic:
+nuisance fits now run single-threaded by default so that parallelism happens across folds
+and candidates instead of inside each fit (see `cleverly.learners.set_thread_limit`).
+
+The measurement is reproducible — rerun the benchmark before revisiting this.
+
+## Development
+
+```bash
+uv sync --all-extras
+uv run ruff check . && uv run ruff format --check .
+uv run mypy src/cleverly
+uv run pytest -m "not slow" -q     # fast tier
+uv run pytest -m slow -q           # statistical validation tier (nightly in CI)
+uv run python benchmarks/bench_tmle.py
+```
+
+## References
+
+- van der Laan & Rubin (2006), *Targeted Maximum Likelihood Learning*.
+- Gruber & van der Laan (2010), *A targeted maximum likelihood estimator of a causal effect on a
+  bounded continuous outcome*.
+- Gruber & van der Laan (2012), *tmle: An R Package for Targeted Maximum Likelihood Estimation*.
+- Zheng & van der Laan (2011), *Cross-validated targeted minimum-loss-based estimation*.
+- van der Laan & Gruber (2016), *One-step targeted minimum loss-based estimation*.
+- Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2022), *Long story short: omitted variable bias
+  in causal machine learning*.
+- VanderWeele & Ding (2017), *Sensitivity analysis in observational research: introducing the
+  E-value*.
+- Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
+  nonresponse models*.
+
+## License
+
+MIT

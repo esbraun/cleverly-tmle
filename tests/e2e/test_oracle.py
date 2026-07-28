@@ -1,0 +1,130 @@
+r"""End-to-end behaviour with the true nuisance functions plugged in.
+
+Handing the estimator the data-generating ``g`` and ``Qbar`` removes
+nuisance-estimation error entirely, which isolates the estimator itself.  Three
+things must then hold, and each would break for a different reason:
+
+1. **the score equation is solved exactly** -- if it is not, the targeting step is
+   broken;
+2. **the estimate matches an independently written AIPW estimator** -- if it does not,
+   the plug-in step or the clever covariate is wrong;
+3. **the estimate lands within sampling error of the truth** -- if it does not, the
+   estimand is misdefined.
+
+A binary outcome is used throughout so the outcome scaler is the identity and the true
+conditional mean can be supplied directly on the scale the fluctuation works on.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from cleverly import TMLE
+from cleverly.datasets import binary_outcome_dgp
+from tests.conftest import OracleOutcome, OracleTreatment, aipw_ate
+
+
+@pytest.fixture(scope="module")
+def oracle_fit() -> tuple[object, dict[str, float], object]:
+    dgp = binary_outcome_dgp()
+    frame, truth = dgp.sample(4000, seed=5)
+    estimator = TMLE(
+        outcome_learner=OracleOutcome(dgp),
+        treatment_learner=OracleTreatment(dgp),
+        cross_fit=False,
+        estimands="all",
+        random_state=0,
+        simultaneous=False,
+    )
+    result = estimator.fit(frame, outcome="Y", treatment="A")
+    return result, truth, frame
+
+
+class TestOracleNuisances:
+    def test_the_score_equation_is_solved_exactly(self, oracle_fit) -> None:
+        result, _, _ = oracle_fit
+        check = result.validation.score_check()
+        assert check.passed
+        # Not merely "within tolerance" -- the fluctuation is a maximum-likelihood
+        # solution, so the score is at floating-point zero.
+        for row in check.rows:
+            assert abs(row.score) < 1e-12
+
+    def test_the_fluctuation_is_small_when_the_initial_fit_is_correct(self, oracle_fit) -> None:
+        result, _, _ = oracle_fit
+        # With the truth as the starting point, epsilon is pure sampling noise.
+        for fluctuation in result.fluctuations.values():
+            assert np.max(np.abs(fluctuation.epsilon)) < 0.15
+
+    def test_agrees_with_an_independent_aipw_implementation(self, oracle_fit) -> None:
+        result, _, _ = oracle_fit
+        dgp = binary_outcome_dgp()
+        data = result.data
+        w = data.covariates
+        reference = aipw_ate(
+            data.outcome,
+            data.treatment,
+            np.clip(dgp.propensity(w), 1e-9, 1 - 1e-9),
+            dgp.outcome_mean(w, 1.0, None),
+            dgp.outcome_mean(w, 0.0, None),
+        )
+        # Both solve the same efficient score equation with the same inputs, so they
+        # differ only by the second-order gap between a substitution estimator and a
+        # one-step correction.
+        assert result.psi("ate") == pytest.approx(reference, abs=2e-3)
+
+    @pytest.mark.parametrize("estimand", ["ate", "att", "atc", "ey1", "ey0"])
+    def test_recovers_the_truth_within_sampling_error(self, oracle_fit, estimand: str) -> None:
+        result, truth, _ = oracle_fit
+        estimate = result[estimand]
+        deviation = abs(estimate.psi - truth[estimand])
+        assert deviation < 4.0 * estimate.std_error, (
+            f"{estimand}: {estimate.psi:.4f} vs truth {truth[estimand]:.4f}, "
+            f"se {estimate.std_error:.4f}"
+        )
+
+    @pytest.mark.parametrize("estimand", ["rr", "or"])
+    def test_recovers_the_ratio_estimands(self, oracle_fit, estimand: str) -> None:
+        result, truth, _ = oracle_fit
+        low, high = result[estimand].ci
+        assert low <= truth[estimand] <= high
+
+    def test_the_intervals_cover_the_truth(self, oracle_fit) -> None:
+        result, truth, _ = oracle_fit
+        covered = sum(
+            result[name].ci[0] <= truth[name] <= result[name].ci[1]
+            for name in ("ate", "att", "atc", "ey1", "ey0", "rr", "or")
+        )
+        # A single fit, so this is not a coverage study; but with oracle nuisances at
+        # n=4000 a majority missing would signal a systematic problem.
+        assert covered >= 6
+
+
+class TestEstimandIdentities:
+    def test_the_ate_is_exactly_the_difference_of_the_means(self, oracle_fit) -> None:
+        result, _, _ = oracle_fit
+        # EY1, EY0 and ATE come from the same two-column fluctuation, so this is exact.
+        assert result.psi("ate") == pytest.approx(result.psi("ey1") - result.psi("ey0"), abs=1e-12)
+        assert np.allclose(
+            result["ate"].influence_curve,
+            result["ey1"].influence_curve - result["ey0"].influence_curve,
+        )
+
+    def test_the_risk_ratio_is_the_ratio_of_the_means(self, oracle_fit) -> None:
+        result, _, _ = oracle_fit
+        assert result.psi("rr") == pytest.approx(result.psi("ey1") / result.psi("ey0"), abs=1e-12)
+
+    def test_the_odds_ratio_is_the_ratio_of_the_odds(self, oracle_fit) -> None:
+        result, _, _ = oracle_fit
+        p1, p0 = result.psi("ey1"), result.psi("ey0")
+        assert result.psi("or") == pytest.approx((p1 / (1 - p1)) / (p0 / (1 - p0)), abs=1e-12)
+
+    def test_the_ate_decomposes_over_the_arms(self, oracle_fit) -> None:
+        result, _, _ = oracle_fit
+        share = result.data.treated_fraction
+        combined = share * result.psi("att") + (1.0 - share) * result.psi("atc")
+        # This identity is exact for the estimands but only approximate for these
+        # estimates: the ATT and ATC get their own fluctuations, each solving its own
+        # score equation, so the three targeted fits differ slightly.
+        assert combined == pytest.approx(result.psi("ate"), abs=5.0 * result["ate"].std_error)

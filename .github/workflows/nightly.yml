@@ -1,0 +1,19 @@
+name: nightly
+
+on:
+  schedule:
+    # 07:00 UTC daily - the statistical validation tier (coverage, consistency,
+    # type I error) is too slow for per-PR CI.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  slow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv pip install --system -e ".[dev]"
+      - run: pytest -m slow -q -n auto --durations=20
