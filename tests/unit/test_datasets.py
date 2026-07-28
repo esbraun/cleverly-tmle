@@ -1,0 +1,175 @@
+"""The synthetic processes and their reference values.
+
+Anything that validates the estimator is only as good as the truth it compares
+against, so the truth itself is tested: the quasi-Monte Carlo integration must be
+deterministic, must agree with a large plain Monte Carlo draw, and must reproduce the
+estimands that are known in closed form.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import polars as pl
+import pytest
+
+from cleverly.datasets import (
+    GENERATORS,
+    available,
+    binary_outcome_dgp,
+    cde_dgp,
+    clustered_dgp,
+    linear_dgp,
+    make_binary_outcome,
+    make_cde,
+    make_clustered,
+    make_linear_ate,
+    make_missing_outcome,
+    make_nonlinear_ate,
+    make_weak_overlap,
+    nonlinear_dgp,
+    weak_overlap_dgp,
+)
+
+
+class TestTruth:
+    def test_a_constant_effect_makes_every_contrast_equal(self) -> None:
+        truth = linear_dgp(effect=1.5).truth()
+        # With a homogeneous effect the ATE, ATT and ATC coincide exactly, so this is a
+        # closed-form check on the integration, not an approximation.
+        assert truth["ate"] == pytest.approx(1.5, abs=1e-4)
+        assert truth["att"] == pytest.approx(1.5, abs=1e-4)
+        assert truth["atc"] == pytest.approx(1.5, abs=1e-4)
+
+    def test_counterfactual_means_are_known_in_closed_form(self) -> None:
+        # E[Y(a)] = 2 + 1.5a + E[linear in W] = 2 + 1.5a, since E[W] = 0.
+        truth = linear_dgp(effect=1.5).truth()
+        assert truth["ey0"] == pytest.approx(2.0, abs=1e-3)
+        assert truth["ey1"] == pytest.approx(3.5, abs=1e-3)
+        assert truth["ate"] == pytest.approx(truth["ey1"] - truth["ey0"], abs=1e-9)
+
+    def test_heterogeneous_effects_separate_the_contrasts(self) -> None:
+        truth = nonlinear_dgp().truth()
+        # Treatment depends on W and the effect depends on W, so the treated and control
+        # subpopulations must have different average effects.
+        assert truth["att"] != pytest.approx(truth["atc"], abs=1e-3)
+        assert min(truth["att"], truth["atc"]) < truth["ate"] < max(truth["att"], truth["atc"])
+
+    def test_quasi_monte_carlo_agrees_with_plain_monte_carlo(self) -> None:
+        dgp = nonlinear_dgp()
+        truth = dgp.truth()
+        rng = np.random.default_rng(0)
+        latent = rng.normal(size=(400_000, dgp.n_latent))
+        reference = dgp.sample_truth(latent)
+        for key in ("ate", "att", "atc", "ey1", "ey0"):
+            assert truth[key] == pytest.approx(reference[key], abs=0.01)
+
+    def test_truth_is_deterministic(self) -> None:
+        assert nonlinear_dgp().truth() == nonlinear_dgp().truth()
+
+    def test_binary_outcome_truth_includes_marginal_ratios(self) -> None:
+        truth = binary_outcome_dgp().truth()
+        assert 0.0 < truth["ey0"] < truth["ey1"] < 1.0
+        assert truth["rr"] == pytest.approx(truth["ey1"] / truth["ey0"])
+        odds_one = truth["ey1"] / (1 - truth["ey1"])
+        odds_zero = truth["ey0"] / (1 - truth["ey0"])
+        assert truth["or"] == pytest.approx(odds_one / odds_zero)
+        # The marginal odds ratio is attenuated relative to the conditional one (0.9 on
+        # the log-odds scale in this process) -- a distinct estimand, not an error.
+        assert truth["or"] < np.exp(0.9)
+
+    def test_controlled_direct_effects_differ_across_the_intermediate(self) -> None:
+        dgp = cde_dgp()
+        # The process has an A-by-Z interaction of 0.6, so the CDE at z=1 exceeds the
+        # CDE at z=0 by exactly that amount.
+        at_zero = dgp.truth(0.0)["ate"]
+        at_one = dgp.truth(1.0)["ate"]
+        assert at_zero == pytest.approx(0.9, abs=1e-6)
+        assert at_one == pytest.approx(1.5, abs=1e-6)
+        assert at_one - at_zero == pytest.approx(0.6, abs=1e-9)
+
+    def test_weak_overlap_pushes_propensities_into_the_tails(self) -> None:
+        frame, _ = make_weak_overlap(n=4000, seed=0, strength=3.0)
+        from cleverly.utils.bounds import expit
+
+        w = frame[["W1", "W2"]].to_numpy()
+        g = expit(3.0 * w[:, 0] + 2.1 * w[:, 1])
+        assert np.mean((g < 0.01) | (g > 0.99)) > 0.2
+
+    def test_a_stronger_overlap_violation_is_worse(self) -> None:
+        mild = weak_overlap_dgp(strength=1.0)
+        severe = weak_overlap_dgp(strength=4.0)
+        rng = np.random.default_rng(0)
+        latent = rng.normal(size=(20_000, 3))
+        assert np.mean(mild.propensity(latent) < 0.05) < np.mean(severe.propensity(latent) < 0.05)
+
+
+class TestSampling:
+    @pytest.mark.parametrize("name", sorted(GENERATORS))
+    def test_every_generator_produces_a_usable_frame(self, name: str) -> None:
+        frame, truth = GENERATORS[name](n=300, seed=0)
+        assert len(frame) == 300
+        assert {"Y", "A"} <= set(frame.columns)
+        assert "ate" in truth
+        assert "sample_ate" in truth
+
+    @pytest.mark.parametrize("name", sorted(GENERATORS))
+    def test_sampling_is_reproducible(self, name: str) -> None:
+        first, _ = GENERATORS[name](n=200, seed=42)
+        second, _ = GENERATORS[name](n=200, seed=42)
+        assert first.equals(second)
+
+    @pytest.mark.parametrize("name", sorted(GENERATORS))
+    def test_different_seeds_give_different_data(self, name: str) -> None:
+        first, _ = GENERATORS[name](n=200, seed=1)
+        second, _ = GENERATORS[name](n=200, seed=2)
+        assert not first.equals(second)
+
+    @pytest.mark.parametrize(
+        "backend,expected", [("pandas", pd.DataFrame), ("polars", pl.DataFrame)]
+    )
+    def test_the_requested_backend_is_produced(self, backend: str, expected: type) -> None:
+        frame, _ = make_linear_ate(n=100, seed=0, backend=backend)
+        assert isinstance(frame, expected)
+
+    def test_the_sample_estimand_is_close_to_the_population_one(self) -> None:
+        _, truth = make_nonlinear_ate(n=20_000, seed=0)
+        assert truth["sample_ate"] == pytest.approx(truth["ate"], abs=0.05)
+
+    def test_missing_outcomes_carry_a_delta_column(self) -> None:
+        frame, _ = make_missing_outcome(n=500, seed=0)
+        assert "Delta" in frame.columns
+        observed = frame["Delta"].to_numpy()
+        assert 0.0 < observed.mean() < 1.0
+        # Y is NaN exactly where Delta is 0.
+        assert np.array_equal(np.isnan(frame["Y"].to_numpy()), observed == 0.0)
+
+    def test_the_intermediate_responds_to_treatment(self) -> None:
+        frame, _ = make_cde(n=4000, seed=0)
+        assert "Z" in frame.columns
+        a = frame["A"].to_numpy()
+        z = frame["Z"].to_numpy()
+        # The process has a +1.1 coefficient on A, so Z must be commoner when treated.
+        assert z[a == 1.0].mean() > z[a == 0.0].mean() + 0.1
+
+    def test_clusters_share_a_latent_variable(self) -> None:
+        frame, _ = make_clustered(n=1000, seed=0, cluster_size=10)
+        assert "cluster" in frame.columns
+        cluster = frame["cluster"].to_numpy()
+        assert len(np.unique(cluster)) == 100
+        # The shared effect is unobserved, so within-cluster outcomes correlate.
+        y = frame["Y"].to_numpy()
+        means = np.array([y[cluster == k].mean() for k in np.unique(cluster)])
+        assert float(np.var(means)) > float(np.var(y)) / 10.0
+
+    def test_binary_outcomes_are_zero_one(self) -> None:
+        frame, _ = make_binary_outcome(n=500, seed=0)
+        assert set(np.unique(frame["Y"].to_numpy())) <= {0.0, 1.0}
+
+    def test_a_tiny_cluster_size_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="cluster_size must be at least 2"):
+            clustered_dgp(cluster_size=1).sample(100, seed=0)
+
+    def test_the_registry_lists_every_generator(self) -> None:
+        assert set(available()) == set(GENERATORS)
+        assert len(available()) >= 7
