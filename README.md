@@ -75,10 +75,17 @@ res.validation.refute()  # placebo treatment, random common cause, subset stabil
 ```
 
 ```python
+from cleverly.datasets import nonlinear_dgp
 from cleverly.validation import CoverageStudy
 
-study = CoverageStudy(dgp=make_nonlinear_ate, estimator=lambda: TMLE(), n_reps=200, n=1000)
-study.run().to_frame()  # bias, mc_se, mean_std_err, coverage, ci_width, type I error
+study = CoverageStudy(
+    dgp=nonlinear_dgp(),
+    estimator=lambda: TMLE(estimands=("ate",)),
+    n=1000,
+    n_replicates=200,
+    seed=0,
+)
+print(study.run().summary())  # bias, sqrt(n) bias, mc se, mean se, coverage, rejection rate
 ```
 
 ## What is implemented
