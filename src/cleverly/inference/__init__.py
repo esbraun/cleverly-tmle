@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .bootstrap import BootstrapResult, bootstrap_indices, run_bootstrap
+from .bootstrap import BootstrapResult, bootstrap_indices, cluster_members, run_bootstrap
 from .cluster import cluster_sums, influence_covariance, influence_variance
 from .delta import (
     delta_method,
@@ -31,6 +31,7 @@ __all__ = [
     "atc_estimate",
     "att_estimate",
     "bootstrap_indices",
+    "cluster_members",
     "cluster_sums",
     "counterfactual_means",
     "delta_method",

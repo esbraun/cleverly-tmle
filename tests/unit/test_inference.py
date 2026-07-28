@@ -30,6 +30,8 @@ from cleverly.fluctuation import (
 from cleverly.inference import (
     ParameterEstimate,
     att_estimate,
+    bootstrap_indices,
+    cluster_members,
     cluster_sums,
     counterfactual_means,
     delta_method,
@@ -44,6 +46,7 @@ from cleverly.inference import (
     simultaneous_bands,
     two_sided_pvalue,
 )
+from cleverly.inference.multiplier import _multipliers
 from cleverly.utils.bounds import OutcomeScaler, expit
 
 
@@ -380,6 +383,34 @@ class TestClusterVariance:
         cluster = np.repeat(np.arange(5), 2)
         assert cluster_sums(ic, cluster).shape == (5, 2)
 
+    @pytest.mark.parametrize("columns", [None, 1, 4])
+    def test_cluster_sums_match_an_unbuffered_scatter_add(self, columns: int | None) -> None:
+        """``np.bincount`` replaced ``np.add.at`` for speed; it must not change a value.
+
+        The reference here is the previous implementation, written out directly, so the
+        check is exact rather than statistical.
+        """
+        rng = np.random.default_rng(11)
+        n = 200
+        codes = rng.integers(0, 13, size=n)
+        ic = rng.normal(size=n if columns is None else (n, columns))
+
+        unique, inverse = np.unique(codes, return_inverse=True)
+        shape = unique.size if ic.ndim == 1 else (unique.size, ic.shape[1])
+        expected = np.zeros(shape, dtype=float)
+        np.add.at(expected, inverse, ic)
+
+        actual = cluster_sums(ic, codes)
+        assert actual.shape == expected.shape
+        np.testing.assert_allclose(actual, expected)
+
+    def test_cluster_sums_accept_non_integer_labels(self) -> None:
+        """Cluster ids arrive as whatever the user's frame held -- often strings."""
+        ic = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        codes = np.array(["b", "a", "b", "c", "a"])
+        # Groups come back in sorted label order: a = 2 + 5, b = 1 + 3, c = 4.
+        np.testing.assert_allclose(cluster_sums(ic, codes), [7.0, 4.0, 4.0])
+
     def test_length_mismatch_is_refused(self) -> None:
         with pytest.raises(ValueError, match="cluster has"):
             cluster_sums(np.zeros(10), np.zeros(5))
@@ -543,6 +574,83 @@ class TestSimultaneousBands:
         )
         assert 1.8 < value < 3.2
 
+    def test_rademacher_multipliers_are_signs(self) -> None:
+        """Generated a bit at a time now, rather than by thresholding a float64 uniform."""
+        draws = _multipliers(np.random.default_rng(0), (64, 37), "rademacher")
+        assert draws.shape == (64, 37)
+        assert set(np.unique(draws)) <= {-1.0, 1.0}
+        # Reproducible from a seed, which the chunked loop relies on.
+        repeat = _multipliers(np.random.default_rng(0), (64, 37), "rademacher")
+        np.testing.assert_array_equal(draws, repeat)
+
+    @pytest.mark.parametrize("kind", ["rademacher", "mammen", "normal"])
+    def test_multipliers_are_mean_zero_and_unit_variance(self, kind: str) -> None:
+        """The bound depends on both moments; a wrong scale would silently mis-size bands."""
+        draws = _multipliers(np.random.default_rng(4), (400, 400), kind)  # type: ignore[arg-type]
+        assert draws.mean() == pytest.approx(0.0, abs=0.01)
+        assert draws.var() == pytest.approx(1.0, abs=0.02)
+
+    def test_gaussian_multipliers_use_their_exact_distribution(self) -> None:
+        """``kind="normal"`` samples the max-t law directly instead of resampling.
+
+        ``xi @ centred`` is a linear map of a Gaussian, so the replicate vector is exactly
+        ``N(0, centred.T @ centred / n^2)``.  Drawing from that must agree with the
+        resampling path to within Monte Carlo error -- checked at a large replicate count
+        so the tolerance reflects that error and not a bias.
+        """
+        rng = np.random.default_rng(7)
+        n = 500
+        base = rng.normal(size=(n, 3))
+        # Correlated columns: the whole point of a simultaneous band is to exploit this.
+        ic = np.column_stack([base[:, 0], 0.8 * base[:, 0] + 0.6 * base[:, 1], base[:, 2]])
+        se = np.array([np.sqrt(influence_variance(ic[:, j])) for j in range(3)])
+
+        kwargs = {"n": n, "n_replicates": 40_000, "random_state": 0}
+        resampled = multiplier_critical_value(ic, se, kind="rademacher", **kwargs)  # type: ignore[arg-type]
+        exact = multiplier_critical_value(ic, se, kind="normal", **kwargs)  # type: ignore[arg-type]
+        assert exact == pytest.approx(resampled, abs=0.02)
+
+    def test_the_exact_gaussian_path_handles_a_singular_covariance(self) -> None:
+        """The default estimand set is rank-deficient, and that must not be an error.
+
+        ``IC_ate == IC_ey1 - IC_ey0`` holds exactly, so ``centred.T @ centred`` is
+        singular whenever those three are requested together -- which is the default.
+        A Cholesky factorisation raises on it; the max-t law is still well defined.
+        """
+        rng = np.random.default_rng(0)
+        n = 400
+        ic_one, ic_zero = rng.normal(size=n), rng.normal(size=n)
+        # Exactly the linear dependence the estimand set carries.
+        ic = np.column_stack([ic_one - ic_zero, ic_one, ic_zero])
+        assert np.linalg.matrix_rank(ic.T @ ic) == 2
+        se = np.array([np.sqrt(influence_variance(ic[:, j])) for j in range(3)])
+
+        kwargs = {"n": n, "n_replicates": 40_000, "random_state": 0}
+        exact = multiplier_critical_value(ic, se, kind="normal", **kwargs)  # type: ignore[arg-type]
+        resampled = multiplier_critical_value(ic, se, kind="rademacher", **kwargs)  # type: ignore[arg-type]
+        assert np.isfinite(exact)
+        assert exact == pytest.approx(resampled, abs=0.02)
+
+    def test_the_exact_gaussian_path_respects_clustering(self) -> None:
+        """The closed form runs on cluster sums, so it must widen the same way."""
+        rng = np.random.default_rng(5)
+        n, size = 600, 20
+        cluster = np.repeat(np.arange(n // size), size)
+        shared = rng.normal(size=n // size)[cluster]
+        ic = rng.normal(size=(n, 3)) + shared[:, None]
+
+        def critical(with_cluster: bool) -> float:
+            codes = cluster if with_cluster else None
+            se = np.array([np.sqrt(influence_variance(ic[:, j], codes)) for j in range(3)])
+            return multiplier_critical_value(
+                ic, se, n=n, cluster=codes, n_replicates=20_000, kind="normal", random_state=0
+            )
+
+        # Both are valid critical values; clustering changes the correlation the band
+        # adapts to, so the two must at least stay in the sane range and differ.
+        for value in (critical(True), critical(False)):
+            assert 1.95 < value < 2.6
+
     def test_an_unknown_multiplier_is_refused(self) -> None:
         ic = np.zeros((10, 2))
         with pytest.raises(ValueError, match="rademacher"):
@@ -577,6 +685,49 @@ class TestSimultaneousBands:
         }
         with pytest.raises(ValueError, match="inconsistent lengths"):
             simultaneous_bands(estimates)
+
+
+class TestBootstrapResampling:
+    """The cluster membership index is now built once and reused across replicates."""
+
+    def test_cluster_members_partition_the_rows(self) -> None:
+        codes = np.array([2, 0, 2, 1, 0, 2])
+        groups = cluster_members(codes)
+        assert len(groups) == 3
+        # Every row appears exactly once, and each group holds a single cluster id.
+        np.testing.assert_array_equal(np.sort(np.concatenate(groups)), np.arange(codes.size))
+        assert all(np.unique(codes[group]).size == 1 for group in groups)
+        # Sorted cluster order, matching np.unique.
+        assert [int(codes[group[0]]) for group in groups] == [0, 1, 2]
+
+    def test_cluster_members_handle_unbalanced_and_non_integer_labels(self) -> None:
+        codes = np.array(["x"] * 7 + ["y"] * 2 + ["z"] * 11)
+        groups = cluster_members(codes)
+        assert [group.size for group in groups] == [7, 2, 11]
+        np.testing.assert_array_equal(np.sort(np.concatenate(groups)), np.arange(20))
+
+    def test_prebuilt_members_do_not_change_the_draw(self) -> None:
+        """``run_bootstrap`` passes a prebuilt index; it must be the same resample."""
+        codes = np.random.default_rng(1).integers(0, 9, size=60)
+        without = bootstrap_indices(60, codes, np.random.default_rng(42))
+        with_prebuilt = bootstrap_indices(
+            60, codes, np.random.default_rng(42), cluster_members(codes)
+        )
+        np.testing.assert_array_equal(without, with_prebuilt)
+
+    def test_a_cluster_resample_draws_whole_clusters(self) -> None:
+        codes = np.repeat(np.arange(6), 5)
+        index = bootstrap_indices(30, codes, np.random.default_rng(0))
+        drawn, counts = np.unique(codes[index], return_counts=True)
+        # Whatever is drawn arrives in complete blocks of 5, and 6 clusters are drawn.
+        assert set(counts.tolist()) <= {5, 10, 15, 20, 25, 30}
+        assert counts.sum() == 30
+        assert drawn.size <= 6
+
+    def test_without_clusters_it_is_an_ordinary_resample(self) -> None:
+        index = bootstrap_indices(50, None, np.random.default_rng(0))
+        assert index.shape == (50,)
+        assert index.min() >= 0 and index.max() < 50
 
 
 class TestUnscaling:
