@@ -29,7 +29,7 @@ from ..data.causal_data import CausalData
 from ..utils.parallel import map_parallel
 from .influence import BootstrapSummary
 
-__all__ = ["BootstrapResult", "bootstrap_indices", "run_bootstrap"]
+__all__ = ["BootstrapResult", "bootstrap_indices", "cluster_members", "run_bootstrap"]
 
 RefitFn = Callable[[CausalData], Mapping[str, float]]
 Resampling = Literal["auto", "iid", "cluster"]
@@ -75,10 +75,24 @@ class BootstrapResult:
         )
 
 
+def cluster_members(cluster: IntArray) -> list[IntArray]:
+    """Row indices belonging to each cluster, in sorted cluster order.
+
+    One stable ``argsort`` and a split, rather than a ``codes == code`` scan per
+    cluster: the latter is ``O(n_clusters * n)``, which dominates a cluster bootstrap
+    once there are more than a handful of clusters.
+    """
+    codes = np.asarray(cluster).reshape(-1)
+    order = np.argsort(codes, kind="stable")
+    _, starts = np.unique(codes[order], return_index=True)
+    return [group.astype(np.int64) for group in np.split(order, starts[1:])]
+
+
 def bootstrap_indices(
     n: int,
     cluster: IntArray | None,
     rng: np.random.Generator,
+    members: list[IntArray] | None = None,
 ) -> IntArray:
     """Row indices for one bootstrap replicate.
 
@@ -86,15 +100,20 @@ def bootstrap_indices(
     ``n_c`` clusters are drawn with replacement and every row of each drawn cluster
     is included, so the replicate has the same dependence structure as the original
     sample (and, for unbalanced clusters, a slightly different row count).
+
+    Parameters
+    ----------
+    members:
+        Precomputed :func:`cluster_members` output.  Building it is ``O(n log n)`` and
+        does not depend on the draw, so :func:`run_bootstrap` builds it once and passes
+        it to every replicate rather than paying for it thousands of times.
     """
     if cluster is None:
         return rng.integers(0, n, size=n, dtype=np.int64)
 
-    codes = np.asarray(cluster).reshape(-1)
-    unique = np.unique(codes)
-    members = [np.flatnonzero(codes == code) for code in unique]
-    drawn = rng.integers(0, unique.size, size=unique.size)
-    return np.concatenate([members[int(k)] for k in drawn]).astype(np.int64)
+    groups = cluster_members(cluster) if members is None else members
+    drawn = rng.integers(0, len(groups), size=len(groups))
+    return np.concatenate([groups[int(k)] for k in drawn]).astype(np.int64)
 
 
 def run_bootstrap(
@@ -125,11 +144,15 @@ def run_bootstrap(
         raise ValueError("resampling='cluster' requires the data to carry cluster ids")
 
     seeds = np.random.SeedSequence(random_state).spawn(n_replicates)
+    # Built once: the membership index is the same for every replicate, and rebuilding
+    # it inside the loop costs O(n_clusters * n) per draw.
+    codes = data.cluster if use_clusters else None
+    members = None if codes is None else cluster_members(codes)
 
     def replicate(seed: np.random.SeedSequence) -> Mapping[str, float] | None:
         rng = np.random.default_rng(seed)
         try:
-            index = bootstrap_indices(data.n, data.cluster if use_clusters else None, rng)
+            index = bootstrap_indices(data.n, codes, rng, members)
             return refit(data.subset(index))
         except Exception:
             return None

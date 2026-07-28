@@ -15,9 +15,21 @@ rewriting it in Rust buys 2% at best, and the honest conclusion is to leave it a
 The kernels most likely to justify native code are the ones that scale in
 ``n_replicates x n``: the multiplier bootstrap and the targeted bootstrap.
 
+What running this actually established (see the README):  every one of those kernels
+turned out to be cheaper to *fix* than to rewrite.  The multiplier bootstrap spent
+over 90% of its time generating multipliers rather than multiplying, and for Gaussian
+multipliers the whole resampling loop has a closed form.  The cluster bootstrap was
+rebuilding its membership index once per replicate.  Those rows are kept below so the
+comparison stays reproducible rather than becoming folklore.
+
+``--library`` defaults to ``default`` because that is what a real fit uses;  ``glm`` is
+much faster but makes nuisance estimation look far cheaper than it is, which inflates
+every other line's share.  Use ``--library glm`` for a quick pass, not for a verdict.
+
 Usage::
 
-    python benchmarks/bench_tmle.py                 # default sweep
+    python benchmarks/bench_tmle.py                       # realistic, a few minutes
+    python benchmarks/bench_tmle.py --library glm         # quick pass
     python benchmarks/bench_tmle.py --sizes 1000 10000 --library fast
 """
 
@@ -36,7 +48,13 @@ from cleverly.datasets import make_nonlinear_ate
 from cleverly.estimators.base import format_table
 from cleverly.fluctuation import mean_submodel, solve_fluctuation, solve_one_step
 from cleverly.fluctuation.iterative import InitialFit
-from cleverly.inference import make_estimate, simultaneous_bands
+from cleverly.inference import (
+    bootstrap_indices,
+    cluster_members,
+    cluster_sums,
+    make_estimate,
+    simultaneous_bands,
+)
 from cleverly.utils.bounds import expit
 
 DEFAULT_SIZES = (1_000, 5_000, 20_000)
@@ -112,7 +130,12 @@ def bench_targeting(sizes: tuple[int, ...]) -> list[Timing]:
 
 
 def bench_multiplier(sizes: tuple[int, ...], n_replicates: int = 1000) -> list[Timing]:
-    """The multiplier bootstrap: the kernel that scales as replicates x n."""
+    """The multiplier bootstrap: the kernel that scales as replicates x n.
+
+    Two rows per size.  ``rademacher`` resamples and therefore pays ``replicates x n``;
+    ``normal`` samples the max-t law from its exact distribution and pays
+    ``n m^2 + replicates m^2`` instead, so its cost barely moves with ``n``.
+    """
     timings: list[Timing] = []
     for n in sizes:
         rng = np.random.default_rng(0)
@@ -120,16 +143,66 @@ def bench_multiplier(sizes: tuple[int, ...], n_replicates: int = 1000) -> list[T
             name: make_estimate(name, 1.0, rng.normal(size=n), n=n)
             for name in ("ate", "att", "atc", "ey1", "ey0", "rr", "or")
         }
+        for kind, note in (
+            ("rademacher", "resampled"),
+            ("normal", "exact, no (B, n) array"),
+        ):
+            timings.append(
+                Timing(
+                    f"multiplier bootstrap ({kind})",
+                    n,
+                    _time(
+                        lambda e=estimates, k=kind: simultaneous_bands(
+                            e, n_replicates=n_replicates, kind=k, random_state=0
+                        )
+                    ),
+                    note=f"{n_replicates} draws x 7 estimands, {note}",
+                )
+            )
+    return timings
+
+
+def bench_clustered(sizes: tuple[int, ...], n_clusters: int = 500) -> list[Timing]:
+    """Cluster-bootstrap resampling and cluster-summed influence curves.
+
+    ``bootstrap_indices`` is called once per replicate, so its cost is multiplied by
+    ``n_bootstrap``; the membership index it needs does not depend on the draw and is
+    built once by ``run_bootstrap``.  The row below is the per-replicate cost with and
+    without that prebuilt index.
+    """
+    timings: list[Timing] = []
+    for n in sizes:
+        rng = np.random.default_rng(0)
+        codes = rng.integers(0, n_clusters, size=n)
+        members = cluster_members(codes)
+        ic = rng.normal(size=(n, 7))
+
         timings.append(
             Timing(
-                "multiplier bootstrap",
+                "bootstrap_indices (rebuilt)",
+                n,
+                _time(lambda c=codes, size=n: bootstrap_indices(size, c, np.random.default_rng(1))),
+                note=f"{n_clusters} clusters, per replicate",
+            )
+        )
+        timings.append(
+            Timing(
+                "bootstrap_indices (prebuilt)",
                 n,
                 _time(
-                    lambda e=estimates: simultaneous_bands(
-                        e, n_replicates=n_replicates, random_state=0
+                    lambda c=codes, m=members, size=n: bootstrap_indices(
+                        size, c, np.random.default_rng(1), m
                     )
                 ),
-                note=f"{n_replicates} draws x 7 estimands",
+                note="what run_bootstrap actually pays",
+            )
+        )
+        timings.append(
+            Timing(
+                "cluster_sums",
+                n,
+                _time(lambda i=ic, c=codes: cluster_sums(i, c)),
+                note="7 estimands",
             )
         )
     return timings
@@ -182,7 +255,11 @@ def bench_end_to_end(sizes: tuple[int, ...], library: str) -> list[Timing]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sizes", type=int, nargs="+", default=list(DEFAULT_SIZES))
-    parser.add_argument("--library", default="glm", help="nuisance learner library preset")
+    parser.add_argument(
+        "--library",
+        default="default",
+        help="nuisance learner library preset; 'glm' is quick but overstates every other share",
+    )
     parser.add_argument("--replicates", type=int, default=1000)
     args = parser.parse_args()
     sizes = tuple(args.sizes)
@@ -190,6 +267,7 @@ def main() -> None:
     sections = [
         ("Numerical kernels (numpy today)", bench_targeting(sizes)),
         ("Resampling kernels", bench_multiplier(sizes, args.replicates)),
+        ("Clustered inference kernels", bench_clustered(sizes)),
         ("End to end", bench_end_to_end(sizes, args.library)),
     ]
 
@@ -206,18 +284,29 @@ def main() -> None:
     print("\nReading the numbers")
     print("=" * 19)
     kernels = sum(t.seconds for t in sections[0][1] if t.label.startswith("targeting (Newton)"))
-    full = sum(t.seconds for t in sections[2][1] if t.label.startswith("full fit"))
+    full = sum(t.seconds for t in sections[-1][1] if t.label.startswith("full fit"))
     if full > 0:
         print(
-            f"The targeting step is {100.0 * kernels / full:.2f}% of a full fit. Nuisance "
-            "estimation dominates, and it already runs in compiled code -- so a native "
-            "extension for the targeting step would buy almost nothing."
+            f"The targeting step is {100.0 * kernels / full:.2f}% of a full fit with "
+            f"library={args.library!r}. Nuisance estimation dominates, and it already runs "
+            "in compiled code -- so a native extension for the targeting step would buy "
+            "almost nothing."
         )
-    print(
-        "The resampling kernels are the ones that scale as replicates x n and are written "
-        "in numpy; they are the candidates worth measuring again before adding a Rust "
-        "extension."
-    )
+    resampled = sum(t.seconds for t in sections[1][1] if t.label.endswith("(rademacher)"))
+    exact = sum(t.seconds for t in sections[1][1] if t.label.endswith("(normal)"))
+    if exact > 0:
+        print(
+            f"Gaussian multipliers are {resampled / exact:.0f}x cheaper than resampled ones "
+            "here, because the max-t law has a closed form -- an algorithmic win no rewrite "
+            "in any language competes with."
+        )
+    rebuilt = sum(t.seconds for t in sections[2][1] if t.label.endswith("(rebuilt)"))
+    prebuilt = sum(t.seconds for t in sections[2][1] if t.label.endswith("(prebuilt)"))
+    if prebuilt > 0:
+        print(
+            f"Prebuilding the cluster membership index is {rebuilt / prebuilt:.0f}x cheaper "
+            "per replicate, which a cluster bootstrap pays n_bootstrap times over."
+        )
 
 
 if __name__ == "__main__":

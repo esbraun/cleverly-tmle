@@ -24,6 +24,58 @@ collapses to 1.96 when only one estimand is requested.
 
 No resampling of the data is involved, so this costs one matrix product per chunk
 of replicates -- cheap enough to run by default.
+
+Gaussian multipliers need no resampling at all
+----------------------------------------------
+
+For ``kind="normal"`` the draws are a linear map of a Gaussian, so
+
+.. math::
+
+    R^*_b = \frac{1}{n} \xi_b^\top C
+    \;\sim\; N\!\left(0, \; \frac{C^\top C}{n^2}\right),
+    \qquad C = \mathrm{IC} - \overline{\mathrm{IC}},
+
+*exactly*.  Sampling that :math:`m`-dimensional normal directly costs
+:math:`O(n m^2 + B m^2)` instead of :math:`O(B n m)` and never allocates a
+``(B, n)`` array -- at n=100,000 the critical value takes about 5 ms instead of
+1.5 s.
+
+Why that speed is not free, and why the default is not ``"normal"``
+------------------------------------------------------------------
+
+The closed form exists *because* the Gaussian max-t law depends on the influence
+curves only through their covariance.  Everything above second moments is discarded,
+so ``kind="normal"`` cannot distinguish a heavy-tailed influence curve from a
+Gaussian one with the same covariance -- it is a plug-in normal approximation, not a
+resampling scheme, which is precisely why it is orders of magnitude cheaper.
+
+The two-point multipliers keep that information: conditional on the data the draws
+have the same covariance but their higher conditional moments depend on the actual
+:math:`C_i`, so influential observations still register.  That matters here, because
+a TMLE influence curve carries :math:`1/g(W)` and a positivity problem gives it
+exactly the leverage the Gaussian approximation smooths away.  Simulated against a
+brute-force max-t distribution, with a clever covariate under weak overlap:
+
+===========  ======  ===============  ================  ==============
+regime       n       truth            ``"normal"``      ``"rademacher"``
+===========  ======  ===============  ================  ==============
+gaussian     2,000   2.3193           +0.013 (95.2%)    +0.014 (95.2%)
+overlap        200   2.1637           +0.139 (96.7%)    -0.019 (94.0%)
+overlap      2,000   2.2539           +0.070 (95.9%)    -0.017 (94.7%)
+===========  ======  ===============  ================  ==============
+
+Under a well-behaved influence curve the three kinds are interchangeable.  Under
+leverage ``"normal"`` is biased conservative -- bands several percent wider than the
+data warrant -- and the bias does not wash out by n = 2,000.
+
+So ``"rademacher"`` is the default: it tracks the truth most closely, and its minimal
+fourth moment (:math:`E\xi^4 = 1`, against 3 for a Gaussian) minimises the
+variability of the bootstrap distribution.  ``"mammen"`` additionally matches
+:math:`E\xi^3 = 1`, the term an Edgeworth expansion wants, and sits between the two.
+Reach for ``"normal"`` when ``n`` is large, the influence curves are well behaved, and
+the resampling cost actually shows up in a profile -- it is an opt-in speed trade,
+not a free one.
 """
 
 from __future__ import annotations
@@ -34,7 +86,7 @@ from typing import Literal
 
 import numpy as np
 
-from .._typing import FloatArray, IntArray
+from .._typing import BoolArray, FloatArray, IntArray
 from .cluster import cluster_sums
 from .influence import ParameterEstimate
 
@@ -65,12 +117,21 @@ class SimultaneousBands:
         return float(stats.norm.ppf(1.0 - self.alpha / 2.0))
 
 
+#: Sign lookup for the two-point multipliers, indexed by a 0/1 draw.
+_SIGNS = np.array([-1.0, 1.0])
+
+
 def _multipliers(
     rng: np.random.Generator, shape: tuple[int, int], kind: MultiplierKind
 ) -> FloatArray:
     """Mean-zero, unit-variance multipliers."""
     if kind == "rademacher":
-        return np.where(rng.random(shape) < 0.5, -1.0, 1.0)
+        # A Rademacher draw carries one bit, so generate bits rather than a float64
+        # uniform per element: packed bytes plus np.unpackbits measures about 2.4x
+        # faster than comparing rng.random(shape) against 0.5.
+        rows, columns = shape
+        packed = rng.integers(0, 256, size=(rows, (columns + 7) // 8), dtype=np.uint8)
+        return _SIGNS[np.unpackbits(packed, axis=1, count=columns)]
     if kind == "normal":
         return rng.standard_normal(shape)
     if kind == "mammen":
@@ -116,16 +177,58 @@ def multiplier_critical_value(
         return float("nan")
 
     rng = np.random.default_rng(random_state)
-    statistics = np.empty(n_replicates, dtype=float)
-    done = 0
-    while done < n_replicates:
-        size = min(_CHUNK, n_replicates - done)
-        xi = _multipliers(rng, (size, centred.shape[0]), kind)
-        draws = (xi @ centred) / n
-        standardised = np.abs(draws[:, usable]) / se[usable]
-        statistics[done : done + size] = standardised.max(axis=1)
-        done += size
+    if kind == "normal":
+        statistics = _normal_statistics(
+            centred, se, usable, n=n, n_replicates=n_replicates, rng=rng
+        )
+    else:
+        statistics = np.empty(n_replicates, dtype=float)
+        done = 0
+        while done < n_replicates:
+            size = min(_CHUNK, n_replicates - done)
+            xi = _multipliers(rng, (size, centred.shape[0]), kind)
+            draws = (xi @ centred) / n
+            standardised = np.abs(draws[:, usable]) / se[usable]
+            statistics[done : done + size] = standardised.max(axis=1)
+            done += size
     return float(np.quantile(statistics, 1.0 - alpha))
+
+
+def _normal_statistics(
+    centred: FloatArray,
+    se: FloatArray,
+    usable: BoolArray,
+    *,
+    n: int,
+    n_replicates: int,
+    rng: np.random.Generator,
+) -> FloatArray:
+    """Max-t draws for Gaussian multipliers, sampled from their exact distribution.
+
+    ``xi @ centred`` is a linear map of a standard normal, so the replicate vector is
+    exactly ``N(0, centred.T @ centred / n^2)``.  Drawing from that ``m``-dimensional
+    normal is the same distribution as resampling, without the ``(n_replicates, n)``
+    multiplier matrix.
+
+    The covariance is formed from ``centred`` directly rather than via
+    :func:`~cleverly.inference.cluster.influence_covariance`, which normalises by the
+    number of clusters where this needs the raw cross-product.
+
+    It is factorised with a symmetric eigendecomposition rather than a Cholesky, because
+    the covariance is routinely *singular*: the estimands are functionally related, and
+    ``IC_ate == IC_ey1 - IC_ey0`` holds exactly, so the default estimand set already
+    produces a rank-deficient matrix.  That is a property of the parameters, not a
+    numerical problem -- the max-t distribution is still perfectly well defined on the
+    lower-dimensional support, and the resampling path handles it without complaint
+    because it never factorises anything.
+    """
+    covariance = (centred.T @ centred) / (float(n) ** 2)
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    # Clip the small negative eigenvalues that rounding puts on a singular PSD matrix.
+    factor = eigenvectors * np.sqrt(np.clip(eigenvalues, 0.0, None))
+    draws = rng.standard_normal((n_replicates, covariance.shape[0])) @ factor.T
+    standardised = np.abs(draws[:, usable]) / se[usable]
+    return np.asarray(standardised.max(axis=1), dtype=float)
 
 
 def simultaneous_bands(

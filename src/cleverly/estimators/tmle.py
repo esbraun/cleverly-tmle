@@ -156,6 +156,11 @@ class TMLE:
         Run a targeted bootstrap with this many replicates (R's ``B``).
     simultaneous, n_multiplier, multiplier_kind:
         Simultaneous confidence bands across estimands via the multiplier bootstrap.
+        ``multiplier_kind="rademacher"`` (default) and ``"mammen"`` resample and so
+        stay accurate when the influence curve has leverage; ``"normal"`` is sampled
+        in closed form from the max-t distribution and is far cheaper, but depends on
+        the influence curves only through their covariance and is biased conservative
+        under weak overlap.  See :mod:`cleverly.inference.multiplier`.
     step_size, max_iter, tol:
         Targeting-step controls.
     random_state, n_jobs:

@@ -43,13 +43,18 @@ def cluster_sums(influence_curve: FloatArray, cluster: IntArray) -> FloatArray:
             f"influence curve has {ic.shape[0]} rows but cluster has {codes.shape[0]} entries"
         )
     unique, inverse = np.unique(codes, return_inverse=True)
+    # np.bincount rather than np.add.at: the latter is unbuffered and measures about
+    # twice as slow here, and this runs on every estimate and every multiplier draw.
+    inverse = inverse.reshape(-1)
+    n_clusters = unique.size
     if ic.ndim == 1:
-        out = np.zeros(unique.size, dtype=float)
-        np.add.at(out, inverse, ic)
-        return out
-    out = np.zeros((unique.size, ic.shape[1]), dtype=float)
-    np.add.at(out, inverse, ic)
-    return out
+        return np.bincount(inverse, weights=ic, minlength=n_clusters).astype(float)
+    return np.column_stack(
+        [
+            np.bincount(inverse, weights=ic[:, column], minlength=n_clusters)
+            for column in range(ic.shape[1])
+        ]
+    ).astype(float)
 
 
 def influence_variance(
