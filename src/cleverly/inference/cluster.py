@@ -102,13 +102,22 @@ def cross_validated_variance(
         \qquad
         \widehat{\mathrm{Var}}(\hat\psi) = \hat\sigma^2_{CV} / n.
 
-    The second moment rather than the centred variance is deliberate: the influence
-    curve has mean zero by construction, and targeting only forces that to hold
-    *pooled*, not fold by fold, so centring within a fold would discard a real
-    contribution.  At equal fold sizes the fold weights cancel and this reduces
-    exactly to ``mean(IC**2) / n`` -- which is why it agrees with
-    :func:`influence_variance` on a well-solved fit, and why the two can be compared
-    as a check rather than trusted separately.
+    The second moment rather than the centred variance is deliberate, and what it costs
+    depends on which influence curve you hand it.  Given the *fold-specific* curves that
+    canonical CV-TMLE produces -- each centred at its own fold's estimate -- the mean
+    within a fold is already exactly zero, so not centring again discards nothing and
+    this is the estimator Zheng & van der Laan define.  Given a *pooled* curve, mean-zero
+    only over the whole sample, centring within a fold would throw away a real
+    contribution, so the uncentred form remains the right choice but the result is an
+    approximation to the same quantity rather than that quantity.
+
+    At equal fold sizes the fold weights cancel and this reduces exactly to
+    ``mean(IC**2) / n`` -- which is why it agrees with :func:`influence_variance` on a
+    well-solved fit, and why the two can be compared as a check rather than trusted
+    separately.
+
+    Folds are weighted equally, at ``1/V``.  The point estimate they go with is averaged
+    the same way, so the two stay consistent without a weighting argument.
 
     Parameters
     ----------

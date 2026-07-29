@@ -105,12 +105,45 @@ model as given, so it does not include the variability the selection itself cont
 and is mildly anti-conservative as a result. Pass `n_bootstrap=` for inference that does
 — each replicate re-runs the search.
 
-### CV-TMLE
+### Cross-fitting and CV-TMLE
+
+Three constructions, and it is worth knowing which one you are running:
+
+| setting | estimator |
+| --- | --- |
+| `cross_fit=True, targeting_scheme="pooled"` (default) | cross-fitted TMLE |
+| `targeting_scheme="fold"` | fold-targeted CV-TMLE |
+| `targeting_scheme="fold", cv_evaluation=True` | canonical CV-TMLE |
+
+Cross-fitting the nuisances is what removes the Donsker condition on the nuisance
+*estimators*. Pooled targeting on top of that adds an empirical-process term of its own,
+because `epsilon` is fit on the rows it fluctuates — controlled, but by a different
+argument: holding the cross-fitted `Qbar` fixed, `{Qbar(epsilon)}` is indexed by one
+bounded scalar and so is Donsker by finite-dimensionality however complex `Qbar` is. The
+two share a first-order limit given cross-fitted nuisances, a converging `epsilon` over a
+bounded set, a bounded clever covariate (the `g_bounds` truncation), and the usual
+`o_P(n^-1/2)` remainder — but they are not the same estimator, and Zheng & van der Laan
+prove their result for the fold-targeted construction specifically.
 
 ```python
 res = TMLE(targeting_scheme="fold").fit(frame, outcome="Y", treatment="A")
-res.cv_targeting.summary()  # per-fold psi and epsilon, cross-validated std errors
+res.cv_targeting.summary()  # both reports side by side, per-fold psi and epsilon
 res.cv_targeting.variance["ate"]
+```
+
+Fold-specific targeting is only the first of canonical CV-TMLE's three parts; the others
+are fold-wise evaluation of the parameter and the cross-validated variance. By default
+this estimator does neither — the fold-targeted predictions are stitched together and the
+pooled plug-in and pooled standard error are reported. For `ate`, `ey1` and `ey0` that is
+the same number, since they are linear in the targeted predictions. For `rr`, `or`, `att`
+and `atc` it is not: a ratio of means is not a mean of ratios, and the pooled conditional
+effects weight by the whole sample's arm share rather than each fold's.
+
+```python
+res = TMLE(targeting_scheme="fold", cv_evaluation=True).fit(frame, outcome="Y", treatment="A")
+res["rr"].psi        # averaged over folds (on the log scale) rather than pooled
+res["rr"].std_error  # the cross-validated standard error
+res.cv_targeting.pooled["rr"], res.cv_targeting.canonical["rr"]  # both, always
 ```
 
 ### Sensitivity
@@ -158,7 +191,7 @@ plus the pieces that matter from `tmle3` and the literature:
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete) |
 | Cross-fitting | out-of-fold nuisance fits; stratified and cluster-respecting folds |
-| CV-TMLE | `targeting_scheme="fold"` — an `epsilon` per validation fold, plus the cross-validated variance and per-fold diagnostics |
+| CV-TMLE | `targeting_scheme="fold"` — an `epsilon` per validation fold, plus per-fold diagnostics; `cv_evaluation=True` adds fold-wise evaluation and the cross-validated variance for the canonical construction |
 | C-TMLE | `CTMLE` — greedy, scalable-ordered and discrete collaborative selection of the covariates entering `g` |
 | Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
 | Fluctuation | logistic or linear; clever covariate or weighted (`target_weights`, R's `target.gwt`) |
