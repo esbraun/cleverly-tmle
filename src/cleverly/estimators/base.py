@@ -32,6 +32,7 @@ __all__ = [
     "ALL_ESTIMANDS",
     "DEFAULT_ESTIMANDS",
     "MEAN_GROUP_ESTIMANDS",
+    "CVTargeting",
     "TMLEConfig",
     "TMLEResult",
     "TMLEResultSet",
@@ -149,6 +150,92 @@ class TMLEConfig:
 
 
 @dataclass(frozen=True)
+class CVTargeting:
+    """Fold-level detail from a cross-validated targeting step (CV-TMLE).
+
+    A CV-TMLE estimate is an average of fold-specific plug-ins, each computed from
+    nuisance fits trained on the other folds and fluctuated by that fold's own
+    ``epsilon``.  The pooled report collapses all of that into one number; this
+    object keeps the pieces, because the spread across folds is the diagnostic that
+    matters.  Fold estimates that disagree far more than their standard errors allow,
+    or an ``epsilon`` that changes sign between folds, mean the fluctuation is being
+    driven by a handful of extreme clever-covariate values rather than by the sample.
+
+    Attributes
+    ----------
+    variance, std_error:
+        The cross-validated variance of Zheng & van der Laan (2011) -- the fold-averaged
+        second moment of the influence curve -- per estimand.  Reported alongside the
+        pooled standard error on the estimates rather than replacing it: the two agree
+        when the folds are balanced and the score equation is solved, so a gap between
+        them is itself informative.
+    fold_estimates:
+        Per-estimand tuple of fold-specific plug-in estimates.
+    fold_epsilon:
+        Per-targeting-group tuple of that fold's fluctuation coefficients.
+    """
+
+    n_folds: int
+    fold_sizes: tuple[int, ...]
+    variance: dict[str, float]
+    fold_estimates: dict[str, tuple[float, ...]]
+    fold_epsilon: dict[str, tuple[tuple[float, ...], ...]]
+
+    @property
+    def std_error(self) -> dict[str, float]:
+        """Cross-validated standard error per estimand."""
+        return {name: float(np.sqrt(value)) for name, value in self.variance.items()}
+
+    def to_frame(self, data: CausalData | None = None) -> Any:
+        """One row per estimand: the CV standard error and the fold-to-fold spread."""
+        names = list(self.variance)
+        errors = self.std_error
+        payload: dict[str, Any] = {
+            "estimand": names,
+            "cv_std_err": [errors[name] for name in names],
+            "fold_mean": [float(np.mean(self.fold_estimates[name])) for name in names],
+            "fold_sd": [
+                float(np.std(self.fold_estimates[name], ddof=1))
+                if len(self.fold_estimates[name]) > 1
+                else float("nan")
+                for name in names
+            ],
+        }
+        if data is None:
+            return payload
+        return data.frame_like(payload)
+
+    def summary(self) -> str:
+        """A printable report of the fold-level targeting."""
+        errors = self.std_error
+        rows = []
+        for name, values in self.fold_estimates.items():
+            spread = f"{np.std(values, ddof=1):.4g}" if len(values) > 1 else "n/a"
+            rows.append(
+                [
+                    name,
+                    f"{np.mean(values):.5g}",
+                    f"{errors[name]:.4g}",
+                    spread,
+                    f"[{min(values):.5g}, {max(values):.5g}]",
+                ]
+            )
+        table = format_table(["estimand", "fold mean", "cv std_err", "fold sd", "fold range"], rows)
+        header = [
+            f"Cross-validated targeting over {self.n_folds} folds "
+            f"(sizes {min(self.fold_sizes)}-{max(self.fold_sizes)})",
+            "",
+        ]
+        epsilon_lines = ["", "fluctuation coefficients by fold:"]
+        for group, per_fold in self.fold_epsilon.items():
+            formatted = ", ".join(
+                "(" + ", ".join(f"{e:.4g}" for e in eps) + ")" for eps in per_fold
+            )
+            epsilon_lines.append(f"  {group}: {formatted}")
+        return "\n".join([*header, table, *epsilon_lines])
+
+
+@dataclass(frozen=True)
 class TMLEResult:
     """The result of a TMLE fit.
 
@@ -200,6 +287,12 @@ class TMLEResult:
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
         return {name: estimate.influence_curve for name, estimate in self.estimates.items()}
+
+    @property
+    def cv_targeting(self) -> CVTargeting | None:
+        """Fold-level detail, when the fit used ``targeting_scheme="fold"``."""
+        value = self.extra.get("cv_tmle")
+        return value if isinstance(value, CVTargeting) else None
 
     # ----------------------------------------------------------- diagnostics
 

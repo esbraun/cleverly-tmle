@@ -19,10 +19,12 @@ from cleverly.datasets import (
     binary_outcome_dgp,
     cde_dgp,
     clustered_dgp,
+    instrument_dgp,
     linear_dgp,
     make_binary_outcome,
     make_cde,
     make_clustered,
+    make_instrument,
     make_linear_ate,
     make_missing_outcome,
     make_nonlinear_ate,
@@ -95,6 +97,45 @@ class TestTruth:
         w = frame[["W1", "W2"]].to_numpy()
         g = expit(3.0 * w[:, 0] + 2.1 * w[:, 1])
         assert np.mean((g < 0.01) | (g > 0.99)) > 0.2
+
+    def test_the_instrument_process_separates_the_three_covariate_roles(self) -> None:
+        # The process is only useful for demonstrating instrument inflation if the
+        # roles really are disjoint, so check the structural functions directly rather
+        # than trusting the docstring.
+        dgp = instrument_dgp()
+        rng = np.random.default_rng(0)
+        latent = rng.normal(size=(2000, 3))
+
+        def vary(column: int, fn) -> bool:
+            moved = latent.copy()
+            moved[:, column] += 1.0
+            return not np.allclose(fn(latent), fn(moved))
+
+        outcome = lambda w: dgp.outcome_mean(w, 1.0, None)  # noqa: E731
+        # W1 confounds: it moves both. W2 is an instrument: treatment only. W3 is a
+        # pure outcome predictor.
+        assert vary(0, dgp.propensity) and vary(0, outcome)
+        assert vary(1, dgp.propensity) and not vary(1, outcome)
+        assert not vary(2, dgp.propensity) and vary(2, outcome)
+
+    def test_the_instrument_effect_is_constant(self) -> None:
+        truth = instrument_dgp().truth()
+        assert truth["ate"] == pytest.approx(1.0, abs=1e-6)
+        assert truth["att"] == pytest.approx(truth["ate"], abs=1e-6)
+        assert truth["atc"] == pytest.approx(truth["ate"], abs=1e-6)
+
+    def test_a_stronger_instrument_squeezes_the_propensity_harder(self) -> None:
+        # The instrument is what causes the positivity strain, so the knob has to bite.
+        rng = np.random.default_rng(1)
+        latent = rng.normal(size=(20_000, 3))
+        mild = instrument_dgp(instrument_strength=0.5).propensity(latent)
+        severe = instrument_dgp(instrument_strength=3.0).propensity(latent)
+        assert np.mean(mild < 0.05) < np.mean(severe < 0.05)
+
+    def test_the_instrument_frame_carries_all_three_covariates(self) -> None:
+        frame, truth = make_instrument(n=300, seed=0)
+        assert {"Y", "A", "W1", "W2", "W3"} <= set(frame.columns)
+        assert truth["ate"] == pytest.approx(1.0, abs=1e-6)
 
     def test_a_stronger_overlap_violation_is_worse(self) -> None:
         mild = weak_overlap_dgp(strength=1.0)

@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from .bootstrap import BootstrapResult, bootstrap_indices, cluster_members, run_bootstrap
-from .cluster import cluster_sums, influence_covariance, influence_variance
+from .cluster import (
+    cluster_sums,
+    cross_validated_variance,
+    influence_covariance,
+    influence_variance,
+)
 from .delta import (
     delta_method,
     log_odds_ratio_influence,
@@ -34,6 +39,7 @@ __all__ = [
     "cluster_members",
     "cluster_sums",
     "counterfactual_means",
+    "cross_validated_variance",
     "delta_method",
     "influence_covariance",
     "influence_variance",

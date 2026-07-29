@@ -20,8 +20,11 @@ from ._version import __version__
 from .data import CausalData
 from .estimators import (
     ALL_ESTIMANDS,
+    CTMLE,
     DEFAULT_ESTIMANDS,
     TMLE,
+    CTMLESelection,
+    CVTargeting,
     TMLEResult,
     TMLEResultSet,
     tmle,
@@ -38,8 +41,11 @@ from .learners import SuperLearner
 
 __all__ = [
     "ALL_ESTIMANDS",
+    "CTMLE",
     "DEFAULT_ESTIMANDS",
     "TMLE",
+    "CTMLESelection",
+    "CVTargeting",
     "CausalData",
     "CleverlyError",
     "ConvergenceWarning",

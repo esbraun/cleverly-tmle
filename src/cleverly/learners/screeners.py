@@ -19,9 +19,43 @@ from sklearn.feature_selection import SelectorMixin
 
 from .._typing import BoolArray, FloatArray
 
-__all__ = ["CorrelationScreener", "screen_by_correlation"]
+__all__ = ["CorrelationScreener", "correlation_strength", "screen_by_correlation"]
 
 DEFAULT_THRESHOLD = 0.1
+
+
+def correlation_strength(
+    x: FloatArray,
+    y: FloatArray,
+    *,
+    sample_weight: FloatArray | None = None,
+) -> FloatArray:
+    """(Weighted) Pearson correlation of each column of ``x`` with ``y``.
+
+    Split out from :func:`screen_by_correlation` because the correlations are useful
+    on their own -- :class:`~cleverly.CTMLE` orders covariates by their association
+    with the outcome, which is a ranking rather than a threshold.
+    """
+    matrix = np.asarray(x, dtype=float)
+    if matrix.ndim == 1:
+        matrix = matrix.reshape(-1, 1)
+    target = np.asarray(y, dtype=float).reshape(-1)
+    n = matrix.shape[0]
+    if target.shape[0] != n:
+        raise ValueError(f"y has length {target.shape[0]}, expected {n}")
+
+    weights = np.ones(n) if sample_weight is None else np.asarray(sample_weight, dtype=float)
+    weights = weights / weights.sum()
+
+    y_centred = target - np.sum(weights * target)
+    y_var = np.sum(weights * y_centred**2)
+    x_centred = matrix - np.sum(weights[:, None] * matrix, axis=0)
+    x_var = np.sum(weights[:, None] * x_centred**2, axis=0)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cov = np.sum(weights[:, None] * x_centred * y_centred[:, None], axis=0)
+        r = np.where((x_var > 0) & (y_var > 0), cov / np.sqrt(x_var * y_var), 0.0)
+    return np.clip(np.nan_to_num(r), -1.0 + 1e-12, 1.0 - 1e-12)
 
 
 def screen_by_correlation(
@@ -55,18 +89,7 @@ def screen_by_correlation(
     if n < 3:
         return np.ones(p, dtype=bool)
 
-    weights = np.ones(n) if sample_weight is None else np.asarray(sample_weight, dtype=float)
-    weights = weights / weights.sum()
-
-    y_centred = target - np.sum(weights * target)
-    y_var = np.sum(weights * y_centred**2)
-    x_centred = matrix - np.sum(weights[:, None] * matrix, axis=0)
-    x_var = np.sum(weights[:, None] * x_centred**2, axis=0)
-
-    with np.errstate(divide="ignore", invalid="ignore"):
-        cov = np.sum(weights[:, None] * x_centred * y_centred[:, None], axis=0)
-        r = np.where((x_var > 0) & (y_var > 0), cov / np.sqrt(x_var * y_var), 0.0)
-    r = np.clip(np.nan_to_num(r), -1.0 + 1e-12, 1.0 - 1e-12)
+    r = correlation_strength(matrix, target, sample_weight=sample_weight)
 
     t_stat = np.abs(r) * np.sqrt((n - 2) / (1.0 - r**2))
     pvalues = 2.0 * stats.t.sf(t_stat, df=n - 2)

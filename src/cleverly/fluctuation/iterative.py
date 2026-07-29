@@ -27,12 +27,12 @@ from typing import Literal
 
 import numpy as np
 
-from .._typing import BoolArray, FloatArray, FluctuationKind
+from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
 from ..exceptions import ConvergenceWarning
 from ..utils.bounds import expit, logit, shrink_probabilities
 from .submodel import Submodel, weighted_form
 
-__all__ = ["Fluctuation", "InitialFit", "solve_fluctuation"]
+__all__ = ["Fluctuation", "FoldFluctuation", "InitialFit", "solve_fluctuation"]
 
 TargetingLabel = Literal["iterative", "one_step", "linear"]
 
@@ -68,6 +68,26 @@ class InitialFit:
 
 
 @dataclass(frozen=True)
+class FoldFluctuation:
+    """One validation fold's contribution to a cross-validated targeting step.
+
+    Recorded so a CV-TMLE fit can be inspected fold by fold.  A fluctuation
+    coefficient that swings wildly across folds is the signature of an unstable
+    clever covariate -- something the pooled ``epsilon`` averages away and hides.
+    """
+
+    index: IntArray
+    epsilon: FloatArray
+    score: FloatArray
+    converged: bool
+    n_iter: int
+
+    @property
+    def n(self) -> int:
+        return int(self.index.shape[0])
+
+
+@dataclass(frozen=True)
 class Fluctuation:
     """The result of a targeting step.
 
@@ -92,6 +112,9 @@ class Fluctuation:
     trace:
         Relative score norm after each outer iteration, for diagnosing a targeting step
         that stalls against the prediction bounds.
+    folds:
+        Per-fold detail, populated only by the cross-validated (``targeting_scheme=
+        "fold"``) targeting step and empty otherwise.
     """
 
     epsilon: FloatArray
@@ -103,6 +126,7 @@ class Fluctuation:
     method: TargetingLabel
     names: tuple[str, ...]
     score_scale: FloatArray | None = None
+    folds: tuple[FoldFluctuation, ...] = ()
 
     @property
     def score_norm(self) -> float:

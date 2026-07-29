@@ -19,15 +19,21 @@ independence across the resulting :math:`n_c` terms:
 With singleton clusters :math:`S_c = \mathrm{IC}_c` and :math:`n_c = n`, so the
 expression collapses to the independent case -- a property the tests assert
 directly.
+
+:func:`cross_validated_variance` is the CV-TMLE counterpart: the same quantity
+averaged over validation folds rather than pooled, which is the variance estimator
+Zheng & van der Laan pair with the cross-validated targeting step.
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterable, Sequence
 
 import numpy as np
 
 from .._typing import FloatArray, IntArray
 
-__all__ = ["cluster_sums", "influence_variance"]
+__all__ = ["cluster_sums", "cross_validated_variance", "influence_variance"]
 
 
 def cluster_sums(influence_curve: FloatArray, cluster: IntArray) -> FloatArray:
@@ -75,6 +81,72 @@ def influence_variance(
     if n_clusters < 2:
         raise ValueError("need at least 2 clusters to estimate a cluster-robust variance")
     return float(n_clusters * np.var(sums, ddof=1) / n**2)
+
+
+def cross_validated_variance(
+    influence_curve: FloatArray,
+    folds: Iterable[IntArray],
+    cluster: IntArray | None = None,
+) -> float:
+    r"""Variance of a CV-TMLE estimator, averaged over validation folds.
+
+    Zheng & van der Laan pair the cross-validated targeting step with a
+    cross-validated variance: each fold contributes the second moment of *its own*
+    influence curve, computed from nuisance fits that never saw those rows, and the
+    folds are then averaged.
+
+    .. math::
+
+        \hat\sigma^2_{CV} = \frac{1}{V} \sum_{v=1}^{V}
+                            \frac{1}{n_v} \sum_{i \in \mathcal V_v} \mathrm{IC}_i^2,
+        \qquad
+        \widehat{\mathrm{Var}}(\hat\psi) = \hat\sigma^2_{CV} / n.
+
+    The second moment rather than the centred variance is deliberate: the influence
+    curve has mean zero by construction, and targeting only forces that to hold
+    *pooled*, not fold by fold, so centring within a fold would discard a real
+    contribution.  At equal fold sizes the fold weights cancel and this reduces
+    exactly to ``mean(IC**2) / n`` -- which is why it agrees with
+    :func:`influence_variance` on a well-solved fit, and why the two can be compared
+    as a check rather than trusted separately.
+
+    Parameters
+    ----------
+    folds:
+        Validation index arrays, one per fold -- ``[test for _, test in folds]`` for a
+        :class:`~cleverly.learners.crossfit.Folds`.  They must partition the sample.
+    """
+    ic = np.asarray(influence_curve, dtype=float).reshape(-1)
+    n = ic.shape[0]
+    if n < 2:
+        raise ValueError("need at least 2 observations to estimate a variance")
+
+    partition: Sequence[IntArray] = [np.asarray(index).reshape(-1) for index in folds]
+    if not partition:
+        raise ValueError("need at least one validation fold")
+    covered = np.concatenate(partition) if len(partition) > 1 else partition[0]
+    if covered.shape[0] != n or np.unique(covered).shape[0] != n:
+        raise ValueError(
+            f"validation folds must partition the {n} observations; "
+            f"got {covered.shape[0]} index/indices covering "
+            f"{np.unique(covered).shape[0]} distinct rows"
+        )
+
+    if cluster is None:
+        moments = [float(np.mean(ic[index] ** 2)) for index in partition if index.size]
+        return float(np.mean(moments) / n)
+
+    codes = np.asarray(cluster).reshape(-1)
+    moments = []
+    for index in partition:
+        if index.size == 0:
+            continue
+        sums = cluster_sums(ic[index], codes[index])
+        moments.append(float(np.mean(sums**2)))
+    n_clusters = int(np.unique(codes).size)
+    if n_clusters < 2:
+        raise ValueError("need at least 2 clusters to estimate a cluster-robust variance")
+    return float(n_clusters * np.mean(moments) / n**2)
 
 
 def influence_covariance(

@@ -47,6 +47,7 @@ from .._typing import (
     FloatArray,
     FluctuationKind,
     GBounds,
+    IntArray,
     Learner,
     TargetingMethod,
     TargetingScheme,
@@ -55,14 +56,16 @@ from ..data.causal_data import CausalData
 from ..exceptions import PositivityWarning
 from ..fluctuation.iterative import (
     Fluctuation,
+    FoldFluctuation,
     InitialFit,
     _relative,
     _score_scale,
     solve_fluctuation,
 )
 from ..fluctuation.one_step import solve_one_step
-from ..fluctuation.submodel import Submodel, TargetGroup, submodel_for
+from ..fluctuation.submodel import Submodel, TargetGroup, restrict, submodel_for
 from ..inference.bootstrap import Resampling, run_bootstrap
+from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     ParameterEstimate,
     atc_estimate,
@@ -81,6 +84,7 @@ from ..utils.frames import is_dataframe
 from ._nuisance import NuisanceEstimates, fit_nuisances
 from .base import (
     MEAN_GROUP_ESTIMANDS,
+    CVTargeting,
     TMLEConfig,
     TMLEResult,
     TMLEResultSet,
@@ -128,9 +132,21 @@ class TMLE:
         ``cvQinit = FALSE`` and is only appropriate for simple parametric nuisance
         models.
     targeting_scheme:
-        ``"pooled"`` fits one fluctuation on the cross-fitted predictions;
-        ``"fold"`` fits a fluctuation per validation fold -- the CV-TMLE of Zheng &
-        van der Laan (2011).  Both solve the pooled score equation exactly.
+        Where the fluctuation is fit, given cross-fitted nuisances.  ``"pooled"``
+        (default) fits one ``epsilon`` on all rows at once; ``"fold"`` fits a separate
+        ``epsilon`` inside each validation fold, which is the targeting step of Zheng
+        & van der Laan's (2011) CV-TMLE.  Both solve the same pooled score equation
+        exactly and both are valid.
+
+        Worth being precise about what CV-TMLE buys, because the two ingredients are
+        not equally important.  The theory -- efficiency without a Donsker condition
+        on the nuisance estimators -- comes from fitting the nuisances *out of fold*,
+        which is ``cross_fit=True`` and is already the default.  Fold-wise targeting
+        on top of that is a second-order refinement, and the statistical validation
+        tier measures the two schemes as equivalent rather than one beating the other.
+        Choose ``"fold"`` when you want the per-fold diagnostics it records on
+        ``result.cv_targeting``.  Ignored when ``cross_fit=False``, where there are no
+        validation folds to target within.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
@@ -360,9 +376,8 @@ class TMLE:
         estimands = resolve_estimands(self.estimands, data.family)
         scaler = self._scaler(data)
         folds = self._folds(data)
-        nuisance = self._fit_nuisances(data, folds, scaler, intermediate_value)
-
         config = self._config(data, estimands, scaler, folds)
+        nuisance, extra = self._nuisances(data, folds, scaler, config, intermediate_value)
         self._warn_on_positivity(nuisance, config)
 
         estimates, fluctuations = self.retarget(
@@ -382,6 +397,7 @@ class TMLE:
             config=config,
             estimator=self,
             intermediate_value=intermediate_value,
+            extra={**extra, **_cv_targeting(data, nuisance, estimates, fluctuations)},
         )
 
         if self.simultaneous and len(estimates) > 1:
@@ -489,6 +505,22 @@ class TMLE:
             min_retain=self.min_retain,
             n_jobs=self.n_jobs,
         )
+
+    def _nuisances(
+        self,
+        data: CausalData,
+        folds: Folds,
+        scaler: OutcomeScaler,
+        config: TMLEConfig,
+        intermediate_value: float | None,
+    ) -> tuple[NuisanceEstimates, dict[str, Any]]:
+        """The nuisance fits to target against, plus any variant-specific diagnostics.
+
+        The extension point for TMLE variants that differ only in *which* nuisance
+        estimate they hand to the targeting step -- :class:`~cleverly.CTMLE` selects a
+        propensity model here and reports the selection path in the extras.
+        """
+        return self._fit_nuisances(data, folds, scaler, intermediate_value), {}
 
     def _config(
         self,
@@ -679,20 +711,29 @@ class TMLE:
     ) -> Fluctuation:
         """CV-TMLE: a separate fluctuation on each validation fold.
 
+        Each fold's ``epsilon`` is fit only against rows whose nuisance predictions
+        came from a model trained on the other folds -- the targeting step of Zheng &
+        van der Laan's (2011) CV-TMLE.  Note that the pooled scheme already enjoys that
+        property row by row whenever ``cross_fit=True``; what changes here is that the
+        fluctuation *coefficient* is estimated within a fold rather than across all of
+        them, which is a second-order difference and is measured as such in the
+        statistical validation tier.
+
         The fold-specific targeted predictions are stitched back into a full-length
         fit.  Because each fold's score is zero on its own rows, the pooled score --
         a sum over folds -- is zero too, so the estimating equation is still solved
-        exactly on the full sample.
+        exactly on the full sample.  The reported ``epsilon`` is the mass-weighted
+        average across folds and is a summary only; the per-fold values are kept in
+        :attr:`~cleverly.fluctuation.Fluctuation.folds`.
         """
         n = data.n
         observed = np.empty(n)
         at_one = np.empty(n)
         at_zero = np.empty(n)
-        epsilons = []
+        fold_records: list[FoldFluctuation] = []
         masses = []
         traces = []
         iterations = 0
-        converged = True
 
         for _, test in nuisance.folds:
             fold_fluctuation = self._solve_rows(
@@ -702,13 +743,7 @@ class TMLE:
                     nuisance.outcome.at_one[test],
                     nuisance.outcome.at_zero[test],
                 ),
-                Submodel(
-                    submodel.observed[test],
-                    submodel.at_one[test],
-                    submodel.at_zero[test],
-                    submodel.names,
-                    submodel.group,
-                ),
+                restrict(submodel, test),
                 data.weights[test],
                 data.observed[test],
                 warn=False,
@@ -716,15 +751,24 @@ class TMLE:
             observed[test] = fold_fluctuation.targeted.observed
             at_one[test] = fold_fluctuation.targeted.at_one
             at_zero[test] = fold_fluctuation.targeted.at_zero
-            epsilons.append(fold_fluctuation.epsilon)
+            fold_records.append(
+                FoldFluctuation(
+                    index=test,
+                    epsilon=fold_fluctuation.epsilon,
+                    score=fold_fluctuation.score,
+                    converged=fold_fluctuation.converged,
+                    n_iter=fold_fluctuation.n_iter,
+                )
+            )
             masses.append(float(data.weights[test].sum()))
             traces.append(fold_fluctuation.trace[-1] if fold_fluctuation.trace else float("nan"))
             iterations += fold_fluctuation.n_iter
-            converged = converged and fold_fluctuation.converged
 
         targeted = InitialFit(observed, at_one, at_zero)
         weights_array = np.asarray(masses)
-        epsilon = np.average(np.vstack(epsilons), axis=0, weights=weights_array)
+        epsilon = np.average(
+            np.vstack([record.epsilon for record in fold_records]), axis=0, weights=weights_array
+        )
         score = _score_of(scaled, targeted, submodel, data.weights, data.observed)
         scale = _score_scale(submodel.observed, data.weights, data.observed)
         return Fluctuation(
@@ -737,6 +781,7 @@ class TMLE:
             method="iterative" if self.targeting == "iterative" else "one_step",
             names=submodel.names,
             score_scale=scale,
+            folds=tuple(fold_records),
         )
 
     def _estimates_for(
@@ -804,11 +849,18 @@ class TMLE:
     def _bootstrap_point_estimates(
         self, data: CausalData, intermediate_value: float | None
     ) -> Mapping[str, float]:
-        """One bootstrap replicate: a full refit, point estimates only."""
+        """One bootstrap replicate: a full refit, point estimates only.
+
+        Goes through :meth:`_nuisances` rather than :meth:`_fit_nuisances` so that a
+        variant which *selects* a nuisance model repeats that selection in every
+        replicate -- otherwise the bootstrap would understate the variability the
+        selection itself contributes.
+        """
         estimands = resolve_estimands(self.estimands, data.family)
         scaler = self._scaler(data)
         folds = self._folds(data)
-        nuisance = self._fit_nuisances(data, folds, scaler, intermediate_value)
+        config = self._config(data, estimands, scaler, folds)
+        nuisance, _ = self._nuisances(data, folds, scaler, config, intermediate_value)
         estimates, _ = self.retarget(
             data,
             nuisance,
@@ -816,6 +868,92 @@ class TMLE:
             intermediate_value=intermediate_value,
         )
         return {name: estimate.psi for name, estimate in estimates.items()}
+
+
+def _cv_targeting(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    estimates: Mapping[str, ParameterEstimate],
+    fluctuations: Mapping[str, Fluctuation],
+) -> dict[str, Any]:
+    """Collect fold-level detail, for a fit that targeted fold by fold.
+
+    Returns an empty dict for a pooled fit, so it can be handed straight to
+    ``TMLEResult.extra``.
+    """
+    if not any(fluctuation.folds for fluctuation in fluctuations.values()):
+        return {}
+
+    indices = [record.index for record in next(iter(fluctuations.values())).folds]
+    fold_estimates: dict[str, list[float]] = {name: [] for name in estimates}
+    for group, fluctuation in fluctuations.items():
+        for record in fluctuation.folds:
+            values = _fold_point_estimates(
+                data, nuisance.scaler, group, fluctuation.targeted, record.index, estimates
+            )
+            for name, value in values.items():
+                fold_estimates[name].append(value)
+
+    variance = {
+        name: cross_validated_variance(estimate.influence_curve, indices, data.cluster)
+        for name, estimate in estimates.items()
+    }
+    return {
+        "cv_tmle": CVTargeting(
+            n_folds=len(indices),
+            fold_sizes=tuple(int(index.size) for index in indices),
+            variance=variance,
+            fold_estimates={name: tuple(values) for name, values in fold_estimates.items()},
+            fold_epsilon={
+                group: tuple(tuple(record.epsilon.tolist()) for record in fluctuation.folds)
+                for group, fluctuation in fluctuations.items()
+            },
+        )
+    }
+
+
+def _fold_point_estimates(
+    data: CausalData,
+    scaler: OutcomeScaler,
+    group: str,
+    targeted: InitialFit,
+    index: IntArray,
+    requested: Mapping[str, ParameterEstimate],
+) -> dict[str, float]:
+    """The plug-in estimates this one validation fold contributes.
+
+    Only the *targeted predictions* are needed: every estimand here is a weighted
+    average of them, so the clever covariate does not enter a second time.
+    """
+    weights = data.weights[index]
+    at_one = targeted.at_one[index]
+    at_zero = targeted.at_zero[index]
+
+    if group != "mean":
+        arm = 1.0 if group == "att" else 0.0
+        indicator = (data.treatment[index] == arm).astype(float)
+        mass = weights * indicator
+        if mass.sum() <= 0.0:
+            return {group: float("nan")}
+        psi = float(np.average(at_one - at_zero, weights=mass))
+        return {group: scaler.unscale_difference(psi)}
+
+    psi_one = float(np.average(at_one, weights=weights))
+    psi_zero = float(np.average(at_zero, weights=weights))
+    values: dict[str, float] = {}
+    if "ey1" in requested:
+        values["ey1"] = scaler.unscale_level(psi_one)
+    if "ey0" in requested:
+        values["ey0"] = scaler.unscale_level(psi_zero)
+    if "ate" in requested:
+        values["ate"] = scaler.unscale_difference(psi_one - psi_zero)
+    if "rr" in requested:
+        values["rr"] = psi_one / psi_zero if psi_zero > 0.0 else float("nan")
+    if "or" in requested:
+        odds_one = psi_one / (1.0 - psi_one) if 0.0 < psi_one < 1.0 else float("nan")
+        odds_zero = psi_zero / (1.0 - psi_zero) if 0.0 < psi_zero < 1.0 else float("nan")
+        values["or"] = odds_one / odds_zero if odds_zero > 0.0 else float("nan")
+    return values
 
 
 def _score_of(
