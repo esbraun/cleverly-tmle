@@ -12,10 +12,28 @@ The procedure:
    predicted by a model that saw it.
 2. **Targeting.** Fluctuate ``Qbar`` along a submodel whose score is the efficient
    influence function of the target parameter, and solve for the fluctuation
-   coefficient.  This is the step that makes the estimator doubly robust: it is
-   consistent if *either* ``g`` or ``Qbar`` is consistent, and efficient if both are.
+   coefficient.  This makes the estimator solve the estimated efficient score
+   equation ``P_n D*(hat P) = 0``.
 3. **Plug in.** Average the targeted predictions to get the estimate, and use the
    influence curve for inference.
+
+Solving that equation is what the guarantees are *built on*, but it does not by itself
+supply them, and it is worth separating the two conditions that get conflated:
+
+* **Double robustness** -- consistency if *either* ``g`` or ``Qbar`` is consistent --
+  comes from the second-order remainder of the von Mises expansion being a *product* of
+  the two nuisance errors, so that either factor being zero kills it.  It needs
+  identification and positivity, and it needs no rate on either nuisance.
+  ``tests/unit/test_remainder.py`` checks the product form exactly.
+* **Asymptotic linearity, valid Wald intervals and efficiency** need more: both
+  nuisances consistent at rates whose *product* is ``o(n^{-1/2})``, the score solved to
+  ``o_P(n^{-1/2})``, the estimated influence curve converging in ``L_2(P_0)``, and
+  control of the empirical-process term (which cross-fitting supplies).  See
+  ``targeting_scheme`` below for the full statement.
+
+The practical asymmetry that follows is worth knowing: in the doubly-robust-but-not-
+efficient case, where one nuisance is inconsistent, the point estimate is still
+consistent but the influence-curve standard error generally is *not*.
 
 Because the targeting step solves an estimating equation rather than optimising a
 prediction loss, the resulting estimate is not shrunk toward the null by
