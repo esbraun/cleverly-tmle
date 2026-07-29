@@ -35,6 +35,7 @@ the EIF itself rather than an estimate of it.
 from __future__ import annotations
 
 import warnings
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -43,7 +44,8 @@ from cleverly import TMLE
 from cleverly.data import CausalData
 from cleverly.exceptions import DataError, WeightingWarning
 from tests import discrete_law as law
-from tests.conftest import OracleOutcome, OracleTreatment
+from tests import discrete_law_mar as mar
+from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 
 ESTIMANDS = ("ey1", "ey0", "ate", "att", "atc", "rr", "or")
 
@@ -448,3 +450,104 @@ class TestSampleSizeDependentSettings:
         ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
         assert not result.data.is_weighted
         assert "unweighted" in result.data.weight_report().summary()
+
+
+class TestWeightsAndMissingOutcomesTogether:
+    r"""The two corrections compose -- checked, not assumed.
+
+    Weighting and missingness both reweight, and it is not obvious from the code that they
+    reweight *compatibly*: the observation weights multiply the influence curve row-wise,
+    while :math:`1/\pi` sits inside the clever covariate, and the missingness model is
+    itself fitted under the weights.  Composing them wrongly would be easy and invisible
+    -- the score equation would still be solved, and the estimate would still look
+    reasonable.
+
+    The claim is that nothing special happens: the estimand is still
+    :math:`\Psi(P_w)`, the identification formula is still applied at the tilted law, and
+    the influence curve is still :math:`(w/E[w])\,D^*_{P_w}`.  What makes that testable is
+    that the tilt moves the missingness mechanism too -- a weighted missingness learner
+    converges to :math:`P_w(\Delta = 1 \mid A, W)`, not to :math:`P_0`'s -- so the oracle
+    handed to the estimator is the tilted law's, and the derivative is taken of
+    :math:`\Psi(P_w)` written out longhand over the observed-data support.
+    """
+
+    #: Weights of ``(w, a, k)``.  ``k`` is the observed-data outcome cell, so a weight can
+    #: depend on ``Y`` only where ``Y`` exists -- which is the only kind of outcome-
+    #: dependent weight a real design could supply.
+    WEIGHT_FUNCTIONS: ClassVar[dict[str, Any]] = {
+        "baseline": lambda w, a, k: 1.0 + 0.6 * w,
+        "arm_and_outcome": lambda w, a, k: 1.0 + 0.5 * a + 0.8 * (k == mar.OBSERVED_ONE),
+    }
+
+    @staticmethod
+    def _fit(label: str):
+        cells = mar.cell_weights(TestWeightsAndMissingOutcomesTogether.WEIGHT_FUNCTIONS[label])
+        tilted = mar.DiscreteLaw(mar.tilt(mar.PROBS, cells))
+        frame = mar.frame().assign(w=mar.row_weights(cells))
+        estimator = TMLE(
+            outcome_learner=OracleOutcome(tilted),
+            treatment_learner=OracleTreatment(tilted),
+            missingness_learner=OracleMissingness(tilted),
+            cross_fit=False,
+            estimands="all",
+            simultaneous=False,
+            random_state=0,
+        )
+        fitted = estimator.fit(
+            frame, outcome="Y", treatment="A", covariates=["W"], delta="Delta", weights="w"
+        )
+        return fitted, cells
+
+    @pytest.fixture(scope="class", params=sorted(WEIGHT_FUNCTIONS))
+    def fit(self, request):
+        return self._fit(request.param)
+
+    def test_an_outcome_dependent_tilt_moves_the_missingness_mechanism(self) -> None:
+        # The premise that makes this more than a restatement of the unweighted case. If
+        # P_w(Delta = 1 | A, W) equalled P_0's, an implementation that fitted the
+        # missingness model unweighted would pass every assertion below.  A weight that
+        # depends on whether -- and on what -- the outcome was recorded is what moves it.
+        cells = mar.cell_weights(self.WEIGHT_FUNCTIONS["arm_and_outcome"])
+        tilted = mar.DiscreteLaw(mar.tilt(mar.PROBS, cells))
+        assert np.max(np.abs(tilted.pi - mar.PI)) > 0.05
+        assert np.max(np.abs(tilted.g - mar.G)) > 1e-3
+        assert np.max(np.abs(tilted.q - mar.Q)) > 1e-3
+
+    def test_a_baseline_tilt_moves_only_the_covariate_distribution(self) -> None:
+        # The other half of the pair, and the reason both are worth running: a weight
+        # that is a function of W alone leaves every conditional -- including the
+        # missingness mechanism -- exactly where it was, and reweights only the marginal
+        # the plug-in averages against.
+        cells = mar.cell_weights(self.WEIGHT_FUNCTIONS["baseline"])
+        tilted = mar.DiscreteLaw(mar.tilt(mar.PROBS, cells))
+        np.testing.assert_allclose(tilted.pi, mar.PI, atol=1e-12)
+        np.testing.assert_allclose(tilted.g, mar.G, atol=1e-12)
+        np.testing.assert_allclose(tilted.q, mar.Q, atol=1e-12)
+
+    def test_targeting_has_nothing_left_to_do(self, fit) -> None:
+        result, _ = fit
+        for fluctuation in result.fluctuations.values():
+            assert np.max(np.abs(fluctuation.epsilon)) == pytest.approx(0.0, abs=1e-12)
+
+    @pytest.mark.parametrize("name", ESTIMANDS)
+    def test_the_point_estimate_is_the_tilted_functional(self, fit, name: str) -> None:
+        result, cells = fit
+        estimate = result.estimates[name]
+        psi = estimate.log_psi if estimate.scale == "ratio" else estimate.psi
+        assert psi == pytest.approx(
+            float(mar.weighted_functional(mar.PROBS, name, cells)), abs=1e-12
+        )
+
+    @pytest.mark.parametrize("name", ESTIMANDS)
+    def test_the_influence_curve_is_the_weighted_eif(self, fit, name: str) -> None:
+        result, cells = fit
+        reported = np.asarray(result.estimates[name].influence_curve)[mar.first_row_of()]
+        np.testing.assert_allclose(reported, mar.weighted_eif(name, cells), atol=1e-11, rtol=0)
+
+    def test_ignoring_the_weights_would_be_caught(self, fit) -> None:
+        # The negative control for the composition: the weighted and unweighted estimands
+        # have to be far enough apart that agreement above is evidence of something.
+        _, cells = fit
+        assert (
+            abs(float(mar.weighted_functional(mar.PROBS, "ate", cells)) - mar.TRUTH["ate"]) > 1e-3
+        )

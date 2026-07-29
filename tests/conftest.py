@@ -86,8 +86,41 @@ class OracleOutcome(BaseEstimator):
         return self._mean(X)
 
 
+class OracleMissingness(BaseEstimator):
+    """A missingness model returning the true ``P(Delta = 1 | A, W)``.
+
+    Its design matrix is ``[A, W]``, not ``W`` -- the mechanism is allowed to depend on
+    treatment, and the estimator predicts it at both arms -- so this follows
+    :class:`OracleOutcome`'s convention of reading the arm out of the first column, not
+    :class:`OracleTreatment`'s.
+    """
+
+    def __init__(self, dgp: Any) -> None:
+        self.dgp = dgp
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleMissingness:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, X: Any) -> Any:
+        design = np.asarray(X, dtype=float)
+        a, w = design[:, 0], design[:, 1:]
+        one = np.asarray(self.dgp.missingness(w, 1.0), dtype=float)
+        zero = np.asarray(self.dgp.missingness(w, 0.0), dtype=float)
+        p = np.clip(np.where(a == 1.0, one, zero), 1e-9, 1.0 - 1e-9)
+        return np.column_stack([1.0 - p, p])
+
+
 def aipw_ate(
-    y: Any, a: Any, propensity: Any, q_one: Any, q_zero: Any, weights: Any = None
+    y: Any,
+    a: Any,
+    propensity: Any,
+    q_one: Any,
+    q_zero: Any,
+    weights: Any = None,
+    *,
+    delta: Any = None,
+    missingness: Any = None,
 ) -> float:
     """The augmented IPW (one-step) ATE, computed independently of the estimator.
 
@@ -95,6 +128,12 @@ def aipw_ate(
     with the same nuisance inputs, TMLE and AIPW solve the identical efficient score
     equation and must agree up to the second-order difference between a substitution
     estimator and a one-step correction.
+
+    ``delta`` and ``missingness`` extend that cross-check to missing outcomes.  Pass the
+    observed-outcome indicator and an ``(n, 2)`` array of ``P(Delta = 1 | A = a, W)``:
+    the indicator multiplies the residual term and the arm's observation probability
+    joins the propensity in its denominator.  ``y`` is then read only where ``delta`` is
+    one, so it may be anything (zero, ``nan``) elsewhere.
     """
     y = np.asarray(y, dtype=float)
     a = np.asarray(a, dtype=float)
@@ -102,7 +141,21 @@ def aipw_ate(
     q1 = np.asarray(q_one, dtype=float)
     q0 = np.asarray(q_zero, dtype=float)
     w = np.ones_like(y) if weights is None else np.asarray(weights, dtype=float)
-    contribution = q1 - q0 + a / g * (y - q1) - (1.0 - a) / (1.0 - g) * (y - q0)
+    if delta is None:
+        d, pi0, pi1 = np.ones_like(y), np.ones_like(y), np.ones_like(y)
+    else:
+        d = np.asarray(delta, dtype=float).reshape(-1)
+        pi = np.ones((y.shape[0], 2)) if missingness is None else np.asarray(missingness, float)
+        pi0, pi1 = pi[:, 0], pi[:, 1]
+    # Read Y only where it exists, so an unobserved NaN cannot propagate through the
+    # multiply-by-zero that the Delta factor is.
+    residual = np.where(d == 1.0, y, 0.0)
+    contribution = (
+        q1
+        - q0
+        + a * d / (g * pi1) * (residual - q1)
+        - (1.0 - a) * d / ((1.0 - g) * pi0) * (residual - q0)
+    )
     return float(np.average(contribution, weights=w))
 
 

@@ -50,6 +50,7 @@ __all__ = [
     "make_instrument",
     "make_linear_ate",
     "make_missing_outcome",
+    "make_missing_outcome_binary",
     "make_nonlinear_ate",
     "make_weak_overlap",
 ]
@@ -441,21 +442,51 @@ def make_instrument(
     return _make(instrument_dgp(instrument_strength), n, seed, backend)
 
 
-def missing_outcome_dgp() -> DGP:
-    """Outcomes missing at random given ``(A, W)``."""
+def missing_outcome_dgp(strength: float = 1.0) -> DGP:
+    """Outcomes missing at random given ``(A, W)``.
+
+    ``strength`` scales how hard the process is for a complete-case analysis, and it is
+    worth being precise about what makes it hard.  Missingness at random given ``(A, W)``
+    does *not* on its own break a complete-case fit: a correctly specified regression of
+    ``Y`` on ``(A, W)`` among the observed rows already identifies the estimand, whatever
+    the mechanism.  What breaks it is missingness plus an outcome model that cannot fit
+    ``Qbar``.  So the two move together here.
+
+    At ``strength = 1`` the outcome mean is linear and a GLM is correctly specified for
+    it, and roughly three quarters of the outcomes are observed -- a process on which a
+    complete-case analysis is consistent, and modelling the mechanism is a matter of
+    efficiency rather than bias.  Above 1 the outcome mean picks up curvature and an
+    ``A``-by-``W1`` interaction that no main-effects model can reach, while the mechanism
+    sharpens on the same covariate: at ``strength = 2`` the first percentile of
+    ``P(Delta = 1 | A, W)`` is about 0.13.  Because the complete cases then carry a
+    shifted ``W1`` distribution, the linear approximation fitted to them is the wrong one
+    to extrapolate over the full marginal -- which is what makes a complete-case analysis
+    biased rather than merely inefficient.  ``strength = 1`` reproduces the original
+    process exactly, so existing truths and seeds are unaffected.
+    """
+    if strength < 1.0:
+        raise ValueError(f"strength must be at least 1.0; got {strength}")
+    extra = strength - 1.0
 
     def propensity(w: FloatArray) -> FloatArray:
         return expit(0.4 * w[:, 0] - 0.3 * w[:, 1])
 
     def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
         del z
-        return 1.0 + 1.2 * a + 0.9 * w[:, 0] + 0.6 * w[:, 1] - 0.4 * w[:, 2]
+        linear = 1.0 + 1.2 * a + 0.9 * w[:, 0] + 0.6 * w[:, 1] - 0.4 * w[:, 2]
+        if extra == 0.0:
+            return linear
+        # Curvature and an interaction: neither is reachable by a main-effects GLM, so
+        # the complete-case half of double robustness stops being available.
+        return linear + extra * (
+            1.1 * np.tanh(1.5 * w[:, 0]) + 0.8 * w[:, 1] ** 2 - 0.9 * a * w[:, 0]
+        )
 
     def missingness(w: FloatArray, a: float) -> FloatArray:
-        return expit(1.2 + 0.6 * a - 0.8 * w[:, 0] + 0.3 * w[:, 2])
+        return expit(1.2 + 0.6 * a - (0.8 + 0.6 * extra) * w[:, 0] + 0.3 * w[:, 2])
 
     return DGP(
-        name="missing_outcome",
+        name="missing_outcome" if extra == 0.0 else f"missing_outcome_x{strength:g}",
         n_latent=3,
         covariate_names=("W1", "W2", "W3"),
         propensity=propensity,
@@ -468,15 +499,60 @@ def make_missing_outcome(
     n: int = 1000,
     *,
     seed: int | np.random.Generator | None = None,
+    strength: float = 1.0,
     backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
     """Missing outcomes, with a missingness mechanism that depends on treatment.
 
-    Because ``P(Delta = 1 | A, W)`` depends on both ``A`` and ``W``, a complete-case
-    analysis is biased; recovering the truth requires estimating the missingness
-    mechanism and putting it in the clever covariate.
+    ``P(Delta = 1 | A, W)`` depends on both ``A`` and ``W``, so the complete cases carry a
+    different covariate distribution from the sample -- which is what the ``1 / pi``
+    factor in the clever covariate corrects for.  Note that this alone does not make a
+    complete-case analysis *biased*: under missingness at random a correctly specified
+    outcome regression identifies the estimand without any missingness model at all.  The
+    mechanism is what supplies the other half of double robustness, for when the outcome
+    model is wrong.  Raise ``strength`` above 1 for a process where it is.
     """
-    return _make(missing_outcome_dgp(), n, seed, backend)
+    return _make(missing_outcome_dgp(strength), n, seed, backend)
+
+
+def missing_outcome_binary_dgp() -> DGP:
+    """A binary outcome *and* missing outcomes, so ``rr`` and ``or`` have a truth.
+
+    The two features are bundled nowhere else: every other process varies one thing at a
+    time.  Combining them is what gives the ratio estimands under ``delta=`` a population
+    value to be checked against, and it puts the outcome scaler on its identity branch so
+    the true conditional mean can be handed straight to an oracle learner.
+    """
+
+    def propensity(w: FloatArray) -> FloatArray:
+        return expit(0.4 * w[:, 0] - 0.3 * w[:, 1] + 0.2 * w[:, 2])
+
+    def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
+        del z
+        return expit(-0.6 + 0.9 * a + 0.7 * w[:, 0] - 0.5 * w[:, 1] + 0.4 * w[:, 2])
+
+    def missingness(w: FloatArray, a: float) -> FloatArray:
+        return expit(1.0 + 0.5 * a - 0.9 * w[:, 0] + 0.4 * w[:, 1])
+
+    return DGP(
+        name="missing_outcome_binary",
+        n_latent=3,
+        covariate_names=("W1", "W2", "W3"),
+        propensity=propensity,
+        outcome_mean=outcome_mean,
+        family="binomial",
+        missingness=missingness,
+    )
+
+
+def make_missing_outcome_binary(
+    n: int = 1000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """A binary outcome with outcomes missing at random given ``(A, W)``."""
+    return _make(missing_outcome_binary_dgp(), n, seed, backend)
 
 
 def cde_dgp() -> DGP:
@@ -695,6 +771,7 @@ GENERATORS: dict[str, Callable[..., tuple[Any, dict[str, float]]]] = {
     "cde": make_cde,
     "clustered": make_clustered,
     "binary_outcome": make_binary_outcome,
+    "missing_outcome_binary": make_missing_outcome_binary,
 }
 
 

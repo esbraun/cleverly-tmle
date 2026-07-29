@@ -55,10 +55,19 @@ class SensitivityAnalysis:
         return positivity_report(self._result)
 
     def truncation_curve(
-        self, bounds: Sequence[float] | None = None, *, estimands: Sequence[str] | None = None
+        self,
+        bounds: Sequence[float] | None = None,
+        *,
+        estimands: Sequence[str] | None = None,
+        mechanism: bool = False,
     ) -> Any:
-        """Estimates across a grid of propensity-truncation bounds."""
-        return truncation_curve(self._result, bounds, estimands=estimands)
+        """Estimates across a grid of truncation bounds.
+
+        Sweeps the propensity bound by default, or -- with ``mechanism=True`` -- the
+        bound on ``P(Delta = 1 | A, W)`` and the intermediate density, which divide the
+        clever covariate for the same reason and deserve the same scrutiny.
+        """
+        return truncation_curve(self._result, bounds, estimands=estimands, mechanism=mechanism)
 
     # ------------------------------------------------------ omitted variables
 

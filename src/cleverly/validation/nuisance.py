@@ -151,6 +151,16 @@ class NuisanceDiagnostics:
                         f"treatment is nearly unpredictable from W (AUC {auc:.3f}); overlap is "
                         "excellent and confounding by these covariates is limited"
                     )
+            if model.name == "missingness" and auc is not None and auc > 0.9:
+                # The same reading as for the propensity, and for the same reason: this
+                # probability divides the clever covariate, so predicting it almost
+                # perfectly means some rows had virtually no chance of being observed and
+                # the estimate is extrapolating to them.
+                notes.append(
+                    f"the missingness model predicts almost perfectly (AUC {auc:.3f}); some "
+                    "units had virtually no chance of a recorded outcome, so 1/P(Delta=1|A,W) "
+                    "gives them extreme leverage -- check res.sensitivity.positivity()"
+                )
             if slope is not None and not 0.7 <= slope <= 1.4:
                 notes.append(
                     f"{model.name} is poorly calibrated (slope {slope:.2f}, ideal 1.0); its "

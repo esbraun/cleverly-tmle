@@ -449,7 +449,25 @@ class CausalData:
         return np.hstack(blocks)
 
     def missingness_design(self) -> FloatArray:
-        """``[A, W]`` -- the conditioning set for ``P(Delta = 1 | A, W)``."""
+        """``[A, W]`` -- the conditioning set for ``P(Delta = 1 | A, W)``.
+
+        Missingness at random is assumed to hold given treatment and baseline
+        covariates: among units with the same ``(A, W)``, whether the outcome was
+        recorded carries no information about what it would have been.
+        :func:`~cleverly.sensitivity.missingness_tilt` makes that a dial rather than a
+        premise.
+
+        Note the intermediate variable is deliberately *not* in this design, and that is
+        a modelling assumption rather than an oversight.  Conditioning on ``Z`` would be
+        right if missingness were a consequence of the intermediate, but then the
+        estimand would need a sequential (longitudinal) factorisation that this
+        point-treatment estimator does not implement.  As it stands, combining
+        ``delta=`` with ``intermediate=`` assumes ``Delta`` is not caused by ``Z`` --
+        equivalently that ``Delta`` is independent of ``Z`` given ``(A, W)``, which
+        holds in particular when the outcome's recording is decided before ``Z`` is
+        realised.  Where that is implausible, the estimand belongs to an ``ltmle``-style
+        longitudinal analysis; see the roadmap in the README.
+        """
         return self.treatment_design()
 
     # -------------------------------------------------------------- reshaping

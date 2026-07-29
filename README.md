@@ -209,6 +209,7 @@ The short version:
 ```python
 res.sensitivity.positivity()  # overlap, effective sample size, weight mass
 res.sensitivity.truncation_curve()  # estimate vs propensity-truncation bound
+res.sensitivity.truncation_curve(mechanism=True)  # ... vs the bound on P(Delta=1 | A, W)
 res.sensitivity.omitted_variable(cf_y=0.03, cf_d=0.03)
 res.sensitivity.robustness_value()  # confounding strength that would null the effect
 res.sensitivity.benchmark(["W1", "W2"])  # calibrate cf_y/cf_d against observed covariates
@@ -231,6 +232,17 @@ about your fit, and is checked in the test suite — against the numerical Gatea
 of the target parameter (`tests/unit/test_influence_gateaux.py`) and against the
 second-order product remainder that double robustness consists of
 (`tests/unit/test_remainder.py`), both exactly, on a law with finite support.
+
+Missing outcomes get the same treatment rather than being taken on trust, because the
+`1/P(Δ=1 | A, W)` factor is the kind of thing that solves its own score equation whether
+or not it is right. `tests/discrete_law_mar.py` carries a finite-support law whose support
+*is* the observed-data support — `(W, A, Δ)` always, `Y` only when `Δ=1` — and the two
+modules above have `_mar` counterparts checking the influence curve against the numerical
+Gateaux derivative at all eighteen points, including the six where nothing was observed and
+the residual term must vanish exactly. What double robustness means there is not what it
+means without missingness, and the remainder module states it: **consistent if `Q̄` is
+right, or if the _product_ `g·π` is right** — a correct propensity buys nothing on its own
+when the missingness model is wrong, and errors in the two mechanisms can cancel exactly.
 
 ```python
 from cleverly.datasets import nonlinear_dgp
@@ -261,8 +273,8 @@ plus the pieces that matter from `tmle3` and the literature:
 | C-TMLE | `CTMLE` — greedy, scalable-ordered and discrete collaborative selection of the covariates entering `g` |
 | Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
 | Fluctuation | logistic or linear; clever covariate or weighted (`target_weights`, R's `target.gwt`) |
-| Missing outcomes | `delta=` with its own nuisance model, entering the clever covariate |
-| Controlled direct effect | `intermediate=` (R's `Z`), with `P(Z=1 | A, W)` estimated |
+| Missing outcomes | `delta=` with its own nuisance model, entering the clever covariate. Assumes MAR given `(A, W)`; the double-robustness condition becomes "`Q̄` right **or** the product `g·π` right" |
+| Controlled direct effect | `intermediate=` (R's `Z`), with `P(Z=1 | A, W)` estimated. Combined with `delta=` it assumes `Δ` is not caused by `Z` — see `CausalData.missingness_design` |
 | Weights | probability/sampling weights, with the tilted-population estimand and its EIF stated and tested; frequency and replicate weights refused |
 | Clustering | `id=` for cluster-level influence-curve variance and cluster bootstrap |
 | Bounds | propensity truncation (`g_bounds`), outcome bounds (`q_bounds`), `alpha` shrinkage |

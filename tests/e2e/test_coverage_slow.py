@@ -33,6 +33,9 @@ error of each quantity, so a pass is evidence rather than a formality.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -42,6 +45,7 @@ from cleverly.datasets import (
     binary_outcome_dgp,
     instrument_dgp,
     linear_dgp,
+    missing_outcome_dgp,
     nonlinear_dgp,
     weak_overlap_dgp,
 )
@@ -56,7 +60,7 @@ REPLICATES = 400
 
 
 def _study(
-    dgp: DGP,
+    dgp: DGP | Callable[..., tuple[Any, dict[str, float]]],
     *,
     n: int,
     reps: int = REPLICATES,
@@ -449,3 +453,146 @@ class TestWeightedInference:
         # in cleverly.data.weighting has to be part of the reported output.
         assert summary.coverage < 0.2, summary
         assert summary.bias > 0.3, summary
+
+
+#: ``fit_kwargs`` for the missing-outcome process.  ``CoverageStudy`` defaults to
+#: ``{"outcome": "Y", "treatment": "A"}``, which would silently drop the indicator and
+#: fail on the ``NaN`` outcomes, so the roles have to be spelled out.
+MISSING_FIT_KWARGS: dict[str, object] = {
+    "outcome": "Y",
+    "treatment": "A",
+    "covariates": ["W1", "W2", "W3"],
+    "delta": "Delta",
+}
+
+#: The same roles minus the indicator, for the complete-case control.
+COMPLETE_CASE_FIT_KWARGS: dict[str, object] = {
+    "outcome": "Y",
+    "treatment": "A",
+    "covariates": ["W1", "W2", "W3"],
+}
+
+
+def _complete_cases(strength: float) -> Callable[..., tuple[Any, dict[str, float]]]:
+    """A sampler that hands the estimator only the rows with a recorded outcome.
+
+    ``CoverageStudy`` accepts any ``(n, seed) -> (frame, truth)`` callable, so the
+    control needs no special support: draw from the same process, drop the unobserved
+    rows, and keep the *population* truth as the reference.  That is the point --
+    the complete-case analysis is being measured against the estimand it claims to
+    estimate, not against the one it actually converges to.
+    """
+    dgp = missing_outcome_dgp(strength)
+
+    def sample(n: int, seed: int | None = None) -> tuple[Any, dict[str, float]]:
+        frame, truth = dgp.sample(n, seed=seed)
+        return frame.dropna(subset=["Y"]), truth
+
+    sample.__name__ = f"complete_case_x{strength:g}"
+    return sample
+
+
+class TestMissingOutcomes:
+    r"""Does the interval cover when a third nuisance sits in the clever covariate?
+
+    The exact modules -- ``tests/unit/test_influence_gateaux_mar.py`` and
+    ``tests/unit/test_remainder_mar.py`` -- settle that the influence curve is the
+    efficient one for the observed-data model and that its remainder is second-order.
+    Neither says the *interval* built from it covers once the nuisances are estimated
+    rather than handed over, which is the only thing a user reading a p-value cares
+    about, and no study in this tier has ever run with ``delta=``.
+
+    Note which process each test uses, because the two say different things.  At
+    ``strength = 1`` the outcome mean is linear, a GLM is correctly specified for it, and
+    missingness at random is enough for a complete-case analysis to be consistent -- so
+    coverage there tests the inference machinery with the estimand already identified
+    twice over.  At ``strength = 2`` the outcome mean is out of reach of the learner and
+    the mechanism is sharp, so the estimate rests on ``1 / (g pi)`` alone; that is where
+    modelling the missingness has to earn its place, and where ignoring it visibly fails.
+    """
+
+    @pytest.mark.parametrize("n", [500, 2000])
+    def test_confidence_intervals_cover_at_the_nominal_rate(self, n: int) -> None:
+        # Measured when written, at 400 replications: coverage 0.9625 at n=500 and
+        # 0.9550 at n=2000, against a Monte Carlo standard error of about 0.010. For
+        # comparison the long-standing no-missingness study on linear_dgp gives 0.9675
+        # and 0.9325 on the same budget, so the delta path is not the noisier one.
+        summary = _study(missing_outcome_dgp(), n=n, fit_kwargs=MISSING_FIT_KWARGS)["ate"]
+        assert 0.93 <= summary.coverage <= 0.97, summary
+        assert abs(summary.coverage - 0.95) < 3.0 * summary.coverage_se, summary
+
+    @pytest.mark.parametrize("estimand", ["ate", "att", "atc", "ey1", "ey0"])
+    def test_every_estimand_covers(self, estimand: str) -> None:
+        # Measured when written: 0.940, 0.950, 0.945, 0.950, 0.950 in the order below.
+        summary = _study(
+            missing_outcome_dgp(),
+            n=1000,
+            estimands=("ate", "att", "atc", "ey1", "ey0"),
+            fit_kwargs=MISSING_FIT_KWARGS,
+        )[estimand]
+        assert 0.92 <= summary.coverage <= 0.98, summary
+
+    def test_the_reported_standard_error_matches_the_actual_variability(self) -> None:
+        # The place a missing-outcome fit would most plausibly go wrong: 1 / pi inflates
+        # the influence curve, and an implementation that left it out of the variance
+        # while keeping it in the point estimate would look fine on a single fit.
+        # Measured when written: 1.002 at n=1000, and 0.98-1.04 across n=500..8000.
+        summary = _study(missing_outcome_dgp(), n=1000, fit_kwargs=MISSING_FIT_KWARGS)["ate"]
+        assert 0.93 <= summary.se_ratio <= 1.07, summary
+
+    def test_root_n_bias_stays_bounded(self) -> None:
+        sizes = (500, 2000, 8000)
+        scaled, noise = [], []
+        for n in sizes:
+            summary = _study(missing_outcome_dgp(), n=n, reps=200, fit_kwargs=MISSING_FIT_KWARGS)[
+                "ate"
+            ]
+            scaled.append(abs(summary.root_n_bias))
+            noise.append(float(np.sqrt(n)) * summary.bias_se)
+        # The bare ratio test the other studies in this module use needs a floor here,
+        # because this process has no bias to detect. Measured at these settings the
+        # scaled bias runs 0.125, 0.019, 0.292 against a Monte Carlo standard error of
+        # 0.156, 0.172, 0.179 -- every one of them inside one standard error of zero. So
+        # `min(scaled)` is a draw from noise, and `scaled[-1] < 2.5 * min(scaled)` would
+        # have failed outright at 0.292 against 0.046. What the claim actually needs is
+        # that sqrt(n) * bias does not *grow* by more than Monte Carlo error explains.
+        assert scaled[-1] < max(2.5 * min(scaled), 3.0 * noise[-1]), dict(
+            zip(sizes, scaled, strict=True)
+        )
+        for n, bias, mc in zip(sizes, scaled, noise, strict=True):
+            assert bias < 3.5 * mc, f"n={n}: scaled bias {bias:.4f} vs Monte Carlo se {mc:.4f}"
+
+    def test_it_covers_when_the_outcome_model_cannot_help(self) -> None:
+        # strength=2: curvature and an A-by-W1 interaction a main-effects GLM cannot
+        # reach, so the estimate rests on the mechanisms.  Coverage is allowed a wider
+        # window than the correctly-specified case -- the remainder is no longer zero,
+        # only second-order -- but it must still be near nominal rather than collapsing.
+        # Measured at 400 replications: coverage 0.9450, bias -0.0117, se_ratio 1.005.
+        summary = _study(missing_outcome_dgp(strength=2.0), n=2000, fit_kwargs=MISSING_FIT_KWARGS)[
+            "ate"
+        ]
+        assert 0.90 <= summary.coverage <= 0.98, summary
+
+    def test_ignoring_the_missingness_is_visibly_worse(self) -> None:
+        """The failing control, without which the tests above prove nothing.
+
+        A complete-case fit on the same process drops the rows with no outcome and never
+        forms ``1 / pi``.  Because the outcome model is misspecified *and* the complete
+        cases carry a shifted ``W1`` distribution, the linear approximation it fits is
+        the wrong one to extrapolate over the full marginal, and the interval misses far
+        more often than one time in twenty.
+
+        Deliberately *not* run at ``strength = 1``: there the complete-case analysis is
+        consistent, and a control that passed for that process would be measuring noise.
+
+        Measured at 400 replications: modelling the missingness gives coverage 0.945 and
+        a bias of -0.012; dropping the incomplete rows gives coverage 0.243 and a bias of
+        +0.237, twenty times larger and in the opposite direction.
+        """
+        modelled = _study(missing_outcome_dgp(strength=2.0), n=2000, fit_kwargs=MISSING_FIT_KWARGS)[
+            "ate"
+        ]
+        ignored = _study(_complete_cases(2.0), n=2000, fit_kwargs=COMPLETE_CASE_FIT_KWARGS)["ate"]
+        assert ignored.coverage < 0.90, ignored
+        assert ignored.coverage < modelled.coverage - 0.05, (modelled, ignored)
+        assert abs(ignored.bias) > 2.0 * abs(modelled.bias), (modelled, ignored)
