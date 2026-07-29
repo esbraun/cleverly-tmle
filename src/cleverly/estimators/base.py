@@ -408,7 +408,17 @@ class TMLEResult:
         if data.cluster is not None:
             facts.append(f"clusters = {data.n_clusters} (cluster-robust variance)")
         if data.is_weighted:
-            facts.append("observation weights supplied")
+            report = data.weight_report()
+            facts.append(
+                f"observation weights ({report.name or 'weights'}, "
+                + ("estimated" if report.estimated else "fixed")
+                + f"): effective n = {report.effective_n:.1f}, "
+                f"design effect = {report.design_effect:.2f}"
+            )
+            facts.append(
+                "estimand: the parameter in the weight-tilted population dP_w = w dP / E[w]; "
+                "see result.data.weight_report()"
+            )
         if self.intermediate_value is not None:
             facts.append(
                 f"controlled direct effect at {data.intermediate_name or 'Z'} = "

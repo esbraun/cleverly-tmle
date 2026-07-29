@@ -8,6 +8,7 @@ __all__ = [
     "DataError",
     "NotFittedError",
     "PositivityWarning",
+    "WeightingWarning",
 ]
 
 
@@ -25,6 +26,15 @@ class NotFittedError(CleverlyError, RuntimeError):
 
 class ConvergenceWarning(UserWarning):
     """The targeting step stopped before reaching the requested tolerance."""
+
+
+class WeightingWarning(UserWarning):
+    """The supplied observation weights may not mean what the estimator assumes.
+
+    Weights are read as *probability* weights: a tilt of the population, under which
+    the sample size is still the number of rows.  Counts of identical units are a
+    different experiment.  See :mod:`cleverly.data.weighting`.
+    """
 
 
 class PositivityWarning(UserWarning):

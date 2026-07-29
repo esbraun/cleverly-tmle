@@ -197,6 +197,32 @@ class TestWeightsAndClusters:
         # Weights are normalised to mean one, so a constant weight is a no-op.
         assert weighted.psi("ate") == pytest.approx(plain.psi("ate"), rel=1e-9)
 
+    def test_sampling_weights_move_the_estimate_to_the_population(self) -> None:
+        """The survey case, on one sample: which parameter does each fit land on?
+
+        Selection depends on ``W1`` and the treatment effect varies in ``W1``, so the
+        population ATE and the ATE among the selected are different numbers -- about 1.0
+        and 1.5.  With ``w = 1 / P(S = 1 | W1)`` the tilted law is the population law, so
+        the weighted fit targets the first and the unweighted fit the second.  This is a
+        bias-direction check on a single fit, not a coverage claim; the coverage claim is
+        in ``tests/e2e/test_coverage_slow.py``, where it can be averaged over replications.
+        """
+        from cleverly.datasets import make_biased_sample
+
+        frame, truth = make_biased_sample(6000, seed=40)
+        columns = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
+        weighted = fast_tmle(estimands=("ate",)).fit(frame, weights="sampling_weight", **columns)
+        unweighted = fast_tmle(estimands=("ate",)).fit(frame, **columns)
+
+        assert truth["ate_selected"] - truth["ate"] > 0.3
+        assert weighted.psi("ate") == pytest.approx(
+            truth["ate"], abs=3.0 * weighted["ate"].std_error
+        )
+        assert unweighted.psi("ate") == pytest.approx(
+            truth["ate_selected"], abs=3.0 * unweighted["ate"].std_error
+        )
+        assert weighted.data.weight_report().effective_n < weighted.n
+
     def test_clustering_inflates_the_standard_error(self) -> None:
         from cleverly.datasets import make_clustered
 

@@ -392,6 +392,8 @@ class TMLE:
         covariates: Sequence[str] | None = None,
         delta: str | None = None,
         weights: str | None = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
         id: str | None = None,
         intermediate: str | None = None,
     ) -> TMLEResult | TMLEResultSet:
@@ -405,6 +407,11 @@ class TMLE:
         outcome, treatment, covariates, delta, weights, id, intermediate:
             Column names, when ``data`` is a dataframe.  ``covariates=None`` uses every
             column not claimed by another role.
+        weights_type, weights_estimated:
+            How to read ``weights``.  Supplying weights changes the estimand to the
+            causal parameter in the weight-tilted population -- see
+            :mod:`cleverly.data.weighting` and
+            :meth:`~cleverly.data.CausalData.from_frame`.
 
         Returns
         -------
@@ -419,6 +426,8 @@ class TMLE:
             covariates=covariates,
             delta=delta,
             weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
             id=id,
             intermediate=intermediate,
         )
@@ -442,9 +451,17 @@ class TMLE:
         weights: str | None,
         id: str | None,
         intermediate: str | None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
     ) -> CausalData:
         """Coerce whatever the caller passed into a validated :class:`CausalData`."""
         if isinstance(data, CausalData):
+            if weights_type != "probability" or weights_estimated:
+                raise ValueError(
+                    "weights_type/weights_estimated cannot be combined with a CausalData "
+                    "input; pass them to CausalData.from_frame or from_arrays, which is "
+                    "where the weight column is read"
+                )
             if any(
                 value is not None
                 for value in (outcome, treatment, covariates, delta, weights, id, intermediate)
@@ -468,6 +485,8 @@ class TMLE:
             covariates=covariates,
             delta=delta,
             weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
             id=id,
             intermediate=intermediate,
             family=self.family,
@@ -1218,6 +1237,8 @@ def tmle(
     Delta: Any = None,
     Z: Any = None,
     obsWeights: Any = None,
+    weights_type: str = "probability",
+    weights_estimated: bool = False,
     id: Any = None,
     covariate_names: Sequence[str] | None = None,
     **kwargs: Any,
@@ -1245,6 +1266,8 @@ def tmle(
         covariate_names=covariate_names,
         delta=Delta,
         weights=obsWeights,
+        weights_type=weights_type,
+        weights_estimated=weights_estimated,
         id=id,
         intermediate=Z,
         family=kwargs.get("family", "auto"),

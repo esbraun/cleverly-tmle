@@ -135,7 +135,13 @@ def check_weights(weights: np.ndarray | None, n: int, name: str = "weights") -> 
 
     Normalising keeps the influence curve, and therefore the variance estimate,
     on the same scale as the unweighted case, so weighted and unweighted fits
-    are directly comparable.
+    are directly comparable.  It also makes the fit invariant to the scale of the
+    supplied weights, which is the right behaviour for the tilt they encode --
+    see :mod:`cleverly.data.weighting` for what that tilt means and for the
+    readings of "weight" this does *not* implement.
+
+    Zero weights are allowed: such a row contributes nothing to the estimate but
+    still counts towards ``n``, which is what the i.i.d.-weights model calls for.
     """
     if weights is None:
         return np.ones(n, dtype=float)

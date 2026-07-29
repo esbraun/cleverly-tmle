@@ -35,6 +35,7 @@ from .exceptions import (
     DataError,
     NotFittedError,
     PositivityWarning,
+    WeightingWarning,
 )
 from .inference import ParameterEstimate
 from .learners import SuperLearner
@@ -56,6 +57,7 @@ __all__ = [
     "SuperLearner",
     "TMLEResult",
     "TMLEResultSet",
+    "WeightingWarning",
     "__version__",
     "tmle",
 ]

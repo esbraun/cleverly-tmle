@@ -13,6 +13,14 @@ estimation is itself a source of uncertainty.
 
 With clusters, whole clusters are resampled -- resampling rows would destroy the
 dependence structure the cluster variance exists to account for.
+
+Observation weights are resampled with their rows and renormalised within each replicate,
+which is what keeps every replicate aimed at the same tilted parameter (see
+:mod:`cleverly.data.weighting`).  What the bootstrap does *not* do is re-derive the
+weights: a replicate inherits the numbers it was given, so if the weights came out of a
+fitted selection or calibration model, these intervals condition on that fit exactly as
+the influence-curve ones do.  Re-deriving the weights inside each replicate would need
+the model that produced them, which the package never sees.
 """
 
 from __future__ import annotations

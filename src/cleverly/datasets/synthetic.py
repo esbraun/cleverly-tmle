@@ -39,10 +39,11 @@ from scipy import stats
 
 from .._typing import Backend, FloatArray
 from ..utils.bounds import expit
-from ..utils.frames import frame_from_dict
+from ..utils.frames import as_frame, column_array, frame_from_dict
 
 __all__ = [
     "DGP",
+    "make_biased_sample",
     "make_binary_outcome",
     "make_cde",
     "make_clustered",
@@ -590,6 +591,98 @@ def make_binary_outcome(
     "bias" that is really a different estimand.
     """
     return _make(binary_outcome_dgp(), n, seed, backend)
+
+
+def biased_sampling_dgp(heterogeneity: float = 1.2) -> DGP:
+    """The population behind :func:`make_biased_sample`.
+
+    The treatment effect varies with ``W1``, which is also what drives selection into
+    the sample.  That combination is the whole point: with a homogeneous effect the
+    selected and full populations share an ATE and weighting could not be seen to do
+    anything, so a test built on such a process would pass with the weights ignored.
+    """
+
+    def propensity(w: FloatArray) -> FloatArray:
+        return expit(0.4 * w[:, 0] - 0.3 * w[:, 1])
+
+    def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
+        del z
+        return 1.0 + w[:, 0] + 0.5 * w[:, 1] + a * (1.0 + heterogeneity * w[:, 0])
+
+    return DGP(
+        name=f"biased_sampling(heterogeneity={heterogeneity})",
+        n_latent=2,
+        covariate_names=("W1", "W2"),
+        propensity=propensity,
+        outcome_mean=outcome_mean,
+    )
+
+
+def sampling_probability(w1: FloatArray) -> FloatArray:
+    """``P(S = 1 | W1)`` for :func:`make_biased_sample`, bounded away from zero.
+
+    Bounded because inverse-probability-of-sampling weights inherit the positivity
+    problem of any inverse-probability estimator: a selection probability near zero
+    produces a weight that a handful of rows carry the whole estimate on.
+    """
+    return np.clip(expit(0.9 * np.asarray(w1, dtype=float) - 0.2), 0.15, 0.9)
+
+
+def make_biased_sample(
+    n_population: int = 4000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    heterogeneity: float = 1.2,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """A sample selected with known, unequal probabilities from a known population.
+
+    Draws ``n_population`` rows, keeps each with probability ``P(S = 1 | W1)``, and
+    returns *only the kept rows* -- so the frame is smaller than ``n_population``, by
+    design.  It carries two extra columns: ``sampling_prob``, the known selection
+    probability, and ``sampling_weight``, its reciprocal.
+
+    This is the survey/selection-bias case with everything known, which makes it the
+    process that can actually test the claim in :mod:`cleverly.data.weighting`: because
+    selection depends only on observed data and ``w = 1 / P(S = 1 | W1)``, the tilted law
+    ``dP_w`` *is* the population law, so a weighted fit estimates the population ATE.  An
+    unweighted fit estimates the ATE among the selected, which is a different number
+    here -- reported as ``truth["ate_selected"]`` -- and that gap is what a test asserts
+    the weighting closes.
+
+    Returns
+    -------
+    ``(frame, truth)``, where ``truth`` holds the population estimands plus
+    ``ate_selected`` (the estimand an unweighted analysis targets), ``n_population`` and
+    ``n_selected``.
+    """
+    rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+    dgp = biased_sampling_dgp(heterogeneity)
+    native, truth = dgp.sample(n_population, seed=rng, backend=backend)
+    population = as_frame(native)
+
+    pi = sampling_probability(column_array(population, "W1"))
+    selected = rng.binomial(1, pi).astype(bool)
+    if int(selected.sum()) < 10:  # pragma: no cover - only reachable for a tiny population
+        raise ValueError(f"only {int(selected.sum())} rows were selected; raise n_population")
+
+    payload: dict[str, Any] = {
+        name: column_array(population, name)[selected] for name in population.columns
+    }
+    payload["sampling_prob"] = pi[selected]
+    payload["sampling_weight"] = 1.0 / pi[selected]
+
+    # The estimand an unweighted analysis of the selected rows targets: the ATE in the
+    # selected population, computed from the same structural equations that generated it.
+    latent = np.column_stack(
+        [np.asarray(payload[name], dtype=float) for name in dgp.covariate_names]
+    )
+    truth["ate_selected"] = float(
+        np.mean(dgp.outcome_mean(latent, 1.0, None) - dgp.outcome_mean(latent, 0.0, None))
+    )
+    truth["n_population"] = float(n_population)
+    truth["n_selected"] = float(selected.sum())
+    return frame_from_dict(payload, like=population), truth
 
 
 #: Every generator, for parametrised tests and the simulation harness.

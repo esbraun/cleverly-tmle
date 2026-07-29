@@ -150,10 +150,47 @@ effects weight by the whole sample's arm share rather than each fold's.
 
 ```python
 res = TMLE(targeting_scheme="fold", cv_evaluation=True).fit(frame, outcome="Y", treatment="A")
-res["rr"].psi        # averaged over folds (on the log scale) rather than pooled
+res["rr"].psi  # averaged over folds (on the log scale) rather than pooled
 res["rr"].std_error  # the cross-validated standard error
 res.cv_targeting.pooled["rr"], res.cv_targeting.canonical["rr"]  # both, always
 ```
+
+### Observation weights, and which population they define
+
+Passing `weights=` changes the *estimand*, not just its weighting. The nuisances are fitted
+by weighted loss, the targeting step solves the weighted score equation, and the plug-in is
+a weighted average — the whole fit runs on the weighted empirical measure. So what comes
+back is the requested causal parameter evaluated in the tilted population
+`dP_w = w dP / E[w]`, and its efficient influence function is `(w / E[w]) * D*(P_w)`, which
+is what the reported standard errors are built from.
+
+```python
+res = TMLE().fit(
+    frame,
+    outcome="Y",
+    treatment="A",
+    weights="sampling_weight",  # 1 / P(selected | observed variables)
+    weights_estimated=False,  # True if they came out of a fitted model
+    id="psu",  # a multi-stage design must declare its PSU
+)
+print(res.data.weight_report().summary())  # effective n, design effect, estimand statement
+```
+
+That statement is derived and its limits set out in
+[`cleverly/data/weighting.py`](src/cleverly/data/weighting.py), and verified numerically
+against a longhand statement of `Psi(P_w)` in `tests/unit/test_weighted_estimand.py` —
+including for weights that depend on the outcome, where the tilt changes `Qbar` itself.
+The short version:
+
+| supplied weights | status |
+| --- | --- |
+| known sampling probabilities, selection depending only on observed data | supported: `dP_w` is the population law |
+| complex survey design (strata, PSUs, FPC) | estimate supported; stratification and FPC are ignored (conservative), clustering is **not** — pass `id=` |
+| outcome-dependent sampling with known fractions (case-control) | supported, if the fractions are genuinely known |
+| estimated selection or non-response weights | intervals condition on `w`; conservative when `w` is an MLE of a correct selection model |
+| calibration, raking, post-stratification, trimming | no general guarantee — bootstrap the weight derivation outside the package |
+| frequency (count) weights | **refused**, with instructions: expand the rows |
+| replicate weights (BRR, jackknife) | **refused**: a set of designs, not one weight vector |
 
 ### Sensitivity
 
@@ -214,7 +251,7 @@ plus the pieces that matter from `tmle3` and the literature:
 | Fluctuation | logistic or linear; clever covariate or weighted (`target_weights`, R's `target.gwt`) |
 | Missing outcomes | `delta=` with its own nuisance model, entering the clever covariate |
 | Controlled direct effect | `intermediate=` (R's `Z`), with `P(Z=1 | A, W)` estimated |
-| Weights | observation weights for biased sampling / survey designs |
+| Weights | probability/sampling weights, with the tilted-population estimand and its EIF stated and tested; frequency and replicate weights refused |
 | Clustering | `id=` for cluster-level influence-curve variance and cluster bootstrap |
 | Bounds | propensity truncation (`g_bounds`), outcome bounds (`q_bounds`), `alpha` shrinkage |
 | Screening | pre-screening of covariates for the treatment model (`prescreenW.g`, `min_retain`) |
