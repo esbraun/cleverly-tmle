@@ -38,6 +38,7 @@ from ..learners.screeners import CorrelationScreener
 from ..learners.super_learner import SuperLearner, SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
+from .direct_effect import check_level
 
 __all__ = ["NuisanceEstimates", "cross_fit_predictions", "fit_nuisances"]
 
@@ -89,10 +90,18 @@ class NuisanceEstimates:
         return bound(self.missingness, lower, 1.0)
 
     def intermediate_density(self, value: float, lower: float) -> FloatArray | None:
-        """``P(Z = z | A = a, W)`` for the targeted ``z``, truncated away from zero."""
+        """``P(Z = z | A = a, W)`` for the targeted ``z``, truncated away from zero.
+
+        Validates ``value`` because the branch below is silent about a level it does not
+        recognise: anything other than ``1`` would fall through to the complement and
+        return a perfectly plausible ``P(Z = 0 | A, W)`` for a parameter nobody asked
+        for.  This accessor is the one place the ``z`` / ``1 - z`` convention lives, and
+        every diagnostic that reports a denominator has to come through it.
+        """
         if self.intermediate is None:
             return None
-        probs = self.intermediate if value == 1.0 else 1.0 - self.intermediate
+        level = check_level(value)
+        probs = self.intermediate if level == 1.0 else 1.0 - self.intermediate
         return bound(probs, lower, 1.0)
 
 
@@ -310,9 +319,14 @@ def fit_nuisances(
                 "the data has an intermediate variable but no intermediate_learner was supplied"
             )
         assert data.intermediate is not None
+        # ``[A, W]``, and deliberately not ``missingness_design()`` even though the two
+        # are the same array today.  ``q(Z | A, W)`` conditions on the propensity's set
+        # extended by the treatment, which is the time ordering; it does not inherit the
+        # missingness model's assumptions, and a longitudinal extension that added ``Z``
+        # to the missingness design would silently make this ``P(Z | A, W, Z)``.
         intermediate_out, intermediate_diagnostics = cross_fit_predictions(
             intermediate_learner,
-            data.missingness_design(),
+            data.treatment_design(),
             data.intermediate,
             data.weights,
             folds,

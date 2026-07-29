@@ -37,7 +37,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._typing import FloatArray
-from ..estimators.base import TMLEResult, format_table
+from ..estimators.base import TMLEResult, TMLEResultSet, format_table
+from ..estimators.direct_effect import check_level
 from ..utils.parallel import map_parallel
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -256,6 +257,13 @@ class CoverageStudy:
         across replications; ``"sample"`` compares against each replication's realised
         sample estimand, which removes one source of variability but changes what
         coverage means.
+    intermediate_value:
+        The level of the intermediate variable to study, for a controlled direct effect.
+        Required when ``fit_kwargs`` contains ``intermediate=``, because such a fit
+        returns one result per level and each level is a *different parameter*: the
+        study picks that level out of the result set and asks the process for the truth
+        at the same level, so the two cannot silently disagree.  See
+        :mod:`cleverly.estimators.direct_effect`.
 
     Example
     -------
@@ -284,12 +292,31 @@ class CoverageStudy:
         seed: int | None = None,
         n_jobs: int = 1,
         truth_key: str = "population",
+        intermediate_value: float | None = None,
         label: str | None = None,
     ) -> None:
         if n_replicates < 2:
             raise ValueError(f"n_replicates must be at least 2; got {n_replicates}")
         if truth_key not in ("population", "sample"):
             raise ValueError(f"truth_key must be 'population' or 'sample'; got {truth_key!r}")
+        if intermediate_value is not None:
+            intermediate_value = check_level(intermediate_value)
+        # Checked here rather than in the replication loop, which swallows every
+        # exception to keep one bad draw from killing a study: a mismatch between the
+        # fit and the level asked for is a configuration error, and reporting it as
+        # "every replication failed" would bury it.
+        targets_a_level = (fit_kwargs or {}).get("intermediate") is not None
+        if targets_a_level and intermediate_value is None:
+            raise ValueError(
+                "fit_kwargs names an intermediate variable, so each fit returns one "
+                "result per level and each level is a different parameter. Pass "
+                "intermediate_value=0.0 or 1.0 to say which one this study measures."
+            )
+        if intermediate_value is not None and not targets_a_level:
+            raise ValueError(
+                f"intermediate_value={intermediate_value} was given but fit_kwargs does "
+                "not name an intermediate variable, so the fit has no level to select."
+            )
         self.dgp = dgp
         self.estimator = estimator
         self.n = n
@@ -299,14 +326,46 @@ class CoverageStudy:
         self.seed = seed
         self.n_jobs = n_jobs
         self.truth_key = truth_key
+        self.intermediate_value = intermediate_value
         self.label = str(label or getattr(dgp, "name", getattr(dgp, "__name__", "study")))
 
     def _draw(self, seed: int) -> tuple[Any, dict[str, float]]:
         from ..datasets.synthetic import DGP as DGPClass
 
         if isinstance(self.dgp, DGPClass):
-            return self.dgp.sample(self.n, seed=seed)
-        return self.dgp(self.n, seed=seed)
+            # Passing the level through is what keeps the comparison honest: the truth a
+            # process reports for a controlled direct effect is the effect *at a level*,
+            # and DGP.sample silently defaults it to 0 when it is not told which one.
+            return self.dgp.sample(self.n, seed=seed, intermediate_value=self.intermediate_value)
+        if self.intermediate_value is None:
+            return self.dgp(self.n, seed=seed)
+        return self.dgp(self.n, seed=seed, intermediate_value=self.intermediate_value)
+
+    def _select(self, result: TMLEResult | TMLEResultSet) -> TMLEResult:
+        """Pick the single result a replication is summarising.
+
+        A fit with ``intermediate=`` returns one result per level, and the levels are
+        different parameters rather than two views of one, so the study has to be told
+        which it is measuring coverage for rather than guessing.
+        """
+        if isinstance(result, TMLEResultSet):
+            if self.intermediate_value is None:
+                raise TypeError(
+                    "CoverageStudy expects one result per fit; a controlled-direct-effect "
+                    "fit returns one per level of the intermediate. Pass "
+                    "intermediate_value=0.0 or 1.0 to study one level, and run a second "
+                    "study for the other."
+                )
+            return result[self.intermediate_value]
+        if self.intermediate_value is not None:
+            raise TypeError(
+                f"intermediate_value={self.intermediate_value} was given but the fit "
+                "returned a single result, so there is no level to select. Add "
+                "intermediate=<column> to fit_kwargs, or drop intermediate_value."
+            )
+        if not isinstance(result, TMLEResult):  # pragma: no cover - defensive
+            raise TypeError(f"expected a TMLEResult; got {type(result).__name__}")
+        return result
 
     def run(self) -> StudyResult:
         """Execute the study."""
@@ -322,12 +381,7 @@ class CoverageStudy:
                     # aggregate coverage is the diagnostic here, not the per-fit warnings.
                     warnings.simplefilter("ignore")
                     result = self.estimator().fit(frame, **self.fit_kwargs)
-                if not isinstance(result, TMLEResult):
-                    raise TypeError(
-                        "CoverageStudy expects one result per fit; a controlled-direct-effect "
-                        "fit returns one per level of the intermediate. Study each level "
-                        "separately."
-                    )
+                result = self._select(result)
                 names = self.estimands or tuple(result.estimates)
                 out: dict[str, tuple[float, float, float, float]] = {}
                 for name in names:

@@ -230,3 +230,69 @@ class TestControlledDirectEffect:
         # controlled direct effects in this process.
         assert total.psi("ate") > controlled[0.0].psi("ate")
         assert total.psi("ate") > controlled[1.0].psi("ate")
+
+
+class TestCoverageStudiesRunPerLevel:
+    """A coverage study has to be told which level it is measuring coverage for.
+
+    Each level of the intermediate is a different parameter, so a study that guessed
+    would be comparing an estimate at one level against a truth at another and reporting
+    the mismatch as bias.  Until this landed, ``CoverageStudy`` refused a
+    controlled-direct-effect fit outright, which left the estimand with no route to
+    empirical coverage evidence at all.
+
+    The tests here are about plumbing -- that the level reaches both the process and the
+    result set, and that the two agree.  They deliberately do not assert coverage: three
+    replications cannot, and a study sized to do so belongs in the nightly slow tier.
+    """
+
+    def _study(self, z: float | None, **kwargs: object) -> object:
+        from cleverly.validation import CoverageStudy
+
+        fit_kwargs = {
+            "outcome": "Y",
+            "treatment": "A",
+            "covariates": COVARIATES,
+            "intermediate": "Z",
+        }
+        fit_kwargs.update(kwargs.pop("fit_kwargs", {}))  # type: ignore[arg-type]
+        return CoverageStudy(
+            dgp=cde_dgp(),
+            estimator=lambda: TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=3,
+                random_state=0,
+                simultaneous=False,
+                estimands=("ate",),
+            ),
+            n=400,
+            n_replicates=3,
+            seed=1,
+            intermediate_value=z,
+            fit_kwargs=fit_kwargs,
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    @pytest.mark.parametrize(("z", "expected"), [(0.0, 0.9), (1.0, 1.5)])
+    def test_the_truth_it_compares_against_is_the_effect_at_that_level(
+        self, z: float, expected: float
+    ) -> None:
+        # cde_dgp's outcome mean is linear with a 0.6 * a * z interaction, so the
+        # controlled direct effect is 0.9 + 0.6 * z exactly. Getting 0.9 for both levels
+        # would be the signature of the level never reaching DGP.sample, which defaults
+        # it to zero without saying so.
+        study = self._study(z)
+        assert study.run().summaries["ate"].truth == pytest.approx(expected, abs=1e-6)
+
+    def test_a_level_is_required_when_the_fit_returns_a_set(self) -> None:
+        with pytest.raises(ValueError, match=r"intermediate_value=0\.0 or 1\.0"):
+            self._study(None)
+
+    def test_a_level_without_an_intermediate_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="does not name an intermediate"):
+            self._study(1.0, fit_kwargs={"intermediate": None})
+
+    def test_an_unrecognised_level_is_refused(self) -> None:
+        with pytest.raises(ValueError, match=r"must be 0\.0 or 1\.0"):
+            self._study(2.0)

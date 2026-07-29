@@ -43,6 +43,7 @@ from cleverly import CTMLE, TMLE
 from cleverly.datasets import (
     DGP,
     binary_outcome_dgp,
+    cde_dgp,
     instrument_dgp,
     linear_dgp,
     missing_outcome_dgp,
@@ -67,6 +68,7 @@ def _study(
     estimands: tuple[str, ...] = ("ate",),
     library: str = "glm",
     fit_kwargs: dict[str, object] | None = None,
+    intermediate_value: float | None = None,
     seed: int = 2024,
 ) -> object:
     return CoverageStudy(
@@ -84,6 +86,7 @@ def _study(
         n_replicates=reps,
         estimands=estimands,
         fit_kwargs=fit_kwargs or {"outcome": "Y", "treatment": "A"},
+        intermediate_value=intermediate_value,
         seed=seed,
         n_jobs=2,
     ).run()
@@ -596,3 +599,85 @@ class TestMissingOutcomes:
         assert ignored.coverage < 0.90, ignored
         assert ignored.coverage < modelled.coverage - 0.05, (modelled, ignored)
         assert abs(ignored.bias) > 2.0 * abs(modelled.bias), (modelled, ignored)
+
+
+CDE_FIT_KWARGS: dict[str, object] = {
+    "outcome": "Y",
+    "treatment": "A",
+    "covariates": ["W1", "W2", "W3"],
+    "intermediate": "Z",
+}
+
+
+class TestControlledDirectEffectInference:
+    """Coverage for the ``intermediate=`` estimand, one study per level.
+
+    Until ``CoverageStudy`` learned to select a level this could not be run at all, so
+    the controlled direct effect was the one estimand in the package with no empirical
+    evidence that its intervals cover.  The fast tier still has none: as
+    :mod:`cleverly.validation.score` notes, a wrong clever covariate used consistently
+    solves its own score equation to machine precision, so nothing short of repeated
+    sampling against a known truth can distinguish it.
+
+    ``cde_dgp`` is chosen because its truth is exact rather than simulated -- the outcome
+    mean is linear with a ``0.6 * a * z`` term, so the controlled direct effect is
+    ``0.9 + 0.6 * z`` in closed form -- and because a main-effects ``glm`` outcome
+    learner *cannot* represent that interaction.  The initial regression is therefore
+    misspecified for this estimand by construction, while the propensity and the
+    intermediate mechanism are logistic in ``W`` and correctly specified.  That makes
+    these studies a direct test of the double-robustness claim the estimand actually
+    relies on: consistency resting on the product ``g * q_z`` rather than on ``Qbar``.
+
+    That regime also dictates what may be asserted.  With ``Qbar`` inconsistent the
+    estimator is doubly robust but *not* efficient, and in that case -- as
+    :mod:`cleverly.estimators.tmle` says in as many words -- the point estimate is still
+    consistent while the influence-curve standard error generally is not.  So the
+    coverage window here is wider than the correctly-specified studies above, and there
+    is no ``se_ratio`` assertion: the theory does not promise one, and a test asserting
+    it would be measuring luck.  What *is* asserted is the half the theory does give,
+    that the bias vanishes.
+
+    Thresholds below were set from a reduced-scale check at 100-150 replications rather
+    than at the module's 400, since the slow tier does not run in development.  Treat the
+    quoted numbers as indicative rather than as tight calibration.
+    """
+
+    @pytest.mark.parametrize(("z", "truth"), [(0.0, 0.9), (1.0, 1.5)])
+    def test_confidence_intervals_cover_at_the_nominal_rate(self, z: float, truth: float) -> None:
+        # Measured at 100 replications, n=2000: coverage 0.970 at z=0 and 0.920 at z=1,
+        # against a Monte Carlo standard error of about 0.02 apiece.
+        study = _study(cde_dgp(), n=2000, fit_kwargs=CDE_FIT_KWARGS, intermediate_value=z)["ate"]
+        assert study.truth == pytest.approx(truth, abs=1e-6), study
+        assert 0.90 <= study.coverage <= 0.99, study
+
+    @pytest.mark.parametrize("z", [0.0, 1.0])
+    def test_the_mechanisms_carry_the_estimate_when_the_outcome_model_cannot(
+        self, z: float
+    ) -> None:
+        """The double-robustness claim, stated for the three-way product.
+
+        A main-effects ``glm`` cannot represent the ``0.6 * a * z`` term, so the initial
+        regression is wrong at both levels and everything that keeps the estimate on
+        target comes from ``g`` and ``q_z``.  An implementation that dropped ``1 / q_z``
+        from the clever covariate would still solve its own score equation and still pass
+        every single-fit check in the suite; it would show up here, and only here, as a
+        bias that does not vanish.
+
+        Measured at 100 replications, n=2000: bias +0.003 at z=0 and +0.005 at z=1.
+        """
+        study = _study(cde_dgp(), n=2000, fit_kwargs=CDE_FIT_KWARGS, intermediate_value=z)["ate"]
+        assert abs(study.bias) < max(3.0 * study.bias_se, 0.02), study
+
+    def test_the_two_levels_are_different_parameters(self) -> None:
+        # The failing control for the whole estimand: a study that never passed the level
+        # through would compare both fits against the same truth, and this assertion --
+        # that the two studies are centred 0.6 apart -- is what that mistake breaks.
+        low, high = (
+            _study(cde_dgp(), n=2000, reps=200, fit_kwargs=CDE_FIT_KWARGS, intermediate_value=z)[
+                "ate"
+            ]
+            for z in (0.0, 1.0)
+        )
+        assert high.truth - low.truth == pytest.approx(0.6, abs=1e-9)
+        gap = (high.truth + high.bias) - (low.truth + low.bias)
+        assert gap == pytest.approx(0.6, abs=0.1), (low, high)

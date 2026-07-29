@@ -40,6 +40,19 @@ prediction loss, the resulting estimate is not shrunk toward the null by
 regularisation in the nuisance models -- which is what separates TMLE from
 plugging machine-learning predictions into a G-computation formula.
 
+Two arguments to :meth:`TMLE.fit` change the *estimand* rather than the estimator, and
+both add a factor to the mechanism half of the double-robustness statement above.
+``delta=`` puts ``P(Delta = 1 | A, W)`` in the clever covariate's denominator, so the
+guarantee becomes "``Qbar`` right, or the product ``g * pi`` right"
+(:mod:`cleverly.fluctuation.submodel`).  ``intermediate=`` targets a *controlled direct
+effect* -- the effect of ``A`` holding a post-treatment variable ``Z`` fixed at a level
+``z`` -- which is a different parameter for each ``z``, so ``fit`` returns a
+:class:`~cleverly.estimators.base.TMLEResultSet` with one result per level rather than a
+single :class:`~cleverly.estimators.base.TMLEResult`.  That path rests on an
+identification assumption the average treatment effect does not need, and it is not a
+general longitudinal estimator; :mod:`cleverly.estimators.direct_effect` writes the
+parameter down, derives its influence function, and says where the boundary is.
+
 Example
 -------
 >>> from cleverly import TMLE
@@ -109,6 +122,7 @@ from .base import (
     attach_bootstrap,
     resolve_estimands,
 )
+from .direct_effect import clever_covariate_inputs
 
 __all__ = ["TMLE", "tmle"]
 
@@ -499,7 +513,7 @@ class TMLE:
         folds = self._folds(data)
         config = self._config(data, estimands, scaler, folds)
         nuisance, extra = self._nuisances(data, folds, scaler, config, intermediate_value)
-        self._warn_on_positivity(nuisance, config)
+        self._warn_on_positivity(nuisance, config, intermediate_value)
         self._warn_on_estimated_weights(data)
 
         estimates, fluctuations, cv_detail = self._retarget_detailed(
@@ -719,7 +733,12 @@ class TMLE:
             stacklevel=3,
         )
 
-    def _warn_on_positivity(self, nuisance: NuisanceEstimates, config: TMLEConfig) -> None:
+    def _warn_on_positivity(
+        self,
+        nuisance: NuisanceEstimates,
+        config: TMLEConfig,
+        intermediate_value: float | None = None,
+    ) -> None:
         lower, upper = config.g_bounds
         propensity = nuisance.propensity
         outside = float(np.mean((propensity < lower) | (propensity > upper)))
@@ -738,10 +757,24 @@ class TMLE:
         # unbounded leverage, and it is the one a reader is least likely to be watching
         # for -- overlap in g can look immaculate while the estimate rests on a handful
         # of rows that were very unlikely to be observed at all.
-        for label, values in (
-            ("P(Delta = 1 | A, W)", nuisance.missingness),
-            ("P(Z = z | A, W)", nuisance.intermediate),
-        ):
+        #
+        # The intermediate entry has to be the density for the level *being targeted*.
+        # ``nuisance.intermediate`` holds P(Z = 1 | A, W), but the covariate divides by
+        # its complement when z = 0, so reading the raw array checks the wrong tail: a
+        # sample with P(Z = 1 | A, W) = 0.999 is a severe positivity violation for the
+        # z = 0 effect and none at all for the z = 1 one.
+        candidates: list[tuple[str, FloatArray | None]] = [
+            ("P(Delta = 1 | A, W)", nuisance.missingness)
+        ]
+        if nuisance.intermediate is not None and intermediate_value is not None:
+            candidates.append(
+                (
+                    f"P(Z = {intermediate_value:.0f} | A, W)",
+                    nuisance.intermediate_density(intermediate_value, 0.0),
+                )
+            )
+
+        for label, values in candidates:
             if values is None:
                 continue
             below = float(np.mean(np.asarray(values, dtype=float) < config.missingness_bound))
@@ -954,12 +987,9 @@ class TMLE:
             if missingness_override is None
             else np.clip(np.asarray(missingness_override, dtype=float), lower, 1.0)
         )
-        intermediate_density = None
-        selection = None
-        if data.has_intermediate:
-            assert intermediate_value is not None and data.intermediate is not None
-            intermediate_density = nuisance.intermediate_density(intermediate_value, lower)
-            selection = (data.intermediate == intermediate_value).astype(float)
+        intermediate_density, selection = clever_covariate_inputs(
+            data, nuisance, intermediate_value, lower
+        )
         return submodel_for(
             group,
             data.treatment,

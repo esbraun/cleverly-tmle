@@ -23,6 +23,7 @@ from ..inference.bootstrap import BootstrapResult
 from ..inference.influence import ParameterEstimate
 from ..inference.multiplier import SimultaneousBands
 from ._nuisance import NuisanceEstimates
+from .direct_effect import describe as describe_direct_effect
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..sensitivity.api import SensitivityAnalysis
@@ -304,6 +305,15 @@ class TMLEResult:
     Behaves like a mapping from estimand name to
     :class:`~cleverly.inference.ParameterEstimate`, and carries the nuisance fits so
     that sensitivity and validation analyses can be run without refitting.
+
+    Attributes
+    ----------
+    intermediate_value:
+        The level of the intermediate variable this fit targets, or ``None`` for an
+        ordinary point-treatment fit.  It is part of the *estimand*, not a setting: every
+        estimate here is a controlled direct effect holding ``Z`` at this level, and the
+        same data yields a different parameter at the other one.  See
+        :mod:`cleverly.estimators.direct_effect`.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -435,10 +445,7 @@ class TMLEResult:
                 "see result.data.weight_report()"
             )
         if self.intermediate_value is not None:
-            facts.append(
-                f"controlled direct effect at {data.intermediate_name or 'Z'} = "
-                f"{self.intermediate_value:.0f}"
-            )
+            facts.append(describe_direct_effect(self.intermediate_value, data.intermediate_name))
         facts.extend(self.config.describe())
 
         level = f"{(1 - self.config.alpha_sig) * 100:g}%"
@@ -494,6 +501,13 @@ class TMLEResultSet(Mapping[float, TMLEResult]):
     effect of ``A`` on ``Y`` holding ``Z`` fixed at ``z``" is a different quantity for
     each ``z``.  Fitting with ``intermediate=`` therefore yields one
     :class:`TMLEResult` per level, exactly as R's ``tmle()`` returns a ``tmle.list``.
+
+    The two levels do *not* decompose the total effect into direct and indirect parts,
+    and their difference is an interaction contrast rather than a mediated effect.
+    :mod:`cleverly.estimators.direct_effect` writes the parameter down, derives its
+    influence function, and states the assumptions -- in particular the one that
+    separates a controlled direct effect from an average treatment effect, that ``W``
+    suffices to deconfound ``Z -> Y`` as well as ``A -> Y``.
     """
 
     results: dict[float, TMLEResult]
