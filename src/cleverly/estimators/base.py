@@ -121,6 +121,7 @@ class TMLEConfig:
     random_state: int | None = None
     n_bootstrap: int = 0
     cv_evaluation: bool = False
+    auto_bounds_n: float | None = None
 
     @property
     def estimator_name(self) -> str:
@@ -150,6 +151,10 @@ class TMLEConfig:
         else:
             lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
         bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
+        if self.auto_bounds_n is not None:
+            # Named because it is a deliberate divergence from R's rule, and because a
+            # reader comparing two fits needs to know the bound moved with the weights.
+            bounds += f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
         if self.g_bounds_conditional != self.g_bounds:
             bounds += (
                 f"; ATT/ATC to [{self.g_bounds_conditional[0]:.4g}, "

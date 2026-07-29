@@ -34,10 +34,13 @@ the EIF itself rather than an estimate of it.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
 from cleverly import TMLE
+from cleverly.data import CausalData
 from cleverly.exceptions import DataError, WeightingWarning
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
@@ -289,8 +292,153 @@ class TestTheReport:
         )
         summary = result.data.weight_report().summary()
         assert "estimated" in summary
-        assert "bootstrap" in summary
+        # The report has to name n_bootstrap as *not* the fix, or a reader told to
+        # "use a bootstrap" will reach for the one this package ships.
+        assert "n_bootstrap" in summary
         assert "estimated" in result.summary()
+
+    def test_a_bootstrap_on_estimated_weights_says_it_does_not_help(self) -> None:
+        """The trap: the package's own bootstrap conditions on the fitted weights too.
+
+        Every replicate inherits the weight column and renormalises it, so bootstrapping
+        adds nothing to the estimated-weight problem.  Silence here would be read as
+        endorsement, since the surrounding documentation is what sends the user looking
+        for a bootstrap in the first place.
+        """
+        frame = law.frame().assign(w=1.0 + 0.5 * law.frame()["W"])
+        estimator = TMLE(
+            outcome_learner="glm",
+            treatment_learner="glm",
+            cross_fit=False,
+            estimands=("ate",),
+            n_bootstrap=2,
+            random_state=0,
+        )
+        with pytest.warns(WeightingWarning, match="n_bootstrap"):
+            estimator.fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W"],
+                weights="w",
+                weights_estimated=True,
+            )
+
+    def test_no_such_warning_for_weights_that_were_not_estimated(self) -> None:
+        frame = law.frame().assign(w=1.0 + 0.5 * law.frame()["W"])
+        estimator = TMLE(
+            outcome_learner="glm",
+            treatment_learner="glm",
+            cross_fit=False,
+            estimands=("ate",),
+            n_bootstrap=2,
+            random_state=0,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", WeightingWarning)
+            estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+
+
+class TestSampleSizeDependentSettings:
+    """``n`` is not the sample size a weighted fit is working from.
+
+    The variance takes care of itself -- normalisation scales the surviving influence
+    curve values up by exactly the factor the larger ``n`` divides out, which is why
+    zero-weighting rows and deleting them agree.  Everything the estimator *tunes* from
+    the sample size does not take care of itself, and ``g_bounds="auto"`` is the one that
+    matters: ``5 / (sqrt(n) log n)`` resolved at the row count leaves the clever covariate
+    freer than the information in the sample supports, by a factor approaching three at a
+    design effect of four.
+    """
+
+    def _bound(self, weights: np.ndarray | float) -> float:
+        frame = law.frame().assign(w=weights)
+        result = TMLE(
+            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
+        ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+        return float(result.config.g_bounds[0])
+
+    def test_constant_weights_leave_the_auto_bound_alone(self) -> None:
+        # Kish equals n exactly for constant weights, so an unweighted fit and a
+        # uniformly weighted one must truncate identically.
+        unweighted = TMLE(
+            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
+        ).fit(law.frame(), outcome="Y", treatment="A", covariates=["W"])
+        assert self._bound(4.0) == pytest.approx(float(unweighted.config.g_bounds[0]))
+        assert unweighted.config.auto_bounds_n is None
+
+    def test_the_auto_bound_tightens_with_the_design_effect(self) -> None:
+        cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
+        weights = law.row_weights(cells)
+        effective = float(weights.sum() ** 2 / np.square(weights).sum())
+        expected = 5.0 / (np.sqrt(effective) * np.log(effective))
+        assert self._bound(weights) == pytest.approx(expected)
+        assert expected > 5.0 / (np.sqrt(law.N) * np.log(law.N))
+
+    def test_zero_weighting_and_deleting_agree_on_the_bound_too(self) -> None:
+        """Where the row count would have made two analyses of one subpopulation differ.
+
+        Zero-weighting a stratum leaves a Kish effective size of exactly the number of
+        retained rows, so the auto rule now hands both analyses the same truncation.
+        Resolved at ``n`` they would have differed, silently, for no statistical reason.
+        """
+        frame = law.frame()
+        keep = np.asarray(frame["W"] != 2)
+        dropped = TMLE(
+            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
+        ).fit(frame.loc[keep].reset_index(drop=True), outcome="Y", treatment="A", covariates=["W"])
+        assert self._bound(keep.astype(float)) == pytest.approx(
+            float(dropped.config.g_bounds[0]), rel=1e-12
+        )
+
+    def test_the_summary_says_which_sample_size_the_bound_came_from(self) -> None:
+        cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
+        frame = law.frame().assign(w=law.row_weights(cells))
+        result = TMLE(
+            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
+        ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+        assert "resolved at the effective n" in result.summary()
+        assert result.config.auto_bounds_n == pytest.approx(result.data.effective_n)
+
+    def test_an_explicit_bound_is_never_second_guessed(self) -> None:
+        cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
+        frame = law.frame().assign(w=law.row_weights(cells))
+        result = TMLE(
+            outcome_learner="glm",
+            treatment_learner="glm",
+            cross_fit=False,
+            g_bounds=0.01,
+            random_state=0,
+        ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+        assert result.config.g_bounds == (0.01, 0.99)
+        assert result.config.auto_bounds_n is None
+
+    def test_concentrated_weights_warn_at_construction(self) -> None:
+        # A quarter of the rows carrying almost all the mass: design effect above 4, so
+        # the estimate and every sample-size-dependent setting rest on a small part of
+        # the sample and the user is told without having to ask for a report.
+        # Non-integer, so the count heuristic stays quiet and this asserts one thing.
+        heavy = np.where(np.arange(law.N) < law.N // 40, 50.5, 1.0)
+        with pytest.warns(WeightingWarning, match="concentrated"):
+            CausalData.from_frame(
+                law.frame().assign(w=heavy),
+                outcome="Y",
+                treatment="A",
+                covariates=["W"],
+                weights="w",
+            )
+
+    def test_ordinary_weights_do_not_warn(self) -> None:
+        cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", WeightingWarning)
+            CausalData.from_frame(
+                law.frame().assign(w=law.row_weights(cells)),
+                outcome="Y",
+                treatment="A",
+                covariates=["W"],
+                weights="w",
+            )
 
     def test_constant_weights_report_nothing_to_report(self) -> None:
         cells = np.ones(len(law.SUPPORT))

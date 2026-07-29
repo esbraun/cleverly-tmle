@@ -51,7 +51,9 @@ from .weighting import (
     WeightReport,
     WeightSpec,
     describe_weights,
+    effective_sample_size,
     resolve_weight_kind,
+    warn_if_concentrated,
     warn_if_counts,
 )
 
@@ -315,6 +317,7 @@ class CausalData:
             spec = WeightSpec(kind=kind, estimated=weights_estimated)
         else:
             warn_if_counts(np.asarray(weights, dtype=float), label)
+            warn_if_concentrated(obs_weights, label)
             spec = WeightSpec(
                 kind=kind,
                 estimated=weights_estimated,
@@ -391,9 +394,12 @@ class CausalData:
         The size of the unweighted sample that would carry the same information.  Equal
         to :attr:`n` when the weights are constant, and smaller otherwise -- by the
         design effect, which is the factor the weighting inflates the variance by.
+
+        Not only a diagnostic: this is the sample size ``g_bounds="auto"`` is resolved
+        at, since the rule is a bias-variance compromise and this is the number the
+        variance side is really working from.
         """
-        total = float(self.weights.sum())
-        return float(total**2 / float(np.square(self.weights).sum()))
+        return effective_sample_size(self.weights)
 
     def weight_report(self) -> WeightReport:
         """Effective sample size, weight concentration and the estimand statement.

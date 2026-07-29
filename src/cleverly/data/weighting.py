@@ -96,6 +96,30 @@ Rows with :math:`w_i = 0` are kept, contribute nothing to the estimate, and stil
 towards :math:`n`.  Under the i.i.d.-weights model that is correct: drawing a zero weight
 is an outcome of the experiment, and it is informative about the tilt.
 
+Which sample size
+-----------------
+
+The *variance* needs no help from the effective sample size: normalisation scales the
+surviving influence-curve values up by exactly the factor the larger :math:`n` divides
+out, so zero-weighting a stratum and deleting it give the same standard error, and the
+reported variance is right whatever the design effect.
+
+Everything the estimator *tunes* from the sample size is a different matter, and
+``g_bounds="auto"`` is the one that bites.  The rule
+:math:`5 / (\sqrt{n}\log n)` is a bias-variance compromise -- truncate hard enough to
+control the variance of :math:`1/g`, loosely enough that the truncation bias vanishes --
+and both sides of it are governed by the information in the sample, not by the row count.
+So it is resolved at Kish's effective sample size
+:math:`n_{\text{eff}} = (\sum w)^2/\sum w^2`, which equals :math:`n` exactly when the
+weights are constant and is smaller by the design effect otherwise.  At a design effect
+of four the row count would set a bound nearly three times too loose.  This is a
+deliberate divergence from R's ``tmle``, it applies only to weighted fits, and the fit
+summary names it where it takes effect.  An explicit ``g_bounds=`` is never second-guessed.
+
+A design effect above :data:`CONCENTRATED_DESIGN_EFFECT` warns at construction, because
+past that point the number governing the truncation, the asymptotics and the width of the
+interval is one the user has not been shown.
+
 Which weighting problem is which
 --------------------------------
 
@@ -189,14 +213,23 @@ from .._typing import FloatArray
 from ..exceptions import DataError, WeightingWarning
 
 __all__ = [
+    "CONCENTRATED_DESIGN_EFFECT",
     "WeightKind",
     "WeightReport",
     "WeightSpec",
     "describe_weights",
     "estimand_lines",
     "resolve_weight_kind",
+    "warn_if_concentrated",
     "warn_if_counts",
 ]
+
+#: Design effect at which the weighting is called out rather than merely reported.
+#: Four means the effective sample size is a quarter of the rows -- past that, every
+#: sample-size-dependent choice the estimator makes, and the asymptotics behind the
+#: interval, are working from a number much smaller than ``n``, and the user should know
+#: it without having to ask for a report.
+CONCENTRATED_DESIGN_EFFECT = 4.0
 
 #: How the supplied weights are to be read.  ``"probability"`` covers design, sampling,
 #: inverse-probability and calibrated weights -- everything whose meaning is a *tilt* of
@@ -310,6 +343,47 @@ def warn_if_counts(weights: FloatArray, name: str) -> None:
     )
 
 
+def effective_sample_size(weights: FloatArray) -> float:
+    """Kish's effective sample size, ``(sum w)^2 / sum w^2``.
+
+    The size of the unweighted sample carrying the same information.  It is the sample
+    size the estimator's asymptotics are really working from, which is why it -- and not
+    the row count -- is what ``g_bounds="auto"`` is evaluated at.
+    """
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    total = float(w.sum())
+    if total <= 0:
+        raise DataError("weights sum to zero, so there is no effective sample size")
+    return float(total**2 / float(np.square(w).sum()))
+
+
+def warn_if_concentrated(weights: FloatArray, name: str) -> None:
+    """Warn when the weights leave the fit resting on a small part of the sample.
+
+    Reported unconditionally by :meth:`WeightReport.summary`; warned about here because
+    the consequences are not confined to the report.  Below a quarter of the rows the
+    effective sample size is small enough that it changes what the estimator *does* --
+    ``g_bounds="auto"`` truncates harder, and the central limit theorem behind the
+    interval has that many terms to work with, not ``n``.
+    """
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    if w.size == 0 or float(w.sum()) <= 0:
+        return
+    ess = effective_sample_size(w)
+    design_effect = w.size / ess
+    if design_effect <= CONCENTRATED_DESIGN_EFFECT:
+        return
+    warnings.warn(
+        f"{name} are concentrated: the effective sample size is {ess:.0f} of {w.size} rows "
+        f"(design effect {design_effect:.1f}). The estimate rests on that much of the "
+        "sample, sample-size-dependent settings such as g_bounds='auto' are resolved from "
+        "it, and the asymptotics behind the interval have that many terms. Inspect "
+        "data.weight_report() before trusting the interval.",
+        WeightingWarning,
+        stacklevel=3,
+    )
+
+
 @dataclass(frozen=True)
 class WeightReport:
     """How much the weighting costs, and what the estimand statement is.
@@ -387,7 +461,7 @@ class WeightReport:
             )
         lines.append("")
         lines.extend(estimand_lines(self))
-        if self.design_effect > 4.0:
+        if self.design_effect > CONCENTRATED_DESIGN_EFFECT:
             lines.append("")
             lines.append(
                 "VERDICT: the weights dominate. Effective sample size is under a quarter of "
@@ -418,8 +492,11 @@ def estimand_lines(report: WeightReport) -> list[str]:
             "Weights were declared estimated: the interval conditions on the fitted "
             "weights. For weights fitted by maximum likelihood in a correct selection "
             "model this is conservative for the full-population parameter; for "
-            "calibrated, raked or trimmed weights there is no general guarantee, and a "
-            "bootstrap that re-derives the weights is the honest alternative."
+            "calibrated, raked or trimmed weights there is no general guarantee. Note "
+            "that this package's bootstrap (n_bootstrap=) does not close the gap: it "
+            "resamples rows and renormalises the weights it was handed, never re-deriving "
+            "them, so its intervals condition on the fitted weights too. Closing it needs "
+            "the weight model in the resampling loop, outside this package."
         )
     lines.append(
         "Complex designs: stratification and finite-population corrections are ignored "
@@ -439,7 +516,7 @@ def describe_weights(
     if n == 0:
         raise DataError("cannot describe an empty weight vector")
     total = float(w.sum())
-    ess = float(total**2 / float(np.square(w).sum())) if total > 0 else float("nan")
+    ess = effective_sample_size(w) if total > 0 else float("nan")
     mean = total / n
     return WeightReport(
         kind=spec.kind,

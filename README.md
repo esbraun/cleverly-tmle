@@ -176,6 +176,18 @@ res = TMLE().fit(
 print(res.data.weight_report().summary())  # effective n, design effect, estimand statement
 ```
 
+Two consequences of the weights that are easy to miss. The *variance* needs no special
+handling — normalisation scales the surviving influence-curve values up by exactly the
+factor the larger `n` divides out, so zero-weighting rows and deleting them give the same
+standard error. But `g_bounds="auto"` does: `5 / (sqrt(n) log n)` is resolved at the Kish
+effective sample size rather than the row count, since that is the information the
+bias-variance compromise is working from (at a design effect of 4 the row count sets a
+bound nearly 3x too loose). That is a deliberate divergence from R's `tmle`, applies only
+to weighted fits, and is named in the summary where it takes effect. And `n_bootstrap=`
+does **not** rescue estimated weights — every replicate inherits and renormalises the
+weight column rather than re-deriving it, so those intervals condition on the fitted
+weights too; the package says so at fit time rather than letting the mistake pass.
+
 That statement is derived and its limits set out in
 [`cleverly/data/weighting.py`](src/cleverly/data/weighting.py), and verified numerically
 against a longhand statement of `Psi(P_w)` in `tests/unit/test_weighted_estimand.py` —
