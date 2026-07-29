@@ -46,6 +46,7 @@ __all__ = [
     "make_binary_outcome",
     "make_cde",
     "make_clustered",
+    "make_instrument",
     "make_linear_ate",
     "make_missing_outcome",
     "make_nonlinear_ate",
@@ -394,6 +395,51 @@ def make_weak_overlap(
     return _make(weak_overlap_dgp(strength), n, seed, backend)
 
 
+def instrument_dgp(instrument_strength: float = 1.5) -> DGP:
+    """Three covariates with cleanly separated roles: confounder, instrument, predictor.
+
+    ``W1`` drives both treatment and outcome and so must be adjusted for.  ``W2`` is an
+    *instrument*: it drives treatment strongly and is absent from the outcome model.
+    ``W3`` predicts only the outcome.
+    """
+
+    def propensity(w: FloatArray) -> FloatArray:
+        return expit(0.8 * w[:, 0] + instrument_strength * w[:, 1])
+
+    def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
+        del z  # W2 is deliberately absent: it is an instrument, not a confounder
+        return 1.0 + 1.0 * a + 1.5 * w[:, 0] + 0.8 * w[:, 2]
+
+    return DGP(
+        name=f"instrument(strength={instrument_strength})",
+        n_latent=3,
+        covariate_names=("W1", "W2", "W3"),
+        propensity=propensity,
+        outcome_mean=outcome_mean,
+    )
+
+
+def make_instrument(
+    n: int = 1000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    instrument_strength: float = 1.5,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """Instrument-inflation: a covariate that predicts treatment but not the outcome.
+
+    Adjusting for ``W2`` is not merely unnecessary, it is harmful.  Because ``W2`` does
+    not confound, including it in ``g`` leaves the bias where it was while pushing
+    propensity scores towards 0 and 1, which inflates the variance of the clever
+    covariate and hence of the estimate.  Omitting ``W1`` on the other hand *is* biasing.
+    A propensity model chosen by prediction accuracy takes both; one chosen
+    collaboratively -- against the loss of the targeted outcome model -- should take
+    ``W1`` and leave ``W2``, which is the result :class:`~cleverly.CTMLE` is built to
+    deliver.  The effect is constant, so ``ate == att == atc == 1``.
+    """
+    return _make(instrument_dgp(instrument_strength), n, seed, backend)
+
+
 def missing_outcome_dgp() -> DGP:
     """Outcomes missing at random given ``(A, W)``."""
 
@@ -551,6 +597,7 @@ GENERATORS: dict[str, Callable[..., tuple[Any, dict[str, float]]]] = {
     "linear_ate": make_linear_ate,
     "nonlinear_ate": make_nonlinear_ate,
     "weak_overlap": make_weak_overlap,
+    "instrument": make_instrument,
     "missing_outcome": make_missing_outcome,
     "cde": make_cde,
     "clustered": make_clustered,

@@ -54,6 +54,65 @@ att      1.994884    0.078210      1.841595    2.148173    0.000000
 ...
 ```
 
+### Collaborative TMLE
+
+A propensity model fitted to predict treatment as well as possible is fitted to the wrong
+objective. A covariate that predicts treatment but *not* the outcome — an instrument —
+removes no confounding, and putting it in `g` pushes propensity scores towards 0 and 1,
+inflating the variance of `1/g` and so of the estimate. `CTMLE` chooses the covariates
+entering `g` by cross-validating the loss of the *targeted outcome model* instead, so the
+two nuisance fits only have to be right between them (van der Laan & Gruber 2010).
+
+```python
+from cleverly import CTMLE
+from cleverly.datasets import make_instrument
+
+# W1 confounds; W2 predicts treatment but not the outcome; W3 predicts only the outcome.
+frame, truth = make_instrument(n=2000, seed=0)
+res = CTMLE(
+    search="ordered", estimands=("ate",), outcome_learner="glm", treatment_learner="glm"
+).fit(frame, outcome="Y", treatment="A")
+print(res.extra["ctmle"].summary())
+```
+
+```
+search = ordered; target = ate; criterion = cross-validated penalized squared-error loss
+
+k  covariates in g  steps  risk     cv risk
+0  (intercept)      1      7.19957  7.22364  <--
+1  W1               2      7.20063  7.22640
+2  W1, W3           2      7.20060  7.22598
+3  W1, W3, W2       3      7.20876  7.24196
+
+selected g: (intercept only)
+left out: W1, W2, W3 -- adjusting for these would have cost more variance than the bias
+they remove
+```
+
+Two things to read off. The instrument is last in the ordering and adding it costs the
+largest jump in cross-validated risk of any covariate — that is instrument inflation,
+priced. And the selector stops at the intercept: a GLM is correctly specified for the
+outcome in this process, so `Qbar` has already done the adjusting and there is no
+residual confounding left for `g` to remove. That is collaborative double robustness —
+the two nuisance fits only have to be right between them — and it is why C-TMLE's
+standard error here is about 25% below a plain TMLE's on the same samples.
+
+`search="greedy"` (the default) builds the ordering by forward selection instead;
+`search="ordered"` is the scalable variant (Ju et al. 2019) at `O(p)` propensity fits
+rather than `O(p²)`; `search="discrete"` cross-validates an explicit list of candidate
+models. One caveat worth knowing: the influence-curve standard error treats the selected
+model as given, so it does not include the variability the selection itself contributes,
+and is mildly anti-conservative as a result. Pass `n_bootstrap=` for inference that does
+— each replicate re-runs the search.
+
+### CV-TMLE
+
+```python
+res = TMLE(targeting_scheme="fold").fit(frame, outcome="Y", treatment="A")
+res.cv_targeting.summary()  # per-fold psi and epsilon, cross-validated std errors
+res.cv_targeting.variance["ate"]
+```
+
 ### Sensitivity
 
 ```python
@@ -99,7 +158,8 @@ plus the pieces that matter from `tmle3` and the literature:
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete) |
 | Cross-fitting | out-of-fold nuisance fits; stratified and cluster-respecting folds |
-| CV-TMLE | fold-wise targeting with pooled cross-validated influence curve |
+| CV-TMLE | `targeting_scheme="fold"` — an `epsilon` per validation fold, plus the cross-validated variance and per-fold diagnostics |
+| C-TMLE | `CTMLE` — greedy, scalable-ordered and discrete collaborative selection of the covariates entering `g` |
 | Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
 | Fluctuation | logistic or linear; clever covariate or weighted (`target_weights`, R's `target.gwt`) |
 | Missing outcomes | `delta=` with its own nuisance model, entering the clever covariate |
@@ -115,7 +175,6 @@ plus the pieces that matter from `tmle3` and the literature:
 The base classes (`estimators/base.py`, `inference/`, `learners/`, `fluctuation/`) are shared
 infrastructure; the following variants plug into them:
 
-- collaborative TMLE (C-TMLE) with data-adaptive covariate selection for `g`
 - marginal structural model TMLE (`tmleMSM`) and multi-valued / categorical treatments
 - longitudinal TMLE (`ltmle`) for time-varying treatments and censoring
 - survival TMLE (`survtmle`) and competing risks
@@ -185,7 +244,7 @@ The measurement is reproducible — rerun the benchmark before revisiting this.
 uv venv && uv pip install -e ".[dev]"
 ruff check . && ruff format --check .
 mypy src/cleverly
-pytest -m "not slow" -q     # fast tier, ~90 seconds
+pytest -m "not slow" -q     # fast tier, ~3 minutes
 pytest -m slow -q           # statistical validation tier (nightly in CI, ~1 hour)
 python benchmarks/bench_tmle.py
 ```
@@ -200,6 +259,12 @@ Python 3.10–3.13 in CI.
   bounded continuous outcome*.
 - Gruber & van der Laan (2012), *tmle: An R Package for Targeted Maximum Likelihood Estimation*.
 - Zheng & van der Laan (2011), *Cross-validated targeted minimum-loss-based estimation*.
+- van der Laan & Gruber (2010), *Collaborative double robust targeted maximum likelihood
+  estimation*.
+- Gruber & van der Laan (2010), *An application of collaborative targeted maximum likelihood
+  estimation in causal inference and genomics*.
+- Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), *Scalable
+  collaborative targeted learning for high-dimensional data*.
 - van der Laan & Gruber (2016), *One-step targeted minimum loss-based estimation*.
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2022), *Long story short: omitted variable bias
   in causal machine learning*.

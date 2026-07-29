@@ -40,7 +40,7 @@ from typing import Literal
 
 import numpy as np
 
-from .._typing import BoolArray, FloatArray
+from .._typing import BoolArray, FloatArray, IntArray
 
 __all__ = [
     "Submodel",
@@ -48,6 +48,7 @@ __all__ = [
     "atc_submodel",
     "att_submodel",
     "mean_submodel",
+    "restrict",
     "submodel_for",
 ]
 
@@ -311,8 +312,12 @@ def weighted_form(submodel: Submodel, weights: FloatArray) -> tuple[Submodel, Fl
     return signed, np.asarray(weights, dtype=float) * magnitude
 
 
-def restrict(submodel: Submodel, mask: BoolArray) -> Submodel:
-    """Row-subset a submodel (used to drop rows with an unobserved outcome)."""
+def restrict(submodel: Submodel, mask: BoolArray | IntArray) -> Submodel:
+    """Row-subset a submodel, by boolean mask or by integer index.
+
+    Used to drop rows with an unobserved outcome, and to cut a submodel down to one
+    validation fold for the cross-validated targeting step.
+    """
     index = np.asarray(mask)
     return Submodel(
         submodel.observed[index],

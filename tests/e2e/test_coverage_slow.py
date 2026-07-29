@@ -19,6 +19,13 @@ level.
 **Type I error.**  Under a null process the rejection rate must sit near the nominal
 level.  This is the direct check that the whole machinery is calibrated.
 
+The estimator *variants* are validated here too, for the same reason: what CV-TMLE
+and C-TMLE are for is a statement about repeated sampling, and no single fit can
+show it.  Those tests compare two configurations on the same processes rather than
+asserting an absolute level, because the claims themselves are comparative -- C-TMLE
+pays less variance than TMLE for an instrument; cross-fitting keeps the standard
+error honest where in-sample fitting does not.
+
 These runs take minutes rather than seconds, so they are marked ``slow`` and run
 nightly rather than on every push.  The thresholds are set from the Monte Carlo standard
 error of each quantity, so a pass is evidence rather than a formality.
@@ -29,8 +36,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import TMLE
-from cleverly.datasets import DGP, binary_outcome_dgp, linear_dgp, nonlinear_dgp
+from cleverly import CTMLE, TMLE
+from cleverly.datasets import (
+    DGP,
+    binary_outcome_dgp,
+    instrument_dgp,
+    linear_dgp,
+    nonlinear_dgp,
+    weak_overlap_dgp,
+)
 from cleverly.utils.bounds import expit
 from cleverly.validation import CoverageStudy
 
@@ -170,13 +184,83 @@ class TestTypeIError:
         assert abs(summary.bias) < 3.0 * summary.bias_se
 
 
-class TestCvTmleUnderWeakOverlap:
-    def test_cross_fitting_protects_coverage_with_flexible_learners(self) -> None:
-        """In-sample nuisance fits are what cross-fitting exists to prevent.
+class TestCvTmle:
+    """Cross-validated TMLE: what each of its two ingredients actually buys.
 
-        Without cross-fitting, a flexible learner's residuals are too small, the
-        influence-curve variance is understated, and coverage falls.  This compares the
-        two directly rather than asserting the fix works in the abstract.
+    CV-TMLE (Zheng & van der Laan, 2011) has two parts, and they are worth separating
+    because only one of them moves coverage.
+
+    **Cross-fitted nuisances** (``cross_fit=True``) are what buy the theory.  A
+    pooled TMLE needs the nuisance estimators to fall in a Donsker class -- a
+    smoothness condition that aggressive machine learning cheerfully violates.  Fit
+    out of fold, no model predicts a row it was trained on, the condition is not
+    needed, and the influence-curve variance stops being understated.
+
+    **Fold-wise targeting** (``targeting_scheme="fold"``) solves the fluctuation
+    separately inside each validation fold instead of once over all of them.  Both
+    schemes solve the same pooled score equation and both are valid CV-TMLEs, so the
+    honest expectation is that they *agree* -- and that is what is asserted, rather
+    than a benefit that theory does not predict.
+    """
+
+    @staticmethod
+    def _overfitting_study(reps: int = 150, **overrides: object) -> object:
+        # A tree grown to purity is the textbook Donsker violation: it interpolates
+        # its training rows, so in-sample residuals are far too small.
+        from sklearn.tree import DecisionTreeRegressor
+
+        settings = {
+            "outcome_learner": DecisionTreeRegressor(min_samples_leaf=1, random_state=0),
+            # A parametric propensity on purpose. An overfitting *treatment* learner
+            # drives g to 0 and 1, and the truncation that follows swamps the effect
+            # being measured with a positivity artefact.
+            "treatment_learner": "glm",
+            "n_folds": 5,
+            "learner_folds": 3,
+            "estimands": ("ate",),
+            "simultaneous": False,
+            "random_state": 0,
+            **overrides,
+        }
+        return CoverageStudy(
+            dgp=nonlinear_dgp(),
+            estimator=lambda: TMLE(**settings),
+            n=500,
+            n_replicates=reps,
+            estimands=("ate",),
+            seed=11,
+            n_jobs=2,
+        ).run()["ate"]
+
+    def test_cross_fitting_restores_calibrated_standard_errors(self) -> None:
+        in_sample = self._overfitting_study(cross_fit=False)
+        cross_fitted = self._overfitting_study(cross_fit=True)
+
+        # se_ratio is the reported standard error divided by the actual spread of the
+        # estimates, so it isolates the inference from the estimation: a value near 1
+        # means the standard error is honest whatever the bias is doing.
+        assert in_sample.se_ratio < 0.75, in_sample
+        assert cross_fitted.se_ratio > 0.85, cross_fitted
+        assert cross_fitted.coverage > in_sample.coverage + 0.15
+
+    def test_fold_wise_and_pooled_targeting_agree(self) -> None:
+        pooled = self._overfitting_study(cross_fit=True, targeting_scheme="pooled")
+        fold_wise = self._overfitting_study(cross_fit=True, targeting_scheme="fold")
+
+        # Where epsilon is solved is a second-order choice once the nuisances are out
+        # of fold. Asserting equivalence rather than improvement is the point: if this
+        # test ever showed fold-wise targeting *winning* on coverage, the pooled path
+        # would be the thing to go and look at.
+        assert abs(fold_wise.coverage - pooled.coverage) < 0.05, (pooled, fold_wise)
+        assert fold_wise.se_ratio > 0.85
+        assert abs(fold_wise.rmse - pooled.rmse) < 0.1 * pooled.rmse
+
+    def test_cross_fitting_protects_coverage_with_a_super_learner(self) -> None:
+        """The same comparison with the shipped ``"fast"`` library rather than a tree.
+
+        A boosted ensemble is less pathological than an interpolating tree, so the
+        effect is smaller -- but it is the configuration a user actually reaches for,
+        which is why it is worth measuring separately.
         """
         common = {
             "outcome_learner": "fast",
@@ -201,6 +285,92 @@ class TestCvTmleUnderWeakOverlap:
 
         assert results["cross-fitted"].coverage > results["in-sample"].coverage
         assert results["cross-fitted"].coverage >= 0.90
+
+
+class TestCollaborativeTmle:
+    """C-TMLE: does choosing ``g`` against the target parameter actually pay?
+
+    The claim from van der Laan & Gruber (2010) is not that C-TMLE is less biased in
+    general -- with a correct propensity model a plain TMLE is already consistent --
+    but that it stops paying variance for covariates that buy no bias reduction.  So
+    the quantities to watch are the standard error and the root mean squared error,
+    and the comparison has to be against a plain TMLE on the very same samples.
+    """
+
+    @staticmethod
+    def _pair(dgp: DGP, *, n: int = 1000, reps: int = 120, **overrides: object) -> dict:
+        common = {
+            "outcome_learner": "glm",
+            "treatment_learner": "glm",
+            "n_folds": 5,
+            "learner_folds": 3,
+            "estimands": ("ate",),
+            "simultaneous": False,
+            "random_state": 0,
+        }
+        out = {}
+        for label, factory in (
+            ("tmle", lambda: TMLE(**common)),
+            ("ctmle", lambda: CTMLE(**{**common, **overrides})),
+        ):
+            out[label] = CoverageStudy(
+                dgp=dgp,
+                estimator=factory,
+                n=n,
+                n_replicates=reps,
+                estimands=("ate",),
+                seed=11,
+                n_jobs=2,
+            ).run()["ate"]
+        return out
+
+    def test_it_does_not_pay_variance_for_an_instrument(self) -> None:
+        # W2 predicts treatment strongly and the outcome not at all. A plain TMLE puts
+        # it in g because a propensity learner is scored on treatment prediction; the
+        # cost is a 1/g that reaches further into the tails for no bias reduction.
+        studies = self._pair(instrument_dgp())
+        tmle, ctmle = studies["tmle"], studies["ctmle"]
+
+        # Measured when written: se 0.064 vs 0.087, rmse 0.075 vs 0.097, coverage
+        # 0.875 vs 0.908. The thresholds sit well inside those gaps.
+        assert ctmle.mean_std_error < 0.9 * tmle.mean_std_error, studies
+        assert ctmle.rmse < 0.9 * tmle.rmse, studies
+        # A floor rather than a nominal-rate check. C-TMLE's interval is narrower, and
+        # its standard error does not price in the selection, so a small shortfall
+        # against 0.95 is expected here; a collapse would not be. The Monte Carlo
+        # standard error at 120 replications is about 0.03.
+        assert ctmle.coverage >= 0.83, ctmle
+
+    def test_the_scalable_search_matches_the_greedy_one(self) -> None:
+        # Ju et al.'s ordered search costs O(p) fits instead of O(p^2). If it gave up
+        # much accuracy for that there would be no reason to offer it.
+        studies = self._pair(instrument_dgp(), search="ordered")
+        assert studies["ctmle"].rmse < 0.9 * studies["tmle"].rmse, studies
+
+    def test_it_degrades_more_gracefully_under_weak_overlap(self) -> None:
+        # Practical positivity violation: a few units carry enormous weight. Truncation
+        # is the blunt fix and it trades bias for variance; a collaborative selection
+        # can instead decline the covariates that caused the violation.
+        studies = self._pair(weak_overlap_dgp())
+        tmle, ctmle = studies["tmle"], studies["ctmle"]
+
+        # Measured when written: rmse 0.116 vs 0.191, coverage 0.783 vs 0.708. Neither
+        # covers at the nominal rate -- this process is brutal at n=1000 and that is
+        # the point of it -- so the comparison is relative on purpose.
+        assert ctmle.rmse < 0.8 * tmle.rmse, studies
+        assert ctmle.coverage > tmle.coverage, studies
+
+    def test_collaborative_double_robustness(self) -> None:
+        """A correct outcome model lets ``g`` adjust for almost nothing, unbiasedly.
+
+        On this process a GLM is correctly specified for ``Qbar``, so the confounding
+        is already handled before ``g`` is asked for anything.  C-TMLE notices and
+        selects a nearly empty propensity model -- and the estimate stays unbiased.
+        That is collaborative double robustness: the two nuisance fits only have to be
+        right *between* them.
+        """
+        summary = self._pair(instrument_dgp(), reps=200)["ctmle"]
+        assert abs(summary.bias) < 3.0 * summary.bias_se, summary
 
 
 class TestClusteredInference:

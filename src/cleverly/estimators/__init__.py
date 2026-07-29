@@ -6,17 +6,23 @@ from ._nuisance import NuisanceEstimates
 from .base import (
     ALL_ESTIMANDS,
     DEFAULT_ESTIMANDS,
+    CVTargeting,
     TMLEConfig,
     TMLEResult,
     TMLEResultSet,
     resolve_estimands,
 )
+from .ctmle import CTMLE, CTMLESearch, CTMLESelection
 from .tmle import TMLE, tmle
 
 __all__ = [
     "ALL_ESTIMANDS",
+    "CTMLE",
     "DEFAULT_ESTIMANDS",
     "TMLE",
+    "CTMLESearch",
+    "CTMLESelection",
+    "CVTargeting",
     "NuisanceEstimates",
     "TMLEConfig",
     "TMLEResult",

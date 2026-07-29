@@ -74,6 +74,12 @@ where the claim genuinely requires it:
   diagnostic then work without further changes.
 - **Nuisance reuse**: `TMLE.retarget` re-runs only the targeting step against cached
   nuisance fits. Sensitivity analyses must use it rather than refitting.
+- **New estimator variants**: a variant that only changes *which* nuisance estimate is
+  targeted should override `TMLE._nuisances`, return a `dataclasses.replace`d
+  `NuisanceEstimates` plus its diagnostics, and let the inherited `retarget` do the rest.
+  `CTMLE` (`estimators/ctmle.py`) is the worked example: because it swaps one array,
+  every influence curve, sensitivity analysis and validation diagnostic keeps working
+  untouched, and the bootstrap repeats the selection for free.
 - **Thread limits**: nuisance fits run single-threaded by default
   (`cleverly.learners.set_thread_limit`) so parallelism happens across folds and
   candidates. Do not add native threading inside a fit.
