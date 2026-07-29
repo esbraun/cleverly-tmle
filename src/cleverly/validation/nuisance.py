@@ -1,9 +1,16 @@
 r"""Are the nuisance models any good?
 
-TMLE is doubly robust, not magic.  It is consistent if *one* of ``g`` and ``Qbar`` is
-consistent, and efficient only if both are -- so the quality of the nuisance fits
-determines whether the reported standard error is achievable.  These diagnostics use
-the out-of-fold predictions the fit already produced, so they cost nothing.
+TMLE is doubly robust, not magic.  Under identification and positivity the point
+estimate is consistent if *one* of ``g`` and ``Qbar`` is consistent; asymptotic
+linearity and a valid Wald interval need both, converging fast enough that the
+*product* of their errors is ``o(n^{-1/2})``.
+
+The gap between those two is the reason to read these numbers.  In the doubly-robust-
+but-not-efficient case -- one nuisance inconsistent -- the estimate still converges to
+the truth, but the influence-curve standard error generally does not describe it, so the
+reported interval is not merely wide, it is wrong.  Double robustness protects the point
+estimate, not the inference.  These diagnostics use the out-of-fold predictions the fit
+already produced, so they cost nothing.
 
 What each number is for:
 

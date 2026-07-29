@@ -4,8 +4,15 @@ The targeting step moves the initial outcome regression :math:`\bar Q^0` along a
 one-dimensional (or here, low-dimensional) parametric submodel whose score at
 :math:`\epsilon = 0` equals the efficient influence function of the target
 parameter.  Solving for :math:`\epsilon` therefore makes the estimator solve the
-efficient score equation, which is what buys double robustness and asymptotic
-efficiency.
+estimated efficient score equation :math:`P_n D^* = 0`.
+
+That is what the double-robustness and efficiency arguments are *built on*, not a
+guarantee they hold: those follow from the second-order remainder of the von Mises
+expansion, which is a product of the two nuisance errors and so vanishes when either
+one does.  Solving the score equation is the step that makes the remainder the only
+thing left over -- see :mod:`cleverly.estimators.tmle` for the conditions each
+guarantee needs, and ``tests/unit/test_remainder.py`` for the product form checked
+exactly.
 
 For a logistic fluctuation the submodel is
 

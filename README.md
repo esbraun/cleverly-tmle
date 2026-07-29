@@ -175,6 +175,14 @@ res.validation.score_check()  # did targeting solve mean(EIF) = 0?
 res.validation.refute()  # placebo treatment, random common cause, subset stability
 ```
 
+`score_check()` is necessary, not sufficient: it verifies that the fluctuation reached the
+root of the equation the library posed, which a *consistently* wrong clever covariate would
+also do. That the equation itself is the right one is a claim about the library rather than
+about your fit, and is checked in the test suite — against the numerical Gateaux derivative
+of the target parameter (`tests/unit/test_influence_gateaux.py`) and against the
+second-order product remainder that double robustness consists of
+(`tests/unit/test_remainder.py`), both exactly, on a law with finite support.
+
 ```python
 from cleverly.datasets import nonlinear_dgp
 from cleverly.validation import CoverageStudy
