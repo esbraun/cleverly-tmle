@@ -136,17 +136,63 @@ class TMLE:
         (default) fits one ``epsilon`` on all rows at once; ``"fold"`` fits a separate
         ``epsilon`` inside each validation fold, which is the targeting step of Zheng
         & van der Laan's (2011) CV-TMLE.  Both solve the same pooled score equation
-        exactly and both are valid.
+        exactly.  Together with ``cv_evaluation`` these name three distinct estimators,
+        and it is worth being precise about which one is running:
 
-        Worth being precise about what CV-TMLE buys, because the two ingredients are
-        not equally important.  The theory -- efficiency without a Donsker condition
-        on the nuisance estimators -- comes from fitting the nuisances *out of fold*,
-        which is ``cross_fit=True`` and is already the default.  Fold-wise targeting
-        on top of that is a second-order refinement, and the statistical validation
-        tier measures the two schemes as equivalent rather than one beating the other.
-        Choose ``"fold"`` when you want the per-fold diagnostics it records on
-        ``result.cv_targeting``.  Ignored when ``cross_fit=False``, where there are no
-        validation folds to target within.
+        =========================================== ==============================
+        setting                                      estimator
+        =========================================== ==============================
+        ``cross_fit=True, targeting_scheme="pooled"`` cross-fitted TMLE
+        ``targeting_scheme="fold"``                   fold-targeted CV-TMLE
+        ``targeting_scheme="fold", cv_evaluation``    canonical CV-TMLE
+        =========================================== ==============================
+
+        Cross-fitting the nuisances is what removes the Donsker condition on the
+        nuisance *estimators*: fit out of fold, no model predicts a row it was trained
+        on, and the empirical-process term involving them vanishes.  Pooled targeting
+        on top of cross-fitted nuisances then adds an empirical-process term of its
+        own, because ``epsilon`` is fit on the same rows it fluctuates.  That term is
+        controlled -- but by a separate argument, not by cross-fitting: holding the
+        cross-fitted ``Qbar`` fixed, the fluctuated family ``{Qbar(epsilon)}`` is
+        indexed by one bounded scalar and is Lipschitz in it, so it is Donsker by
+        finite-dimensionality however complex ``Qbar`` is.
+
+        So the two schemes have the same first-order limit under: cross-fitted
+        nuisances, an ``epsilon`` ranging over a bounded set with ``epsilon_hat``
+        converging in probability, a bounded clever covariate (which the ``g_bounds``
+        truncation supplies), and the usual ``o_P(n^{-1/2})`` second-order remainder.
+        They are not the same estimator, and outside those conditions -- and in finite
+        samples generally -- their behaviour and their remainder arguments differ.
+        Zheng & van der Laan prove their result for the fold-targeted construction
+        specifically; the pooled scheme is the cross-fitted TMLE of the
+        double/debiased-machine-learning literature.  The statistical validation tier
+        measures the two as equivalent on the processes it covers, which is evidence
+        about those processes, not a general equivalence.
+
+        Choose ``"fold"`` for the construction Zheng & van der Laan analyse and for the
+        per-fold diagnostics it records on ``result.cv_targeting``.  Falls back to
+        pooled targeting with a warning when there are no validation folds to target
+        within (``cross_fit=False``, or a single fold).
+    cv_evaluation:
+        Report the *canonical* CV-TMLE estimate rather than the pooled one.  Requires
+        ``targeting_scheme="fold"``.
+
+        Fold-specific targeting is only the first of canonical CV-TMLE's three parts;
+        the other two are fold-wise evaluation of the parameter and the cross-validated
+        variance.  With ``cv_evaluation=False`` (default) this estimator does neither:
+        the fold-targeted predictions are stitched back together and the *pooled*
+        plug-in and pooled influence-curve standard error are reported.  For ``ate``,
+        ``ey1`` and ``ey0`` that is the same number -- those are linear in the targeted
+        predictions, so the pooled mean is the fold average -- but for ``rr``, ``or``,
+        ``att`` and ``atc`` it is not: a ratio of means is not a mean of ratios, and the
+        pooled ATT weights by the whole sample's treated share rather than each fold's.
+
+        With ``cv_evaluation=True`` each estimand is computed inside each validation
+        fold and averaged over folds with weight ``1/V``, and the standard error is the
+        cross-validated one (:func:`~cleverly.inference.cross_validated_variance`).
+        Ratios are averaged on the log scale, which is where their influence curve and
+        confidence interval already live.  Both reports are always available on
+        ``result.cv_targeting`` regardless of this setting.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
@@ -200,6 +246,7 @@ class TMLE:
         targeting: TargetingMethod = "iterative",
         cross_fit: bool = True,
         targeting_scheme: TargetingScheme = "pooled",
+        cv_evaluation: bool = False,
         n_folds: int = 10,
         learner_folds: int = 5,
         g_bounds: GBounds = "auto",
@@ -232,6 +279,7 @@ class TMLE:
         self.targeting = targeting
         self.cross_fit = cross_fit
         self.targeting_scheme = targeting_scheme
+        self.cv_evaluation = cv_evaluation
         self.n_folds = n_folds
         self.learner_folds = learner_folds
         self.g_bounds = g_bounds
@@ -266,6 +314,19 @@ class TMLE:
         if self.targeting_scheme not in ("pooled", "fold"):
             raise ValueError(
                 f"targeting_scheme must be 'pooled' or 'fold'; got {self.targeting_scheme!r}"
+            )
+        if self.cv_evaluation and self.targeting_scheme != "fold":
+            raise ValueError(
+                "cv_evaluation=True reports the estimand fold by fold and needs a "
+                "fold-specific fit to evaluate; pass targeting_scheme='fold'"
+            )
+        if self.targeting_scheme == "fold" and not self.cross_fit:
+            warnings.warn(
+                "targeting_scheme='fold' needs validation folds to target within, and "
+                "cross_fit=False leaves none; falling back to pooled targeting. Set "
+                "cross_fit=True for a fold-targeted CV-TMLE.",
+                UserWarning,
+                stacklevel=3,
             )
         if self.targeting == "one_step" and self.fluctuation == "linear":
             raise ValueError(
@@ -380,7 +441,7 @@ class TMLE:
         nuisance, extra = self._nuisances(data, folds, scaler, config, intermediate_value)
         self._warn_on_positivity(nuisance, config)
 
-        estimates, fluctuations = self.retarget(
+        estimates, fluctuations, cv_detail = self._retarget_detailed(
             data,
             nuisance,
             estimands=estimands,
@@ -397,7 +458,7 @@ class TMLE:
             config=config,
             estimator=self,
             intermediate_value=intermediate_value,
-            extra={**extra, **_cv_targeting(data, nuisance, estimates, fluctuations)},
+            extra=extra if cv_detail is None else {**extra, "cv_tmle": cv_detail},
         )
 
         if self.simultaneous and len(estimates) > 1:
@@ -533,8 +594,11 @@ class TMLE:
             family=data.family,
             fluctuation=self.fluctuation,
             targeting=self.targeting,
-            targeting_scheme=self.targeting_scheme if self.cross_fit else "pooled",
+            targeting_scheme=(
+                self.targeting_scheme if self.cross_fit and not folds.is_single else "pooled"
+            ),
             cross_fit=self.cross_fit,
+            cv_evaluation=self.cv_evaluation and self.cross_fit and not folds.is_single,
             n_folds=folds.n_folds,
             g_bounds=resolve_g_bounds(self.g_bounds, data.n, for_att=False),
             g_bounds_conditional=resolve_g_bounds(self.g_bounds, data.n, for_att=True),
@@ -583,6 +647,36 @@ class TMLE:
         operation with one input perturbed -- a different truncation bound, a tilted
         missingness mechanism -- and re-running it costs a fraction of a full refit.
         """
+        estimates, fluctuations, _ = self._retarget_detailed(
+            data,
+            nuisance,
+            estimands=estimands,
+            intermediate_value=intermediate_value,
+            g_bounds=g_bounds,
+            g_bounds_conditional=g_bounds_conditional,
+            missingness=missingness,
+            alpha_sig=alpha_sig,
+        )
+        return estimates, fluctuations
+
+    def _retarget_detailed(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        *,
+        estimands: Sequence[str],
+        intermediate_value: float | None = None,
+        g_bounds: tuple[float, float] | None = None,
+        g_bounds_conditional: tuple[float, float] | None = None,
+        missingness: FloatArray | None = None,
+        alpha_sig: float | None = None,
+    ) -> tuple[dict[str, ParameterEstimate], dict[str, Fluctuation], CVTargeting | None]:
+        """:meth:`retarget`, plus the fold-level report when targeting went fold by fold.
+
+        The extra return value is what :meth:`fit` puts on ``result.cv_targeting``.  It
+        is kept out of :meth:`retarget` so that the sensitivity analyses, which call
+        that method on every perturbed input, keep their two-value signature.
+        """
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         mean_bounds = g_bounds or resolve_g_bounds(self.g_bounds, data.n, for_att=False)
@@ -592,6 +686,11 @@ class TMLE:
 
         estimates: dict[str, ParameterEstimate] = {}
         fluctuations: dict[str, Fluctuation] = {}
+        pooled_report: dict[str, ParameterEstimate] = {}
+        canonical_report: dict[str, ParameterEstimate] = {}
+        fold_estimates: dict[str, tuple[float, ...]] = {}
+        fold_epsilon: dict[str, tuple[tuple[float, ...], ...]] = {}
+        indices: list[IntArray] = []
 
         for group in self._groups(requested):
             bounds = mean_bounds if group == "mean" else conditional_bounds
@@ -600,12 +699,89 @@ class TMLE:
             )
             fluctuation = self._solve(data, nuisance, submodel)
             fluctuations[group] = fluctuation
-            estimates.update(
-                self._estimates_for(data, nuisance, group, submodel, fluctuation, requested, level)
+
+            pooled = self._estimates_for(
+                data, nuisance, group, submodel, fluctuation, requested, level
             )
+            pooled_report.update(pooled)
+            if not fluctuation.folds:
+                estimates.update(pooled)
+                continue
+
+            indices = [record.index for record in fluctuation.folds]
+            fold_epsilon[group] = tuple(
+                tuple(record.epsilon.tolist()) for record in fluctuation.folds
+            )
+            per_fold = [
+                self._fold_estimates(
+                    data, nuisance, group, submodel, fluctuation, tuple(pooled), level, index
+                )
+                for index in indices
+            ]
+            canonical = _average_over_folds(
+                per_fold, tuple(pooled), indices, n=data.n, cluster=data.cluster, alpha=level
+            )
+            canonical_report.update(canonical)
+            fold_estimates.update(
+                {
+                    name: tuple(values[name].psi for values in per_fold)
+                    for name in canonical  # only the estimands every fold could compute
+                }
+            )
+            estimates.update(canonical if self.cv_evaluation else pooled)
 
         ordered = {name: estimates[name] for name in requested if name in estimates}
-        return ordered, fluctuations
+        detail = (
+            CVTargeting(
+                n_folds=len(indices),
+                fold_sizes=tuple(int(index.size) for index in indices),
+                variance={name: value.variance for name, value in canonical_report.items()},
+                fold_estimates=fold_estimates,
+                fold_epsilon=fold_epsilon,
+                pooled={name: pooled_report[name] for name in requested if name in pooled_report},
+                canonical={
+                    name: canonical_report[name] for name in requested if name in canonical_report
+                },
+            )
+            if indices
+            else None
+        )
+        return ordered, fluctuations, detail
+
+    def _fold_estimates(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: TargetGroup,
+        submodel: Submodel,
+        fluctuation: Fluctuation,
+        supported: Sequence[str],
+        alpha_sig: float,
+        index: IntArray,
+    ) -> dict[str, ParameterEstimate]:
+        """Every estimand this group supports, computed inside one validation fold.
+
+        A fold can be degenerate where the whole sample is not: too few units in the
+        conditioning arm for an ATT, or a counterfactual mean at the boundary that leaves
+        a ratio undefined.  Those estimands are dropped from this fold's report rather
+        than allowed to abort the others; :func:`_average_over_folds` then drops them
+        from the canonical estimate altogether and says so.
+        """
+        try:
+            return self._estimates_for(
+                data, nuisance, group, submodel, fluctuation, supported, alpha_sig, index=index
+            )
+        except ValueError:
+            fragile = {"rr", "or"}
+            safe = tuple(name for name in supported if name not in fragile)
+            if len(safe) == len(supported):
+                return {}
+            try:
+                return self._estimates_for(
+                    data, nuisance, group, submodel, fluctuation, safe, alpha_sig, index=index
+                )
+            except ValueError:
+                return {}
 
     @staticmethod
     def _groups(estimands: Sequence[str]) -> list[TargetGroup]:
@@ -661,8 +837,19 @@ class TMLE:
     ) -> Fluctuation:
         """Solve the fluctuation, pooled over folds or one fluctuation per fold."""
         scaled = nuisance.scaler.scale(data.outcome)
-        if self.targeting_scheme == "fold" and self.cross_fit and not nuisance.folds.is_single:
-            return self._solve_by_fold(data, nuisance, submodel, scaled)
+        if self.targeting_scheme == "fold" and self.cross_fit:
+            if not nuisance.folds.is_single:
+                return self._solve_by_fold(data, nuisance, submodel, scaled)
+            # Only reachable when resolve_n_folds collapsed the split -- too few units
+            # in the rarer treatment arm to stratify. The constructor already warned
+            # about the cross_fit=False route, so this is the remaining silent one.
+            warnings.warn(
+                "targeting_scheme='fold' was requested but the data supports only a "
+                "single fold, so there is no validation split to target within; "
+                "falling back to pooled targeting.",
+                UserWarning,
+                stacklevel=3,
+            )
         return self._solve_rows(scaled, nuisance.outcome, submodel, data.weights, data.observed)
 
     def _solve_rows(
@@ -709,22 +896,26 @@ class TMLE:
         submodel: Submodel,
         scaled: FloatArray,
     ) -> Fluctuation:
-        """CV-TMLE: a separate fluctuation on each validation fold.
+        """The targeting step of CV-TMLE: a separate fluctuation on each fold.
 
-        Each fold's ``epsilon`` is fit only against rows whose nuisance predictions
-        came from a model trained on the other folds -- the targeting step of Zheng &
-        van der Laan's (2011) CV-TMLE.  Note that the pooled scheme already enjoys that
-        property row by row whenever ``cross_fit=True``; what changes here is that the
-        fluctuation *coefficient* is estimated within a fold rather than across all of
-        them, which is a second-order difference and is measured as such in the
-        statistical validation tier.
+        Each fold's ``epsilon`` is fit only against rows whose nuisance predictions came
+        from a model trained on the other folds -- the targeting step of Zheng & van der
+        Laan's (2011) CV-TMLE.  The pooled scheme already has that property row by row
+        whenever ``cross_fit=True``; what changes here is that the fluctuation
+        *coefficient* is estimated within a fold rather than across all of them, so no
+        row contributes to the fit that fluctuates it.
 
-        The fold-specific targeted predictions are stitched back into a full-length
-        fit.  Because each fold's score is zero on its own rows, the pooled score --
-        a sum over folds -- is zero too, so the estimating equation is still solved
-        exactly on the full sample.  The reported ``epsilon`` is the mass-weighted
-        average across folds and is a summary only; the per-fold values are kept in
+        The fold-specific targeted predictions are stitched back into a full-length fit.
+        Because each fold's score is zero on its own rows, the pooled score -- a sum over
+        folds -- is zero too, so the estimating equation is still solved exactly on the
+        full sample.  The reported ``epsilon`` is the mass-weighted average across folds
+        and is a summary only; the per-fold values are kept in
         :attr:`~cleverly.fluctuation.Fluctuation.folds`.
+
+        Stitching is where this stops short of canonical CV-TMLE, which evaluates the
+        parameter fold by fold rather than once over the reassembled fit.  The two agree
+        for estimands linear in the targeted predictions and diverge for the rest; see
+        ``cv_evaluation``, which reports the canonical construction instead.
         """
         n = data.n
         observed = np.empty(n)
@@ -793,20 +984,43 @@ class TMLE:
         fluctuation: Fluctuation,
         requested: Sequence[str],
         alpha_sig: float,
+        index: IntArray | None = None,
     ) -> dict[str, ParameterEstimate]:
-        """Build every estimand that this fluctuation supports."""
-        scaled = nuisance.scaler.scale(data.outcome)
+        """Build every estimand that this fluctuation supports.
+
+        ``index`` restricts every input to one validation fold, which is what the
+        canonical CV-TMLE evaluation needs; ``None`` uses the whole sample.  Weights are
+        renormalised within the fold so that the fold's estimate and influence curve are
+        exactly what a standalone fit on those rows would produce -- the package's
+        convention is mean-one weights, and a fold's slice of a globally normalised
+        vector does not satisfy it.
+        """
         scaler = nuisance.scaler
+        scaled = scaler.scale(data.outcome)
+        targeted = fluctuation.targeted
+        weights, observed = data.weights, data.observed
+        treatment, cluster, n = data.treatment, data.cluster, data.n
+        if index is not None:
+            scaled = scaled[index]
+            targeted = _slice_fit(targeted, index)
+            submodel = restrict(submodel, index)
+            weights = weights[index]
+            weights = weights / weights.mean()
+            observed = observed[index]
+            treatment = treatment[index]
+            cluster = None if cluster is None else cluster[index]
+            n = int(index.size)
+
         out: dict[str, ParameterEstimate] = {}
         common: dict[str, Any] = {
-            "n": data.n,
-            "cluster": data.cluster,
+            "n": n,
+            "cluster": cluster,
             "alpha": alpha_sig,
         }
 
         if group == "mean":
             psi_one, ic_one, psi_zero, ic_zero = counterfactual_means(
-                scaled, fluctuation.targeted, submodel, data.weights, data.observed
+                scaled, targeted, submodel, weights, observed
             )
             if "ey1" in requested:
                 value, ic = unscale(psi_one, ic_one, scaler, "level")
@@ -825,8 +1039,8 @@ class TMLE:
                         ic_one,
                         psi_zero,
                         ic_zero,
-                        n=data.n,
-                        cluster=data.cluster,
+                        n=n,
+                        cluster=cluster,
                         alpha=alpha_sig,
                         which=ratios,
                     )
@@ -834,14 +1048,7 @@ class TMLE:
             return out
 
         estimator_fn = att_estimate if group == "att" else atc_estimate
-        psi, ic = estimator_fn(
-            scaled,
-            fluctuation.targeted,
-            submodel,
-            data.treatment,
-            data.weights,
-            data.observed,
-        )
+        psi, ic = estimator_fn(scaled, targeted, submodel, treatment, weights, observed)
         value, unscaled_ic = unscale(psi, ic, scaler, "difference")
         out[group] = make_estimate(group, value, unscaled_ic, scale="difference", **common)
         return out
@@ -870,90 +1077,80 @@ class TMLE:
         return {name: estimate.psi for name, estimate in estimates.items()}
 
 
-def _cv_targeting(
-    data: CausalData,
-    nuisance: NuisanceEstimates,
-    estimates: Mapping[str, ParameterEstimate],
-    fluctuations: Mapping[str, Fluctuation],
-) -> dict[str, Any]:
-    """Collect fold-level detail, for a fit that targeted fold by fold.
+def _slice_fit(fit: InitialFit, index: IntArray) -> InitialFit:
+    """The targeted (or initial) predictions for one subset of rows."""
+    return InitialFit(fit.observed[index], fit.at_one[index], fit.at_zero[index])
 
-    Returns an empty dict for a pooled fit, so it can be handed straight to
-    ``TMLEResult.extra``.
+
+def _average_over_folds(
+    per_fold: Sequence[Mapping[str, ParameterEstimate]],
+    supported: Sequence[str],
+    indices: Sequence[IntArray],
+    *,
+    n: int,
+    cluster: IntArray | None,
+    alpha: float,
+) -> dict[str, ParameterEstimate]:
+    """Assemble the canonical CV-TMLE estimate from its fold-wise pieces.
+
+    The point estimate is the unweighted ``1/V`` average of the fold plug-ins, matching
+    Zheng & van der Laan and matching the fold weighting
+    :func:`~cleverly.inference.cross_validated_variance` already uses -- so the estimate
+    and its variance are weighted the same way, with no extra knob.  Observation weights
+    still apply *within* a fold.  Ratios are averaged on the log scale, which is where
+    their influence curve and Wald interval live, so that ``psi == exp(log_psi)`` holds
+    and :attr:`~cleverly.inference.ParameterEstimate.ci` stays on the boundary-respecting
+    scale.
+
+    The influence curve is the fold-specific curves stitched back together by index.
+    Unlike the pooled curve it is centred at each fold's own estimate, so its mean is
+    zero *within* every fold -- which is exactly the property the uncentred second moment
+    in ``cross_validated_variance`` assumes.
     """
-    if not any(fluctuation.folds for fluctuation in fluctuations.values()):
-        return {}
+    out: dict[str, ParameterEstimate] = {}
+    dropped: list[str] = []
+    n_clusters = n if cluster is None else int(np.unique(cluster).size)
 
-    indices = [record.index for record in next(iter(fluctuations.values())).folds]
-    fold_estimates: dict[str, list[float]] = {name: [] for name in estimates}
-    for group, fluctuation in fluctuations.items():
-        for record in fluctuation.folds:
-            values = _fold_point_estimates(
-                data, nuisance.scaler, group, fluctuation.targeted, record.index, estimates
-            )
-            for name, value in values.items():
-                fold_estimates[name].append(value)
+    for name in supported:
+        if not all(name in values for values in per_fold):
+            dropped.append(name)
+            continue
+        parts = [values[name] for values in per_fold]
+        influence_curve = np.empty(n, dtype=float)
+        for index, part in zip(indices, parts, strict=True):
+            influence_curve[index] = part.influence_curve
 
-    variance = {
-        name: cross_validated_variance(estimate.influence_curve, indices, data.cluster)
-        for name, estimate in estimates.items()
-    }
-    return {
-        "cv_tmle": CVTargeting(
-            n_folds=len(indices),
-            fold_sizes=tuple(int(index.size) for index in indices),
-            variance=variance,
-            fold_estimates={name: tuple(values) for name, values in fold_estimates.items()},
-            fold_epsilon={
-                group: tuple(tuple(record.epsilon.tolist()) for record in fluctuation.folds)
-                for group, fluctuation in fluctuations.items()
-            },
+        scale = parts[0].scale
+        log_psi: float | None = None
+        if scale == "ratio":
+            mean_log = float(np.mean([part.log_psi for part in parts]))
+            log_psi = mean_log
+            psi = float(np.exp(mean_log))
+        else:
+            psi = float(np.mean([part.psi for part in parts]))
+
+        out[name] = ParameterEstimate(
+            name=name,
+            psi=psi,
+            influence_curve=influence_curve,
+            variance=cross_validated_variance(influence_curve, indices, cluster),
+            n=n,
+            n_clusters=n_clusters,
+            scale=scale,
+            alpha=alpha,
+            log_psi=log_psi,
         )
-    }
 
-
-def _fold_point_estimates(
-    data: CausalData,
-    scaler: OutcomeScaler,
-    group: str,
-    targeted: InitialFit,
-    index: IntArray,
-    requested: Mapping[str, ParameterEstimate],
-) -> dict[str, float]:
-    """The plug-in estimates this one validation fold contributes.
-
-    Only the *targeted predictions* are needed: every estimand here is a weighted
-    average of them, so the clever covariate does not enter a second time.
-    """
-    weights = data.weights[index]
-    at_one = targeted.at_one[index]
-    at_zero = targeted.at_zero[index]
-
-    if group != "mean":
-        arm = 1.0 if group == "att" else 0.0
-        indicator = (data.treatment[index] == arm).astype(float)
-        mass = weights * indicator
-        if mass.sum() <= 0.0:
-            return {group: float("nan")}
-        psi = float(np.average(at_one - at_zero, weights=mass))
-        return {group: scaler.unscale_difference(psi)}
-
-    psi_one = float(np.average(at_one, weights=weights))
-    psi_zero = float(np.average(at_zero, weights=weights))
-    values: dict[str, float] = {}
-    if "ey1" in requested:
-        values["ey1"] = scaler.unscale_level(psi_one)
-    if "ey0" in requested:
-        values["ey0"] = scaler.unscale_level(psi_zero)
-    if "ate" in requested:
-        values["ate"] = scaler.unscale_difference(psi_one - psi_zero)
-    if "rr" in requested:
-        values["rr"] = psi_one / psi_zero if psi_zero > 0.0 else float("nan")
-    if "or" in requested:
-        odds_one = psi_one / (1.0 - psi_one) if 0.0 < psi_one < 1.0 else float("nan")
-        odds_zero = psi_zero / (1.0 - psi_zero) if 0.0 < psi_zero < 1.0 else float("nan")
-        values["or"] = odds_one / odds_zero if odds_zero > 0.0 else float("nan")
-    return values
+    if dropped:
+        warnings.warn(
+            f"{', '.join(dropped)} could not be evaluated inside every validation fold "
+            "-- a fold with no units in the conditioning arm, or a counterfactual mean "
+            "at the boundary -- so it is omitted from the cross-validated report. Fewer "
+            "folds (n_folds=) would give each one more units to work with.",
+            UserWarning,
+            stacklevel=3,
+        )
+    return out
 
 
 def _score_of(

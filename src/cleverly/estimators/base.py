@@ -120,6 +120,22 @@ class TMLEConfig:
     alpha_sig: float
     random_state: int | None = None
     n_bootstrap: int = 0
+    cv_evaluation: bool = False
+
+    @property
+    def estimator_name(self) -> str:
+        """Which of the three cross-fitting constructions this fit actually ran.
+
+        Worth naming rather than reporting the raw settings: pooled targeting on
+        cross-fitted nuisances and CV-TMLE are different estimators with different
+        asymptotic arguments, and only the last of these is the canonical CV-TMLE of
+        Zheng & van der Laan (2011).
+        """
+        if not self.cross_fit:
+            return "TMLE (in-sample nuisances)"
+        if self.targeting_scheme != "fold":
+            return "cross-fitted TMLE"
+        return "canonical CV-TMLE" if self.cv_evaluation else "fold-targeted CV-TMLE"
 
     def describe(self) -> list[str]:
         """Human-readable lines for :meth:`TMLEResult.summary`."""
@@ -128,11 +144,11 @@ class TMLEConfig:
         ]
         if self.cross_fit:
             lines.append(
-                f"nuisances cross-fitted over {self.n_folds} folds; "
+                f"{self.estimator_name}: nuisances cross-fitted over {self.n_folds} folds; "
                 f"targeting: {self.targeting_scheme}"
             )
         else:
-            lines.append("nuisances fitted in-sample (cross_fit=False)")
+            lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
         bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
         if self.g_bounds_conditional != self.g_bounds:
             bounds += (
@@ -151,28 +167,40 @@ class TMLEConfig:
 
 @dataclass(frozen=True)
 class CVTargeting:
-    """Fold-level detail from a cross-validated targeting step (CV-TMLE).
+    """Fold-level detail from a fit that targeted fold by fold.
 
-    A CV-TMLE estimate is an average of fold-specific plug-ins, each computed from
-    nuisance fits trained on the other folds and fluctuated by that fold's own
-    ``epsilon``.  The pooled report collapses all of that into one number; this
-    object keeps the pieces, because the spread across folds is the diagnostic that
-    matters.  Fold estimates that disagree far more than their standard errors allow,
-    or an ``epsilon`` that changes sign between folds, mean the fluctuation is being
-    driven by a handful of extreme clever-covariate values rather than by the sample.
+    Each fold gets its own ``epsilon``, fit against nuisance predictions from models
+    trained on the other folds, and its own plug-in estimate.  Keeping the pieces is the
+    point: fold estimates that disagree far more than their standard errors allow, or an
+    ``epsilon`` that changes sign between folds, mean the fluctuation is being driven by
+    a handful of extreme clever-covariate values rather than by the sample.
+
+    The two reports here are genuinely different estimators, not two views of one.
+    :attr:`pooled` stitches the fold-targeted predictions back together and evaluates the
+    estimand once over the whole sample; :attr:`canonical` evaluates it inside each fold
+    and averages, which is the construction Zheng & van der Laan (2011) analyse.  They
+    coincide exactly for estimands linear in the targeted predictions at equal fold
+    sizes -- ``ate``, ``ey1``, ``ey0`` -- and diverge for ``rr``, ``or``, ``att`` and
+    ``atc``, where a ratio of means is not a mean of ratios and the pooled conditional
+    effects weight by the whole sample's arm share rather than each fold's.  Which one
+    ``result[name]`` carries is set by ``TMLE(cv_evaluation=...)``; both are always here.
 
     Attributes
     ----------
     variance, std_error:
         The cross-validated variance of Zheng & van der Laan (2011) -- the fold-averaged
-        second moment of the influence curve -- per estimand.  Reported alongside the
-        pooled standard error on the estimates rather than replacing it: the two agree
-        when the folds are balanced and the score equation is solved, so a gap between
-        them is itself informative.
+        second moment of the fold-specific influence curves -- per estimand.  This is the
+        standard error attached to :attr:`canonical`; the pooled report carries the
+        ordinary influence-curve one.  The two agree when the folds are balanced and the
+        score equation is solved, so a gap between them is itself informative.
     fold_estimates:
-        Per-estimand tuple of fold-specific plug-in estimates.
+        Per-estimand tuple of fold-specific plug-in estimates.  Estimands that some fold
+        could not evaluate (no units in the conditioning arm, a boundary counterfactual
+        mean) are absent, and their omission was warned about at fit time.
     fold_epsilon:
         Per-targeting-group tuple of that fold's fluctuation coefficients.
+    pooled, canonical:
+        The two reports, per estimand.
     """
 
     n_folds: int
@@ -180,6 +208,8 @@ class CVTargeting:
     variance: dict[str, float]
     fold_estimates: dict[str, tuple[float, ...]]
     fold_epsilon: dict[str, tuple[tuple[float, ...], ...]]
+    pooled: dict[str, ParameterEstimate] = field(default_factory=dict)
+    canonical: dict[str, ParameterEstimate] = field(default_factory=dict)
 
     @property
     def std_error(self) -> dict[str, float]:
@@ -187,16 +217,18 @@ class CVTargeting:
         return {name: float(np.sqrt(value)) for name, value in self.variance.items()}
 
     def to_frame(self, data: CausalData | None = None) -> Any:
-        """One row per estimand: the CV standard error and the fold-to-fold spread."""
+        """One row per estimand: both reports, the CV standard error and the spread."""
         names = list(self.variance)
         errors = self.std_error
         payload: dict[str, Any] = {
             "estimand": names,
+            "canonical_psi": [self.canonical[name].psi for name in names],
+            "pooled_psi": [self.pooled[name].psi for name in names],
             "cv_std_err": [errors[name] for name in names],
-            "fold_mean": [float(np.mean(self.fold_estimates[name])) for name in names],
+            "pooled_std_err": [self.pooled[name].std_error for name in names],
             "fold_sd": [
                 float(np.std(self.fold_estimates[name], ddof=1))
-                if len(self.fold_estimates[name]) > 1
+                if len(self.fold_estimates.get(name, ())) > 1
                 else float("nan")
                 for name in names
             ],
@@ -214,16 +246,31 @@ class CVTargeting:
             rows.append(
                 [
                     name,
-                    f"{np.mean(values):.5g}",
+                    f"{self.canonical[name].psi:.5g}",
                     f"{errors[name]:.4g}",
+                    f"{self.pooled[name].psi:.5g}",
+                    f"{self.pooled[name].std_error:.4g}",
                     spread,
                     f"[{min(values):.5g}, {max(values):.5g}]",
                 ]
             )
-        table = format_table(["estimand", "fold mean", "cv std_err", "fold sd", "fold range"], rows)
+        table = format_table(
+            [
+                "estimand",
+                "canonical",
+                "cv std_err",
+                "pooled",
+                "std_err",
+                "fold sd",
+                "fold range",
+            ],
+            rows,
+        )
         header = [
             f"Cross-validated targeting over {self.n_folds} folds "
             f"(sizes {min(self.fold_sizes)}-{max(self.fold_sizes)})",
+            "canonical: evaluated fold by fold and averaged (Zheng & van der Laan).",
+            "pooled: the fold-targeted fits stitched together, evaluated once.",
             "",
         ]
         epsilon_lines = ["", "fluctuation coefficients by fold:"]
@@ -290,7 +337,11 @@ class TMLEResult:
 
     @property
     def cv_targeting(self) -> CVTargeting | None:
-        """Fold-level detail, when the fit used ``targeting_scheme="fold"``."""
+        """Fold-level detail, when the fit used ``targeting_scheme="fold"``.
+
+        Carries both the pooled and the canonical CV-TMLE report whichever one
+        ``result[name]`` was configured to show, so the two can always be compared.
+        """
         value = self.extra.get("cv_tmle")
         return value if isinstance(value, CVTargeting) else None
 

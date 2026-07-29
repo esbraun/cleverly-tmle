@@ -185,22 +185,28 @@ class TestTypeIError:
 
 
 class TestCvTmle:
-    """Cross-validated TMLE: what each of its two ingredients actually buys.
+    """Cross-fitted TMLE and CV-TMLE, and what separates them empirically.
 
-    CV-TMLE (Zheng & van der Laan, 2011) has two parts, and they are worth separating
-    because only one of them moves coverage.
+    **Cross-fitted nuisances** (``cross_fit=True``) remove the Donsker condition on the
+    nuisance *estimators* -- a smoothness condition that aggressive machine learning
+    cheerfully violates.  Fit out of fold, no model predicts a row it was trained on,
+    the empirical-process term involving them vanishes, and the influence-curve variance
+    stops being understated.  That is the effect these studies are able to resolve, and
+    it is large.
 
-    **Cross-fitted nuisances** (``cross_fit=True``) are what buy the theory.  A
-    pooled TMLE needs the nuisance estimators to fall in a Donsker class -- a
-    smoothness condition that aggressive machine learning cheerfully violates.  Fit
-    out of fold, no model predicts a row it was trained on, the condition is not
-    needed, and the influence-curve variance stops being understated.
+    **Fold-wise targeting** (``targeting_scheme="fold"``) solves the fluctuation inside
+    each validation fold instead of once over all of them, which is the construction
+    Zheng & van der Laan (2011) analyse.  Pooled targeting on cross-fitted nuisances is
+    a different estimator -- the cross-fitted TMLE of the debiased-ML literature -- whose
+    own empirical-process term is controlled by a separate argument: given the
+    cross-fitted ``Qbar``, the family ``{Qbar(epsilon)}`` is indexed by one bounded
+    scalar and so is Donsker by finite-dimensionality however complex ``Qbar`` is.
 
-    **Fold-wise targeting** (``targeting_scheme="fold"``) solves the fluctuation
-    separately inside each validation fold instead of once over all of them.  Both
-    schemes solve the same pooled score equation and both are valid CV-TMLEs, so the
-    honest expectation is that they *agree* -- and that is what is asserted, rather
-    than a benefit that theory does not predict.
+    Their first-order limits coincide under those conditions, so the honest expectation
+    is that they *agree* here, and agreement is what is asserted.  Note what that does
+    and does not establish: it is evidence about this process at this sample size, not a
+    general interchangeability result, and the two constructions' finite-sample
+    behaviour and remainder arguments differ in general.
     """
 
     @staticmethod
@@ -247,10 +253,11 @@ class TestCvTmle:
         pooled = self._overfitting_study(cross_fit=True, targeting_scheme="pooled")
         fold_wise = self._overfitting_study(cross_fit=True, targeting_scheme="fold")
 
-        # Where epsilon is solved is a second-order choice once the nuisances are out
-        # of fold. Asserting equivalence rather than improvement is the point: if this
-        # test ever showed fold-wise targeting *winning* on coverage, the pooled path
-        # would be the thing to go and look at.
+        # The two constructions share a first-order limit under the conditions in the
+        # class docstring, all of which hold here, so equivalence is what theory predicts
+        # and improvement is not. Asserting equivalence is the point: if this test ever
+        # showed fold-wise targeting *winning* on coverage, one of those conditions would
+        # have stopped holding and the pooled path would be the thing to go and look at.
         assert abs(fold_wise.coverage - pooled.coverage) < 0.05, (pooled, fold_wise)
         assert fold_wise.se_ratio > 0.85
         assert abs(fold_wise.rmse - pooled.rmse) < 0.1 * pooled.rmse
