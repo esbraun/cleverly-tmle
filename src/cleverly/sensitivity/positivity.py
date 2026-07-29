@@ -43,6 +43,7 @@ import numpy as np
 
 from .._typing import FloatArray
 from ..estimators.base import format_table
+from ..estimators.direct_effect import targeted_rows
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -314,11 +315,20 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     the weights the estimating equation *actually* forms -- ``1 / pi`` at each unit's
     realised arm, over the rows whose residual it multiplies -- and is reported on the
     same scale as the propensity's ESS so that the two can be read side by side.
+
+    Which rows those are depends on the estimand.  A row with no recorded outcome
+    contributes a genuine zero to the residual term, and so does a row whose intermediate
+    is not the level being targeted; neither is weighted by any mechanism, so neither
+    belongs in an effective sample size.  For a controlled direct effect that is a real
+    difference rather than a technicality -- roughly half the sample is typically at the
+    other level, and averaging it in would report an ESS for a weighting that never
+    happened.
     """
     data = result.data
     nuisance = result.nuisance
     bound = result.config.missingness_bound
     treated = data.treatment == 1.0
+    contributing = targeted_rows(data, result.intermediate_value)
     out: dict[str, dict[str, float]] = {}
 
     candidates: list[tuple[str, Any]] = [("P(Delta=1|A,W)", nuisance.missingness)]
@@ -343,7 +353,7 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
         # a genuine zero to that term, so they are not weighted by it and do not belong
         # in its effective sample size.
         at_arm = np.where(treated, array[:, 1], array[:, 0])
-        used = np.maximum(at_arm[data.observed], bound)
+        used = np.maximum(at_arm[contributing], bound)
         out[name] = {
             "min": float(flat.min()),
             "q01": float(np.quantile(flat, 0.01)),
@@ -487,9 +497,18 @@ def _clipped_fraction(result: TMLEResult, lower: float, mechanism: bool) -> floa
     if not mechanism:
         propensity = result.nuisance.propensity
         return float(np.mean((propensity < lower) | (propensity > 1.0 - lower)))
+    # The intermediate entry must be the density for the level being targeted, not the
+    # raw P(Z = 1 | A, W): at z = 0 the covariate divides by the complement, so reading
+    # the array directly counts the wrong tail and reports a mirror-inverted fraction.
+    # This column is not a nicety -- it is the only part of the mechanism truncation
+    # curve that can detect a q_z positivity problem at all.  A density that is clipped
+    # to a constant rescales both clever-covariate columns by the same factor, and the
+    # fluctuation ``epsilon * h`` is invariant to that, so ``psi`` sits flat across the
+    # whole sweep however badly the bound is binding.
+    candidates = [result.nuisance.missingness]
+    if result.nuisance.intermediate is not None and result.intermediate_value is not None:
+        candidates.append(result.nuisance.intermediate_density(result.intermediate_value, 0.0))
     parts = [
-        np.asarray(values, dtype=float).reshape(-1)
-        for values in (result.nuisance.missingness, result.nuisance.intermediate)
-        if values is not None
+        np.asarray(values, dtype=float).reshape(-1) for values in candidates if values is not None
     ]
     return float(np.mean(np.concatenate(parts) < lower))

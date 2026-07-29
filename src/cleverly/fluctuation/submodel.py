@@ -66,6 +66,13 @@ exactly.  ``tests/unit/test_remainder_mar.py`` checks both statements at machine
 precision, and ``tests/unit/test_influence_gateaux_mar.py`` checks that the influence
 curve above is the efficient one for the observed-data model.
 
+A controlled direct effect puts a third factor, :math:`q_z(a, W) = P(Z = z \mid A = a,
+W)`, in the same denominator, and the statement generalises the same way rather than
+gaining a third independent half: consistent if :math:`\bar Q` is right, **or** if the
+product :math:`g\,q_z\,\pi` is right.  Everything above holds with :math:`\pi` replaced
+by :math:`q_z\,\pi` throughout; :mod:`cleverly.estimators.direct_effect` derives it,
+along with the parameter and the assumptions that identify it.
+
 **Truncation.**  ``g``, :math:`\pi` and the intermediate density are all bounded away
 from zero before they enter :math:`h`.  This regularises estimation; it does not
 redefine the target.  The plug-in is an average of targeted predictions and contains no

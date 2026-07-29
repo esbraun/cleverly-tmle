@@ -441,10 +441,22 @@ class CausalData:
         *,
         intermediate_value: float | None = None,
     ) -> FloatArray:
-        """``[a, W]`` with the treatment (and optionally ``Z``) set to a constant."""
+        """``[a, W]`` with the treatment (and optionally ``Z``) set to a constant.
+
+        The intermediate column is appended only when the data actually carries one, so
+        that this and :meth:`treatment_design` cannot disagree about the width of the
+        design.  Asking for a level the data has no column for is an error rather than a
+        silently wider matrix than the model was trained on.
+        """
         a = np.full((self.n, 1), float(treatment_value))
         blocks = [a, self.covariates]
         if intermediate_value is not None:
+            if self.intermediate is None:
+                raise DataError(
+                    f"counterfactual_design was given intermediate_value="
+                    f"{intermediate_value!r} but the data has no intermediate variable; "
+                    "the design would be one column wider than the outcome model's."
+                )
             blocks.append(np.full((self.n, 1), float(intermediate_value)))
         return np.hstack(blocks)
 
@@ -467,6 +479,9 @@ class CausalData:
         holds in particular when the outcome's recording is decided before ``Z`` is
         realised.  Where that is implausible, the estimand belongs to an ``ltmle``-style
         longitudinal analysis; see the roadmap in the README.
+
+        :mod:`cleverly.estimators.direct_effect` states the rest of the assumptions this
+        one belongs to, and derives the influence function they identify.
         """
         return self.treatment_design()
 
