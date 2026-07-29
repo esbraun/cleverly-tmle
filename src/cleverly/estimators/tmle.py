@@ -133,8 +133,8 @@ class TMLE:
         models.
     targeting_scheme:
         Where the fluctuation is fit, given cross-fitted nuisances.  ``"pooled"``
-        (default) fits one ``epsilon`` on all rows at once; ``"fold"`` fits a separate
-        ``epsilon`` inside each validation fold, which is the targeting step of Zheng
+        (default) fits a single ``epsilon`` vector on all rows at once; ``"fold"`` fits
+        a separate one inside each validation fold, which is the targeting step of Zheng
         & van der Laan's (2011) CV-TMLE.  Both solve the same pooled score equation
         exactly.  Together with ``cv_evaluation`` these name three distinct estimators,
         and it is worth being precise about which one is running:
@@ -152,17 +152,40 @@ class TMLE:
         on, and the empirical-process term involving them vanishes.  Pooled targeting
         on top of cross-fitted nuisances then adds an empirical-process term of its
         own, because ``epsilon`` is fit on the same rows it fluctuates.  That term is
-        controlled -- but by a separate argument, not by cross-fitting: holding the
-        cross-fitted ``Qbar`` fixed, the fluctuated family ``{Qbar(epsilon)}`` is
-        indexed by one bounded scalar and is Lipschitz in it, so it is Donsker by
-        finite-dimensionality however complex ``Qbar`` is.
+        controlled -- but by a separate argument, not by cross-fitting.  Sample
+        splitting is what licenses the argument: *conditional on the training-fold
+        fits*, ``Qbar`` is a fixed function, so how it was learned stops mattering.
+        Conditionally, the fluctuated family ``{Qbar(epsilon)}`` is indexed by a fixed
+        finite-dimensional coefficient ranging over a compact neighbourhood, and is
+        Lipschitz in it, so it has manageable entropy and is Donsker however complex
+        ``Qbar`` is.  Finite-dimensional, not scalar: ``epsilon`` has one entry per
+        clever-covariate column, which is two for the ``mean`` group -- one per arm,
+        the submodel behind ``ey1``, ``ey0``, ``ate``, ``rr`` and ``or`` -- and one
+        for ``att`` and ``atc``.
 
-        So the two schemes have the same first-order limit under: cross-fitted
-        nuisances, an ``epsilon`` ranging over a bounded set with ``epsilon_hat``
-        converging in probability, a bounded clever covariate (which the ``g_bounds``
-        truncation supplies), and the usual ``o_P(n^{-1/2})`` second-order remainder.
-        They are not the same estimator, and outside those conditions -- and in finite
-        samples generally -- their behaviour and their remainder arguments differ.
+        That argument buys the empirical-process term and nothing else.  It is not a
+        substitute for nuisance convergence, and the pooled estimator is asymptotically
+        linear and efficient only with the rest of the usual conditions in place: the
+        estimated influence curve converging in ``L_2(P_0)``; positivity, which bounds
+        the clever covariate and which the ``g_bounds`` truncation supplies; the score
+        equation solved to ``o_P(n^{-1/2})``; ``epsilon_hat`` converging in probability
+        within that compact neighbourhood; and a second-order remainder that is
+        ``o_P(n^{-1/2})`` *by a product rate on* ``ghat`` *and* ``Qbarhat`` -- a
+        condition on the learners themselves, which finite-dimensionality of the
+        fluctuation does nothing to supply.
+
+        One further asymmetry is worth stating plainly.  With ``cross_fit=True`` every
+        row's *nuisance* prediction is out of fold, but under pooled targeting its
+        *targeted* prediction is not: a single ``epsilon_hat`` fit across all validation
+        rows carries other folds' outcomes into every row's fluctuation.  The pooled
+        coefficient stays low-dimensional, so this does not break the argument above,
+        but it does mean the argument has to handle a random pooled coefficient rather
+        than claim each targeted prediction is purely out-of-sample.  Fold-wise
+        targeting is what makes that claim true.
+
+        So the two schemes share a first-order limit under those conditions.  They are
+        not the same estimator, and outside them -- and in finite samples generally --
+        their behaviour and their remainder arguments differ.
         Zheng & van der Laan prove their result for the fold-targeted construction
         specifically; the pooled scheme is the cross-fitted TMLE of the
         double/debiased-machine-learning literature.  The statistical validation tier
@@ -900,10 +923,14 @@ class TMLE:
 
         Each fold's ``epsilon`` is fit only against rows whose nuisance predictions came
         from a model trained on the other folds -- the targeting step of Zheng & van der
-        Laan's (2011) CV-TMLE.  The pooled scheme already has that property row by row
-        whenever ``cross_fit=True``; what changes here is that the fluctuation
-        *coefficient* is estimated within a fold rather than across all of them, so no
-        row contributes to the fit that fluctuates it.
+        Laan's (2011) CV-TMLE.  What changes relative to pooled targeting is the
+        *coefficient*.  With ``cross_fit=True`` the pooled scheme already draws every
+        row's nuisance prediction from a model that never saw it, but its single
+        ``epsilon_hat`` is fit across all validation rows at once, so every row's
+        fluctuation depends on every other row's outcome and the targeted prediction is
+        out of sample only in its nuisance component.  Fitting within a fold removes
+        that last coupling: no row contributes to the coefficient that fluctuates it,
+        and the targeted prediction is out of sample throughout.
 
         The fold-specific targeted predictions are stitched back into a full-length fit.
         Because each fold's score is zero on its own rows, the pooled score -- a sum over

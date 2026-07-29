@@ -118,12 +118,21 @@ Three constructions, and it is worth knowing which one you are running:
 Cross-fitting the nuisances is what removes the Donsker condition on the nuisance
 *estimators*. Pooled targeting on top of that adds an empirical-process term of its own,
 because `epsilon` is fit on the rows it fluctuates — controlled, but by a different
-argument: holding the cross-fitted `Qbar` fixed, `{Qbar(epsilon)}` is indexed by one
-bounded scalar and so is Donsker by finite-dimensionality however complex `Qbar` is. The
-two share a first-order limit given cross-fitted nuisances, a converging `epsilon` over a
-bounded set, a bounded clever covariate (the `g_bounds` truncation), and the usual
-`o_P(n^-1/2)` remainder — but they are not the same estimator, and Zheng & van der Laan
-prove their result for the fold-targeted construction specifically.
+argument: *conditional on the training-fold fits* `Qbar` is fixed, and `{Qbar(epsilon)}`
+is then indexed by a fixed finite-dimensional coefficient over a compact set (two entries
+for the default estimand, one per arm), Lipschitz in it, and so Donsker however complex
+`Qbar` is.
+
+That controls the empirical-process term and nothing else. Efficiency still needs the rest:
+positivity bounding the clever covariate (the `g_bounds` truncation), the estimated
+influence curve converging in `L_2`, the score solved to `o_P(n^-1/2)`, and a second-order
+remainder that is `o_P(n^-1/2)` by a *product rate* on `ghat` and `Qbarhat` — a condition
+on the learners, which the finite-dimensional fluctuation does not supply. Note too that a
+single pooled `epsilon_hat` couples the folds: each row's nuisance prediction is out of
+fold, but its *targeted* prediction is not. The two schemes share a first-order limit under
+those conditions — but they are not the same estimator, and Zheng & van der Laan prove
+their result for the fold-targeted construction specifically. See `targeting_scheme` in the
+API docs for the full statement.
 
 ```python
 res = TMLE(targeting_scheme="fold").fit(frame, outcome="Y", treatment="A")
