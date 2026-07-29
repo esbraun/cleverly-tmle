@@ -198,9 +198,13 @@ class TestCvTmle:
     each validation fold instead of once over all of them, which is the construction
     Zheng & van der Laan (2011) analyse.  Pooled targeting on cross-fitted nuisances is
     a different estimator -- the cross-fitted TMLE of the debiased-ML literature -- whose
-    own empirical-process term is controlled by a separate argument: given the
-    cross-fitted ``Qbar``, the family ``{Qbar(epsilon)}`` is indexed by one bounded
-    scalar and so is Donsker by finite-dimensionality however complex ``Qbar`` is.
+    own empirical-process term is controlled by a separate argument: conditional on the
+    training-fold fits ``Qbar`` is fixed, and ``{Qbar(epsilon)}`` is then indexed by a
+    fixed finite-dimensional coefficient over a compact set -- two entries here, one per
+    arm -- so it is Donsker however complex ``Qbar`` is.  That argument covers the
+    empirical-process term only; the product-rate remainder, positivity and ``L_2``
+    convergence of the influence curve are still required, and are what these studies
+    are really exercising.
 
     Their first-order limits coincide under those conditions, so the honest expectation
     is that they *agree* here, and agreement is what is asserted.  Note what that does
