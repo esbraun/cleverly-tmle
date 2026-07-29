@@ -21,8 +21,8 @@ import numpy as np
 import pytest
 
 from cleverly import TMLE
-from cleverly.datasets import binary_outcome_dgp
-from tests.conftest import OracleOutcome, OracleTreatment, aipw_ate
+from cleverly.datasets import binary_outcome_dgp, missing_outcome_binary_dgp
+from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment, aipw_ate
 
 
 @pytest.fixture(scope="module")
@@ -128,3 +128,123 @@ class TestEstimandIdentities:
         # estimates: the ATT and ATC get their own fluctuations, each solving its own
         # score equation, so the three targeted fits differ slightly.
         assert combined == pytest.approx(result.psi("ate"), abs=5.0 * result["ate"].std_error)
+
+
+class TestOracleNuisancesWithMissingOutcomes:
+    """The same three checks, with a third nuisance in the clever covariate.
+
+    The AIPW comparison is the one that gains most from being extended here.  Under
+    missingness the one-step estimator's residual term carries ``Delta / pi_a(W)`` on top
+    of ``1{A=a} / g_a(W)``, and it is written out longhand in :func:`tests.conftest.aipw_ate`
+    -- a second implementation of the estimating equation that shares no code with the
+    fluctuation.  Agreement to the second-order gap between a substitution estimator and
+    a one-step correction is then evidence about the assembled path, not about either
+    implementation's internal consistency.
+    """
+
+    @pytest.fixture(scope="class")
+    def oracle_fit(self) -> tuple[object, dict[str, float]]:
+        dgp = missing_outcome_binary_dgp()
+        frame, truth = dgp.sample(4000, seed=11)
+        estimator = TMLE(
+            outcome_learner=OracleOutcome(dgp),
+            treatment_learner=OracleTreatment(dgp),
+            missingness_learner=OracleMissingness(dgp),
+            cross_fit=False,
+            estimands="all",
+            random_state=0,
+            simultaneous=False,
+        )
+        return estimator.fit(frame, outcome="Y", treatment="A", delta="Delta"), truth
+
+    def test_a_material_share_of_outcomes_is_missing(self, oracle_fit) -> None:
+        result, _ = oracle_fit
+        assert 0.6 < float(result.data.observed.mean()) < 0.85
+
+    def test_the_score_equation_is_solved_exactly(self, oracle_fit) -> None:
+        result, _ = oracle_fit
+        check = result.validation.score_check()
+        assert check.passed
+        for row in check.rows:
+            assert abs(row.score) < 1e-12
+
+    def test_agrees_with_an_independent_aipw_implementation(self, oracle_fit) -> None:
+        result, _ = oracle_fit
+        dgp = missing_outcome_binary_dgp()
+        data = result.data
+        w = data.covariates
+        missingness = np.column_stack(
+            [
+                np.clip(dgp.missingness(w, 0.0), 1e-9, 1.0),
+                np.clip(dgp.missingness(w, 1.0), 1e-9, 1.0),
+            ]
+        )
+        reference = aipw_ate(
+            data.outcome,
+            data.treatment,
+            np.clip(dgp.propensity(w), 1e-9, 1 - 1e-9),
+            dgp.outcome_mean(w, 1.0, None),
+            dgp.outcome_mean(w, 0.0, None),
+            delta=data.observed.astype(float),
+            missingness=missingness,
+        )
+        assert result.psi("ate") == pytest.approx(reference, abs=3e-3)
+
+    def test_the_correction_is_what_carries_a_misspecified_outcome_model(self, oracle_fit) -> None:
+        """What the ``1 / pi`` factor is actually for, priced on the reference estimator.
+
+        With the *true* ``Qbar`` the augmentation term is mean-zero whether or not it is
+        weighted, so dropping ``1 / pi`` costs nothing and comparing the two would prove
+        nothing -- under missingness at random a correct outcome regression identifies
+        the estimand on its own.  Replacing ``Qbar`` by a constant removes that half of
+        double robustness, and then the weighting is the only thing left holding the
+        estimate up: corrected, it still finds the truth; uncorrected, it converges to
+        ``E[pi_a(W) (Qbar(a, W) - c)]`` and is visibly biased.
+        """
+        result, truth = oracle_fit
+        dgp = missing_outcome_binary_dgp()
+        data = result.data
+        w = data.covariates
+        propensity = np.clip(dgp.propensity(w), 1e-9, 1 - 1e-9)
+        missingness = np.column_stack(
+            [
+                np.clip(dgp.missingness(w, 0.0), 1e-9, 1.0),
+                np.clip(dgp.missingness(w, 1.0), 1e-9, 1.0),
+            ]
+        )
+        flat = np.full(data.n, float(np.mean(data.outcome[data.observed])))
+        delta = data.observed.astype(float)
+
+        corrected = aipw_ate(
+            data.outcome,
+            data.treatment,
+            propensity,
+            flat,
+            flat,
+            delta=delta,
+            missingness=missingness,
+        )
+        uncorrected = aipw_ate(data.outcome, data.treatment, propensity, flat, flat, delta=delta)
+        assert corrected == pytest.approx(truth["ate"], abs=4.0 * result["ate"].std_error)
+        assert abs(uncorrected - truth["ate"]) > 1e-2
+        assert abs(uncorrected - truth["ate"]) > 3.0 * abs(corrected - truth["ate"])
+
+    @pytest.mark.parametrize("estimand", ["ate", "att", "atc", "ey1", "ey0"])
+    def test_recovers_the_truth_within_sampling_error(self, oracle_fit, estimand: str) -> None:
+        result, truth = oracle_fit
+        estimate = result[estimand]
+        deviation = abs(estimate.psi - truth[estimand])
+        assert deviation < 4.0 * estimate.std_error, (
+            f"{estimand}: {estimate.psi:.4f} vs truth {truth[estimand]:.4f}, "
+            f"se {estimate.std_error:.4f}"
+        )
+
+    @pytest.mark.parametrize("estimand", ["rr", "or"])
+    def test_the_ratio_estimands_have_a_truth_to_be_checked_against(
+        self, oracle_fit, estimand: str
+    ) -> None:
+        # No other process combines a binary outcome with missing outcomes, so until now
+        # rr and or under `delta=` had no population value to compare with at all.
+        result, truth = oracle_fit
+        low, high = result[estimand].ci
+        assert low <= truth[estimand] <= high

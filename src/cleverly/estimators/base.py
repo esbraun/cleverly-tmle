@@ -122,6 +122,10 @@ class TMLEConfig:
     n_bootstrap: int = 0
     cv_evaluation: bool = False
     auto_bounds_n: float | None = None
+    #: Which mechanisms ``missingness_bound`` was actually applied to -- empty when the
+    #: fit had neither missing outcomes nor an intermediate variable, in which case the
+    #: bound exists on the config but never touched anything.
+    bounded_mechanisms: tuple[str, ...] = ()
 
     @property
     def estimator_name(self) -> str:
@@ -161,6 +165,12 @@ class TMLEConfig:
                 f"{self.g_bounds_conditional[1]:.4g}]"
             )
         lines.append(bounds)
+        if self.bounded_mechanisms:
+            # The propensity is not the only denominator in the clever covariate, and a
+            # reader comparing two fits needs to see every bound that shaped the estimate
+            # -- not just the one with a familiar name.
+            named = " and ".join(self.bounded_mechanisms)
+            lines.append(f"{named} truncated to [{self.missingness_bound:.4g}, 1]")
         if self.q_bounds is not None:
             lines.append(
                 f"outcome scaled from [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}] to [0, 1]"

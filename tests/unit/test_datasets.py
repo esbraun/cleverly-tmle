@@ -27,8 +27,10 @@ from cleverly.datasets import (
     make_instrument,
     make_linear_ate,
     make_missing_outcome,
+    make_missing_outcome_binary,
     make_nonlinear_ate,
     make_weak_overlap,
+    missing_outcome_dgp,
     nonlinear_dgp,
     weak_overlap_dgp,
 )
@@ -184,6 +186,54 @@ class TestSampling:
         assert 0.0 < observed.mean() < 1.0
         # Y is NaN exactly where Delta is 0.
         assert np.array_equal(np.isnan(frame["Y"].to_numpy()), observed == 0.0)
+
+    def test_strength_one_reproduces_the_original_process(self) -> None:
+        # The `strength` parameter was added later; existing truths, seeds and any
+        # threshold tuned against this process must be unaffected at the default.
+        _, truth = make_missing_outcome(n=800, seed=17)
+        assert truth["ate"] == pytest.approx(1.2, abs=1e-4)
+        assert truth["att"] == pytest.approx(1.2, abs=1e-4)
+        from cleverly.utils.bounds import expit
+
+        dgp = missing_outcome_dgp()
+        assert dgp.name == "missing_outcome"
+        w = np.random.default_rng(0).normal(size=(200, 3))
+        np.testing.assert_allclose(
+            dgp.outcome_mean(w, 1.0, None),
+            1.0 + 1.2 + 0.9 * w[:, 0] + 0.6 * w[:, 1] - 0.4 * w[:, 2],
+        )
+        np.testing.assert_allclose(
+            dgp.missingness(w, 1.0), expit(1.8 - 0.8 * w[:, 0] + 0.3 * w[:, 2])
+        )
+
+    def test_raising_the_strength_sharpens_the_mechanism_and_bends_the_outcome(self) -> None:
+        w = np.random.default_rng(1).normal(size=(20_000, 3))
+        mild, sharp = missing_outcome_dgp(), missing_outcome_dgp(strength=2.0)
+        # The mechanism reaches further towards zero, which is what puts the estimate on
+        # the inverse-probability half of double robustness.
+        assert np.quantile(sharp.missingness(w, 0.0), 0.01) < 0.5 * np.quantile(
+            mild.missingness(w, 0.0), 0.01
+        )
+        # And the outcome mean is no longer a linear function of (A, W), so a GLM cannot
+        # be correctly specified for it -- the point of the harder process.
+        design = np.column_stack([np.ones(len(w)), w])
+        for arm in (0.0, 1.0):
+            target = sharp.outcome_mean(w, arm, None)
+            residual = target - design @ np.linalg.lstsq(design, target, rcond=None)[0]
+            assert float(np.std(residual)) > 0.1
+
+    def test_a_binary_outcome_can_also_be_missing(self) -> None:
+        frame, truth = make_missing_outcome_binary(n=1000, seed=18)
+        assert "Delta" in frame.columns
+        observed = frame["Delta"].to_numpy()
+        assert 0.0 < observed.mean() < 1.0
+        assert np.array_equal(np.isnan(frame["Y"].to_numpy()), observed == 0.0)
+        assert set(np.unique(frame["Y"].to_numpy()[observed == 1.0])) <= {0.0, 1.0}
+        # The combination is what gives the ratio estimands a truth under `delta=`.
+        assert truth["rr"] == pytest.approx(truth["ey1"] / truth["ey0"], abs=1e-9)
+        assert truth["or"] == pytest.approx(
+            (truth["ey1"] / (1 - truth["ey1"])) / (truth["ey0"] / (1 - truth["ey0"])), abs=1e-9
+        )
 
     def test_the_intermediate_responds_to_treatment(self) -> None:
         frame, _ = make_cde(n=4000, seed=0)

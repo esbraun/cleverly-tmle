@@ -87,6 +87,23 @@ class TestMissingOutcomes:
         assert modelled < ignored
         assert modelled < 0.1
 
+    def test_the_refutation_tests_run_on_a_missing_outcome_fit(self, fit) -> None:
+        """The refuters carry ``Delta`` through, and the placebo still finds nothing.
+
+        Each refuter rebuilds the ``CausalData`` -- a placebo treatment, an extra
+        covariate, a row subset -- and a missing-outcome fit is the case where that
+        rebuilding could quietly lose the indicator or desynchronise it from the
+        outcome.  Nothing exercised this path before.
+        """
+        result, _ = fit
+        refutation = result.validation.refute(estimand="ate", n_replicates=3, random_state=0)
+        assert {test.name for test in refutation.tests} == {
+            "placebo",
+            "random_common_cause",
+            "subset",
+        }
+        assert refutation.passed, refutation.summary()
+
     def test_the_nuisance_layer_refuses_to_ignore_missingness(self) -> None:
         """The low-level guard against silently dropping the missingness model."""
         from sklearn.linear_model import LinearRegression, LogisticRegression

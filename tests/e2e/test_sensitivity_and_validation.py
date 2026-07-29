@@ -12,6 +12,7 @@ analysis is exercised on a case where the correct answer is known by constructio
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 
 import narwhals as nw
@@ -418,3 +419,160 @@ class TestCombinedSensitivityReport:
         assert "Positivity" in report
         assert "Omitted-variable sensitivity" in report
         assert "E-value" in report
+
+
+class TestTheMechanismDenominatorsAreDiagnosed:
+    r"""``P(Delta = 1 | A, W)`` divides the clever covariate; it needs the same scrutiny as ``g``.
+
+    Nothing used to report it.  ``positivity()`` described only the propensity,
+    ``truncation_curve()`` swept only ``g_bounds``, the positivity warning inspected only
+    ``g``, and ``summary()`` printed only ``g_bounds`` and ``q_bounds`` -- so a fit could
+    be resting on a handful of rows that were very unlikely to have been observed at all,
+    with immaculate propensity overlap and nothing anywhere saying so.
+    """
+
+    @pytest.fixture(scope="class")
+    def strained(self) -> object:
+        # strength=2 sharpens the mechanism on W1: the first percentile of pi is ~0.13.
+        frame, _ = make_missing_outcome(n=2000, seed=91, strength=2.0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            return fast_tmle(estimands=("ate",)).fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+            )
+
+    def test_the_report_carries_the_mechanism(self, strained) -> None:
+        report = strained.sensitivity.positivity()
+        assert "P(Delta=1|A,W)" in report.mechanisms
+        stats = report.mechanisms["P(Delta=1|A,W)"]
+        assert 0.0 < stats["min"] < stats["q01"] < stats["q05"] < stats["median"] < 1.0
+        assert "P(Delta=1|A,W)" in report.summary()
+
+    def test_the_mechanism_explains_leverage_the_propensity_does_not(self, strained) -> None:
+        """The case the diagnostic exists for, asserted as a whole.
+
+        On this fit the propensity overlap is immaculate -- nothing truncated, effective
+        sample size above 90% of nominal in both arms -- and yet the largest clever
+        covariate is in the hundreds.  Every bit of that comes from ``pi`` reaching
+        0.04, an order of magnitude below the smallest propensity.  Before this the
+        report had nothing to say about it: a reader saw a three-figure covariate next
+        to a clean bill of health and no way to connect them.
+        """
+        # Measured across seeds 91-95 at this n and strength: pi bottoms out at
+        # 0.019-0.039 against a smallest propensity of 0.105-0.165, the largest clever
+        # covariate runs 53-195, the propensity ESS stays above 0.90 and nothing is
+        # truncated. The windows below are set to hold across that whole range rather
+        # than to the one seed the fixture happens to use.
+        report = strained.sensitivity.positivity()
+        mechanism = report.mechanisms["P(Delta=1|A,W)"]
+        assert report.truncated["fraction"] == 0.0
+        assert min(ess["ratio"] for ess in report.effective_sample_size.values()) > 0.9
+        assert report.clever_covariate_max["mean"] > 40.0
+        # The mechanism is where the leverage lives, and its ESS says so on the same
+        # scale the propensity's is reported on.
+        assert mechanism["min"] < 0.5 * float(np.min(strained.nuisance.propensity))
+        assert mechanism["ess_ratio"] < 0.90
+
+    def test_clipping_the_mechanism_reaches_the_verdict(self) -> None:
+        """The verdict's truncation branch, forced deterministically.
+
+        Driving it through the data instead -- a process sharp enough for the mechanism's
+        effective sample size to fall past 0.6 -- lands at 0.58-0.65 depending on the
+        seed, because the statistic is governed by the extreme tail of a normal
+        covariate. That is a coin flip dressed as a test, so the bound is raised until it
+        bites instead, which is deterministic and exercises the same verdict.
+        """
+        frame, _ = make_missing_outcome(n=1500, seed=94, strength=2.0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            result = fast_tmle(estimands=("ate",), nuisance_bound=0.35).fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+            )
+        verdict = result.sensitivity.positivity().verdict()
+        assert "P(Delta=1|A,W) strains the estimate" in verdict
+        assert "truncation_curve(mechanism=True)" in verdict
+
+    def test_a_low_mechanism_ess_reaches_the_verdict(self, strained) -> None:
+        # The other branch, checked on the rule rather than through a process: what a
+        # data-driven version would be measuring is the tail of a normal, not the rule.
+        report = strained.sensitivity.positivity()
+        assert "adequate" in report.verdict()
+        degenerate = dataclasses.replace(
+            report,
+            mechanisms={
+                "P(Delta=1|A,W)": {**report.mechanisms["P(Delta=1|A,W)"], "ess_ratio": 0.4}
+            },
+        )
+        assert "P(Delta=1|A,W) strains the estimate" in degenerate.verdict()
+
+    def test_a_fit_without_missingness_reports_no_mechanism(self, good_overlap) -> None:
+        report = good_overlap.sensitivity.positivity()
+        assert report.mechanisms == {}
+        assert "P(Delta=1|A,W)" not in report.summary()
+
+    def test_the_bound_appears_in_the_fit_summary(self, strained, good_overlap) -> None:
+        # Traceability: a reported number must be traceable to every bound that shaped
+        # it, not just the one with a familiar name.
+        assert "P(Delta=1|A,W) truncated to" in strained.summary()
+        assert "truncated to [0.01, 1]" not in good_overlap.summary()
+
+    def test_the_curve_sweeps_the_mechanism_bound(self, strained) -> None:
+        curve = nw.from_native(
+            strained.sensitivity.truncation_curve(
+                [0.01, 0.1, 0.25], estimands=["ate"], mechanism=True
+            ),
+            eager_only=True,
+        )
+        truncated = np.array(curve["truncated_fraction"].to_list())
+        values = np.array(curve["psi"].to_list())
+        # A tighter bound on pi clips more rows and moves the estimate, exactly as a
+        # tighter bound on g does -- which is the whole reason it deserves a curve.
+        assert np.all(np.diff(truncated) > 0)
+        assert float(values.max() - values.min()) > 1e-3
+
+    def test_the_mechanism_curve_is_flat_when_the_bound_never_binds(self, strained) -> None:
+        # Below the smallest fitted pi nothing is clipped, so the estimate cannot move.
+        smallest = float(np.min(strained.nuisance.missingness))
+        grid = [smallest / 8.0, smallest / 4.0, smallest / 2.0]
+        curve = nw.from_native(
+            strained.sensitivity.truncation_curve(grid, estimands=["ate"], mechanism=True),
+            eager_only=True,
+        )
+        values = np.array(curve["psi"].to_list())
+        assert float(values.max() - values.min()) < 1e-9
+
+    def test_sweeping_the_mechanism_needs_a_mechanism(self, good_overlap) -> None:
+        with pytest.raises(ValueError, match="needs a fit with missing outcomes"):
+            good_overlap.sensitivity.truncation_curve(mechanism=True)
+
+    def test_a_degenerate_mechanism_warns(self) -> None:
+        """The warning half: a fit that leans on the bound has to say so at fit time."""
+        frame, _ = make_missing_outcome(n=1500, seed=92, strength=2.0)
+        with pytest.warns(PositivityWarning, match=r"P\(Delta = 1 \| A, W\)"):
+            fast_tmle(estimands=("ate",), nuisance_bound=0.35).fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+            )
+
+    def test_an_untroubled_mechanism_does_not_warn(self) -> None:
+        frame, _ = make_missing_outcome(n=1500, seed=93)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", PositivityWarning)
+            fast_tmle(estimands=("ate",)).fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+            )

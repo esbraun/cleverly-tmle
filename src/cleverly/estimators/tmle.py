@@ -680,6 +680,14 @@ class TMLE:
                 data.effective_n if self.g_bounds == "auto" and data.is_weighted else None
             ),
             missingness_bound=self.nuisance_bound,
+            bounded_mechanisms=tuple(
+                name
+                for name, present in (
+                    ("P(Delta=1|A,W)", data.has_missing_outcome),
+                    ("P(Z=z|A,W)", data.has_intermediate),
+                )
+                if present
+            ),
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             alpha=self.alpha,
             target_weights=self.target_weights,
@@ -725,6 +733,29 @@ class TMLE:
                 stacklevel=3,
             )
 
+        # The propensity is not the only denominator in the clever covariate. A
+        # missingness or intermediate probability near zero gives a row exactly the same
+        # unbounded leverage, and it is the one a reader is least likely to be watching
+        # for -- overlap in g can look immaculate while the estimate rests on a handful
+        # of rows that were very unlikely to be observed at all.
+        for label, values in (
+            ("P(Delta = 1 | A, W)", nuisance.missingness),
+            ("P(Z = z | A, W)", nuisance.intermediate),
+        ):
+            if values is None:
+                continue
+            below = float(np.mean(np.asarray(values, dtype=float) < config.missingness_bound))
+            if below > _TRUNCATION_WARN_FRACTION:
+                warnings.warn(
+                    f"{below:.1%} of estimated {label} values fall below the nuisance bound "
+                    f"{config.missingness_bound:.4g}. That probability divides the clever "
+                    "covariate just as g(W) does, so those rows carry outsized leverage and "
+                    "the bound is trading bias for variance. Inspect "
+                    "res.sensitivity.positivity() and re-run with a different nuisance_bound.",
+                    PositivityWarning,
+                    stacklevel=3,
+                )
+
     # ------------------------------------------------------- targeting layer
 
     def retarget(
@@ -737,6 +768,7 @@ class TMLE:
         g_bounds: tuple[float, float] | None = None,
         g_bounds_conditional: tuple[float, float] | None = None,
         missingness: FloatArray | None = None,
+        nuisance_bound: float | None = None,
         alpha_sig: float | None = None,
     ) -> tuple[dict[str, ParameterEstimate], dict[str, Fluctuation]]:
         """Run the targeting step and build estimates from cached nuisance fits.
@@ -744,6 +776,10 @@ class TMLE:
         Separated from :meth:`fit` because every sensitivity analysis is exactly this
         operation with one input perturbed -- a different truncation bound, a tilted
         missingness mechanism -- and re-running it costs a fraction of a full refit.
+
+        ``nuisance_bound`` overrides the lower bound on the missingness and intermediate
+        mechanisms, which is the other denominator in the clever covariate and so the
+        other bound whose influence on the answer is worth sweeping.
         """
         estimates, fluctuations, _ = self._retarget_detailed(
             data,
@@ -753,6 +789,7 @@ class TMLE:
             g_bounds=g_bounds,
             g_bounds_conditional=g_bounds_conditional,
             missingness=missingness,
+            nuisance_bound=nuisance_bound,
             alpha_sig=alpha_sig,
         )
         return estimates, fluctuations
@@ -767,6 +804,7 @@ class TMLE:
         g_bounds: tuple[float, float] | None = None,
         g_bounds_conditional: tuple[float, float] | None = None,
         missingness: FloatArray | None = None,
+        nuisance_bound: float | None = None,
         alpha_sig: float | None = None,
     ) -> tuple[dict[str, ParameterEstimate], dict[str, Fluctuation], CVTargeting | None]:
         """:meth:`retarget`, plus the fold-level report when targeting went fold by fold.
@@ -795,7 +833,7 @@ class TMLE:
         for group in self._groups(requested):
             bounds = mean_bounds if group == "mean" else conditional_bounds
             submodel = self._submodel(
-                data, nuisance, group, bounds, intermediate_value, missingness
+                data, nuisance, group, bounds, intermediate_value, missingness, nuisance_bound
             )
             fluctuation = self._solve(data, nuisance, submodel)
             fluctuations[group] = fluctuation
@@ -907,20 +945,20 @@ class TMLE:
         bounds: tuple[float, float],
         intermediate_value: float | None,
         missingness_override: FloatArray | None,
+        nuisance_bound: float | None = None,
     ) -> Submodel:
+        lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
         propensity = nuisance.bounded_propensity(bounds)
         missingness = (
-            nuisance.bounded_missingness(self.nuisance_bound)
+            nuisance.bounded_missingness(lower)
             if missingness_override is None
-            else np.clip(np.asarray(missingness_override, dtype=float), self.nuisance_bound, 1.0)
+            else np.clip(np.asarray(missingness_override, dtype=float), lower, 1.0)
         )
         intermediate_density = None
         selection = None
         if data.has_intermediate:
             assert intermediate_value is not None and data.intermediate is not None
-            intermediate_density = nuisance.intermediate_density(
-                intermediate_value, self.nuisance_bound
-            )
+            intermediate_density = nuisance.intermediate_density(intermediate_value, lower)
             selection = (data.intermediate == intermediate_value).astype(float)
         return submodel_for(
             group,

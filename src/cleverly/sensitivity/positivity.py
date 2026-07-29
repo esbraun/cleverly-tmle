@@ -36,7 +36,7 @@ diagnostic can be.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -77,6 +77,23 @@ class PositivityReport:
     clever_covariate_max:
         Largest absolute clever-covariate value per targeted estimand family -- the
         single most direct summary of how much one observation can move the estimate.
+    mechanisms:
+        Overlap for the *other* denominators in the clever covariate:
+        ``P(Delta = 1 | A, W)`` when outcomes are missing, and ``P(Z = z | A, W)`` for a
+        controlled direct effect.  Each carries the smallest and lowest-quantile value,
+        how many rows the ``nuisance_bound`` clipped, and ``ess_ratio`` -- the Kish
+        effective sample size the ``1 / mechanism`` weights leave behind, on the same
+        scale as the propensity's, so the two can be read side by side.  Empty when
+        neither applies.
+
+        These deserve reporting for exactly the reason ``g`` does: they enter the
+        estimating equation as a denominator, so a value near zero gives one observation
+        unbounded leverage.  Unlike ``g`` they are one-sided -- only the approach to zero
+        matters -- and they are easy to overlook, because a fit can have perfectly
+        healthy propensity overlap and still be resting on a handful of rows that were
+        very unlikely to be observed at all.
+    nuisance_bound:
+        The lower bound applied to those mechanisms.
     """
 
     propensity_quantiles: dict[str, dict[float, float]]
@@ -87,6 +104,8 @@ class PositivityReport:
     clever_covariate_max: dict[str, float]
     bounds: tuple[float, float]
     n: int
+    mechanisms: dict[str, dict[str, float]] = field(default_factory=dict)
+    nuisance_bound: float = 0.0
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame."""
@@ -159,6 +178,28 @@ class PositivityReport:
         )
         for group, value in self.clever_covariate_max.items():
             lines.append(f"max |clever covariate| ({group}): {value:.4g}")
+        if self.mechanisms:
+            lines.append("")
+            lines.append(
+                format_table(
+                    ["mechanism", "min", "1%", "5%", "median", "ESS / n", "clipped"],
+                    [
+                        [
+                            name,
+                            f"{stats['min']:.4f}",
+                            f"{stats['q01']:.4f}",
+                            f"{stats['q05']:.4f}",
+                            f"{stats['median']:.4f}",
+                            f"{stats['ess_ratio']:.3f}",
+                            f"{stats['clipped']:.0f} ({stats['clipped_fraction']:.2%})",
+                        ]
+                        for name, stats in self.mechanisms.items()
+                    ],
+                )
+            )
+            lines.append(
+                f"(truncated to [{self.nuisance_bound:.4g}, 1]; each row counts both arms)"
+            )
         lines.append("")
         lines.append(self.verdict())
         return "\n".join(lines)
@@ -167,6 +208,21 @@ class PositivityReport:
         """A one-line reading of the diagnostics."""
         worst_ratio = min(ess["ratio"] for ess in self.effective_sample_size.values())
         fraction = self.truncated["fraction"]
+        for name, stats in self.mechanisms.items():
+            # Checked before the propensity verdict, because this is the failure a reader
+            # is least likely to be looking for: overlap in `g` can be immaculate while
+            # the estimate rests on a few rows that were very unlikely to be observed.
+            # Judged on the same scale as the propensity -- the effective sample size the
+            # 1/mechanism weights leave behind -- so the two are directly comparable.
+            if stats["clipped_fraction"] > 0.01 or stats["ess_ratio"] < 0.6:
+                return (
+                    f"VERDICT: {name} strains the estimate. It falls to {stats['min']:.4g} at "
+                    f"its smallest and leaves an effective {stats['ess_ratio']:.0%} of the "
+                    f"rows it weights ({stats['clipped_fraction']:.2%} clipped at "
+                    f"{self.nuisance_bound:.4g}). It divides the clever covariate exactly as "
+                    "g(W) does, so those rows carry outsized leverage whatever the propensity "
+                    "overlap looks like. Check truncation_curve(mechanism=True)."
+                )
         if fraction > 0.05 or worst_ratio < 0.3:
             return (
                 "VERDICT: serious positivity problem. The weighted analysis uses far fewer "
@@ -243,7 +299,61 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
         },
         bounds=bounds,
         n=data.n,
+        mechanisms=_mechanism_overlap(result),
+        nuisance_bound=result.config.missingness_bound,
     )
+
+
+def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
+    """Overlap for the denominators other than ``g`` -- ``pi`` and the intermediate density.
+
+    Two views, because they answer different questions.  The quantiles pool both arms,
+    since both columns are used: the treated arm's covariate divides by the mechanism at
+    ``a = 1`` and the control arm's by the one at ``a = 0``, so the union is the set of
+    values that appear as denominators anywhere.  The effective sample size instead takes
+    the weights the estimating equation *actually* forms -- ``1 / pi`` at each unit's
+    realised arm, over the rows whose residual it multiplies -- and is reported on the
+    same scale as the propensity's ESS so that the two can be read side by side.
+    """
+    data = result.data
+    nuisance = result.nuisance
+    bound = result.config.missingness_bound
+    treated = data.treatment == 1.0
+    out: dict[str, dict[str, float]] = {}
+
+    candidates: list[tuple[str, Any]] = [("P(Delta=1|A,W)", nuisance.missingness)]
+    if nuisance.intermediate is not None and result.intermediate_value is not None:
+        # The covariate divides by P(Z = z | A, W) for the targeted z, which is the
+        # fitted probability or its complement -- so report the one actually used.
+        candidates.append(
+            (
+                f"P(Z={result.intermediate_value:.0f}|A,W)",
+                nuisance.intermediate_density(result.intermediate_value, 0.0),
+            )
+        )
+
+    for name, values in candidates:
+        if values is None:
+            continue
+        array = np.asarray(values, dtype=float)
+        flat = array.reshape(-1)
+        clipped = flat < bound
+        # The weight the estimating equation forms: the mechanism at the realised arm,
+        # on the rows whose residual term it multiplies.  Rows with no outcome contribute
+        # a genuine zero to that term, so they are not weighted by it and do not belong
+        # in its effective sample size.
+        at_arm = np.where(treated, array[:, 1], array[:, 0])
+        used = np.maximum(at_arm[data.observed], bound)
+        out[name] = {
+            "min": float(flat.min()),
+            "q01": float(np.quantile(flat, 0.01)),
+            "q05": float(np.quantile(flat, 0.05)),
+            "median": float(np.median(flat)),
+            "ess_ratio": (_kish_ess(1.0 / used) / float(used.size) if used.size else float("nan")),
+            "clipped": float(clipped.sum()),
+            "clipped_fraction": float(clipped.mean()),
+        }
+    return out
 
 
 def _kish_ess(weights: FloatArray) -> float:
@@ -285,8 +395,9 @@ def truncation_curve(
     bounds: Any = None,
     *,
     estimands: Any = None,
+    mechanism: bool = False,
 ) -> Any:
-    """Re-estimate across a grid of propensity-truncation bounds.
+    """Re-estimate across a grid of truncation bounds.
 
     Returns a tidy frame with one row per ``(bound, estimand)`` giving the point
     estimate and confidence interval.  Only the targeting step is re-run -- the
@@ -305,16 +416,36 @@ def truncation_curve(
         includes the bound the fit actually used.
     estimands:
         Restrict to a subset; defaults to everything the fit reported.
+    mechanism:
+        Sweep the bound on ``P(Delta = 1 | A, W)`` (and the intermediate density)
+        instead of the one on ``g(W)``.  That probability divides the clever covariate
+        exactly as the propensity does, so it has a truncation curve for exactly the
+        same reason -- and it is the one that goes unexamined, because it has no
+        familiar name.  Requires a fit with ``delta=`` or ``intermediate=``.
+
+        Note what the curve does and does not show.  Truncating a mechanism cannot move
+        the *estimand*: the plug-in is an average of targeted predictions and contains
+        no mechanism at all.  What moves is the second-order remainder, so a curve that
+        drifts is saying the estimate is leaning on rows the bound is holding up.
     """
     estimator = result.estimator
     if estimator is None:
         raise ValueError("truncation_curve needs the fitted estimator that produced the result")
 
     names = tuple(result.estimates) if estimands is None else tuple(estimands)
+    if mechanism:
+        if result.nuisance.missingness is None and result.nuisance.intermediate is None:
+            raise ValueError(
+                "mechanism=True needs a fit with missing outcomes or an intermediate "
+                "variable; without one there is no mechanism in the clever covariate to "
+                "truncate. Pass delta=<column> or intermediate=<column> to fit()."
+            )
+        fitted_bound = result.config.missingness_bound
+    else:
+        fitted_bound = result.config.g_bounds[0]
+
     if bounds is None:
-        grid = sorted(
-            {0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, round(result.config.g_bounds[0], 6)}
-        )
+        grid = sorted({0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, round(fitted_bound, 6)})
     else:
         grid = sorted(float(value) for value in bounds)
 
@@ -328,8 +459,9 @@ def truncation_curve(
             result.nuisance,
             estimands=names,
             intermediate_value=result.intermediate_value,
-            g_bounds=pair,
-            g_bounds_conditional=pair,
+            g_bounds=None if mechanism else pair,
+            g_bounds_conditional=None if mechanism else pair,
+            nuisance_bound=lower if mechanism else None,
         )
         for name, estimate in estimates.items():
             low, high = estimate.ci
@@ -341,17 +473,23 @@ def truncation_curve(
                     "std_err": estimate.std_error,
                     "ci_lower": low,
                     "ci_upper": high,
-                    "truncated_fraction": float(
-                        np.mean(
-                            (result.nuisance.propensity < lower)
-                            | (result.nuisance.propensity > 1.0 - lower)
-                        )
-                    ),
-                    "is_fitted_bound": bool(
-                        np.isclose(lower, result.config.g_bounds[0], atol=1e-9)
-                    ),
+                    "truncated_fraction": _clipped_fraction(result, lower, mechanism),
+                    "is_fitted_bound": bool(np.isclose(lower, fitted_bound, atol=1e-9)),
                 }
             )
 
     payload = {key: [row[key] for row in rows] for key in rows[0]}
     return result.data.frame_like(payload)
+
+
+def _clipped_fraction(result: TMLEResult, lower: float, mechanism: bool) -> float:
+    """Share of nuisance values the bound would clip, for whichever bound is swept."""
+    if not mechanism:
+        propensity = result.nuisance.propensity
+        return float(np.mean((propensity < lower) | (propensity > 1.0 - lower)))
+    parts = [
+        np.asarray(values, dtype=float).reshape(-1)
+        for values in (result.nuisance.missingness, result.nuisance.intermediate)
+        if values is not None
+    ]
+    return float(np.mean(np.concatenate(parts) < lower))

@@ -37,7 +37,42 @@ where :math:`h` is the *clever covariate*.  Its form depends on the target:
 Here :math:`\pi_a(W) = P(\Delta = 1 \mid A = a, W)` is the probability that the
 outcome is observed; with no missingness it is one and drops out.  Note the
 :math:`\Delta` indicator itself does *not* appear in :math:`h`: it enters by
-restricting the fluctuation regression to rows with an observed outcome.
+restricting the fluctuation regression to rows with an observed outcome.  That is
+not an approximation but an identity, since
+
+.. math::
+
+    \sum_{i:\,\Delta_i = 1} h_i\,(Y_i - \bar Q^*_i)
+      \;=\; \sum_i \Delta_i\, h_i\,(Y_i - \bar Q^*_i),
+
+which is why :func:`~cleverly.fluctuation.iterative._score` averages over all ``n``
+rows rather than over the observed ones: an unobserved row contributes a genuine zero,
+not a missing value.
+
+**What double robustness means once :math:`\pi` is in the denominator.**  The obvious
+generalisation -- "consistent if any one of the three nuisances is right" -- is false.
+Only the *product* :math:`g_a \pi_a` appears in the estimating equation, so the
+remainder of the von Mises expansion is
+
+.. math::
+
+    R_2 = \int \Bigl(\frac{g_0 \pi_0}{\hat g \hat\pi} - 1\Bigr)
+              (\bar Q_0 - \bar Q)\, dP_0 ,
+
+and the guarantee is: consistent if :math:`\bar Q` is right, **or** if the product
+:math:`g\,\pi` is right.  A correct propensity buys nothing on its own when the
+missingness model is wrong; conversely, errors in the two mechanisms can cancel
+exactly.  ``tests/unit/test_remainder_mar.py`` checks both statements at machine
+precision, and ``tests/unit/test_influence_gateaux_mar.py`` checks that the influence
+curve above is the efficient one for the observed-data model.
+
+**Truncation.**  ``g``, :math:`\pi` and the intermediate density are all bounded away
+from zero before they enter :math:`h`.  This regularises estimation; it does not
+redefine the target.  The plug-in is an average of targeted predictions and contains no
+mechanism at all, so no bound can move :math:`\Psi` -- what a binding bound moves is
+:math:`R_2`, by exactly the formula above evaluated at the truncated value.  The trade
+is variance for second-order bias, and ``res.sensitivity.truncation_curve()`` (with
+``mechanism=True`` for :math:`\pi`) is how to see how much of it you are paying.
 """
 
 from __future__ import annotations
@@ -322,8 +357,10 @@ def weighted_form(submodel: Submodel, weights: FloatArray) -> tuple[Submodel, Fl
 def restrict(submodel: Submodel, mask: BoolArray | IntArray) -> Submodel:
     """Row-subset a submodel, by boolean mask or by integer index.
 
-    Used to drop rows with an unobserved outcome, and to cut a submodel down to one
-    validation fold for the cross-validated targeting step.
+    Used to cut a submodel down to one validation fold for the cross-validated targeting
+    step.  *Not* used for missing outcomes: those are handled by the ``observed`` mask
+    threaded into the fluctuation, which keeps the score's denominator at the full ``n``
+    where the estimating equation needs it.
     """
     index = np.asarray(mask)
     return Submodel(
