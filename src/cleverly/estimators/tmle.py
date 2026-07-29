@@ -71,7 +71,7 @@ from .._typing import (
     TargetingScheme,
 )
 from ..data.causal_data import CausalData
-from ..exceptions import PositivityWarning
+from ..exceptions import PositivityWarning, WeightingWarning
 from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
@@ -392,6 +392,8 @@ class TMLE:
         covariates: Sequence[str] | None = None,
         delta: str | None = None,
         weights: str | None = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
         id: str | None = None,
         intermediate: str | None = None,
     ) -> TMLEResult | TMLEResultSet:
@@ -405,6 +407,11 @@ class TMLE:
         outcome, treatment, covariates, delta, weights, id, intermediate:
             Column names, when ``data`` is a dataframe.  ``covariates=None`` uses every
             column not claimed by another role.
+        weights_type, weights_estimated:
+            How to read ``weights``.  Supplying weights changes the estimand to the
+            causal parameter in the weight-tilted population -- see
+            :mod:`cleverly.data.weighting` and
+            :meth:`~cleverly.data.CausalData.from_frame`.
 
         Returns
         -------
@@ -419,6 +426,8 @@ class TMLE:
             covariates=covariates,
             delta=delta,
             weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
             id=id,
             intermediate=intermediate,
         )
@@ -442,9 +451,17 @@ class TMLE:
         weights: str | None,
         id: str | None,
         intermediate: str | None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
     ) -> CausalData:
         """Coerce whatever the caller passed into a validated :class:`CausalData`."""
         if isinstance(data, CausalData):
+            if weights_type != "probability" or weights_estimated:
+                raise ValueError(
+                    "weights_type/weights_estimated cannot be combined with a CausalData "
+                    "input; pass them to CausalData.from_frame or from_arrays, which is "
+                    "where the weight column is read"
+                )
             if any(
                 value is not None
                 for value in (outcome, treatment, covariates, delta, weights, id, intermediate)
@@ -468,6 +485,8 @@ class TMLE:
             covariates=covariates,
             delta=delta,
             weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
             id=id,
             intermediate=intermediate,
             family=self.family,
@@ -481,6 +500,7 @@ class TMLE:
         config = self._config(data, estimands, scaler, folds)
         nuisance, extra = self._nuisances(data, folds, scaler, config, intermediate_value)
         self._warn_on_positivity(nuisance, config)
+        self._warn_on_estimated_weights(data)
 
         estimates, fluctuations, cv_detail = self._retarget_detailed(
             data,
@@ -624,6 +644,17 @@ class TMLE:
         """
         return self._fit_nuisances(data, folds, scaler, intermediate_value), {}
 
+    @staticmethod
+    def _bounds_n(data: CausalData) -> float:
+        """The sample size ``g_bounds="auto"`` is resolved at.
+
+        The Kish effective sample size, which equals ``data.n`` exactly when the weights
+        are constant.  Truncating a weighted fit at the bound implied by its row count
+        would leave the clever covariate freer than the information in the sample
+        supports -- see :func:`~cleverly.utils.bounds.resolve_g_bounds`.
+        """
+        return data.effective_n
+
     def _config(
         self,
         data: CausalData,
@@ -641,8 +672,13 @@ class TMLE:
             cross_fit=self.cross_fit,
             cv_evaluation=self.cv_evaluation and self.cross_fit and not folds.is_single,
             n_folds=folds.n_folds,
-            g_bounds=resolve_g_bounds(self.g_bounds, data.n, for_att=False),
-            g_bounds_conditional=resolve_g_bounds(self.g_bounds, data.n, for_att=True),
+            g_bounds=resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False),
+            g_bounds_conditional=resolve_g_bounds(
+                self.g_bounds, self._bounds_n(data), for_att=True
+            ),
+            auto_bounds_n=(
+                data.effective_n if self.g_bounds == "auto" and data.is_weighted else None
+            ),
             missingness_bound=self.nuisance_bound,
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             alpha=self.alpha,
@@ -652,6 +688,27 @@ class TMLE:
             alpha_sig=self.alpha_sig,
             random_state=self.random_state,
             n_bootstrap=self.n_bootstrap,
+        )
+
+    def _warn_on_estimated_weights(self, data: CausalData) -> None:
+        """Warn that a bootstrap does not rescue inference for estimated weights.
+
+        A user told that estimated weights need "a bootstrap that re-derives them" will
+        reach for ``n_bootstrap=``, and it is the wrong tool: every replicate inherits the
+        weights it was handed and merely renormalises them, so the bootstrap interval
+        conditions on the fitted weights exactly as the influence-curve one does. Saying
+        so is cheap; letting the mistake pass silently is not.
+        """
+        if not (data.is_weighted and data.weight_spec.estimated and self.n_bootstrap):
+            return
+        warnings.warn(
+            "weights_estimated=True with n_bootstrap: the bootstrap resamples rows and "
+            "renormalises the weights it was given, never re-deriving them, so its "
+            "intervals condition on the fitted weights just as the influence-curve ones "
+            "do. Re-deriving the weights inside each replicate needs the model that "
+            "produced them, which this package never sees. See cleverly.data.weighting.",
+            WeightingWarning,
+            stacklevel=3,
         )
 
     def _warn_on_positivity(self, nuisance: NuisanceEstimates, config: TMLEConfig) -> None:
@@ -720,9 +777,11 @@ class TMLE:
         """
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig
-        mean_bounds = g_bounds or resolve_g_bounds(self.g_bounds, data.n, for_att=False)
+        mean_bounds = g_bounds or resolve_g_bounds(
+            self.g_bounds, self._bounds_n(data), for_att=False
+        )
         conditional_bounds = g_bounds_conditional or resolve_g_bounds(
-            self.g_bounds, data.n, for_att=True
+            self.g_bounds, self._bounds_n(data), for_att=True
         )
 
         estimates: dict[str, ParameterEstimate] = {}
@@ -1218,6 +1277,8 @@ def tmle(
     Delta: Any = None,
     Z: Any = None,
     obsWeights: Any = None,
+    weights_type: str = "probability",
+    weights_estimated: bool = False,
     id: Any = None,
     covariate_names: Sequence[str] | None = None,
     **kwargs: Any,
@@ -1245,6 +1306,8 @@ def tmle(
         covariate_names=covariate_names,
         delta=Delta,
         weights=obsWeights,
+        weights_type=weights_type,
+        weights_estimated=weights_estimated,
         id=id,
         intermediate=Z,
         family=kwargs.get("family", "auto"),

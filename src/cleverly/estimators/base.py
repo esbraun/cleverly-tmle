@@ -121,6 +121,7 @@ class TMLEConfig:
     random_state: int | None = None
     n_bootstrap: int = 0
     cv_evaluation: bool = False
+    auto_bounds_n: float | None = None
 
     @property
     def estimator_name(self) -> str:
@@ -150,6 +151,10 @@ class TMLEConfig:
         else:
             lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
         bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
+        if self.auto_bounds_n is not None:
+            # Named because it is a deliberate divergence from R's rule, and because a
+            # reader comparing two fits needs to know the bound moved with the weights.
+            bounds += f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
         if self.g_bounds_conditional != self.g_bounds:
             bounds += (
                 f"; ATT/ATC to [{self.g_bounds_conditional[0]:.4g}, "
@@ -408,7 +413,17 @@ class TMLEResult:
         if data.cluster is not None:
             facts.append(f"clusters = {data.n_clusters} (cluster-robust variance)")
         if data.is_weighted:
-            facts.append("observation weights supplied")
+            report = data.weight_report()
+            facts.append(
+                f"observation weights ({report.name or 'weights'}, "
+                + ("estimated" if report.estimated else "fixed")
+                + f"): effective n = {report.effective_n:.1f}, "
+                f"design effect = {report.design_effect:.2f}"
+            )
+            facts.append(
+                "estimand: the parameter in the weight-tilted population dP_w = w dP / E[w]; "
+                "see result.data.weight_report()"
+            )
         if self.intermediate_value is not None:
             facts.append(
                 f"controlled direct effect at {data.intermediate_name or 'Z'} = "

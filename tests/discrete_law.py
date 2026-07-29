@@ -176,14 +176,88 @@ class DiscreteLaw:
     Only ``propensity`` and ``outcome_mean`` are needed: those are the two methods
     :class:`~tests.conftest.OracleTreatment` and :class:`~tests.conftest.OracleOutcome`
     call.  Both read the cell counts, so the oracle and the sample cannot drift apart.
+
+    Constructed on a different set of cell probabilities -- a *tilted* law, say -- it
+    supplies the nuisances of that law instead, which is what an oracle for a weighted
+    fit has to be: weighted learners converge to the tilted conditionals, not to
+    :math:`P_0`'s.
     """
+
+    def __init__(self, probs: Any = None) -> None:
+        p = PROBS if probs is None else np.asarray(probs, dtype=float)
+        self.probs = p
+        self.g = p.sum(axis=2)[:, 1] / p.sum(axis=(1, 2))
+        self.q = p[:, :, 1] / p.sum(axis=2)
 
     @staticmethod
     def _index(covariates: Any) -> np.ndarray:
         return np.rint(np.asarray(covariates, dtype=float).reshape(-1)).astype(int)
 
     def propensity(self, covariates: Any) -> np.ndarray:
-        return G_EXACT[self._index(covariates)]
+        return self.g[self._index(covariates)]
 
     def outcome_mean(self, covariates: Any, arm: float, intermediate: float | None) -> np.ndarray:
-        return Q_EXACT[self._index(covariates), int(arm)]
+        return self.q[self._index(covariates), int(arm)]
+
+
+# --------------------------------------------------------------------- weighting
+
+
+def cell_weights(weight_of: Any) -> np.ndarray:
+    """A weight per support point, from a function of ``(w, a, y)``.
+
+    Observation weights are a function of the observed row, so on a law with finite
+    support they are twelve numbers.
+    """
+    return np.array([float(weight_of(w, a, y)) for w, a, y in SUPPORT], dtype=float)
+
+
+def row_weights(weights: np.ndarray) -> np.ndarray:
+    """Cell weights expanded to one value per row of :func:`frame`."""
+    counts = [COUNTS[w, a, y] for w, a, y in SUPPORT]
+    return np.repeat(np.asarray(weights, dtype=float), counts)
+
+
+def tilt(probs: Any, weights: Any) -> Any:
+    r"""The weighted law :math:`dP_w = w\,dP / E_P[w]`, as cell probabilities.
+
+    Kept analytic in ``probs`` -- a ratio of linear functions -- so :func:`weighted_gateaux`
+    can differentiate through it by a complex step.
+    """
+    p = np.asarray(probs)
+    w = np.asarray(weights, dtype=float).reshape(len(SUPPORT))
+    cells = np.zeros_like(p)
+    for index, (a, b, c) in enumerate(SUPPORT):
+        cells[a, b, c] = w[index]
+    tilted = cells * p
+    return tilted / tilted.sum()
+
+
+def weighted_functional(probs: Any, estimand: str, weights: Any) -> Any:
+    """``Psi(P_w)`` -- the estimand of the tilted law, longhand.
+
+    This is the parameter :mod:`cleverly.data.weighting` says a weighted fit estimates,
+    written here without reference to any library code: tilt the law, then apply the same
+    identification formula :func:`functional` already spells out.
+    """
+    return functional(tilt(probs, weights), estimand)
+
+
+def weighted_gateaux(estimand: str, point: int, weights: Any, *, step: float = 1e-30) -> float:
+    r"""Gateaux derivative of :math:`P \mapsto \Psi(P_w)` at support point ``point``.
+
+    The contamination is of :math:`P`, the law the *rows are drawn from* -- not of
+    :math:`P_w`.  That is the whole content of the check: the weights are part of the
+    data-generating experiment, so the influence function has to be taken with respect to
+    the law that generates them.
+    """
+    base = PROBS.astype(complex)
+    mass = np.zeros_like(base)
+    mass[SUPPORT[point]] = 1.0
+    perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+    return float(np.imag(weighted_functional(perturbed, estimand, weights)) / step)
+
+
+def weighted_eif(estimand: str, weights: Any) -> np.ndarray:
+    """The EIF of ``Psi(P_w)`` at every support point, in support order."""
+    return np.array([weighted_gateaux(estimand, point, weights) for point in range(len(SUPPORT))])

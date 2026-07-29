@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
 
 from cleverly.data import CausalData
-from cleverly.exceptions import DataError
+from cleverly.exceptions import DataError, WeightingWarning
 
 
 def _frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
@@ -188,6 +190,61 @@ class TestWeightsAndClusters:
         with pytest.raises(DataError, match="negative values"):
             CausalData.from_frame(frame, outcome="Y", treatment="A", weights="w")
 
+    def test_the_weight_spec_records_how_to_read_the_column(self) -> None:
+        frame = _frame()
+        frame["w"] = np.linspace(0.5, 2.0, len(frame))
+        data = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", weights="w", weights_estimated=True
+        )
+        assert data.weight_spec.kind == "probability"
+        assert data.weight_spec.estimated
+        assert data.weight_spec.name == "w"
+        # The supplied weights are recoverable from the normalised ones and the scale.
+        assert data.weight_spec.scale == pytest.approx(float(frame["w"].mean()))
+        np.testing.assert_allclose(data.weights * data.weight_spec.scale, frame["w"])
+
+    def test_unweighted_data_still_has_a_spec(self) -> None:
+        data = CausalData.from_frame(_frame(), outcome="Y", treatment="A")
+        assert data.weight_spec.name is None
+        assert data.effective_n == pytest.approx(data.n)
+        assert not data.weight_report().is_weighted
+
+    @pytest.mark.parametrize("alias", ["frequency", "count", "fweight"])
+    def test_frequency_weights_are_refused_by_any_name(self, alias: str) -> None:
+        frame = _frame()
+        frame["w"] = 2.0
+        with pytest.raises(DataError, match="not supported"):
+            CausalData.from_frame(
+                frame, outcome="Y", treatment="A", weights="w", weights_type=alias
+            )
+
+    @pytest.mark.parametrize("alias", ["probability", "sampling", "survey", "design", "pweight"])
+    def test_probability_synonyms_are_accepted(self, alias: str) -> None:
+        frame = _frame()
+        frame["w"] = np.linspace(0.5, 2.0, len(frame))
+        data = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", weights="w", weights_type=alias
+        )
+        assert data.weight_spec.kind == "probability"
+
+    def test_an_unknown_weights_type_is_refused(self) -> None:
+        with pytest.raises(DataError, match="unknown weights_type"):
+            CausalData.from_frame(_frame(), outcome="Y", treatment="A", weights_type="aweight")
+
+    def test_count_looking_weights_warn_but_are_accepted(self) -> None:
+        frame = _frame()
+        frame["w"] = np.repeat([1.0, 2.0, 3.0, 4.0], len(frame) // 4)
+        with pytest.warns(WeightingWarning, match="counts"):
+            data = CausalData.from_frame(frame, outcome="Y", treatment="A", weights="w")
+        assert data.is_weighted
+
+    def test_non_integer_weights_do_not_warn(self) -> None:
+        frame = _frame()
+        frame["w"] = np.linspace(0.5, 3.0, len(frame))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", WeightingWarning)
+            CausalData.from_frame(frame, outcome="Y", treatment="A", weights="w")
+
     def test_clusters_are_recoded_contiguously(self) -> None:
         frame = _frame(n=100)
         frame["cl"] = np.repeat([10, 20, 30, 40], 25)
@@ -216,6 +273,10 @@ class TestReshaping:
         assert subset.n == 40
         assert float(subset.weights.mean()) == pytest.approx(1.0)
         assert subset.n_clusters == 4
+        # Renormalising rescales; the spec keeps enough to recover the supplied weights.
+        np.testing.assert_allclose(
+            subset.weights * subset.weight_spec.scale, frame["w"].to_numpy()[:40]
+        )
 
     def test_subset_accepts_a_boolean_mask(self) -> None:
         data = CausalData.from_frame(_frame(), outcome="Y", treatment="A")

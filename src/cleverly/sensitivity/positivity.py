@@ -22,6 +22,13 @@ statement about those units.
 clipped unit contributes bias in exchange for variance; a large clipped fraction
 means the reported estimate is not the estimand that was asked for.
 
+Observation weights are folded into :math:`\omega_i` rather than reported separately,
+because the two costs multiply: a design that halves the effective sample size and a
+clever covariate that halves it again leave a quarter, and a diagnostic that showed only
+one of them would look comfortable.  For the weighting cost on its own -- and for the
+estimand statement that goes with it -- see
+:meth:`~cleverly.data.CausalData.weight_report` and :mod:`cleverly.data.weighting`.
+
 Use :func:`truncation_curve` to see how much the answer actually moves as the
 truncation bound changes -- a flat curve is reassuring in a way that no single
 diagnostic can be.

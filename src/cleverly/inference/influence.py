@@ -23,9 +23,16 @@ extra term beyond "clever covariate times residual": the estimand conditions on 
 *random* event (``A = 1``), so the uncertainty in ``P(A = 1)`` contributes.  Omitting
 it -- a common bug -- understates the standard error.
 
-Observation weights enter as :math:`\mathrm{IC}_i \mapsto w_i \mathrm{IC}_i`;
-because the weights are normalised to mean one, weighted and unweighted variances
-are directly comparable.
+Observation weights enter as :math:`\mathrm{IC}_i \mapsto \tilde w_i \mathrm{IC}_i` with
+:math:`\tilde w` normalised to mean one, so weighted and unweighted variances are
+directly comparable.  That row-wise multiplication is not a convenience: with every
+nuisance fitted and every average taken under the weighted empirical measure, the
+estimand is the same functional evaluated at the tilted law
+:math:`dP_w = w\,dP / E[w]`, and its efficient influence function is exactly
+:math:`(w / E[w])\, D^*_{P_w}`.  :mod:`cleverly.data.weighting` derives that, states
+which weighting problems it does and does not cover, and
+``tests/unit/test_weighted_estimand.py`` verifies it numerically against a longhand
+statement of :math:`\Psi(P_w)`.
 """
 
 from __future__ import annotations

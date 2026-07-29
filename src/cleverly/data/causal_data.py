@@ -18,12 +18,18 @@ role                 R name      meaning
 ``cluster``          ``id``      independent unit for variance estimation
 ``intermediate``     ``Z``       binary intermediate, for controlled direct effects
 ===================  ==========  ==========================================
+
+Supplying ``weights`` changes the parameter being estimated, not just its weighting:
+the estimand becomes the causal parameter in the weight-tilted population.
+:mod:`cleverly.data.weighting` states that parameter, the influence function that goes
+with it, and the readings of "weight" -- frequency counts, replicate weights -- that this
+container refuses rather than approximates.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import narwhals as nw
@@ -40,6 +46,15 @@ from .validate import (
     encode_binary,
     encode_clusters,
     infer_family,
+)
+from .weighting import (
+    WeightReport,
+    WeightSpec,
+    describe_weights,
+    effective_sample_size,
+    resolve_weight_kind,
+    warn_if_concentrated,
+    warn_if_counts,
 )
 
 __all__ = ["CategoricalEncoding", "CausalData"]
@@ -67,7 +82,8 @@ class CausalData:
 
     Build one with :meth:`from_frame` (pandas/polars) or :meth:`from_arrays`
     (numpy).  All attributes are plain numpy arrays; ``weights`` is normalised to
-    mean one so weighted and unweighted variances are on the same scale.
+    mean one so weighted and unweighted variances are on the same scale, with
+    :attr:`weight_spec` recording how those weights are to be read.
     """
 
     outcome: FloatArray
@@ -86,6 +102,7 @@ class CausalData:
     intermediate: FloatArray | None = None
     intermediate_name: str | None = None
     weights_name: str | None = None
+    weight_spec: WeightSpec = field(default_factory=WeightSpec)
     dropped_covariates: tuple[str, ...] = ()
     encodings: tuple[CategoricalEncoding, ...] = ()
     _template: Any = None
@@ -102,6 +119,8 @@ class CausalData:
         covariates: Sequence[str] | None = None,
         delta: str | None = None,
         weights: str | None = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
         id: str | None = None,
         intermediate: str | None = None,
         family: str = "auto",
@@ -112,6 +131,19 @@ class CausalData:
         another role.  Non-numeric covariate columns are one-hot encoded with the
         first (sorted) level dropped, which keeps the design matrix full rank for
         linear learners; the encoding is recorded on :attr:`encodings`.
+
+        Parameters
+        ----------
+        weights_type:
+            How to read ``weights``.  ``"probability"`` (also ``"sampling"``,
+            ``"survey"``, ``"design"``) is the supported reading: the weights encode a
+            tilt of the population, and the sample size is still the number of rows.
+            ``"frequency"`` -- counts of identical units -- is a different experiment and
+            is refused with instructions rather than silently mis-analysed.
+        weights_estimated:
+            Declare that the weights came out of a fitted model.  Changes no number; it
+            makes the reports state that the intervals condition on the estimated
+            weights.  See :mod:`cleverly.data.weighting`.
         """
         if not is_dataframe(data):
             raise DataError(
@@ -161,6 +193,8 @@ class CausalData:
             covariate_names=w_names,
             delta=frame[delta].to_numpy() if delta is not None else None,
             weights=frame[weights].to_numpy() if weights is not None else None,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
             cluster=frame[id].to_numpy() if id is not None else None,
             intermediate=(frame[intermediate].to_numpy() if intermediate is not None else None),
             family=family,
@@ -184,13 +218,18 @@ class CausalData:
         covariate_names: Sequence[str] | None = None,
         delta: Any = None,
         weights: Any = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
         id: Any = None,
         intermediate: Any = None,
         family: str = "auto",
         outcome_name: str = "Y",
         treatment_name: str = "A",
     ) -> CausalData:
-        """Build from numpy arrays, mirroring ``tmle(Y, A, W, ...)`` in R."""
+        """Build from numpy arrays, mirroring ``tmle(Y, A, W, ...)`` in R.
+
+        See :meth:`from_frame` for ``weights_type`` and ``weights_estimated``.
+        """
         w = np.asarray(covariates, dtype=float)
         if w.ndim == 1:
             w = w.reshape(-1, 1)
@@ -205,6 +244,8 @@ class CausalData:
             covariate_names=names,
             delta=None if delta is None else np.asarray(delta),
             weights=None if weights is None else np.asarray(weights),
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
             cluster=None if id is None else np.asarray(id),
             intermediate=None if intermediate is None else np.asarray(intermediate),
             family=family,
@@ -228,6 +269,8 @@ class CausalData:
         covariate_names: Sequence[str],
         delta: np.ndarray | None,
         weights: np.ndarray | None,
+        weights_type: str,
+        weights_estimated: bool,
         cluster: np.ndarray | None,
         intermediate: np.ndarray | None,
         family: str,
@@ -267,7 +310,20 @@ class CausalData:
                 )
 
         w, w_names, dropped = check_covariates(covariates, list(covariate_names))
-        obs_weights = check_weights(weights, n, weights_name or "weights")
+        label = weights_name or "weights"
+        kind = resolve_weight_kind(weights_type, n)
+        obs_weights = check_weights(weights, n, label)
+        if weights is None:
+            spec = WeightSpec(kind=kind, estimated=weights_estimated)
+        else:
+            warn_if_counts(np.asarray(weights, dtype=float), label)
+            warn_if_concentrated(obs_weights, label)
+            spec = WeightSpec(
+                kind=kind,
+                estimated=weights_estimated,
+                name=label,
+                scale=float(np.mean(np.asarray(weights, dtype=float))),
+            )
         codes = None if cluster is None else encode_clusters(cluster, cluster_name or "id")
         z = None
         if intermediate is not None:
@@ -295,6 +351,7 @@ class CausalData:
             intermediate=z,
             intermediate_name=intermediate_name,
             weights_name=weights_name,
+            weight_spec=spec,
             dropped_covariates=tuple(dropped),
             encodings=retained_encodings,
             _template=template,
@@ -329,6 +386,27 @@ class CausalData:
     @property
     def is_weighted(self) -> bool:
         return bool(not np.allclose(self.weights, 1.0))
+
+    @property
+    def effective_n(self) -> float:
+        """Kish effective sample size of the observation weights, ``(sum w)^2 / sum w^2``.
+
+        The size of the unweighted sample that would carry the same information.  Equal
+        to :attr:`n` when the weights are constant, and smaller otherwise -- by the
+        design effect, which is the factor the weighting inflates the variance by.
+
+        Not only a diagnostic: this is the sample size ``g_bounds="auto"`` is resolved
+        at, since the rule is a bias-variance compromise and this is the number the
+        variance side is really working from.
+        """
+        return effective_sample_size(self.weights)
+
+    def weight_report(self) -> WeightReport:
+        """Effective sample size, weight concentration and the estimand statement.
+
+        See :mod:`cleverly.data.weighting`; ``print(data.weight_report().summary())``.
+        """
+        return describe_weights(self.weights, self.weight_spec)
 
     @property
     def treated_fraction(self) -> float:
@@ -382,6 +460,12 @@ class CausalData:
         Used by the data-subset refutation test and the bootstrap.  Weights are
         re-normalised for the subset, and cluster codes are re-derived so they
         stay contiguous.
+
+        Re-normalising is what makes a bootstrap replicate estimate the same parameter
+        as the original fit: the tilt is defined by the weights *relative to the
+        resample's own mean*, so a replicate that happens to draw the heavy rows must
+        renormalise or it would target a different tilt.  The scale factor is folded into
+        :attr:`weight_spec` so the supplied weights stay recoverable.
         """
         idx = np.asarray(index)
         if idx.dtype == bool:
@@ -391,12 +475,15 @@ class CausalData:
         cluster = (
             None if self.cluster is None else np.unique(self.cluster[idx], return_inverse=True)[1]
         )
+        selected = self.weights[idx]
+        mean = float(selected.mean())
         return replace(
             self,
             outcome=self.outcome[idx],
             treatment=self.treatment[idx],
             covariates=self.covariates[idx],
-            weights=check_weights(self.weights[idx], idx.size),
+            weights=check_weights(selected, idx.size),
+            weight_spec=self.weight_spec.rescaled(self.weight_spec.scale * mean),
             observed=self.observed[idx],
             cluster=None if cluster is None else np.asarray(cluster, dtype=np.int64),
             intermediate=None if self.intermediate is None else self.intermediate[idx],
@@ -485,7 +572,7 @@ class CausalData:
         if self.has_intermediate:
             parts.append("intermediate=yes")
         if self.is_weighted:
-            parts.append("weighted=yes")
+            parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
         return f"CausalData({', '.join(parts)})"
 
 

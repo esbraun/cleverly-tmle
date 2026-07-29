@@ -66,13 +66,22 @@ def shrink_probabilities(p: FloatArray, alpha: float) -> FloatArray:
     return bound(p, 1.0 - alpha, alpha)
 
 
-def resolve_g_bounds(spec: GBounds, n: int, *, for_att: bool = False) -> tuple[float, float]:
+def resolve_g_bounds(spec: GBounds, n: float, *, for_att: bool = False) -> tuple[float, float]:
     """Turn a user-facing ``g_bounds`` specification into an explicit pair.
 
     ``"auto"`` reproduces the sample-size dependent defaults of R's ``tmle``:
     ``5 / (sqrt(n) * log(n))`` for the mean/ATE family, and a fixed ``0.025``
     for the ATT and ATC, whose influence curves are more sensitive to small
     ``1 - g(W)`` in the control arm.
+
+    ``n`` is a float rather than a count because a weighted fit passes its *effective*
+    sample size.  The rule is a bias-variance compromise -- truncate hard enough that the
+    variance of ``1/g`` stays controlled, loosely enough that the truncation bias vanishes
+    -- and the sample size governing both sides is the one the estimator's variance is
+    really working from.  Under a design effect of 4 the row count would set a bound
+    nearly three times too loose.  This is a deliberate divergence from R's ``tmle``,
+    which resolves the rule at the row count whatever the weights say; it takes effect
+    only for weighted fits, and is reported in the summary when it does.
     """
     if isinstance(spec, str):
         if spec != "auto":
