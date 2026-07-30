@@ -5,10 +5,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from cleverly.fluctuation.submodel import SUBMODEL_BUILDERS
 from cleverly.utils.bounds import (
+    CONDITIONAL_GROUPS,
     OutcomeScaler,
     bound,
     expit,
+    g_bounds_for,
     logit,
     resolve_g_bounds,
     shrink_probabilities,
@@ -89,6 +92,39 @@ class TestResolveGBounds:
     def test_rejects_unknown_string(self) -> None:
         with pytest.raises(ValueError, match="must be 'auto'"):
             resolve_g_bounds("tight", 500)  # type: ignore[arg-type]
+
+
+class TestWhichBoundAGroupGets:
+    """Only a covariate that is an *odds* needs the tighter bound.
+
+    This used to be spelled ``group == "mean"``, written when ``mean``, ``att`` and
+    ``atc`` were the only groups -- so every group added since inherited the ATT bound
+    without anything saying so, and so would a group registered through
+    ``register_submodel``.  These pin the rule as a statement about the covariate rather
+    than about which group happened to be first.
+    """
+
+    MEAN = (0.01, 0.99)
+    CONDITIONAL = (0.025, 0.975)
+
+    @pytest.mark.parametrize("group", sorted(CONDITIONAL_GROUPS))
+    def test_an_odds_covariate_gets_the_tighter_bound(self, group: str) -> None:
+        assert g_bounds_for(group, self.MEAN, self.CONDITIONAL) == self.CONDITIONAL
+
+    @pytest.mark.parametrize(
+        "group", [*sorted(set(SUBMODEL_BUILDERS) - CONDITIONAL_GROUPS), "a_registered_group"]
+    )
+    def test_everything_else_divides_by_g_once_and_gets_the_ordinary_bound(
+        self, group: str
+    ) -> None:
+        assert g_bounds_for(group, self.MEAN, self.CONDITIONAL) == self.MEAN
+
+    def test_the_conditional_groups_are_exactly_the_binary_only_ones(self) -> None:
+        """The two coincide by derivation: an odds needs two arms to be an odds."""
+        from cleverly.targets import TARGETS
+
+        binary_only = {t.group for t in TARGETS.values() if t.requires_binary_treatment}
+        assert binary_only - {"mean"} == CONDITIONAL_GROUPS
 
 
 class TestOutcomeScaler:

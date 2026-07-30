@@ -145,9 +145,10 @@ def targets_for(group: TargetGroup, estimands: Sequence[str]) -> tuple[Target, .
 #: them will read.  Keyed by axis so the sentence names the keyword rather than the
 #: internal word.
 _AXIS_DECLARED_BY = {
-    "arm": "a fit without interventions= or shifts=",
+    "arm": "a fit without interventions=, shifts= or msm=",
     "regime": "a fit that declares interventions=",
     "shift": "a fit that declares shifts=",
+    "msm": "a fit that declares msm=",
 }
 
 #: What each axis indexes its parameters by, for the same message.
@@ -155,6 +156,7 @@ _AXIS_INDEXES_BY = {
     "arm": "treatment arm",
     "regime": "declared regime",
     "shift": "declared shift",
+    "msm": "working-model coefficient",
 }
 
 
@@ -174,7 +176,7 @@ def resolve_estimands(
     and the same goes for asking a three-armed fit for "the effect on the treated".
 
     ``axis`` says what the fit's parameters are indexed by.  It selects between the
-    arm-indexed, regime-indexed and shift-indexed estimands rather than widening the
+    arm-, regime-, shift- and coefficient-indexed estimands rather than widening the
     choice; asking across two of them is refused, for the reason
     :attr:`~cleverly.targets.Target.parameter_axis` gives.
     """
@@ -197,9 +199,10 @@ def resolve_estimands(
             f"estimand(s) {mismatched} do not belong to {_AXIS_DECLARED_BY[axis]}; they are "
             f"indexed by {' and '.join(_AXIS_INDEXES_BY[other] for other in other_axes)}, and this "
             f"fit's parameters are indexed by {_AXIS_INDEXES_BY[axis]}. Declaring "
-            "interventions= or shifts= says what the fit's counterfactuals are, so reporting "
-            "across two of them from a single fluctuation would put two score equations "
-            f"under one heading. Available here: {available}."
+            "interventions= or shifts= says what the fit's counterfactuals are, and msm= "
+            "says how they are summarised, so reporting across two of them from a single "
+            "fluctuation would put two score equations under one heading. Available here: "
+            f"{available}."
         )
 
     wrong_arms = [name for name in names if not TARGETS[name].supports_arms(n_arms)]

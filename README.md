@@ -298,6 +298,93 @@ itself held back, so `h` carries the further indicator `1{a ≤ u}` — which is
 whenever the cap sits at or above the largest dose, the common case. The tight cap is what
 caught that term missing.
 
+### Summarising the arms: a marginal structural model
+
+Five dose levels and two effect modifiers report ten counterfactual means, which is a
+table rather than an answer. `msm=` declares a **working model** `m(a, V; β)` that
+summarises them, and makes the fit's parameters its coefficients:
+
+```python
+import numpy as np
+
+from cleverly import TMLE
+from cleverly.datasets import make_multi_arm
+from cleverly.msm import MSM
+
+frame, truth = make_multi_arm(n=2000, seed=0)  # arms "low", "medium", "high"
+
+dose = {"low": 0.0, "medium": 1.0, "high": 2.0}
+res = (
+    TMLE(
+        msm=MSM(
+            design=lambda arm, w: np.column_stack([np.ones(len(w)), np.full(len(w), dose[arm])]),
+            terms=("(intercept)", "dose"),
+        ),
+        outcome_learner="glm",  # so the numbers below are quick to reproduce; the
+        treatment_learner="glm",  # default library estimates the same parameter
+        random_state=0,
+    )
+    .fit(frame, outcome="Y", treatment="A")
+    .single()
+)
+print(res.summary())
+```
+
+```
+estimand          psi       std_err  95% CI                 p_value
+----------------  --------  -------  ---------------------  -------
+msm[(intercept)]  0.004723  0.03997  [-0.073611, 0.083057]  0.9059
+msm[dose]         0.68987   0.023    [0.6448, 0.73494]      <1e-4
+```
+
+The population values are `β₀ = -0.04` and `β₁ = 0.72`: the least-squares fit of this
+process's true arm means `(0, 0.6, 1.44)` on the dose, which is what `β` is *defined* to be.
+
+**The working model does not have to be correct**, and for this process it is not — the
+arm means are `0`, `0.6` and `1.44`, which is not a line. `β` is defined as a
+*projection*, the minimiser of
+
+```
+E[ Σ_a h(a, V) ( E[Y(a) | V] − m(a, V; β) )² ]
+```
+
+over a **known** weight function `h`, so it is a well-defined functional whatever the true
+dose-response looks like: "the best `m`-shaped summary of the counterfactual means, in the
+`h`-weighted least-squares sense" (Neugebauer & van der Laan 2007). Where the model happens
+to be right, `β` is the truth. Where it is wrong, the interval is still an honest interval
+— for the projection, which is the thing that was estimated, and not for a misspecified
+regression's coefficient.
+
+`MSM.linear(modifiers=("W1",))` writes the common case for you — `β₀ + β₁a + β₂W₁ + β₃aW₁`
+— and requires numeric arm labels, because a model linear in the arm reads it as a dose to
+interpolate between. `{"low", "medium", "high"}` has no such ordering, and the sort order a
+coding would fall back on is not one anybody chose, so it is refused rather than guessed;
+the example above passes `design=` and says what the doses are.
+
+The clever covariate is `h(a, V) φ(a, V) / g(a | W)`, one column per term, so the score
+equation is one per coefficient rather than one per arm — which is why this is a fourth
+parameter axis and why `msm=` cannot be combined with `interventions=` or `shifts=`. The
+counterfactuals are still the arms; what changed is the summary. A **saturated** working
+model — one indicator per arm — reproduces the per-arm report exactly, point estimate and
+influence curve alike, which `tests/e2e/test_msm.py` asserts against a plain fit.
+
+Two things are **refused rather than approximated**, both because of the derivation:
+
+| refused | what it would need |
+| --- | --- |
+| a non-identity link (`log`, `logit`) | `∂m/∂β` then depends on `β`, so the clever covariate does too, and solving the score needs an outer `(β, ε)` iteration this fluctuation does not run. A one-shot version would report a standard error for an equation that was not solved. For a binary outcome an identity-link MSM is a linear-risk model, and its coefficients are risk differences |
+| weights derived from the estimated mechanism (a "stabilised" MSM) | `h` would be a functional of `P`, so the EIF carries a further term for the pathwise derivative through `ĝ` — the same argument that refuses incremental propensity-score interventions |
+
+The influence curve is checked on the same footing as the rest: against the complex-step
+Gateaux derivative of an independently written functional at `1e-12`
+(`tests/unit/test_influence_gateaux_msm.py`), and the second-order remainder against its
+closed form (`tests/unit/test_remainder_msm.py`). The oracle's working model is
+deliberately **not** saturated — three coefficients against six `(w, a)` cells — because a
+saturated one agrees with the means whatever the projection code does, and its weights are
+deliberately **not** uniform: with `h ≡ 1` the design is orthogonal and `β_a` collapses to
+the marginal ATE *identically*, so code that reported the ATE under the name `msm[a]` would
+pass every check.
+
 ### Collaborative TMLE
 
 A propensity model fitted to predict treatment as well as possible is fitted to the wrong
@@ -602,10 +689,11 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 
 | Capability | Notes |
 | --- | --- |
-| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one; `ey_regime` / `ate_regime` when the fit declares `interventions=`; `ey_shift` / `ate_shift` when it declares `shifts=`. The three sets are exclusive, not cumulative: each keyword declares what "counterfactual" means for the fit, and one fluctuation cannot report parameters from two score equations under one heading |
+| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one; `ey_regime` / `ate_regime` when the fit declares `interventions=`; `ey_shift` / `ate_shift` when it declares `shifts=`; `msm[...]`, one per term, when it declares `msm=`. The four sets are exclusive, not cumulative: `interventions=` and `shifts=` declare what "counterfactual" means for the fit and `msm=` declares how the counterfactuals are summarised, and one fluctuation cannot report parameters from two score equations under one heading |
 | Multi-valued treatment | any number of arms up to 20. The mechanism becomes a distribution over the arms and the `mean` fluctuation gets one clever-covariate column per arm, so the fit reports `K` counterfactual means with a joint influence-curve matrix and `K-1` contrasts against `reference=`. Every other contrast — a dose-response comparison, a pairwise difference the reference skipped — comes from `result.contrast()` with no refit. Parameters are named with your own labels: `ey[high]`, `ate[high vs low]`. A two-armed fit is unchanged, bit for bit, and keeps the short names. What is refused rather than guessed at: `ATT`/`ATC` (they reweight one arm by the propensity odds), `CTMLE` (both searches order candidates by one propensity margin), the omitted-variable bound and the MNAR tilt |
-| Interventions | `interventions=` declares what "counterfactual" means for the fit: a constant arm (`Static`), a deterministic rule `d(W)` (`Rule`), or a known stochastic assignment `g*(a | W)` (`Stochastic`). All three are one `(n, K)` density over the arms, so one clever covariate `g*(A | W) / g(A | W)` covers them and collapses to the familiar indicator form exactly when the regime is static — where the numbers are bit for bit an ordinary fit's. The report becomes `ey_regime[...]` per regime and `ate_regime[... vs ...]` per non-reference regime, and `sensitivity.support()` reports the positivity a regime actually needs. What is refused rather than approximated: incremental propensity-score interventions (their `g*` depends on `P`, so the EIF carries a further term) |
+| Interventions | `interventions=` declares what "counterfactual" means for the fit: a constant arm (`Static`), a deterministic rule `d(W)` (`Rule`), or a known stochastic assignment `g*(a \| W)` (`Stochastic`). All three are one `(n, K)` density over the arms, so one clever covariate `g*(A \| W) / g(A \| W)` covers them and collapses to the familiar indicator form exactly when the regime is static — where the numbers are bit for bit an ordinary fit's. The report becomes `ey_regime[...]` per regime and `ate_regime[... vs ...]` per non-reference regime, and `sensitivity.support()` reports the positivity a regime actually needs. What is refused rather than approximated: incremental propensity-score interventions (their `g*` depends on `P`, so the EIF carries a further term) |
 | Continuous treatment | `shifts=` declares a modified treatment policy `d(a, w) = min(a + δ, u)` and with it that the treatment is a dose: no arms, a conditional density `g(a \| W)` in place of the propensity, and a clever covariate that is a density ratio. The density is a discrete hazard fitted by the ordinary `treatment_learner=` on a long `(unit, bin)` expansion, so every preset, screener and thread limit works untouched. The report becomes `ey_shift[...]` and `ate_shift[... vs ...]`, and `sensitivity.shift_support()` reports the ratio's tail and the effective sample size it leaves. `cap=` is required rather than estimated, since a fitted support boundary would make the parameter itself data-dependent. What is refused rather than guessed at: `delta=`, `intermediate=` and estimated weights, each of which puts a further conditional density beside `g` and needs its own derivation |
+| Marginal structural model | `msm=` declares a working model `m(a, V; beta)` for `E[Y(a) \| V]` and makes the fit's parameters its coefficients, reported as `msm[a:W1]` under the term names you gave. `beta` is a **projection** under a known weight `h(a, V)`, not the truth of an assumed regression, so the estimand and its interval are well defined whether or not the model is correct (Neugebauer & van der Laan 2007). The clever covariate is `h(a,V) phi(a,V) / g(a \| W)`, one column per term, and the projection is solved by weighted least squares against the *targeted* `Qbar` — which zeroes the second half of the influence curve by construction, so no outer iteration is needed. A saturated working model reproduces the per-arm report exactly. What is refused rather than approximated: a non-identity link (its `dm/dbeta` depends on `beta`) and weights derived from the estimated mechanism (they would make `h` a functional of `P`) |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
 | Cross-fitting | out-of-fold nuisance fits; stratified and cluster-respecting folds. Stratification handles a multi-valued treatment natively |
@@ -740,6 +828,7 @@ def treated_only(
     selection=None,
     regimes=None,
     shifts=None,
+    msm=None,
 ):
     """One column, 1{A = 1} / g₁(W) — the Riesz representer of E[Y(1)]."""
     a = np.asarray(treatment, dtype=float).reshape(-1)
@@ -784,7 +873,6 @@ way: `counterfactual_means` returns a mapping of arm to `(psi, influence_curve)`
 The base classes (`estimators/base.py`, `inference/`, `learners/`, `fluctuation/`) are shared
 infrastructure; the following variants plug into them:
 
-- marginal structural model TMLE (`tmleMSM`), now that multi-valued treatments are in place
 - longitudinal TMLE (`ltmle`) for time-varying treatments and censoring
 - survival TMLE (`survtmle`) and competing risks
 - incremental propensity-score interventions, whose `g*` depends on the estimated

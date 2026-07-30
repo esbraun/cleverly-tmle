@@ -43,6 +43,7 @@ from ..inference.influence import (
     Scale,
     counterfactual_means,
     make_estimate,
+    msm_coefficients,
     regime_means,
     shift_means,
     unscale,
@@ -159,15 +160,22 @@ class Target:
     parameter_axis:
         What this target's parameters are indexed by: ``"arm"`` for a treatment level,
         ``"regime"`` for a regime declared with ``interventions=``, ``"shift"`` for a
-        modified treatment policy declared with ``shifts=``.
+        modified treatment policy declared with ``shifts=``, ``"msm"`` for a coefficient
+        of a working model declared with ``msm=``.
 
-        The three **partition** the registry rather than accumulating: a target is
+        The four **partition** the registry rather than accumulating: a target is
         unavailable unless the fit's own axis matches, and declaring one axis makes the
-        other two unavailable in turn.  They are not alternative spellings of one
-        report.  Each keyword declares what "counterfactual" means for the fit, and a
-        single fit reporting ``E[Y(1)]``, ``E[Y^{g*}]`` and ``E[Y^{d}]`` from one
-        fluctuation would be reporting three different score equations under one
-        heading.
+        others unavailable in turn.  They are not alternative spellings of one report.
+        A single fit reporting ``E[Y(1)]``, ``E[Y^{g*}]``, ``E[Y^{d}]`` and a working
+        model's slope from one fluctuation would be reporting four different score
+        equations under one heading.
+
+        The first three also declare what "counterfactual" means for the fit.  ``"msm"``
+        is the one that does not: its counterfactuals are still the arms, and the
+        fluctuation still updates ``Qbar`` at every one of them.  What changes is the
+        *summary* -- ``p`` score equations, one per term, in place of ``K``, one per arm.
+        That is enough to make it an axis: the coefficients of a summary are not indexed
+        by anything the other three name.
 
         The axis is also not the same question as ``group``.  A group is a score
         equation and several targets share one; an axis is what the resulting
@@ -251,6 +259,12 @@ class TargetContext:
     #: densities the plug-in term averages ``Qbar`` against, a shift's plug-in term is
     #: already in ``targeted.arms`` and the covariate is already in ``submodel``.
     shifts: FloatArray | None = None
+    #: ``(n, K, p)`` working-model design and ``(n, K)`` weights, for the ``msm``
+    #: fluctuation; ``None`` otherwise.  Two arrays rather than one product because the
+    #: projection needs them apart: the Gram matrix is ``h * phi * phi'`` and the fitted
+    #: values are ``phi' beta``, so neither can be recovered from ``h * phi`` alone.
+    msm_design: FloatArray | None = None
+    msm_weights: FloatArray | None = None
     #: Report every parameter with its label even when there are exactly two of them.
     #: The two-arm short names (``"ate"``, ``"ey1"``) exist because they are historical
     #: and unambiguous; two *regimes* have neither property, and "the ATE" of a rule
@@ -272,7 +286,24 @@ class TargetContext:
         given ``W`` -- see :func:`~cleverly.inference.influence.shift_means`, whose
         docstring states the exact variance gap, and the negative control in
         ``tests/unit/test_influence_gateaux_shift.py`` that fails if someone merges them.
+
+        The ``msm`` branch is keyed by *coefficient* rather than by a counterfactual, and
+        its values are already on the outcome's own scale -- see
+        :func:`~cleverly.inference.influence.msm_coefficients` for why the projection is
+        solved there.  A target reading this branch must call :meth:`finish_unscaled`.
         """
+        if self.msm_design is not None:
+            assert self.msm_weights is not None
+            return msm_coefficients(
+                self.scaled,
+                self.targeted,
+                self.submodel,
+                self.msm_design,
+                self.msm_weights,
+                self.weights,
+                self.scaler,
+                self.observed,
+            )
         if self.shifts is not None:
             return shift_means(
                 self.scaled, self.targeted, self.submodel, self.weights, self.observed
@@ -355,4 +386,26 @@ class TargetContext:
             scale=scale,
             alpha=self.alpha_sig,
             log_psi=log_psi,
+        )
+
+    def finish_unscaled(
+        self, name: str, psi: float, ic: FloatArray, scale: Scale
+    ) -> ParameterEstimate:
+        """Attach inference to an estimate that is *already* in the outcome's own units.
+
+        The escape hatch :meth:`finish` names: a target whose functional is not linear in
+        the scaled counterfactual means has to unscale the means itself, and must then not
+        be unscaled again.  The ``msm`` target is the built-in case -- a coefficient vector
+        has no single :class:`Scale` to map back with, so
+        :func:`~cleverly.inference.influence.msm_coefficients` solves the projection where
+        the coefficients are reported.
+        """
+        return make_estimate(
+            name,
+            psi,
+            ic,
+            n=self.n,
+            cluster=self.cluster,
+            scale=scale,
+            alpha=self.alpha_sig,
         )

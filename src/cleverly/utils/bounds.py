@@ -66,6 +66,27 @@ def shrink_probabilities(p: FloatArray, alpha: float) -> FloatArray:
     return bound(p, 1.0 - alpha, alpha)
 
 
+#: Target groups whose clever covariate reweights one arm by the propensity **odds**
+#: ``g1 / g0``, and so needs the tighter ``for_att=True`` truncation.  Every other group
+#: divides by ``g`` once, like the mean family, and takes the ordinary bound.
+#:
+#: A named set rather than the ``group == "mean"`` test the three call sites used to
+#: repeat.  That test was written when ``mean``, ``att`` and ``atc`` were the only groups,
+#: where "not mean" *was* "an odds"; as groups were added they silently inherited the ATT
+#: bound instead -- and a group registered through
+#: :func:`~cleverly.fluctuation.register_submodel` inherited it too, with nothing saying
+#: so.  ``TMLEConfig.describe`` has always reported this bound as the "ATT/ATC" one, which
+#: is what it now is.
+CONDITIONAL_GROUPS: frozenset[str] = frozenset({"att", "atc"})
+
+
+def g_bounds_for(
+    group: str, mean_bounds: tuple[float, float], conditional_bounds: tuple[float, float]
+) -> tuple[float, float]:
+    """Which of a fit's two truncation bounds applies to ``group``."""
+    return conditional_bounds if group in CONDITIONAL_GROUPS else mean_bounds
+
+
 def resolve_g_bounds(spec: GBounds, n: float, *, for_att: bool = False) -> tuple[float, float]:
     """Turn a user-facing ``g_bounds`` specification into an explicit pair.
 

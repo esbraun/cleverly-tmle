@@ -109,6 +109,7 @@ __all__ = [
     "att_submodel",
     "check_arms",
     "mean_submodel",
+    "msm_submodel",
     "mtp_submodel",
     "regime_submodel",
     "register_submodel",
@@ -284,6 +285,33 @@ def _selection_indicator(n: int, selection: FloatArray | None) -> FloatArray:
     return indicator
 
 
+def _arm_mechanism(propensity: FloatArray, n: int, k: int, arms: tuple[float, ...]) -> FloatArray:
+    """The ``(n, K)`` mechanism, validated, accepting the two-arm convenience form.
+
+    One definition rather than three, because every builder that divides by ``g`` needs
+    exactly this and had been repeating it: the vector form matters for the binary
+    regression surface (see ``CLAUDE.md``) and a copy of it that drifted would move the
+    two-arm numbers.
+    """
+    g = np.asarray(propensity, dtype=float)
+    if g.ndim == 1:
+        # The two-arm convenience form: a bare ``g1`` vector, with arm 0 the complement.
+        # Kept because the sensitivity code, the C-TMLE search and the tests all build a
+        # binary submodel from one vector, and spelling out both columns at every one of
+        # those call sites would be noise.
+        if k != 2:
+            raise ValueError(
+                f"propensity was given as a single vector but there are {k} arms {list(arms)}; "
+                "supply the (n, K) mechanism"
+            )
+        g = np.column_stack([1.0 - g.reshape(-1), g.reshape(-1)])
+    if g.shape != (n, k):
+        raise ValueError(f"propensity must have shape ({n}, {k}); got {g.shape}")
+    if np.any(g <= 0) or np.any(g >= 1):
+        raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
+    return g
+
+
 def mean_submodel(
     treatment: FloatArray,
     propensity: FloatArray,
@@ -295,6 +323,7 @@ def mean_submodel(
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
+    msm: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per arm, targeting every counterfactual mean at once.
 
@@ -336,26 +365,11 @@ def mean_submodel(
         indicator multiplies only the *observed* covariate -- the counterfactual
         columns are already evaluated at ``Z = z`` by construction.
     """
-    del treated_fraction, regimes, shifts  # see the parameters' docstrings
+    del treated_fraction, regimes, shifts, msm  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
-    g = np.asarray(propensity, dtype=float)
-    if g.ndim == 1:
-        # The two-arm convenience form: a bare ``g1`` vector, with arm 0 the complement.
-        # Kept because the sensitivity code, the C-TMLE search and the tests all build a
-        # binary submodel from one vector, and spelling out both columns at every one of
-        # those call sites would be noise.
-        if k != 2:
-            raise ValueError(
-                f"propensity was given as a single vector but there are {k} arms {list(arms)}; "
-                "supply the (n, K) mechanism"
-            )
-        g = np.column_stack([1.0 - g.reshape(-1), g.reshape(-1)])
-    if g.shape != (n, k):
-        raise ValueError(f"propensity must have shape ({n}, {k}); got {g.shape}")
-    if np.any(g <= 0) or np.any(g >= 1):
-        raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
+    g = _arm_mechanism(propensity, n, k, arms)
 
     pi = _arm_matrix(n, k, missingness, "missingness probabilities")
     pz = _arm_matrix(n, k, intermediate_density, "intermediate probabilities")
@@ -415,6 +429,7 @@ def regime_submodel(
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
+    msm: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per *regime*, targeting :math:`E[Y^{g^\star_r}]` for each.
 
@@ -447,22 +462,11 @@ def regime_submodel(
     treated_fraction:
         Accepted and ignored; see :func:`mean_submodel`.
     """
-    del treated_fraction, shifts  # see the parameter's docstring
+    del treated_fraction, shifts, msm  # see the parameter's docstring
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
-    g = np.asarray(propensity, dtype=float)
-    if g.ndim == 1:
-        if k != 2:
-            raise ValueError(
-                f"propensity was given as a single vector but there are {k} arms {list(arms)}; "
-                "supply the (n, K) mechanism"
-            )
-        g = np.column_stack([1.0 - g.reshape(-1), g.reshape(-1)])
-    if g.shape != (n, k):
-        raise ValueError(f"propensity must have shape ({n}, {k}); got {g.shape}")
-    if np.any(g <= 0) or np.any(g >= 1):
-        raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
+    g = _arm_mechanism(propensity, n, k, arms)
 
     star = _regime_densities(n, k, regimes)
     pi = _arm_matrix(n, k, missingness, "missingness probabilities")
@@ -487,6 +491,120 @@ def regime_submodel(
     )
 
 
+def _weighted_design(n: int, k: int, msm: FloatArray | None) -> FloatArray:
+    r"""Validate the ``(n, K, p)`` array :math:`h(a, V)\varphi(a, V)` the ``msm`` submodel needs.
+
+    Shape and finiteness only.  That the weights are non-negative and that the design is
+    not collinear are properties of the *working model*, checked where it is built
+    (:class:`cleverly.msm.MSMSet`) rather than repeated here: this runs once per truncation
+    bound in a sensitivity sweep, and neither property can change between them.
+    """
+    if msm is None:
+        raise ValueError(
+            "the 'msm' submodel needs msm=: an (n, K, p) array of h(a, V) * phi(a, V) per "
+            "arm and term. Build one with cleverly.msm.MSMSet.evaluate(...).weighted_design."
+        )
+    values = np.asarray(msm, dtype=float)
+    if values.ndim != 3 or values.shape[:2] != (n, k):
+        raise ValueError(
+            f"msm must have shape ({n}, {k}, p) -- rows, arms, terms -- got {values.shape}"
+        )
+    if values.shape[2] == 0:
+        raise ValueError("a working model must have at least one term")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("the working model's weighted design contains a non-finite value")
+    return values
+
+
+def msm_submodel(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    *,
+    arms: tuple[float, ...] = (0.0, 1.0),
+    treated_fraction: float | None = None,
+    missingness: FloatArray | None = None,
+    intermediate_density: FloatArray | None = None,
+    selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
+    shifts: FloatArray | None = None,
+    msm: FloatArray | None = None,
+) -> Submodel:
+    r"""One column per *coefficient* of a working model, targeting its projection.
+
+    .. math::
+
+        H(A, W) = \frac{h(A, V)\,\varphi(A, V)}
+                       {g(A \mid W)\,\pi(W)\,q(W)}
+                = \sum_a \mathbb 1\{A = a\}\,
+                  \frac{h(a, V)\,\varphi(a, V)}{g_a(W)\,\pi_a(W)\,q_a(W)}
+
+    a ``p``-column design, one column per term.  Fluctuating along it solves
+
+    .. math::
+
+        P_n\Big[\frac{h(A,V)\,\varphi(A,V)}{g(A \mid W)}\,\big(Y - \bar Q^*(A, W)\big)\Big] = 0 ,
+
+    which is the first of the two terms of the efficient influence function for
+    :math:`\beta`; the second is solved *exactly* by the weighted least squares that reads
+    :math:`\hat\beta` off the targeted fit, so the pair is zero by construction rather than
+    by iteration.  See :mod:`cleverly.msm` for the estimand and
+    :func:`~cleverly.inference.influence.msm_coefficients` for the curve.
+
+    **Why the columns are coefficients and the arms are still arms.**  Exactly the
+    reasoning :func:`regime_submodel` sets out, one axis further along.  The fluctuation
+    updates :math:`\bar Q(a, W)` at every arm, because the projection reads the
+    counterfactual mean at all of them; but the score equations are one per *term*.  So
+    :attr:`Submodel.arms` is keyed by arm and each entry carries ``p`` columns, while the
+    parameters live on the columns.  :attr:`Submodel.arm_columns` is left empty for the
+    same reason :func:`att_submodel` and :func:`regime_submodel` leave it empty: no column
+    belongs to a single arm.
+
+    Note that with a **saturated** working model -- one indicator column per arm, uniform
+    weights -- this is :func:`mean_submodel` entry for entry, which is what
+    ``tests/unit/test_msm_submodel.py`` checks.  That is the sense in which the arm-keyed
+    path is a special case here too.
+
+    Parameters
+    ----------
+    msm:
+        ``(n, K, p)``: ``msm[i, j, :]`` is
+        :math:`h(\text{arms}[j], V_i)\,\varphi(\text{arms}[j], V_i)`, from
+        :attr:`cleverly.msm.MSMSet.weighted_design`.  The weight is folded in there
+        because the covariate needs only the product, and passing plain arrays is what
+        lets the registry dispatch on the group name alone.
+    treated_fraction:
+        Accepted and ignored; see :func:`mean_submodel`.
+    """
+    del treated_fraction, regimes, shifts  # see the parameters' docstrings
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    n = a.shape[0]
+    k = len(arms)
+    g = _arm_mechanism(propensity, n, k, arms)
+
+    weighted = _weighted_design(n, k, msm)
+    pi = _arm_matrix(n, k, missingness, "missingness probabilities")
+    pz = _arm_matrix(n, k, intermediate_density, "intermediate probabilities")
+    keep = _selection_indicator(n, selection)
+
+    # (n, K): the denominator arm by arm, exactly as mean_submodel builds it, so a fit
+    # with delta= or intermediate= composes rather than needing its own derivation.
+    inverse = 1.0 / (g * pi * pz)
+    # (n, K, p) -> (n, p) per arm: the covariate that arm's prediction is fluctuated by.
+    covariate = weighted * inverse[:, :, None]
+    counterfactual = {float(arm): covariate[:, j, :] for j, arm in enumerate(arms)}
+    indicator = np.column_stack([(a == arm) for arm in arms]).astype(float)
+    observed = keep[:, None] * np.einsum("ij,ijp->ip", indicator, covariate)
+
+    return Submodel(
+        observed,
+        counterfactual,
+        tuple(f"h_msm{j}" for j in range(weighted.shape[2])),
+        "msm",
+        # No arm_columns: a column targets a coefficient of the working model, which
+        # summarises every arm rather than naming one.
+    )
+
+
 def mtp_submodel(
     treatment: FloatArray,
     propensity: FloatArray,
@@ -498,6 +616,7 @@ def mtp_submodel(
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
+    msm: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per *shift*, targeting :math:`E[\bar Q(d_\delta(A, W), W)]` for each.
 
@@ -521,7 +640,7 @@ def mtp_submodel(
     :meth:`~Submodel.column_for` can answer and
     :func:`~cleverly.inference.influence.shift_means` reads it.
     """
-    del propensity, arms, treated_fraction, missingness, intermediate_density, regimes
+    del propensity, arms, treated_fraction, missingness, intermediate_density, regimes, msm
     if shifts is None:
         raise ValueError(
             "the 'mtp' submodel needs shifts=: the clever covariate evaluated at the "
@@ -588,6 +707,7 @@ def att_submodel(
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
+    msm: FloatArray | None = None,
 ) -> Submodel:
     r"""One-column submodel targeting the ATT.
 
@@ -605,7 +725,7 @@ def att_submodel(
     ``g_0(W)``; it is also why ``g_bounds="auto"`` uses a more conservative bound
     for this estimand.
     """
-    del regimes, shifts  # accepted and ignored; the ATT conditions on an arm, not a regime
+    del regimes, shifts, msm  # accepted and ignored; the ATT conditions on an arm
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     share = _required_treated_fraction(treated_fraction, "att")
@@ -640,9 +760,10 @@ def atc_submodel(
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
+    msm: FloatArray | None = None,
 ) -> Submodel:
     """One-column submodel targeting the ATC -- the mirror image of the ATT."""
-    del regimes, shifts  # accepted and ignored, as in att_submodel
+    del regimes, shifts, msm  # accepted and ignored, as in att_submodel
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     # In (0, 1) because the treated share is, which the helper has already enforced --
@@ -724,6 +845,7 @@ register_submodel("att", att_submodel)
 register_submodel("atc", atc_submodel)
 register_submodel("regime", regime_submodel)
 register_submodel("mtp", mtp_submodel)
+register_submodel("msm", msm_submodel)
 
 
 #: Keyword arguments that joined :data:`SubmodelBuilder`'s signature after it was first
@@ -749,6 +871,13 @@ _SIGNATURE_ADDITIONS: dict[str, str] = {
         "parameters. A builder that targets arms or regimes should accept and ignore it, "
         "as mean_submodel does."
     ),
+    "msm": (
+        "Every submodel builder now takes the working model's weighted design, because a "
+        "fit's parameters may be the coefficients of a marginal structural model rather "
+        "than anything indexed by an arm; add 'msm=None' to its keyword-only parameters. "
+        "A builder that targets arms, regimes or shifts should accept and ignore it, as "
+        "mean_submodel does."
+    ),
 }
 
 
@@ -764,6 +893,7 @@ def submodel_for(
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
+    msm: FloatArray | None = None,
 ) -> Submodel:
     """Build the clever covariate for an estimand family, by registry lookup.
 
@@ -790,6 +920,7 @@ def submodel_for(
             selection=selection,
             regimes=regimes,
             shifts=shifts,
+            msm=msm,
         )
     except TypeError as error:
         # Some keywords are newer than the extension point, so a builder written against

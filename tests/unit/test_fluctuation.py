@@ -123,12 +123,13 @@ class TestCleverCovariates:
 
     def test_dispatch_covers_every_registered_group(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
-        assert set(SUBMODEL_BUILDERS) >= {"mean", "att", "atc", "regime"}
+        assert set(SUBMODEL_BUILDERS) >= {"mean", "att", "atc", "regime", "mtp", "msm"}
         # Every optional argument any builder needs, supplied at once: the dispatcher's
         # contract is that a builder takes the whole keyword set and uses what it needs.
         regimes = np.zeros((a.shape[0], 2, 1))
         regimes[:, 1, 0] = 1.0
         shifts = np.ones((a.shape[0], 2, 1))
+        msm = np.ones((a.shape[0], 2, 1))
         for group in SUBMODEL_BUILDERS:
             submodel = submodel_for(
                 group,
@@ -137,6 +138,7 @@ class TestCleverCovariates:
                 treated_fraction=float(a.mean()),
                 regimes=regimes,
                 shifts=shifts,
+                msm=msm,
             )
             assert submodel.group == group
 

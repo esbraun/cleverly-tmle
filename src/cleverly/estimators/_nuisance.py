@@ -45,6 +45,7 @@ from ..learners.crossfit import Folds
 from ..learners.density import ConditionalDensity, fit_conditional_density
 from ..learners.screeners import CorrelationScreener
 from ..learners.super_learner import SuperLearnerDiagnostics
+from ..msm import MSMSet
 from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
 from .direct_effect import check_level
@@ -190,6 +191,12 @@ class NuisanceEstimates:
     #: exists, and evaluating it here is what makes "g(A | W) and g(A - delta | W) come
     #: from the same out-of-fold model" structural rather than an invariant to maintain.
     shifts: ShiftSet | None = None
+    #: The working model this fit projects the counterfactual means onto, evaluated at
+    #: every row and every arm, or ``None`` for a fit that declared none.  Carried for the
+    #: reason ``regimes`` is, and built *beside* :func:`fit_nuisances` rather than inside
+    #: it -- unlike a shift, a working model's design is a function of the covariates
+    #: alone and needs no mechanism to evaluate.
+    msm: MSMSet | None = None
 
     @property
     def n(self) -> int:
