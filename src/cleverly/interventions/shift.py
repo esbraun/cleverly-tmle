@@ -23,15 +23,27 @@ value :math:`a`,
 
 .. math::
 
-    h_r(a, W) = \frac{g(a - \delta_r \mid W)}{g(a \mid W)} + \mathbb 1\{a > u_r - \delta_r\}
+    h_r(a, W) = \frac{g(a - \delta_r \mid W)}{g(a \mid W)}\,\mathbb 1\{a \le u_r\}
+                + \mathbb 1\{a > u_r - \delta_r\}
 
--- a ratio of the *same* density at two points, plus an indicator for the rows the cap
-holds back, which contribute their own residual.  Three checks it must pass, and does:
-at :math:`\delta = 0` it is identically one and the influence curve collapses to
-:math:`Y - \Psi`, which is the influence curve of :math:`E[Y]`; at a :math:`\delta` so
-large that nobody can move it is identically one again; and on doses
-:math:`\{0,1,2,3\}` with :math:`\delta = 1, u = 3` it gives :math:`0`,
-:math:`g(0)/g(1)`, :math:`g(1)/g(2)` and :math:`g(2)/g(3) + 1`.
+It is the ratio :math:`g^d / g` written out, where
+:math:`g^d(b \mid w) = \sum_{a : d(a,w) = b} g(a \mid w)` is the density the policy
+induces.  Both indicators come from that preimage and neither is decoration: a unit lands
+at :math:`b` either by *being shifted there* from :math:`b - \delta` (possible only when
+:math:`b \le u`, since otherwise the shift from :math:`b - \delta` was itself held back)
+or by *staying put* (when :math:`b + \delta > u`).
+
+The first indicator is invisible whenever the cap sits at or above the largest treatment
+value, which is the common case -- and that is exactly why
+``tests/discrete_law_shift.py`` declares **two** caps.  Dropping it passed every check
+under a loose cap and failed the Gateaux derivative under a tight one.
+
+Three checks it must pass, and does: at :math:`\delta = 0` it is identically one and the
+influence curve collapses to :math:`Y - \Psi`, which is the influence curve of
+:math:`E[Y]`; at a :math:`\delta` so large that nobody can move it is identically one
+again; and on doses :math:`\{0,1,2,3\}` with :math:`\delta = 1` it gives
+:math:`0,\ g(0)/g(1),\ g(1)/g(2),\ g(2)/g(3) + 1` when :math:`u = 3` and
+:math:`0,\ g(0)/g(1),\ (g(1)+g(2))/g(2),\ 1` when :math:`u = 2`.
 
 **Why an MTP is not the stochastic regime that induces it.**  Write
 :math:`g^d(b \mid w) = \sum_{a : d(a,w) = b} g(a \mid w)` for the density the policy
@@ -308,7 +320,13 @@ def _ratio(density: ConditionalDensity, values: FloatArray, shift: Shift) -> Flo
     safe = np.where(denominator > 0.0, denominator, 1.0)
     covariate = np.where(denominator > 0.0, numerator / safe, 0.0)
     if shift.cap is not None:
-        covariate = covariate + (a > float(shift.cap) - shift.delta).astype(float)
+        cap = float(shift.cap)
+        # Reachable-from-below: a unit can only have been *shifted* to `a` if the shift
+        # from `a - delta` was not itself held back, which needs `a <= cap`. Above the cap
+        # the only way to be at `a` is to have stayed there, so the ratio term drops out
+        # entirely and the indicator below is the whole covariate.
+        covariate = covariate * (a <= cap).astype(float)
+        covariate = covariate + (a > cap - shift.delta).astype(float)
     return np.asarray(covariate, dtype=float)
 
 

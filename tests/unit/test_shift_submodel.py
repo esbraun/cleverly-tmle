@@ -66,6 +66,18 @@ class TestTheCleverCovariate:
         # under another name and must report the same covariate.
         np.testing.assert_allclose(_shifts(Shift(99.0, cap=3.0)).ratio, 1.0, atol=1e-14)
 
+    def test_a_tight_cap_removes_the_ratio_term_above_it(self) -> None:
+        # The regression test for a bug the loose cap could not see. A unit can only have
+        # been *shifted* to dose a if the shift from a - delta was not itself held back,
+        # which needs a <= cap; above the cap the only way to be at a is to have stayed,
+        # so the ratio drops out and the indicator is the whole covariate.
+        #
+        # With cap = 2 the policy is 0->1, 1->2, 2->2, 3->3, so the induced density is
+        # g^d = (0, g0, g1 + g2, g3) and h = g^d / g:
+        shifts = _shifts(Shift(1.0, cap=2.0))
+        expected = [0.0, G[0] / G[1], (G[1] + G[2]) / G[2], 1.0]
+        np.testing.assert_allclose(shifts.ratio[:4, 0], expected, atol=1e-14)
+
     def test_an_uncapped_shift_drops_the_indicator(self) -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
