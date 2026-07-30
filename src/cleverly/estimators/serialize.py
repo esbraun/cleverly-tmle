@@ -135,6 +135,12 @@ def _fluctuation_to(arrays: _Arrays, prefix: str, fl: Fluctuation) -> dict[str, 
         "method": fl.method,
         "names": list(fl.names),
         "score_scale": arrays.put(f"{prefix}.score_scale", fl.score_scale),
+        "score_initial": arrays.put(f"{prefix}.score_initial", fl.score_initial),
+        "epsilon_std_error": arrays.put(f"{prefix}.epsilon_se", fl.epsilon_std_error),
+        "n_solver_calls": int(fl.n_solver_calls),
+        "failure": fl.failure,
+        "hessian_condition": float(fl.hessian_condition),
+        "loglik": float(fl.loglik),
         "folds": [
             {
                 "index": arrays.put(f"{prefix}.fold{i}.index", f.index),
@@ -159,6 +165,12 @@ def _fluctuation_from(arrays: _Arrays, payload: dict[str, Any]) -> Fluctuation:
         method=payload["method"],
         names=tuple(payload["names"]),
         score_scale=arrays.get(payload["score_scale"]),
+        score_initial=arrays.get(payload["score_initial"]),
+        epsilon_std_error=arrays.get(payload["epsilon_std_error"]),
+        n_solver_calls=payload["n_solver_calls"],
+        failure=payload["failure"],
+        hessian_condition=payload["hessian_condition"],
+        loglik=payload["loglik"],
         folds=tuple(
             FoldFluctuation(
                 index=arrays.get(f["index"]).astype(np.int64),

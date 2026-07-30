@@ -67,7 +67,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -84,12 +84,13 @@ from .._typing import (
     TargetingScheme,
 )
 from ..data.causal_data import CausalData
-from ..exceptions import PositivityWarning, WeightingWarning
+from ..exceptions import ConvergenceWarning, PositivityWarning, WeightingWarning
 from ..fluctuation._score import relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
     InitialFit,
+    TargetingFailure,
 )
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict
 from ..inference.bootstrap import Resampling, run_bootstrap
@@ -1084,6 +1085,7 @@ class TMLE:
         fold_records: list[FoldFluctuation] = []
         masses = []
         traces = []
+        reasons: list[str] = []
         iterations = 0
 
         for _, test in nuisance.folds:
@@ -1113,6 +1115,7 @@ class TMLE:
             )
             masses.append(float(data.weights[test].sum()))
             traces.append(fold_fluctuation.trace[-1] if fold_fluctuation.trace else float("nan"))
+            reasons.append(fold_fluctuation.failure or "unknown")
             iterations += fold_fluctuation.n_iter
 
         targeted = InitialFit(observed, at_one, at_zero)
@@ -1124,6 +1127,27 @@ class TMLE:
             scaled, targeted.observed, submodel.observed, data.weights, data.observed
         )
         scale = score_scale(submodel.observed, data.weights, data.observed)
+        score_before = score_columns(
+            scaled, nuisance.outcome.observed, submodel.observed, data.weights, data.observed
+        )
+
+        # Per-fold solves run with warn=False so ten folds cannot emit ten warnings.
+        # That left a fold-targeted fit able to fail in three folds of ten and say
+        # nothing at all, since the pooled score can still look solved: each fold's
+        # score is near zero on its own rows and the failures average out. Report the
+        # count once, naming the modes.
+        failed = [i for i, record in enumerate(fold_records) if not record.converged]
+        modes = sorted({reasons[i] for i in failed})
+        if failed:
+            warnings.warn(
+                f"{len(failed)} of {len(fold_records)} fold(s) did not converge in the "
+                f"{submodel.group!r} targeting step ({', '.join(modes)}). The pooled score "
+                "can still look solved because each fold's score is near zero on its own "
+                "rows; inspect res.fluctuations[group].folds for the per-fold detail.",
+                ConvergenceWarning,
+                stacklevel=3,
+            )
+
         return Fluctuation(
             epsilon=epsilon,
             targeted=targeted,
@@ -1135,6 +1159,9 @@ class TMLE:
             names=submodel.names,
             score_scale=scale,
             folds=tuple(fold_records),
+            score_initial=score_before,
+            n_solver_calls=len(fold_records),
+            failure=_dominant_failure(reasons, failed),
         )
 
     def _estimates_for(
@@ -1345,3 +1372,17 @@ def tmle(
     )
     estimator = TMLE(**kwargs)
     return estimator.fit(data)
+
+
+def _dominant_failure(reasons: Sequence[str], failed: Sequence[int]) -> TargetingFailure | None:
+    """The most common failure mode across folds, for the summary line.
+
+    A single label cannot describe ten folds, so the per-fold detail stays on
+    ``Fluctuation.folds``; this is only what to print when there is room for one word.
+    """
+    if not failed:
+        return None
+    modes = [reasons[i] for i in failed if reasons[i] != "unknown"]
+    if not modes:
+        return "max_iter_reached"
+    return cast("TargetingFailure", max(set(modes), key=modes.count))

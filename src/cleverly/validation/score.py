@@ -84,6 +84,24 @@ class ScoreCheckRow:
     converged: bool
     n_iter: int
     method: str
+    #: The same score before the fluctuation moved anything.  A step that starts near
+    #: zero had nothing to do, which is a different situation from one that started
+    #: large and was driven down -- and only the latter is evidence targeting worked.
+    score_initial: float = float("nan")
+    #: Why the step stopped, when it did not converge.  Empty when it did.
+    failure: str = ""
+    #: Conditioning of the last Newton Hessian.  Large means ``epsilon`` is barely
+    #: identified even where the score looks solved.
+    hessian_condition: float = float("nan")
+    #: For a fold-targeted fit, how many of the per-fold solves converged.
+    folds_converged: tuple[int, int] | None = None
+
+    @property
+    def reduction(self) -> float:
+        """How far targeting moved the score, as a factor.  Above 1 means it shrank."""
+        if not np.isfinite(self.score_initial) or self.score <= 0:
+            return float("nan")
+        return abs(self.score_initial) / abs(self.score)
 
     @property
     def ratio(self) -> float:
@@ -143,12 +161,15 @@ class ScoreCheck:
                 "Score-equation check",
                 "-" * 20,
                 format_table(
-                    ["target", "kind", "|score|", "threshold", "ratio", "ok"],
+                    ["target", "kind", "|score|", "before", "threshold", "ratio", "ok"],
                     [
                         [
                             row.name,
                             row.kind,
                             f"{abs(row.score):.3e}",
+                            f"{abs(row.score_initial):.3e}"
+                            if np.isfinite(row.score_initial)
+                            else "-",
                             f"{row.threshold:.3e}",
                             f"{row.ratio:.2e}",
                             "yes" if row.passed else "NO",
@@ -156,10 +177,28 @@ class ScoreCheck:
                         for row in self.rows
                     ],
                 ),
+                *self._notes(),
                 "",
                 verdict,
             ]
         )
+
+    def _notes(self) -> list[str]:
+        """Anything the table has no column for: named failures, fold convergence."""
+        notes: list[str] = []
+        for row in self.rows:
+            if row.failure:
+                notes.append(f"  {row.name}: targeting stopped -- {row.failure}")
+            if row.folds_converged is not None:
+                good, total = row.folds_converged
+                if good < total:
+                    notes.append(f"  {row.name}: {total - good} of {total} folds did not converge")
+            if np.isfinite(row.hessian_condition) and row.hessian_condition > 1e8:
+                notes.append(
+                    f"  {row.name}: Hessian condition {row.hessian_condition:.2e} -- epsilon is "
+                    "barely identified, so a solved score may still be fragile"
+                )
+        return ["", *notes] if notes else []
 
     def raise_if_failed(self) -> None:
         """Raise when the check failed -- for use in pipelines that must not ship a bad fit."""
@@ -212,6 +251,14 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
                 converged=fluctuation.converged,
                 n_iter=fluctuation.n_iter,
                 method=fluctuation.method,
+                score_initial=fluctuation.initial_score_norm,
+                failure=fluctuation.failure or "",
+                hessian_condition=fluctuation.hessian_condition,
+                folds_converged=(
+                    (sum(f.converged for f in fluctuation.folds), len(fluctuation.folds))
+                    if fluctuation.folds
+                    else None
+                ),
             )
         )
 

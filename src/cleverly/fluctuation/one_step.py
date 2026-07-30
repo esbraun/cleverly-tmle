@@ -37,7 +37,10 @@ from .._typing import BoolArray, FloatArray
 from ..exceptions import ConvergenceWarning
 from ..utils.bounds import expit, logit
 from ._score import quasi_loglik, relative_score, score_columns, score_scale
-from .iterative import Fluctuation, InitialFit
+from .iterative import (
+    _SEPARATION_EPSILON as SEPARATION_EPSILON,
+)
+from .iterative import Fluctuation, InitialFit, TargetingFailure
 from .submodel import Submodel, weighted_form
 
 __all__ = ["solve_one_step"]
@@ -88,6 +91,7 @@ def solve_one_step(
     steps = 0
 
     score = score_columns(y, current.observed, scoring_h, w, mask)
+    score_before = score
     norm = float(np.linalg.norm(score))
     trace.append(relative_score(score, scale))
 
@@ -125,7 +129,6 @@ def solve_one_step(
             ConvergenceWarning,
             stacklevel=2,
         )
-    del loglik  # tracked for monotonicity during development; not part of the result
     return Fluctuation(
         epsilon=epsilon,
         targeted=current,
@@ -136,7 +139,34 @@ def solve_one_step(
         method="one_step",
         names=submodel.names,
         score_scale=scale,
+        score_initial=score_before,
+        failure=(
+            None if converged else _classify_one_step(epsilon, current, alpha, steps, max_steps)
+        ),
+        loglik=loglik,
     )
+
+
+def _classify_one_step(
+    epsilon: FloatArray, current: InitialFit, alpha: float, steps: int, max_steps: int
+) -> TargetingFailure:
+    """Why the walk stopped short of the root.
+
+    The universal least-favorable submodel has no Hessian to be singular -- it walks
+    a normalised direction -- so the modes here are the endpoint ones: epsilon
+    running away, predictions pinned on their bounds, or the step cap.
+    """
+    if epsilon.size and np.max(np.abs(epsilon)) >= SEPARATION_EPSILON:
+        return "separation_suspected"
+    edge = 1.0 - alpha
+    pinned = np.mean((current.observed <= edge * 1.000001) | (current.observed >= alpha * 0.999999))
+    if pinned > 0.01:
+        return "bounds_pinned"
+    if steps >= max_steps:
+        return "max_iter_reached"
+    # The walk halves dx on every overshoot and bails at 1e-14; reaching that without
+    # solving the equation is the same stall as an exhausted line search.
+    return "line_search_exhausted"
 
 
 def _move(fit: InitialFit, submodel: Submodel, delta: FloatArray, alpha: float) -> InitialFit:
