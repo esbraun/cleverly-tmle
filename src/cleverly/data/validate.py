@@ -24,6 +24,7 @@ __all__ = [
     "check_outcome",
     "check_weights",
     "encode_binary",
+    "encode_continuous_treatment",
     "encode_treatment",
     "infer_family",
 ]
@@ -132,6 +133,45 @@ def encode_treatment(
     return _check_arms(codes, levels_obj, name, min_per_arm), levels_obj
 
 
+#: Fewest distinct values a continuous treatment must take.  A density estimated by
+#: binning cannot say anything useful about a column that only visits a handful of
+#: points, and a column that discrete is nearly always one the caller meant to declare as
+#: arms.  Well below :data:`MAX_TREATMENT_LEVELS`, so the two regimes overlap: a treatment
+#: with between this many and twenty levels can legitimately be read either way, and which
+#: one is right is the caller's modelling choice rather than something to infer.
+MIN_CONTINUOUS_LEVELS = 10
+
+
+def encode_continuous_treatment(values: np.ndarray, name: str) -> FloatArray:
+    """Validate a numeric treatment that is to be modelled on a continuum.
+
+    Unlike :func:`encode_treatment` this returns the values *themselves* rather than
+    codes: there are no arms to code, and the numbers carry the spacing that a shift
+    intervention moves along.  Nothing here is sorted, binned or relabelled -- the
+    binning that the conditional density estimator does is a property of that estimator
+    and of the fold it was fit on, not of the data container.
+    """
+    arr = np.asarray(values).reshape(-1)
+    if arr.dtype.kind not in "fiu":
+        raise DataError(
+            f"{name} is not numeric ({arr.dtype}), so it cannot be treated as continuous. "
+            "A continuous treatment is a quantity a shift can move along; a categorical "
+            "column is a set of arms, and needs treatment_kind='discrete'."
+        )
+    numeric = np.asarray(arr, dtype=float)
+    if not np.all(np.isfinite(numeric)):
+        raise DataError(f"{name} contains missing or non-finite values")
+    distinct = int(np.unique(numeric).size)
+    if distinct < MIN_CONTINUOUS_LEVELS:
+        raise DataError(
+            f"{name} takes only {distinct} distinct values, too few to estimate a "
+            f"conditional density by binning (at least {MIN_CONTINUOUS_LEVELS} are "
+            "needed). If those values are the arms of a categorical treatment, drop "
+            "treatment_kind='continuous' and they will be coded as arms."
+        )
+    return numeric
+
+
 def _reject_arm_count(k: int, name: str) -> None:
     if k < 2:
         raise DataError(
@@ -142,8 +182,9 @@ def _reject_arm_count(k: int, name: str) -> None:
         raise DataError(
             f"{name} has {k} distinct levels, above the limit of {MAX_TREATMENT_LEVELS}. "
             "Collapse the levels into the contrast you actually want to report, or -- if "
-            "the treatment is really continuous -- note that continuous treatments need a "
-            "conditional density rather than a per-arm mean and are not yet supported."
+            "the treatment is really continuous -- pass treatment_kind='continuous', "
+            "which models it with a conditional density and reports shift interventions "
+            "rather than a mean per arm."
         )
 
 

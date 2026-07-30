@@ -455,3 +455,152 @@ class TestBackends:
         )
         out = data.to_frame()
         assert {"Y", "A", "W1", "w", "cl"} <= set(out.columns)
+
+
+def _continuous_frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    w1 = rng.normal(size=n)
+    return pd.DataFrame(
+        {
+            "W1": w1,
+            "W2": rng.normal(size=n),
+            "A": w1 * 0.7 + rng.normal(size=n),
+            "Y": rng.normal(size=n),
+        }
+    )
+
+
+class TestContinuousTreatment:
+    """A treatment declared continuous has no arms, and says so rather than pretending.
+
+    The point of ``n_arms == 0`` is that every arm loop becomes *empty* rather than
+    *wrong*; the accessors that name an arm raise instead of answering, so a caller that
+    reaches for one gets an error rather than a silently degenerate fit.
+    """
+
+    def _data(self, **kwargs: object) -> CausalData:
+        return CausalData.from_frame(
+            _continuous_frame(), outcome="Y", treatment="A", treatment_kind="continuous", **kwargs
+        )
+
+    def test_a_continuous_treatment_has_no_arms(self) -> None:
+        data = self._data()
+        assert data.is_continuous_treatment
+        assert data.n_arms == 0
+        assert data.arm_codes == ()
+        assert data.treatment_levels == ()
+        assert not data.is_binary_treatment
+
+    def test_the_treatment_keeps_its_own_values(self) -> None:
+        frame = _continuous_frame()
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A", treatment_kind="continuous")
+        # Not codes: the numbers a shift moves along have to survive encoding.
+        np.testing.assert_array_equal(data.treatment, frame["A"].to_numpy())
+
+    def test_the_design_carries_the_dose_as_one_column(self) -> None:
+        data = self._data()
+        block = data.treatment_block(data.treatment)
+        assert block.shape == (data.n, 1)
+        np.testing.assert_array_equal(block[:, 0], data.treatment)
+
+    def test_the_counterfactual_design_takes_a_value_per_row(self) -> None:
+        data = self._data()
+        shifted = data.treatment + 0.5
+        design = data.counterfactual_design(shifted)
+        assert design.shape == data.treatment_design().shape
+        np.testing.assert_allclose(design[:, 0], shifted)
+        # A scalar still broadcasts, so the constant-dose question is still askable.
+        np.testing.assert_allclose(data.counterfactual_design(2.0)[:, 0], 2.0)
+
+    def test_a_mis_sized_counterfactual_vector_is_refused(self) -> None:
+        data = self._data()
+        with pytest.raises(DataError, match="one value for everybody or one per row"):
+            data.counterfactual_design(np.zeros(7))
+
+    @pytest.mark.parametrize(
+        ("accessor", "match"),
+        [
+            (lambda d: d.arm_label(0.0), "has no arms"),
+            (lambda d: d.treated_fraction, "names no quantity"),
+        ],
+    )
+    def test_the_arm_accessors_refuse_rather_than_answer(self, accessor, match: str) -> None:  # type: ignore[no-untyped-def]
+        with pytest.raises(DataError, match=match):
+            accessor(self._data())
+
+    def test_a_permutation_replaces_the_treatment(self) -> None:
+        data = self._data()
+        rng = np.random.default_rng(3)
+        replaced = data.with_treatment(rng.permutation(data.treatment))
+        assert replaced.treatment_kind == "continuous"
+        np.testing.assert_allclose(np.sort(replaced.treatment), np.sort(data.treatment))
+
+    def test_the_kind_survives_a_subset(self) -> None:
+        data = self._data()
+        assert data.subset(np.arange(50)).treatment_kind == "continuous"
+
+    def test_a_non_numeric_column_cannot_be_continuous(self) -> None:
+        frame = _continuous_frame()
+        frame["A"] = np.where(frame["A"] > 0, "high", "low")
+        with pytest.raises(DataError, match="cannot be treated as continuous"):
+            CausalData.from_frame(frame, outcome="Y", treatment="A", treatment_kind="continuous")
+
+    def test_too_few_distinct_values_is_refused(self) -> None:
+        frame = _continuous_frame()
+        frame["A"] = np.round(frame["A"] * 0.4)
+        with pytest.raises(DataError, match="too few to estimate a conditional density"):
+            CausalData.from_frame(frame, outcome="Y", treatment="A", treatment_kind="continuous")
+
+    @pytest.mark.parametrize("role", ["delta", "weights", "intermediate"])
+    def test_the_roles_that_need_a_per_arm_factor_are_refused(self, role: str) -> None:
+        frame = _continuous_frame()
+        frame["extra"] = 1.0
+        with pytest.raises(DataError, match="not yet supported together with"):
+            CausalData.from_frame(
+                frame,
+                outcome="Y",
+                treatment="A",
+                treatment_kind="continuous",
+                covariates=["W1", "W2"],
+                **{role: "extra"},
+            )
+
+    def test_an_unknown_kind_is_refused(self) -> None:
+        with pytest.raises(DataError, match="treatment_kind must be"):
+            CausalData.from_frame(
+                _continuous_frame(),
+                outcome="Y",
+                treatment="A",
+                treatment_kind="ordinal",  # type: ignore[arg-type]
+            )
+
+
+class TestTheDiscretePathDidNotMove:
+    """``treatment_kind`` defaults to the arm-coded path, byte for byte.
+
+    CLAUDE.md calls the arm path a regression surface.  The continuous branch is new code
+    on the same methods, so these assert the old answers directly rather than trusting
+    that a default argument left them alone.
+    """
+
+    def test_the_default_is_the_arm_coded_path(self) -> None:
+        data = CausalData.from_frame(_frame(), outcome="Y", treatment="A")
+        assert data.treatment_kind == "discrete"
+        assert not data.is_continuous_treatment
+        assert data.arm_codes == (0.0, 1.0)
+
+    def test_a_binary_design_is_still_the_code_itself(self) -> None:
+        data = CausalData.from_frame(_frame(), outcome="Y", treatment="A")
+        np.testing.assert_array_equal(data.treatment_block(data.treatment)[:, 0], data.treatment)
+
+    def test_a_counterfactual_arm_is_still_validated(self) -> None:
+        data = CausalData.from_frame(_frame(), outcome="Y", treatment="A")
+        with pytest.raises(DataError, match="is not an arm of"):
+            data.counterfactual_design(2.0)
+
+    def test_a_multi_arm_design_is_still_indicators(self) -> None:
+        frame = _frame()
+        rng = np.random.default_rng(1)
+        frame["A"] = rng.integers(0, 3, len(frame)).astype(float)
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A")
+        assert data.treatment_block(data.treatment).shape == (data.n, 2)
