@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from ._fitting import fit_learner, infer_task, predict_mean, supports_sample_weight
+from ._fitting import (
+    accepts_groups,
+    fit_learner,
+    infer_task,
+    predict_mean,
+    supports_sample_weight,
+)
 from ._threads import get_thread_limit, set_thread_limit, thread_limit
 from .crossfit import Folds, make_folds, resolve_n_folds
 from .library import LIBRARY_PRESETS, has_lightgbm, resolve_library
@@ -15,6 +21,7 @@ __all__ = [
     "Folds",
     "SuperLearner",
     "SuperLearnerDiagnostics",
+    "accepts_groups",
     "fit_learner",
     "get_thread_limit",
     "has_lightgbm",

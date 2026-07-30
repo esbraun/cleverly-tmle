@@ -336,3 +336,146 @@ class TestSuperLearner:
         x, y, _ = sample
         with pytest.raises(ValueError, match="expected"):
             SuperLearner(library="glm", n_folds=3).fit(x, y[:-1])
+
+
+class TestCrossFitRouting:
+    """What an inner cross-validation is and is not told by the outer one.
+
+    Two claims live here, and they are opposites.  The first is that the inner folds do
+    *not* leak: a nuisance learner that cross-validates internally is handed only rows
+    the outer training fold already owns, so its candidate weights cannot have been
+    scored on a held-out row.  That is a property of
+    :func:`~cleverly.estimators._nuisance.cross_fit_predictions` passing ``design[rows]``
+    rather than the full design, and it is asserted rather than argued because it has
+    been doubted.
+
+    The second is that the inner folds must still be told the *cluster* structure, which
+    is the one thing the row subset cannot convey.  Two rows of one cluster can sit in
+    the same outer training fold and in different inner folds, and then a candidate is
+    scored on a row correlated with its own training set.
+    """
+
+    @staticmethod
+    def _spy() -> tuple[type, list[dict]]:
+        """A SuperLearner subclass that records what each fit was given."""
+        seen: list[dict] = []
+
+        class Spy(SuperLearner):
+            def fit(self, X, y, sample_weight=None, *, groups=None):  # type: ignore[no-untyped-def]
+                fitted = super().fit(X, y, sample_weight, groups=groups)
+                seen.append(
+                    {
+                        "rows": set(np.asarray(X)[:, 0].astype(int).tolist()),
+                        "groups": None if groups is None else np.asarray(groups),
+                        "folds": self.folds_,
+                    }
+                )
+                return fitted
+
+        return Spy, seen
+
+    def test_the_inner_folds_never_see_an_outer_held_out_row(self) -> None:
+        """The leak that is not there -- pinned so the claim stays checkable."""
+        from cleverly.estimators._nuisance import cross_fit_predictions
+
+        n = 200
+        rng = np.random.default_rng(0)
+        design = rng.normal(size=(n, 3))
+        # Column 0 carries each row's own index, so the spy can identify what it was
+        # handed without depending on float equality of the covariates.
+        design[:, 0] = np.arange(n)
+        treatment = (rng.random(n) < 0.5).astype(float)
+        outer = make_folds(n, 4, stratify=treatment, random_state=0)
+
+        Spy, seen = self._spy()
+        cross_fit_predictions(
+            Spy(library="glm", task="classification", n_folds=3, random_state=0, clip=(0.0, 1.0)),
+            design,
+            treatment,
+            np.ones(n),
+            outer,
+            task="classification",
+            predict_designs={"g1": design},
+        )
+
+        assert len(seen) == outer.n_folds
+        for record, (train, test) in zip(seen, outer, strict=True):
+            assert record["rows"] == set(train.tolist()), (
+                "the inner cross-validation was handed rows the outer fold does not own"
+            )
+            assert record["rows"].isdisjoint(set(test.tolist()))
+
+    @pytest.mark.parametrize("screen", [False, True])
+    def test_cluster_codes_reach_the_inner_folds_through_screening(self, screen: bool) -> None:
+        """Screening wraps the learner in a pipeline; the codes must still arrive.
+
+        Parametrised over ``screen`` because the unwrapped case has always worked and the
+        wrapped one silently did not -- running both is what makes the fix visible as a
+        difference rather than as a bare assertion.
+        """
+        from cleverly.estimators._nuisance import _screened, cross_fit_predictions
+
+        n = 240
+        rng = np.random.default_rng(1)
+        design = rng.normal(size=(n, 3))
+        design[:, 0] = np.arange(n)
+        treatment = (rng.random(n) < 0.5).astype(float)
+        cluster = np.repeat(np.arange(n // 4), 4)
+        outer = make_folds(n, 4, stratify=treatment, cluster=cluster, random_state=0)
+
+        Spy, seen = self._spy()
+        learner = Spy(
+            library="glm", task="classification", n_folds=3, random_state=0, clip=(0.0, 1.0)
+        )
+        cross_fit_predictions(
+            _screened(learner, 0.1, None) if screen else learner,
+            design,
+            treatment,
+            np.ones(n),
+            outer,
+            task="classification",
+            predict_designs={"g1": design},
+            groups=cluster,
+        )
+
+        assert seen, "no inner fit was recorded"
+        for record in seen:
+            assert record["groups"] is not None, (
+                "cluster codes were dropped on the way to the inner cross-validation"
+            )
+            # The codes are subset to the outer training rows, so they must line up with
+            # the rows the fit actually saw rather than with the whole sample.
+            rows = np.array(sorted(record["rows"]))
+            assert np.array_equal(record["groups"], cluster[rows])
+            for train, test in record["folds"]:
+                assert set(record["groups"][train]).isdisjoint(set(record["groups"][test]))
+
+    def test_weights_still_reach_a_pipeline_wrapped_learner(self) -> None:
+        """The routing rewrite must not lose the parameter it already handled."""
+        from cleverly.estimators._nuisance import _screened
+
+        n = 200
+        rng = np.random.default_rng(2)
+        design = rng.normal(size=(n, 3))
+        outcome = design[:, 0] + rng.normal(scale=0.5, size=n)
+        weights = rng.uniform(0.2, 2.0, n)
+
+        wrapped = _screened(SuperLearner(library="glm", n_folds=3, random_state=0), 0.1, None)
+        plain = fit_learner(wrapped, design, outcome, None)
+        weighted = fit_learner(wrapped, design, outcome, weights)
+        assert not np.allclose(plain.predict(design), weighted.predict(design))
+
+    def test_groups_are_withheld_from_a_learner_that_cannot_use_them(self) -> None:
+        """A learner whose fit does not name ``groups`` is fitted without them.
+
+        ``LinearRegression.fit`` would raise on an unexpected keyword, so this asserts the
+        routing is selective rather than merely well-intentioned.
+        """
+        n = 60
+        rng = np.random.default_rng(3)
+        design = rng.normal(size=(n, 2))
+        outcome = design[:, 0] + rng.normal(scale=0.1, size=n)
+        model = fit_learner(
+            LinearRegression(), design, outcome, None, groups=np.repeat(np.arange(n // 4), 4)
+        )
+        assert model.coef_.shape == (2,)
