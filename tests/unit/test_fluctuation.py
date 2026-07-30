@@ -128,8 +128,16 @@ class TestCleverCovariates:
         # contract is that a builder takes the whole keyword set and uses what it needs.
         regimes = np.zeros((a.shape[0], 2, 1))
         regimes[:, 1, 0] = 1.0
+        shifts = np.ones((a.shape[0], 2, 1))
         for group in SUBMODEL_BUILDERS:
-            submodel = submodel_for(group, a, g1, treated_fraction=float(a.mean()), regimes=regimes)
+            submodel = submodel_for(
+                group,
+                a,
+                g1,
+                treated_fraction=float(a.mean()),
+                regimes=regimes,
+                shifts=shifts,
+            )
             assert submodel.group == group
 
     def test_an_unregistered_group_says_what_is_registered(self, setting) -> None:

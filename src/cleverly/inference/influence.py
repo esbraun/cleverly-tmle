@@ -60,6 +60,7 @@ __all__ = [
     "make_estimate",
     "ratio_estimates",
     "regime_means",
+    "shift_means",
 ]
 
 Scale = Literal["level", "difference", "ratio"]
@@ -272,6 +273,77 @@ def counterfactual_means(
         # decomposition is a diagnostic (`counterfactual_mean_parts`); the estimation path
         # keeps the arithmetic its regression fixtures were built against.
         out[arm] = ArmMean(psi, w * (submodel.column_for(arm) * residual + prediction - psi))
+    return out
+
+
+def shift_means(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    observed: BoolArray | None = None,
+) -> dict[float, ArmMean]:
+    r"""Each shift's mean and influence curve, keyed by shift code.
+
+    .. math::
+
+        \hat\Psi_r = \frac1n \sum_i \bar Q^*\bigl(d_r(A_i, W_i), W_i\bigr),
+        \qquad
+        D_r^*(O) = h_r(A, W)\,\{Y - \bar Q^*(A, W)\}
+                   + \bar Q^*\bigl(d_r(A,W), W\bigr) - \Psi_r
+
+    **Why this is not** :func:`regime_means` **at the induced density.**  A shift
+    :math:`d` induces the density :math:`g^d(b \mid w) = \sum_{a : d(a,w)=b} g(a \mid w)`,
+    and the two parameters are equal:
+
+    .. math::
+
+        E[\bar Q(d(A,W), W)]
+          = E_W\Bigl[\sum_a g(a \mid W) \bar Q(d(a,W), W)\Bigr]
+          = E_W\Bigl[\sum_b g^d(b \mid W) \bar Q(b, W)\Bigr].
+
+    The clever covariates are equal too, entry for entry.  The **influence curves are
+    not**.  A regime's plug-in term is :math:`\sum_b g^d(b \mid W)\,\bar Q^*(b, W)`, a
+    function of :math:`W` alone; a shift's is :math:`\bar Q^*(d(A,W), W)`, which reads the
+    dose the unit actually received.  The two agree only in conditional expectation given
+    :math:`W`, so their difference
+
+    .. math::
+
+        \bar Q^*(d(A,W), W) - E\bigl[\bar Q^*(d(A,W), W) \mid W\bigr]
+
+    is mean zero given :math:`W` and uncorrelated with the regime curve -- the residual
+    half of that curve is centred given :math:`(A, W)`, and its plug-in half is
+    :math:`W`-measurable.  Hence the exact identity
+
+    .. math::
+
+        \operatorname{Var}(D^*_{\text{mtp}})
+          = \operatorname{Var}(D^*_{\text{regime}})
+          + \operatorname{Var}\bigl(\bar Q(d(A,W),W) - E[\bar Q(d(A,W),W) \mid W]\bigr).
+
+    An MTP is strictly *harder* to estimate than the known stochastic regime with the same
+    mean, by exactly that amount -- the price of an intervention that reads the natural
+    value of treatment.  So this must not delegate to :func:`regime_means`, and
+    ``tests/unit/test_influence_gateaux_shift.py`` keeps a negative control that fails if
+    someone later makes it.
+
+    Arithmetically this *is* :func:`counterfactual_means` with the arm replaced by the
+    shift: ``arm_columns`` is populated for the ``mtp`` group, so ``column_for`` answers,
+    and ``targeted.arms[r]`` already holds :math:`\bar Q^*` at the shifted dose.  The
+    bracket below is summed in the same association for the same reason the comment there
+    gives.
+    """
+    if submodel.group != "mtp":
+        raise ValueError(f"expected the 'mtp' submodel; got {submodel.group!r}")
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    residual = _residual(outcome, targeted, observed)
+
+    out: dict[float, ArmMean] = {}
+    for code in targeted.levels:
+        prediction = targeted.arms[code]
+        psi = float(np.average(prediction, weights=w))
+        out[code] = ArmMean(psi, w * (submodel.column_for(code) * residual + prediction - psi))
     return out
 
 

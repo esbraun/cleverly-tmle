@@ -11,13 +11,19 @@ The roles mirror the arguments of R's ``tmle()``:
 role                 R name      meaning
 ===================  ==========  ==========================================
 ``outcome``          ``Y``       outcome, possibly missing where ``delta=0``
-``treatment``        ``A``       binary treatment indicator
+``treatment``        ``A``       treatment: arms, or a dose on a continuum
 ``covariates``       ``W``       baseline confounders
 ``delta``            ``Delta``   1 when the outcome is observed
 ``weights``          ``obsWeights``  observation weights
 ``cluster``          ``id``      independent unit for variance estimation
 ``intermediate``     ``Z``       binary intermediate, for controlled direct effects
 ===================  ==========  ==========================================
+
+``treatment_kind`` decides how the treatment column is read, and it is *declared* rather
+than inferred.  ``"discrete"`` codes it into arms; ``"continuous"`` keeps its own values,
+leaves :attr:`~CausalData.treatment_levels` empty, and hands the mechanism over to a
+conditional density.  Guessing from the number of distinct values would silently redefine
+the estimand the day a new batch of data added one more dose.
 
 Supplying ``weights`` changes the parameter being estimated, not just its weighting:
 the estimand becomes the causal parameter in the weight-tilted population.
@@ -30,7 +36,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Literal
 
 import narwhals as nw
 import numpy as np
@@ -45,6 +51,7 @@ from .validate import (
     check_weights,
     encode_binary,
     encode_clusters,
+    encode_continuous_treatment,
     encode_treatment,
     infer_family,
 )
@@ -58,9 +65,53 @@ from .weighting import (
     warn_if_counts,
 )
 
-__all__ = ["CategoricalEncoding", "CausalData"]
+__all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind"]
+
+#: How the treatment column is to be read.  ``"discrete"`` codes it into arms; there is
+#: no third reading, and the two are not points on a scale -- they select different
+#: mechanisms (a distribution over arms versus a conditional density) and therefore
+#: different estimands.
+TreatmentKind = Literal["discrete", "continuous"]
 
 _MIN_OBSERVATIONS = 10
+
+
+def _refuse_continuous_combinations(
+    name: str,
+    *,
+    delta: Any,
+    intermediate: Any,
+    weights: Any,
+) -> None:
+    """Refuse the roles whose derivations assume a finite set of arms.
+
+    Each of these works for an arm-coded treatment because its clever covariate carries a
+    per-arm factor: the missingness mechanism is ``P(Delta = 1 | A = a, W)`` at each arm,
+    the intermediate density is ``P(Z = z | A = a, W)``, and the weighted estimand's tilt
+    is stated arm by arm.  On a continuum "each arm" is not a finite loop, and the
+    products these form with the density ratio have to be re-derived rather than
+    re-indexed.  Refusing by name is the alternative to reporting a number whose target
+    nobody has written down.
+    """
+    unsupported = [
+        label
+        for label, value in (
+            ("delta= (missing outcomes)", delta),
+            ("intermediate= (controlled direct effects)", intermediate),
+            ("weights= (a tilted population)", weights),
+        )
+        if value is not None
+    ]
+    if unsupported:
+        raise DataError(
+            f"{name} was declared continuous, which is not yet supported together with "
+            f"{', '.join(unsupported)}. Each of those puts a further per-arm factor in "
+            "the clever covariate's denominator -- P(Delta = 1 | A, W), P(Z = z | A, W), "
+            "the weight tilt -- and on a continuum that factor is a conditional density "
+            "whose product with the treatment density needs its own derivation, not a "
+            "wider loop over arms. Estimate the shift on complete, unweighted rows, or "
+            "discretise the treatment into arms and use the existing estimands."
+        )
 
 
 @dataclass(frozen=True)
@@ -97,6 +148,12 @@ class CausalData:
     outcome_name: str = "Y"
     treatment_name: str = "A"
     treatment_levels: tuple[Any, ...] = (0, 1)
+    #: Whether :attr:`treatment` holds arm codes or the treatment's own numeric values.
+    #: ``"continuous"`` means there are no arms at all: :attr:`treatment_levels` is empty,
+    #: :attr:`n_arms` is zero, and the mechanism is a conditional *density* rather than a
+    #: distribution over a finite set.  Defaulted so every existing construction, and
+    #: every ``dataclasses.replace`` of one, stays on the arm-coded path unchanged.
+    treatment_kind: TreatmentKind = "discrete"
     delta_name: str | None = None
     cluster: IntArray | None = None
     cluster_name: str | None = None
@@ -125,6 +182,7 @@ class CausalData:
         id: str | None = None,
         intermediate: str | None = None,
         family: str = "auto",
+        treatment_kind: TreatmentKind = "discrete",
     ) -> CausalData:
         """Build from a pandas or polars dataframe by column name.
 
@@ -145,6 +203,12 @@ class CausalData:
             Declare that the weights came out of a fitted model.  Changes no number; it
             makes the reports state that the intervals condition on the estimated
             weights.  See :mod:`cleverly.data.weighting`.
+        treatment_kind:
+            ``"continuous"`` reads the treatment as a quantity on a continuum rather than
+            as a set of arms.  It is a declaration rather than something inferred: a dose
+            recorded at fifteen distinct values could reasonably be either, and guessing
+            from the number of levels would silently change the estimand when a new batch
+            of data happened to add a sixteenth.
         """
         if not is_dataframe(data):
             raise DataError(
@@ -199,6 +263,7 @@ class CausalData:
             cluster=frame[id].to_numpy() if id is not None else None,
             intermediate=(frame[intermediate].to_numpy() if intermediate is not None else None),
             family=family,
+            treatment_kind=treatment_kind,
             outcome_name=outcome,
             treatment_name=treatment,
             delta_name=delta,
@@ -224,12 +289,14 @@ class CausalData:
         id: Any = None,
         intermediate: Any = None,
         family: str = "auto",
+        treatment_kind: TreatmentKind = "discrete",
         outcome_name: str = "Y",
         treatment_name: str = "A",
     ) -> CausalData:
         """Build from numpy arrays, mirroring ``tmle(Y, A, W, ...)`` in R.
 
-        See :meth:`from_frame` for ``weights_type`` and ``weights_estimated``.
+        See :meth:`from_frame` for ``weights_type``, ``weights_estimated`` and
+        ``treatment_kind``.
         """
         w = np.asarray(covariates, dtype=float)
         if w.ndim == 1:
@@ -250,6 +317,7 @@ class CausalData:
             cluster=None if id is None else np.asarray(id),
             intermediate=None if intermediate is None else np.asarray(intermediate),
             family=family,
+            treatment_kind=treatment_kind,
             outcome_name=outcome_name,
             treatment_name=treatment_name,
             delta_name="Delta" if delta is not None else None,
@@ -275,6 +343,7 @@ class CausalData:
         cluster: np.ndarray | None,
         intermediate: np.ndarray | None,
         family: str,
+        treatment_kind: TreatmentKind = "discrete",
         outcome_name: str,
         treatment_name: str,
         delta_name: str | None,
@@ -294,7 +363,18 @@ class CausalData:
             if len(arr) != n:
                 raise DataError(f"{label} has length {len(arr)}, expected {n}")
 
-        a, levels = encode_treatment(treatment, treatment_name)
+        if treatment_kind == "continuous":
+            _refuse_continuous_combinations(
+                treatment_name, delta=delta, intermediate=intermediate, weights=weights
+            )
+            a = encode_continuous_treatment(treatment, treatment_name)
+            levels: tuple[object, ...] = ()
+        elif treatment_kind == "discrete":
+            a, levels = encode_treatment(treatment, treatment_name)
+        else:
+            raise DataError(
+                f"treatment_kind must be 'discrete' or 'continuous'; got {treatment_kind!r}"
+            )
         observed = (
             np.ones(n, dtype=bool) if delta is None else check_delta(delta, delta_name or "delta")
         )
@@ -346,6 +426,7 @@ class CausalData:
             outcome_name=outcome_name,
             treatment_name=treatment_name,
             treatment_levels=levels,
+            treatment_kind=treatment_kind,
             delta_name=delta_name,
             cluster=codes,
             cluster_name=cluster_name,
@@ -412,6 +493,12 @@ class CausalData:
     @property
     def treated_fraction(self) -> float:
         """Weighted ``P(A = 1)``, the denominator of the ATT."""
+        if self.is_continuous_treatment:
+            raise DataError(
+                f"{self.treatment_name} is continuous, so 'the treated fraction' names no "
+                "quantity: there is no treated arm to take the share of. The ATT and ATC "
+                "are undefined here for the same reason."
+            )
         return float(np.average(self.treatment, weights=self.weights))
 
     # ------------------------------------------------------------------- arms
@@ -445,6 +532,12 @@ class CausalData:
         messages -- goes through here, so a fit on ``{"low", "high"}`` is never
         reported in terms of ``1.0``.
         """
+        if self.is_continuous_treatment:
+            raise DataError(
+                f"{self.treatment_name} is continuous and has no arms, so {float(code)!r} "
+                "has no label. A continuous treatment's parameters are indexed by "
+                "intervention -- a shift -- rather than by arm."
+            )
         index = round(float(code))
         if index < 0 or index >= self.n_arms or float(index) != float(code):
             raise DataError(
@@ -452,6 +545,16 @@ class CausalData:
                 f"{list(self.treatment_levels)} with codes {list(self.arm_codes)}"
             )
         return self.treatment_levels[index]
+
+    @property
+    def is_continuous_treatment(self) -> bool:
+        """Whether the treatment lives on a continuum rather than a finite set of arms.
+
+        Read off the declaration, not counted in the data: a continuous column that
+        happens to visit only a few values is still continuous, and an arm-coded one is
+        still arm-coded however many levels it has.
+        """
+        return self.treatment_kind == "continuous"
 
     @property
     def is_binary_treatment(self) -> bool:
@@ -491,8 +594,18 @@ class CausalData:
         dropped is a property of the design only and does not privilege any arm in the
         estimand: the counterfactual means are all evaluated by prediction, and the
         reference used for *contrasts* is a separate, caller-chosen thing.
+
+        For a **continuous** treatment this is the single numeric column itself.  The
+        objection above -- that one column imposes a linear dose-response -- is not
+        answerable by indicators here, because there are no arms to indicate; it is
+        answered by the learner instead.  That is why the default library's splines and
+        boosting matter more for a continuous treatment than for an arm-coded one, and
+        why ``library="glm"`` on a continuous dose really does fit a straight line in the
+        exposure.
         """
         c = np.asarray(codes, dtype=float).reshape(-1)
+        if self.is_continuous_treatment:
+            return c.reshape(-1, 1)
         return np.column_stack([(c == level).astype(float) for level in self.arm_codes[1:]])
 
     def treatment_design(self, *, include_intermediate: bool = False) -> FloatArray:
@@ -513,24 +626,46 @@ class CausalData:
 
     def counterfactual_design(
         self,
-        treatment_value: float,
+        treatment_value: float | FloatArray,
         *,
         intermediate_value: float | None = None,
     ) -> FloatArray:
-        """``[a, W]`` with the treatment (and optionally ``Z``) set to a constant.
+        """``[a, W]`` with the treatment (and optionally ``Z``) set as asked.
 
-        ``treatment_value`` is an *arm code* -- see :attr:`arm_codes` -- and is
-        validated against the declared support, so a typo asks for an arm that does
-        not exist rather than quietly producing an all-zero indicator block that the
-        model reads as the dropped first arm.
+        For an arm-coded treatment ``treatment_value`` is an *arm code* -- see
+        :attr:`arm_codes` -- and is validated against the declared support, so a typo asks
+        for an arm that does not exist rather than quietly producing an all-zero indicator
+        block that the model reads as the dropped first arm.
+
+        For a **continuous** treatment it is any float, or an ``(n,)`` array giving a
+        value *per row*.  The per-row form is what a modified treatment policy needs:
+        :math:`d(a, w) = a + \\delta` sets a different value for every unit, so the
+        design cannot be built by broadcasting one number.  There is no declared support
+        to validate against; how far outside the observed range a shifted value falls is
+        a positivity question, reported by
+        :func:`~cleverly.interventions.support.check_support` rather than raised here.
 
         The intermediate column is appended only when the data actually carries one, so
         that this and :meth:`treatment_design` cannot disagree about the width of the
         design.  Asking for a level the data has no column for is an error rather than a
         silently wider matrix than the model was trained on.
         """
-        self.arm_label(treatment_value)  # validates the code against the declared support
-        a = self.treatment_block(np.full(self.n, float(treatment_value)))
+        if self.is_continuous_treatment:
+            values = np.asarray(treatment_value, dtype=float).reshape(-1)
+            if values.size == 1:
+                values = np.full(self.n, float(values[0]))
+            elif values.size != self.n:
+                raise DataError(
+                    f"counterfactual_design was given {values.size} treatment values for "
+                    f"{self.n} rows; pass one value for everybody or one per row"
+                )
+            if not np.all(np.isfinite(values)):
+                raise DataError("counterfactual treatment values must all be finite")
+        else:
+            code = float(np.asarray(treatment_value, dtype=float).reshape(()))
+            self.arm_label(code)  # validates the code against the declared support
+            values = np.full(self.n, code)
+        a = self.treatment_block(values)
         blocks = [a, self.covariates]
         if intermediate_value is not None:
             if self.intermediate is None:
@@ -618,6 +753,13 @@ class CausalData:
         a = np.asarray(treatment, dtype=float).reshape(-1)
         if a.size != self.n:
             raise DataError(f"replacement treatment has length {a.size}, expected {self.n}")
+        if self.is_continuous_treatment:
+            # No declared support to keep, so the arm check below has nothing to check.
+            # A permutation of a continuous column keeps its marginal distribution, which
+            # is what the placebo refuter needs.
+            if not np.all(np.isfinite(a)):
+                raise DataError("replacement treatment contains non-finite values")
+            return replace(self, treatment=a)
         found = np.unique(a)
         if not np.array_equal(found, np.asarray(self.arm_codes, dtype=float)):
             raise DataError(
@@ -694,8 +836,12 @@ class CausalData:
             f"n={self.n}",
             f"family={self.family!r}",
             f"covariates={self.n_covariates}",
-            f"P(A=1)={self.treated_fraction:.3f}",
         ]
+        if self.is_continuous_treatment:
+            low, high = float(self.treatment.min()), float(self.treatment.max())
+            parts.append(f"{self.treatment_name} in [{low:.3g}, {high:.3g}]")
+        else:
+            parts.append(f"P(A=1)={self.treated_fraction:.3f}")
         if self.has_missing_outcome:
             parts.append(f"observed={float(self.observed.mean()):.3f}")
         if self.cluster is not None:

@@ -16,6 +16,7 @@ from .base import (
     as_interventions,
     refuse_unsupported,
 )
+from .shift import Shift, ShiftSet, ShiftSupport, check_shift_support
 from .support import RegimeSupport, SupportReport, check_support
 
 __all__ = [
@@ -23,10 +24,14 @@ __all__ = [
     "RegimeSet",
     "RegimeSupport",
     "Rule",
+    "Shift",
+    "ShiftSet",
+    "ShiftSupport",
     "Static",
     "Stochastic",
     "SupportReport",
     "as_interventions",
+    "check_shift_support",
     "check_support",
     "refuse_unsupported",
 ]

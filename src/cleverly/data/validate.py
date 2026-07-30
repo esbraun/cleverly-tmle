@@ -14,16 +14,18 @@ from collections.abc import Sequence
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import DataError
+from ..exceptions import DataError, DataWarning
 
 __all__ = [
     "MAX_TREATMENT_LEVELS",
+    "MIN_CONTINUOUS_LEVELS",
     "check_binary",
     "check_covariates",
     "check_delta",
     "check_outcome",
     "check_weights",
     "encode_binary",
+    "encode_continuous_treatment",
     "encode_treatment",
     "infer_family",
 ]
@@ -132,6 +134,57 @@ def encode_treatment(
     return _check_arms(codes, levels_obj, name, min_per_arm), levels_obj
 
 
+#: Below this many distinct values, a treatment declared continuous is *probably* a set of
+#: arms the caller forgot to declare -- so it warns.  It does not refuse, because a
+#: coarse support is not an obstacle to the estimator: the density on a handful of points
+#: is a probability mass function with unit-width bins, and a shift along an ordered
+#: discrete dose is a perfectly well-defined modified treatment policy.  (That case is not
+#: hypothetical -- it is what ``tests/discrete_law_shift.py`` uses to check the influence
+#: curve against a numerically differentiated one, which needs finite support.)  Well below
+#: :data:`MAX_TREATMENT_LEVELS`, so the two readings overlap and the choice stays the
+#: caller's.
+MIN_CONTINUOUS_LEVELS = 10
+
+
+def encode_continuous_treatment(values: np.ndarray, name: str) -> FloatArray:
+    """Validate a numeric treatment that is to be modelled on a continuum.
+
+    Unlike :func:`encode_treatment` this returns the values *themselves* rather than
+    codes: there are no arms to code, and the numbers carry the spacing that a shift
+    intervention moves along.  Nothing here is sorted, binned or relabelled -- the
+    binning that the conditional density estimator does is a property of that estimator
+    and of the fold it was fit on, not of the data container.
+    """
+    arr = np.asarray(values).reshape(-1)
+    if arr.dtype.kind not in "fiu":
+        raise DataError(
+            f"{name} is not numeric ({arr.dtype}), so it cannot be treated as continuous. "
+            "A continuous treatment is a quantity a shift can move along; a categorical "
+            "column is a set of arms, and needs treatment_kind='discrete'."
+        )
+    numeric = np.asarray(arr, dtype=float)
+    if not np.all(np.isfinite(numeric)):
+        raise DataError(f"{name} contains missing or non-finite values")
+    distinct = int(np.unique(numeric).size)
+    if distinct < 2:
+        raise DataError(
+            f"{name} takes only one value; a treatment needs at least two for a "
+            "counterfactual contrast to be defined"
+        )
+    if distinct < MIN_CONTINUOUS_LEVELS:
+        warnings.warn(
+            f"{name} was declared continuous but takes only {distinct} distinct values. "
+            "That is estimable -- the density becomes a probability mass function and a "
+            "shift moves along the ordered values -- but if those values are the arms of "
+            "a categorical treatment, dropping treatment_kind='continuous' gives the "
+            "per-arm estimands instead, which are what most analyses of a few levels "
+            "want.",
+            DataWarning,
+            stacklevel=3,
+        )
+    return numeric
+
+
 def _reject_arm_count(k: int, name: str) -> None:
     if k < 2:
         raise DataError(
@@ -142,8 +195,9 @@ def _reject_arm_count(k: int, name: str) -> None:
         raise DataError(
             f"{name} has {k} distinct levels, above the limit of {MAX_TREATMENT_LEVELS}. "
             "Collapse the levels into the contrast you actually want to report, or -- if "
-            "the treatment is really continuous -- note that continuous treatments need a "
-            "conditional density rather than a per-arm mean and are not yet supported."
+            "the treatment is really continuous -- pass treatment_kind='continuous', "
+            "which models it with a conditional density and reports shift interventions "
+            "rather than a mean per arm."
         )
 
 
