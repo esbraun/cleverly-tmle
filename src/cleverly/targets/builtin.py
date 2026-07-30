@@ -74,6 +74,34 @@ _REGIME_ID = Identification(
 )
 
 
+_SHIFT_ID = Identification(
+    assumptions=(
+        "consistency: Y = Y^a when A = a",
+        "no unmeasured confounding: Y^a is independent of A given W",
+        "positivity *for the shifted dose*: g(d(a, w) | w) > 0 wherever g(a | w) > 0, so "
+        "the dose the policy assigns is one the data have seen at that covariate value. "
+        "This is weaker than positivity at every dose -- which no continuum satisfies -- "
+        "and is exactly what the cap is declared to secure",
+        "the shift is a known function of (A, W): d does not depend on the observed-data "
+        "law, so the influence function carries no term for estimating it. A cap fitted "
+        "from the data would break this, which is why cap= is required rather than "
+        "defaulted to max(A)",
+    ),
+    required_nuisances=("outcome_regression", "treatment_density"),
+    dr_condition=(
+        "consistent if either Qbar(A, W) or the conditional density g(a | W) is "
+        "consistent; the mechanism half is a density ratio rather than a propensity, so "
+        "its error is the error in g(a - delta | W) / g(a | W) rather than in a "
+        "probability"
+    ),
+    references=(
+        "Diaz & van der Laan (2012)",
+        "Haneuse & Rotnitzky (2013)",
+        "Diaz, Williams, Hoffman & Schenck (2023)",
+    ),
+)
+
+
 def _ey(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y(a)]`` for every arm, always named with its label.
 
@@ -141,6 +169,34 @@ def _ey_regime(ctx: TargetContext) -> list[ParameterEstimate]:
 def _ate_regime(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y^{g*}] - E[Y^{g*_ref}]``, once per non-reference regime."""
     return _difference_against_reference(ctx, "ate_regime")
+
+
+def _ey_shift(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{d}]`` for every declared shift.
+
+    The same shape as :func:`_ey_regime` because a shift is another thing
+    :attr:`~cleverly.targets.TargetContext.means` can be keyed by.  What differs is one
+    level down, in which mean function that property calls -- see its docstring.
+    """
+    return [
+        ctx.finish(
+            parameter_name("ey_shift", arm=ctx.label(code)),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+        )
+        for code, mean in sorted(ctx.means.items())
+    ]
+
+
+def _ate_shift(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{d}] - E[Y^{d_ref}]``, once per non-reference shift.
+
+    The reference is usually the natural course (``delta=0``), which makes this the
+    *effect* of shifting rather than a contrast of two policies -- but it is whichever
+    shift the fit declared as reference, exactly as for arms and regimes.
+    """
+    return _difference_against_reference(ctx, "ate_shift")
 
 
 def _rr(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -290,7 +346,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         scale="level",
         build=_ey_regime,
         identification=_REGIME_ID,
-        requires_intervention=True,
+        parameter_axis="regime",
         in_default_set=True,
         description="counterfactual mean under each declared regime, E[Y^{g*}]",
     ),
@@ -300,8 +356,28 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         scale="difference",
         build=_ate_regime,
         identification=_REGIME_ID,
-        requires_intervention=True,
+        parameter_axis="regime",
         in_default_set=True,
         description="contrast of each regime against the reference regime",
+    ),
+    Target(
+        name="ey_shift",
+        group="mtp",
+        scale="level",
+        build=_ey_shift,
+        identification=_SHIFT_ID,
+        parameter_axis="shift",
+        in_default_set=True,
+        description="counterfactual mean under each declared shift, E[Y^{d}]",
+    ),
+    Target(
+        name="ate_shift",
+        group="mtp",
+        scale="difference",
+        build=_ate_shift,
+        identification=_SHIFT_ID,
+        parameter_axis="shift",
+        in_default_set=True,
+        description="contrast of each shift against the reference shift",
     ),
 )

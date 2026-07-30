@@ -21,6 +21,7 @@ __all__ = [
     "GBounds",
     "IntArray",
     "Learner",
+    "ParameterAxis",
     "TargetingMethod",
     "TargetingScheme",
 ]
@@ -43,6 +44,13 @@ FluctuationKind = Literal["logistic", "linear"]
 TargetingMethod = Literal["iterative", "one_step"]
 TargetingScheme = Literal["pooled", "fold"]
 Estimand = Literal["ey1", "ey0", "ate", "att", "atc", "rr", "or"]
+
+#: What a fit's parameters are indexed *by*, which is what declares the meaning of
+#: "counterfactual" for that fit: a treatment arm, a declared regime, or a declared
+#: shift.  The three partition the target registry -- see
+#: :attr:`cleverly.Target.parameter_axis` for why they are exclusive rather than
+#: cumulative.
+ParameterAxis = Literal["arm", "regime", "shift"]
 
 #: Propensity-score truncation: ``"auto"`` for the sample-size dependent
 #: default, a single float ``lo`` meaning ``[lo, 1 - lo]``, or an explicit pair.

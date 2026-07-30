@@ -265,12 +265,12 @@ def refuse_unsupported(kind: str) -> None:
             "standard error for a different functional."
         )
     if kind in {"mtp", "shift"}:
-        raise NotImplementedError(
-            "modified treatment policies (shift interventions) are not implemented. A "
-            "shift of a continuous treatment needs g* and g as conditional densities on "
-            "a continuum; cleverly's learner interface estimates conditional means and "
-            "probabilities over a finite set of arms, with no predict_density. A shift "
-            "of a *discrete* treatment can be written as a Rule."
+        raise ValueError(
+            "modified treatment policies are implemented, but not as an intervention. A "
+            "shift reads the dose a unit actually received and moves it, so it is not a "
+            "conditional distribution over arms the way a regime is; declare one with "
+            "cleverly.interventions.Shift and pass it to TMLE(shifts=...). A shift of a "
+            "*discrete* treatment can be written as a Rule."
         )
     raise ValueError(f"unknown intervention kind {kind!r}")
 

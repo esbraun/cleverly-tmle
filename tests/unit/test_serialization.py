@@ -18,9 +18,10 @@ import pytest
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import TMLE, load
-from cleverly.datasets import GENERATORS
+from cleverly.datasets import GENERATORS, make_shift_dose
 from cleverly.estimators.recipe import TMLERecipe
 from cleverly.estimators.serialize import FORMAT_VERSION, dumps, loads, result_to_dict
+from cleverly.interventions import Shift
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -94,6 +95,11 @@ class TestRoundTripIsExact:
         np.testing.assert_array_equal(reloaded.data.covariates, result.data.covariates)
         assert reloaded.data.covariate_names == result.data.covariate_names
         assert reloaded.data.family == result.data.family
+        # Not inferable from the levels: a continuous treatment has none, so a reader
+        # that reconstructed the kind from an empty level list would guess "discrete"
+        # for a dose and quietly change what the object means.
+        assert reloaded.data.treatment_kind == result.data.treatment_kind
+        assert reloaded.data.treatment_levels == result.data.treatment_levels
 
     def test_in_memory_round_trip_agrees_with_the_file(self, result) -> None:  # type: ignore[no-untyped-def]
         back = loads(dumps(result))
@@ -150,6 +156,82 @@ class TestRetargetSurvivesTheRoundTrip:
         after = reloaded.contrast(difference, ["ey1", "ey0"])
         np.testing.assert_array_equal(after.influence_curve, before.influence_curve)
         np.testing.assert_array_equal(reloaded.covariance(), result.covariance())
+
+
+class TestAShiftFitRoundTrips:
+    """A continuous fit carries two nuisances an arm-indexed one does not.
+
+    Given its own class rather than folded into the fixtures above, because the module's
+    ``result`` is a binary fit and every assertion there would need a branch.  What is
+    checked is the same claim: the arrays come back, and the analyses that consume them
+    produce the identical number afterwards.
+    """
+
+    @pytest.fixture(scope="class")
+    def shift_pair(self, tmp_path_factory):  # type: ignore[no-untyped-def]
+        frame, _ = make_shift_dose(n=400, seed=3)
+        original = (
+            TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=4,
+                random_state=7,
+                shifts=[Shift(0.0, cap=None), Shift(0.5, cap=5.0)],
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+            .single()
+        )
+        path = tmp_path_factory.mktemp("shift") / "fit.npz"
+        original.save(path)
+        return original, load(path)
+
+    def test_the_density_returns_bit_for_bit(self, shift_pair) -> None:  # type: ignore[no-untyped-def]
+        before, after = shift_pair
+        np.testing.assert_array_equal(
+            after.nuisance.density.bin_probabilities, before.nuisance.density.bin_probabilities
+        )
+        np.testing.assert_array_equal(after.nuisance.density.edges, before.nuisance.density.edges)
+
+    def test_the_shifts_return_bit_for_bit(self, shift_pair) -> None:  # type: ignore[no-untyped-def]
+        before, after = shift_pair
+        assert after.nuisance.shifts.names == before.nuisance.shifts.names
+        assert after.nuisance.shifts.deltas == before.nuisance.shifts.deltas
+        assert after.nuisance.shifts.reference == before.nuisance.shifts.reference
+        # `design` is the array the fluctuation actually consumes, so it is the one worth
+        # asserting: it is built from ratio and ratio_at together.
+        np.testing.assert_array_equal(after.nuisance.shifts.design, before.nuisance.shifts.design)
+        np.testing.assert_array_equal(after.nuisance.shifts.capped, before.nuisance.shifts.capped)
+
+    def test_the_treatment_is_still_continuous(self, shift_pair) -> None:  # type: ignore[no-untyped-def]
+        _, after = shift_pair
+        assert after.data.treatment_kind == "continuous"
+        assert after.data.is_continuous_treatment
+        assert after.data.n_arms == 0
+        assert after.config.parameter_axis == "shift"
+
+    def test_the_score_check_is_identical(self, shift_pair) -> None:  # type: ignore[no-untyped-def]
+        before, after = shift_pair
+        assert [row.score for row in after.validation.score_check().rows] == [
+            row.score for row in before.validation.score_check().rows
+        ]
+
+    def test_shift_support_is_identical(self, shift_pair) -> None:  # type: ignore[no-untyped-def]
+        before, after = shift_pair
+        for name, report in before.sensitivity.shift_support().items():
+            assert after.sensitivity.shift_support()[name].max_ratio == report.max_ratio
+            assert (
+                after.sensitivity.shift_support()[name].effective_sample_size
+                == report.effective_sample_size
+            )
+
+    def test_the_shifts_are_reconstructible(self, shift_pair) -> None:  # type: ignore[no-untyped-def]
+        """Unlike a rule, a shift is data and so never makes a fit unrebuildable."""
+        before, after = shift_pair
+        recipe = TMLERecipe.from_estimator(before.estimator)
+        assert recipe.learners_reconstructible
+        assert [s["delta"] for s in recipe.shifts] == [0.0, 0.5]
+        assert [s["cap"] for s in recipe.shifts] == [None, 5.0]
+        assert after.estimator.shifts == before.estimator.shifts
 
 
 class TestTheRefitBoundary:

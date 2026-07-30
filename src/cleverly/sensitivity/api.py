@@ -11,7 +11,7 @@ import contextlib
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from ..interventions import SupportReport, check_support
+from ..interventions import ShiftSupport, SupportReport, check_shift_support, check_support
 from .evalue import EValue, evalue
 from .missingness import missingness_tilt, tipping_gamma
 from .omitted_variable import (
@@ -38,8 +38,10 @@ class SensitivityAnalysis:
     Reached as ``result.sensitivity``.  The three families answer different questions
     and are worth running together:
 
-    ``positivity()`` / ``truncation_curve()``
-        Can the *data* support the estimate?  Diagnoses overlap, not confounding.
+    ``positivity()`` / ``support()`` / ``shift_support()`` / ``truncation_curve()``
+        Can the *data* support the estimate?  Diagnoses overlap, not confounding.  Which
+        of the three reports applies is set by the fit's parameter axis: arms, declared
+        regimes, or declared shifts.
     ``omitted_variable()`` / ``robustness_value()`` / ``benchmark()`` / ``evalue()``
         How strong would unmeasured confounding have to be to change the conclusion?
     ``missingness_tilt()`` / ``tipping_gamma()``
@@ -73,6 +75,29 @@ class SensitivityAnalysis:
         return check_support(
             regimes, self._result.data.treatment, self._result.nuisance.propensity.values
         )
+
+    def shift_support(self) -> dict[str, ShiftSupport]:
+        """Overlap *for the declared shifts*, which is a question about a density ratio.
+
+        A shift's clever covariate is ``g(a - delta | W) / g(a | W)``, so what threatens
+        it is not an arm probability near zero but a *ratio* that runs away -- which
+        happens where the shifted dose sits in the thin tail of the density that produced
+        the observed one.  The report gives, per shift, the smallest density it divides
+        by, the ratio's upper quantiles, the effective sample size those weights leave,
+        and how many rows the cap held back.
+
+        Raises on an arm-indexed or regime-indexed fit, where :meth:`positivity` and
+        :meth:`support` are the diagnostics.
+        """
+        shifts = self._result.nuisance.shifts
+        density = self._result.nuisance.density
+        if shifts is None or density is None:
+            raise ValueError(
+                "shift_support() reports overlap for the shifts a fit declared, and this "
+                "fit declared none. Pass shifts= to TMLE, or use positivity() for the "
+                "arm-level report and support() for a regime fit."
+            )
+        return check_shift_support(shifts, density, self._result.data.treatment)
 
     def truncation_curve(
         self,

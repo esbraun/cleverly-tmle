@@ -138,13 +138,25 @@ def test_stochastic_refuses_the_wrong_number_of_arms() -> None:
 # ------------------------------------------------------------------- refusals
 
 
-@pytest.mark.parametrize(
-    ("kind", "match"),
-    [("ipsi", "functional of P"), ("mtp", "predict_density"), ("shift", "predict_density")],
-)
-def test_the_unsupported_interventions_say_what_they_would_need(kind: str, match: str) -> None:
-    with pytest.raises(NotImplementedError, match=match):
+def test_an_ipsi_says_what_its_influence_function_would_need() -> None:
+    with pytest.raises(NotImplementedError, match="functional of P"):
+        refuse_unsupported("ipsi")
+
+
+@pytest.mark.parametrize("kind", ["mtp", "shift"])
+def test_a_shift_is_redirected_to_its_own_keyword_rather_than_refused(kind: str) -> None:
+    """A shift is implemented; what it is not is an *intervention*.
+
+    The refusal used to say the learner interface had no ``predict_density``, which
+    stopped being true when the conditional density estimator landed.  It still raises,
+    because ``interventions=`` takes regimes -- a distribution over arms given ``W`` --
+    and a shift reads the dose the unit received.  So the message points at the keyword
+    that does work, and the type changes from ``NotImplementedError`` to ``ValueError``
+    to say the difference is one of API rather than of derivation.
+    """
+    with pytest.raises(ValueError, match=r"TMLE\(shifts=") as raised:
         refuse_unsupported(kind)
+    assert not isinstance(raised.value, NotImplementedError)
 
 
 # ----------------------------------------------------------------- regime set

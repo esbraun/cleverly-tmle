@@ -58,7 +58,7 @@ where the claim genuinely requires it:
 | --- | --- |
 | `src/cleverly/data` | `CausalData` container and input validation |
 | `src/cleverly/learners` | cross-fitting, screening, `SuperLearner`, thread limits |
-| `src/cleverly/interventions` | regimes: static arms, dynamic rules, stochastic assignments |
+| `src/cleverly/interventions` | regimes: static arms, dynamic rules, stochastic assignments; shifts of a continuous dose |
 | `src/cleverly/fluctuation` | clever covariates and the targeting step |
 | `src/cleverly/estimators` | nuisance orchestration, `TMLE`, result objects |
 | `src/cleverly/inference` | influence curves, clustering, bootstrap, simultaneous bands |
@@ -74,7 +74,11 @@ where the claim genuinely requires it:
   equation no existing group solves, write the clever-covariate builder and call
   `fluctuation.register_submodel` first — `register` refuses a target whose group has no
   builder. The influence curve goes in `inference/influence.py`; the variance, bands, delta
-  method and score diagnostic then work without further changes.
+  method and score diagnostic then work without further changes. Every registered target
+  also needs a longhand branch in one of the oracle laws — `tests/discrete_law.py` for the
+  arm- and regime-indexed estimands, `tests/discrete_law_shift.py` for the shift-indexed
+  ones — and `tests/unit/test_registry.py` checks the two cover each other in *both*
+  directions, so a target with no oracle and an oracle branch with no target both fail.
 - **Counterfactual arms**: `Submodel`, `InitialFit`, `Propensity` and
   `counterfactual_means` key their per-arm arrays by treatment level (`arms[1.0]`), not by
   `at_one` / `at_zero` fields, and `arm_columns` says which design column targets which arm.
@@ -97,6 +101,19 @@ where the claim genuinely requires it:
   path is a regression surface that must not move. The evaluated densities live on
   `NuisanceEstimates`, so everything reached through `retarget` targets the declared
   regimes without the caller's rules being callable again.
+- **A shift moves the dose the unit received.** `shifts=` is a third parameter axis, not a
+  kind of regime: a regime assigns an arm from `W` alone, an MTP reads `A`. `Target`
+  declares which of `arm` / `regime` / `shift` it belongs to via `parameter_axis`, and the
+  three partition the registry — a fit reporting parameters from two of them would be
+  putting two score equations under one heading. `shifts=` also declares the treatment
+  continuous, since a dose has no arms to index by. The mechanism is a `ConditionalDensity`
+  rather than a `Propensity`, and it lives on `NuisanceEstimates` beside `regimes` for the
+  same reason; the `ShiftSet` is built *inside* `fit_nuisances`, because `g(A|W)` and
+  `g(A-δ|W)` must come from one out-of-fold model and evaluating them there makes that
+  structural rather than an invariant to maintain. A shift's mean equals that of the
+  stochastic regime at the induced density; its influence curve does not, and
+  `tests/unit/test_influence_gateaux_shift.py` keeps the negative control that fails if
+  someone delegates one to the other.
 - **Binary-only by declaration, not by accident.** A target that names an arm declares
   `requires_binary_treatment=True`; C-TMLE, the omitted-variable bound and the MNAR tilt
   raise on a multi-arm fit. Prefer refusing with a message that says what the derivation

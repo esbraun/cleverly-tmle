@@ -68,7 +68,7 @@ SETTING_NAMES: tuple[str, ...] = (
 
 #: Constructor arguments handled by hand rather than by :func:`_jsonable`, so that
 #: :func:`_subclass_settings` does not pick them up and try.
-_HANDLED_ELSEWHERE: frozenset[str] = frozenset({"interventions"})
+_HANDLED_ELSEWHERE: frozenset[str] = frozenset({"interventions", "shifts"})
 
 
 def _is_specification(value: Any) -> bool:
@@ -103,6 +103,13 @@ class TMLERecipe:
     #: numbers a result already carries are unaffected, and only the analyses that refit
     #: need the estimator back.
     interventions: list[dict[str, Any]] = field(default_factory=list)
+    #: The declared shifts, as ``{"delta": ..., "cap": ..., "name": ...}``.  Always
+    #: recorded, and never a reason to call a fit unreconstructible: a
+    #: :class:`~cleverly.interventions.Shift` is two numbers and a name, so unlike a
+    #: ``Rule`` there is no callable to lose.  The policy a shift describes is the same
+    #: policy in any session, which is the same property that makes ``cap`` a declaration
+    #: rather than something estimated.
+    shifts: list[dict[str, Any]] = field(default_factory=list)
     learners_reconstructible: bool = True
     unreconstructible_slots: tuple[str, ...] = ()
     class_name: str = "TMLE"
@@ -133,6 +140,7 @@ class TMLERecipe:
             settings=settings,
             learners=learners,
             interventions=interventions or [],
+            shifts=_shifts_to(getattr(estimator, "shifts", ())),
             learners_reconstructible=not unreconstructible,
             unreconstructible_slots=tuple(unreconstructible),
             class_name=type(estimator).__name__,
@@ -169,6 +177,8 @@ class TMLERecipe:
         kwargs.update({slot: self.learners[slot] for slot in LEARNER_SLOTS})
         if self.interventions:
             kwargs["interventions"] = _interventions_from(self.interventions)
+        if self.shifts:
+            kwargs["shifts"] = _shifts_from(self.shifts)
         return klass(**kwargs)
 
     def to_dict(self) -> dict[str, Any]:
@@ -176,6 +186,7 @@ class TMLERecipe:
             "settings": self.settings,
             "learners": self.learners,
             "interventions": self.interventions,
+            "shifts": self.shifts,
             "learners_reconstructible": self.learners_reconstructible,
             "unreconstructible_slots": list(self.unreconstructible_slots),
             "class_name": self.class_name,
@@ -189,6 +200,7 @@ class TMLERecipe:
             settings=payload["settings"],
             learners=payload["learners"],
             interventions=payload.get("interventions", []),
+            shifts=payload.get("shifts", []),
             learners_reconstructible=payload["learners_reconstructible"],
             unreconstructible_slots=tuple(payload.get("unreconstructible_slots", ())),
             class_name=payload.get("class_name", "TMLE"),
@@ -229,6 +241,28 @@ def _interventions_from(recorded: list[dict[str, Any]]) -> tuple[Any, ...]:
     from ..interventions import Static
 
     return tuple(Static(item["level"], name=item["name"]) for item in recorded)
+
+
+def _shifts_to(shifts: Any) -> list[dict[str, Any]]:
+    """The declared shifts as JSON.
+
+    No ``None`` escape hatch, unlike :func:`_interventions_to`: a shift is a delta, a cap
+    and a name, all of them data, so there is no case where one cannot be written down.
+    """
+    return [
+        {
+            "delta": float(shift.delta),
+            "cap": None if shift.cap is None else float(shift.cap),
+            "name": shift.name,
+        }
+        for shift in shifts or ()
+    ]
+
+
+def _shifts_from(recorded: list[dict[str, Any]]) -> tuple[Any, ...]:
+    from ..interventions import Shift
+
+    return tuple(Shift(item["delta"], cap=item["cap"], name=item["name"]) for item in recorded)
 
 
 def _subclass_settings(estimator: TMLE) -> dict[str, Any]:

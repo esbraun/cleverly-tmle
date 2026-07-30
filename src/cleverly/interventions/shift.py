@@ -244,6 +244,13 @@ class ShiftSet:
         )
 
         for index, shift in enumerate(shifts):
+            # The natural course is *meant* to move nobody -- it is the reference the
+            # other shifts are contrasted against, and its mean is E[Y]. Warning that a
+            # zero shift crosses no bin edge, or leaves no dose outside the support,
+            # would fire on the recommended way to declare a fit and teach the reader to
+            # ignore the warning that matters.
+            if shift.delta == 0.0:
+                continue
             warn_if_unresolved(density, shifted[:, index], a)
             _warn_outside_support(shift, shifted[:, index], a)
 

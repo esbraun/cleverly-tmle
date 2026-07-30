@@ -32,6 +32,15 @@ from cleverly.targets import (
     targets_for,
 )
 from tests import discrete_law as law
+from tests import discrete_law_shift as shift_law
+
+#: Every law the coverage gate answers to, and together they must cover the registry
+#: exactly.  A tuple rather than one law because no single discrete law can express
+#: every estimand: the arm- and regime-indexed ones need a treatment with *arms*, and a
+#: shift needs one with *ordered doses* it can be moved along.  Widening ``discrete_law``
+#: to four doses would change every truth it already pins, which is the thing an oracle
+#: exists not to do.
+LAWS = (law, shift_law)
 
 #: Read off the submodel registry rather than written down, so a fluctuation added there
 #: does not need this list edited too -- which is the whole point of the registry.
@@ -39,9 +48,33 @@ VALID_GROUPS = set(SUBMODEL_BUILDERS)
 VALID_SCALES = {"level", "difference", "ratio"}
 
 
+def oracle_for(reported: str):  # type: ignore[no-untyped-def]
+    """The law whose ``functional`` has a branch for this parameter name, or ``None``."""
+    for candidate in LAWS:
+        try:
+            candidate.functional(candidate.PROBS, reported)
+        except (ValueError, KeyError):
+            continue
+        return candidate
+    return None
+
+
+def reported_names(target: str) -> tuple[str, ...]:
+    """Every parameter name any law says ``target`` reports."""
+    return tuple(name for candidate in LAWS for name in candidate.oracle_names(target))
+
+
+def truth_for(reported: str) -> float:
+    """The population value, from whichever law owns this parameter."""
+    for candidate in LAWS:
+        if reported in candidate.TRUTH:
+            return float(candidate.TRUTH[reported])
+    raise KeyError(f"no oracle law declares a truth for {reported!r}")
+
+
 class TestOracleCoverage:
     def test_every_target_has_an_oracle(self) -> None:
-        """A registered estimand must be checkable against the discrete law.
+        """A registered estimand must be checkable against one of the discrete laws.
 
         Walks the *parameter* names each target reports rather than the target names,
         because a target reporting one number per arm reports several -- and each of them
@@ -49,22 +82,42 @@ class TestOracleCoverage:
         """
         missing = []
         for name in TARGETS:
-            for reported in law.oracle_names(name):
-                try:
-                    law.functional(law.PROBS, reported)
-                except ValueError:
-                    missing.append(reported)
+            names = reported_names(name)
+            if not names:
+                # No law claims this target at all, which is the failure this gate is
+                # for: the name it reports is not even known to an oracle.
+                missing.append(name)
+            missing.extend(reported for reported in names if oracle_for(reported) is None)
         assert not missing, (
-            f"targets {missing} are registered but have no branch in "
-            "tests.discrete_law.functional, so their influence curve is not checked "
-            "against a numerically differentiated one. Add the functional longhand "
-            "there (sharing no code with src/) before registering the target."
+            f"targets {missing} are registered but have no branch in the `functional` of "
+            "any oracle law (tests.discrete_law for arms and regimes, "
+            "tests.discrete_law_shift for shifts), so their influence curve is not "
+            "checked against a numerically differentiated one. Add the functional "
+            "longhand there (sharing no code with src/) before registering the target."
         )
 
     def test_the_oracle_covers_no_more_than_the_registry(self) -> None:
-        """The reverse direction: an oracle branch with no target is dead code."""
-        reported = {name for target in TARGETS for name in law.oracle_names(target)}
-        assert set(law.TRUTH) == reported
+        """The reverse direction: an oracle branch with no target is dead code.
+
+        Unioned over the laws, so registering ``ey_shift`` without ``ate_shift`` fails
+        here even though the forward direction passes -- the shift law declares a truth
+        for both.
+        """
+        reported = {name for target in TARGETS for name in reported_names(target)}
+        declared = {name for candidate in LAWS for name in candidate.TRUTH}
+        assert declared == reported
+
+    def test_no_two_laws_claim_the_same_parameter(self) -> None:
+        """The union is only well defined if the laws partition the estimands.
+
+        Two laws answering to one name would let ``truth_for`` pick either, and a test
+        comparing an estimate against "the" truth would silently depend on law order.
+        """
+        seen: dict[str, str] = {}
+        for candidate in LAWS:
+            for name in candidate.TRUTH:
+                assert name not in seen, f"{name!r} is claimed by both {seen[name]} and {candidate}"
+                seen[name] = str(candidate)
 
 
 class TestRegistryInvariants:
@@ -357,8 +410,8 @@ class TestAgainstTheOracle:
     @pytest.mark.parametrize("name", sorted(TARGETS))
     def test_truth_is_finite_and_matches_the_declared_scale(self, name: str) -> None:
         target = TARGETS[name]
-        for reported in law.oracle_names(name):
-            self._check(law.TRUTH[reported], target)
+        for reported in reported_names(name):
+            self._check(truth_for(reported), target)
 
     @staticmethod
     def _check(value: float, target) -> None:  # type: ignore[no-untyped-def]

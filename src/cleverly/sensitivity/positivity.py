@@ -45,6 +45,7 @@ from .._typing import FloatArray
 from ..estimators.base import format_table
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
+from ..exceptions import DataError
 from ..targets import parameter_stem
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -267,7 +268,23 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
     control.  With more there is no single margin and no mirror -- each arm has its own
     denominator, which has to be reported and truncated in its own right.  Collapsing
     the two into one function would mean picking definitions that read oddly in both.
+
+    A **continuous** treatment is refused rather than given a third branch.  Every field
+    of :class:`PositivityReport` is per arm -- quantiles of ``g(a | W)``, tail mass,
+    effective sample size, weight share -- and a dose has none, so the report would come
+    back empty with a ``simplex_deviation`` of ``1.0`` computed from a zero-column
+    mechanism: the largest value the field can take, reported as a finding.  The question
+    a shift fit actually has to answer is about the *density ratio* at the shifted dose,
+    which :func:`~cleverly.interventions.check_shift_support` answers.
     """
+    if result.data.is_continuous_treatment:
+        raise DataError(
+            f"{result.data.treatment_name} is continuous, so there is no per-arm "
+            "propensity to tabulate and this report has no rows to fill. A shift's "
+            "positivity question is whether the density ratio g(a - delta | W) / "
+            "g(a | W) stays bounded, not whether an arm probability does -- use "
+            "res.sensitivity.shift_support()."
+        )
     if result.data.is_binary_treatment:
         return _binary_positivity_report(result)
     return _multi_arm_positivity_report(result)

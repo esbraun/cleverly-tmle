@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .._typing import FloatArray
+from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
 from ..exceptions import CleverlyError
 from ..fluctuation.iterative import Fluctuation
@@ -58,6 +58,11 @@ MEAN_GROUP_ESTIMANDS: frozenset[str] = frozenset(
 
 #: The default report for a continuous outcome.  A binary outcome additionally gets
 #: ``rr`` and ``or``, which are only defined when the means are probabilities.
+#:
+#: Spans every parameter axis, so it is a *listing* rather than a report any one fit
+#: produces: no fit reports ``ate`` and ``ey_regime`` and ``ey_shift`` together, because
+#: declaring ``interventions=`` or ``shifts=`` switches which axis is in scope.  Use
+#: :func:`~cleverly.targets.default_names` with the fit's axis for the report itself.
 DEFAULT_ESTIMANDS: tuple[str, ...] = tuple(
     name for name, target in TARGETS.items() if target.in_default_set
 )
@@ -101,6 +106,11 @@ class TMLEConfig:
     #: different parameters, so which one was reported has to be recorded alongside the
     #: number.  ``0.0`` -- the lowest arm -- unless the caller chose otherwise.
     reference_arm: float = 0.0
+    #: What this fit's parameters are indexed by -- see
+    #: :attr:`~cleverly.Target.parameter_axis`.  Recorded rather than inferred from the
+    #: estimand names, so a result read back from disk can say what it reported without
+    #: parsing them.
+    parameter_axis: ParameterAxis = "arm"
 
     # Read-through to the spec, so the settings appear once and cannot drift.
     @property
@@ -146,17 +156,22 @@ class TMLEConfig:
             )
         else:
             lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
-        bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
-        if self.auto_bounds_n is not None:
-            # Named because it is a deliberate divergence from R's rule, and because a
-            # reader comparing two fits needs to know the bound moved with the weights.
-            bounds += f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
-        if self.g_bounds_conditional != self.g_bounds:
-            bounds += (
-                f"; ATT/ATC to [{self.g_bounds_conditional[0]:.4g}, "
-                f"{self.g_bounds_conditional[1]:.4g}]"
-            )
-        lines.append(bounds)
+        # A shift fit's mechanism is a conditional density, not a propensity: nothing is
+        # truncated into g_bounds and reporting the bound would name a step that did not
+        # happen. What bounds a density ratio there is the cap the analyst declared,
+        # which is part of the estimand and so appears in the parameter names instead.
+        if self.parameter_axis != "shift":
+            bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
+            if self.auto_bounds_n is not None:
+                # Named because it is a deliberate divergence from R's rule, and because a
+                # reader comparing two fits needs to know the bound moved with the weights.
+                bounds += f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
+            if self.g_bounds_conditional != self.g_bounds:
+                bounds += (
+                    f"; ATT/ATC to [{self.g_bounds_conditional[0]:.4g}, "
+                    f"{self.g_bounds_conditional[1]:.4g}]"
+                )
+            lines.append(bounds)
         if self.bounded_mechanisms:
             # The propensity is not the only denominator in the clever covariate, and a
             # reader comparing two fits needs to see every bound that shaped the estimate
@@ -697,8 +712,14 @@ def _arm_shares(data: CausalData) -> str:
     ``P(A=1)`` for a binary treatment, unchanged.  For more arms that number is not
     just uninformative but wrong-looking -- it is the mean of the arm *codes*, so a
     three-armed fit reported ``P(A=1) = 0.98`` -- so every arm's share is listed under
-    its own label instead.
+    its own label instead.  A continuous treatment has no arms to take the share of, so
+    it reports the dose's range: an empty ``arm shares:`` reads as a broken table rather
+    than as an inapplicable question.
     """
+    if data.is_continuous_treatment:
+        dose = np.asarray(data.treatment, dtype=float)
+        mean = float(np.average(dose, weights=data.weights))
+        return f"dose: mean {mean:.4g}, range [{dose.min():.3g}, {dose.max():.3g}]"
     if data.is_binary_treatment:
         return f"P(A=1) = {data.treated_fraction:.4g}"
 

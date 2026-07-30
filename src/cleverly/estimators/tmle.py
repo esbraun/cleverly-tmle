@@ -85,10 +85,11 @@ from .._typing import (
     GBounds,
     IntArray,
     Learner,
+    ParameterAxis,
     TargetingMethod,
     TargetingScheme,
 )
-from ..data.causal_data import CausalData
+from ..data.causal_data import CausalData, TreatmentKind
 from ..exceptions import (
     ConvergenceWarning,
     DataError,
@@ -109,7 +110,7 @@ from ..inference.influence import (
     ParameterEstimate,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
-from ..interventions import RegimeSet, as_interventions
+from ..interventions import RegimeSet, Shift, ShiftSet, as_interventions
 from ..learners._fitting import Task
 from ..learners.crossfit import Folds, make_folds
 from ..learners.super_learner import resolve_learner
@@ -322,6 +323,8 @@ class TMLE:
         min_retain: int | None = None,
         estimands: Sequence[Estimand] | str | None = None,
         interventions: Sequence[Any] | None = None,
+        shifts: Sequence[Shift] | None = None,
+        density_bins: int = 20,
         reference: Any = None,
         alpha_sig: float = 0.05,
         n_bootstrap: int = 0,
@@ -359,6 +362,8 @@ class TMLE:
         self.min_retain = min_retain
         self.estimands = estimands
         self.interventions = as_interventions(interventions)
+        self.shifts = tuple(shifts or ())
+        self.density_bins = density_bins
         self.reference = reference
         self.alpha_sig = alpha_sig
         self.n_bootstrap = n_bootstrap
@@ -408,6 +413,18 @@ class TMLE:
             raise ValueError(f"nuisance_bound must lie in (0, 0.5); got {self.nuisance_bound}")
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
+        if self.interventions and self.shifts:
+            raise ValueError(
+                "interventions= and shifts= each declare what this fit's counterfactuals "
+                "are -- a regime assigns an arm from W alone, a shift moves the dose the "
+                "unit actually received -- and one fluctuation cannot solve both score "
+                "equations. Fit them separately."
+            )
+        if self.density_bins < 3:
+            raise ValueError(
+                f"density_bins must be at least 3; got {self.density_bins}. Two bins make "
+                "the density a single hazard, which cannot describe a dose-response."
+            )
 
     # ------------------------------------------------------------------- fit
 
@@ -424,6 +441,7 @@ class TMLE:
         weights_estimated: bool = False,
         id: str | None = None,
         intermediate: str | None = None,
+        treatment_kind: TreatmentKind | None = None,
     ) -> TMLEResultSet:
         """Fit the estimator.
 
@@ -435,6 +453,17 @@ class TMLE:
         outcome, treatment, covariates, delta, weights, id, intermediate:
             Column names, when ``data`` is a dataframe.  ``covariates=None`` uses every
             column not claimed by another role.
+        treatment_kind:
+            ``"discrete"`` to code the treatment column into arms, ``"continuous"`` to
+            keep its own values and model it with a conditional density.  ``None``
+            follows ``shifts=``: a modified treatment policy moves a dose and names no
+            arm, so declaring one declares the treatment continuous.
+
+            That is a default read off another *declaration*, not off the data -- a
+            column at fifteen distinct values could reasonably be read either way, and
+            :class:`~cleverly.data.CausalData` refuses to guess from the level count for
+            exactly that reason.  Pass this explicitly to override, including to get the
+            arm-coded refusal for a ``shifts=`` fit on a treatment that really has arms.
         weights_type, weights_estimated:
             How to read ``weights``.  Supplying weights changes the estimand to the
             causal parameter in the weight-tilted population -- see
@@ -461,6 +490,7 @@ class TMLE:
             weights_estimated=weights_estimated,
             id=id,
             intermediate=intermediate,
+            treatment_kind=treatment_kind,
         )
 
         if not prepared.has_intermediate:
@@ -537,6 +567,7 @@ class TMLE:
         intermediate: str | None,
         weights_type: str = "probability",
         weights_estimated: bool = False,
+        treatment_kind: TreatmentKind | None = None,
     ) -> CausalData:
         """Coerce whatever the caller passed into a validated :class:`CausalData`."""
         if isinstance(data, CausalData):
@@ -548,7 +579,16 @@ class TMLE:
                 )
             if any(
                 value is not None
-                for value in (outcome, treatment, covariates, delta, weights, id, intermediate)
+                for value in (
+                    outcome,
+                    treatment,
+                    covariates,
+                    delta,
+                    weights,
+                    id,
+                    intermediate,
+                    treatment_kind,
+                )
             ):
                 raise ValueError(
                     "column names cannot be combined with a CausalData input; the roles are "
@@ -574,6 +614,11 @@ class TMLE:
             id=id,
             intermediate=intermediate,
             family=self.family,
+            treatment_kind=(
+                ("continuous" if self.shifts else "discrete")
+                if treatment_kind is None
+                else treatment_kind
+            ),
         )
 
     def _fit_single(
@@ -588,9 +633,8 @@ class TMLE:
         ``shared`` supplies nuisance fits already computed for every level of the
         intermediate; only the targeting step then runs per level.
         """
-        estimands = resolve_estimands(
-            self.estimands, data.family, data.n_arms, interventions=bool(self.interventions)
-        )
+        self._check_shifts(data)
+        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         if shared is not None:
             scaler, folds, pooled = shared
             config = self._config(data, estimands, scaler, folds)
@@ -662,13 +706,60 @@ class TMLE:
         observed = data.outcome[data.observed]
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
 
-    def _reference_arm(self, data: CausalData, regimes: RegimeSet | None = None) -> float:
-        """The arm -- or regime -- code every contrast is taken against.
+    @property
+    def _axis(self) -> ParameterAxis:
+        """What this fit's parameters are indexed by, from which keyword was passed.
 
-        On a regime fit the contrasts are between *regimes*, so ``reference=`` names one
-        of them and the code returned indexes :class:`~cleverly.interventions.RegimeSet`.
-        :meth:`_regimes` has already validated the name against the declared regimes,
-        which is why this simply reads the resolved code back.
+        Read off the declaration rather than off the data, so that asking a continuous
+        fit for ``ate`` is refused by name instead of resolving to a report the treatment
+        cannot support.  ``_validate_settings`` has already refused the two keywords
+        together, so at most one branch can be taken.
+        """
+        if self.shifts:
+            return "shift"
+        if self.interventions:
+            return "regime"
+        return "arm"
+
+    def _check_shifts(self, data: CausalData) -> None:
+        """Refuse a shift the treatment cannot carry, and a dose with no policy declared.
+
+        Both directions matter.  A shift of an arm-coded treatment is a ``Rule`` written
+        the wrong way round -- ``d(a, w) = a + 1`` on arms ``{0, 1}`` assigns an arm that
+        does not exist -- and a continuous treatment with no ``shifts=`` has no estimand
+        at all, since every registered arm-indexed target names a level it has none of.
+        """
+        if self.shifts and not data.is_continuous_treatment:
+            raise DataError(
+                f"shifts= declares a modified treatment policy, which needs a continuous "
+                f"treatment, but {data.treatment_name} has arms "
+                f"{list(data.treatment_levels)}. A shift of a discrete treatment assigns "
+                "an arm as a function of (A, W), which is a Rule -- pass it to "
+                "interventions=. To treat this column as a dose, build the CausalData "
+                "with treatment_kind='continuous'."
+            )
+        if data.is_continuous_treatment and not self.shifts:
+            raise DataError(
+                f"{data.treatment_name} was declared continuous, so it has no arms and "
+                "none of the arm-indexed estimands name a parameter it has. Say which "
+                "doses to compare with shifts=[Shift(delta, cap=...), ...]; "
+                "Shift(0.0, cap=None) is the natural course, whose mean is E[Y]."
+            )
+
+    def _reference_arm(
+        self,
+        data: CausalData,
+        regimes: RegimeSet | None = None,
+        shifts: ShiftSet | None = None,
+    ) -> float:
+        """The arm -- or regime, or shift -- code every contrast is taken against.
+
+        On a regime or shift fit the contrasts are between *regimes* (or *shifts*), so
+        ``reference=`` names one of them and the code returned indexes
+        :class:`~cleverly.interventions.RegimeSet` or
+        :class:`~cleverly.interventions.ShiftSet`.  :meth:`_regimes` and
+        :func:`~cleverly.estimators._nuisance.fit_nuisances` have already validated the
+        name against what was declared, which is why this simply reads the code back.
 
         ``reference=None`` uses the lowest arm, which for a binary treatment is the
         control and so leaves ``ate`` meaning exactly what it always did.  Otherwise the
@@ -678,8 +769,13 @@ class TMLE:
         alphabetical, so the default reference on ``{"high", "low", "medium"}`` is
         ``"high"``; this argument is how to say otherwise.
         """
+        if shifts is not None:
+            return shifts.reference
         if regimes is not None:
             return regimes.reference
+        if self.shifts:
+            # Resolved from the shift *names*, for the reason the regime branch gives.
+            return self._reference_shift()
         if self.interventions:
             # Resolved from the regime *names* rather than from an evaluated RegimeSet,
             # so the config -- built before any nuisance is fitted -- can record it, and
@@ -702,7 +798,13 @@ class TMLE:
         return make_folds(
             data.n,
             self.n_folds,
-            stratify=data.treatment,
+            # Stratifying on a dose would ask for folds balanced on a variable whose every
+            # value is its own stratum, which caps the fold count at the rarest "class" --
+            # one row -- and refuses to split at all. The density's bins are what a
+            # continuous treatment stratifies on in spirit, and they are chosen inside
+            # fit_conditional_density from the training rows of each fold, so they cannot
+            # be known here without leaking the split into itself.
+            stratify=None if data.is_continuous_treatment else data.treatment,
             cluster=data.cluster,
             random_state=self.random_state,
         )
@@ -761,6 +863,9 @@ class TMLE:
             screen_treatment=self.screen_treatment,
             screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
+            shifts=self.shifts,
+            shift_reference=None if self.reference is None else str(self.reference),
+            density_bins=self.density_bins,
             n_jobs=self.n_jobs,
         )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and
@@ -782,6 +887,21 @@ class TMLE:
             return 0.0
         if str(self.reference) not in names:
             raise DataError(f"reference={self.reference!r} is not one of the regimes {names}")
+        return float(names.index(str(self.reference)))
+
+    def _reference_shift(self) -> float:
+        """The shift code contrasts are taken against, from ``reference=`` and the names.
+
+        Defaults to the first declared shift rather than to the natural course, which is
+        the same rule the arms and regimes follow -- ``reference=`` is how to say
+        otherwise, and declaring ``Shift(0.0, cap=None)`` first is the usual way to make
+        ``ate_shift`` read as *the effect of shifting*.
+        """
+        names = [shift.name for shift in self.shifts]
+        if self.reference is None:
+            return 0.0
+        if str(self.reference) not in names:
+            raise DataError(f"reference={self.reference!r} is not one of the shifts {names}")
         return float(names.index(str(self.reference)))
 
     def _nuisances(
@@ -850,6 +970,7 @@ class TMLE:
             random_state=self.random_state,
             n_bootstrap=self.n_bootstrap,
             reference_arm=self._reference_arm(data),
+            parameter_axis=self._axis,
         )
 
     def _warn_on_estimated_weights(self, data: CausalData) -> None:
@@ -995,7 +1116,7 @@ class TMLE:
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes
-        reference = self._reference_arm(data, regimes)
+        reference = self._reference_arm(data, regimes, nuisance.shifts)
         mean_bounds = g_bounds or resolve_g_bounds(
             self.g_bounds, self._bounds_n(data), for_att=False
         )
@@ -1101,7 +1222,7 @@ class TMLE:
             fluctuation,
             supported,
             alpha_sig,
-            self._reference_arm(data, nuisance.regimes),
+            self._reference_arm(data, nuisance.regimes, nuisance.shifts),
             index=index,
             drop_undefined=True,
         )
@@ -1302,6 +1423,22 @@ class TMLE:
             failure=_dominant_failure(reasons, failed),
         )
 
+    @staticmethod
+    def _parameter_axis(
+        data: CausalData, regimes: RegimeSet | None, shifts: ShiftSet | None
+    ) -> tuple[tuple[float, ...], dict[float, Any]]:
+        """The codes this fit's parameters are keyed by, and what to report them as.
+
+        Exactly one of the three sources is live, which :meth:`_validate_settings` and
+        :meth:`_check_shifts` have already established: a fit cannot declare both
+        keywords, and a continuous treatment must declare ``shifts=``.
+        """
+        if shifts is not None:
+            return shifts.codes, dict(shifts.labels)
+        if regimes is not None:
+            return regimes.codes, dict(regimes.labels)
+        return data.arm_codes, {arm: data.arm_label(arm) for arm in data.arm_codes}
+
     def _estimates_for(
         self,
         data: CausalData,
@@ -1330,6 +1467,7 @@ class TMLE:
         weights, observed = data.weights, data.observed
         treatment, cluster, n = data.treatment, data.cluster, data.n
         regimes = nuisance.regimes
+        shifts = nuisance.shifts
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)
@@ -1340,11 +1478,14 @@ class TMLE:
             treatment = treatment[index]
             cluster = None if cluster is None else cluster[index]
             regimes = None if regimes is None else regimes.subset(index)
+            shifts = None if shifts is None else shifts.subset(index)
             n = int(index.size)
 
-        # On a regime fit the parameter axis is the regime rather than the arm, so the
-        # context is keyed by regime code and labelled with the regime names. The two
-        # cases are the same shape on purpose -- see TargetContext.arms.
+        # On a regime or shift fit the parameter axis is the regime (or shift) rather
+        # than the arm, so the context is keyed by that code and labelled with those
+        # names. The three cases are the same shape on purpose -- see TargetContext.arms.
+        # `data.arm_label` is not reached on a continuous fit, where it would raise.
+        codes, labels = self._parameter_axis(data, regimes, shifts)
         context = TargetContext(
             scaled=scaled,
             targeted=targeted,
@@ -1356,15 +1497,12 @@ class TMLE:
             n=n,
             cluster=cluster,
             alpha_sig=alpha_sig,
-            arms=data.arm_codes if regimes is None else regimes.codes,
-            arm_labels=(
-                {arm: data.arm_label(arm) for arm in data.arm_codes}
-                if regimes is None
-                else dict(regimes.labels)
-            ),
+            arms=codes,
+            arm_labels=labels,
             reference=reference,
             regimes=None if regimes is None else regimes.values,
-            always_label=regimes is not None,
+            shifts=None if shifts is None else shifts.design,
+            always_label=regimes is not None or shifts is not None,
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted
@@ -1394,9 +1532,7 @@ class TMLE:
         replicate -- otherwise the bootstrap would understate the variability the
         selection itself contributes.
         """
-        estimands = resolve_estimands(
-            self.estimands, data.family, data.n_arms, interventions=bool(self.interventions)
-        )
+        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         scaler = self._scaler(data)
         folds = self._folds(data)
         config = self._config(data, estimands, scaler, folds)
