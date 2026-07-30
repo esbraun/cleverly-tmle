@@ -184,3 +184,80 @@ class TestAgainstTheOracle:
             # Ratios are held on the log scale by the oracle, so exponentiate first.
             lower, upper = target.parameter_bounds
             assert lower <= float(np.exp(value)) <= upper
+
+
+class TestTheScalingContract:
+    """``finish`` unscales linearly, which is exact only for a linear functional.
+
+    Discovered while writing the README's custom-target example: a number-needed-to-
+    treat target computed from the scaled means is right on a binary outcome and wrong
+    on a scaled continuous one, because ``1 / (range * x)`` is not ``range * (1 / x)``.
+    ``requires_family="binomial"`` is what makes such a target safe, and this pins that
+    it actually does so.
+    """
+
+    @staticmethod
+    def _nnt(ctx):  # type: ignore[no-untyped-def]
+        psi_one, ic_one, psi_zero, ic_zero = ctx.means
+        difference = psi_one - psi_zero
+        return ctx.finish(
+            "nnt", 1.0 / difference, -(ic_one - ic_zero) / difference**2, "difference"
+        )
+
+    def _register(self, **kwargs):  # type: ignore[no-untyped-def]
+        return register(
+            Target(
+                name="nnt",
+                group="mean",
+                scale="difference",
+                build=self._nnt,
+                identification=Identification(
+                    assumptions=("consistency",),
+                    required_nuisances=("outcome_regression", "treatment_mechanism"),
+                    dr_condition="as the ATE",
+                ),
+                **kwargs,
+            )
+        )
+
+    def test_a_binary_only_target_is_exact(self) -> None:
+        from cleverly import TMLE
+        from cleverly.datasets import GENERATORS
+
+        self._register(requires_family="binomial")
+        try:
+            frame, _ = GENERATORS["binary_outcome"](n=300, seed=1)
+            covariates = [c for c in frame.columns if c.startswith("W")]
+            result = TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=4,
+                random_state=7,
+                estimands=["ate", "nnt"],
+            ).fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            assert result.nuisance.scaler.is_identity
+            assert result["nnt"].psi == pytest.approx(1.0 / result["ate"].psi, rel=1e-12)
+        finally:
+            del TARGETS["nnt"]
+
+    def test_the_same_target_on_a_scaled_outcome_would_be_wrong(self) -> None:
+        """The failure the ``requires_family`` guard exists to prevent."""
+        from cleverly import TMLE
+        from cleverly.datasets import GENERATORS
+
+        self._register()  # no requires_family: allowed onto a continuous outcome
+        try:
+            frame, _ = GENERATORS["linear_ate"](n=300, seed=1)
+            covariates = [c for c in frame.columns if c.startswith("W")]
+            result = TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=4,
+                random_state=7,
+                estimands=["ate", "nnt"],
+            ).fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            assert not result.nuisance.scaler.is_identity
+            # Off by range**2, because the reciprocal does not commute with unscaling.
+            assert result["nnt"].psi != pytest.approx(1.0 / result["ate"].psi, rel=1e-3)
+        finally:
+            del TARGETS["nnt"]

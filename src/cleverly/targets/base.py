@@ -162,7 +162,22 @@ class TargetContext:
         *,
         log_psi: float | None = None,
     ) -> ParameterEstimate:
-        """Map back to the outcome's own units and attach inference."""
+        """Map back to the outcome's own units and attach inference.
+
+        ``psi`` and ``ic`` are on the *scaled* outcome scale -- which is the outcome's
+        own scale for a binary outcome, and ``[0, 1]`` for a bounded continuous one
+        (see :class:`~cleverly.utils.bounds.OutcomeScaler`).  The mapping back is the
+        linear one the declared ``scale`` implies: a level picks up the location
+        shift, a difference and every influence curve pick up the range factor only.
+
+        That is exact for a functional **linear in the scaled counterfactual means**,
+        which covers every built-in estimand.  It is *not* exact for a nonlinear one:
+        the number needed to treat, say, is ``1 / ATE``, and ``1 / (range * x)`` is not
+        ``range * (1 / x)``.  A target computing a nonlinear functional of the means on
+        a scaled outcome must either unscale the means itself before combining them, or
+        declare ``requires_family="binomial"``, where the scaler is the identity and the
+        question does not arise.  The ratios do the latter.
+        """
         if log_psi is None:
             value, curve = unscale(psi, ic, self.scaler, scale)
         else:
