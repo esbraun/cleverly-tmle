@@ -38,7 +38,7 @@ statement of :math:`\Psi(P_w)`.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 import numpy as np
 
@@ -50,10 +50,12 @@ from .cluster import influence_variance
 from .delta import log_odds_ratio_influence, log_ratio_influence, normal_ci, two_sided_pvalue
 
 __all__ = [
+    "ICParts",
     "ParameterEstimate",
     "Scale",
     "atc_estimate",
     "att_estimate",
+    "counterfactual_mean_parts",
     "counterfactual_means",
     "make_estimate",
     "ratio_estimates",
@@ -242,9 +244,75 @@ def counterfactual_means(
 
     psi_one = float(np.average(targeted.at_one, weights=w))
     psi_zero = float(np.average(targeted.at_zero, weights=w))
+    # Summed in this association deliberately.  Splitting the bracket to reuse
+    # ICParts here would be mathematically identical and would change the last bit of
+    # every influence curve, because floating-point addition is not associative. The
+    # decomposition is a diagnostic (`counterfactual_mean_parts`); the estimation path
+    # keeps the arithmetic its regression fixtures were built against.
     ic_one = w * (h_one * residual + targeted.at_one - psi_one)
     ic_zero = w * (h_zero * residual + targeted.at_zero - psi_zero)
     return psi_one, ic_one, psi_zero, ic_zero
+
+
+class ICParts(NamedTuple):
+    r"""The two halves of an influence curve, kept apart.
+
+    .. math::
+
+        D^*(O) = \underbrace{H(A, W)\,\{Y - Q^*(A, W)\}}_{\text{residual}}
+                 + \underbrace{Q^*(a, W) - \Psi}_{\text{plug-in}}
+
+    They answer different questions, and summing them immediately -- which this code
+    used to do -- throws that away.  A heavy tail in the *residual* term is a
+    positivity artefact: one unit with a large inverse-propensity weight dominating
+    the estimating equation.  A heavy tail in the *plug-in* term is genuine outcome
+    heterogeneity, which no amount of truncation will fix.  Their relative size also
+    says how much work targeting is doing.
+    """
+
+    residual: FloatArray
+    plugin: FloatArray
+
+    @property
+    def total(self) -> FloatArray:
+        return np.asarray(self.residual + self.plugin, dtype=float)
+
+    def shares(self) -> dict[str, float]:
+        """Each term's share of the influence curve's variance."""
+        total = float(np.var(self.total))
+        if total <= 0:
+            return {"residual": float("nan"), "plugin": float("nan")}
+        return {
+            "residual": float(np.var(self.residual)) / total,
+            "plugin": float(np.var(self.plugin)) / total,
+        }
+
+
+def counterfactual_mean_parts(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    observed: BoolArray | None = None,
+) -> tuple[ICParts, ICParts]:
+    """The decomposed influence curves behind :func:`counterfactual_means`.
+
+    ``parts.total`` agrees with the summed curve to floating-point rounding rather
+    than bit-for-bit: the sum there is bracketed differently, and addition is not
+    associative.  The gap is a few ULP and is asserted in
+    ``tests/unit/test_ic_parts.py``; use :func:`counterfactual_means` for the
+    estimate and this for the diagnostic.
+    """
+    if submodel.group != "mean":
+        raise ValueError(f"expected the 'mean' submodel; got {submodel.group!r}")
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    residual = _residual(outcome, targeted, observed)
+    psi_one = float(np.average(targeted.at_one, weights=w))
+    psi_zero = float(np.average(targeted.at_zero, weights=w))
+    return (
+        ICParts(w * submodel.observed[:, 1] * residual, w * (targeted.at_one - psi_one)),
+        ICParts(w * submodel.observed[:, 0] * residual, w * (targeted.at_zero - psi_zero)),
+    )
 
 
 def att_estimate(

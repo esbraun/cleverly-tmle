@@ -352,6 +352,57 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | Bounds | propensity truncation (`g_bounds`), outcome bounds (`q_bounds`), `alpha` shrinkage |
 | Screening | pre-screening of covariates for the treatment model (`prescreenW.g`, `min_retain`) |
 | Inference | IC-based, cluster-robust, targeted bootstrap, multiplier bootstrap, delta method |
+| Contrasts | `result.contrast(fn, names)` applies the delta method to the *joint* influence curve, and `result.covariance()` returns the joint covariance matrix. Pass `gradient=` when the derivative is known in closed form: the default central difference is accurate to ~1e-10 relative, which is fine for reporting and not enough to reproduce a closed-form influence curve at 1e-12 |
+| Persistence | `result.save(path)` / `cleverly.load(path)` write arrays plus JSON into a versioned `.npz`. No pickle. Everything reached through `retarget` — positivity, truncation curves, the MNAR tilt, the omitted-variable bound, the score check, contrasts, the bootstrap — is bit-for-bit identical after a round trip; `refute()` and `benchmark()` genuinely refit and so need the learners to have been library specifications rather than fitted objects |
+| Provenance | every result carries package versions, a fingerprint of the data and a *separate* fingerprint of the realised fold assignment — folds are not recoverable from a seed alone, since they also depend on row order and on the scikit-learn version that made them. Pass `run_id=` for your own identifier; no git commit is collected |
+| Targeting diagnostics | `Fluctuation` records the score before as well as after targeting, the Hessian condition number, `epsilon` standard errors, the quasi-log-likelihood, and a named `failure` (`separation_suspected`, `bounds_pinned`, `singular_hessian`, …). Non-convergence in individual CV folds is reported rather than silently averaged away |
+
+### Adding an estimand
+
+Estimands live in a registry rather than in a `Literal`. A `Target` declares which
+fluctuation solves its score equation, what scale its inference lives on, what it needs of
+the outcome, how to build the estimate — and, as a required field, an `Identification`
+record stating its assumptions, the nuisances it consumes and what double robustness buys
+for *that* estimand specifically:
+
+```python
+from cleverly import Identification, Target, register
+
+def number_needed_to_treat(ctx):
+    psi1, ic1, psi0, ic0 = ctx.means      # computed once and shared across the group
+    difference = psi1 - psi0
+    return ctx.finish("nnt", 1 / difference, -(ic1 - ic0) / difference**2, "difference")
+
+register(Target(
+    name="nnt",
+    group="mean",                     # shares the two-column mean fluctuation
+    scale="difference",
+    build=number_needed_to_treat,
+    requires_family="binomial",       # see below
+    identification=Identification(
+        assumptions=("consistency", "no unmeasured confounding given W", "positivity"),
+        required_nuisances=("outcome_regression", "treatment_mechanism"),
+        dr_condition="consistent if either Qbar or g is consistent",
+    ),
+))
+```
+
+`requires_family="binomial"` is doing real work here rather than decorating. `ctx.means`
+are on the *scaled* outcome scale, and `ctx.finish` maps back with the linear rule the
+declared scale implies — exact for a functional linear in those means, which is every
+built-in estimand, but not for a reciprocal: `1 / (range · x) ≠ range · (1 / x)`. Declaring
+the target binary-only pins the scaler to the identity, where the question does not arise.
+A nonlinear target on a continuous outcome must unscale the means itself.
+
+The variance, confidence intervals, simultaneous bands, delta method, score diagnostic and
+bootstrap then work without further changes.
+
+Registering a target whose name has no branch in `tests/discrete_law.py`'s `functional` is a
+**test failure**, not an oversight caught in review. The evidence this package offers that
+an influence curve is correct is that it agrees, to ~1e-12, with one obtained by complex-step
+differentiation of an independently written functional on an exactly representable law. An
+estimand without that has no such evidence, and the registry is deliberately not allowed to
+make skipping it easy.
 
 ## Roadmap
 

@@ -24,7 +24,8 @@ sensitivity analyses can re-truncate and re-target without refitting anything.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -74,10 +75,29 @@ class NuisanceEstimates:
     treatment_covariates: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     outcome_task: Task = "regression"
+    #: Outcome regression evaluated at every requested level of the intermediate
+    #: variable, when more than one was asked for.  ``outcome`` is the entry for the
+    #: level this object currently targets; :meth:`at_level` swaps it.
+    #:
+    #: Populated because the controlled direct effect at ``z = 0`` and at ``z = 1``
+    #: share *every* nuisance model -- the only difference is which counterfactual
+    #: design the outcome regression is predicted onto -- so fitting them separately
+    #: refits all four models to get two extra prediction vectors.
+    outcome_by_level: dict[float, InitialFit] = field(default_factory=dict)
 
     @property
     def n(self) -> int:
         return int(self.propensity.shape[0])
+
+    def at_level(self, value: float) -> NuisanceEstimates:
+        """The same nuisances, with the outcome regression evaluated at ``Z = value``."""
+        fit = self.outcome_by_level.get(check_level(value))
+        if fit is None:
+            raise KeyError(
+                f"no outcome regression was computed at intermediate level {value!r}; "
+                f"have {sorted(self.outcome_by_level)}"
+            )
+        return replace(self, outcome=fit)
 
     def bounded_propensity(self, bounds: tuple[float, float]) -> FloatArray:
         """``g(W)`` truncated into ``bounds``."""
@@ -235,6 +255,21 @@ def _screened(learner: Learner, threshold: float, min_retain: int | None) -> Lea
     )
 
 
+def _requested_levels(
+    intermediate_value: float | None, extra_levels: Sequence[float]
+) -> tuple[float, ...]:
+    """The levels to evaluate the outcome regression at, primary one first."""
+    if intermediate_value is None:
+        return (None,)  # type: ignore[return-value]
+    primary = check_level(intermediate_value)
+    ordered = [primary]
+    for level in extra_levels:
+        checked = check_level(level)
+        if checked not in ordered:
+            ordered.append(checked)
+    return tuple(ordered)
+
+
 def fit_nuisances(
     data: CausalData,
     *,
@@ -245,6 +280,7 @@ def fit_nuisances(
     folds: Folds,
     scaler: OutcomeScaler,
     intermediate_value: float | None = None,
+    extra_levels: Sequence[float] = (),
     screen_treatment: bool = False,
     screen_threshold: float = 0.1,
     min_retain: int | None = None,
@@ -254,7 +290,9 @@ def fit_nuisances(
 
     ``intermediate_value`` selects which controlled direct effect the outcome
     regression is evaluated at; it is required when the data carries an
-    intermediate variable.
+    intermediate variable.  ``extra_levels`` asks for the outcome regression to be
+    evaluated at further levels in the *same* pass over the folds, which is what lets
+    both controlled direct effects be estimated from one set of nuisance fits.
     """
     diagnostics: dict[str, Any] = {}
     groups = data.cluster
@@ -351,6 +389,17 @@ def fit_nuisances(
     scaled = scaler.scale(data.outcome)
     outcome_task: Task = "classification" if data.family == "binomial" else "regression"
 
+    # Every requested level of the intermediate in one pass over the folds. The
+    # outcome *model* does not depend on the level -- its design uses the observed Z --
+    # so the levels differ only in which counterfactual design it is predicted onto,
+    # which is exactly what predict_designs is for. Fitting them separately refits all
+    # four nuisance models to obtain two extra prediction vectors.
+    levels = _requested_levels(intermediate_value, extra_levels)
+    designs: dict[str, FloatArray] = {"observed": outcome_design}
+    for level in levels:
+        designs[f"at_one@{level}"] = data.counterfactual_design(1.0, intermediate_value=level)
+        designs[f"at_zero@{level}"] = data.counterfactual_design(0.0, intermediate_value=level)
+
     outcome_out, outcome_diagnostics = cross_fit_predictions(
         outcome_learner,
         outcome_design,
@@ -358,11 +407,7 @@ def fit_nuisances(
         data.weights,
         folds,
         task=outcome_task,
-        predict_designs={
-            "observed": outcome_design,
-            "at_one": data.counterfactual_design(1.0, intermediate_value=intermediate_value),
-            "at_zero": data.counterfactual_design(0.0, intermediate_value=intermediate_value),
-        },
+        predict_designs=designs,
         fit_mask=data.observed,
         groups=groups,
         clip=(0.0, 1.0),
@@ -371,9 +416,18 @@ def fit_nuisances(
     if outcome_diagnostics:
         diagnostics["outcome"] = outcome_diagnostics
 
+    by_level = {
+        level: InitialFit(
+            outcome_out["observed"], outcome_out[f"at_one@{level}"], outcome_out[f"at_zero@{level}"]
+        )
+        for level in levels
+    }
+    primary = by_level[levels[0]]
+
     return NuisanceEstimates(
         propensity=propensity,
-        outcome=InitialFit(outcome_out["observed"], outcome_out["at_one"], outcome_out["at_zero"]),
+        outcome=primary,
+        outcome_by_level=by_level if data.has_intermediate else {},
         scaler=scaler,
         folds=folds,
         missingness=missingness,

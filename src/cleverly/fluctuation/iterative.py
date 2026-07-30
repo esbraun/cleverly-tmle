@@ -30,11 +30,103 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
 from ..exceptions import ConvergenceWarning
 from ..utils.bounds import expit, logit, shrink_probabilities
+from ._score import quasi_loglik, relative_score, score_columns, score_scale
 from .submodel import Submodel, weighted_form
 
-__all__ = ["Fluctuation", "FoldFluctuation", "InitialFit", "solve_fluctuation"]
+__all__ = [
+    "Fluctuation",
+    "FoldFluctuation",
+    "InitialFit",
+    "apply_logistic",
+    "solve_fluctuation",
+]
 
 TargetingLabel = Literal["iterative", "one_step", "linear"]
+
+#: How a targeting step failed, when it did.  Naming the mode matters because the
+#: fixes differ: ``separation_suspected`` and ``bounds_pinned`` point at positivity,
+#: ``singular_hessian`` at a rank-deficient clever covariate (two columns that are
+#: multiples of one another), and ``max_iter_reached`` at a tolerance that is simply
+#: too tight for the conditioning of the problem.
+#:
+#: These are *reported*, not raised.  Raising would break the sensitivity sweeps that
+#: deliberately push the truncation bound into bad territory to show what happens.
+TargetingFailure = Literal[
+    "singular_hessian",
+    "line_search_exhausted",
+    "nonfinite_step",
+    "separation_suspected",
+    "bounds_pinned",
+    "max_iter_reached",
+]
+
+#: ``|epsilon|`` past which the fluctuation is treated as running away, which is what
+#: separation looks like from here: the logistic MLE is at infinity, so every Newton
+#: step moves further out and the targeted predictions pin against ``alpha``.
+_SEPARATION_EPSILON = 30.0
+
+#: Reciprocal condition number below which the Hessian is treated as singular.
+_ILL_CONDITIONED = 1e-12
+
+_FAILURE_TEXT: dict[str, str] = {
+    "singular_hessian": (
+        "the Newton Hessian was singular or near-singular, so epsilon is barely "
+        "identified; usually two clever-covariate columns that are nearly collinear"
+    ),
+    "line_search_exhausted": (
+        "the line search halved 30 times without improving the quasi-likelihood, which "
+        "means the Newton direction was not a descent direction at working precision"
+    ),
+    "nonfinite_step": (
+        "the Newton step was not finite, typically an infinite clever covariate from a "
+        "propensity at zero or one"
+    ),
+    "separation_suspected": (
+        "epsilon ran away, the signature of separation: the logistic MLE within the "
+        "submodel is at infinity, so no finite fluctuation solves the score equation"
+    ),
+    "bounds_pinned": (
+        "the targeted predictions are pinned against their [1 - alpha, alpha] bounds, so "
+        "further fluctuation cannot move the score; check positivity"
+    ),
+    "max_iter_reached": (
+        "the iteration cap was reached with the score still above tolerance; the fit may "
+        "simply need more iterations, or the tolerance may be tighter than the "
+        "conditioning of the problem supports"
+    ),
+}
+
+
+@dataclass
+class NewtonDetail:
+    """What the inner Newton solve saw, kept rather than discarded.
+
+    The Hessian is formed on every iteration and was previously thrown away, which
+    left no way to tell an ill-conditioned clever covariate from a merely slow one.
+    """
+
+    failure: TargetingFailure | None = None
+    hessian_condition: float = float("nan")
+    epsilon_std_error: FloatArray | None = None
+    loglik: float = float("nan")
+
+    def observe(self, hessian: FloatArray) -> None:
+        """Record the conditioning and the coefficient standard errors."""
+        try:
+            self.hessian_condition = float(np.linalg.cond(hessian))
+        except np.linalg.LinAlgError:  # pragma: no cover - non-finite Hessian
+            self.hessian_condition = float("inf")
+        if not np.isfinite(self.hessian_condition) or (
+            self.hessian_condition > 1.0 / _ILL_CONDITIONED
+        ):
+            self.failure = "singular_hessian"
+            self.epsilon_std_error = None
+            return
+        try:
+            self.epsilon_std_error = np.sqrt(np.abs(np.diag(np.linalg.inv(hessian))))
+        except np.linalg.LinAlgError:  # pragma: no cover - guarded by the condition
+            self.epsilon_std_error = None
+
 
 #: Relative slack allowed when checking that a Newton step did not reduce the
 #: quasi-log-likelihood.  See :func:`_newton_logistic` for why it must be relative.
@@ -109,9 +201,35 @@ class Fluctuation:
         differ by orders of magnitude.
     converged:
         Whether the *relative* score norm reached ``tol``.
+    score_initial:
+        The same quantity *before* targeting.  Reported so the reader can see how far
+        the step actually moved: a score that started near zero means the initial fit
+        already solved the equation and targeting had nothing to do, which is a
+        different situation from one that started large and was driven down.
     trace:
-        Relative score norm after each outer iteration, for diagnosing a targeting step
-        that stalls against the prediction bounds.
+        Relative score norm through the solve.  ``trace[0]`` is always the score at
+        ``epsilon = 0``, whichever solver ran -- it previously meant the score *after*
+        the first Newton step in one solver and before the first step in the other,
+        so the two were not comparable.
+    n_iter:
+        Outer iterations of the solver: Newton steps for ``"iterative"``, walk steps
+        for ``"one_step"``, ``1`` for ``"linear"``.
+    n_solver_calls:
+        How many times a solver was invoked -- ``1`` for a pooled fit, and one per
+        fold for a fold-targeted one, where ``n_iter`` is the sum across folds and on
+        its own would be indistinguishable from a single long solve.
+    failure:
+        Why the step stopped, when it did not converge.  ``None`` when it converged.
+    hessian_condition:
+        Condition number of the last Newton Hessian.  Large means the clever
+        covariate columns are nearly collinear and ``epsilon`` is barely identified.
+    epsilon_std_error:
+        Standard errors of the fluctuation coefficients from the inverse Hessian.
+        A diagnostic only: the parameter's inference comes from the influence curve,
+        not from ``epsilon``.
+    loglik:
+        Quasi-log-likelihood at the fitted ``epsilon``.  The submodel is fit by
+        maximising it, so it must not decrease along the path.
     folds:
         Per-fold detail, populated only by the cross-validated (``targeting_scheme=
         "fold"``) targeting step and empty otherwise.
@@ -127,6 +245,12 @@ class Fluctuation:
     names: tuple[str, ...]
     score_scale: FloatArray | None = None
     folds: tuple[FoldFluctuation, ...] = ()
+    score_initial: FloatArray | None = None
+    n_solver_calls: int = 1
+    failure: TargetingFailure | None = None
+    hessian_condition: float = float("nan")
+    epsilon_std_error: FloatArray | None = None
+    loglik: float = float("nan")
 
     @property
     def score_norm(self) -> float:
@@ -142,8 +266,21 @@ class Fluctuation:
             return self.score_norm
         return float(np.max(np.abs(self.score) / np.maximum(self.score_scale, 1e-300)))
 
+    @property
+    def initial_score_norm(self) -> float:
+        """Largest absolute score component before targeting."""
+        if self.score_initial is None or self.score_initial.size == 0:
+            return float("nan")
+        return float(np.max(np.abs(self.score_initial)))
+
     def coefficients(self) -> dict[str, float]:
         return dict(zip(self.names, self.epsilon.tolist(), strict=True))
+
+    def describe_failure(self) -> str:
+        """One sentence naming the failure and what usually causes it."""
+        if self.failure is None:
+            return "converged"
+        return _FAILURE_TEXT[self.failure]
 
 
 def solve_fluctuation(
@@ -203,12 +340,16 @@ def solve_fluctuation(
 
     current = initial.shrunk(alpha)
     epsilon = np.zeros(fit_submodel.dim)
-    scale = _score_scale(scoring_submodel.observed, w, mask)
-    trace: list[float] = []
+    scale = score_scale(scoring_submodel.observed, w, mask)
+    # trace[0] is the score at epsilon = 0, so the same entry means the same thing
+    # here and in the one-step solver.
+    score_before = score_columns(y, current.observed, scoring_submodel.observed, w, mask)
+    trace: list[float] = [relative_score(score_before, scale)]
     iterations = 0
+    detail = NewtonDetail()
 
     for iterations in range(1, max_iter + 1):  # noqa: B007 - reported after the loop
-        step, step_converged = _newton_logistic(
+        step, step_converged, detail = _newton_logistic(
             fit_submodel.observed[mask],
             y[mask],
             logit(current.observed[mask]),
@@ -216,21 +357,24 @@ def solve_fluctuation(
             tol=min(tol, 1e-12),
         )
         epsilon = epsilon + step
-        current = _apply_logistic(current, fit_submodel, step, alpha)
-        score = _score(y, current.observed, scoring_submodel.observed, w, mask)
-        trace.append(_relative(score, scale))
+        current = apply_logistic(current, fit_submodel, step, alpha)
+        score = score_columns(y, current.observed, scoring_submodel.observed, w, mask)
+        trace.append(relative_score(score, scale))
         if trace[-1] <= tol or (step_converged and np.max(np.abs(step)) <= tol):
             break
 
-    score = _score(y, current.observed, scoring_submodel.observed, w, mask)
-    relative = _relative(score, scale)
+    score = score_columns(y, current.observed, scoring_submodel.observed, w, mask)
+    relative = relative_score(score, scale)
     converged = bool(relative <= tol)
+    failure = (
+        None if converged else _classify(epsilon, current, detail, alpha, iterations, max_iter)
+    )
     if not converged and warn:
         warnings.warn(
             f"targeting step did not drive the relative score below {tol:g} after "
-            f"{iterations} iteration(s) (relative score = {relative:.3g}). This usually means "
-            "the targeted predictions are pinned against their bounds because of a "
-            "positivity violation; check res.sensitivity.positivity().",
+            f"{iterations} iteration(s) (relative score = {relative:.3g}): "
+            f"{_FAILURE_TEXT[failure] if failure else 'cause not identified'}. "
+            "Inspect res.fluctuations[group].failure and res.sensitivity.positivity().",
             ConvergenceWarning,
             stacklevel=2,
         )
@@ -244,28 +388,43 @@ def solve_fluctuation(
         method="iterative",
         names=submodel.names,
         score_scale=scale,
+        score_initial=score_before,
+        failure=failure,
+        hessian_condition=detail.hessian_condition,
+        epsilon_std_error=detail.epsilon_std_error,
+        loglik=detail.loglik,
     )
 
 
-def _score_scale(h: FloatArray, weights: FloatArray, mask: BoolArray) -> FloatArray:
-    """Per-column ``mean(|w * h|)``: the largest the score could be.
+def _classify(
+    epsilon: FloatArray,
+    current: InitialFit,
+    detail: NewtonDetail,
+    alpha: float,
+    iterations: int,
+    max_iter: int,
+) -> TargetingFailure:
+    """Name the failure mode of a targeting step that did not converge.
 
-    The residual ``Y - Q*`` is bounded by one on the ``[0, 1]`` outcome scale, so this
-    bounds ``|score|`` and makes the ratio dimensionless.
+    The inner solver's own verdict wins where it has one -- it saw the Hessian and
+    the line search.  The two modes it cannot see are diagnosed from the endpoint:
+    an ``epsilon`` that has run away is separation, and predictions sitting on the
+    shrinkage bounds mean no further fluctuation can move the score.
     """
-    contribution = np.zeros_like(h)
-    contribution[mask] = np.abs(weights[mask])[:, None] * np.abs(h[mask])
-    return np.asarray(contribution.mean(axis=0), dtype=float)
+    if detail.failure in ("singular_hessian", "nonfinite_step", "line_search_exhausted"):
+        return detail.failure
+    if epsilon.size and np.max(np.abs(epsilon)) >= _SEPARATION_EPSILON:
+        return "separation_suspected"
+    edge = 1.0 - alpha
+    pinned = np.mean((current.observed <= edge * 1.000001) | (current.observed >= alpha * 0.999999))
+    if pinned > 0.01:
+        return "bounds_pinned"
+    if iterations >= max_iter:
+        return "max_iter_reached"
+    return detail.failure or "max_iter_reached"
 
 
-def _relative(score: FloatArray, scale: FloatArray) -> float:
-    """Largest score component relative to its maximum possible magnitude."""
-    if score.size == 0:
-        return 0.0
-    return float(np.max(np.abs(score) / np.maximum(scale, 1e-300)))
-
-
-def _apply_logistic(
+def apply_logistic(
     fit: InitialFit, submodel: Submodel, epsilon: FloatArray, alpha: float
 ) -> InitialFit:
     """Move the predictions along the logistic submodel by ``epsilon``."""
@@ -276,25 +435,6 @@ def _apply_logistic(
     ).shrunk(alpha)
 
 
-def _score(
-    y: FloatArray,
-    q_star: FloatArray,
-    h: FloatArray,
-    weights: FloatArray,
-    mask: BoolArray,
-) -> FloatArray:
-    """``mean(w * h * (Y - Q*))`` over observed rows, scaled by the full sample.
-
-    The mean is taken over *all* ``n`` rows, not just the observed ones, because the
-    estimating equation carries a ``Delta`` factor: unobserved rows contribute a
-    genuine zero rather than being excluded from the average.
-    """
-    residual = np.zeros_like(y)
-    residual[mask] = y[mask] - q_star[mask]
-    contribution = (weights * residual)[:, None] * h
-    return np.asarray(contribution.mean(axis=0), dtype=float)
-
-
 def _newton_logistic(
     x: FloatArray,
     y: FloatArray,
@@ -303,36 +443,40 @@ def _newton_logistic(
     *,
     max_iter: int = 50,
     tol: float = 1e-12,
-) -> tuple[FloatArray, bool]:
+) -> tuple[FloatArray, bool, NewtonDetail]:
     """Weighted logistic MLE with an offset and no intercept.
 
-    Returns the coefficient vector and whether the gradient reached ``tol``.  The
-    quasi-binomial log-likelihood is valid for any ``y`` in ``[0, 1]``, which is what
-    lets the same routine target a scaled continuous outcome (Gruber & van der
-    Laan, 2010).
+    Returns the coefficient vector, whether the gradient reached ``tol``, and a
+    :class:`NewtonDetail` recording *how* it stopped.  The quasi-binomial
+    log-likelihood is valid for any ``y`` in ``[0, 1]``, which is what lets the same
+    routine target a scaled continuous outcome (Gruber & van der Laan, 2010).
     """
     k = x.shape[1]
     epsilon = np.zeros(k)
+    detail = NewtonDetail()
     if x.size == 0 or np.allclose(x, 0.0):
-        return epsilon, True
+        return epsilon, True, detail
 
     total_weight = weights.sum()
     if total_weight <= 0:
-        return epsilon, True
+        return epsilon, True, detail
 
-    loglik = _quasi_loglik(y, expit(offset), weights)
+    loglik = quasi_loglik(y, expit(offset), weights)
+    detail.loglik = loglik
     for _ in range(max_iter):
         eta = offset + x @ epsilon
         p = expit(eta)
         gradient = x.T @ (weights * (y - p))
         if np.max(np.abs(gradient)) / total_weight <= tol:
-            return epsilon, True
+            return epsilon, True, detail
 
         variance = weights * p * (1.0 - p)
         hessian = x.T @ (x * variance[:, None])
+        detail.observe(hessian)
         step = _solve_step(hessian, gradient)
         if step is None:
-            return epsilon, False
+            detail.failure = "nonfinite_step"
+            return epsilon, False, detail
 
         # Backtracking: a Newton step can overshoot when the clever covariate has
         # extreme values, and the quasi-likelihood must never decrease.  The slack is
@@ -344,17 +488,20 @@ def _newton_logistic(
         scale = 1.0
         for _ in range(30):
             candidate = epsilon + scale * step
-            candidate_loglik = _quasi_loglik(y, expit(offset + x @ candidate), weights)
+            candidate_loglik = quasi_loglik(y, expit(offset + x @ candidate), weights)
             if candidate_loglik >= loglik - slack:
                 epsilon, loglik = candidate, candidate_loglik
+                detail.loglik = loglik
                 break
             scale *= 0.5
         else:
-            return epsilon, False
+            detail.failure = "line_search_exhausted"
+            return epsilon, False, detail
 
         if np.max(np.abs(scale * step)) <= tol:
-            return epsilon, True
-    return epsilon, False
+            return epsilon, True, detail
+    detail.failure = "max_iter_reached"
+    return epsilon, False, detail
 
 
 def _solve_step(hessian: FloatArray, gradient: FloatArray) -> FloatArray | None:
@@ -366,12 +513,6 @@ def _solve_step(hessian: FloatArray, gradient: FloatArray) -> FloatArray | None:
     if not np.all(np.isfinite(step)):
         return None
     return np.asarray(step, dtype=float)
-
-
-def _quasi_loglik(y: FloatArray, p: FloatArray, weights: FloatArray) -> float:
-    """Weighted binomial quasi-log-likelihood, valid for ``y`` in ``[0, 1]``."""
-    q = np.clip(p, 1e-15, 1.0 - 1e-15)
-    return float(np.sum(weights * (y * np.log(q) + (1.0 - y) * np.log(1.0 - q))))
 
 
 def _solve_linear(
@@ -414,16 +555,22 @@ def _solve_linear(
             UserWarning,
             stacklevel=3,
         )
-    score = _score(y, targeted.observed, submodel.observed, weights, mask)
-    scale = _score_scale(submodel.observed, weights, mask)
+    score = score_columns(y, targeted.observed, submodel.observed, weights, mask)
+    scale = score_scale(submodel.observed, weights, mask)
+    score_before = score_columns(y, initial.observed, submodel.observed, weights, mask)
+    converged = bool(relative_score(score, scale) <= 1e-8)
     return Fluctuation(
         epsilon=epsilon,
         targeted=targeted,
         score=score,
-        converged=bool(_relative(score, scale) <= 1e-8),
+        converged=converged,
         n_iter=1,
-        trace=(_relative(score, scale),),
+        trace=(relative_score(score_before, scale), relative_score(score, scale)),
         method="linear",
         names=submodel.names,
         score_scale=scale,
+        score_initial=score_before,
+        # One weighted least-squares solve: the only way it fails is a singular
+        # normal-equations matrix, which _solve_step already fell back on.
+        failure=None if converged else ("singular_hessian" if step is None else "max_iter_reached"),
     )

@@ -67,7 +67,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -84,37 +84,30 @@ from .._typing import (
     TargetingScheme,
 )
 from ..data.causal_data import CausalData
-from ..exceptions import PositivityWarning, WeightingWarning
+from ..exceptions import ConvergenceWarning, PositivityWarning, WeightingWarning
+from ..fluctuation._score import relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
     InitialFit,
-    _relative,
-    _score_scale,
-    solve_fluctuation,
+    TargetingFailure,
 )
-from ..fluctuation.one_step import solve_one_step
-from ..fluctuation.submodel import Submodel, TargetGroup, restrict, submodel_for
+from ..fluctuation.submodel import Submodel, TargetGroup, restrict
 from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     ParameterEstimate,
-    atc_estimate,
-    att_estimate,
-    counterfactual_means,
-    make_estimate,
-    ratio_estimates,
-    unscale,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..learners._fitting import Task
 from ..learners.crossfit import Folds, make_folds
-from ..learners.super_learner import SuperLearner
+from ..learners.super_learner import resolve_learner
+from ..provenance import record as provenance_record
+from ..targets import TargetContext, groups_for, targets_for
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.frames import is_dataframe
 from ._nuisance import NuisanceEstimates, fit_nuisances
 from .base import (
-    MEAN_GROUP_ESTIMANDS,
     CVTargeting,
     TMLEConfig,
     TMLEResult,
@@ -122,7 +115,7 @@ from .base import (
     attach_bootstrap,
     resolve_estimands,
 )
-from .direct_effect import clever_covariate_inputs
+from .targeting import TargetingSpec, build_submodel, solve_submodel
 
 __all__ = ["TMLE", "tmle"]
 
@@ -280,6 +273,10 @@ class TMLE:
         under weak overlap.  See :mod:`cleverly.inference.multiplier`.
     step_size, max_iter, tol:
         Targeting-step controls.
+    run_id:
+        An identifier of your own -- an experiment id, a ticket number -- recorded on
+        :attr:`TMLEResult.provenance`.  The library records no git commit of its own:
+        it must not assume it is being run from inside a repository.
     random_state, n_jobs:
         Reproducibility and parallelism.
 
@@ -323,8 +320,10 @@ class TMLE:
         max_iter: int = 20,
         tol: float = 1e-10,
         random_state: int | None = None,
+        run_id: str | None = None,
         n_jobs: int = 1,
     ) -> None:
+        self.run_id = run_id
         self.outcome_learner = outcome_learner
         self.treatment_learner = treatment_learner
         self.missingness_learner = missingness_learner
@@ -449,10 +448,63 @@ class TMLE:
         if not prepared.has_intermediate:
             return self._fit_single(prepared, intermediate_value=None)
 
-        results = {
-            value: self._fit_single(prepared, intermediate_value=value) for value in (0.0, 1.0)
-        }
+        # The controlled direct effect at z = 0 and at z = 1 are different parameters,
+        # so they get one result each -- but they are estimated from *identical*
+        # nuisance models. Every model here (propensity, missingness, the intermediate
+        # mechanism, and the outcome regression, whose design uses the observed Z)
+        # is level-independent; only the counterfactual designs the outcome regression
+        # is predicted onto differ. Fitting per level refits all four to obtain two
+        # extra prediction vectors, so the levels are estimated in one pass and the
+        # targeting step is run twice against the shared fits.
+        levels = (0.0, 1.0)
+        if self._shares_nuisances_across_levels():
+            shared = self._prepare_shared(prepared, levels)
+            results = {
+                value: self._fit_single(prepared, intermediate_value=value, shared=shared)
+                for value in levels
+            }
+        else:
+            results = {
+                value: self._fit_single(prepared, intermediate_value=value) for value in levels
+            }
         return TMLEResultSet(results, prepared.intermediate_name or "Z")
+
+    def _shares_nuisances_across_levels(self) -> bool:
+        """Whether the two controlled direct effects can share one set of nuisance fits.
+
+        True for the base estimator, where the nuisances are level-independent by
+        construction.  A variant that chooses *which* nuisance to hand to the targeting
+        step -- :class:`~cleverly.CTMLE`, whose propensity selection is scored against a
+        level-specific targeted loss -- must opt out and refit per level.
+        """
+        return type(self)._nuisances is TMLE._nuisances
+
+    def _prepare_shared(
+        self, data: CausalData, levels: Sequence[float]
+    ) -> tuple[OutcomeScaler, Folds, NuisanceEstimates]:
+        """Fit the level-independent nuisances once, for every requested level."""
+        scaler = self._scaler(data)
+        folds = self._folds(data)
+        nuisance = self._fit_nuisances(
+            data, folds, scaler, levels[0], extra_levels=tuple(levels[1:])
+        )
+        return scaler, folds, nuisance
+
+    def refit(self, data: CausalData, *, intermediate_value: float | None = None) -> TMLEResult:
+        """Run the whole fit again -- nuisances included -- on already-prepared data.
+
+        This is the expensive counterpart to :meth:`retarget`, and the distinction
+        matters.  ``retarget`` re-solves the fluctuation against cached nuisance
+        estimates, so it needs nothing but arrays and is what every truncation sweep
+        and every bootstrap replicate uses.  ``refit`` re-learns the nuisances, which
+        is unavoidable when the *data* changed: the negative-control refutations
+        (:mod:`cleverly.validation.refute`) replace the treatment or the outcome, and
+        the omitted-variable analysis drops a covariate from the adjustment set.
+
+        Pass ``intermediate_value`` when the data carries an intermediate variable, so
+        the refit targets the same controlled direct effect as the original.
+        """
+        return self._fit_single(data, intermediate_value=intermediate_value)
 
     def _prepare(
         self,
@@ -506,13 +558,29 @@ class TMLE:
             family=self.family,
         )
 
-    def _fit_single(self, data: CausalData, *, intermediate_value: float | None) -> TMLEResult:
-        """Fit for one value of the intermediate (or for no intermediate at all)."""
+    def _fit_single(
+        self,
+        data: CausalData,
+        *,
+        intermediate_value: float | None,
+        shared: tuple[OutcomeScaler, Folds, NuisanceEstimates] | None = None,
+    ) -> TMLEResult:
+        """Fit for one value of the intermediate (or for no intermediate at all).
+
+        ``shared`` supplies nuisance fits already computed for every level of the
+        intermediate; only the targeting step then runs per level.
+        """
         estimands = resolve_estimands(self.estimands, data.family)
-        scaler = self._scaler(data)
-        folds = self._folds(data)
-        config = self._config(data, estimands, scaler, folds)
-        nuisance, extra = self._nuisances(data, folds, scaler, config, intermediate_value)
+        if shared is not None:
+            scaler, folds, pooled = shared
+            config = self._config(data, estimands, scaler, folds)
+            extra: dict[str, Any] = {}
+            nuisance = pooled.at_level(cast("float", intermediate_value))
+        else:
+            scaler = self._scaler(data)
+            folds = self._folds(data)
+            config = self._config(data, estimands, scaler, folds)
+            nuisance, extra = self._nuisances(data, folds, scaler, config, intermediate_value)
         self._warn_on_positivity(nuisance, config, intermediate_value)
         self._warn_on_estimated_weights(data)
 
@@ -532,6 +600,9 @@ class TMLE:
             data=data,
             config=config,
             estimator=self,
+            provenance=provenance_record(
+                data, folds, random_state=self.random_state, run_id=self.run_id
+            ),
             intermediate_value=intermediate_value,
             extra=extra if cv_detail is None else {**extra, "cv_tmle": cv_detail},
         )
@@ -590,18 +661,13 @@ class TMLE:
         fallback: Learner | str | Sequence[Any] | None = None,
     ) -> Learner:
         """Turn a learner specification into a fitted-per-fold estimator."""
-        if spec is None:
-            spec = fallback
-        if spec is None or isinstance(spec, (str, list, tuple)):
-            return SuperLearner(
-                library="default" if spec is None else spec,
-                task=task,
-                n_folds=self.learner_folds,
-                clip=(0.0, 1.0),
-                random_state=self.random_state,
-                n_jobs=1,
-            )
-        return spec
+        return resolve_learner(
+            spec,
+            task=task,
+            n_folds=self.learner_folds,
+            random_state=self.random_state,
+            fallback=fallback,
+        )
 
     def _fit_nuisances(
         self,
@@ -609,6 +675,7 @@ class TMLE:
         folds: Folds,
         scaler: OutcomeScaler,
         intermediate_value: float | None,
+        extra_levels: Sequence[float] = (),
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         return fit_nuisances(
@@ -636,6 +703,7 @@ class TMLE:
             folds=folds,
             scaler=scaler,
             intermediate_value=intermediate_value,
+            extra_levels=extra_levels,
             screen_treatment=self.screen_treatment,
             screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
@@ -678,8 +746,7 @@ class TMLE:
     ) -> TMLEConfig:
         return TMLEConfig(
             family=data.family,
-            fluctuation=self.fluctuation,
-            targeting=self.targeting,
+            targeting_spec=self.targeting_spec(),
             targeting_scheme=(
                 self.targeting_scheme if self.cross_fit and not folds.is_single else "pooled"
             ),
@@ -703,8 +770,6 @@ class TMLE:
                 if present
             ),
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
-            alpha=self.alpha,
-            target_weights=self.target_weights,
             screen_treatment=self.screen_treatment,
             estimands=estimands,
             alpha_sig=self.alpha_sig,
@@ -937,22 +1002,23 @@ class TMLE:
         a ratio undefined.  Those estimands are dropped from this fold's report rather
         than allowed to abort the others; :func:`_average_over_folds` then drops them
         from the canonical estimate altogether and says so.
+
+        Only a target that declares ``undefined_when`` may be dropped, and only its own
+        entry is lost.  This replaces a bare ``except ValueError`` that retried without
+        ``{"rr", "or"}`` and then returned an empty dict -- which turned any exception
+        anywhere in the estimate path into a fold that silently reported nothing.
         """
-        try:
-            return self._estimates_for(
-                data, nuisance, group, submodel, fluctuation, supported, alpha_sig, index=index
-            )
-        except ValueError:
-            fragile = {"rr", "or"}
-            safe = tuple(name for name in supported if name not in fragile)
-            if len(safe) == len(supported):
-                return {}
-            try:
-                return self._estimates_for(
-                    data, nuisance, group, submodel, fluctuation, safe, alpha_sig, index=index
-                )
-            except ValueError:
-                return {}
+        return self._estimates_for(
+            data,
+            nuisance,
+            group,
+            submodel,
+            fluctuation,
+            supported,
+            alpha_sig,
+            index=index,
+            drop_undefined=True,
+        )
 
     @staticmethod
     def _groups(estimands: Sequence[str]) -> list[TargetGroup]:
@@ -961,14 +1027,23 @@ class TMLE:
         Each estimand family gets its own targeting step, because each has its own
         efficient influence function and therefore its own score equation to solve.
         """
-        groups: list[TargetGroup] = []
-        if any(name in MEAN_GROUP_ESTIMANDS for name in estimands):
-            groups.append("mean")
-        if "att" in estimands:
-            groups.append("att")
-        if "atc" in estimands:
-            groups.append("atc")
-        return groups
+        return groups_for(estimands)
+
+    def targeting_spec(self) -> TargetingSpec:
+        """The targeting settings this estimator would use, as one object.
+
+        Recorded on every result via :attr:`TMLEConfig.targeting_spec`, so re-solving
+        a fluctuation never needs the estimator itself.
+        """
+        return TargetingSpec(
+            targeting=self.targeting,
+            fluctuation=self.fluctuation,
+            target_weights=self.target_weights,
+            alpha=self.alpha,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            step_size=self.step_size,
+        )
 
     def _submodel(
         self,
@@ -980,24 +1055,16 @@ class TMLE:
         missingness_override: FloatArray | None,
         nuisance_bound: float | None = None,
     ) -> Submodel:
-        lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
-        propensity = nuisance.bounded_propensity(bounds)
-        missingness = (
-            nuisance.bounded_missingness(lower)
-            if missingness_override is None
-            else np.clip(np.asarray(missingness_override, dtype=float), lower, 1.0)
-        )
-        intermediate_density, selection = clever_covariate_inputs(
-            data, nuisance, intermediate_value, lower
-        )
-        return submodel_for(
+        return build_submodel(
+            data,
+            nuisance,
             group,
-            data.treatment,
-            propensity,
-            treated_fraction=data.treated_fraction,
-            missingness=missingness,
-            intermediate_density=intermediate_density,
-            selection=selection,
+            bounds=bounds,
+            nuisance_bound=(
+                self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
+            ),
+            intermediate_value=intermediate_value,
+            missingness_override=missingness_override,
         )
 
     def _solve(
@@ -1030,31 +1097,8 @@ class TMLE:
         *,
         warn: bool = True,
     ) -> Fluctuation:
-        if self.targeting == "one_step":
-            return solve_one_step(
-                scaled,
-                initial,
-                submodel,
-                weights,
-                observed,
-                target_weights=self.target_weights,
-                alpha=self.alpha,
-                step_size=self.step_size,
-                tol=self.tol,
-                warn=warn,
-            )
-        return solve_fluctuation(
-            scaled,
-            initial,
-            submodel,
-            weights,
-            observed,
-            kind=self.fluctuation,
-            target_weights=self.target_weights,
-            alpha=self.alpha,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            warn=warn,
+        return solve_submodel(
+            scaled, initial, submodel, weights, observed, self.targeting_spec(), warn=warn
         )
 
     def _solve_by_fold(
@@ -1096,6 +1140,7 @@ class TMLE:
         fold_records: list[FoldFluctuation] = []
         masses = []
         traces = []
+        reasons: list[str] = []
         iterations = 0
 
         for _, test in nuisance.folds:
@@ -1125,6 +1170,7 @@ class TMLE:
             )
             masses.append(float(data.weights[test].sum()))
             traces.append(fold_fluctuation.trace[-1] if fold_fluctuation.trace else float("nan"))
+            reasons.append(fold_fluctuation.failure or "unknown")
             iterations += fold_fluctuation.n_iter
 
         targeted = InitialFit(observed, at_one, at_zero)
@@ -1132,19 +1178,45 @@ class TMLE:
         epsilon = np.average(
             np.vstack([record.epsilon for record in fold_records]), axis=0, weights=weights_array
         )
-        score = _score_of(scaled, targeted, submodel, data.weights, data.observed)
-        scale = _score_scale(submodel.observed, data.weights, data.observed)
+        score = score_columns(
+            scaled, targeted.observed, submodel.observed, data.weights, data.observed
+        )
+        scale = score_scale(submodel.observed, data.weights, data.observed)
+        score_before = score_columns(
+            scaled, nuisance.outcome.observed, submodel.observed, data.weights, data.observed
+        )
+
+        # Per-fold solves run with warn=False so ten folds cannot emit ten warnings.
+        # That left a fold-targeted fit able to fail in three folds of ten and say
+        # nothing at all, since the pooled score can still look solved: each fold's
+        # score is near zero on its own rows and the failures average out. Report the
+        # count once, naming the modes.
+        failed = [i for i, record in enumerate(fold_records) if not record.converged]
+        modes = sorted({reasons[i] for i in failed})
+        if failed:
+            warnings.warn(
+                f"{len(failed)} of {len(fold_records)} fold(s) did not converge in the "
+                f"{submodel.group!r} targeting step ({', '.join(modes)}). The pooled score "
+                "can still look solved because each fold's score is near zero on its own "
+                "rows; inspect res.fluctuations[group].folds for the per-fold detail.",
+                ConvergenceWarning,
+                stacklevel=3,
+            )
+
         return Fluctuation(
             epsilon=epsilon,
             targeted=targeted,
             score=score,
-            converged=bool(_relative(score, scale) <= self.tol),
+            converged=bool(relative_score(score, scale) <= self.tol),
             n_iter=iterations,
             trace=tuple(traces),
             method="iterative" if self.targeting == "iterative" else "one_step",
             names=submodel.names,
             score_scale=scale,
             folds=tuple(fold_records),
+            score_initial=score_before,
+            n_solver_calls=len(fold_records),
+            failure=_dominant_failure(reasons, failed),
         )
 
     def _estimates_for(
@@ -1157,6 +1229,7 @@ class TMLE:
         requested: Sequence[str],
         alpha_sig: float,
         index: IntArray | None = None,
+        drop_undefined: bool = False,
     ) -> dict[str, ParameterEstimate]:
         """Build every estimand that this fluctuation supports.
 
@@ -1183,46 +1256,30 @@ class TMLE:
             cluster = None if cluster is None else cluster[index]
             n = int(index.size)
 
+        context = TargetContext(
+            scaled=scaled,
+            targeted=targeted,
+            submodel=submodel,
+            treatment=treatment,
+            weights=weights,
+            observed=observed,
+            scaler=scaler,
+            n=n,
+            cluster=cluster,
+            alpha_sig=alpha_sig,
+        )
+        # One context per fluctuation, shared by every target in the group: the five
+        # mean-group estimands are different functionals of the same targeted
+        # distribution, and `context.means` computes the counterfactual means once.
         out: dict[str, ParameterEstimate] = {}
-        common: dict[str, Any] = {
-            "n": n,
-            "cluster": cluster,
-            "alpha": alpha_sig,
-        }
-
-        if group == "mean":
-            psi_one, ic_one, psi_zero, ic_zero = counterfactual_means(
-                scaled, targeted, submodel, weights, observed
-            )
-            if "ey1" in requested:
-                value, ic = unscale(psi_one, ic_one, scaler, "level")
-                out["ey1"] = make_estimate("ey1", value, ic, scale="level", **common)
-            if "ey0" in requested:
-                value, ic = unscale(psi_zero, ic_zero, scaler, "level")
-                out["ey0"] = make_estimate("ey0", value, ic, scale="level", **common)
-            if "ate" in requested:
-                value, ic = unscale(psi_one - psi_zero, ic_one - ic_zero, scaler, "difference")
-                out["ate"] = make_estimate("ate", value, ic, scale="difference", **common)
-            ratios = tuple(name for name in ("rr", "or") if name in requested)
-            if ratios:
-                out.update(
-                    ratio_estimates(
-                        psi_one,
-                        ic_one,
-                        psi_zero,
-                        ic_zero,
-                        n=n,
-                        cluster=cluster,
-                        alpha=alpha_sig,
-                        which=ratios,
-                    )
-                )
-            return out
-
-        estimator_fn = att_estimate if group == "att" else atc_estimate
-        psi, ic = estimator_fn(scaled, targeted, submodel, treatment, weights, observed)
-        value, unscaled_ic = unscale(psi, ic, scaler, "difference")
-        out[group] = make_estimate(group, value, unscaled_ic, scale="difference", **common)
+        for target in targets_for(group, requested):
+            try:
+                out[target.name] = target.build(context)
+            except ValueError:
+                # A target that declares `undefined_when` may legitimately fail on a
+                # subsample; anything else failing is a bug and must not be swallowed.
+                if not (drop_undefined and target.undefined_when):
+                    raise
         return out
 
     def _bootstrap_point_estimates(
@@ -1325,18 +1382,6 @@ def _average_over_folds(
     return out
 
 
-def _score_of(
-    scaled: FloatArray,
-    targeted: InitialFit,
-    submodel: Submodel,
-    weights: FloatArray,
-    observed: BoolArray,
-) -> FloatArray:
-    """``mean(w * h * (Y - Q*))`` per clever-covariate column."""
-    residual = np.where(observed, scaled - targeted.observed, 0.0)
-    return np.asarray(((weights * residual)[:, None] * submodel.observed).mean(axis=0), dtype=float)
-
-
 def tmle(
     Y: Any,
     A: Any,
@@ -1382,3 +1427,17 @@ def tmle(
     )
     estimator = TMLE(**kwargs)
     return estimator.fit(data)
+
+
+def _dominant_failure(reasons: Sequence[str], failed: Sequence[int]) -> TargetingFailure | None:
+    """The most common failure mode across folds, for the summary line.
+
+    A single label cannot describe ten folds, so the per-fold detail stays on
+    ``Fluctuation.folds``; this is only what to print when there is room for one word.
+    """
+    if not failed:
+        return None
+    modes = [reasons[i] for i in failed if reasons[i] != "unknown"]
+    if not modes:
+        return "max_iter_reached"
+    return cast("TargetingFailure", max(set(modes), key=modes.count))

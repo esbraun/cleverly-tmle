@@ -384,7 +384,7 @@ def _calibration_slope(predicted: FloatArray, actual: FloatArray, weights: Float
     from ..fluctuation.iterative import _newton_logistic
 
     x = np.column_stack([np.ones_like(predicted), logit(predicted)])
-    epsilon, _ = _newton_logistic(x, actual, np.zeros_like(predicted), weights)
+    epsilon, _converged, _detail = _newton_logistic(x, actual, np.zeros_like(predicted), weights)
     return float(epsilon[1])
 
 

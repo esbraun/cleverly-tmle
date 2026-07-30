@@ -41,13 +41,15 @@ outcome regression, so use :mod:`cleverly.sensitivity.evalue` for those.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from scipy import optimize, stats
 
 from .._typing import FloatArray
 from ..estimators.base import format_table
+from ..estimators.targeting import build_submodel
+from ..fluctuation.submodel import TargetGroup
 from ..inference.cluster import influence_variance
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -121,17 +123,18 @@ def sensitivity_elements(
     if estimand not in result.estimates:
         raise ValueError(f"estimand {estimand!r} was not requested in this fit")
 
-    estimator = result.estimator
-    if estimator is None:
-        raise ValueError("sensitivity elements need the fitted estimator that produced the result")
-
     data = result.data
     scaler = result.nuisance.scaler
     group = "mean" if estimand in ("ate", "ey1", "ey0") else estimand
     fluctuation = result.fluctuations[group]
     bounds = result.config.g_bounds if group == "mean" else result.config.g_bounds_conditional
-    submodel = estimator._submodel(
-        data, result.nuisance, group, bounds, result.intermediate_value, None
+    submodel = build_submodel(
+        data,
+        result.nuisance,
+        cast("TargetGroup", group),
+        bounds=bounds,
+        nuisance_bound=result.config.missingness_bound,
+        intermediate_value=result.intermediate_value,
     )
     propensity = result.nuisance.bounded_propensity(bounds)
 
@@ -489,7 +492,7 @@ def benchmark(
 
     long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     short_data = result.data.without_covariates(names)
-    short_result = estimator._fit_single(short_data, intermediate_value=result.intermediate_value)
+    short_result = estimator.refit(short_data, intermediate_value=result.intermediate_value)
     short_elements = sensitivity_elements(short_result, estimand, nu2_estimator=nu2_estimator)
 
     var_y = float(np.var(result.data.outcome[result.data.observed]))

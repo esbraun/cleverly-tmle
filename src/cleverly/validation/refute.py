@@ -182,7 +182,7 @@ def refute(
     outcomes: list[RefutationTest] = []
 
     def refit(replacement: Any) -> float:
-        refitted = estimator._fit_single(replacement, intermediate_value=result.intermediate_value)
+        refitted = estimator.refit(replacement, intermediate_value=result.intermediate_value)
         return refitted[estimand].psi
 
     for name in tests:
@@ -280,9 +280,7 @@ def refute(
                 outcome=np.where(data.observed, control, 0.0),
                 family=infer_family(control, data.observed),
             )
-            refitted = estimator._fit_single(
-                replacement, intermediate_value=result.intermediate_value
-            )
+            refitted = estimator.refit(replacement, intermediate_value=result.intermediate_value)
             value = refitted[estimand].psi
             control_se = refitted[estimand].std_error
             passed = bool(abs(value) <= tolerance * control_se)

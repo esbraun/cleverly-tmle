@@ -8,22 +8,27 @@ reporting are written once, here, rather than per estimator.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .._typing import Estimand, FloatArray
+from .._typing import FloatArray
 from ..data.causal_data import CausalData
 from ..exceptions import CleverlyError
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
-from ..inference.influence import ParameterEstimate
+from ..inference.cluster import influence_covariance
+from ..inference.delta import delta_method
+from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.multiplier import SimultaneousBands
+from ..provenance import Provenance
+from ..targets import TARGETS, all_names, resolve_estimands
 from ._nuisance import NuisanceEstimates
 from .direct_effect import describe as describe_direct_effect
+from .targeting import TargetingSpec
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..sensitivity.api import SensitivityAnalysis
@@ -41,58 +46,21 @@ __all__ = [
     "resolve_estimands",
 ]
 
-#: Estimands available from a classic point-treatment fit, in report order.
-ALL_ESTIMANDS: tuple[Estimand, ...] = ("ate", "att", "atc", "ey1", "ey0", "rr", "or")
+#: Estimands available from a classic point-treatment fit, in report order.  Derived
+#: from the registry rather than declared here, so a registered target appears in it
+#: automatically and the two cannot disagree.
+ALL_ESTIMANDS: tuple[str, ...] = all_names()
 
 #: Estimands produced by the two-column ``mean`` fluctuation.
-MEAN_GROUP_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey1", "ey0", "rr", "or"})
+MEAN_GROUP_ESTIMANDS: frozenset[str] = frozenset(
+    name for name, target in TARGETS.items() if target.group == "mean"
+)
 
-#: The default set: the ATE family plus the counterfactual means.  ``rr``/``or`` are
-#: added automatically for a binary outcome, where they are defined.
-DEFAULT_ESTIMANDS: tuple[Estimand, ...] = ("ate", "att", "atc", "ey1", "ey0")
-
-_RATIO_ESTIMANDS: frozenset[str] = frozenset({"rr", "or"})
-
-
-def resolve_estimands(
-    requested: Sequence[str] | str | None,
-    family: str,
-) -> tuple[str, ...]:
-    """Normalise and validate a requested estimand list.
-
-    ``"all"`` expands to everything the outcome type supports.  Ratios are dropped
-    with an explanation for a continuous outcome: a risk ratio of two means that can
-    be negative is not a meaningful quantity.
-    """
-    if requested is None:
-        names: tuple[str, ...] = DEFAULT_ESTIMANDS
-        if family == "binomial":
-            names = (*names, "rr", "or")
-    elif isinstance(requested, str):
-        if requested == "all":
-            names = ALL_ESTIMANDS if family == "binomial" else DEFAULT_ESTIMANDS
-        else:
-            names = (requested,)
-    else:
-        names = tuple(requested)
-
-    unknown = [name for name in names if name not in ALL_ESTIMANDS]
-    if unknown:
-        raise ValueError(f"unknown estimand(s) {unknown}; choose from {list(ALL_ESTIMANDS)}")
-
-    if family != "binomial":
-        ratios = [name for name in names if name in _RATIO_ESTIMANDS]
-        if ratios:
-            raise ValueError(
-                f"estimand(s) {ratios} require a binary outcome (family='binomial'); the risk "
-                "ratio and odds ratio are not defined for a continuous outcome. Drop them or "
-                "dichotomise the outcome."
-            )
-
-    ordered = tuple(name for name in ALL_ESTIMANDS if name in set(names))
-    if not ordered:
-        raise ValueError("no estimands requested")
-    return ordered
+#: The default report for a continuous outcome.  A binary outcome additionally gets
+#: ``rr`` and ``or``, which are only defined when the means are probabilities.
+DEFAULT_ESTIMANDS: tuple[str, ...] = tuple(
+    name for name, target in TARGETS.items() if target.in_default_set
+)
 
 
 @dataclass(frozen=True)
@@ -105,8 +73,11 @@ class TMLEConfig:
     """
 
     family: str
-    fluctuation: str
-    targeting: str
+    #: Everything the targeting step needs that is not data.  Held as one object
+    #: rather than as loose fields so that re-solving a fluctuation -- the truncation
+    #: curve, the MNAR tilt, the C-TMLE search -- needs the config and not the live
+    #: estimator that produced it.
+    targeting_spec: TargetingSpec
     targeting_scheme: str
     cross_fit: bool
     n_folds: int
@@ -114,8 +85,6 @@ class TMLEConfig:
     g_bounds_conditional: tuple[float, float]
     missingness_bound: float
     q_bounds: tuple[float, float] | None
-    alpha: float
-    target_weights: bool
     screen_treatment: bool
     estimands: tuple[str, ...]
     alpha_sig: float
@@ -127,6 +96,23 @@ class TMLEConfig:
     #: fit had neither missing outcomes nor an intermediate variable, in which case the
     #: bound exists on the config but never touched anything.
     bounded_mechanisms: tuple[str, ...] = ()
+
+    # Read-through to the spec, so the settings appear once and cannot drift.
+    @property
+    def fluctuation(self) -> str:
+        return self.targeting_spec.fluctuation
+
+    @property
+    def targeting(self) -> str:
+        return self.targeting_spec.targeting
+
+    @property
+    def alpha(self) -> float:
+        return self.targeting_spec.alpha
+
+    @property
+    def target_weights(self) -> bool:
+        return self.targeting_spec.target_weights
 
     @property
     def estimator_name(self) -> str:
@@ -322,6 +308,7 @@ class TMLEResult:
     data: CausalData
     config: TMLEConfig
     estimator: Any = None
+    provenance: Provenance | None = None
     simultaneous: SimultaneousBands | None = None
     bootstrap: BootstrapResult | None = None
     intermediate_value: float | None = None
@@ -370,6 +357,73 @@ class TMLEResult:
         value = self.extra.get("cv_tmle")
         return value if isinstance(value, CVTargeting) else None
 
+    # ------------------------------------------------------------- contrasts
+
+    def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
+        """Joint covariance matrix of the requested estimates.
+
+        The estimands are *not* independent -- they are functionals of one targeted
+        distribution and share most of their influence curve -- so a contrast built
+        from two of them needs this rather than the two variances.  Computed from the
+        influence curves at the right independent unit, so a clustered fit gets the
+        cluster-level covariance.
+        """
+        chosen = self._names(names)
+        # column_stack, not a list: influence_covariance takes an (n, m) matrix, and a
+        # list of m curves would be read as m observations of n estimands.
+        curves = np.column_stack([self[name].influence_curve for name in chosen])
+        return influence_covariance(curves, cluster=self.data.cluster)
+
+    def contrast(
+        self,
+        function: Callable[[FloatArray], float],
+        names: Sequence[str],
+        *,
+        name: str | None = None,
+        scale: Scale = "difference",
+        gradient: Callable[[FloatArray], FloatArray] | None = None,
+    ) -> ParameterEstimate:
+        r"""A smooth function of several estimands, with correct inference.
+
+        Applies the delta method to the *joint* influence curve, so the correlation
+        between the estimands is handled rather than ignored:
+        :math:`D_\phi = \nabla\phi(\hat\psi)^\top D`.
+
+        >>> res.contrast(lambda p: p[0] - p[1], ["ey1", "ey0"])   # doctest: +SKIP
+
+        Pass ``gradient`` when the function's derivative is known in closed form.  The
+        default is a central difference, which is accurate to about ``1e-10`` relative
+        -- fine for reporting, but not for a test asserting agreement at ``1e-12``.
+
+        The result is an ordinary :class:`~cleverly.inference.ParameterEstimate`, so it
+        carries its own influence curve and can itself be fed back into a contrast.
+        """
+        chosen = self._names(names)
+        estimates = [self[key].psi for key in chosen]
+        curves = [self[key].influence_curve for key in chosen]
+        value, curve = delta_method(function, estimates, curves, gradient=gradient)
+        label = name or f"contrast({', '.join(chosen)})"
+        return make_estimate(
+            label,
+            value,
+            curve,
+            n=self.n,
+            cluster=self.data.cluster,
+            scale=scale,
+            alpha=self.config.alpha_sig,
+        )
+
+    def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
+        chosen = tuple(self.estimates) if names is None else tuple(names)
+        missing = [key for key in chosen if key not in self.estimates]
+        if missing:
+            raise KeyError(
+                f"estimand(s) {missing} were not requested; available: {list(self.estimates)}"
+            )
+        if not chosen:
+            raise ValueError("no estimands selected")
+        return chosen
+
     # ----------------------------------------------------------- diagnostics
 
     @cached_property
@@ -387,6 +441,19 @@ class TMLEResult:
         return ValidationSuite(self)
 
     # ---------------------------------------------------------------- output
+
+    def save(self, path: Any) -> Any:
+        """Write this result to a single ``.npz`` file; see :func:`cleverly.load`.
+
+        Arrays plus JSON -- no pickle, so the file does not depend on the exact
+        scikit-learn version that wrote it and is not an execution vector.  After a
+        round trip everything reached through :meth:`~cleverly.TMLE.retarget` works;
+        the two analyses that genuinely refit need the learners to have been library
+        specifications rather than fitted objects.
+        """
+        from .serialize import save as _save
+
+        return _save(self, path)
 
     def to_frame(self) -> Any:
         """Tidy results, one row per estimand, in the caller's dataframe backend."""
@@ -447,6 +514,8 @@ class TMLEResult:
         if self.intermediate_value is not None:
             facts.append(describe_direct_effect(self.intermediate_value, data.intermediate_name))
         facts.extend(self.config.describe())
+        if self.provenance is not None:
+            facts.extend(self.provenance.describe())
 
         level = f"{(1 - self.config.alpha_sig) * 100:g}%"
         rows = []
@@ -551,7 +620,7 @@ class TMLEResultSet(Mapping[float, TMLEResult]):
 
 def format_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
     """Render a fixed-width table without pulling in a dataframe dependency."""
-    columns = (
+    columns: list[Sequence[str]] = (
         list(zip(*([list(headers)] + [list(row) for row in rows]), strict=True))
         if rows
         else [[header] for header in headers]
