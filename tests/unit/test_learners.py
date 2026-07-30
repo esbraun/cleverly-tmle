@@ -8,14 +8,18 @@ from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import make_pipeline
 
+from cleverly.exceptions import DataError
 from cleverly.learners import (
     CorrelationScreener,
+    CrossFitPlan,
     Folds,
     SuperLearner,
+    check_integrity,
     fit_learner,
     infer_task,
     make_folds,
     predict_mean,
+    refuse_scheme,
     resolve_library,
     resolve_n_folds,
     screen_by_correlation,
@@ -101,6 +105,145 @@ class TestFolds:
         with pytest.warns(UserWarning, match="only 3 clusters"):
             folds = make_folds(60, 10, cluster=cluster, random_state=0)
         assert folds.n_folds == 3
+
+
+class TestFoldInvariants:
+    """The prohibitions a cross-fitted estimate assumes, checked rather than assumed.
+
+    Split the way the checks are: what an assignment alone can be wrong about is refused
+    by ``Folds`` itself, and what needs the cluster vector beside it by
+    ``check_integrity``.
+    """
+
+    def test_a_fold_index_outside_the_declared_range_is_refused(self) -> None:
+        with pytest.raises(DataError, match=r"outside \[0, 3\)"):
+            Folds(np.array([0, 1, 3, 2]), 3)
+
+    def test_a_negative_fold_index_is_refused(self) -> None:
+        with pytest.raises(DataError, match=r"outside \[0, 2\)"):
+            Folds(np.array([0, -1, 1]), 2)
+
+    def test_an_empty_fold_is_refused(self) -> None:
+        # Fold 1 holds nothing, so it can produce no out-of-fold predictions and the
+        # rows it was supposed to cover would silently never be predicted.
+        with pytest.raises(DataError, match=r"fold\(s\) \[1\] hold no rows"):
+            Folds(np.array([0, 0, 2, 2]), 3)
+
+    def test_an_empty_assignment_is_refused(self) -> None:
+        with pytest.raises(DataError, match="nothing to cross-fit"):
+            Folds(np.array([], dtype=np.int64), 2)
+
+    def test_the_degenerate_single_partition_is_still_allowed(self) -> None:
+        # Folds.single is the cross_fit=False path: one fold, empty training set, by
+        # design. The checks must not refuse a supported estimator.
+        folds = Folds.single(20)
+        assert folds.is_single
+        check_integrity(folds, cluster=np.repeat(np.arange(4), 5))
+
+    def test_a_cluster_spread_over_two_folds_is_refused(self) -> None:
+        # Hand-built rather than produced by make_folds, because make_folds cannot
+        # build this -- which is the point: the check exists for the Folds that
+        # make_folds never saw, rehydrated from disk or assembled by a caller.
+        cluster = np.repeat(np.arange(4), 5)
+        assignment = np.repeat(np.arange(4), 5)
+        assignment[0] = 3  # cluster 0 now straddles folds 3 and 0
+        with pytest.raises(DataError, match="cluster code 0, spread over 2 folds"):
+            check_integrity(Folds(assignment, 4), cluster=cluster)
+
+    def test_an_unclustered_split_passes_trivially(self) -> None:
+        check_integrity(make_folds(100, 5, random_state=0), cluster=None)
+
+    def test_a_mismatched_cluster_length_is_refused(self) -> None:
+        with pytest.raises(DataError, match="but the fold assignment has"):
+            check_integrity(make_folds(100, 5, random_state=0), cluster=np.arange(50))
+
+    def test_every_split_make_folds_builds_passes_its_own_check(self) -> None:
+        cluster = np.repeat(np.arange(40), 5)
+        rng = np.random.default_rng(0)
+        stratify = rng.binomial(1, 0.3, 200).astype(float)
+        for kwargs in (
+            {},
+            {"stratify": stratify},
+            {"cluster": cluster},
+            {"stratify": stratify, "cluster": cluster},
+        ):
+            folds = make_folds(200, 5, random_state=0, **kwargs)
+            check_integrity(folds, cluster=kwargs.get("cluster"))
+
+    def test_the_pre_1_6_grouped_fallback_still_keeps_clusters_intact(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pin the path taken on scikit-learn before ``GroupKFold`` gained ``shuffle``.
+
+        ``pyproject.toml`` declares ``scikit-learn>=1.3``, so this fallback is supported
+        rather than vestigial -- and on a modern install it is never reached, which is
+        exactly why it needs forcing. What it gives up is shuffling strength; what it
+        must not give up is cluster integrity.
+        """
+        import sklearn.model_selection
+
+        from cleverly.learners import crossfit
+
+        real = sklearn.model_selection.GroupKFold
+
+        class NoShuffle(real):  # type: ignore[misc, valid-type]
+            def __init__(self, n_splits: int = 5, **kwargs: object) -> None:
+                if "shuffle" in kwargs:
+                    raise TypeError("__init__() got an unexpected keyword 'shuffle'")
+                super().__init__(n_splits=n_splits)
+
+        monkeypatch.setattr(crossfit, "GroupKFold", NoShuffle)
+        cluster = np.repeat(np.arange(40), 5)
+        folds = make_folds(200, 5, cluster=cluster, random_state=0)
+        # The post-condition inside make_folds already ran; assert it directly too, so
+        # this test fails on the claim rather than on an exception from elsewhere.
+        check_integrity(folds, cluster=cluster)
+        for train, test in folds:
+            assert set(cluster[train]).isdisjoint(set(cluster[test]))
+
+
+class TestRefusedSchemes:
+    """Four schemes, four different reasons -- which is why they are named separately."""
+
+    def test_blocked_temporal_names_the_missing_ordering(self) -> None:
+        with pytest.raises(NotImplementedError, match="no node carries a time index"):
+            refuse_scheme("blocked")
+
+    def test_rolling_origin_names_the_storage_contract_not_the_time_index(self) -> None:
+        # The distinction that matters: a rolling origin would still be refused after a
+        # time index arrived, because one out-of-fold prediction per row is what
+        # NuisanceEstimates is built on.
+        with pytest.raises(NotImplementedError, match="different storage contract"):
+            refuse_scheme("rolling_origin")
+
+    def test_repeated_names_the_plumbing_rather_than_the_derivation(self) -> None:
+        with pytest.raises(NotImplementedError, match="aggregation is not the obstacle"):
+            refuse_scheme("repeated")
+
+    def test_splitting_a_cluster_to_buy_more_folds_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="reduce n_folds, not to unfuse them"):
+            refuse_scheme("row_within_cluster")
+
+    def test_an_unknown_scheme_says_so(self) -> None:
+        with pytest.raises(ValueError, match="unknown cross-fitting scheme"):
+            refuse_scheme("nonsense")
+
+
+class TestCrossFitPlan:
+    """The policy a fit declared, as distinct from the split it realised."""
+
+    def test_a_plan_is_only_numbers_and_so_compares_by_value(self) -> None:
+        assert CrossFitPlan(n_folds=5) == CrossFitPlan(n_folds=5)
+        assert CrossFitPlan(n_folds=5) != CrossFitPlan(n_folds=10)
+
+    def test_one_fold_means_no_cross_fitting(self) -> None:
+        assert not CrossFitPlan(n_folds=1).cross_fit
+        assert CrossFitPlan(n_folds=2).cross_fit
+
+    def test_describe_names_what_was_declared(self) -> None:
+        plan = CrossFitPlan(n_folds=5, scheme="grouped", stratify_by=("A",))
+        assert plan.describe() == "declared: 5-fold grouped stratified on A"
+        assert "no cross-fitting" in CrossFitPlan(n_folds=1).describe()
 
 
 class TestScreening:
