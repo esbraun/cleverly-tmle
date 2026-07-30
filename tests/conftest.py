@@ -111,6 +111,70 @@ class OracleMissingness(BaseEstimator):
         return np.column_stack([1.0 - p, p])
 
 
+class OracleIntermediate(BaseEstimator):
+    """An intermediate model returning the true ``P(Z = 1 | A, W)``.
+
+    Fitted on :meth:`~cleverly.data.causal_data.CausalData.treatment_design` -- ``[A, W]``
+    -- and predicted at both arms, so it follows :class:`OracleMissingness`'s convention of
+    reading the arm out of the first column rather than :class:`OracleTreatment`'s.
+    """
+
+    def __init__(self, dgp: Any) -> None:
+        self.dgp = dgp
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleIntermediate:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, X: Any) -> Any:
+        design = np.asarray(X, dtype=float)
+        a, w = design[:, 0], design[:, 1:]
+        one = np.asarray(self.dgp.intermediate_mean(w, 1.0), dtype=float)
+        zero = np.asarray(self.dgp.intermediate_mean(w, 0.0), dtype=float)
+        p = np.clip(np.where(a == 1.0, one, zero), 1e-9, 1.0 - 1e-9)
+        return np.column_stack([1.0 - p, p])
+
+
+class OracleDirectOutcome(BaseEstimator):
+    """An outcome model returning the true ``E[Y | A, Z, W]`` for a direct-effect fit.
+
+    A controlled-direct-effect fit trains the outcome model on ``[A, W, Z]`` and predicts
+    it at ``[a, W, z]`` for a *fixed* level ``z``, so the design carries the intermediate
+    in its last column -- which is why :class:`OracleOutcome`, which reads everything after
+    the arm as covariates, cannot be reused here.  Reading ``z`` per row rather than from a
+    stored level is deliberate: the same object serves the observed design and both
+    counterfactual ones.
+
+    Only valid for a binary outcome, for the reason :class:`OracleOutcome` gives.
+    """
+
+    def __init__(self, dgp: Any) -> None:
+        self.dgp = dgp
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleDirectOutcome:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def _mean(self, X: Any) -> Any:
+        design = np.asarray(X, dtype=float)
+        a, w, z = design[:, 0], design[:, 1:-1], design[:, -1]
+        values = np.empty(design.shape[0], dtype=float)
+        for arm in (0.0, 1.0):
+            for level in (0.0, 1.0):
+                rows = (a == arm) & (z == level)
+                if not rows.any():
+                    continue
+                values[rows] = np.asarray(self.dgp.outcome_mean(w[rows], arm, level), dtype=float)
+        return np.clip(values, 1e-9, 1.0 - 1e-9)
+
+    def predict_proba(self, X: Any) -> Any:
+        p = self._mean(X)
+        return np.column_stack([1.0 - p, p])
+
+    def predict(self, X: Any) -> Any:
+        return self._mean(X)
+
+
 def aipw_ate(
     y: Any,
     a: Any,

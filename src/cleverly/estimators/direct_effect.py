@@ -241,25 +241,40 @@ machinery entirely.
 State of the evidence
 ---------------------
 
-The derivation above is an argument, not a machine-checked fact, and the distinction is
-load-bearing in a library that elsewhere refuses to make it.  The average treatment effect
-and its missing-outcome variant each have an exact proof in the suite: a finite-support law
-a sample realises exactly (``tests/discrete_law.py``, ``tests/discrete_law_mar.py``), a
-complex-step Gateaux derivative compared against the reported influence curve at machine
-precision (``tests/unit/test_influence_gateaux.py``, ``...gateaux_mar.py``), and the
-product form of :math:`R_2` checked against its closed form (``tests/unit/test_remainder.py``,
-``...remainder_mar.py``).
+The derivation above is an argument, and an argument is not a machine-checked fact.  The
+distinction is load-bearing in a library that elsewhere refuses to make it, so this path
+now carries the same class of proof the average treatment effect and its missing-outcome
+variant do: a finite-support law a sample realises exactly (``tests/discrete_law_cde.py``,
+support :math:`(w, a, z, k)`), a complex-step Gateaux derivative of the identification
+formula compared against the reported influence curve at ``1e-12``
+(``tests/unit/test_influence_gateaux_cde.py``), and the product form of :math:`R_2` checked
+against its closed form (``tests/unit/test_remainder_cde.py``).  All seven estimands are
+covered at both levels of :math:`Z`.
 
-**The controlled-direct-effect path has no such proof.**  Its verification is a
-Monte-Carlo consistency check at a tolerance of 0.05 over eight replications
-(``tests/e2e/test_missing_and_cde.py``) plus, per level, a coverage study that has to be
-run deliberately (:class:`~cleverly.validation.simulation.CoverageStudy`, which now accepts
-``intermediate_value=``).  Neither would distinguish the influence function above from a
-subtly wrong one: as :mod:`cleverly.validation.score` notes, a wrong clever covariate used
-*consistently* solves its own score equation to machine precision.  Constructing the
-discrete-law counterpart -- support :math:`(w, a, z, \Delta y)`, the same complex-step
-derivative, and negative controls against the total effect and against a
-:math:`Z`-stratified functional -- is the outstanding item for this path.
+Three things about that law are worth knowing, because they are what give the proof its
+teeth rather than merely its form.  It keeps the :math:`\Delta` dimension, so the
+three-way product :math:`g\,q_z\,\pi` is distinguishable from a two-way one.  Its
+controlled direct effect **changes sign** between the levels, so confusing them does not
+perturb the answer but inverts it.  And its negative controls are the mistakes this
+parameter actually invites: omitting the :math:`q_z` factor (which silently estimates a
+total effect), using the other level's density (the polarity slip this package shipped
+once already, in three diagnostics), substituting the marginal :math:`P(Z = z)` for the
+conditional :math:`q_z(a, W)`, and averaging the plug-in over the :math:`Z = z` stratum
+instead of over everybody.  Each is shown to move the answer by more than ``1e-2``, four
+orders of magnitude past the window the real assertions use -- which matters because, as
+:mod:`cleverly.validation.score` notes, a wrong clever covariate used *consistently* solves
+its own score equation to machine precision and passes ``score_check()``.
+
+What the proof does not cover is the data structure itself.  It certifies that the
+estimator computes the efficient influence function of :math:`\Psi_{a,z}` under the
+factorisation assumed above; it says nothing about whether that factorisation describes
+your study.  Assumption 3, and the absence of an intermediate confounder :math:`L`, remain
+substantive claims about the world that no test can check.  See the scope section.
+
+The Monte-Carlo evidence remains as a second, independent line: a consistency check in
+``tests/e2e/test_missing_and_cde.py`` and, per level, a coverage study
+(:class:`~cleverly.validation.simulation.CoverageStudy`, which accepts
+``intermediate_value=``).
 """
 
 from __future__ import annotations
