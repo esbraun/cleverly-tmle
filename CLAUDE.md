@@ -59,6 +59,7 @@ where the claim genuinely requires it:
 | `src/cleverly/data` | `CausalData` container and input validation |
 | `src/cleverly/learners` | cross-fitting, screening, `SuperLearner`, thread limits |
 | `src/cleverly/interventions` | regimes: static arms, dynamic rules, stochastic assignments; shifts of a continuous dose |
+| `src/cleverly/msm.py` | the working model a fit projects the counterfactual means onto |
 | `src/cleverly/fluctuation` | clever covariates and the targeting step |
 | `src/cleverly/estimators` | nuisance orchestration, `TMLE`, result objects |
 | `src/cleverly/inference` | influence curves, clustering, bootstrap, simultaneous bands |
