@@ -485,6 +485,49 @@ res.cv_targeting.summary()  # both reports side by side, per-fold psi and epsilo
 res.cv_targeting.variance["ate"]
 ```
 
+Which of the three ran is not left to be reconstructed from the settings —
+`res.config.estimator_name` says it in words, and `res.summary()` prints it.
+
+#### What the folds guarantee
+
+Two things a cross-fitted estimate assumes, and neither is left to trust. A fold index
+outside the declared range, or a fold holding no rows at all, is refused by `Folds` when it
+is built. A cluster with rows in more than one fold is refused by a post-condition that
+`make_folds` runs on the way out, so it covers every split in the library — the outer folds,
+Super Learner's inner folds, C-TMLE's selection folds — without any of them knowing about
+it. A third prohibition needs no check: "every row is held out exactly once" has no
+counterexample, because a split is one fold index per row and two-fold membership has no
+representation.
+
+The fold *policy* is recorded too, and separately from the split it produced:
+
+```python
+res.config.crossfit          # CrossFitPlan(n_folds=10, learner_folds=5, scheme=...)
+res.config.crossfit.n_folds  # 10 -- what was asked for
+res.config.n_folds           # 3  -- what ran, after the cluster count capped it
+```
+
+The two agree in the ordinary case. They come apart whenever `resolve_n_folds` capped the
+count at the rarest stratum or `make_folds` capped it at the cluster count, and the warning
+that said so is emitted at fit time and gone by the time anyone reads the result — so
+`summary()` adds a line, and only then.
+
+With a rare outcome, balancing the arms is not enough: eight events across ten
+arm-stratified folds leaves at least one with none, and an outcome regression fitted there
+is degenerate.
+
+```python
+TMLE(n_folds=10, stratify_folds="treatment+outcome")  # caps at the rarest cell, not arm
+```
+
+An unobserved outcome is its own stratum rather than being pooled with `Y = 0`, since a
+fold with no *observed* outcomes in an arm cannot fit the regression either. The cost is
+worth stating: this makes the fold assignment a function of the outcome, and the
+cross-fitting argument conditions on the split. That is a statement about which splits are
+conditioned on rather than a bias — and what it is weighed against is a fold that cannot fit
+the regression at all. Binary outcomes only; a continuous outcome and a continuous dose are
+both refused by name.
+
 Fold-specific targeting is only the first of canonical CV-TMLE's three parts; the others
 are fold-wise evaluation of the parameter and the cross-validated variance. By default
 this estimator does neither — the fold-targeted predictions are stitched together and the
@@ -696,7 +739,7 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | Marginal structural model | `msm=` declares a working model `m(a, V; beta)` for `E[Y(a) \| V]` and makes the fit's parameters its coefficients, reported as `msm[a:W1]` under the term names you gave. `beta` is a **projection** under a known weight `h(a, V)`, not the truth of an assumed regression, so the estimand and its interval are well defined whether or not the model is correct (Neugebauer & van der Laan 2007). The clever covariate is `h(a,V) phi(a,V) / g(a \| W)`, one column per term, and the projection is solved by weighted least squares against the *targeted* `Qbar` — which zeroes the second half of the influence curve by construction, so no outer iteration is needed. A saturated working model reproduces the per-arm report exactly. What is refused rather than approximated: a non-identity link (its `dm/dbeta` depends on `beta`) and weights derived from the estimated mechanism (they would make `h` a functional of `P`) |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
-| Cross-fitting | out-of-fold nuisance fits; stratified and cluster-respecting folds. Stratification handles a multi-valued treatment natively |
+| Cross-fitting | out-of-fold nuisance fits; V-fold, stratified, grouped and cluster-level splits, with stratification handling a multi-valued treatment natively and `stratify_folds="treatment+outcome"` crossing the outcome in when events are rare enough that an arm-balanced fold can still contain none. The prohibitions are **checked, not assumed**: a fold index outside the declared range and an empty fold are refused by `Folds` itself, and a cluster with rows in more than one fold by a post-condition on every split the library builds — outer, Super Learner's inner, C-TMLE's selection. Every result carries the `CrossFitPlan` it *declared* beside the fold count it *ran*, which come apart whenever a cap fired. The inner CV that scores Super Learner candidates is nested inside one outer training fold and gets the same cluster codes. What is refused rather than approximated: blocked-temporal splits (no node carries a time index), rolling-origin splits (their nested training sets cannot give every row the one out-of-fold prediction the storage contract rests on — a different contract, not a different splitter), repeated cross-fitting (the aggregation is derived; the single `NuisanceEstimates` that `retarget` depends on is not), and splitting a cluster across folds to buy more of them |
 | CV-TMLE | `targeting_scheme="fold"` — an `epsilon` per validation fold, plus per-fold diagnostics; `cv_evaluation=True` adds fold-wise evaluation and the cross-validated variance for the canonical construction |
 | C-TMLE | `CTMLE` — greedy, scalable-ordered and discrete collaborative selection of the covariates entering `g` |
 | Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
@@ -877,6 +920,12 @@ infrastructure; the following variants plug into them:
 - survival TMLE (`survtmle`) and competing risks
 - incremental propensity-score interventions, whose `g*` depends on the estimated
   mechanism and so needs a further influence-function term (Kennedy 2019)
+- repeated cross-fitting, to average away the fold draw. The aggregation is not the
+  obstacle — every row is out of fold in every repeat, so `mean_r psi_r` has influence curve
+  `mean_r IC_r` and stays coherent for the variance, the delta method and the bands. What is
+  missing is that `R` repeats mean `R` sets of nuisance fits, and `TMLEResult.nuisance` is
+  one `NuisanceEstimates` that `retarget`, and so every sensitivity analysis, takes as a
+  single object
 - doubly-robust TMLE with nonparametric inference (`drtmle`)
 
 ### On native acceleration
