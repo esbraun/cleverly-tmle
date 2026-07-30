@@ -33,7 +33,6 @@ from cleverly.inference import (
     bootstrap_indices,
     cluster_members,
     cluster_sums,
-    counterfactual_means,
     delta_method,
     influence_covariance,
     influence_variance,
@@ -48,6 +47,7 @@ from cleverly.inference import (
 )
 from cleverly.inference.multiplier import _multipliers
 from cleverly.utils.bounds import OutcomeScaler, expit
+from tests.conftest import binary_means
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ class TestInfluenceCurveIsTheGateauxDerivative:
         group = "mean" if estimand in ("ate", "ey1", "ey0") else "att"
         targeted, submodel = _targeted(setting, weights, group)
         if group == "mean":
-            psi_one, _, psi_zero, _ = counterfactual_means(
+            psi_one, _, psi_zero, _ = binary_means(
                 setting["y"], targeted, submodel, weights
             )
             if estimand == "ey1":
@@ -145,7 +145,7 @@ class TestInfluenceCurveIsTheGateauxDerivative:
         group = "mean" if estimand in ("ate", "ey1", "ey0") else "att"
         targeted, submodel = _targeted(setting, weights, group)
         if group == "mean":
-            _, ic_one, _, ic_zero = counterfactual_means(setting["y"], targeted, submodel, weights)
+            _, ic_one, _, ic_zero = binary_means(setting["y"], targeted, submodel, weights)
             if estimand == "ey1":
                 return ic_one
             if estimand == "ey0":
@@ -182,7 +182,7 @@ class TestInfluenceCurveIsTheGateauxDerivative:
         n = int(binary_setting["n"])
         weights = np.ones(n)
         targeted, submodel = _targeted(binary_setting, weights)
-        psi_one, ic_one, psi_zero, ic_zero = counterfactual_means(
+        psi_one, ic_one, psi_zero, ic_zero = binary_means(
             binary_setting["y"], targeted, submodel, weights
         )
 
@@ -249,7 +249,7 @@ class TestEstimandRelationships:
         n = int(binary_setting["n"])
         weights = np.ones(n)
         targeted, submodel = _targeted(binary_setting, weights)
-        psi_one, ic_one, psi_zero, ic_zero = counterfactual_means(
+        psi_one, ic_one, psi_zero, ic_zero = binary_means(
             binary_setting["y"], targeted, submodel, weights
         )
         ate = make_estimate("ate", psi_one - psi_zero, ic_one - ic_zero, n=n)
@@ -265,7 +265,7 @@ class TestEstimandRelationships:
         weights = np.ones(n)
         targeted, submodel = _targeted(binary_setting, weights, "att")
         with pytest.raises(ValueError, match="expected the 'mean' submodel"):
-            counterfactual_means(binary_setting["y"], targeted, submodel, weights)
+            binary_means(binary_setting["y"], targeted, submodel, weights)
 
     def test_att_rejects_the_wrong_submodel(self, binary_setting: dict[str, np.ndarray]) -> None:
         n = int(binary_setting["n"])

@@ -509,7 +509,7 @@ class CTMLE(TMLE):
                 "selection would have to choose a model for each arm and score them jointly, "
                 "which is a different algorithm rather than a wider loop. Use a plain TMLE."
             )
-        estimands = resolve_estimands(self.estimands, data.family)
+        estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         conditional = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if conditional:
             raise ValueError(
@@ -701,21 +701,30 @@ class _Selector:
 
     def influence(self, targeted: InitialFit, submodel: Submodel, rows: IntArray) -> FloatArray:
         """The target estimand's efficient influence curve, on the scaled outcome."""
-        psi_one, ic_one, psi_zero, ic_zero = counterfactual_means(
+        # Two arms throughout -- CTMLE._check_estimands has refused anything else.
+        means = counterfactual_means(
             self.scaled[rows],
             _restrict_fit(targeted, rows),
             restrict(submodel, rows),
             self.data.weights[rows],
             self.data.observed[rows],
         )
+        one, zero = means[1.0], means[0.0]
         estimand = self.est.ctmle_estimand
         if estimand == "ate":
-            return np.asarray(ic_one - ic_zero, dtype=float)
+            return np.asarray(one.influence_curve - zero.influence_curve, dtype=float)
         if estimand == "ey1":
-            return np.asarray(ic_one, dtype=float)
+            return np.asarray(one.influence_curve, dtype=float)
         if estimand == "ey0":
-            return np.asarray(ic_zero, dtype=float)
-        ratios = ratio_estimates(psi_one, ic_one, psi_zero, ic_zero, n=rows.size, which=(estimand,))
+            return np.asarray(zero.influence_curve, dtype=float)
+        ratios = ratio_estimates(
+            one.psi,
+            one.influence_curve,
+            zero.psi,
+            zero.influence_curve,
+            n=rows.size,
+            which=(estimand,),
+        )
         return ratios[estimand].influence_curve
 
     def score(self, candidate: _Candidate, rows: IntArray) -> float:

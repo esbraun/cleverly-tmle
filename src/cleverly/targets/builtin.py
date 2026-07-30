@@ -14,7 +14,7 @@ import numpy as np
 
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import ParameterEstimate, atc_estimate, att_estimate
-from .base import Identification, Target, TargetContext
+from .base import Identification, Target, TargetContext, parameter_name
 
 __all__ = ["BUILTIN_TARGETS"]
 
@@ -54,45 +54,98 @@ _CONDITIONAL_ID = Identification(
 )
 
 
-def _ey1(ctx: TargetContext) -> ParameterEstimate:
-    psi_one, ic_one, _, _ = ctx.means
-    return ctx.finish("ey1", psi_one, ic_one, "level")
+def _ey(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y(a)]`` for every arm, always named with its label.
+
+    The arm-general counterpart of ``ey1`` / ``ey0``, which name the two arms of a binary
+    fit and cannot name a third.  Deliberately *not* collapsed to a bare stem on two
+    arms: the names have to stay distinct from each other, and ``ey1`` / ``ey0`` are what
+    a two-armed report uses anyway.
+    """
+    return [
+        ctx.finish(
+            parameter_name("ey", arm=ctx.label(arm)), mean.psi, mean.influence_curve, "level"
+        )
+        for arm, mean in sorted(ctx.means.items())
+    ]
 
 
-def _ey0(ctx: TargetContext) -> ParameterEstimate:
-    _, _, psi_zero, ic_zero = ctx.means
-    return ctx.finish("ey0", psi_zero, ic_zero, "level")
+def _ey1(ctx: TargetContext) -> list[ParameterEstimate]:
+    mean = ctx.means[1.0]
+    return [ctx.finish("ey1", mean.psi, mean.influence_curve, "level")]
 
 
-def _ate(ctx: TargetContext) -> ParameterEstimate:
-    psi_one, ic_one, psi_zero, ic_zero = ctx.means
-    return ctx.finish("ate", psi_one - psi_zero, ic_one - ic_zero, "difference")
+def _ey0(ctx: TargetContext) -> list[ParameterEstimate]:
+    mean = ctx.means[0.0]
+    return [ctx.finish("ey0", mean.psi, mean.influence_curve, "level")]
 
 
-def _rr(ctx: TargetContext) -> ParameterEstimate:
-    psi_one, ic_one, psi_zero, ic_zero = ctx.means
-    log_psi, ic = log_ratio_influence(psi_one, ic_one, psi_zero, ic_zero)
-    return ctx.finish("rr", float(np.exp(log_psi)), ic, "ratio", log_psi=log_psi)
+def _ate(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y(a)] - E[Y(ref)]``, once per non-reference arm."""
+    reference = ctx.means[ctx.reference]
+    return [
+        ctx.finish(
+            ctx.name_for("ate", arm, versus=ctx.reference),
+            ctx.means[arm].psi - reference.psi,
+            ctx.means[arm].influence_curve - reference.influence_curve,
+            "difference",
+        )
+        for arm in ctx.contrast_arms
+    ]
 
 
-def _or(ctx: TargetContext) -> ParameterEstimate:
-    psi_one, ic_one, psi_zero, ic_zero = ctx.means
-    log_psi, ic = log_odds_ratio_influence(psi_one, ic_one, psi_zero, ic_zero)
-    return ctx.finish("or", float(np.exp(log_psi)), ic, "ratio", log_psi=log_psi)
+def _rr(ctx: TargetContext) -> list[ParameterEstimate]:
+    reference = ctx.means[ctx.reference]
+    out: list[ParameterEstimate] = []
+    for arm in ctx.contrast_arms:
+        mean = ctx.means[arm]
+        log_psi, ic = log_ratio_influence(
+            mean.psi, mean.influence_curve, reference.psi, reference.influence_curve
+        )
+        out.append(
+            ctx.finish(
+                ctx.name_for("rr", arm, versus=ctx.reference),
+                float(np.exp(log_psi)),
+                ic,
+                "ratio",
+                log_psi=log_psi,
+            )
+        )
+    return out
 
 
-def _att(ctx: TargetContext) -> ParameterEstimate:
+def _or(ctx: TargetContext) -> list[ParameterEstimate]:
+    reference = ctx.means[ctx.reference]
+    out: list[ParameterEstimate] = []
+    for arm in ctx.contrast_arms:
+        mean = ctx.means[arm]
+        log_psi, ic = log_odds_ratio_influence(
+            mean.psi, mean.influence_curve, reference.psi, reference.influence_curve
+        )
+        out.append(
+            ctx.finish(
+                ctx.name_for("or", arm, versus=ctx.reference),
+                float(np.exp(log_psi)),
+                ic,
+                "ratio",
+                log_psi=log_psi,
+            )
+        )
+    return out
+
+
+def _att(ctx: TargetContext) -> list[ParameterEstimate]:
     psi, ic = att_estimate(
         ctx.scaled, ctx.targeted, ctx.submodel, ctx.treatment, ctx.weights, ctx.observed
     )
-    return ctx.finish("att", psi, ic, "difference")
+    return [ctx.finish("att", psi, ic, "difference")]
 
 
-def _atc(ctx: TargetContext) -> ParameterEstimate:
+def _atc(ctx: TargetContext) -> list[ParameterEstimate]:
     psi, ic = atc_estimate(
         ctx.scaled, ctx.targeted, ctx.submodel, ctx.treatment, ctx.weights, ctx.observed
     )
-    return ctx.finish("atc", psi, ic, "difference")
+    return [ctx.finish("atc", psi, ic, "difference")]
 
 
 #: In report order.
@@ -112,6 +165,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         scale="difference",
         build=_att,
         identification=_CONDITIONAL_ID,
+        requires_binary_treatment=True,
         in_default_set=True,
         undefined_when="the sample contains no treated units",
         description="average treatment effect on the treated, E[Y^1 - Y^0 | A = 1]",
@@ -122,9 +176,20 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         scale="difference",
         build=_atc,
         identification=_CONDITIONAL_ID,
+        requires_binary_treatment=True,
         in_default_set=True,
         undefined_when="the sample contains no untreated units",
         description="average treatment effect on the controls, E[Y^1 - Y^0 | A = 0]",
+    ),
+    Target(
+        name="ey",
+        group="mean",
+        scale="level",
+        build=_ey,
+        identification=_MEAN_ID,
+        in_default_set=True,
+        default_arms="multi",
+        description="counterfactual mean under each arm, E[Y^a]",
     ),
     Target(
         name="ey1",
@@ -132,6 +197,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         scale="level",
         build=_ey1,
         identification=_MEAN_ID,
+        requires_binary_treatment=True,
         in_default_set=True,
         description="counterfactual mean under treatment, E[Y^1]",
     ),
@@ -141,6 +207,7 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         scale="level",
         build=_ey0,
         identification=_MEAN_ID,
+        requires_binary_treatment=True,
         in_default_set=True,
         description="counterfactual mean under control, E[Y^0]",
     ),

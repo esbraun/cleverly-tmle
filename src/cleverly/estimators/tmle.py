@@ -89,7 +89,12 @@ from .._typing import (
     TargetingScheme,
 )
 from ..data.causal_data import CausalData
-from ..exceptions import ConvergenceWarning, PositivityWarning, WeightingWarning
+from ..exceptions import (
+    ConvergenceWarning,
+    DataError,
+    PositivityWarning,
+    WeightingWarning,
+)
 from ..fluctuation._score import relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
     Fluctuation,
@@ -108,7 +113,7 @@ from ..learners._fitting import Task
 from ..learners.crossfit import Folds, make_folds
 from ..learners.super_learner import resolve_learner
 from ..provenance import record as provenance_record
-from ..targets import TargetContext, groups_for, targets_for
+from ..targets import TargetContext, groups_for, parameter_stem, targets_for
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.frames import is_dataframe
 from ._nuisance import NuisanceEstimates, fit_nuisances
@@ -315,6 +320,7 @@ class TMLE:
         screen_threshold: float = 0.1,
         min_retain: int | None = None,
         estimands: Sequence[Estimand] | str | None = None,
+        reference: Any = None,
         alpha_sig: float = 0.05,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
@@ -350,6 +356,7 @@ class TMLE:
         self.screen_threshold = screen_threshold
         self.min_retain = min_retain
         self.estimands = estimands
+        self.reference = reference
         self.alpha_sig = alpha_sig
         self.n_bootstrap = n_bootstrap
         self.bootstrap_resampling = bootstrap_resampling
@@ -578,7 +585,7 @@ class TMLE:
         ``shared`` supplies nuisance fits already computed for every level of the
         intermediate; only the targeting step then runs per level.
         """
-        estimands = resolve_estimands(self.estimands, data.family)
+        estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         if shared is not None:
             scaler, folds, pooled = shared
             config = self._config(data, estimands, scaler, folds)
@@ -649,6 +656,28 @@ class TMLE:
             return OutcomeScaler.identity()
         observed = data.outcome[data.observed]
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
+
+    def _reference_arm(self, data: CausalData) -> float:
+        """The arm code every contrast is taken against.
+
+        ``reference=None`` uses the lowest arm, which for a binary treatment is the
+        control and so leaves ``ate`` meaning exactly what it always did.  Otherwise the
+        value is matched against the treatment's *own* levels -- pass ``"low"``, not
+        ``1.0`` -- because the codes are an encoding detail and the labels are what the
+        caller wrote down.  Levels sort in their natural order, which for strings is
+        alphabetical, so the default reference on ``{"high", "low", "medium"}`` is
+        ``"high"``; this argument is how to say otherwise.
+        """
+        if self.reference is None:
+            return data.arm_codes[0]
+        labels = list(data.treatment_levels)
+        for code, label in zip(data.arm_codes, labels, strict=True):
+            if label == self.reference or code == self.reference:
+                return code
+        raise DataError(
+            f"reference={self.reference!r} is not a level of {data.treatment_name}; its "
+            f"levels are {labels}"
+        )
 
     def _folds(self, data: CausalData) -> Folds:
         if not self.cross_fit:
@@ -783,6 +812,7 @@ class TMLE:
             alpha_sig=self.alpha_sig,
             random_state=self.random_state,
             n_bootstrap=self.n_bootstrap,
+            reference_arm=self._reference_arm(data),
         )
 
     def _warn_on_estimated_weights(self, data: CausalData) -> None:
@@ -927,6 +957,7 @@ class TMLE:
         """
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig
+        reference = self._reference_arm(data)
         mean_bounds = g_bounds or resolve_g_bounds(
             self.g_bounds, self._bounds_n(data), for_att=False
         )
@@ -951,7 +982,7 @@ class TMLE:
             fluctuations[group] = fluctuation
 
             pooled = self._estimates_for(
-                data, nuisance, group, submodel, fluctuation, requested, level
+                data, nuisance, group, submodel, fluctuation, requested, level, reference
             )
             pooled_report.update(pooled)
             if not fluctuation.folds:
@@ -962,9 +993,13 @@ class TMLE:
             fold_epsilon[group] = tuple(
                 tuple(record.epsilon.tolist()) for record in fluctuation.folds
             )
+            # The *targets* to rebuild per fold, not the parameter names the pooled fit
+            # produced: a target reports one parameter per arm, and `targets_for` selects
+            # by target name. A target that a fold cannot evaluate is dropped there by
+            # `drop_undefined`, which is what `_average_over_folds` then reconciles.
             per_fold = [
                 self._fold_estimates(
-                    data, nuisance, group, submodel, fluctuation, tuple(pooled), level, index
+                    data, nuisance, group, submodel, fluctuation, requested, level, index
                 )
                 for index in indices
             ]
@@ -980,7 +1015,7 @@ class TMLE:
             )
             estimates.update(canonical if self.cv_evaluation else pooled)
 
-        ordered = {name: estimates[name] for name in requested if name in estimates}
+        ordered = _in_report_order(estimates, requested)
         detail = (
             CVTargeting(
                 n_folds=len(indices),
@@ -988,10 +1023,8 @@ class TMLE:
                 variance={name: value.variance for name, value in canonical_report.items()},
                 fold_estimates=fold_estimates,
                 fold_epsilon=fold_epsilon,
-                pooled={name: pooled_report[name] for name in requested if name in pooled_report},
-                canonical={
-                    name: canonical_report[name] for name in requested if name in canonical_report
-                },
+                pooled=_in_report_order(pooled_report, requested),
+                canonical=_in_report_order(canonical_report, requested),
             )
             if indices
             else None
@@ -1030,6 +1063,7 @@ class TMLE:
             fluctuation,
             supported,
             alpha_sig,
+            self._reference_arm(data),
             index=index,
             drop_undefined=True,
         )
@@ -1239,6 +1273,7 @@ class TMLE:
         fluctuation: Fluctuation,
         requested: Sequence[str],
         alpha_sig: float,
+        reference: float,
         index: IntArray | None = None,
         drop_undefined: bool = False,
     ) -> dict[str, ParameterEstimate]:
@@ -1278,14 +1313,21 @@ class TMLE:
             n=n,
             cluster=cluster,
             alpha_sig=alpha_sig,
+            arms=data.arm_codes,
+            arm_labels={arm: data.arm_label(arm) for arm in data.arm_codes},
+            reference=reference,
         )
-        # One context per fluctuation, shared by every target in the group: the five
+        # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted
         # distribution, and `context.means` computes the counterfactual means once.
         out: dict[str, ParameterEstimate] = {}
         for target in targets_for(group, requested):
             try:
-                out[target.name] = target.build(context)
+                # One target is one functional, not one number: with K arms `ey` is a mean
+                # per arm and `ate` a contrast per non-reference arm, and each comes back
+                # under its own name.
+                for estimate in target.build(context):
+                    out[estimate.name] = estimate
             except ValueError:
                 # A target that declares `undefined_when` may legitimately fail on a
                 # subsample; anything else failing is a bug and must not be swallowed.
@@ -1303,7 +1345,7 @@ class TMLE:
         replicate -- otherwise the bootstrap would understate the variability the
         selection itself contributes.
         """
-        estimands = resolve_estimands(self.estimands, data.family)
+        estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         scaler = self._scaler(data)
         folds = self._folds(data)
         config = self._config(data, estimands, scaler, folds)
@@ -1320,6 +1362,30 @@ class TMLE:
 def _slice_fit(fit: InitialFit, index: IntArray) -> InitialFit:
     """The targeted (or initial) predictions for one subset of rows."""
     return fit.map_arms(lambda values: values[index])
+
+
+def _in_report_order(
+    estimates: Mapping[str, ParameterEstimate], requested: Sequence[str]
+) -> dict[str, ParameterEstimate]:
+    """Order reported parameters by the *target* that produced them.
+
+    ``requested`` holds target names in registry order; ``estimates`` is keyed by
+    parameter name, which is the target's name for a two-armed fit and
+    ``"ate[medium vs low]"`` for a wider one.  Grouping by
+    :func:`~cleverly.targets.parameter_stem` restores the registry's report order across
+    groups -- the targeting steps run group by group, so the raw insertion order
+    interleaves as ``ate, ey1, ey0, att, atc`` rather than the registry's
+    ``ate, att, atc, ey1, ey0``.
+
+    Within one target the parameters keep the order it emitted them in, which is arm
+    order.
+    """
+    order = {name: position for position, name in enumerate(requested)}
+    fallback = len(order)
+    return {
+        name: estimates[name]
+        for name in sorted(estimates, key=lambda n: order.get(parameter_stem(n), fallback))
+    }
 
 
 def _average_over_folds(

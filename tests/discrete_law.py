@@ -108,9 +108,9 @@ def functional(probs: Any, estimand: str) -> Any:
     psi_one = (p_w * q[:, 1]).sum()
     psi_zero = (p_w * q[:, 0]).sum()
 
-    if estimand == "ey1":
+    if estimand in ("ey1", "ey[1]"):
         return psi_one
-    if estimand == "ey0":
+    if estimand in ("ey0", "ey[0]"):
         return psi_zero
     if estimand == "ate":
         return psi_one - psi_zero
@@ -125,9 +125,38 @@ def functional(probs: Any, estimand: str) -> Any:
     raise ValueError(f"unknown estimand {estimand!r}")
 
 
+#: The parameter names a target reports on this two-armed law, for targets that report
+#: one parameter per arm rather than one under their own name.  ``ey`` is the arm-general
+#: counterfactual mean: with two arms it reports ``ey[0]`` and ``ey[1]``, which are the
+#: same two numbers ``ey0`` and ``ey1`` report and are checked against the same oracle.
+PER_ARM_NAMES: dict[str, tuple[str, ...]] = {"ey": ("ey[0]", "ey[1]")}
+
+
+def oracle_names(target: str) -> tuple[str, ...]:
+    """The parameter name(s) ``target`` reports, which is what the oracle keys on.
+
+    A target is one *functional*, and a functional can report more than one number --
+    which is what made this indirection necessary once a treatment could have more than
+    two arms.  The coverage gate in ``tests/unit/test_registry.py`` walks these rather
+    than the bare target names, so a per-arm target still cannot ship without an oracle.
+    """
+    return PER_ARM_NAMES.get(target, (target,))
+
+
 #: Population values of every estimand, on the scale :func:`functional` returns.
 TRUTH = {
-    name: float(functional(PROBS, name)) for name in ("ey1", "ey0", "ate", "rr", "or", "att", "atc")
+    name: float(functional(PROBS, name))
+    for name in (
+        "ey1",
+        "ey0",
+        "ey[0]",
+        "ey[1]",
+        "ate",
+        "rr",
+        "or",
+        "att",
+        "atc",
+    )
 }
 
 

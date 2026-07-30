@@ -337,6 +337,7 @@ def _config_to(config: TMLEConfig) -> dict[str, Any]:
         "cv_evaluation": config.cv_evaluation,
         "auto_bounds_n": config.auto_bounds_n,
         "bounded_mechanisms": list(config.bounded_mechanisms),
+        "reference_arm": config.reference_arm,
     }
 
 
@@ -359,6 +360,7 @@ def _config_from(payload: dict[str, Any]) -> TMLEConfig:
         cv_evaluation=payload["cv_evaluation"],
         auto_bounds_n=payload["auto_bounds_n"],
         bounded_mechanisms=tuple(payload["bounded_mechanisms"]),
+        reference_arm=float(payload["reference_arm"]),
     )
 
 

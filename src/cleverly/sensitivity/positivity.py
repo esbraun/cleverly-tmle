@@ -45,6 +45,7 @@ from .._typing import FloatArray
 from ..estimators.base import format_table
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
+from ..targets import parameter_stem
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -559,7 +560,12 @@ def truncation_curve(
     if estimator is None:
         raise ValueError("truncation_curve needs the fitted estimator that produced the result")
 
-    names = tuple(result.estimates) if estimands is None else tuple(estimands)
+    # `retarget` takes *target* names, while `result.estimates` is keyed by the parameter
+    # names those targets reported -- the same thing for a two-armed fit, and `ey[high]`
+    # against `ey` for a wider one. Mapping back through the stem keeps the sweep asking
+    # for the targets it already has, rather than for names the registry never had.
+    reported = tuple(result.estimates) if estimands is None else tuple(estimands)
+    names = tuple(dict.fromkeys(parameter_stem(name) for name in reported))
     if mechanism:
         if result.nuisance.missingness is None and result.nuisance.intermediate is None:
             raise ValueError(

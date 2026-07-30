@@ -51,7 +51,8 @@ import pytest
 
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.fluctuation.submodel import submodel_for
-from cleverly.inference.influence import atc_estimate, att_estimate, counterfactual_means
+from cleverly.inference.influence import atc_estimate, att_estimate
+from tests.conftest import binary_means
 from tests import discrete_law_mar as law
 
 #: A propensity that is wrong at every covariate value, and stays inside ``(0, 1)``.
@@ -113,7 +114,7 @@ def _fit(g_hat: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray, group: str):
     )
     weights = np.ones(law.N)
     if group == "mean":
-        return counterfactual_means(outcome, initial, submodel, weights, observed)
+        return binary_means(outcome, initial, submodel, weights, observed)
     estimate = att_estimate if group == "att" else atc_estimate
     return estimate(outcome, initial, submodel, treatment, weights, observed)
 

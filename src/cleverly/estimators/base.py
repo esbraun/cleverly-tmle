@@ -96,6 +96,11 @@ class TMLEConfig:
     #: fit had neither missing outcomes nor an intermediate variable, in which case the
     #: bound exists on the config but never touched anything.
     bounded_mechanisms: tuple[str, ...] = ()
+    #: The arm code every contrast estimand is taken against.  Part of the *estimand*
+    #: rather than a setting: ``ate[medium vs low]`` and ``ate[medium vs high]`` are
+    #: different parameters, so which one was reported has to be recorded alongside the
+    #: number.  ``0.0`` -- the lowest arm -- unless the caller chose otherwise.
+    reference_arm: float = 0.0
 
     # Read-through to the spec, so the settings appear once and cannot drift.
     @property
@@ -495,7 +500,7 @@ class TMLEResult:
                 if data.has_missing_outcome
                 else ""
             )
-            + f"; covariates = {data.n_covariates}; P(A=1) = {data.treated_fraction:.4g}",
+            + f"; covariates = {data.n_covariates}; {_arm_shares(data)}",
         ]
         if data.cluster is not None:
             facts.append(f"clusters = {data.n_clusters} (cluster-robust variance)")
@@ -684,6 +689,24 @@ def _level_order(value: float | None) -> tuple[int, float]:
     nowhere.
     """
     return (0, 0.0) if value is None else (1, float(value))
+
+
+def _arm_shares(data: CausalData) -> str:
+    """How the treatment is distributed, for the summary header.
+
+    ``P(A=1)`` for a binary treatment, unchanged.  For more arms that number is not
+    just uninformative but wrong-looking -- it is the mean of the arm *codes*, so a
+    three-armed fit reported ``P(A=1) = 0.98`` -- so every arm's share is listed under
+    its own label instead.
+    """
+    if data.is_binary_treatment:
+        return f"P(A=1) = {data.treated_fraction:.4g}"
+
+    def share(arm: float) -> float:
+        return float(np.average(data.treatment == arm, weights=data.weights))
+
+    shares = [f"{data.arm_label(arm)}={share(arm):.3g}" for arm in data.arm_codes]
+    return f"arm shares: {', '.join(shares)}"
 
 
 def format_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:

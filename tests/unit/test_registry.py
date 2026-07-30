@@ -41,13 +41,19 @@ VALID_SCALES = {"level", "difference", "ratio"}
 
 class TestOracleCoverage:
     def test_every_target_has_an_oracle(self) -> None:
-        """A registered estimand must be checkable against the discrete law."""
+        """A registered estimand must be checkable against the discrete law.
+
+        Walks the *parameter* names each target reports rather than the target names,
+        because a target reporting one number per arm reports several -- and each of them
+        needs its own independently written functional, not just the first.
+        """
         missing = []
         for name in TARGETS:
-            try:
-                law.functional(law.PROBS, name)
-            except ValueError:
-                missing.append(name)
+            for reported in law.oracle_names(name):
+                try:
+                    law.functional(law.PROBS, reported)
+                except ValueError:
+                    missing.append(reported)
         assert not missing, (
             f"targets {missing} are registered but have no branch in "
             "tests.discrete_law.functional, so their influence curve is not checked "
@@ -57,7 +63,8 @@ class TestOracleCoverage:
 
     def test_the_oracle_covers_no_more_than_the_registry(self) -> None:
         """The reverse direction: an oracle branch with no target is dead code."""
-        assert set(law.TRUTH) == set(TARGETS)
+        reported = {name for target in TARGETS for name in law.oracle_names(target)}
+        assert set(law.TRUTH) == reported
 
 
 class TestRegistryInvariants:
@@ -98,7 +105,24 @@ class TestRegistryInvariants:
 class TestResolution:
     def test_default_report_matches_the_family(self) -> None:
         assert set(default_names("gaussian")) == {"ate", "att", "atc", "ey1", "ey0"}
-        assert set(default_names("binomial")) == set(all_names("binomial"))
+        # A binary outcome adds every ratio it supports. `ey` is the one registered
+        # target left out: it reports a mean per arm, which on two arms is `ey1` and
+        # `ey0` under clumsier names, so it joins the default report only when there
+        # are more arms than those two can name.
+        assert set(default_names("binomial")) == set(all_names("binomial")) - {"ey"}
+
+    def test_the_default_report_follows_the_arm_count(self) -> None:
+        """Three arms drop what names two of them, and gain the per-arm mean."""
+        two = set(default_names("gaussian", 2))
+        three = set(default_names("gaussian", 3))
+        assert {"att", "atc", "ey1", "ey0"} <= two
+        assert three.isdisjoint({"att", "atc", "ey1", "ey0"})
+        assert "ey" in three and "ey" not in two
+        assert "ate" in two and "ate" in three
+
+    def test_a_binary_only_estimand_is_refused_on_a_multi_arm_fit(self) -> None:
+        with pytest.raises(ValueError, match="binary treatment only"):
+            resolve_estimands(["ate", "att"], "gaussian", 3)
 
     def test_ratios_are_refused_for_a_continuous_outcome(self) -> None:
         with pytest.raises(ValueError, match="binomial"):
@@ -147,13 +171,13 @@ class TestRegistration:
         built: dict[str, ParameterEstimate] = {}
 
         def build(ctx):  # type: ignore[no-untyped-def]
-            psi_one, ic_one, psi_zero, ic_zero = ctx.means
-            # Number needed to treat is 1 / ATE; use the reciprocal on the difference
-            # scale purely to exercise the plumbing.
-            diff = psi_one - psi_zero
-            est = ctx.finish("half_ate", 0.5 * diff, 0.5 * (ic_one - ic_zero), "difference")
+            one, zero = ctx.means[1.0], ctx.means[0.0]
+            # Half the ATE, purely to exercise the plumbing.
+            diff = one.psi - zero.psi
+            ic = one.influence_curve - zero.influence_curve
+            est = ctx.finish("half_ate", 0.5 * diff, 0.5 * ic, "difference")
             built["half_ate"] = est
-            return est
+            return [est]
 
         target = Target(
             name="half_ate",
@@ -280,7 +304,7 @@ class TestACustomFluctuation:
         curve = ctx.weights * (
             ctx.submodel.column_for(1.0) * residual + ctx.targeted.arms[1.0] - psi
         )
-        return ctx.finish(TestACustomFluctuation.NAME, psi, curve, "level")
+        return [ctx.finish(TestACustomFluctuation.NAME, psi, curve, "level")]
 
     @pytest.fixture
     def registered(self):  # type: ignore[no-untyped-def]
@@ -330,9 +354,13 @@ class TestAgainstTheOracle:
 
     @pytest.mark.parametrize("name", sorted(TARGETS))
     def test_truth_is_finite_and_matches_the_declared_scale(self, name: str) -> None:
-        value = law.TRUTH[name]
-        assert np.isfinite(value)
         target = TARGETS[name]
+        for reported in law.oracle_names(name):
+            self._check(law.TRUTH[reported], target)
+
+    @staticmethod
+    def _check(value: float, target) -> None:  # type: ignore[no-untyped-def]
+        assert np.isfinite(value)
         if target.scale == "level":
             # A counterfactual mean of a binary outcome is a probability.
             assert 0.0 <= value <= 1.0
@@ -354,11 +382,10 @@ class TestTheScalingContract:
 
     @staticmethod
     def _nnt(ctx):  # type: ignore[no-untyped-def]
-        psi_one, ic_one, psi_zero, ic_zero = ctx.means
-        difference = psi_one - psi_zero
-        return ctx.finish(
-            "nnt", 1.0 / difference, -(ic_one - ic_zero) / difference**2, "difference"
-        )
+        one, zero = ctx.means[1.0], ctx.means[0.0]
+        difference = one.psi - zero.psi
+        ic = one.influence_curve - zero.influence_curve
+        return [ctx.finish("nnt", 1.0 / difference, -ic / difference**2, "difference")]
 
     def _register(self, **kwargs):  # type: ignore[no-untyped-def]
         return register(

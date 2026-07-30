@@ -166,6 +166,10 @@ class SuperLearner(BaseEstimator):
             else np.asarray(sample_weight, dtype=float)
         )
 
+        levels = np.unique(target)
+        if resolved_task == "classification" and levels.size > 2:
+            return self._fit_one_vs_rest(x, target, weights, levels, groups)
+
         library = resolve_library(
             self.library,
             resolved_task,
@@ -235,6 +239,63 @@ class SuperLearner(BaseEstimator):
         )
         return self
 
+    def _fit_one_vs_rest(
+        self,
+        x: FloatArray,
+        target: FloatArray,
+        weights: FloatArray,
+        levels: FloatArray,
+        groups: IntArray | None,
+    ) -> SuperLearner:
+        """Fit one binary ensemble per class, for a target with more than two levels.
+
+        The ensemble itself is single-output: it stacks candidates' *conditional means*
+        and combines them with one coefficient vector, and both meta-learners
+        (non-negative least squares, non-negative log-likelihood) score a scalar
+        prediction against a scalar target.  A genuinely multinomial Super Learner would
+        need a simplex-valued stack and a multi-class loss -- a different estimator, not a
+        wider loop.
+
+        One-vs-rest reuses the whole binary path instead: ``K`` independent ensembles of
+        :math:`P(A = a \\mid W)`, each with its own library weights and cross-validated
+        risk, normalised at prediction time so the row sums to one.  That normalisation is
+        what one-vs-rest costs -- the ``K`` ensembles are not fit under a shared
+        constraint, so nothing makes them sum to one before it is applied, and a class the
+        ensembles jointly under-predict borrows from the others in proportion rather than
+        by any principled rule.  It is reported as a modelling choice for that reason;
+        pass a multinomial classifier directly if you would rather have one.
+
+        The binary path is not reached at all when there are two levels, so nothing here
+        can perturb it.
+        """
+        per_class: list[SuperLearner] = []
+        for level in levels:
+            member = SuperLearner(
+                library=self.library,
+                meta_learner=self.meta_learner,
+                n_folds=self.n_folds,
+                task="classification",
+                clip=self.clip,
+                random_state=self.random_state,
+                n_jobs=self.n_jobs,
+            )
+            member.fit(x, (target == level).astype(float), weights, groups=groups)
+            per_class.append(member)
+
+        self.task_ = "classification"
+        self.classes_by_fit_ = np.asarray(levels, dtype=float)
+        self.one_vs_rest_ = per_class
+        self.n_features_in_ = x.shape[1]
+        # Per-class ensembles have their own library weights and risks, so there is no one
+        # ``diagnostics_`` to report. Left unset rather than filled with the first class's,
+        # which would read as the ensemble's own. ``diagnostics_by_class_`` has them all.
+        self.diagnostics_by_class_ = {
+            float(level): member.diagnostics_
+            for level, member in zip(levels, per_class, strict=True)
+        }
+        self.learner_names_ = per_class[0].learner_names_
+        return self
+
     def _cross_validate(
         self,
         x: FloatArray,
@@ -301,9 +362,20 @@ class SuperLearner(BaseEstimator):
 
     # ---------------------------------------------------------------- predict
 
+    @property
+    def is_multiclass(self) -> bool:
+        """Whether this was fit one-vs-rest on a target with more than two levels."""
+        return hasattr(self, "one_vs_rest_")
+
     def predict(self, X: FloatArray) -> FloatArray:
         """Ensemble prediction of the conditional mean."""
         self._check_fitted()
+        if self.is_multiclass:
+            raise AttributeError(
+                "predict is not defined for a multi-class ensemble: there is no single "
+                f"conditional mean over classes {self.classes_.tolist()}. Use "
+                "predict_proba, whose columns follow classes_."
+            )
         x = np.asarray(X, dtype=float)
         if x.ndim == 1:
             x = x.reshape(-1, 1)
@@ -313,15 +385,33 @@ class SuperLearner(BaseEstimator):
         return self._clip(columns @ self.coef_)
 
     def predict_proba(self, X: FloatArray) -> FloatArray:
-        """``(n, 2)`` class probabilities, for scikit-learn compatibility."""
+        """Class probabilities, columns following :attr:`classes_`.
+
+        ``(n, 2)`` for a binary target, ``(n, K)`` for a one-vs-rest multi-class fit,
+        where the per-class ensembles are normalised to sum to one across the row.
+        """
         if self.task_ != "classification":
             raise AttributeError("predict_proba is only available for a classification task")
+        if self.is_multiclass:
+            stacked = np.column_stack(
+                [member.predict_proba(X)[:, 1] for member in self.one_vs_rest_]
+            )
+            # Nothing constrains K independently fit ensembles to sum to one, so the row is
+            # normalised here. A row whose ensembles all predicted zero has no information
+            # to normalise, and falls back to the uniform distribution rather than dividing
+            # by zero -- which would be a silent NaN in a denominator of the estimating
+            # equation.
+            total = stacked.sum(axis=1, keepdims=True)
+            uniform = 1.0 / stacked.shape[1]
+            return np.where(total > 0.0, stacked / np.where(total > 0.0, total, 1.0), uniform)
         p = np.clip(self.predict(X), 0.0, 1.0)
         return np.column_stack([1.0 - p, p])
 
     @property
     def classes_(self) -> FloatArray:
         self._check_fitted()
+        if self.is_multiclass:
+            return np.asarray(self.classes_by_fit_, dtype=float)
         return np.array([0.0, 1.0])
 
     def _clip(self, values: FloatArray) -> FloatArray:
@@ -331,7 +421,9 @@ class SuperLearner(BaseEstimator):
         return np.clip(np.asarray(values, dtype=float), low, high)
 
     def _check_fitted(self) -> None:
-        if not hasattr(self, "coef_"):
+        # A one-vs-rest fit has no ``coef_`` of its own -- its coefficients live on the
+        # per-class members -- so fittedness is either of the two markers.
+        if not hasattr(self, "coef_") and not hasattr(self, "one_vs_rest_"):
             from ..exceptions import NotFittedError
 
             raise NotFittedError("SuperLearner has not been fitted yet; call fit first")
