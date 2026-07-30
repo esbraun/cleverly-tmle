@@ -45,6 +45,7 @@ from .validate import (
     check_weights,
     encode_binary,
     encode_clusters,
+    encode_treatment,
     infer_family,
 )
 from .weighting import (
@@ -95,7 +96,7 @@ class CausalData:
     family: str
     outcome_name: str = "Y"
     treatment_name: str = "A"
-    treatment_levels: tuple[Any, Any] = (0, 1)
+    treatment_levels: tuple[Any, ...] = (0, 1)
     delta_name: str | None = None
     cluster: IntArray | None = None
     cluster_name: str | None = None
@@ -293,7 +294,7 @@ class CausalData:
             if len(arr) != n:
                 raise DataError(f"{label} has length {len(arr)}, expected {n}")
 
-        a, levels = encode_binary(treatment, treatment_name)
+        a, levels = encode_treatment(treatment, treatment_name)
         observed = (
             np.ones(n, dtype=bool) if delta is None else check_delta(delta, delta_name or "delta")
         )
@@ -413,6 +414,55 @@ class CausalData:
         """Weighted ``P(A = 1)``, the denominator of the ATT."""
         return float(np.average(self.treatment, weights=self.weights))
 
+    # ------------------------------------------------------------------- arms
+
+    @property
+    def n_arms(self) -> int:
+        """How many treatment levels the *declared support* carries.
+
+        Read off :attr:`treatment_levels` rather than counted in
+        :attr:`treatment`, so a subset or a bootstrap resample that happens to
+        miss an arm still describes the same estimand -- and fails loudly at the
+        point the missing arm is needed, instead of silently becoming a
+        lower-dimensional problem.
+        """
+        return len(self.treatment_levels)
+
+    @property
+    def arm_codes(self) -> tuple[float, ...]:
+        """The internal codes for the arms, ``(0.0, ..., K-1.0)``, ascending.
+
+        These are what :class:`~cleverly.fluctuation.submodel.Submodel` and
+        :class:`~cleverly.fluctuation.iterative.InitialFit` key their per-arm arrays by.
+        :meth:`arm_label` maps one back to the level the user supplied.
+        """
+        return tuple(float(i) for i in range(self.n_arms))
+
+    def arm_label(self, code: float) -> Any:
+        """The user's original level for an internal arm code.
+
+        Everything a reader sees -- parameter names, positivity tables, error
+        messages -- goes through here, so a fit on ``{"low", "high"}`` is never
+        reported in terms of ``1.0``.
+        """
+        index = round(float(code))
+        if index < 0 or index >= self.n_arms or float(index) != float(code):
+            raise DataError(
+                f"{float(code)!r} is not an arm of {self.treatment_name}; its levels are "
+                f"{list(self.treatment_levels)} with codes {list(self.arm_codes)}"
+            )
+        return self.treatment_levels[index]
+
+    @property
+    def is_binary_treatment(self) -> bool:
+        """Whether there are exactly two arms.
+
+        A handful of estimands and sensitivity analyses are defined only for a single
+        contrast (the ATT, the omitted-variable bound, the MNAR tilt) and check this
+        rather than assuming it.
+        """
+        return self.n_arms == 2
+
     @property
     def backend(self) -> str | None:
         """Name of the dataframe backend the data came from, if any."""
@@ -422,13 +472,39 @@ class CausalData:
 
     # ----------------------------------------------------------------- design
 
+    def treatment_block(self, codes: FloatArray) -> FloatArray:
+        r"""Drop-first indicators for the treatment: ``(n, K-1)``.
+
+        With two arms this is a single column holding the 0/1 code itself, which is
+        exactly the design the binary estimator has always used -- so a two-arm fit
+        is unchanged, bit for bit.  ``tests/unit/test_causal_data.py`` asserts that
+        equality rather than leaving it to be read off this docstring.
+
+        With more than two arms a *single numeric column* would be wrong, not merely
+        crude: it would impose a linear dose-response on the outcome regression,
+        forcing :math:`\bar Q(2, W) - \bar Q(1, W) = \bar Q(1, W) - \bar Q(0, W)` for
+        any learner linear in its design, and so shrink the very contrasts the fit
+        exists to estimate.  Indicators leave the arms unconstrained.
+
+        The first arm is dropped rather than one-hot encoding all ``K``, so an
+        unregularised model with an intercept has a full-rank design.  Which arm is
+        dropped is a property of the design only and does not privilege any arm in the
+        estimand: the counterfactual means are all evaluated by prediction, and the
+        reference used for *contrasts* is a separate, caller-chosen thing.
+        """
+        c = np.asarray(codes, dtype=float).reshape(-1)
+        return np.column_stack([(c == level).astype(float) for level in self.arm_codes[1:]])
+
     def treatment_design(self, *, include_intermediate: bool = False) -> FloatArray:
         """Design matrix for a model of the outcome: ``[A, W]``.
+
+        ``A`` occupies :meth:`treatment_block` -- one column for a binary treatment,
+        ``K-1`` indicator columns for a ``K``-armed one.
 
         With ``include_intermediate=True`` the intermediate variable is appended,
         which is what a controlled-direct-effect ``Q`` model conditions on.
         """
-        blocks = [self.treatment.reshape(-1, 1), self.covariates]
+        blocks = [self.treatment_block(self.treatment), self.covariates]
         if include_intermediate:
             if self.intermediate is None:
                 raise DataError("no intermediate variable was supplied")
@@ -443,12 +519,18 @@ class CausalData:
     ) -> FloatArray:
         """``[a, W]`` with the treatment (and optionally ``Z``) set to a constant.
 
+        ``treatment_value`` is an *arm code* -- see :attr:`arm_codes` -- and is
+        validated against the declared support, so a typo asks for an arm that does
+        not exist rather than quietly producing an all-zero indicator block that the
+        model reads as the dropped first arm.
+
         The intermediate column is appended only when the data actually carries one, so
         that this and :meth:`treatment_design` cannot disagree about the width of the
         design.  Asking for a level the data has no column for is an error rather than a
         silently wider matrix than the model was trained on.
         """
-        a = np.full((self.n, 1), float(treatment_value))
+        self.arm_label(treatment_value)  # validates the code against the declared support
+        a = self.treatment_block(np.full(self.n, float(treatment_value)))
         blocks = [a, self.covariates]
         if intermediate_value is not None:
             if self.intermediate is None:
@@ -524,10 +606,26 @@ class CausalData:
         )
 
     def with_treatment(self, treatment: FloatArray) -> CausalData:
-        """A copy with the treatment replaced (used by the placebo refuter)."""
-        a, _ = encode_binary(np.asarray(treatment), self.treatment_name)
+        """A copy with the treatment replaced (used by the placebo refuter).
+
+        The replacement is in *arm codes* and is validated against the declared support,
+        which is stricter than re-encoding it would be -- and deliberately so.  The
+        placebo refuter permutes the existing treatment, and a permutation must keep the
+        arms it permutes: re-encoding would silently accept a replacement that dropped an
+        arm, and the refuted fit would then estimate a different parameter from the one
+        it is supposed to be a null for.
+        """
+        a = np.asarray(treatment, dtype=float).reshape(-1)
         if a.size != self.n:
             raise DataError(f"replacement treatment has length {a.size}, expected {self.n}")
+        found = np.unique(a)
+        if not np.array_equal(found, np.asarray(self.arm_codes, dtype=float)):
+            raise DataError(
+                f"replacement {self.treatment_name} has arm codes {found.tolist()}, but the "
+                f"data declares {list(self.arm_codes)} (levels {list(self.treatment_levels)}). "
+                "A replacement treatment must keep every arm, or the refitted estimate is "
+                "not a null for the same parameter."
+            )
         return replace(self, treatment=a)
 
     def with_extra_covariate(self, values: FloatArray, name: str) -> CausalData:

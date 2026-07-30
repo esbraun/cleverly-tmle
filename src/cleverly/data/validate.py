@@ -17,14 +17,24 @@ from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import DataError
 
 __all__ = [
+    "MAX_TREATMENT_LEVELS",
     "check_binary",
     "check_covariates",
     "check_delta",
     "check_outcome",
     "check_weights",
     "encode_binary",
+    "encode_treatment",
     "infer_family",
 ]
+
+#: Most treatment levels the estimator will accept.  Each level costs a counterfactual
+#: mean, a clever-covariate column and a row/column of the Newton solve, and positivity
+#: degrades quickly as the arms multiply, so a treatment with more levels than this is
+#: almost always one that should be collapsed or modelled as continuous.  The limit is a
+#: guard against a mis-typed column silently becoming a 200-arm fit, not a statistical
+#: threshold.
+MAX_TREATMENT_LEVELS = 20
 
 
 def check_binary(values: FloatArray, name: str) -> FloatArray:
@@ -74,6 +84,85 @@ def encode_binary(values: np.ndarray, name: str) -> tuple[FloatArray, tuple[obje
     levels = (unique_obj[0], unique_obj[1])
     encoded = np.where(arr == levels[1], 1.0, 0.0)
     return check_binary(encoded, name), levels
+
+
+def encode_treatment(
+    values: np.ndarray, name: str, *, min_per_arm: int = 1
+) -> tuple[FloatArray, tuple[object, ...]]:
+    """Map a ``K``-level treatment onto codes ``0 .. K-1``, returning the level order.
+
+    The generalisation of :func:`encode_binary` to more than two arms, and a strict
+    superset of it: a two-level column is encoded to exactly the same codes and reported
+    with exactly the same ``levels`` tuple, including the numeric ``0/1`` pass-through
+    that leaves the caller's array untouched.  That equality is what keeps a binary fit
+    bit-for-bit identical, and ``tests/unit/test_causal_data.py`` asserts it directly
+    rather than trusting the reading.
+
+    The returned ``levels`` are the caller's *original* labels in sorted order, and the
+    code for a row is that label's index.  Everything user-facing -- parameter names,
+    positivity tables, error messages -- is written in terms of the labels, so a fit on
+    ``{"low", "medium", "high"}`` never makes the analyst translate to ``2.0``.
+
+    Parameters
+    ----------
+    min_per_arm:
+        Reject a level with fewer rows than this.  A near-empty arm is not a positivity
+        problem to be reported later; its counterfactual mean is not estimable at all,
+        and a cross-fit would hand some fold no rows in that arm.
+    """
+    arr = np.asarray(values).reshape(-1)
+
+    if arr.dtype.kind in "fiu":
+        numeric = np.asarray(arr, dtype=float)
+        if not np.all(np.isfinite(numeric)):
+            raise DataError(f"{name} contains missing or non-finite values")
+        unique = np.unique(numeric)
+        # The binary 0/1 pass-through, preserved exactly: same array, same ``(0, 1)``.
+        if unique.size == 2 and np.all(np.isin(unique, (0.0, 1.0))):
+            return _check_arms(numeric, (0, 1), name, min_per_arm), (0, 1)
+        levels_num: tuple[object, ...] = tuple(float(v) for v in unique)
+        _reject_arm_count(len(levels_num), name)
+        codes = np.searchsorted(unique, numeric).astype(float)
+        return _check_arms(codes, levels_num, name, min_per_arm), levels_num
+
+    unique_obj = np.unique(arr)
+    levels_obj: tuple[object, ...] = tuple(unique_obj.tolist())
+    _reject_arm_count(len(levels_obj), name)
+    codes = np.searchsorted(unique_obj, arr).astype(float)
+    return _check_arms(codes, levels_obj, name, min_per_arm), levels_obj
+
+
+def _reject_arm_count(k: int, name: str) -> None:
+    if k < 2:
+        raise DataError(
+            f"{name} takes only one value; a treatment needs at least two levels for a "
+            "counterfactual contrast to be defined"
+        )
+    if k > MAX_TREATMENT_LEVELS:
+        raise DataError(
+            f"{name} has {k} distinct levels, above the limit of {MAX_TREATMENT_LEVELS}. "
+            "Collapse the levels into the contrast you actually want to report, or -- if "
+            "the treatment is really continuous -- note that continuous treatments need a "
+            "conditional density rather than a per-arm mean and are not yet supported."
+        )
+
+
+def _check_arms(
+    codes: FloatArray, levels: tuple[object, ...], name: str, min_per_arm: int
+) -> FloatArray:
+    """Every declared level must be present, with enough rows to estimate its mean."""
+    counts = np.bincount(np.asarray(codes, dtype=np.int64), minlength=len(levels))
+    thin = [
+        (levels[i], int(counts[i])) for i in range(len(levels)) if counts[i] < max(min_per_arm, 1)
+    ]
+    if thin:
+        detail = ", ".join(f"{level!r}: {count} row(s)" for level, count in thin)
+        raise DataError(
+            f"{name} has too few observations in {len(thin)} of its {len(levels)} levels "
+            f"({detail}); each level needs at least {max(min_per_arm, 1)} for its "
+            "counterfactual mean to be estimable"
+        )
+    return np.asarray(codes, dtype=float)
 
 
 def check_outcome(
