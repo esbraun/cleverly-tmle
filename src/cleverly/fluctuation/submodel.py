@@ -35,6 +35,14 @@ where :math:`h` is the *clever covariate*.  Its form depends on the target:
     A single column contrasting the arms, with the control arm reweighted by the
     propensity odds -- see :func:`att_submodel`.
 
+``regime``
+    One column per *intervention*, :math:`h_r(A, W) = g^\star_r(A \mid W) / g(A \mid W)`
+    -- a treatment rule or a stochastic assignment rather than a constant arm.  It is the
+    same object as ``mean`` when every regime is static: one column of ``mean`` is one
+    column of ``regime`` with :math:`g^\star_r = \mathbb 1\{a = v\}`.  The two are kept
+    apart because the *parameters* move from the arms to the regimes -- see
+    :func:`regime_submodel` for why that separation cannot be expressed by re-keying.
+
 Here :math:`\pi_a(W) = P(\Delta = 1 \mid A = a, W)` is the probability that the
 outcome is observed; with no missingness it is one and drops out.  Note the
 :math:`\Delta` indicator itself does *not* appear in :math:`h`: it enters by
@@ -101,6 +109,7 @@ __all__ = [
     "att_submodel",
     "check_arms",
     "mean_submodel",
+    "regime_submodel",
     "register_submodel",
     "restrict",
     "submodel_for",
@@ -283,6 +292,7 @@ def mean_submodel(
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per arm, targeting every counterfactual mean at once.
 
@@ -324,7 +334,7 @@ def mean_submodel(
         indicator multiplies only the *observed* covariate -- the counterfactual
         columns are already evaluated at ``Z = z`` by construction.
     """
-    del treated_fraction  # see the parameter's docstring
+    del treated_fraction, regimes  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -366,6 +376,114 @@ def mean_submodel(
     )
 
 
+def _regime_densities(n: int, k: int, regimes: FloatArray | None) -> FloatArray:
+    """Validate the ``(n, K, R)`` regime densities the ``regime`` submodel needs.
+
+    Shape and non-negativity only.  That each row of each regime sums to one is checked
+    where the regime is *built* --
+    :meth:`cleverly.interventions.RegimeSet.evaluate` -- rather than repeated here: it is
+    a property of the intervention, the tolerance belongs with it, and this runs once per
+    truncation bound in a sensitivity sweep.
+    """
+    if regimes is None:
+        raise ValueError(
+            "the 'regime' submodel needs regimes=: an (n, K, R) array of g*(a | W) per "
+            "regime. Build one with cleverly.interventions.RegimeSet.evaluate."
+        )
+    values = np.asarray(regimes, dtype=float)
+    if values.ndim != 3 or values.shape[:2] != (n, k):
+        raise ValueError(
+            f"regimes must have shape ({n}, {k}, R) -- rows, arms, regimes -- got {values.shape}"
+        )
+    if values.shape[2] == 0:
+        raise ValueError("regimes must contain at least one regime")
+    if np.any(values < 0.0):
+        raise ValueError("regime densities must be non-negative")
+    return values
+
+
+def regime_submodel(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    *,
+    arms: tuple[float, ...] = (0.0, 1.0),
+    treated_fraction: float | None = None,
+    missingness: FloatArray | None = None,
+    intermediate_density: FloatArray | None = None,
+    selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
+) -> Submodel:
+    r"""One column per *regime*, targeting :math:`E[Y^{g^\star_r}]` for each.
+
+    .. math::
+
+        h_r(A, W) = \frac{g^\star_r(A \mid W)}
+                         {g(A \mid W)\,\pi(W)\,q(W)}
+                  = \sum_a \mathbb 1\{A = a\}\,
+                    \frac{g^\star_r(a \mid W)}{g_a(W)\,\pi_a(W)\,q_a(W)}
+
+    the Riesz representer of :math:`\Psi_r(P) = E_W \sum_a g^\star_r(a \mid W)
+    \bar Q(a, W)`.  With a :class:`~cleverly.interventions.Static` regime
+    :math:`g^\star_r(a \mid W) = \mathbb 1\{a = v\}` and this is one column of
+    :func:`mean_submodel` -- which is the sense in which the arm-keyed path was always a
+    special case, and what ``tests/unit/test_regime_submodel.py`` checks against it
+    entry by entry.
+
+    **Why the columns are regimes and the arms are still arms.**  The fluctuation has to
+    update :math:`\bar Q(a, W)` at every arm, because the plug-in evaluates a *mixture*
+    over them; but the score equations being solved are one per regime.  So
+    :attr:`Submodel.arms` is keyed by arm and each of its entries has ``R`` columns --
+    the covariate that arm's prediction is fluctuated by -- while the parameters live on
+    the columns.  :attr:`Submodel.arm_columns` is left empty for exactly the reason
+    :func:`att_submodel` leaves it empty: no column belongs to a single arm.
+
+    Parameters
+    ----------
+    regimes:
+        ``(n, K, R)``: ``regimes[i, j, r]`` is :math:`g^\star_r(\text{arms}[j] \mid W_i)`.
+    treated_fraction:
+        Accepted and ignored; see :func:`mean_submodel`.
+    """
+    del treated_fraction  # see the parameter's docstring
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    n = a.shape[0]
+    k = len(arms)
+    g = np.asarray(propensity, dtype=float)
+    if g.ndim == 1:
+        if k != 2:
+            raise ValueError(
+                f"propensity was given as a single vector but there are {k} arms {list(arms)}; "
+                "supply the (n, K) mechanism"
+            )
+        g = np.column_stack([1.0 - g.reshape(-1), g.reshape(-1)])
+    if g.shape != (n, k):
+        raise ValueError(f"propensity must have shape ({n}, {k}); got {g.shape}")
+    if np.any(g <= 0) or np.any(g >= 1):
+        raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
+
+    star = _regime_densities(n, k, regimes)
+    pi = _arm_matrix(n, k, missingness, "missingness probabilities")
+    pz = _arm_matrix(n, k, intermediate_density, "intermediate probabilities")
+    keep = _selection_indicator(n, selection)
+
+    # (n, K): the denominator arm by arm, exactly as mean_submodel builds it.
+    inverse = 1.0 / (g * pi * pz)
+    # (n, K, R) -> (n, R) per arm: the covariate that arm's prediction is fluctuated by.
+    weighted = star * inverse[:, :, None]
+    counterfactual = {float(arm): weighted[:, j, :] for j, arm in enumerate(arms)}
+    indicator = np.column_stack([(a == arm) for arm in arms]).astype(float)
+    observed = keep[:, None] * np.einsum("ij,ijr->ir", indicator, weighted)
+
+    return Submodel(
+        observed,
+        counterfactual,
+        tuple(f"h_regime{r}" for r in range(star.shape[2])),
+        "regime",
+        # No arm_columns: a column targets a regime, which is a distribution over the
+        # arms rather than one of them.
+    )
+
+
 def _binary_margin(
     propensity: FloatArray, arms: tuple[float, ...], group: str
 ) -> tuple[FloatArray, FloatArray]:
@@ -401,6 +519,7 @@ def att_submodel(
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
 ) -> Submodel:
     r"""One-column submodel targeting the ATT.
 
@@ -418,6 +537,7 @@ def att_submodel(
     ``g_0(W)``; it is also why ``g_bounds="auto"`` uses a more conservative bound
     for this estimand.
     """
+    del regimes  # accepted and ignored; the ATT conditions on an arm, not on a regime
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     share = _required_treated_fraction(treated_fraction, "att")
@@ -450,8 +570,10 @@ def atc_submodel(
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
 ) -> Submodel:
     """One-column submodel targeting the ATC -- the mirror image of the ATT."""
+    del regimes  # accepted and ignored, as in att_submodel
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     # In (0, 1) because the treated share is, which the helper has already enforced --
@@ -531,6 +653,26 @@ def register_submodel(
 register_submodel("mean", mean_submodel)
 register_submodel("att", att_submodel)
 register_submodel("atc", atc_submodel)
+register_submodel("regime", regime_submodel)
+
+
+#: Keyword arguments that joined :data:`SubmodelBuilder`'s signature after it was first
+#: documented, and what to tell the author of a builder that predates each.  A missing one
+#: surfaces as a bare ``unexpected keyword argument`` from deep inside the dispatcher,
+#: which says nothing about the fix; these do.
+_SIGNATURE_ADDITIONS: dict[str, str] = {
+    "arms": (
+        "Every submodel builder now takes the arm codes its columns are keyed by, because "
+        "a treatment may have more than two arms; add 'arms=(0.0, 1.0)' to its "
+        "keyword-only parameters and index the (n, K) propensity with it."
+    ),
+    "regimes": (
+        "Every submodel builder now takes the regime densities, because an intervention "
+        "may be a rule or a stochastic assignment rather than a constant arm; add "
+        "'regimes=None' to its keyword-only parameters. A builder that targets arms "
+        "rather than regimes should accept and ignore it, as mean_submodel does."
+    ),
+}
 
 
 def submodel_for(
@@ -543,6 +685,7 @@ def submodel_for(
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
 ) -> Submodel:
     """Build the clever covariate for an estimand family, by registry lookup.
 
@@ -567,19 +710,19 @@ def submodel_for(
             missingness=missingness,
             intermediate_density=intermediate_density,
             selection=selection,
+            regimes=regimes,
         )
     except TypeError as error:
-        # ``arms`` is newer than the extension point, so a builder written against the
-        # old signature fails here with a bare "unexpected keyword argument". Saying what
-        # to add is worth the branch: the builder is user code the library cannot fix.
-        if "arms" not in str(error):
-            raise
-        raise TypeError(
-            f"the builder registered for group {group!r} does not accept 'arms'. Every "
-            "submodel builder now takes the arm codes its columns are keyed by, because "
-            "a treatment may have more than two arms; add 'arms=(0.0, 1.0)' to its "
-            "keyword-only parameters and index the (n, K) propensity with it."
-        ) from error
+        # Some keywords are newer than the extension point, so a builder written against
+        # an older signature fails here with a bare "unexpected keyword argument". Saying
+        # what to add is worth the branch: the builder is user code the library cannot fix.
+        message = str(error)
+        for keyword, fix in _SIGNATURE_ADDITIONS.items():
+            if keyword in message:
+                raise TypeError(
+                    f"the builder registered for group {group!r} does not accept {keyword!r}. {fix}"
+                ) from error
+        raise
     if submodel.group != group:
         raise ValueError(
             f"the builder registered for group {group!r} returned a submodel labelled "
