@@ -18,6 +18,7 @@ __all__ = [
     "Family",
     "FloatArray",
     "FluctuationKind",
+    "FoldStrata",
     "GBounds",
     "IntArray",
     "Learner",
@@ -43,6 +44,11 @@ Family = Literal["gaussian", "binomial", "auto"]
 FluctuationKind = Literal["logistic", "linear"]
 TargetingMethod = Literal["iterative", "one_step"]
 TargetingScheme = Literal["pooled", "fold"]
+
+#: What the outer cross-fitting folds are balanced on.  ``"treatment"`` is the
+#: long-standing behaviour and the default; ``"treatment+outcome"`` crosses in the
+#: outcome so that a rare event cannot leave a fold with none of them.
+FoldStrata = Literal["treatment", "treatment+outcome"]
 Estimand = Literal["ey1", "ey0", "ate", "att", "atc", "rr", "or"]
 
 #: What a fit's parameters are indexed *by*: a treatment arm, a declared regime, a

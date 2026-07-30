@@ -307,6 +307,108 @@ class TestTheDeclaredPlanIsRecordedOnAFit:
         assert config.crossfit.stratify_by == ()
 
 
+class TestStratifyingOnARareOutcome:
+    """``stratify_folds="treatment+outcome"``: the one setting here that moves a number.
+
+    The claim is narrow and checkable: crossing the outcome into the stratum caps the
+    fold count at the rarest *cell*, so a fold cannot come out with no events in an arm.
+    Asserted on the fold assignment rather than on an estimate -- exact, and it needs no
+    targeting step, which on a deliberately rare outcome would only report separation.
+    """
+
+    def _rare_event_data(self, n: int = 300, n_events: int = 8):  # type: ignore[no-untyped-def]
+        from cleverly import CausalData
+
+        rng = np.random.default_rng(0)
+        a = np.zeros(n)
+        a[: n // 2] = 1.0
+        y = np.zeros(n)
+        # Every event in the treated arm, so an arm-stratified split can still leave a
+        # fold with no treated events at all -- which is the failure being prevented.
+        y[rng.choice(n // 2, size=n_events, replace=False)] = 1.0
+        return CausalData.from_arrays(
+            outcome=y, treatment=a, covariates=rng.normal(size=(n, 1)), family="binomial"
+        )
+
+    def _assignment(self, data, **kwargs):  # type: ignore[no-untyped-def]
+        return fast_tmle(**kwargs)._folds(data).assignment
+
+    def test_the_default_can_leave_a_fold_with_no_events(self) -> None:
+        data = self._rare_event_data(n=300, n_events=8)
+        assignment = self._assignment(data, n_folds=10)
+        # 8 events over 10 arm-stratified folds: at least one fold has none of them.
+        per_fold = [data.outcome[assignment == f].sum() for f in range(assignment.max() + 1)]
+        assert min(per_fold) == 0
+
+    def test_crossing_the_outcome_in_puts_an_event_in_every_fold(self) -> None:
+        data = self._rare_event_data(n=300, n_events=8)
+        with pytest.warns(UserWarning, match="reducing n_folds"):
+            assignment = self._assignment(data, n_folds=10, stratify_folds="treatment+outcome")
+        per_fold = [data.outcome[assignment == f].sum() for f in range(assignment.max() + 1)]
+        assert min(per_fold) >= 1
+
+    def test_the_fold_count_is_capped_at_the_rarest_cell(self) -> None:
+        data = self._rare_event_data(n=300, n_events=8)
+        est = fast_tmle(n_folds=10, stratify_folds="treatment+outcome")
+        with pytest.warns(UserWarning, match="reducing n_folds"):
+            realised = est._folds(data).n_folds
+        # Ten declared, eight events in the rarest cell, so eight folds ran -- and both
+        # numbers are recoverable rather than only the one that happened.
+        assert est.crossfit_plan(data).n_folds == 10
+        assert realised == 8
+        assert est.crossfit_plan(data).stratify_by == ("A", "Y")
+
+    def test_the_default_is_unchanged_bit_for_bit(self) -> None:
+        data = self._rare_event_data()
+        explicit = self._assignment(data, n_folds=5, stratify_folds="treatment")
+        implied = self._assignment(data, n_folds=5)
+        np.testing.assert_array_equal(explicit, implied)
+
+    def test_a_missing_outcome_is_its_own_stratum_not_a_zero(self) -> None:
+        # A fold with no *observed* outcomes in an arm cannot fit the regression either,
+        # so Delta=0 must not be pooled with Y=0.
+        pd = pytest.importorskip("pandas")
+        from cleverly import CausalData
+
+        rng = np.random.default_rng(0)
+        n = 200
+        frame = pd.DataFrame(
+            {
+                "Y": rng.binomial(1, 0.5, n).astype(float),
+                "A": rng.binomial(1, 0.5, n).astype(float),
+                "W": rng.normal(size=n),
+                "D": np.ones(n),
+            }
+        )
+        frame.loc[:5, "D"] = 0.0
+        frame.loc[:5, "Y"] = np.nan
+        est = fast_tmle(stratify_folds="treatment+outcome")
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W"], delta="D")
+        codes = est._fold_strata(data)
+        assert codes is not None
+        # The unobserved rows must not share a code with the observed Y=0 rows of the
+        # same arm, or a fold could hold only unobserved outcomes there.
+        unobserved = set(np.unique(codes[~data.observed]).tolist())
+        observed = set(np.unique(codes[data.observed]).tolist())
+        assert unobserved.isdisjoint(observed)
+
+    def test_a_continuous_outcome_is_refused_by_name(self) -> None:
+        from cleverly import CausalData
+
+        rng = np.random.default_rng(0)
+        data = CausalData.from_arrays(
+            outcome=rng.normal(size=200),
+            treatment=rng.binomial(1, 0.5, 200).astype(float),
+            covariates=rng.normal(size=(200, 1)),
+        )
+        with pytest.raises(DataError, match="needs a binary outcome"):
+            fast_tmle(stratify_folds="treatment+outcome")._fold_strata(data)
+
+    def test_an_unknown_value_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="stratify_folds must be"):
+            fast_tmle(stratify_folds="outcome")
+
+
 class TestScreening:
     def test_associated_columns_are_kept_and_noise_dropped(self) -> None:
         rng = np.random.default_rng(0)
