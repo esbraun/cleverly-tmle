@@ -90,10 +90,8 @@ from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
     InitialFit,
-    solve_fluctuation,
 )
-from ..fluctuation.one_step import solve_one_step
-from ..fluctuation.submodel import Submodel, TargetGroup, restrict, submodel_for
+from ..fluctuation.submodel import Submodel, TargetGroup, restrict
 from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
@@ -108,7 +106,7 @@ from ..inference.influence import (
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..learners._fitting import Task
 from ..learners.crossfit import Folds, make_folds
-from ..learners.super_learner import SuperLearner
+from ..learners.super_learner import resolve_learner
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.frames import is_dataframe
 from ._nuisance import NuisanceEstimates, fit_nuisances
@@ -121,7 +119,7 @@ from .base import (
     attach_bootstrap,
     resolve_estimands,
 )
-from .direct_effect import clever_covariate_inputs
+from .targeting import TargetingSpec, build_submodel, solve_submodel
 
 __all__ = ["TMLE", "tmle"]
 
@@ -453,6 +451,22 @@ class TMLE:
         }
         return TMLEResultSet(results, prepared.intermediate_name or "Z")
 
+    def refit(self, data: CausalData, *, intermediate_value: float | None = None) -> TMLEResult:
+        """Run the whole fit again -- nuisances included -- on already-prepared data.
+
+        This is the expensive counterpart to :meth:`retarget`, and the distinction
+        matters.  ``retarget`` re-solves the fluctuation against cached nuisance
+        estimates, so it needs nothing but arrays and is what every truncation sweep
+        and every bootstrap replicate uses.  ``refit`` re-learns the nuisances, which
+        is unavoidable when the *data* changed: the negative-control refutations
+        (:mod:`cleverly.validation.refute`) replace the treatment or the outcome, and
+        the omitted-variable analysis drops a covariate from the adjustment set.
+
+        Pass ``intermediate_value`` when the data carries an intermediate variable, so
+        the refit targets the same controlled direct effect as the original.
+        """
+        return self._fit_single(data, intermediate_value=intermediate_value)
+
     def _prepare(
         self,
         data: Any,
@@ -589,18 +603,13 @@ class TMLE:
         fallback: Learner | str | Sequence[Any] | None = None,
     ) -> Learner:
         """Turn a learner specification into a fitted-per-fold estimator."""
-        if spec is None:
-            spec = fallback
-        if spec is None or isinstance(spec, (str, list, tuple)):
-            return SuperLearner(
-                library="default" if spec is None else spec,
-                task=task,
-                n_folds=self.learner_folds,
-                clip=(0.0, 1.0),
-                random_state=self.random_state,
-                n_jobs=1,
-            )
-        return spec
+        return resolve_learner(
+            spec,
+            task=task,
+            n_folds=self.learner_folds,
+            random_state=self.random_state,
+            fallback=fallback,
+        )
 
     def _fit_nuisances(
         self,
@@ -677,8 +686,7 @@ class TMLE:
     ) -> TMLEConfig:
         return TMLEConfig(
             family=data.family,
-            fluctuation=self.fluctuation,
-            targeting=self.targeting,
+            targeting_spec=self.targeting_spec(),
             targeting_scheme=(
                 self.targeting_scheme if self.cross_fit and not folds.is_single else "pooled"
             ),
@@ -702,8 +710,6 @@ class TMLE:
                 if present
             ),
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
-            alpha=self.alpha,
-            target_weights=self.target_weights,
             screen_treatment=self.screen_treatment,
             estimands=estimands,
             alpha_sig=self.alpha_sig,
@@ -969,6 +975,22 @@ class TMLE:
             groups.append("atc")
         return groups
 
+    def targeting_spec(self) -> TargetingSpec:
+        """The targeting settings this estimator would use, as one object.
+
+        Recorded on every result via :attr:`TMLEConfig.targeting_spec`, so re-solving
+        a fluctuation never needs the estimator itself.
+        """
+        return TargetingSpec(
+            targeting=self.targeting,
+            fluctuation=self.fluctuation,
+            target_weights=self.target_weights,
+            alpha=self.alpha,
+            max_iter=self.max_iter,
+            tol=self.tol,
+            step_size=self.step_size,
+        )
+
     def _submodel(
         self,
         data: CausalData,
@@ -979,24 +1001,16 @@ class TMLE:
         missingness_override: FloatArray | None,
         nuisance_bound: float | None = None,
     ) -> Submodel:
-        lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
-        propensity = nuisance.bounded_propensity(bounds)
-        missingness = (
-            nuisance.bounded_missingness(lower)
-            if missingness_override is None
-            else np.clip(np.asarray(missingness_override, dtype=float), lower, 1.0)
-        )
-        intermediate_density, selection = clever_covariate_inputs(
-            data, nuisance, intermediate_value, lower
-        )
-        return submodel_for(
+        return build_submodel(
+            data,
+            nuisance,
             group,
-            data.treatment,
-            propensity,
-            treated_fraction=data.treated_fraction,
-            missingness=missingness,
-            intermediate_density=intermediate_density,
-            selection=selection,
+            bounds=bounds,
+            nuisance_bound=(
+                self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
+            ),
+            intermediate_value=intermediate_value,
+            missingness_override=missingness_override,
         )
 
     def _solve(
@@ -1029,31 +1043,8 @@ class TMLE:
         *,
         warn: bool = True,
     ) -> Fluctuation:
-        if self.targeting == "one_step":
-            return solve_one_step(
-                scaled,
-                initial,
-                submodel,
-                weights,
-                observed,
-                target_weights=self.target_weights,
-                alpha=self.alpha,
-                step_size=self.step_size,
-                tol=self.tol,
-                warn=warn,
-            )
-        return solve_fluctuation(
-            scaled,
-            initial,
-            submodel,
-            weights,
-            observed,
-            kind=self.fluctuation,
-            target_weights=self.target_weights,
-            alpha=self.alpha,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            warn=warn,
+        return solve_submodel(
+            scaled, initial, submodel, weights, observed, self.targeting_spec(), warn=warn
         )
 
     def _solve_by_fold(

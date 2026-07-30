@@ -33,7 +33,13 @@ from ..utils.bounds import expit, logit, shrink_probabilities
 from ._score import quasi_loglik, relative_score, score_columns, score_scale
 from .submodel import Submodel, weighted_form
 
-__all__ = ["Fluctuation", "FoldFluctuation", "InitialFit", "solve_fluctuation"]
+__all__ = [
+    "Fluctuation",
+    "FoldFluctuation",
+    "InitialFit",
+    "apply_logistic",
+    "solve_fluctuation",
+]
 
 TargetingLabel = Literal["iterative", "one_step", "linear"]
 
@@ -217,7 +223,7 @@ def solve_fluctuation(
             tol=min(tol, 1e-12),
         )
         epsilon = epsilon + step
-        current = _apply_logistic(current, fit_submodel, step, alpha)
+        current = apply_logistic(current, fit_submodel, step, alpha)
         score = score_columns(y, current.observed, scoring_submodel.observed, w, mask)
         trace.append(relative_score(score, scale))
         if trace[-1] <= tol or (step_converged and np.max(np.abs(step)) <= tol):
@@ -248,7 +254,7 @@ def solve_fluctuation(
     )
 
 
-def _apply_logistic(
+def apply_logistic(
     fit: InitialFit, submodel: Submodel, epsilon: FloatArray, alpha: float
 ) -> InitialFit:
     """Move the predictions along the logistic submodel by ``epsilon``."""

@@ -210,15 +210,17 @@ import numpy as np
 
 from .._typing import FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..fluctuation.iterative import InitialFit, _apply_logistic
+from ..fluctuation.iterative import InitialFit, apply_logistic
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.influence import counterfactual_means, ratio_estimates
 from ..learners._fitting import predict_mean
 from ..learners.crossfit import Folds, make_folds
 from ..learners.screeners import correlation_strength
+from ..learners.super_learner import resolve_learner
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import NuisanceEstimates, _fit_with_groups, cross_fit_predictions
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, format_table, resolve_estimands
+from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
 
 __all__ = ["CTMLE", "CTMLELoss", "CTMLESearch", "CTMLESelection"]
@@ -529,9 +531,13 @@ class _Selector:
             if estimator.loss != "auto"
             else ("loglik" if data.family == "binomial" else "squared")
         )
-        self.learner: Learner = estimator._resolve_learner(
-            estimator.treatment_learner, task="classification"
+        self.learner: Learner = resolve_learner(
+            estimator.treatment_learner,
+            task="classification",
+            n_folds=estimator.learner_folds,
+            random_state=estimator.random_state,
         )
+        self.spec = estimator.targeting_spec()
         self._cache: dict[tuple[Any, ...], FloatArray] = {}
 
     # ------------------------------------------------------------ propensities
@@ -605,8 +611,13 @@ class _Selector:
     def submodel(self, propensity: FloatArray) -> Submodel:
         """The ``mean`` clever covariate at a candidate propensity."""
         nuisance = replace(self.base, propensity=propensity)
-        return self.est._submodel(
-            self.data, nuisance, "mean", self.bounds, self.intermediate_value, None
+        return build_submodel(
+            self.data,
+            nuisance,
+            "mean",
+            bounds=self.bounds,
+            nuisance_bound=self.est.nuisance_bound,
+            intermediate_value=self.intermediate_value,
         )
 
     def target(
@@ -617,12 +628,13 @@ class _Selector:
         Fitting and applying are separated because the cross-validated selector needs
         an ``epsilon`` fit on training rows and evaluated on held-out ones.
         """
-        fluctuation = self.est._solve_rows(
+        fluctuation = solve_submodel(
             self.scaled[rows],
             _restrict_fit(initial, rows),
             restrict(submodel, rows),
             self.data.weights[rows],
             self.data.observed[rows],
+            self.spec,
             warn=False,
         )
         return self.apply(initial, submodel, fluctuation.epsilon), fluctuation.epsilon
@@ -637,7 +649,7 @@ class _Selector:
                 initial.at_one + moved.at_one @ epsilon,
                 initial.at_zero + moved.at_zero @ epsilon,
             )
-        return _apply_logistic(initial.shrunk(est.alpha), moved, epsilon, est.alpha)
+        return apply_logistic(initial.shrunk(est.alpha), moved, epsilon, est.alpha)
 
     # --------------------------------------------------------------------- loss
 

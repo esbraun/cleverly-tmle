@@ -37,13 +37,15 @@ diagnostic can be.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 from .._typing import FloatArray
 from ..estimators.base import format_table
 from ..estimators.direct_effect import targeted_rows
+from ..estimators.targeting import build_submodel
+from ..fluctuation.submodel import TargetGroup
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -389,13 +391,19 @@ def _top_share(weights: FloatArray, fraction: float) -> float:
 
 
 def _max_abs_covariate(result: TMLEResult, group: str) -> float:
-    """Largest absolute clever-covariate value for one targeted family."""
-    estimator = result.estimator
-    if estimator is None:  # pragma: no cover - only for hand-built results
-        return float("nan")
+    """Largest absolute clever-covariate value for one targeted family.
+
+    Rebuilt from the data, the nuisance estimates and the config rather than from the
+    estimator, so this stays a real number on a result whose estimator is gone.
+    """
     bounds = result.config.g_bounds if group == "mean" else result.config.g_bounds_conditional
-    submodel = estimator._submodel(
-        result.data, result.nuisance, group, bounds, result.intermediate_value, None
+    submodel = build_submodel(
+        result.data,
+        result.nuisance,
+        cast("TargetGroup", group),
+        bounds=bounds,
+        nuisance_bound=result.config.missingness_bound,
+        intermediate_value=result.intermediate_value,
     )
     return submodel.max_abs
 

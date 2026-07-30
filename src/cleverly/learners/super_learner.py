@@ -35,7 +35,7 @@ from ._fitting import Task, as_target, fit_learner, infer_task, predict_mean
 from .crossfit import Folds, make_folds
 from .library import resolve_library
 
-__all__ = ["MetaLearner", "SuperLearner", "SuperLearnerDiagnostics"]
+__all__ = ["MetaLearner", "SuperLearner", "SuperLearnerDiagnostics", "resolve_learner"]
 
 MetaLearner = Literal["auto", "nnls", "nnloglik", "discrete"]
 
@@ -419,3 +419,36 @@ def _solve_nnloglik(
     if total <= 0:  # pragma: no cover - guarded by the simplex constraint
         return _one_hot(int(np.argmin(risks)), n_candidates)
     return np.asarray(alpha / total, dtype=float)
+
+
+def resolve_learner(
+    spec: Learner | str | Sequence[Any] | None,
+    *,
+    task: Task,
+    n_folds: int = 5,
+    random_state: int | None = None,
+    fallback: Learner | str | Sequence[Any] | None = None,
+) -> Learner:
+    """Turn a learner specification into an estimator ready to be fitted per fold.
+
+    A string or a sequence names a :class:`SuperLearner` library (see
+    :data:`cleverly.learners.LIBRARY_PRESETS`); ``None`` falls back to ``fallback``
+    and then to the ``"default"`` library; anything else is a scikit-learn compatible
+    estimator and is returned untouched.
+
+    A free function rather than a method so that the C-TMLE candidate search -- and
+    anything else that needs the same learner the estimator would have built -- does
+    not have to reach into a private method on the estimator to get one.
+    """
+    if spec is None:
+        spec = fallback
+    if spec is None or isinstance(spec, (str, list, tuple)):
+        return SuperLearner(
+            library="default" if spec is None else spec,
+            task=task,
+            n_folds=n_folds,
+            clip=(0.0, 1.0),
+            random_state=random_state,
+            n_jobs=1,
+        )
+    return spec

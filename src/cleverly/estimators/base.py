@@ -24,6 +24,7 @@ from ..inference.influence import ParameterEstimate
 from ..inference.multiplier import SimultaneousBands
 from ._nuisance import NuisanceEstimates
 from .direct_effect import describe as describe_direct_effect
+from .targeting import TargetingSpec
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..sensitivity.api import SensitivityAnalysis
@@ -105,8 +106,11 @@ class TMLEConfig:
     """
 
     family: str
-    fluctuation: str
-    targeting: str
+    #: Everything the targeting step needs that is not data.  Held as one object
+    #: rather than as loose fields so that re-solving a fluctuation -- the truncation
+    #: curve, the MNAR tilt, the C-TMLE search -- needs the config and not the live
+    #: estimator that produced it.
+    targeting_spec: TargetingSpec
     targeting_scheme: str
     cross_fit: bool
     n_folds: int
@@ -114,8 +118,6 @@ class TMLEConfig:
     g_bounds_conditional: tuple[float, float]
     missingness_bound: float
     q_bounds: tuple[float, float] | None
-    alpha: float
-    target_weights: bool
     screen_treatment: bool
     estimands: tuple[str, ...]
     alpha_sig: float
@@ -127,6 +129,23 @@ class TMLEConfig:
     #: fit had neither missing outcomes nor an intermediate variable, in which case the
     #: bound exists on the config but never touched anything.
     bounded_mechanisms: tuple[str, ...] = ()
+
+    # Read-through to the spec, so the settings appear once and cannot drift.
+    @property
+    def fluctuation(self) -> str:
+        return self.targeting_spec.fluctuation
+
+    @property
+    def targeting(self) -> str:
+        return self.targeting_spec.targeting
+
+    @property
+    def alpha(self) -> float:
+        return self.targeting_spec.alpha
+
+    @property
+    def target_weights(self) -> bool:
+        return self.targeting_spec.target_weights
 
     @property
     def estimator_name(self) -> str:
