@@ -11,7 +11,7 @@ import pytest
 
 from cleverly.data import CausalData
 from cleverly.data.validate import encode_binary, encode_treatment
-from cleverly.exceptions import DataError, WeightingWarning
+from cleverly.exceptions import DataError, DataWarning, WeightingWarning
 
 
 def _frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
@@ -545,11 +545,17 @@ class TestContinuousTreatment:
         with pytest.raises(DataError, match="cannot be treated as continuous"):
             CausalData.from_frame(frame, outcome="Y", treatment="A", treatment_kind="continuous")
 
-    def test_too_few_distinct_values_is_refused(self) -> None:
+    def test_too_few_distinct_values_warns_rather_than_refusing(self) -> None:
+        # A coarse support is estimable -- the density is a probability mass function and a
+        # shift moves along the ordered values, which is exactly what the discrete oracle
+        # law relies on. It is usually a mistake, so it warns; it is not an error.
         frame = _continuous_frame()
         frame["A"] = np.round(frame["A"] * 0.4)
-        with pytest.raises(DataError, match="too few to estimate a conditional density"):
-            CausalData.from_frame(frame, outcome="Y", treatment="A", treatment_kind="continuous")
+        with pytest.warns(DataWarning, match="declared continuous but takes only"):
+            data = CausalData.from_frame(
+                frame, outcome="Y", treatment="A", treatment_kind="continuous"
+            )
+        assert data.is_continuous_treatment
 
     @pytest.mark.parametrize("role", ["delta", "weights", "intermediate"])
     def test_the_roles_that_need_a_per_arm_factor_are_refused(self, role: str) -> None:

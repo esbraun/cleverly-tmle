@@ -836,8 +836,12 @@ class CausalData:
             f"n={self.n}",
             f"family={self.family!r}",
             f"covariates={self.n_covariates}",
-            f"P(A=1)={self.treated_fraction:.3f}",
         ]
+        if self.is_continuous_treatment:
+            low, high = float(self.treatment.min()), float(self.treatment.max())
+            parts.append(f"{self.treatment_name} in [{low:.3g}, {high:.3g}]")
+        else:
+            parts.append(f"P(A=1)={self.treated_fraction:.3f}")
         if self.has_missing_outcome:
             parts.append(f"observed={float(self.observed.mean()):.3f}")
         if self.cluster is not None:

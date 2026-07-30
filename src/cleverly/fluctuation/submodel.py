@@ -109,6 +109,7 @@ __all__ = [
     "att_submodel",
     "check_arms",
     "mean_submodel",
+    "mtp_submodel",
     "regime_submodel",
     "register_submodel",
     "restrict",
@@ -293,6 +294,7 @@ def mean_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
+    shifts: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per arm, targeting every counterfactual mean at once.
 
@@ -334,7 +336,7 @@ def mean_submodel(
         indicator multiplies only the *observed* covariate -- the counterfactual
         columns are already evaluated at ``Z = z`` by construction.
     """
-    del treated_fraction, regimes  # see the parameters' docstrings
+    del treated_fraction, regimes, shifts  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -412,6 +414,7 @@ def regime_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
+    shifts: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per *regime*, targeting :math:`E[Y^{g^\star_r}]` for each.
 
@@ -444,7 +447,7 @@ def regime_submodel(
     treated_fraction:
         Accepted and ignored; see :func:`mean_submodel`.
     """
-    del treated_fraction  # see the parameter's docstring
+    del treated_fraction, shifts  # see the parameter's docstring
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -484,6 +487,70 @@ def regime_submodel(
     )
 
 
+def mtp_submodel(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    *,
+    arms: tuple[float, ...] = (0.0, 1.0),
+    treated_fraction: float | None = None,
+    missingness: FloatArray | None = None,
+    intermediate_density: FloatArray | None = None,
+    selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
+    shifts: FloatArray | None = None,
+) -> Submodel:
+    r"""One column per *shift*, targeting :math:`E[\bar Q(d_\delta(A, W), W)]` for each.
+
+    .. math::
+
+        h_r(a, W) = \frac{g(a - \delta_r \mid W)}{g(a \mid W)}
+                    + \mathbb 1\{a > u_r - \delta_r\}
+
+    -- see :mod:`cleverly.interventions.shift` for the derivation, the sanity checks it
+    satisfies, and why this is not the ``regime`` fluctuation at the induced density.
+
+    ``shifts`` is the ``(n, S, S)`` array
+    :math:`h_r(d_s(A_i, W_i), W_i)` **stacked with** the ``(n, S)`` covariate at the
+    observed treatment; both are read off
+    :class:`~cleverly.interventions.shift.ShiftSet`, which computed them from one stored
+    conditional density.  ``propensity`` is ignored: a continuous treatment has no
+    per-arm mechanism, and its ``(n, 0)`` propensity carries no information.
+
+    Unlike ``regime``, ``arm_columns`` is **populated**: column ``s`` really does target
+    one parameter, the mean under shift ``s``, so
+    :meth:`~Submodel.column_for` can answer and
+    :func:`~cleverly.inference.influence.shift_means` reads it.
+    """
+    del propensity, arms, treated_fraction, missingness, intermediate_density, regimes
+    if shifts is None:
+        raise ValueError(
+            "the 'mtp' submodel needs shifts=: the clever covariate evaluated at the "
+            "observed treatment and at each shifted one. Build one with "
+            "cleverly.interventions.ShiftSet.evaluate."
+        )
+    stacked = np.asarray(shifts, dtype=float)
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    n = a.shape[0]
+    if stacked.ndim != 3 or stacked.shape[0] != n or stacked.shape[1] != stacked.shape[2] + 1:
+        raise ValueError(
+            "the 'mtp' submodel needs shifts= of shape (n, S + 1, S): the covariate at "
+            f"the observed treatment stacked above the one at each shifted treatment. "
+            f"Got {stacked.shape} for {n} rows."
+        )
+    keep = _selection_indicator(n, selection)
+    observed = keep[:, None] * stacked[:, 0, :]
+    counterfactual = {
+        float(index): keep[:, None] * stacked[:, index + 1, :] for index in range(stacked.shape[2])
+    }
+    return Submodel(
+        observed,
+        counterfactual,
+        tuple(f"h_shift{r}" for r in range(stacked.shape[2])),
+        "mtp",
+        {float(index): index for index in range(stacked.shape[2])},
+    )
+
+
 def _binary_margin(
     propensity: FloatArray, arms: tuple[float, ...], group: str
 ) -> tuple[FloatArray, FloatArray]:
@@ -520,6 +587,7 @@ def att_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
+    shifts: FloatArray | None = None,
 ) -> Submodel:
     r"""One-column submodel targeting the ATT.
 
@@ -537,7 +605,7 @@ def att_submodel(
     ``g_0(W)``; it is also why ``g_bounds="auto"`` uses a more conservative bound
     for this estimand.
     """
-    del regimes  # accepted and ignored; the ATT conditions on an arm, not on a regime
+    del regimes, shifts  # accepted and ignored; the ATT conditions on an arm, not a regime
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     share = _required_treated_fraction(treated_fraction, "att")
@@ -571,9 +639,10 @@ def atc_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
+    shifts: FloatArray | None = None,
 ) -> Submodel:
     """One-column submodel targeting the ATC -- the mirror image of the ATT."""
-    del regimes  # accepted and ignored, as in att_submodel
+    del regimes, shifts  # accepted and ignored, as in att_submodel
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     # In (0, 1) because the treated share is, which the helper has already enforced --
@@ -654,6 +723,7 @@ register_submodel("mean", mean_submodel)
 register_submodel("att", att_submodel)
 register_submodel("atc", atc_submodel)
 register_submodel("regime", regime_submodel)
+register_submodel("mtp", mtp_submodel)
 
 
 #: Keyword arguments that joined :data:`SubmodelBuilder`'s signature after it was first
@@ -672,6 +742,13 @@ _SIGNATURE_ADDITIONS: dict[str, str] = {
         "'regimes=None' to its keyword-only parameters. A builder that targets arms "
         "rather than regimes should accept and ignore it, as mean_submodel does."
     ),
+    "shifts": (
+        "Every submodel builder now takes the shift clever covariates, because a "
+        "treatment may be continuous and its intervention a modified treatment policy "
+        "rather than anything indexed by an arm; add 'shifts=None' to its keyword-only "
+        "parameters. A builder that targets arms or regimes should accept and ignore it, "
+        "as mean_submodel does."
+    ),
 }
 
 
@@ -686,6 +763,7 @@ def submodel_for(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
+    shifts: FloatArray | None = None,
 ) -> Submodel:
     """Build the clever covariate for an estimand family, by registry lookup.
 
@@ -711,6 +789,7 @@ def submodel_for(
             intermediate_density=intermediate_density,
             selection=selection,
             regimes=regimes,
+            shifts=shifts,
         )
     except TypeError as error:
         # Some keywords are newer than the extension point, so a builder written against

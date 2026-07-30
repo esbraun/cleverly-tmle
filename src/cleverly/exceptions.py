@@ -6,6 +6,7 @@ __all__ = [
     "CleverlyError",
     "ConvergenceWarning",
     "DataError",
+    "DataWarning",
     "NotFittedError",
     "PositivityWarning",
     "WeightingWarning",
@@ -22,6 +23,16 @@ class DataError(CleverlyError, ValueError):
 
 class NotFittedError(CleverlyError, RuntimeError):
     """A result was requested from an estimator that has not been fitted."""
+
+
+class DataWarning(UserWarning):
+    """The supplied data is usable, but is probably not what the caller meant.
+
+    Distinguished from :class:`DataError` on purpose: an error says the estimator cannot
+    proceed, and a warning says it can but the reading of the data may be the wrong one.
+    Declaring a six-level dose continuous is the motivating case -- estimable, and usually
+    a mistake.
+    """
 
 
 class ConvergenceWarning(UserWarning):

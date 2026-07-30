@@ -617,6 +617,7 @@ def treated_only(
     intermediate_density=None,
     selection=None,
     regimes=None,
+    shifts=None,
 ):
     """One column, 1{A = 1} / g₁(W) — the Riesz representer of E[Y(1)]."""
     a = np.asarray(treatment, dtype=float).reshape(-1)

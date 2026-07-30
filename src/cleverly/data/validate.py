@@ -14,10 +14,11 @@ from collections.abc import Sequence
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import DataError
+from ..exceptions import DataError, DataWarning
 
 __all__ = [
     "MAX_TREATMENT_LEVELS",
+    "MIN_CONTINUOUS_LEVELS",
     "check_binary",
     "check_covariates",
     "check_delta",
@@ -133,12 +134,15 @@ def encode_treatment(
     return _check_arms(codes, levels_obj, name, min_per_arm), levels_obj
 
 
-#: Fewest distinct values a continuous treatment must take.  A density estimated by
-#: binning cannot say anything useful about a column that only visits a handful of
-#: points, and a column that discrete is nearly always one the caller meant to declare as
-#: arms.  Well below :data:`MAX_TREATMENT_LEVELS`, so the two regimes overlap: a treatment
-#: with between this many and twenty levels can legitimately be read either way, and which
-#: one is right is the caller's modelling choice rather than something to infer.
+#: Below this many distinct values, a treatment declared continuous is *probably* a set of
+#: arms the caller forgot to declare -- so it warns.  It does not refuse, because a
+#: coarse support is not an obstacle to the estimator: the density on a handful of points
+#: is a probability mass function with unit-width bins, and a shift along an ordered
+#: discrete dose is a perfectly well-defined modified treatment policy.  (That case is not
+#: hypothetical -- it is what ``tests/discrete_law_shift.py`` uses to check the influence
+#: curve against a numerically differentiated one, which needs finite support.)  Well below
+#: :data:`MAX_TREATMENT_LEVELS`, so the two readings overlap and the choice stays the
+#: caller's.
 MIN_CONTINUOUS_LEVELS = 10
 
 
@@ -162,12 +166,21 @@ def encode_continuous_treatment(values: np.ndarray, name: str) -> FloatArray:
     if not np.all(np.isfinite(numeric)):
         raise DataError(f"{name} contains missing or non-finite values")
     distinct = int(np.unique(numeric).size)
-    if distinct < MIN_CONTINUOUS_LEVELS:
+    if distinct < 2:
         raise DataError(
-            f"{name} takes only {distinct} distinct values, too few to estimate a "
-            f"conditional density by binning (at least {MIN_CONTINUOUS_LEVELS} are "
-            "needed). If those values are the arms of a categorical treatment, drop "
-            "treatment_kind='continuous' and they will be coded as arms."
+            f"{name} takes only one value; a treatment needs at least two for a "
+            "counterfactual contrast to be defined"
+        )
+    if distinct < MIN_CONTINUOUS_LEVELS:
+        warnings.warn(
+            f"{name} was declared continuous but takes only {distinct} distinct values. "
+            "That is estimable -- the density becomes a probability mass function and a "
+            "shift moves along the ordered values -- but if those values are the arms of "
+            "a categorical treatment, dropping treatment_kind='continuous' gives the "
+            "per-arm estimands instead, which are what most analyses of a few levels "
+            "want.",
+            DataWarning,
+            stacklevel=3,
         )
     return numeric
 
