@@ -24,6 +24,7 @@ from ..inference.cluster import influence_covariance
 from ..inference.delta import delta_method
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.multiplier import SimultaneousBands
+from ..learners.crossfit import CrossFitPlan
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
 from ._nuisance import NuisanceEstimates
@@ -111,6 +112,13 @@ class TMLEConfig:
     #: estimand names, so a result read back from disk can say what it reported without
     #: parsing them.
     parameter_axis: ParameterAxis = "arm"
+    #: The fold policy the caller *declared*, as against ``n_folds`` above, which is the
+    #: count the fit actually ran.  The two come apart without leaving a trace otherwise:
+    #: ``resolve_n_folds`` caps the count at the rarest stratum and ``make_folds`` caps it
+    #: again at the cluster count, each with a warning that is gone by the time anyone
+    #: reads the result.  Defaulted so that every existing construction and
+    #: ``dataclasses.replace`` keeps working untouched.
+    crossfit: CrossFitPlan = field(default_factory=CrossFitPlan)
 
     # Read-through to the spec, so the settings appear once and cannot drift.
     @property
@@ -156,6 +164,15 @@ class TMLEConfig:
             )
         else:
             lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
+        if self.cross_fit and self.crossfit.n_folds != self.n_folds:
+            # Only when they disagree, because agreeing is the ordinary case and a line
+            # that always appears is a line nobody reads. When they do disagree the
+            # warning that explained it was emitted at fit time and is long gone, so this
+            # is the only place a reader can find out that the split was capped.
+            lines.append(
+                f"  ({self.crossfit.n_folds} folds were declared; the split was capped "
+                f"at {self.n_folds} by the rarest stratum or the cluster count)"
+            )
         # A shift fit's mechanism is a conditional density, not a propensity: nothing is
         # truncated into g_bounds and reporting the bound would name a step that did not
         # happen. What bounds a density ratio there is the cap the analyst declared,

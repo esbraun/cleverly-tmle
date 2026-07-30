@@ -879,7 +879,12 @@ class _Selector:
         folds = make_folds(
             data.n,
             self.est.selection_folds,
-            stratify=data.treatment,
+            # The same stratum the outer folds use, rather than data.treatment again: a
+            # selection fold with no events makes both the loss and the per-fold
+            # influence curve below degenerate, which is the failure stratify_folds
+            # exists to prevent, and it would be odd for the option to protect one split
+            # and not the other.
+            stratify=self.est._fold_strata(data),
             cluster=data.cluster,
             random_state=self.est.random_state,
         )

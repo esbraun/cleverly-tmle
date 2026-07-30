@@ -82,6 +82,7 @@ from .._typing import (
     Family,
     FloatArray,
     FluctuationKind,
+    FoldStrata,
     GBounds,
     IntArray,
     Learner,
@@ -112,7 +113,7 @@ from ..inference.influence import (
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import RegimeSet, Shift, ShiftSet, as_interventions
 from ..learners._fitting import Task
-from ..learners.crossfit import Folds, make_folds
+from ..learners.crossfit import CrossFitPlan, Folds, make_folds
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, MSMSet
 from ..provenance import record as provenance_record
@@ -257,6 +258,24 @@ class TMLE:
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
+    stratify_folds:
+        What the outer folds are balanced on.  ``"treatment"``, the default, balances the
+        arms so no fold is left without one and the propensity model is fittable
+        everywhere.  ``"treatment+outcome"`` crosses the outcome in, which matters when
+        events are rare: an arm-balanced fold can still contain none of them, and an
+        outcome regression fitted on a fold with no events is degenerate.  The fold count
+        is then capped at the rarest *cell* rather than the rarer arm, so asking for ten
+        folds on a 2% event rate will reduce them, with a warning saying so.
+
+        Binary outcomes only, and refused on a continuous dose -- both refusals name what
+        they would need.  An unobserved outcome (``delta=``) is its own stratum rather
+        than being pooled with ``Y = 0``, since a fold with no *observed* outcomes in an
+        arm cannot fit the regression either.
+
+        Worth stating plainly: this makes the fold assignment a function of the outcome,
+        and the cross-fitting argument conditions on the split.  That is a statement about
+        which splits are conditioned on, not a bias -- and the alternative it is weighed
+        against is a fold that cannot fit the regression at all.
     g_bounds:
         Propensity truncation.  ``"auto"`` uses ``5 / (sqrt(n) log n)`` for the
         ATE family and ``0.025`` for the ATT/ATC, matching R's ``tmle``.
@@ -314,6 +333,7 @@ class TMLE:
         cv_evaluation: bool = False,
         n_folds: int = 10,
         learner_folds: int = 5,
+        stratify_folds: FoldStrata = "treatment",
         g_bounds: GBounds = "auto",
         q_bounds: tuple[float, float] | None = None,
         alpha: float = 0.9995,
@@ -354,6 +374,7 @@ class TMLE:
         self.cv_evaluation = cv_evaluation
         self.n_folds = n_folds
         self.learner_folds = learner_folds
+        self.stratify_folds = stratify_folds
         self.g_bounds = g_bounds
         self.q_bounds = q_bounds
         self.alpha = alpha
@@ -440,6 +461,11 @@ class TMLE:
                 "-- there is nothing for it to be a reference for. Which arm is the "
                 "baseline is decided by the design you gave msm=, usually by an intercept "
                 "column. A difference of two coefficients comes from result.contrast()."
+            )
+        if self.stratify_folds not in ("treatment", "treatment+outcome"):
+            raise ValueError(
+                "stratify_folds must be 'treatment' or 'treatment+outcome'; got "
+                f"{self.stratify_folds!r}"
             )
         if self.density_bins < 3:
             raise ValueError(
@@ -816,20 +842,15 @@ class TMLE:
         )
 
     def _folds(self, data: CausalData) -> Folds:
-        if not self.cross_fit:
+        plan = self.crossfit_plan(data)
+        if not plan.cross_fit:
             return Folds.single(data.n)
         return make_folds(
             data.n,
-            self.n_folds,
-            # Stratifying on a dose would ask for folds balanced on a variable whose every
-            # value is its own stratum, which caps the fold count at the rarest "class" --
-            # one row -- and refuses to split at all. The density's bins are what a
-            # continuous treatment stratifies on in spirit, and they are chosen inside
-            # fit_conditional_density from the training rows of each fold, so they cannot
-            # be known here without leaking the split into itself.
-            stratify=None if data.is_continuous_treatment else data.treatment,
+            plan.n_folds,
+            stratify=self._fold_strata(data),
             cluster=data.cluster,
-            random_state=self.random_state,
+            random_state=plan.random_state,
         )
 
     def _resolve_learner(
@@ -999,6 +1020,7 @@ class TMLE:
             n_bootstrap=self.n_bootstrap,
             reference_arm=self._reference_arm(data),
             parameter_axis=self._axis,
+            crossfit=self.crossfit_plan(data),
         )
 
     def _warn_on_estimated_weights(self, data: CausalData) -> None:
@@ -1278,6 +1300,93 @@ class TMLE:
             max_iter=self.max_iter,
             tol=self.tol,
             step_size=self.step_size,
+        )
+
+    def _fold_strata(self, data: CausalData) -> FloatArray | None:
+        """What the outer folds are balanced on, as one code per row.
+
+        ``None`` when there is nothing to balance.  A dose is the case that matters:
+        stratifying on it would ask for folds balanced on a variable whose every value is
+        its own stratum, which caps the fold count at the rarest "class" -- one row -- and
+        refuses to split at all.  The density's bins are what a continuous treatment
+        stratifies on in spirit, and they are chosen inside ``fit_conditional_density``
+        from the training rows of each fold, so they cannot be known here without leaking
+        the split into itself.
+
+        With ``stratify_folds="treatment+outcome"`` the code is the treatment crossed with
+        the outcome, and an unobserved outcome is its own level rather than being folded
+        in with ``Y = 0``: a fold with no *observed* outcomes in an arm cannot fit the
+        outcome regression either, which is the failure the option exists to prevent.
+        ``resolve_n_folds`` then caps the fold count at the rarest cell rather than the
+        rarer arm, which is the whole mechanism -- no other code changes.
+        """
+        if self.stratify_folds == "treatment+outcome":
+            # Refused rather than quietly ignored: a caller who asked for this asked
+            # because they have a rare level to protect, and silently not protecting it
+            # is the worst of the three outcomes.
+            if data.is_continuous_treatment:
+                raise DataError(
+                    "stratify_folds='treatment+outcome' needs arms to cross the outcome "
+                    "with, and this fit declared a continuous dose with shifts=. A dose "
+                    "has no strata: every value is its own, which caps the fold count at "
+                    "one row. What a continuous treatment balances on in spirit is the "
+                    "density's bins, and those are chosen inside each training fold."
+                )
+            if data.family != "binomial":
+                raise DataError(
+                    "stratify_folds='treatment+outcome' needs a binary outcome to have a "
+                    f"rare level worth balancing, and this fit's family is "
+                    f"{data.family!r}. Crossing a continuous outcome in would make every "
+                    "distinct value its own stratum and refuse to split at all; leave "
+                    "stratify_folds='treatment'."
+                )
+        if data.is_continuous_treatment:
+            return None
+        if self.stratify_folds == "treatment":
+            return data.treatment
+        outcome = np.where(data.observed, data.outcome, -1.0)
+        codes: FloatArray = np.unique(
+            np.column_stack([data.treatment, outcome]), axis=0, return_inverse=True
+        )[1].astype(float)
+        return codes
+
+    def crossfit_plan(self, data: CausalData) -> CrossFitPlan:
+        """The fold policy this estimator declared, as one object.
+
+        Recorded on every result via :attr:`TMLEConfig.crossfit`, beside the fold count
+        the fit actually ran.  The two can differ -- ``resolve_n_folds`` caps at the
+        rarest stratum and ``make_folds`` at the cluster count -- and the warnings that
+        say so are gone by the time anyone reads the result.
+
+        Takes ``data`` because two of the fields are answers about it rather than
+        settings: whether clusters were declared, and whether the treatment has strata to
+        balance at all.  Both decisions are made here and in :meth:`_folds`, which is one
+        place too many, so :meth:`_folds` reads them off the plan.
+        """
+        cross_fit = self.cross_fit
+        if not cross_fit or data.is_continuous_treatment:
+            stratify_by: tuple[str, ...] = ()
+        elif self.stratify_folds == "treatment":
+            stratify_by = (data.treatment_name,)
+        else:
+            stratify_by = (data.treatment_name, data.outcome_name)
+        clustered = cross_fit and data.cluster is not None
+        if not cross_fit:
+            scheme = "none"
+        elif clustered and stratify_by:
+            scheme = "stratified-grouped"
+        elif clustered:
+            scheme = "grouped"
+        elif stratify_by:
+            scheme = "stratified"
+        else:
+            scheme = "vfold"
+        return CrossFitPlan(
+            n_folds=self.n_folds if cross_fit else 1,
+            learner_folds=self.learner_folds,
+            scheme=scheme,
+            stratify_by=stratify_by,
+            random_state=self.random_state,
         )
 
     def _submodel(

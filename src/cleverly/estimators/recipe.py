@@ -43,6 +43,7 @@ SETTING_NAMES: tuple[str, ...] = (
     "cv_evaluation",
     "n_folds",
     "learner_folds",
+    "stratify_folds",
     "g_bounds",
     "q_bounds",
     "alpha",

@@ -305,6 +305,11 @@ class TestFormat:
         # manifest must say so rather than leaving the reader to discover it.
         assert "simultaneous" in manifest["dropped"]
 
+    def test_the_declared_fold_policy_survives_the_round_trip(self, result) -> None:  # type: ignore[no-untyped-def]
+        # The plan is what says a fit *asked* for 10 folds; losing it would leave only
+        # the count it got, which is the question the field exists to answer.
+        assert loads(dumps(result)).config.crossfit == result.config.crossfit
+
 
 class TestProvenance:
     def test_identical_data_gives_an_identical_fingerprint(self) -> None:

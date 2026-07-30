@@ -10,7 +10,14 @@ from ._fitting import (
     supports_sample_weight,
 )
 from ._threads import get_thread_limit, set_thread_limit, thread_limit
-from .crossfit import Folds, make_folds, resolve_n_folds
+from .crossfit import (
+    CrossFitPlan,
+    Folds,
+    check_integrity,
+    make_folds,
+    refuse_scheme,
+    resolve_n_folds,
+)
 from .density import (
     ConditionalDensity,
     DensityDiagnostics,
@@ -25,12 +32,14 @@ __all__ = [
     "LIBRARY_PRESETS",
     "ConditionalDensity",
     "CorrelationScreener",
+    "CrossFitPlan",
     "DensityDiagnostics",
     "Folds",
     "SuperLearner",
     "SuperLearnerDiagnostics",
     "accepts_groups",
     "bin_edges",
+    "check_integrity",
     "fit_conditional_density",
     "fit_learner",
     "get_thread_limit",
@@ -38,6 +47,7 @@ __all__ = [
     "infer_task",
     "make_folds",
     "predict_mean",
+    "refuse_scheme",
     "resolve_library",
     "resolve_n_folds",
     "screen_by_correlation",

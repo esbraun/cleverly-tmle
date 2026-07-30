@@ -309,7 +309,9 @@ def cross_fit_predictions(
         if rows.size == 0:
             raise ValueError(
                 "a cross-fitting fold has no trainable rows for a nuisance model; "
-                "reduce n_folds or supply cluster-aware folds"
+                "reduce n_folds, supply cluster-aware folds, or -- when the outcome is "
+                "the rare thing rather than the arm -- pass "
+                "stratify_folds='treatment+outcome'"
             )
         model = _fit_with_groups(learner, design, target, weights, rows, task, groups)
         predictions = {
