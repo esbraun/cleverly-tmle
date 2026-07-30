@@ -448,10 +448,47 @@ class TMLE:
         if not prepared.has_intermediate:
             return self._fit_single(prepared, intermediate_value=None)
 
-        results = {
-            value: self._fit_single(prepared, intermediate_value=value) for value in (0.0, 1.0)
-        }
+        # The controlled direct effect at z = 0 and at z = 1 are different parameters,
+        # so they get one result each -- but they are estimated from *identical*
+        # nuisance models. Every model here (propensity, missingness, the intermediate
+        # mechanism, and the outcome regression, whose design uses the observed Z)
+        # is level-independent; only the counterfactual designs the outcome regression
+        # is predicted onto differ. Fitting per level refits all four to obtain two
+        # extra prediction vectors, so the levels are estimated in one pass and the
+        # targeting step is run twice against the shared fits.
+        levels = (0.0, 1.0)
+        if self._shares_nuisances_across_levels():
+            shared = self._prepare_shared(prepared, levels)
+            results = {
+                value: self._fit_single(prepared, intermediate_value=value, shared=shared)
+                for value in levels
+            }
+        else:
+            results = {
+                value: self._fit_single(prepared, intermediate_value=value) for value in levels
+            }
         return TMLEResultSet(results, prepared.intermediate_name or "Z")
+
+    def _shares_nuisances_across_levels(self) -> bool:
+        """Whether the two controlled direct effects can share one set of nuisance fits.
+
+        True for the base estimator, where the nuisances are level-independent by
+        construction.  A variant that chooses *which* nuisance to hand to the targeting
+        step -- :class:`~cleverly.CTMLE`, whose propensity selection is scored against a
+        level-specific targeted loss -- must opt out and refit per level.
+        """
+        return type(self)._nuisances is TMLE._nuisances
+
+    def _prepare_shared(
+        self, data: CausalData, levels: Sequence[float]
+    ) -> tuple[OutcomeScaler, Folds, NuisanceEstimates]:
+        """Fit the level-independent nuisances once, for every requested level."""
+        scaler = self._scaler(data)
+        folds = self._folds(data)
+        nuisance = self._fit_nuisances(
+            data, folds, scaler, levels[0], extra_levels=tuple(levels[1:])
+        )
+        return scaler, folds, nuisance
 
     def refit(self, data: CausalData, *, intermediate_value: float | None = None) -> TMLEResult:
         """Run the whole fit again -- nuisances included -- on already-prepared data.
@@ -521,13 +558,29 @@ class TMLE:
             family=self.family,
         )
 
-    def _fit_single(self, data: CausalData, *, intermediate_value: float | None) -> TMLEResult:
-        """Fit for one value of the intermediate (or for no intermediate at all)."""
+    def _fit_single(
+        self,
+        data: CausalData,
+        *,
+        intermediate_value: float | None,
+        shared: tuple[OutcomeScaler, Folds, NuisanceEstimates] | None = None,
+    ) -> TMLEResult:
+        """Fit for one value of the intermediate (or for no intermediate at all).
+
+        ``shared`` supplies nuisance fits already computed for every level of the
+        intermediate; only the targeting step then runs per level.
+        """
         estimands = resolve_estimands(self.estimands, data.family)
-        scaler = self._scaler(data)
-        folds = self._folds(data)
-        config = self._config(data, estimands, scaler, folds)
-        nuisance, extra = self._nuisances(data, folds, scaler, config, intermediate_value)
+        if shared is not None:
+            scaler, folds, pooled = shared
+            config = self._config(data, estimands, scaler, folds)
+            extra: dict[str, Any] = {}
+            nuisance = pooled.at_level(cast("float", intermediate_value))
+        else:
+            scaler = self._scaler(data)
+            folds = self._folds(data)
+            config = self._config(data, estimands, scaler, folds)
+            nuisance, extra = self._nuisances(data, folds, scaler, config, intermediate_value)
         self._warn_on_positivity(nuisance, config, intermediate_value)
         self._warn_on_estimated_weights(data)
 
@@ -622,6 +675,7 @@ class TMLE:
         folds: Folds,
         scaler: OutcomeScaler,
         intermediate_value: float | None,
+        extra_levels: Sequence[float] = (),
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         return fit_nuisances(
@@ -649,6 +703,7 @@ class TMLE:
             folds=folds,
             scaler=scaler,
             intermediate_value=intermediate_value,
+            extra_levels=extra_levels,
             screen_treatment=self.screen_treatment,
             screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
