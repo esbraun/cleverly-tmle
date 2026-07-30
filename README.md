@@ -97,6 +97,99 @@ labels is alphabetical, so `{"low", "medium", "high"}` defaults to `"high"`. Pas
 A two-armed fit is unchanged in every respect, including the familiar `ate` / `ey1` /
 `ey0` names.
 
+### Dynamic and stochastic regimes
+
+"Set `A` to 1 for everybody" is one intervention among many, and until you say otherwise
+it is the one every estimand above assumes. `interventions=` says otherwise. A **regime**
+is a conditional distribution over the treatment arms, `g*(a | W)`, and three kinds are
+supported: a constant arm, a deterministic rule `d(W)`, and a stochastic assignment you
+supply. The clever covariate generalises from `1{A = a} / g(a | W)` to the density ratio
+`g*(A | W) / g(A | W)`, and the parameter from a mean per arm to a mean per regime.
+
+```python
+import numpy as np
+
+from cleverly import TMLE
+from cleverly.datasets import make_nonlinear_ate
+from cleverly.interventions import Rule, Static, Stochastic
+
+frame, truth = make_nonlinear_ate(n=2000, seed=0)
+res = (
+    TMLE(
+        random_state=0,
+        interventions=(
+            Static(0, name="treat nobody"),
+            Rule(lambda w: (np.asarray(w["W1"]) > 0).astype(int), name="treat if W1 > 0"),
+            Stochastic(
+                lambda w: np.column_stack([np.full(len(w), 0.7), np.full(len(w), 0.3)]),
+                name="treat 30% at random",
+            ),
+        ),
+        reference="treat nobody",
+    )
+    .fit(frame, outcome="Y", treatment="A")
+    .single()
+)
+print(res.summary())
+```
+
+```
+estimand                                            psi  std_err  95% CI
+-----------------------------------------------  ------  -------  ------------------
+ey_regime[treat nobody]                          2.0148  0.04816  [1.9204, 2.1091]
+ey_regime[treat if W1 > 0]                       3.0747  0.05535  [2.9662, 3.1832]
+ey_regime[treat 30% at random]                   2.4711  0.03870  [2.3952, 2.5469]
+ate_regime[treat if W1 > 0 vs treat nobody]      1.0600  0.05220  [0.95766, 1.1623]
+ate_regime[treat 30% at random vs treat nobody]  0.4563  0.02037  [0.41637, 0.49624]
+```
+
+A `Stochastic` regime's density must be a *known* function of `W` — a fixed design, not
+one derived from the estimated mechanism. That restriction is the whole content of the
+first refusal below.
+
+A rule is handed the **covariates only**, in the backend you passed in, and returns the
+treatment *level* to assign — your own label, not an internal code. Reading `Y` there is
+not an intervention and reading `A` is a different object again, so the frame simply does
+not carry them. Note that the columns are the *encoded* covariates, so a categorical
+column appears as the indicators the data layer expanded it into.
+
+Regimes replace the arm-indexed estimands rather than joining them: `interventions=`
+declares what the fit's counterfactuals are, and asking one fit for both `ey1` and
+`ey_regime` is refused. With static regimes the numbers are bit-for-bit those of an
+ordinary fit, which is what `tests/unit/test_regimes.py` asserts.
+
+Positivity means something different here, and has its own report:
+
+```python
+print(res.sensitivity.support().summary())
+```
+
+```
+regime                       min g   max ratio   effective n  unsupported
+-------------------------------------------------------------------------
+treat nobody                 0.193        4.31        1022.4            0
+treat if W1 > 0             0.3853       2.596        1163.8            0
+treat 30% at random         0.1494       3.017        1711.3            0
+```
+
+A rule's positivity question is not "is `g` bounded away from zero" but "is it bounded
+away from zero at the arm this rule assigns". Two fits with identical marginal overlap can
+differ completely on that, and no arm-level table shows it.
+
+Two interventions are **refused rather than approximated**, both because of the influence
+function and not for want of effort:
+
+| refused | what it would need |
+| --- | --- |
+| incremental propensity-score interventions (`g*_δ = δg / (δg + 1 - g)`) | `g*` is a functional of `P`, so the EIF carries a further term for the pathwise derivative through `g` (Kennedy 2019). Estimating one as a `Stochastic` regime would report a standard error for a different functional |
+| modified treatment policies shifting a *continuous* treatment | `g*` and `g` as conditional densities on a continuum; the learner interface estimates means and probabilities over a finite set of arms, with no `predict_density`. A shift of a discrete treatment is a `Rule` |
+
+The influence curve is checked on the same footing as the ATE's: against the complex-step
+Gateaux derivative of an independently written functional at `1e-12`
+(`tests/unit/test_influence_gateaux_regime.py`), and the second-order remainder against its
+closed form (`tests/unit/test_remainder_regime.py`), over a static regime, a rule that
+depends on `W`, and a stochastic one that is degenerate nowhere.
+
 ### Collaborative TMLE
 
 A propensity model fitted to predict treatment as well as possible is fitted to the wrong
@@ -358,7 +451,11 @@ direct effect (`..._cde.py`), and the per-arm means and contrasts on a **three-a
 (`..._multi.py`, against `tests/discrete_law_multi.py`). The third arm is not decoration:
 two arms cannot distinguish code that keys everything by arm from code that has two columns
 and calls them 0 and 1, and that law's labels sort into a different order than they were
-written in so a helper equating arm code with arm position fails rather than passes. The second-order remainder is checked against its closed form in the three
+written in so a helper equating arm code with arm position fails rather than passes. The
+regime estimands get the same treatment (`..._regime.py`), over a static regime, a rule
+that depends on `W` and a stochastic one that is degenerate nowhere — three kinds because
+two static regimes could not distinguish code that mixes over the arms from code that
+picks a column. The second-order remainder is checked against its closed form in the four
 matching `test_remainder*.py` modules, which is what double robustness actually consists of.
 Every one of these modules carries deliberate-mutation controls: each plausible way of
 building the thing wrong is shown to move the answer by more than `1e-2`, four orders past
@@ -394,8 +491,9 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 
 | Capability | Notes |
 | --- | --- |
-| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one |
+| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one; `ey_regime` / `ate_regime` when the fit declares `interventions=` |
 | Multi-valued treatment | any number of arms up to 20. The mechanism becomes a distribution over the arms and the `mean` fluctuation gets one clever-covariate column per arm, so the fit reports `K` counterfactual means with a joint influence-curve matrix and `K-1` contrasts against `reference=`. Every other contrast — a dose-response comparison, a pairwise difference the reference skipped — comes from `result.contrast()` with no refit. Parameters are named with your own labels: `ey[high]`, `ate[high vs low]`. A two-armed fit is unchanged, bit for bit, and keeps the short names. What is refused rather than guessed at: `ATT`/`ATC` (they reweight one arm by the propensity odds), `CTMLE` (both searches order candidates by one propensity margin), the omitted-variable bound and the MNAR tilt |
+| Interventions | `interventions=` declares what "counterfactual" means for the fit: a constant arm (`Static`), a deterministic rule `d(W)` (`Rule`), or a known stochastic assignment `g*(a | W)` (`Stochastic`). All three are one `(n, K)` density over the arms, so one clever covariate `g*(A | W) / g(A | W)` covers them and collapses to the familiar indicator form exactly when the regime is static — where the numbers are bit for bit an ordinary fit's. The report becomes `ey_regime[...]` per regime and `ate_regime[... vs ...]` per non-reference regime, and `sensitivity.support()` reports the positivity a regime actually needs. What is refused rather than approximated: incremental propensity-score interventions (their `g*` depends on `P`, so the EIF carries a further term) and shifts of a continuous treatment (no conditional density estimation) |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
 | Cross-fitting | out-of-fold nuisance fits; stratified and cluster-respecting folds. Stratification handles a multi-valued treatment natively |
@@ -518,6 +616,7 @@ def treated_only(
     missingness=None,
     intermediate_density=None,
     selection=None,
+    regimes=None,
 ):
     """One column, 1{A = 1} / g₁(W) — the Riesz representer of E[Y(1)]."""
     a = np.asarray(treatment, dtype=float).reshape(-1)
@@ -541,8 +640,10 @@ Every builder takes the same keyword-only signature so the registry can dispatch
 group name alone, ignoring the arguments it has no use for. `arms` joined that signature
 when the treatment stopped being binary: a builder cannot key its output by arm without
 being told which arms exist, and inferring them from the observed treatment would go wrong
-on exactly the subsample that is missing one. A builder written against the older signature
-gets a `TypeError` naming the fix rather than a bare "unexpected keyword argument".
+on exactly the subsample that is missing one. `regimes` joined it when an intervention
+stopped being a constant arm, and a builder that targets arms accepts and ignores it, as
+`mean_submodel` does. A builder written against an older signature gets a `TypeError`
+naming the fix rather than a bare "unexpected keyword argument".
 `Target.group` is validated against this registry at *registration* time rather than at fit
 time.
 
@@ -563,7 +664,10 @@ infrastructure; the following variants plug into them:
 - marginal structural model TMLE (`tmleMSM`), now that multi-valued treatments are in place
 - longitudinal TMLE (`ltmle`) for time-varying treatments and censoring
 - survival TMLE (`survtmle`) and competing risks
-- stochastic-intervention / shift TMLE (`txshift`, `tmle3shift`)
+- shift TMLE for a *continuous* treatment (`txshift`, `tmle3shift`) — the discrete case is
+  covered by `interventions=`; the continuous one needs conditional density estimation
+- incremental propensity-score interventions, whose `g*` depends on the estimated
+  mechanism and so needs a further influence-function term (Kennedy 2019)
 - doubly-robust TMLE with nonparametric inference (`drtmle`)
 
 ### On native acceleration

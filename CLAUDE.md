@@ -58,6 +58,7 @@ where the claim genuinely requires it:
 | --- | --- |
 | `src/cleverly/data` | `CausalData` container and input validation |
 | `src/cleverly/learners` | cross-fitting, screening, `SuperLearner`, thread limits |
+| `src/cleverly/interventions` | regimes: static arms, dynamic rules, stochastic assignments |
 | `src/cleverly/fluctuation` | clever covariates and the targeting step |
 | `src/cleverly/estimators` | nuisance orchestration, `TMLE`, result objects |
 | `src/cleverly/inference` | influence curves, clustering, bootstrap, simultaneous bands |
@@ -88,6 +89,14 @@ where the claim genuinely requires it:
   columns, and the `K-1` indicator design collapses to the old single column. Before
   changing any of them, check the claim still holds — the fixtures in `tests/unit` and the
   oracle laws are what enforce it.
+- **A regime is a density over arms.** `interventions=` makes the parameter axis the
+  *regime* rather than the arm: an `(n, K, R)` density, keyed by code with labels carried
+  separately exactly as arms are. The `regime` fluctuation is a separate group rather than
+  a generalised `mean`, because the two axes come apart — a fluctuation still updates
+  `Qbar` at every arm, but the score equations are one per regime — and because the arm
+  path is a regression surface that must not move. The evaluated densities live on
+  `NuisanceEstimates`, so everything reached through `retarget` targets the declared
+  regimes without the caller's rules being callable again.
 - **Binary-only by declaration, not by accident.** A target that names an arm declares
   `requires_binary_treatment=True`; C-TMLE, the omitted-variable bound and the MNAR tilt
   raise on a multi-arm fit. Prefer refusing with a message that says what the derivation
