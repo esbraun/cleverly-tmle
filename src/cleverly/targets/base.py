@@ -43,6 +43,7 @@ from ..inference.influence import (
     Scale,
     counterfactual_means,
     make_estimate,
+    regime_means,
     unscale,
 )
 from ..utils.bounds import OutcomeScaler
@@ -154,6 +155,14 @@ class Target:
         propensity odds, which is only an odds with two arms, and "the effect among the
         treated" does not name one parameter when there are three.  Such a target is
         refused on a multi-arm fit rather than quietly reported for arms 0 and 1.
+    requires_intervention:
+        ``True`` for a target whose parameters are indexed by *regime* rather than by
+        arm.  Such a target is unavailable unless the fit declares ``interventions=``,
+        and when one does, the arm-indexed targets become unavailable in turn.  The two
+        are not alternative spellings of one report: ``interventions=`` declares what
+        "counterfactual" means for the fit, and a single fit reporting both
+        ``E[Y(1)]`` and ``E[Y^d]`` from one fluctuation would be reporting two
+        different score equations under one heading.
     build:
         Maps a :class:`TargetContext` to **one or more** estimates.  Returns a sequence
         because one target is one *functional*, not one number: with ``K`` arms ``ey``
@@ -168,6 +177,7 @@ class Target:
     identification: Identification
     requires_family: str | None = None
     requires_binary_treatment: bool = False
+    requires_intervention: bool = False
     in_default_set: bool = False
     #: Restricts which arm counts this target is *defaulted* for, without restricting
     #: which it is *defined* for.  ``"multi"`` keeps a target out of a two-armed fit's
@@ -186,6 +196,10 @@ class Target:
     def supports_arms(self, n_arms: int) -> bool:
         """Whether this target is defined for a treatment with ``n_arms`` levels."""
         return n_arms == 2 or not self.requires_binary_treatment
+
+    def matches_interventions(self, declared: bool) -> bool:
+        """Whether this target belongs in a fit that did (or did not) declare regimes."""
+        return self.requires_intervention == declared
 
 
 @dataclass
@@ -209,18 +223,40 @@ class TargetContext:
     alpha_sig: float = 0.05
     #: Arm codes, ascending, and the labels to report them under.  ``arm_labels`` maps a
     #: code to the level the user supplied, and is what :func:`parameter_name` is given.
+    #:
+    #: On a **regime** fit these carry regime codes and regime labels instead.  The two
+    #: axes are interchangeable here on purpose: a target that loops the keys of
+    #: :attr:`means` and names each one is estimating a mean per arm or a mean per regime
+    #: with the same code, which is what lets the regime targets reuse the arm builders.
     arms: tuple[float, ...] = (0.0, 1.0)
     arm_labels: dict[float, Any] = field(default_factory=dict)
     #: The arm contrasts are taken against.  Every non-reference arm gets one contrast.
     reference: float = 0.0
+    #: ``(n, K, R)`` regime densities, for the ``regime`` fluctuation; ``None`` otherwise.
+    regimes: FloatArray | None = None
+    #: Report every parameter with its label even when there are exactly two of them.
+    #: The two-arm short names (``"ate"``, ``"ey1"``) exist because they are historical
+    #: and unambiguous; two *regimes* have neither property, and "the ATE" of a rule
+    #: against a reference regime is not a name a reader can resolve without the labels.
+    always_label: bool = False
 
     @cached_property
     def means(self) -> dict[float, ArmMean]:
-        """Each arm's counterfactual mean and influence curve, computed once.
+        """Each arm's -- or regime's -- counterfactual mean and influence curve.
 
-        On the *scaled* outcome scale, and shared by every target in the group -- which is
-        what keeps the mean-group estimands from recomputing them one target at a time.
+        On the *scaled* outcome scale, computed once and shared by every target in the
+        group, which is what keeps the mean-group estimands from recomputing them one
+        target at a time.
         """
+        if self.regimes is not None:
+            return regime_means(
+                self.scaled,
+                self.targeted,
+                self.submodel,
+                self.regimes,
+                self.weights,
+                self.observed,
+            )
         return counterfactual_means(
             self.scaled, self.targeted, self.submodel, self.weights, self.observed
         )
@@ -241,9 +277,10 @@ class TargetContext:
     def name_for(self, stem: str, arm: float, *, versus: float | None = None) -> str:
         """The parameter name for a per-arm or per-contrast estimate of ``stem``.
 
-        Collapses to the bare stem on a two-armed fit; see :func:`parameter_name`.
+        Collapses to the bare stem on a two-armed fit unless :attr:`always_label` says
+        otherwise; see :func:`parameter_name`.
         """
-        if self.is_binary:
+        if self.is_binary and not self.always_label:
             return parameter_name(stem)
         return parameter_name(
             stem,

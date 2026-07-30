@@ -24,6 +24,7 @@ from .influence import (
     counterfactual_means,
     make_estimate,
     ratio_estimates,
+    regime_means,
     unscale,
 )
 from .multiplier import SimultaneousBands, multiplier_critical_value, simultaneous_bands
@@ -49,6 +50,7 @@ __all__ = [
     "multiplier_critical_value",
     "normal_ci",
     "ratio_estimates",
+    "regime_means",
     "run_bootstrap",
     "simultaneous_bands",
     "two_sided_pvalue",

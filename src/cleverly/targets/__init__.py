@@ -76,16 +76,20 @@ for _target in BUILTIN_TARGETS:
     register(_target)
 
 
-def all_names(family: str | None = None, n_arms: int = 2) -> tuple[str, ...]:
-    """Every registered target the family and arm count support."""
+def all_names(
+    family: str | None = None, n_arms: int = 2, *, interventions: bool = False
+) -> tuple[str, ...]:
+    """Every registered target the family, arm count and intervention setting support."""
     return tuple(
         name
         for name, target in TARGETS.items()
-        if (family is None or target.supported_by(family)) and target.supports_arms(n_arms)
+        if (family is None or target.supported_by(family))
+        and target.supports_arms(n_arms)
+        and target.matches_interventions(interventions)
     )
 
 
-def default_names(family: str, n_arms: int = 2) -> tuple[str, ...]:
+def default_names(family: str, n_arms: int = 2, *, interventions: bool = False) -> tuple[str, ...]:
     """The default report: the default set, plus whatever else the family supports.
 
     For a binary outcome that adds the risk ratio and odds ratio, which are only
@@ -94,12 +98,18 @@ def default_names(family: str, n_arms: int = 2) -> tuple[str, ...]:
     ``n_arms`` drops what a given arm count cannot report: the ATT, ATC, ``ey1`` and
     ``ey0`` name two arms and leave a multi-arm default, while ``ey`` -- one mean per arm
     -- joins it, since with three arms there is no ``ey1`` to carry the means.
+
+    ``interventions`` switches the report between the arm-indexed estimands and the
+    regime-indexed ones.  It is a switch rather than a widening because declaring
+    ``interventions=`` says what the fit's counterfactuals *are*; see
+    :attr:`~cleverly.targets.Target.requires_intervention`.
     """
     return tuple(
         name
         for name, target in TARGETS.items()
         if target.supported_by(family)
         and target.supports_arms(n_arms)
+        and target.matches_interventions(interventions)
         and not (target.default_arms == "multi" and n_arms == 2)
         and (target.in_default_set or family == "binomial")
     )
@@ -132,6 +142,8 @@ def resolve_estimands(
     requested: Sequence[str] | str | None,
     family: str,
     n_arms: int = 2,
+    *,
+    interventions: bool = False,
 ) -> tuple[str, ...]:
     """Normalise and validate a requested estimand list.
 
@@ -140,17 +152,38 @@ def resolve_estimands(
     is an error rather than a silent drop: asking for a risk ratio of two means that may
     be negative is a mistake worth surfacing, not a preference to be honoured quietly,
     and the same goes for asking a three-armed fit for "the effect on the treated".
+
+    ``interventions`` says whether the fit declared regimes.  It selects between the
+    arm-indexed and regime-indexed estimands rather than widening the choice; asking
+    across the two is refused, for the reason
+    :attr:`~cleverly.targets.Target.requires_intervention` gives.
     """
     if requested is None:
-        names: tuple[str, ...] = default_names(family, n_arms)
+        names: tuple[str, ...] = default_names(family, n_arms, interventions=interventions)
     elif isinstance(requested, str):
-        names = all_names(family, n_arms) if requested == "all" else (requested,)
+        names = (
+            all_names(family, n_arms, interventions=interventions)
+            if requested == "all"
+            else (requested,)
+        )
     else:
         names = tuple(requested)
 
     unknown = [name for name in names if name not in TARGETS]
     if unknown:
         raise ValueError(f"unknown estimand(s) {unknown}; choose from {list(TARGETS)}")
+
+    mismatched = [name for name in names if not TARGETS[name].matches_interventions(interventions)]
+    if mismatched:
+        available = list(all_names(family, n_arms, interventions=interventions))
+        raise ValueError(
+            f"estimand(s) {mismatched} do not belong to a fit "
+            f"{'that declares interventions=' if interventions else 'without interventions='}. "
+            "An intervention declares what the fit's counterfactuals are: with one, the "
+            "parameters are indexed by regime; without one, by treatment arm. Reporting "
+            "both from a single fluctuation would put two score equations under one "
+            f"heading. Available here: {available}."
+        )
 
     wrong_arms = [name for name in names if not TARGETS[name].supports_arms(n_arms)]
     if wrong_arms:

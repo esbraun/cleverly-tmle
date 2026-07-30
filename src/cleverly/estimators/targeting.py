@@ -96,6 +96,7 @@ def build_submodel(
         missingness=missingness,
         intermediate_density=intermediate_density,
         selection=selection,
+        regimes=None if nuisance.regimes is None else nuisance.regimes.values,
     )
 
 

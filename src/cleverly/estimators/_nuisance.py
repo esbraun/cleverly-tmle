@@ -33,6 +33,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import InitialFit
+from ..interventions import RegimeSet
 from ..learners._fitting import (
     Task,
     as_target,
@@ -163,6 +164,14 @@ class NuisanceEstimates:
     #: design the outcome regression is predicted onto -- so fitting them separately
     #: refits all four models to get two extra prediction vectors.
     outcome_by_level: dict[float, InitialFit] = field(default_factory=dict)
+    #: The regimes this fit targets, evaluated at every row, or ``None`` for an
+    #: arm-indexed fit.  Carried with the nuisances rather than recomputed because
+    #: everything that reuses a fit reuses them: ``retarget``, and so the truncation
+    #: curve, the MNAR tilt and the omitted-variable bound, all take a
+    #: :class:`NuisanceEstimates` and must target the same regimes the fit declared --
+    #: including on a result read back from disk, where the rules that built the
+    #: densities are no longer callable.
+    regimes: RegimeSet | None = None
 
     @property
     def n(self) -> int:

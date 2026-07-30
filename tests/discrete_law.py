@@ -88,6 +88,26 @@ def first_row_of() -> np.ndarray:
     return np.concatenate([[0], np.cumsum(counts)[:-1]])
 
 
+#: The regimes the regime-indexed estimands are checked against, ``g*(a | W = w)`` as a
+#: ``(3, 2)`` array per label.  Declared here, in the oracle, rather than in the test that
+#: fits them: the oracle keys on the *reported parameter name*, which carries the regime's
+#: label, so the label is part of what is being checked.  ``tests/unit/test_regimes.py``
+#: builds the matching :class:`~cleverly.interventions.Intervention` objects and asserts
+#: their densities equal these, which is what ties the two sides together.
+#:
+#: One of each kind, deliberately: a static regime, a deterministic rule that actually
+#: depends on ``W``, and a stochastic one that is degenerate nowhere.  Two static regimes
+#: could not tell code that mixes over the arms from code that picks one column.
+REGIMES: dict[str, np.ndarray] = {
+    "never": np.array([[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]),
+    "rule": np.array([[0.0, 1.0], [1.0, 0.0], [0.0, 1.0]]),
+    "tilt": np.array([[0.75, 0.25], [0.50, 0.50], [0.25, 0.75]]),
+}
+
+#: The regime contrasts are taken against; the first supplied, as the estimator defaults.
+REGIME_REFERENCE = "never"
+
+
 def functional(probs: Any, estimand: str) -> Any:
     r"""The target parameter as a closed-form function of the cell probabilities.
 
@@ -122,6 +142,17 @@ def functional(probs: Any, estimand: str) -> Any:
         arm = 1 if estimand == "att" else 0
         share = p_wa[:, arm] / p_wa[:, arm].sum()  # P(W = w | A = arm)
         return (share * (q[:, 1] - q[:, 0])).sum()
+
+    # Psi_r = sum_w P(W = w) sum_a g*_r(a | w) E[Y | A = a, W = w], written straight off
+    # the g-formula for a regime. It reduces to psi_one above when g* puts all its mass
+    # on arm 1, which is the sense in which a static intervention is a special case.
+    if estimand.startswith("ey_regime["):
+        star = REGIMES[estimand[len("ey_regime[") : -1]]
+        return (p_w * (star * q).sum(axis=1)).sum()
+    if estimand.startswith("ate_regime["):
+        left, right = estimand[len("ate_regime[") : -1].split(" vs ")
+        return functional(p, f"ey_regime[{left}]") - functional(p, f"ey_regime[{right}]")
+
     raise ValueError(f"unknown estimand {estimand!r}")
 
 
@@ -129,7 +160,15 @@ def functional(probs: Any, estimand: str) -> Any:
 #: one parameter per arm rather than one under their own name.  ``ey`` is the arm-general
 #: counterfactual mean: with two arms it reports ``ey[0]`` and ``ey[1]``, which are the
 #: same two numbers ``ey0`` and ``ey1`` report and are checked against the same oracle.
-PER_ARM_NAMES: dict[str, tuple[str, ...]] = {"ey": ("ey[0]", "ey[1]")}
+PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
+    "ey": ("ey[0]", "ey[1]"),
+    "ey_regime": tuple(f"ey_regime[{label}]" for label in REGIMES),
+    "ate_regime": tuple(
+        f"ate_regime[{label} vs {REGIME_REFERENCE}]"
+        for label in REGIMES
+        if label != REGIME_REFERENCE
+    ),
+}
 
 
 def oracle_names(target: str) -> tuple[str, ...]:
@@ -156,6 +195,8 @@ TRUTH = {
         "or",
         "att",
         "atc",
+        *PER_ARM_NAMES["ey_regime"],
+        *PER_ARM_NAMES["ate_regime"],
     )
 }
 
