@@ -21,6 +21,7 @@ from cleverly import TMLE, load
 from cleverly.datasets import make_multi_arm
 from cleverly.interventions import Shift, Static
 from cleverly.msm import MSM
+from tests.conftest import FAST_KWARGS
 
 #: ``make_multi_arm`` labels its arms, so the dose has to be declared rather than read off
 #: the labels -- which is the refusal ``MSM.linear`` makes, taken up.
@@ -63,19 +64,18 @@ def projection(means: dict[str, float]) -> np.ndarray:
     return np.asarray(beta)
 
 
+#: The fast tier's estimator settings, with this module's seed.  Taken from
+#: ``FAST_KWARGS`` rather than re-spelled: writing ``outcome_learner="glm"`` by hand and
+#: leaving the fold counts out silently takes the ``TMLE`` defaults of ``n_folds=10,
+#: learner_folds=5``, which is twice the fast tier's budget on a three-armed process where
+#: the propensity is fitted one-vs-rest.  Nothing here turns on the fold count.
+SETTINGS: dict[str, object] = {**FAST_KWARGS, "random_state": SEED}
+
+
 @pytest.fixture(scope="module")
 def fitted():
     frame, truth = make_multi_arm(n=N, seed=SEED)
-    result = (
-        TMLE(
-            msm=dose_response(),
-            outcome_learner="glm",
-            treatment_learner="glm",
-            random_state=SEED,
-        )
-        .fit(frame, outcome="Y", treatment="A")
-        .single()
-    )
+    result = TMLE(msm=dose_response(), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
     return result, truth
 
 
@@ -137,14 +137,8 @@ class TestASaturatedModelIsTheArmReport:
     @pytest.fixture(scope="class")
     def pair(self):
         frame, _ = make_multi_arm(n=N, seed=SEED)
-        common = {
-            "outcome_learner": "glm",
-            "treatment_learner": "glm",
-            "random_state": SEED,
-            "simultaneous": False,
-        }
-        arms = TMLE(estimands=("ey",), **common).fit(frame, outcome="Y", treatment="A").single()
-        model = TMLE(msm=saturated(), **common).fit(frame, outcome="Y", treatment="A").single()
+        arms = TMLE(estimands=("ey",), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
+        model = TMLE(msm=saturated(), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
         return arms, model
 
     def test_the_point_estimates_agree(self, pair) -> None:

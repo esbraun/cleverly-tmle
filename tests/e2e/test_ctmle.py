@@ -120,33 +120,37 @@ class TestBackendParity:
         )
 
 
+#: The option each test in :class:`TestCombinedWithOtherOptions` combines the selection
+#: with.  Fitted once in the ``variants`` fixture: the cross-validated case is read by two
+#: tests, and a CTMLE fit is far too expensive to run twice for that.
+COMBINATIONS: dict[str, dict[str, object]] = {
+    "one_step": {"targeting": "one_step"},
+    "cv_tmle": {"targeting_scheme": "fold"},
+    "weighted_form": {"target_weights": True},
+    "linear": {"fluctuation": "linear"},
+    "ordered": {"search": "ordered"},
+}
+
+
 class TestCombinedWithOtherOptions:
-    @pytest.mark.parametrize(
-        "overrides",
-        [
-            {"targeting": "one_step"},
-            {"targeting_scheme": "fold"},
-            {"target_weights": True},
-            {"fluctuation": "linear"},
-            {"search": "ordered"},
-        ],
-        ids=["one_step", "cv_tmle", "weighted_form", "linear", "ordered"],
-    )
-    def test_the_selection_composes_with_the_targeting_options(
-        self, frame_and_truth, overrides: dict[str, object]
-    ) -> None:
+    @pytest.fixture(scope="class")
+    def variants(self, frame_and_truth) -> dict[str, object]:
         frame, _ = frame_and_truth
-        result = CTMLE(**{**SETTINGS, **overrides}).fit(frame, outcome="Y", treatment="A").single()
+        return {
+            name: CTMLE(**{**SETTINGS, **overrides}).fit(frame, outcome="Y", treatment="A").single()
+            for name, overrides in COMBINATIONS.items()
+        }
+
+    @pytest.mark.parametrize("variant", list(COMBINATIONS))
+    def test_the_selection_composes_with_the_targeting_options(
+        self, variants, variant: str
+    ) -> None:
+        result = variants[variant]
         assert result.validation.score_check().passed
         assert "ctmle" in result.extra
 
-    def test_a_cross_validated_ctmle_reports_both_diagnostics(self, frame_and_truth) -> None:
-        frame, _ = frame_and_truth
-        result = (
-            CTMLE(**{**SETTINGS, "targeting_scheme": "fold"})
-            .fit(frame, outcome="Y", treatment="A")
-            .single()
-        )
+    def test_a_cross_validated_ctmle_reports_both_diagnostics(self, variants) -> None:
+        result = variants["cv_tmle"]
         assert result.extra["ctmle"] is not None
         assert result.cv_targeting is not None
 

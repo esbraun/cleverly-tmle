@@ -165,13 +165,15 @@ class TestControlledDirectEffect:
         assert sorted(fits) == [0.0, 1.0]
         assert len(fits) == 2
 
-    @pytest.mark.parametrize("z", [0.0, 1.0])
-    def test_each_controlled_direct_effect_is_recovered(self, z: float) -> None:
-        # Averaged over replications rather than asserted on one fit: a single-sample
-        # coverage check fails 5% of the time by construction, which is a coin flip
-        # dressed up as a test.
-        truth = cde_dgp().truth(z)["ate"]
-        estimates = []
+    @pytest.fixture(scope="class")
+    def replicates(self) -> dict[float, list[float]]:
+        """One fit per seed, read at *both* levels of the intermediate.
+
+        A single fit carries every level, so the two cases of the test below share these
+        eight fits rather than each repeating them -- which is what the parametrize used
+        to do, at n=1500 with three nuisances apiece.
+        """
+        estimates: dict[float, list[float]] = {0.0: [], 1.0: []}
         for seed in range(70, 78):
             frame, _ = make_cde(n=1500, seed=seed)
             result = fast_tmle(estimands=("ate",)).fit(
@@ -181,7 +183,19 @@ class TestControlledDirectEffect:
                 covariates=COVARIATES,
                 intermediate="Z",
             )
-            estimates.append(result[z].psi("ate"))
+            for level in estimates:
+                estimates[level].append(result[level].psi("ate"))
+        return estimates
+
+    @pytest.mark.parametrize("z", [0.0, 1.0])
+    def test_each_controlled_direct_effect_is_recovered(
+        self, z: float, replicates: dict[float, list[float]]
+    ) -> None:
+        # Averaged over replications rather than asserted on one fit: a single-sample
+        # coverage check fails 5% of the time by construction, which is a coin flip
+        # dressed up as a test.
+        truth = cde_dgp().truth(z)["ate"]
+        estimates = replicates[z]
 
         mean = float(np.mean(estimates))
         monte_carlo_se = float(np.std(estimates, ddof=1) / np.sqrt(len(estimates)))

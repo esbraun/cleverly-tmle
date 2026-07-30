@@ -228,18 +228,25 @@ class TestOmittedVariableBias:
 
 
 class TestEValue:
-    def test_a_binary_outcome_uses_the_risk_ratio_directly(self) -> None:
+    @pytest.fixture(scope="class")
+    def binary_fit(self) -> object:
+        """One binary-outcome fit for the three tests that only need a ratio to read.
+
+        Nothing asserted below turns on the sample or the seed -- each test reads a
+        different field off the same kind of result -- so three fits would be three
+        copies of one.
+        """
         frame, _ = make_binary_outcome(n=2000, seed=77)
-        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
-        evalue = result.sensitivity.evalue("rr")
+        return fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
+
+    def test_a_binary_outcome_uses_the_risk_ratio_directly(self, binary_fit) -> None:
+        evalue = binary_fit.sensitivity.evalue("rr")
         assert not evalue.approximate
-        assert evalue.risk_ratio == pytest.approx(result.psi("rr"))
+        assert evalue.risk_ratio == pytest.approx(binary_fit.psi("rr"))
         assert evalue.point > evalue.limit >= 1.0
 
-    def test_the_default_prefers_the_risk_ratio(self) -> None:
-        frame, _ = make_binary_outcome(n=1200, seed=78)
-        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
-        assert result.sensitivity.evalue().estimand == "rr"
+    def test_the_default_prefers_the_risk_ratio(self, binary_fit) -> None:
+        assert binary_fit.sensitivity.evalue().estimand == "rr"
 
     def test_a_continuous_outcome_is_converted_and_flagged(self, good_overlap) -> None:
         evalue = good_overlap.sensitivity.evalue("ate")
@@ -247,13 +254,11 @@ class TestEValue:
         assert "Chinn" in evalue.note
         assert evalue.point > 1.0
 
-    def test_the_odds_ratio_conversion_is_flagged_as_rare_outcome(self) -> None:
-        frame, _ = make_binary_outcome(n=1200, seed=79)
-        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
-        evalue = result.sensitivity.evalue("or")
+    def test_the_odds_ratio_conversion_is_flagged_as_rare_outcome(self, binary_fit) -> None:
+        evalue = binary_fit.sensitivity.evalue("or")
         assert evalue.approximate
         assert "rare outcome" in evalue.note
-        assert evalue.risk_ratio == pytest.approx(np.sqrt(result.psi("or")))
+        assert evalue.risk_ratio == pytest.approx(np.sqrt(binary_fit.psi("or")))
 
 
 class TestMissingnessTilt:

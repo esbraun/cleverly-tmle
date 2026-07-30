@@ -31,65 +31,62 @@ def _fit(frame: object, **overrides: object) -> object:
     )
 
 
-class TestVariantsAgree:
-    @pytest.mark.parametrize(
-        "overrides",
-        [
-            {},
-            {"targeting": "one_step"},
-            {"targeting_scheme": "fold"},
-            {"target_weights": True},
-            {"fluctuation": "linear"},
-            {"cross_fit": False},
-        ],
-        ids=["iterative", "one_step", "cv_tmle", "weighted_form", "linear", "no_crossfit"],
-    )
-    def test_every_variant_solves_the_score_equation(
-        self, frame_and_truth, overrides: dict[str, object]
-    ) -> None:
-        frame, _ = frame_and_truth
-        result = _fit(frame, **overrides)
-        assert result.validation.score_check().passed
+#: The configurations every test in :class:`TestVariantsAgree` draws from.  Each is fitted
+#: once, in the ``variants`` fixture, and the comparisons then read two entries out of it
+#: rather than refitting -- the same six fits used to be repeated nine more times.
+VARIANTS: dict[str, dict[str, object]] = {
+    "iterative": {},
+    "one_step": {"targeting": "one_step"},
+    "cv_tmle": {"targeting_scheme": "fold"},
+    "weighted_form": {"target_weights": True},
+    "linear": {"fluctuation": "linear"},
+    "no_crossfit": {"cross_fit": False},
+}
 
-    def test_targeting_methods_agree(self, frame_and_truth) -> None:
+
+class TestVariantsAgree:
+    @pytest.fixture(scope="class")
+    def variants(self, frame_and_truth) -> dict[str, object]:
         frame, _ = frame_and_truth
-        iterative = _fit(frame)
-        one_step = _fit(frame, targeting="one_step")
+        return {name: _fit(frame, **overrides) for name, overrides in VARIANTS.items()}
+
+    @pytest.mark.parametrize("variant", list(VARIANTS))
+    def test_every_variant_solves_the_score_equation(self, variants, variant: str) -> None:
+        assert variants[variant].validation.score_check().passed
+
+    def test_targeting_methods_agree(self, variants) -> None:
+        iterative = variants["iterative"]
+        one_step = variants["one_step"]
         # The universal least-favorable submodel walks to the same root the Newton
         # solver jumps to.
         assert one_step.psi("ate") == pytest.approx(iterative.psi("ate"), abs=2e-3)
         assert one_step.psi("att") == pytest.approx(iterative.psi("att"), abs=2e-3)
 
-    def test_the_weighted_form_agrees_with_the_covariate_form(self, frame_and_truth) -> None:
-        frame, _ = frame_and_truth
-        plain = _fit(frame)
-        weighted = _fit(frame, target_weights=True)
+    def test_the_weighted_form_agrees_with_the_covariate_form(self, variants) -> None:
+        plain = variants["iterative"]
+        weighted = variants["weighted_form"]
         # Different submodels solving the same estimating equation, so the estimates
         # differ only at second order.
         assert weighted.psi("ate") == pytest.approx(
             plain.psi("ate"), abs=3.0 * plain["ate"].std_error
         )
 
-    def test_cv_tmle_agrees_with_pooled_targeting(self, frame_and_truth) -> None:
-        frame, _ = frame_and_truth
-        pooled = _fit(frame)
-        fold_wise = _fit(frame, targeting_scheme="fold")
+    def test_cv_tmle_agrees_with_pooled_targeting(self, variants) -> None:
+        pooled = variants["iterative"]
+        fold_wise = variants["cv_tmle"]
         assert fold_wise.psi("ate") == pytest.approx(
             pooled.psi("ate"), abs=3.0 * pooled["ate"].std_error
         )
 
-    def test_fold_wise_targeting_still_solves_the_pooled_score(self, frame_and_truth) -> None:
-        frame, _ = frame_and_truth
-        result = _fit(frame, targeting_scheme="fold")
+    def test_fold_wise_targeting_still_solves_the_pooled_score(self, variants) -> None:
         # Each fold's score is zero on its own rows, so the sum over folds -- the
         # full-sample score -- is zero too.
-        for fluctuation in result.fluctuations.values():
+        for fluctuation in variants["cv_tmle"].fluctuations.values():
             assert fluctuation.score_norm < 1e-10
 
-    def test_the_linear_fluctuation_agrees_with_the_logistic_one(self, frame_and_truth) -> None:
-        frame, _ = frame_and_truth
-        logistic = _fit(frame)
-        linear = _fit(frame, fluctuation="linear")
+    def test_the_linear_fluctuation_agrees_with_the_logistic_one(self, variants) -> None:
+        logistic = variants["iterative"]
+        linear = variants["linear"]
         assert linear.psi("ate") == pytest.approx(
             logistic.psi("ate"), abs=3.0 * logistic["ate"].std_error
         )

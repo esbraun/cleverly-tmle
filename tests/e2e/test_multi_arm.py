@@ -160,9 +160,9 @@ class TestTheReferenceIsPartOfTheEstimand:
         }
         assert result.config.reference_arm == 1.0  # "low" sorts second
 
-    def test_the_means_do_not_depend_on_the_reference(self) -> None:
+    def test_the_means_do_not_depend_on_the_reference(self, fit) -> None:
         """Only the contrasts move: the targeted distribution is the same one."""
-        default = _fit()
+        default = fit
         chosen = _fit(reference="low")
         for arm in ("low", "medium", "high"):
             assert default.estimates[f"ey[{arm}]"].psi == pytest.approx(
