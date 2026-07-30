@@ -34,7 +34,11 @@ from tests.conftest import fast_tmle
 @pytest.fixture(scope="module")
 def good_overlap() -> object:
     frame, _ = make_linear_ate(n=1500, seed=71)
-    return fast_tmle(estimands=("ate", "att", "ey1", "ey0")).fit(frame, outcome="Y", treatment="A")
+    return (
+        fast_tmle(estimands=("ate", "att", "ey1", "ey0"))
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
 
 
 @pytest.fixture(scope="module")
@@ -42,7 +46,7 @@ def poor_overlap() -> object:
     frame, _ = make_weak_overlap(n=1500, seed=72)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", PositivityWarning)
-        return fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
+        return fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
 
 
 class TestPositivity:
@@ -152,8 +156,10 @@ class TestOmittedVariableBias:
     def test_a_weaker_effect_has_a_smaller_robustness_value(self) -> None:
         strong_frame, _ = make_linear_ate(n=1500, seed=73, effect=2.0)
         weak_frame, _ = make_linear_ate(n=1500, seed=73, effect=0.2)
-        strong = fast_tmle(estimands=("ate",)).fit(strong_frame, outcome="Y", treatment="A")
-        weak = fast_tmle(estimands=("ate",)).fit(weak_frame, outcome="Y", treatment="A")
+        strong = (
+            fast_tmle(estimands=("ate",)).fit(strong_frame, outcome="Y", treatment="A").single()
+        )
+        weak = fast_tmle(estimands=("ate",)).fit(weak_frame, outcome="Y", treatment="A").single()
         assert (
             weak.sensitivity.robustness_value("ate")["rv"]
             < strong.sensitivity.robustness_value("ate")["rv"]
@@ -182,13 +188,13 @@ class TestOmittedVariableBias:
 
     def test_a_ratio_estimand_is_refused_with_a_pointer_to_the_evalue(self) -> None:
         frame, _ = make_binary_outcome(n=800, seed=74)
-        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
         with pytest.raises(ValueError, match=r"sensitivity\.evalue"):
             result.sensitivity.omitted_variable("rr")
 
     def test_benchmarking_a_real_confounder_reports_its_strength(self) -> None:
         frame, _ = make_linear_ate(n=1500, seed=75)
-        result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
         # W1 drives both the outcome and treatment in this process, so dropping it must
         # register as a substantial confounder on both the cf_y and cf_d scales.
         benchmark = result.sensitivity.benchmark(["W1"], estimand="ate")
@@ -201,7 +207,7 @@ class TestOmittedVariableBias:
     def test_benchmarking_a_pure_noise_covariate_reports_almost_nothing(self) -> None:
         frame, _ = make_linear_ate(n=1500, seed=76)
         noisy = frame.assign(noise=np.random.default_rng(0).normal(size=len(frame)))
-        result = fast_tmle(estimands=("ate",)).fit(noisy, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ate",)).fit(noisy, outcome="Y", treatment="A").single()
         benchmark = result.sensitivity.benchmark(["noise"], estimand="ate")
         assert benchmark.cf_y < 0.02
         assert benchmark.cf_d < 0.05
@@ -224,7 +230,7 @@ class TestOmittedVariableBias:
 class TestEValue:
     def test_a_binary_outcome_uses_the_risk_ratio_directly(self) -> None:
         frame, _ = make_binary_outcome(n=2000, seed=77)
-        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
         evalue = result.sensitivity.evalue("rr")
         assert not evalue.approximate
         assert evalue.risk_ratio == pytest.approx(result.psi("rr"))
@@ -232,7 +238,7 @@ class TestEValue:
 
     def test_the_default_prefers_the_risk_ratio(self) -> None:
         frame, _ = make_binary_outcome(n=1200, seed=78)
-        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
         assert result.sensitivity.evalue().estimand == "rr"
 
     def test_a_continuous_outcome_is_converted_and_flagged(self, good_overlap) -> None:
@@ -243,7 +249,7 @@ class TestEValue:
 
     def test_the_odds_ratio_conversion_is_flagged_as_rare_outcome(self) -> None:
         frame, _ = make_binary_outcome(n=1200, seed=79)
-        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
         evalue = result.sensitivity.evalue("or")
         assert evalue.approximate
         assert "rare outcome" in evalue.note
@@ -254,12 +260,16 @@ class TestMissingnessTilt:
     @pytest.fixture(scope="class")
     def missing_fit(self) -> object:
         frame, _ = make_missing_outcome(n=1500, seed=80)
-        return fast_tmle(estimands=("ate", "ey1")).fit(
-            frame,
-            outcome="Y",
-            treatment="A",
-            covariates=["W1", "W2", "W3"],
-            delta="Delta",
+        return (
+            fast_tmle(estimands=("ate", "ey1"))
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+            )
+            .single()
         )
 
     def test_no_tilt_reproduces_the_reported_estimate(self, missing_fit) -> None:
@@ -326,7 +336,7 @@ class TestValidation:
         # Replace treatment with pure coin flips: nothing in W predicts it.
         rng = np.random.default_rng(0)
         randomised = frame.assign(A=rng.binomial(1, 0.5, len(frame)).astype(float))
-        result = fast_tmle(estimands=("ate",)).fit(randomised, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ate",)).fit(randomised, outcome="Y", treatment="A").single()
         verdict = result.validation.nuisance().verdict()
         assert "overlap is excellent" in verdict
 
@@ -342,15 +352,19 @@ class TestValidation:
         frame, _ = make_nonlinear_ate(n=500, seed=82)
         # "glm" rather than "fast": this test is about the reporting path, and the
         # boosting candidates would dominate the fast tier's runtime for no extra cover.
-        result = TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
-            n_folds=3,
-            learner_folds=3,
-            estimands=("ate",),
-            simultaneous=False,
-            random_state=0,
-        ).fit(frame, outcome="Y", treatment="A")
+        result = (
+            TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=3,
+                learner_folds=3,
+                estimands=("ate",),
+                simultaneous=False,
+                random_state=0,
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         weights = result.validation.nuisance()["outcome"].learner_weights
         assert weights
         assert sum(weights.values()) == pytest.approx(1.0, abs=1e-6)
@@ -364,7 +378,7 @@ class TestRefutation:
     @pytest.fixture(scope="class")
     def refutation(self) -> object:
         frame, _ = make_linear_ate(n=700, seed=83)
-        result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
         return result.validation.refute(n_replicates=3, random_state=0)
 
     def test_all_default_tests_behave(self, refutation) -> None:
@@ -391,7 +405,7 @@ class TestRefutation:
 
     def test_a_negative_control_outcome_shows_no_effect(self) -> None:
         frame, _ = make_linear_ate(n=700, seed=84)
-        result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
         # An outcome built from the covariates alone, with no treatment component.
         rng = np.random.default_rng(0)
         control = frame["W1"].to_numpy() * 0.5 + rng.normal(size=len(frame))
@@ -404,7 +418,7 @@ class TestRefutation:
 
     def test_the_negative_control_test_needs_an_outcome(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=85)
-        result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
         with pytest.raises(ValueError, match="needs an outcome array"):
             result.validation.refute(tests=["negative_control_outcome"])
 
@@ -437,12 +451,16 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         frame, _ = make_missing_outcome(n=2000, seed=91, strength=2.0)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", PositivityWarning)
-            return fast_tmle(estimands=("ate",)).fit(
-                frame,
-                outcome="Y",
-                treatment="A",
-                covariates=["W1", "W2", "W3"],
-                delta="Delta",
+            return (
+                fast_tmle(estimands=("ate",))
+                .fit(
+                    frame,
+                    outcome="Y",
+                    treatment="A",
+                    covariates=["W1", "W2", "W3"],
+                    delta="Delta",
+                )
+                .single()
             )
 
     def test_the_report_carries_the_mechanism(self, strained) -> None:
@@ -489,12 +507,16 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         frame, _ = make_missing_outcome(n=1500, seed=94, strength=2.0)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", PositivityWarning)
-            result = fast_tmle(estimands=("ate",), nuisance_bound=0.35).fit(
-                frame,
-                outcome="Y",
-                treatment="A",
-                covariates=["W1", "W2", "W3"],
-                delta="Delta",
+            result = (
+                fast_tmle(estimands=("ate",), nuisance_bound=0.35)
+                .fit(
+                    frame,
+                    outcome="Y",
+                    treatment="A",
+                    covariates=["W1", "W2", "W3"],
+                    delta="Delta",
+                )
+                .single()
             )
         verdict = result.sensitivity.positivity().verdict()
         assert "P(Delta=1|A,W) strains the estimate" in verdict
@@ -563,7 +585,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 treatment="A",
                 covariates=["W1", "W2", "W3"],
                 delta="Delta",
-            )
+            ).single()
 
     def test_an_untroubled_mechanism_does_not_warn(self) -> None:
         frame, _ = make_missing_outcome(n=1500, seed=93)
@@ -575,4 +597,4 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 treatment="A",
                 covariates=["W1", "W2", "W3"],
                 delta="Delta",
-            )
+            ).single()

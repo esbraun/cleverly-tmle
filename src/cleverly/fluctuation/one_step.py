@@ -35,12 +35,11 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..exceptions import ConvergenceWarning
-from ..utils.bounds import expit, logit
 from ._score import quasi_loglik, relative_score, score_columns, score_scale
 from .iterative import (
     _SEPARATION_EPSILON as SEPARATION_EPSILON,
 )
-from .iterative import Fluctuation, InitialFit, TargetingFailure
+from .iterative import Fluctuation, InitialFit, TargetingFailure, apply_logistic
 from .submodel import Submodel, weighted_form
 
 __all__ = ["solve_one_step"]
@@ -100,7 +99,7 @@ def solve_one_step(
             break
         direction = score / norm
         candidate_epsilon = epsilon + dx * direction
-        candidate = _move(current, fit_submodel, dx * direction, alpha)
+        candidate = apply_logistic(current, fit_submodel, dx * direction, alpha)
         candidate_score = score_columns(y, candidate.observed, scoring_h, w, mask)
         candidate_norm = float(np.linalg.norm(candidate_score))
 
@@ -167,12 +166,3 @@ def _classify_one_step(
     # The walk halves dx on every overshoot and bails at 1e-14; reaching that without
     # solving the equation is the same stall as an exhausted line search.
     return "line_search_exhausted"
-
-
-def _move(fit: InitialFit, submodel: Submodel, delta: FloatArray, alpha: float) -> InitialFit:
-    """One step along the submodel, at the observed and both counterfactual arms."""
-    return InitialFit(
-        expit(logit(fit.observed) + submodel.observed @ delta),
-        expit(logit(fit.at_one) + submodel.at_one @ delta),
-        expit(logit(fit.at_zero) + submodel.at_zero @ delta),
-    ).shrunk(alpha)

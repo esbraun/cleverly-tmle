@@ -37,7 +37,7 @@ diagnostic can be.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -45,7 +45,6 @@ from .._typing import FloatArray
 from ..estimators.base import format_table
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
-from ..fluctuation.submodel import TargetGroup
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -400,7 +399,7 @@ def _max_abs_covariate(result: TMLEResult, group: str) -> float:
     submodel = build_submodel(
         result.data,
         result.nuisance,
-        cast("TargetGroup", group),
+        group,
         bounds=bounds,
         nuisance_bound=result.config.missingness_bound,
         intermediate_value=result.intermediate_value,

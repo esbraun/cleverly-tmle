@@ -86,7 +86,7 @@ def _oracle_fit(frame: pd.DataFrame, dgp: Any) -> Any:
         simultaneous=False,
         random_state=0,
     )
-    return estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"])
+    return estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"]).single()
 
 
 def _value(estimate: Any) -> float:
@@ -167,8 +167,8 @@ class TestRelabellingTheArms:
         swapped = frame.copy()
         swapped["A"] = 1.0 - swapped["A"]
         kwargs = {"outcome": "Y", "treatment": "A", "covariates": ["W"]}
-        first = fast_tmle(estimands=("ate", "att", "atc")).fit(frame, **kwargs)
-        second = fast_tmle(estimands=("ate", "att", "atc")).fit(swapped, **kwargs)
+        first = fast_tmle(estimands=("ate", "att", "atc")).fit(frame, **kwargs).single()
+        second = fast_tmle(estimands=("ate", "att", "atc")).fit(swapped, **kwargs).single()
         partner, sign = RELABELLED[name]
         assert second.estimates[name].psi == pytest.approx(
             sign * first.estimates[partner].psi, abs=1e-6

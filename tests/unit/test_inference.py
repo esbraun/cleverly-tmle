@@ -78,13 +78,14 @@ def _targeted(
     # Deliberately misspecified initial fit, so the fluctuation does real work and the
     # residual term of the influence curve is not trivially zero.
     initial = InitialFit(
-        np.full(a.shape[0], 0.45), np.full(a.shape[0], 0.45), np.full(a.shape[0], 0.45)
+        np.full(a.shape[0], 0.45),
+        {0.0: np.full(a.shape[0], 0.45), 1.0: np.full(a.shape[0], 0.45)},
     )
     del q1, q0
     if group == "mean":
         submodel = mean_submodel(a, g1)
     else:
-        submodel = att_submodel(a, g1, float(np.average(a, weights=weights)))
+        submodel = att_submodel(a, g1, treated_fraction=float(np.average(a, weights=weights)))
     fluctuation = solve_fluctuation(y, initial, submodel, weights)
     return fluctuation.targeted, submodel
 
@@ -186,8 +187,8 @@ class TestInfluenceCurveIsTheGateauxDerivative:
         )
 
         residual = binary_setting["y"] - targeted.observed
-        contribution_one = submodel.observed[:, 1] * residual + targeted.at_one
-        contribution_zero = submodel.observed[:, 0] * residual + targeted.at_zero
+        contribution_one = submodel.observed[:, 1] * residual + targeted.arms[1.0]
+        contribution_zero = submodel.observed[:, 0] * residual + targeted.arms[0.0]
         if estimand == "ey1":
             contribution, analytic = contribution_one, ic_one
         elif estimand == "ey0":

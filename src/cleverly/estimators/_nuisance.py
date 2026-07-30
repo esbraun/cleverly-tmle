@@ -258,6 +258,22 @@ def _screened(learner: Learner, threshold: float, min_retain: int | None) -> Lea
     )
 
 
+#: The treatment arms the outcome regression is predicted at.  A tuple rather than the
+#: literals it used to be spelled with, so that the prediction designs, the arm keys of
+#: the resulting :class:`~cleverly.fluctuation.iterative.InitialFit`, and anything that
+#: iterates either of them cannot drift apart.
+ARMS: tuple[float, ...] = (0.0, 1.0)
+
+
+def _design_key(arm: float, level: float | None) -> str:
+    """Name of the counterfactual design for one arm at one intermediate level.
+
+    A single flat namespace, because ``cross_fit_predictions`` takes one dict of designs
+    and returns one dict of predictions; the key has to carry both coordinates.
+    """
+    return f"arm@{arm}|z@{level}"
+
+
 def _requested_levels(
     intermediate_value: float | None, extra_levels: Sequence[float]
 ) -> tuple[float, ...]:
@@ -400,8 +416,10 @@ def fit_nuisances(
     levels = _requested_levels(intermediate_value, extra_levels)
     designs: dict[str, FloatArray] = {"observed": outcome_design}
     for level in levels:
-        designs[f"at_one@{level}"] = data.counterfactual_design(1.0, intermediate_value=level)
-        designs[f"at_zero@{level}"] = data.counterfactual_design(0.0, intermediate_value=level)
+        for arm in ARMS:
+            designs[_design_key(arm, level)] = data.counterfactual_design(
+                arm, intermediate_value=level
+            )
 
     outcome_out, outcome_diagnostics = cross_fit_predictions(
         outcome_learner,
@@ -421,7 +439,8 @@ def fit_nuisances(
 
     by_level = {
         level: InitialFit(
-            outcome_out["observed"], outcome_out[f"at_one@{level}"], outcome_out[f"at_zero@{level}"]
+            outcome_out["observed"],
+            {arm: outcome_out[_design_key(arm, level)] for arm in ARMS},
         )
         for level in levels
     }

@@ -8,6 +8,8 @@ is quietly reordering or recasting something.
 
 from __future__ import annotations
 
+import re
+
 import narwhals as nw
 import numpy as np
 import pandas as pd
@@ -27,8 +29,8 @@ def paired_fits() -> tuple[object, object]:
     polars_frame, _ = make_linear_ate(n=900, seed=91, backend="polars")
     columns = {"outcome": "Y", "treatment": "A"}
     return (
-        fast_tmle(estimands=ESTIMANDS).fit(pandas_frame, **columns),
-        fast_tmle(estimands=ESTIMANDS).fit(polars_frame, **columns),
+        fast_tmle(estimands=ESTIMANDS).fit(pandas_frame, **columns).single(),
+        fast_tmle(estimands=ESTIMANDS).fit(polars_frame, **columns).single(),
     )
 
 
@@ -71,8 +73,19 @@ class TestBackendParity:
         )
 
     def test_the_summaries_are_identical_text(self, paired_fits) -> None:
+        """Same text, character for character -- apart from when each fit ran.
+
+        The summary ends with a provenance line carrying ``created_utc`` at one-second
+        resolution (:func:`cleverly.provenance.record`).  The two fits in the fixture take
+        about a second each, so they straddle a second boundary often enough for a bare
+        string comparison to be a coin flip rather than a test -- which is what it was.
+        The backend claim is about the numbers and the layout, not about the clock, so the
+        timestamp is normalised out and asserted separately to be present.
+        """
         from_pandas, from_polars = paired_fits
-        assert from_pandas.summary() == from_polars.summary()
+        stamp = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+\d{2}:\d{2}")
+        assert stamp.search(from_pandas.summary()), "the provenance line should carry a time"
+        assert stamp.sub("<t>", from_pandas.summary()) == stamp.sub("<t>", from_polars.summary())
 
     def test_a_polars_fit_with_every_role(self) -> None:
         frame, _ = make_missing_outcome(n=900, seed=93, backend="polars")
@@ -80,14 +93,18 @@ class TestBackendParity:
             pl.Series("w", np.linspace(0.5, 1.5, len(frame))),
             pl.Series("cl", np.repeat(np.arange(len(frame) // 10), 10).astype(float)),
         )
-        result = fast_tmle(estimands=("ate",)).fit(
-            frame,
-            outcome="Y",
-            treatment="A",
-            covariates=["W1", "W2", "W3"],
-            delta="Delta",
-            weights="w",
-            id="cl",
+        result = (
+            fast_tmle(estimands=("ate",))
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+                weights="w",
+                id="cl",
+            )
+            .single()
         )
         assert isinstance(result.to_frame(), pl.DataFrame)
         assert result.data.n_clusters == 90
@@ -159,7 +176,7 @@ class TestResultApi:
 
     def test_a_ratio_estimate_reports_its_log_scale(self) -> None:
         frame, _ = make_binary_outcome(n=900, seed=94)
-        result = fast_tmle(estimands=("rr", "or")).fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("rr", "or")).fit(frame, outcome="Y", treatment="A").single()
         for name in ("rr", "or"):
             estimate = result[name]
             assert estimate.scale == "ratio"
@@ -169,10 +186,16 @@ class TestResultApi:
 
     def test_alpha_sig_widens_the_reported_interval(self) -> None:
         frame, _ = make_linear_ate(n=700, seed=95)
-        narrow = fast_tmle(estimands=("ate",), alpha_sig=0.05).fit(
-            frame, outcome="Y", treatment="A"
+        narrow = (
+            fast_tmle(estimands=("ate",), alpha_sig=0.05)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
         )
-        wide = fast_tmle(estimands=("ate",), alpha_sig=0.01).fit(frame, outcome="Y", treatment="A")
+        wide = (
+            fast_tmle(estimands=("ate",), alpha_sig=0.01)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         assert (wide["ate"].ci[1] - wide["ate"].ci[0]) > (narrow["ate"].ci[1] - narrow["ate"].ci[0])
         assert "99% CI" in wide.summary()
 
@@ -181,7 +204,7 @@ class TestResultApi:
 
         frame, truth = make_linear_ate(n=800, seed=96)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A")
-        result = fast_tmle(estimands=("ate",)).fit(data)
+        result = fast_tmle(estimands=("ate",)).fit(data).single()
         low, high = result["ate"].ci
         assert low <= truth["ate"] <= high
 
@@ -239,10 +262,118 @@ class TestPackageSurface:
             estimands=("ate", "att", "atc", "ey1", "ey0"),
             random_state=0,
         )
-        res = est.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"])
+        res = est.fit(
+            frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"]
+        ).single()
         assert isinstance(res.summary(), str)
         assert isinstance(res.to_frame(), pl.DataFrame)
         assert isinstance(res.estimates["ate"].psi, float)
         assert len(res.estimates["ate"].ci) == 2
         assert res.estimates["ate"].influence_curve.shape == (800,)
         assert "ate" in truth
+
+
+class TestTheResultSet:
+    """``fit`` returns a mapping of results, always.
+
+    It used to return ``TMLEResult | TMLEResultSet`` -- one result ordinarily, one per
+    level of the intermediate for a controlled direct effect.  A union return puts an
+    ``isinstance`` check in every caller that cannot know in advance which it will get,
+    and the library carried one of its own in ``CoverageStudy``.  Now there is one type,
+    and the ordinary fit is the single-entry case keyed ``None`` -- the same sentinel the
+    estimator already uses internally for "no intermediate variable".
+    """
+
+    @pytest.fixture(scope="class")
+    def plain(self):  # type: ignore[no-untyped-def]
+        frame, _ = make_linear_ate(n=300, seed=0)
+        return fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
+
+    @pytest.fixture(scope="class")
+    def two_levels(self):  # type: ignore[no-untyped-def]
+        from cleverly.datasets import GENERATORS
+
+        frame, _ = GENERATORS["cde"](n=300, seed=1)
+        covariates = [c for c in frame.columns if c.startswith("W")]
+        estimator = TMLE(
+            outcome_learner="glm",
+            treatment_learner="glm",
+            intermediate_learner="glm",
+            estimands=("ate",),
+            n_folds=4,
+            random_state=0,
+        )
+        return estimator.fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=covariates,
+            intermediate="Z",
+        )
+
+    def test_an_ordinary_fit_is_a_single_entry_set_keyed_none(self, plain) -> None:
+        from cleverly.estimators.base import TMLEResult, TMLEResultSet
+
+        assert isinstance(plain, TMLEResultSet)
+        assert list(plain) == [None]
+        assert len(plain) == 1
+        assert isinstance(plain.single(), TMLEResult)
+        assert plain[None] is plain.single()
+
+    def test_the_single_entry_summary_has_no_level_header(self, plain) -> None:
+        """Otherwise every ordinary fit would print the internal ``None`` sentinel."""
+        assert plain.summary() == plain.single().summary()
+        assert "None" not in plain.summary().splitlines()[0]
+
+    def test_the_single_entry_frame_is_the_result_frame(self, plain) -> None:
+        expected = plain.single().to_frame()
+        assert list(plain.to_frame().columns) == list(expected.columns)
+        assert len(plain.to_frame()) == len(expected)
+
+    def test_a_missing_key_names_what_is_available(self, plain) -> None:
+        with pytest.raises(KeyError, match="available"):
+            plain[1.0]
+
+    def test_a_controlled_direct_effect_holds_one_result_per_level(self, two_levels) -> None:
+        assert list(two_levels) == [0.0, 1.0]
+        assert two_levels[0.0].intermediate_value == 0.0
+        assert two_levels[1.0].intermediate_value == 1.0
+        # Two parameters, so two answers: they agree only without an A-by-Z interaction.
+        assert two_levels[0.0].psi("ate") != two_levels[1.0].psi("ate")
+
+    def test_single_refuses_to_pick_between_two_parameters(self, two_levels) -> None:
+        """The whole reason ``fit`` cannot just return one result for a CDE."""
+        with pytest.raises(KeyError, match="no single one to return"):
+            two_levels.single()
+
+    def test_a_two_level_summary_is_headed_by_level(self, two_levels) -> None:
+        text = two_levels.summary()
+        assert "--- Z = 0 ---" in text
+        assert "--- Z = 1 ---" in text
+
+    def test_a_two_level_frame_stacks_the_levels(self, two_levels) -> None:
+        assert len(two_levels.to_frame()) == sum(
+            len(two_levels[level].to_frame()) for level in two_levels
+        )
+
+    def test_the_array_entry_point_returns_a_set_too(self) -> None:
+        from cleverly import tmle
+
+        rng = np.random.default_rng(0)
+        w = rng.normal(size=(200, 2))
+        a = rng.binomial(1, 0.5, 200).astype(float)
+        y = a + w[:, 0] + rng.normal(size=200)
+        fitted = tmle(y, a, w, outcome_learner="glm", treatment_learner="glm", n_folds=4)
+        assert list(fitted) == [None]
+        assert fitted.single().psi("ate") == pytest.approx(1.0, abs=0.4)
+
+    def test_indexing_by_estimand_says_so_instead_of_failing_on_float(self) -> None:
+        """``res["ate"]`` is the likeliest mistake, so it gets a message about itself.
+
+        A result is indexed by estimand and a result *set* by level.  Left to ``float()``,
+        the mix-up surfaced as "could not convert string to float: 'ate'".
+        """
+        frame, _ = make_linear_ate(n=200, seed=7)
+        fitted = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A")
+        with pytest.raises(KeyError, match="indexed by intermediate level, not by estimand"):
+            fitted["ate"]  # type: ignore[index]

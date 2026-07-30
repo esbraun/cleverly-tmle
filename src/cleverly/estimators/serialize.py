@@ -55,9 +55,13 @@ from .targeting import TargetingSpec
 
 __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save"]
 
-#: Bumped when the payload changes shape.  A reader refuses a newer major version
-#: rather than guessing at fields it does not know.
-FORMAT_VERSION = 1
+#: Bumped when the payload changes shape.  A reader refuses *any* other version rather
+#: than guessing at fields it does not know, so a bump makes older files unreadable by
+#: design -- re-run the fit, or read them with the version of cleverly that wrote them.
+#:
+#: ``2`` keys an initial fit's counterfactual predictions by treatment level (``arms``)
+#: instead of naming two fields ``at_one`` and ``at_zero``.
+FORMAT_VERSION = 2
 
 _ARRAY_MARK = "__array__"
 
@@ -109,18 +113,26 @@ def _estimate_from(arrays: _Arrays, payload: dict[str, Any]) -> ParameterEstimat
 
 
 def _fit_to(arrays: _Arrays, prefix: str, fit: InitialFit) -> dict[str, Any]:
+    """Store an initial fit, keying its arms the way the manifest can carry them.
+
+    JSON object keys are strings, so an arm level is written with ``repr`` and read back
+    with ``float``.  Round-tripping through ``repr`` is exact for a float, which matters
+    because the key *is* the treatment level a downstream lookup asks for: a key that came
+    back as ``1.0000000000000002`` would be a silently missing arm.
+    """
     return {
         "observed": arrays.put(f"{prefix}.observed", fit.observed),
-        "at_one": arrays.put(f"{prefix}.at_one", fit.at_one),
-        "at_zero": arrays.put(f"{prefix}.at_zero", fit.at_zero),
+        "arms": {
+            repr(level): arrays.put(f"{prefix}.arm@{level}", values)
+            for level, values in fit.arms.items()
+        },
     }
 
 
 def _fit_from(arrays: _Arrays, payload: dict[str, Any]) -> InitialFit:
     return InitialFit(
         arrays.get(payload["observed"]),
-        arrays.get(payload["at_one"]),
-        arrays.get(payload["at_zero"]),
+        {float(level): arrays.get(key) for level, key in payload["arms"].items()},
     )
 
 
@@ -445,8 +457,19 @@ def save(result: TMLEResult, path: str | Path) -> Path:
     payload = dict(store)
     payload["__manifest__"] = np.frombuffer(json.dumps(manifest).encode("utf-8"), dtype=np.uint8)
     with destination.open("wb") as handle:
-        np.savez_compressed(handle, **payload)
+        _write_npz(handle, payload)
     return destination
+
+
+def _write_npz(handle: Any, payload: dict[str, FloatArray]) -> None:
+    """``savez_compressed`` with the arrays named by the manifest.
+
+    Wrapped because numpy's stubs declare the second positional parameter of
+    ``savez_compressed`` as ``compress: bool``, so splatting the payload as keywords --
+    which is how the function is meant to be called, and what the runtime signature
+    ``(file, *args, **kwds)`` accepts -- does not type-check at the call site.
+    """
+    np.savez_compressed(handle, **payload)  # type: ignore[arg-type]
 
 
 def load(path: str | Path) -> TMLEResult:
@@ -463,7 +486,7 @@ def dumps(result: TMLEResult) -> bytes:
     manifest, store = result_to_dict(result)
     payload = dict(store)
     payload["__manifest__"] = np.frombuffer(json.dumps(manifest).encode("utf-8"), dtype=np.uint8)
-    np.savez_compressed(buffer, **payload)
+    _write_npz(buffer, payload)
     return buffer.getvalue()
 
 

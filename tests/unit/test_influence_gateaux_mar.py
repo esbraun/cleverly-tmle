@@ -62,7 +62,9 @@ def exact_fit():
         simultaneous=False,
         random_state=0,
     )
-    return estimator.fit(law.frame(), outcome="Y", treatment="A", covariates=["W"], delta="Delta")
+    return estimator.fit(
+        law.frame(), outcome="Y", treatment="A", covariates=["W"], delta="Delta"
+    ).single()
 
 
 class TestTheSampleRealisesTheLaw:
@@ -290,17 +292,18 @@ class TestTheOutcomeRegressionUsesOnlyTheCompleteCases:
         )
         return estimator.fit(
             law.frame(), outcome="Y", treatment="A", covariates=["W"], delta="Delta"
-        )
+        ).single()
 
     def test_it_matches_a_regression_fitted_on_the_observed_rows(self, learned_fit) -> None:
         observed = law.frame()["Delta"].to_numpy() == 1.0
         at_one, at_zero = self._reference(observed)
-        np.testing.assert_allclose(learned_fit.nuisance.outcome.at_one, at_one, atol=1e-8, rtol=0)
-        np.testing.assert_allclose(learned_fit.nuisance.outcome.at_zero, at_zero, atol=1e-8, rtol=0)
+        arms = learned_fit.nuisance.outcome.arms
+        np.testing.assert_allclose(arms[1.0], at_one, atol=1e-8, rtol=0)
+        np.testing.assert_allclose(arms[0.0], at_zero, atol=1e-8, rtol=0)
 
     def test_it_does_not_match_a_regression_fitted_on_every_row(self, learned_fit) -> None:
         # The negative half: the two fits have to be far enough apart that the assertion
         # above is discriminating and not merely satisfied by both.
         every = np.ones(law.N, dtype=bool)
         at_one, _ = self._reference(every)
-        assert np.max(np.abs(learned_fit.nuisance.outcome.at_one - at_one)) > 1e-2
+        assert np.max(np.abs(learned_fit.nuisance.outcome.arms[1.0] - at_one)) > 1e-2

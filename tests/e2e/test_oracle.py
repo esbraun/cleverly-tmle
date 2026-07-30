@@ -63,7 +63,7 @@ def oracle_fit() -> tuple[object, dict[str, float], object]:
         random_state=0,
         simultaneous=False,
     )
-    result = estimator.fit(frame, outcome="Y", treatment="A")
+    result = estimator.fit(frame, outcome="Y", treatment="A").single()
     return result, truth, frame
 
 
@@ -181,7 +181,7 @@ class TestOracleNuisancesWithMissingOutcomes:
             random_state=0,
             simultaneous=False,
         )
-        return estimator.fit(frame, outcome="Y", treatment="A", delta="Delta"), truth
+        return estimator.fit(frame, outcome="Y", treatment="A", delta="Delta").single(), truth
 
     def test_a_material_share_of_outcomes_is_missing(self, oracle_fit) -> None:
         result, _ = oracle_fit
@@ -348,7 +348,7 @@ class TestRandomisedTreatment:
             random_state=0,
             simultaneous=False,
         )
-        return estimator.fit(frame, outcome="Y", treatment="A"), truth, frame
+        return estimator.fit(frame, outcome="Y", treatment="A").single(), truth, frame
 
     def test_randomisation_makes_the_three_contrasts_coincide(self, fit) -> None:
         # A is independent of W, so the treated and control populations have the same
@@ -426,7 +426,7 @@ class TestHeterogeneousContrastsAreRecovered:
             random_state=0,
             simultaneous=False,
         )
-        return estimator.fit(frame, outcome="Y", treatment="A"), truth
+        return estimator.fit(frame, outcome="Y", treatment="A").single(), truth
 
     @pytest.fixture(scope="class")
     def fits(self):

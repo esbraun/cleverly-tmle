@@ -35,8 +35,10 @@ def _pieces(result):  # type: ignore[no-untyped-def]
 def result():
     frame, _ = GENERATORS["nonlinear_ate"](n=400, seed=5)
     covariates = [c for c in frame.columns if c.startswith("W")]
-    return TMLE(outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7).fit(
-        frame, outcome="Y", treatment="A", covariates=covariates
+    return (
+        TMLE(outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7)
+        .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+        .single()
     )
 
 
@@ -74,8 +76,10 @@ def test_the_residual_term_grows_as_truncation_is_loosened() -> None:
     """
     frame, _ = GENERATORS["weak_overlap"](n=400, seed=5)
     covariates = [c for c in frame.columns if c.startswith("W")]
-    fit = TMLE(outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7).fit(
-        frame, outcome="Y", treatment="A", covariates=covariates
+    fit = (
+        TMLE(outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7)
+        .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+        .single()
     )
 
     def residual_share(bound: float) -> float:

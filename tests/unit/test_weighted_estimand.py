@@ -69,7 +69,9 @@ def _fit(label: str) -> tuple[object, np.ndarray]:
         simultaneous=False,
         random_state=0,
     )
-    return estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w"), cells
+    return estimator.fit(
+        frame, outcome="Y", treatment="A", covariates=["W"], weights="w"
+    ).single(), cells
 
 
 @pytest.fixture(scope="module", params=sorted(WEIGHT_FUNCTIONS))
@@ -147,19 +149,23 @@ class TestConventions:
     def test_the_fit_is_invariant_to_the_scale_of_the_weights(self, weighted_fit) -> None:
         result, cells = weighted_fit
         tilted = law.DiscreteLaw(law.tilt(law.PROBS, cells))
-        rescaled = TMLE(
-            outcome_learner=OracleOutcome(tilted),
-            treatment_learner=OracleTreatment(tilted),
-            cross_fit=False,
-            estimands="all",
-            simultaneous=False,
-            random_state=0,
-        ).fit(
-            law.frame().assign(w=17.5 * law.row_weights(cells)),
-            outcome="Y",
-            treatment="A",
-            covariates=["W"],
-            weights="w",
+        rescaled = (
+            TMLE(
+                outcome_learner=OracleOutcome(tilted),
+                treatment_learner=OracleTreatment(tilted),
+                cross_fit=False,
+                estimands="all",
+                simultaneous=False,
+                random_state=0,
+            )
+            .fit(
+                law.frame().assign(w=17.5 * law.row_weights(cells)),
+                outcome="Y",
+                treatment="A",
+                covariates=["W"],
+                weights="w",
+            )
+            .single()
         )
         for name in ESTIMANDS:
             assert rescaled.psi(name) == pytest.approx(result.psi(name), rel=0, abs=1e-14)
@@ -193,15 +199,23 @@ class TestConventions:
             "cross_fit": False,
             "random_state": 0,
         }
-        weighted = TMLE(**kwargs).fit(
-            frame.assign(w=keep.astype(float)),
-            outcome="Y",
-            treatment="A",
-            covariates=["W"],
-            weights="w",
+        weighted = (
+            TMLE(**kwargs)
+            .fit(
+                frame.assign(w=keep.astype(float)),
+                outcome="Y",
+                treatment="A",
+                covariates=["W"],
+                weights="w",
+            )
+            .single()
         )
-        dropped = TMLE(**kwargs).fit(
-            frame.loc[keep].reset_index(drop=True), outcome="Y", treatment="A", covariates=["W"]
+        dropped = (
+            TMLE(**kwargs)
+            .fit(
+                frame.loc[keep].reset_index(drop=True), outcome="Y", treatment="A", covariates=["W"]
+            )
+            .single()
         )
         assert weighted.psi("ate") == pytest.approx(dropped.psi("ate"), rel=1e-9)
         assert weighted.n == law.N
@@ -222,7 +236,7 @@ class TestFrequencyWeightsAreRefused:
                 covariates=["W"],
                 weights="w",
                 weights_type="frequency",
-            )
+            ).single()
 
     def test_count_looking_weights_warn(self) -> None:
         rng = np.random.default_rng(0)
@@ -230,7 +244,7 @@ class TestFrequencyWeightsAreRefused:
         with pytest.warns(WeightingWarning, match="counts"):
             TMLE(
                 outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
-            ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+            ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w").single()
 
     def test_repeating_rows_is_not_the_same_as_weighting_them(self) -> None:
         """Why the refusal is not pedantry.
@@ -249,14 +263,20 @@ class TestFrequencyWeightsAreRefused:
             "cross_fit": False,
             "random_state": 0,
         }
-        weighted = TMLE(**kwargs).fit(
-            frame.assign(w=3.0), outcome="Y", treatment="A", covariates=["W"], weights="w"
+        weighted = (
+            TMLE(**kwargs)
+            .fit(frame.assign(w=3.0), outcome="Y", treatment="A", covariates=["W"], weights="w")
+            .single()
         )
-        repeated = TMLE(**kwargs).fit(
-            frame.loc[frame.index.repeat(3)].reset_index(drop=True),
-            outcome="Y",
-            treatment="A",
-            covariates=["W"],
+        repeated = (
+            TMLE(**kwargs)
+            .fit(
+                frame.loc[frame.index.repeat(3)].reset_index(drop=True),
+                outcome="Y",
+                treatment="A",
+                covariates=["W"],
+            )
+            .single()
         )
         assert weighted.psi("ate") == pytest.approx(repeated.psi("ate"), rel=1e-9)
         assert weighted["ate"].std_error / repeated["ate"].std_error == pytest.approx(
@@ -268,9 +288,11 @@ class TestTheReport:
     def test_the_effective_sample_size_matches_kish(self) -> None:
         cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
         frame = law.frame().assign(w=law.row_weights(cells))
-        result = TMLE(
-            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
-        ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+        result = (
+            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+            .single()
+        )
         w = np.asarray(frame["w"], dtype=float)
         expected = float(w.sum() ** 2 / np.square(w).sum())
         report = result.data.weight_report()
@@ -282,15 +304,17 @@ class TestTheReport:
 
     def test_estimated_weights_are_declared_in_the_report(self) -> None:
         frame = law.frame().assign(w=1.0 + 0.5 * law.frame()["W"])
-        result = TMLE(
-            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
-        ).fit(
-            frame,
-            outcome="Y",
-            treatment="A",
-            covariates=["W"],
-            weights="w",
-            weights_estimated=True,
+        result = (
+            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W"],
+                weights="w",
+                weights_estimated=True,
+            )
+            .single()
         )
         summary = result.data.weight_report().summary()
         assert "estimated" in summary
@@ -324,7 +348,7 @@ class TestTheReport:
                 covariates=["W"],
                 weights="w",
                 weights_estimated=True,
-            )
+            ).single()
 
     def test_no_such_warning_for_weights_that_were_not_estimated(self) -> None:
         frame = law.frame().assign(w=1.0 + 0.5 * law.frame()["W"])
@@ -338,7 +362,7 @@ class TestTheReport:
         )
         with warnings.catch_warnings():
             warnings.simplefilter("error", WeightingWarning)
-            estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+            estimator.fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w").single()
 
 
 class TestSampleSizeDependentSettings:
@@ -355,17 +379,21 @@ class TestSampleSizeDependentSettings:
 
     def _bound(self, weights: np.ndarray | float) -> float:
         frame = law.frame().assign(w=weights)
-        result = TMLE(
-            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
-        ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+        result = (
+            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+            .single()
+        )
         return float(result.config.g_bounds[0])
 
     def test_constant_weights_leave_the_auto_bound_alone(self) -> None:
         # Kish equals n exactly for constant weights, so an unweighted fit and a
         # uniformly weighted one must truncate identically.
-        unweighted = TMLE(
-            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
-        ).fit(law.frame(), outcome="Y", treatment="A", covariates=["W"])
+        unweighted = (
+            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            .fit(law.frame(), outcome="Y", treatment="A", covariates=["W"])
+            .single()
+        )
         assert self._bound(4.0) == pytest.approx(float(unweighted.config.g_bounds[0]))
         assert unweighted.config.auto_bounds_n is None
 
@@ -386,9 +414,13 @@ class TestSampleSizeDependentSettings:
         """
         frame = law.frame()
         keep = np.asarray(frame["W"] != 2)
-        dropped = TMLE(
-            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
-        ).fit(frame.loc[keep].reset_index(drop=True), outcome="Y", treatment="A", covariates=["W"])
+        dropped = (
+            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            .fit(
+                frame.loc[keep].reset_index(drop=True), outcome="Y", treatment="A", covariates=["W"]
+            )
+            .single()
+        )
         assert self._bound(keep.astype(float)) == pytest.approx(
             float(dropped.config.g_bounds[0]), rel=1e-12
         )
@@ -396,22 +428,28 @@ class TestSampleSizeDependentSettings:
     def test_the_summary_says_which_sample_size_the_bound_came_from(self) -> None:
         cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
         frame = law.frame().assign(w=law.row_weights(cells))
-        result = TMLE(
-            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
-        ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+        result = (
+            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+            .single()
+        )
         assert "resolved at the effective n" in result.summary()
         assert result.config.auto_bounds_n == pytest.approx(result.data.effective_n)
 
     def test_an_explicit_bound_is_never_second_guessed(self) -> None:
         cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
         frame = law.frame().assign(w=law.row_weights(cells))
-        result = TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
-            cross_fit=False,
-            g_bounds=0.01,
-            random_state=0,
-        ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+        result = (
+            TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                cross_fit=False,
+                g_bounds=0.01,
+                random_state=0,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+            .single()
+        )
         assert result.config.g_bounds == (0.01, 0.99)
         assert result.config.auto_bounds_n is None
 
@@ -445,9 +483,11 @@ class TestSampleSizeDependentSettings:
     def test_constant_weights_report_nothing_to_report(self) -> None:
         cells = np.ones(len(law.SUPPORT))
         frame = law.frame().assign(w=law.row_weights(cells))
-        result = TMLE(
-            outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
-        ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+        result = (
+            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
+            .single()
+        )
         assert not result.data.is_weighted
         assert "unweighted" in result.data.weight_report().summary()
 
@@ -495,7 +535,7 @@ class TestWeightsAndMissingOutcomesTogether:
         )
         fitted = estimator.fit(
             frame, outcome="Y", treatment="A", covariates=["W"], delta="Delta", weights="w"
-        )
+        ).single()
         return fitted, cells
 
     @pytest.fixture(scope="class", params=sorted(WEIGHT_FUNCTIONS))

@@ -118,8 +118,8 @@ def missingness_tilt(
         for name in names:
             group = "mean" if name in ("ate", "ey1", "ey0") else name
             targeted = result.fluctuations[group].targeted
-            full_one = _tilted(targeted.at_one, missingness[:, 1], value)
-            full_zero = _tilted(targeted.at_zero, missingness[:, 0], value)
+            full_one = _tilted(targeted.arms[1.0], missingness[:, 1], value)
+            full_zero = _tilted(targeted.arms[0.0], missingness[:, 0], value)
 
             if name == "ey1":
                 psi_scaled = float(np.average(full_one, weights=weights))

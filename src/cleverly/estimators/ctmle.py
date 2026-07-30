@@ -189,7 +189,7 @@ Example
 >>> frame, truth = make_instrument(n=1000, seed=0)
 >>> res = CTMLE(outcome_learner="glm", treatment_learner="glm").fit(
 ...     frame, outcome="Y", treatment="A"
-... )
+... ).single()
 >>> res.extra["ctmle"].selected_covariates            # doctest: +SKIP
 ()
 
@@ -210,7 +210,7 @@ import numpy as np
 
 from .._typing import FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..fluctuation.iterative import InitialFit, apply_logistic
+from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.influence import counterfactual_means, ratio_estimates
 from ..learners._fitting import predict_mean
@@ -644,10 +644,13 @@ class _Selector:
         est = self.est
         moved = weighted_form(submodel, self.data.weights)[0] if est.target_weights else submodel
         if est.fluctuation == "linear":
+            check_matching_arms(initial, moved)
             return InitialFit(
                 initial.observed + moved.observed @ epsilon,
-                initial.at_one + moved.at_one @ epsilon,
-                initial.at_zero + moved.at_zero @ epsilon,
+                {
+                    level: values + moved.arms[level] @ epsilon
+                    for level, values in initial.arms.items()
+                },
             )
         return apply_logistic(initial.shrunk(est.alpha), moved, epsilon, est.alpha)
 
@@ -880,4 +883,4 @@ def _penalty_of(influence_curve: FloatArray) -> float:
 
 def _restrict_fit(fit: InitialFit, index: IntArray) -> InitialFit:
     """Row-subset an initial fit, the counterpart of :func:`.submodel.restrict`."""
-    return InitialFit(fit.observed[index], fit.at_one[index], fit.at_zero[index])
+    return fit.map_arms(lambda values: values[index])

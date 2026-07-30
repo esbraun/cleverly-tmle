@@ -28,8 +28,10 @@ class TestMissingOutcomes:
     @pytest.fixture(scope="class")
     def fit(self) -> tuple[object, dict[str, float]]:
         frame, truth = make_missing_outcome(n=2500, seed=61)
-        result = fast_tmle(estimands=("ate", "att", "ey1", "ey0")).fit(
-            frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta"
+        result = (
+            fast_tmle(estimands=("ate", "att", "ey1", "ey0"))
+            .fit(frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta")
+            .single()
         )
         return result, truth
 
@@ -75,8 +77,8 @@ class TestMissingOutcomes:
                 "simultaneous": False,
                 "random_state": 0,
             }
-            with_delta = TMLE(**settings).fit(frame, delta="Delta", **columns)
-            complete_case = TMLE(**settings).fit(frame.dropna(subset=["Y"]), **columns)
+            with_delta = TMLE(**settings).fit(frame, delta="Delta", **columns).single()
+            complete_case = TMLE(**settings).fit(frame.dropna(subset=["Y"]), **columns).single()
             biases["with_delta"].append(with_delta.psi("ate") - truth["ate"])
             biases["ignoring_delta"].append(complete_case.psi("ate") - truth["ate"])
 
@@ -223,8 +225,10 @@ class TestControlledDirectEffect:
         controlled = fast_tmle(estimands=("ate",)).fit(
             frame, outcome="Y", treatment="A", covariates=COVARIATES, intermediate="Z"
         )
-        total = fast_tmle(estimands=("ate",)).fit(
-            frame, outcome="Y", treatment="A", covariates=COVARIATES
+        total = (
+            fast_tmle(estimands=("ate",))
+            .fit(frame, outcome="Y", treatment="A", covariates=COVARIATES)
+            .single()
         )
         # The total effect includes the pathway through Z, so it must exceed both
         # controlled direct effects in this process.

@@ -233,7 +233,7 @@ def bench_end_to_end(sizes: tuple[int, ...], library: str) -> list[Timing]:
             )
         )
 
-        result = estimator.fit(frame, outcome="Y", treatment="A")
+        result = estimator.fit(frame, outcome="Y", treatment="A").single()
         timings.append(
             Timing(
                 "retarget (cached nuisances)",

@@ -200,7 +200,7 @@ class TestSelection:
         estimator = CTMLE(
             **{**CTMLE_KWARGS, "search": "discrete", "candidates": [("W1",), ("W2",), ("W3",)]}
         )
-        result = estimator.fit(instrument_frame, outcome="Y", treatment="A")
+        result = estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
         selection = result.extra["ctmle"]
         assert selection.selected == int(np.argmin(selection.cv_risk))
         assert selection.selected_covariates == selection.path[selection.selected]
@@ -221,6 +221,7 @@ class TestSelection:
             selection = (
                 CTMLE(**{**CTMLE_KWARGS, "search": "ordered"})
                 .fit(frame, outcome="Y", treatment="A")
+                .single()
                 .extra["ctmle"]
             )
             excluded += "W2" not in selection.selected_covariates
@@ -259,6 +260,7 @@ class TestSelection:
             selection = (
                 CTMLE(**{**CTMLE_KWARGS, "search": "ordered"})
                 .fit(frame, outcome="Y", treatment="A")
+                .single()
                 .extra["ctmle"]
             )
             empty += len(selection.selected_covariates) == 0
@@ -281,13 +283,14 @@ class TestSelection:
                 }
             )
             .fit(frame, outcome="Y", treatment="A")
+            .single()
             .extra["ctmle"]
         )
         assert selection.selected_covariates == ()
         assert selection.cv_risk[0] < selection.cv_risk[1]
 
     def test_the_selected_model_is_the_one_that_was_used(self, instrument_frame) -> None:
-        result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A")
+        result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A").single()
         selection = result.extra["ctmle"]
         assert result.nuisance.treatment_covariates == selection.selected_covariates
         assert set(selection.dropped) == set(selection.covariates) - set(
@@ -300,8 +303,10 @@ class TestSelection:
             ("ordered", {}),
             ("discrete", {"candidates": [("W1",), ("W1", "W2")]}),
         ):
-            result = CTMLE(**{**CTMLE_KWARGS, "search": search, **extra}).fit(
-                instrument_frame, outcome="Y", treatment="A"
+            result = (
+                CTMLE(**{**CTMLE_KWARGS, "search": search, **extra})
+                .fit(instrument_frame, outcome="Y", treatment="A")
+                .single()
             )
             selection = result.extra["ctmle"]
             assert selection.search == search
@@ -317,17 +322,19 @@ class TestEquivalenceWithPlainTmle:
         # available check that the selection layer does not perturb the estimator.
         frame, _ = make_linear_ate(n=500, seed=21)
         every = ("W1", "W2", "W3", "W4")
-        collaborative = CTMLE(**{**CTMLE_KWARGS, "search": "discrete", "candidates": [every]}).fit(
-            frame, outcome="Y", treatment="A"
+        collaborative = (
+            CTMLE(**{**CTMLE_KWARGS, "search": "discrete", "candidates": [every]})
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
         )
-        plain = TMLE(**TMLE_KWARGS).fit(frame, outcome="Y", treatment="A")
+        plain = TMLE(**TMLE_KWARGS).fit(frame, outcome="Y", treatment="A").single()
 
         assert collaborative.psi("ate") == plain.psi("ate")
         assert collaborative["ate"].std_error == plain["ate"].std_error
         assert np.array_equal(collaborative["ate"].influence_curve, plain["ate"].influence_curve)
 
     def test_it_solves_the_score_equation(self, instrument_frame) -> None:
-        result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A")
+        result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A").single()
         assert result.validation.score_check().passed
 
 
@@ -335,7 +342,10 @@ class TestReporting:
     @pytest.fixture(scope="class")
     def selection(self, instrument_frame) -> object:
         return (
-            CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A").extra["ctmle"]
+            CTMLE(**CTMLE_KWARGS)
+            .fit(instrument_frame, outcome="Y", treatment="A")
+            .single()
+            .extra["ctmle"]
         )
 
     def test_the_summary_marks_the_chosen_candidate(self, selection) -> None:
@@ -376,19 +386,19 @@ class TestValidation:
     def test_conditional_estimands_are_refused_with_an_explanation(self, instrument_frame) -> None:
         estimator = CTMLE(**{**FAST_KWARGS, "estimands": ("ate", "att")})
         with pytest.raises(ValueError, match="does not support estimand"):
-            estimator.fit(instrument_frame, outcome="Y", treatment="A")
+            estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
 
     def test_the_target_estimand_must_be_reported(self, instrument_frame) -> None:
         estimator = CTMLE(**{**FAST_KWARGS, "estimands": ("ey1",), "ctmle_estimand": "ate"})
         with pytest.raises(ValueError, match="not among the requested estimands"):
-            estimator.fit(instrument_frame, outcome="Y", treatment="A")
+            estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
 
     def test_an_ordering_must_name_every_covariate(self, instrument_frame) -> None:
         estimator = CTMLE(**{**CTMLE_KWARGS, "search": "ordered", "ordering": ["W1", "W2"]})
         with pytest.raises(ValueError, match="must cover every covariate"):
-            estimator.fit(instrument_frame, outcome="Y", treatment="A")
+            estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
 
     def test_an_ordering_cannot_name_an_unknown_covariate(self, instrument_frame) -> None:
         estimator = CTMLE(**{**CTMLE_KWARGS, "search": "ordered", "ordering": ["W1", "W2", "W9"]})
         with pytest.raises(ValueError, match="unknown covariate"):
-            estimator.fit(instrument_frame, outcome="Y", treatment="A")
+            estimator.fit(instrument_frame, outcome="Y", treatment="A").single()

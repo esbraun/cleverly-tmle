@@ -79,8 +79,7 @@ def _expansion(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
     at_one, at_zero = q_hat[covariate, 1], q_hat[covariate, 0]
     initial = InitialFit(
         observed=np.where(treatment == 1.0, at_one, at_zero),
-        at_one=at_one,
-        at_zero=at_zero,
+        arms={1.0: at_one, 0.0: at_zero},
     )
     submodel = submodel_for("mean", treatment, g_hat[covariate])
     psi_one, ic_one, psi_zero, ic_zero = counterfactual_means(
@@ -111,8 +110,7 @@ def _plug_in(g_hat: np.ndarray, q_hat: np.ndarray) -> tuple[float, float]:
     at_one, at_zero = q_hat[covariate, 1], q_hat[covariate, 0]
     initial = InitialFit(
         observed=np.where(treatment == 1.0, at_one, at_zero),
-        at_one=at_one,
-        at_zero=at_zero,
+        arms={1.0: at_one, 0.0: at_zero},
     )
     submodel = submodel_for("mean", treatment, g_hat[covariate])
     psi_one, _, psi_zero, _ = counterfactual_means(outcome, initial, submodel, np.ones(law.N))
@@ -230,8 +228,7 @@ class TestTruncationRegularisesRatherThanRetargets:
         at_one, at_zero = WRONG_Q[covariate, 1], WRONG_Q[covariate, 0]
         initial = InitialFit(
             observed=np.where(treatment == 1.0, at_one, at_zero),
-            at_one=at_one,
-            at_zero=at_zero,
+            arms={1.0: at_one, 0.0: at_zero},
         )
         bounded = submodel_for("mean", treatment, self._truncated()[covariate])
         exact = submodel_for("mean", treatment, law.G[covariate])

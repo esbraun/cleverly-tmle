@@ -46,19 +46,24 @@ both add a factor to the mechanism half of the double-robustness statement above
 guarantee becomes "``Qbar`` right, or the product ``g * pi`` right"
 (:mod:`cleverly.fluctuation.submodel`).  ``intermediate=`` targets a *controlled direct
 effect* -- the effect of ``A`` holding a post-treatment variable ``Z`` fixed at a level
-``z`` -- which is a different parameter for each ``z``, so ``fit`` returns a
-:class:`~cleverly.estimators.base.TMLEResultSet` with one result per level rather than a
-single :class:`~cleverly.estimators.base.TMLEResult`.  That path rests on an
+``z`` -- which is a different parameter for each ``z``, so the
+:class:`~cleverly.estimators.base.TMLEResultSet` that ``fit`` returns holds one result per
+level of ``Z`` instead of the single one an ordinary fit produces.  That path rests on an
 identification assumption the average treatment effect does not need, and it is not a
 general longitudinal estimator; :mod:`cleverly.estimators.direct_effect` writes the
 parameter down, derives its influence function, and says where the boundary is.
+
+``fit`` returns that set in *both* cases.  An ordinary fit is the single-entry one, keyed
+``None``, and :meth:`~cleverly.estimators.base.TMLEResultSet.single` is how to reach it.
+The alternative -- returning a bare result when there is one and a set when there are two
+-- made the return type depend on an argument, which every caller then had to branch on.
 
 Example
 -------
 >>> from cleverly import TMLE
 >>> from cleverly.datasets import make_nonlinear_ate
 >>> frame, truth = make_nonlinear_ate(n=1000, seed=0)
->>> res = TMLE(random_state=0).fit(frame, outcome="Y", treatment="A")
+>>> res = TMLE(random_state=0).fit(frame, outcome="Y", treatment="A").single()
 >>> print(res.summary())                      # doctest: +SKIP
 """
 
@@ -409,7 +414,7 @@ class TMLE:
         weights_estimated: bool = False,
         id: str | None = None,
         intermediate: str | None = None,
-    ) -> TMLEResult | TMLEResultSet:
+    ) -> TMLEResultSet:
         """Fit the estimator.
 
         Parameters
@@ -428,9 +433,12 @@ class TMLE:
 
         Returns
         -------
-        A :class:`~cleverly.estimators.base.TMLEResult`, or a
-        :class:`~cleverly.estimators.base.TMLEResultSet` with one result per level of
-        the intermediate variable when ``intermediate`` is supplied.
+        A :class:`~cleverly.estimators.base.TMLEResultSet`: one
+        :class:`~cleverly.estimators.base.TMLEResult` per parameter estimated.  An
+        ordinary fit holds a single result, keyed ``None`` -- reach it with
+        ``.single()``.  Passing ``intermediate=`` holds one per level of the intermediate,
+        keyed by the level, because a controlled direct effect is a different parameter at
+        each.
         """
         prepared = self._prepare(
             data,
@@ -446,7 +454,7 @@ class TMLE:
         )
 
         if not prepared.has_intermediate:
-            return self._fit_single(prepared, intermediate_value=None)
+            return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
 
         # The controlled direct effect at z = 0 and at z = 1 are different parameters,
         # so they get one result each -- but they are estimated from *identical*
@@ -459,7 +467,7 @@ class TMLE:
         levels = (0.0, 1.0)
         if self._shares_nuisances_across_levels():
             shared = self._prepare_shared(prepared, levels)
-            results = {
+            results: dict[float | None, TMLEResult] = {
                 value: self._fit_single(prepared, intermediate_value=value, shared=shared)
                 for value in levels
             }
@@ -1135,8 +1143,9 @@ class TMLE:
         """
         n = data.n
         observed = np.empty(n)
-        at_one = np.empty(n)
-        at_zero = np.empty(n)
+        # Reassembled arm by arm from whatever arms the nuisance fit carries, rather than
+        # from a hardcoded pair, so a fold-targeted fit needs no change per arm count.
+        arms = {level: np.empty(n) for level in nuisance.outcome.arms}
         fold_records: list[FoldFluctuation] = []
         masses = []
         traces = []
@@ -1146,19 +1155,15 @@ class TMLE:
         for _, test in nuisance.folds:
             fold_fluctuation = self._solve_rows(
                 scaled[test],
-                InitialFit(
-                    nuisance.outcome.observed[test],
-                    nuisance.outcome.at_one[test],
-                    nuisance.outcome.at_zero[test],
-                ),
+                _slice_fit(nuisance.outcome, test),
                 restrict(submodel, test),
                 data.weights[test],
                 data.observed[test],
                 warn=False,
             )
             observed[test] = fold_fluctuation.targeted.observed
-            at_one[test] = fold_fluctuation.targeted.at_one
-            at_zero[test] = fold_fluctuation.targeted.at_zero
+            for level, values in fold_fluctuation.targeted.arms.items():
+                arms[level][test] = values
             fold_records.append(
                 FoldFluctuation(
                     index=test,
@@ -1173,7 +1178,7 @@ class TMLE:
             reasons.append(fold_fluctuation.failure or "unknown")
             iterations += fold_fluctuation.n_iter
 
-        targeted = InitialFit(observed, at_one, at_zero)
+        targeted = InitialFit(observed, arms)
         weights_array = np.asarray(masses)
         epsilon = np.average(
             np.vstack([record.epsilon for record in fold_records]), axis=0, weights=weights_array
@@ -1308,7 +1313,7 @@ class TMLE:
 
 def _slice_fit(fit: InitialFit, index: IntArray) -> InitialFit:
     """The targeted (or initial) predictions for one subset of rows."""
-    return InitialFit(fit.observed[index], fit.at_one[index], fit.at_zero[index])
+    return fit.map_arms(lambda values: values[index])
 
 
 def _average_over_folds(
@@ -1395,7 +1400,7 @@ def tmle(
     id: Any = None,
     covariate_names: Sequence[str] | None = None,
     **kwargs: Any,
-) -> TMLEResult | TMLEResultSet:
+) -> TMLEResultSet:
     """Array-oriented entry point, mirroring ``tmle(Y, A, W, ...)`` in R.
 
     A thin wrapper over :class:`TMLE`; the argument names follow R's ``tmle`` package
@@ -1408,7 +1413,7 @@ def tmle(
     >>> W = rng.normal(size=(500, 3))
     >>> A = rng.binomial(1, 0.5, 500).astype(float)
     >>> Y = A + W[:, 0] + rng.normal(size=500)
-    >>> res = tmle(Y, A, W, outcome_learner="glm", treatment_learner="glm")
+    >>> res = tmle(Y, A, W, outcome_learner="glm", treatment_learner="glm").single()
     >>> round(res.psi("ate"), 1)                    # doctest: +SKIP
     1.0
     """

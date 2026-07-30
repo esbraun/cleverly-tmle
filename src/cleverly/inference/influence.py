@@ -239,18 +239,20 @@ def counterfactual_means(
         raise ValueError(f"expected the 'mean' submodel; got {submodel.group!r}")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
-    h_zero = submodel.observed[:, 0]
-    h_one = submodel.observed[:, 1]
+    # Indexed by the arm each column targets rather than by a literal 0 and 1, which are
+    # only the right columns while there are exactly two arms.
+    h_zero = submodel.column_for(0.0)
+    h_one = submodel.column_for(1.0)
 
-    psi_one = float(np.average(targeted.at_one, weights=w))
-    psi_zero = float(np.average(targeted.at_zero, weights=w))
+    psi_one = float(np.average(targeted.arms[1.0], weights=w))
+    psi_zero = float(np.average(targeted.arms[0.0], weights=w))
     # Summed in this association deliberately.  Splitting the bracket to reuse
     # ICParts here would be mathematically identical and would change the last bit of
     # every influence curve, because floating-point addition is not associative. The
     # decomposition is a diagnostic (`counterfactual_mean_parts`); the estimation path
     # keeps the arithmetic its regression fixtures were built against.
-    ic_one = w * (h_one * residual + targeted.at_one - psi_one)
-    ic_zero = w * (h_zero * residual + targeted.at_zero - psi_zero)
+    ic_one = w * (h_one * residual + targeted.arms[1.0] - psi_one)
+    ic_zero = w * (h_zero * residual + targeted.arms[0.0] - psi_zero)
     return psi_one, ic_one, psi_zero, ic_zero
 
 
@@ -307,11 +309,11 @@ def counterfactual_mean_parts(
         raise ValueError(f"expected the 'mean' submodel; got {submodel.group!r}")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
-    psi_one = float(np.average(targeted.at_one, weights=w))
-    psi_zero = float(np.average(targeted.at_zero, weights=w))
+    psi_one = float(np.average(targeted.arms[1.0], weights=w))
+    psi_zero = float(np.average(targeted.arms[0.0], weights=w))
     return (
-        ICParts(w * submodel.observed[:, 1] * residual, w * (targeted.at_one - psi_one)),
-        ICParts(w * submodel.observed[:, 0] * residual, w * (targeted.at_zero - psi_zero)),
+        ICParts(w * submodel.column_for(1.0) * residual, w * (targeted.arms[1.0] - psi_one)),
+        ICParts(w * submodel.column_for(0.0) * residual, w * (targeted.arms[0.0] - psi_zero)),
     )
 
 
@@ -361,9 +363,11 @@ def _conditional_effect(
     if share <= 0:
         raise ValueError(f"no observations in arm {arm:.0f}: the estimand is undefined")
 
-    contrast = targeted.at_one - targeted.at_zero
+    contrast = targeted.arms[1.0] - targeted.arms[0.0]
     psi = float(np.average(contrast, weights=w * indicator))
     residual = _residual(outcome, targeted, observed)
+    # The sole column, not an arm's: a contrast submodel has no per-arm column, which is
+    # why ``arm_columns`` is empty for this group.
     ic = w * (submodel.observed[:, 0] * residual + (indicator / share) * (contrast - psi))
     return psi, ic
 

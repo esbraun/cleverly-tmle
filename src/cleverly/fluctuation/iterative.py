@@ -22,6 +22,7 @@ updated fit, which is what makes this the "iterative" TMLE.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -31,13 +32,14 @@ from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
 from ..exceptions import ConvergenceWarning
 from ..utils.bounds import expit, logit, shrink_probabilities
 from ._score import quasi_loglik, relative_score, score_columns, score_scale
-from .submodel import Submodel, weighted_form
+from .submodel import Submodel, check_arms, weighted_form
 
 __all__ = [
     "Fluctuation",
     "FoldFluctuation",
     "InitialFit",
     "apply_logistic",
+    "check_matching_arms",
     "solve_fluctuation",
 ]
 
@@ -135,24 +137,39 @@ _LINE_SEARCH_SLACK = 1e-11
 
 @dataclass(frozen=True)
 class InitialFit:
-    """The initial outcome regression, evaluated at the observed and both arms.
+    """The initial outcome regression, at the observed treatment and at each arm.
 
-    All three arrays live on the ``[0, 1]`` scale: for a binary outcome that is the
-    natural scale, and for a continuous one it is the scaled outcome (see
+    ``arms`` maps a treatment level to the predictions obtained by setting the treatment
+    to that level for everybody, so a binary treatment carries ``{0.0: ..., 1.0: ...}``.
+    Keying them rather than naming two fields is what lets :meth:`shrunk`,
+    :func:`apply_logistic`, :func:`~cleverly.fluctuation.submodel.restrict` and the
+    row-slicing helpers be written once without counting arms.
+
+    Every array lives on the ``[0, 1]`` scale: for a binary outcome that is the natural
+    scale, and for a continuous one it is the scaled outcome (see
     :class:`cleverly.utils.bounds.OutcomeScaler`).
     """
 
     observed: FloatArray
-    at_one: FloatArray
-    at_zero: FloatArray
+    arms: dict[float, FloatArray]
+
+    def __post_init__(self) -> None:
+        check_arms(self.observed, self.arms, "initial fit")
+
+    def map_arms(self, fn: Callable[[FloatArray], FloatArray]) -> InitialFit:
+        """Apply ``fn`` to the observed predictions and to every arm's, keys preserved."""
+        return InitialFit(
+            fn(self.observed), {level: fn(values) for level, values in self.arms.items()}
+        )
 
     def shrunk(self, alpha: float) -> InitialFit:
         """Pull predictions away from 0 and 1 so ``logit`` stays finite."""
-        return InitialFit(
-            shrink_probabilities(self.observed, alpha),
-            shrink_probabilities(self.at_one, alpha),
-            shrink_probabilities(self.at_zero, alpha),
-        )
+        return self.map_arms(lambda values: shrink_probabilities(values, alpha))
+
+    @property
+    def levels(self) -> tuple[float, ...]:
+        """The arm levels, ascending."""
+        return tuple(sorted(self.arms))
 
     @property
     def n(self) -> int:
@@ -428,11 +445,30 @@ def apply_logistic(
     fit: InitialFit, submodel: Submodel, epsilon: FloatArray, alpha: float
 ) -> InitialFit:
     """Move the predictions along the logistic submodel by ``epsilon``."""
+    check_matching_arms(fit, submodel)
     return InitialFit(
         expit(logit(fit.observed) + submodel.observed @ epsilon),
-        expit(logit(fit.at_one) + submodel.at_one @ epsilon),
-        expit(logit(fit.at_zero) + submodel.at_zero @ epsilon),
+        {
+            level: expit(logit(values) + submodel.arms[level] @ epsilon)
+            for level, values in fit.arms.items()
+        },
     ).shrunk(alpha)
+
+
+def check_matching_arms(fit: InitialFit, submodel: Submodel) -> None:
+    """Refuse to fluctuate a fit along a submodel that describes different arms.
+
+    Without the check, a mismatch is not an error but a wrong answer: the arm present in
+    only one of the two is dropped from the comprehension, and the resulting fit has
+    fewer counterfactual predictions than the estimand needs -- discovered later, as a
+    ``KeyError`` far from the cause, or not at all.
+    """
+    if set(fit.arms) != set(submodel.arms):
+        raise ValueError(
+            f"the fit carries arms {sorted(fit.arms)} but the submodel carries "
+            f"{sorted(submodel.arms)}; a fluctuation moves each arm along its own "
+            "covariate, so the two must describe the same ones"
+        )
 
 
 def _newton_logistic(
@@ -528,6 +564,7 @@ def _solve_linear(
     equation, so the score is solved exactly in one step -- at the cost of targeted
     predictions that may fall outside the outcome's range.
     """
+    check_matching_arms(initial, submodel)
     x = submodel.observed[mask]
     residual = y[mask] - initial.observed[mask]
     w = weights[mask]
@@ -538,15 +575,9 @@ def _solve_linear(
 
     targeted = InitialFit(
         initial.observed + submodel.observed @ epsilon,
-        initial.at_one + submodel.at_one @ epsilon,
-        initial.at_zero + submodel.at_zero @ epsilon,
+        {level: values + submodel.arms[level] @ epsilon for level, values in initial.arms.items()},
     )
-    escaped = (
-        targeted.at_one.min() < 0.0
-        or targeted.at_one.max() > 1.0
-        or targeted.at_zero.min() < 0.0
-        or targeted.at_zero.max() > 1.0
-    )
+    escaped = any(values.min() < 0.0 or values.max() > 1.0 for values in targeted.arms.values())
     if escaped:
         warnings.warn(
             "the linear fluctuation produced targeted predictions outside the outcome's "

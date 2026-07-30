@@ -5,7 +5,7 @@ Quickstart
 >>> from cleverly import TMLE
 >>> from cleverly.datasets import make_nonlinear_ate
 >>> frame, truth = make_nonlinear_ate(n=1000, seed=0)
->>> result = TMLE(random_state=0).fit(frame, outcome="Y", treatment="A")
+>>> result = TMLE(random_state=0).fit(frame, outcome="Y", treatment="A").single()
 >>> print(result.summary())                                        # doctest: +SKIP
 
 The estimator takes pandas or polars dataframes interchangeably and returns results

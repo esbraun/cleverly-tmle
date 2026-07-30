@@ -25,11 +25,24 @@ from cleverly.fluctuation.submodel import Submodel
 
 
 def _fit(values: np.ndarray) -> InitialFit:
-    return InitialFit(values.copy(), values.copy(), values.copy())
+    return InitialFit(values.copy(), {0.0: values.copy(), 1.0: values.copy()})
 
 
 def _submodel(columns: np.ndarray, names: tuple[str, ...]) -> Submodel:
-    return Submodel(columns.copy(), columns.copy(), columns.copy(), names, "mean")
+    """A ``mean``-group submodel over the given columns.
+
+    ``arm_columns`` is supplied only for the two-column case, since a single-column
+    design has no column to spare for a second arm; nothing here reads it, and claiming
+    both arms share column 0 would be a false statement about the submodel.
+    """
+    per_arm = {0.0: 0, 1.0: 1} if columns.shape[1] == 2 else {}
+    return Submodel(
+        columns.copy(),
+        {0.0: columns.copy(), 1.0: columns.copy()},
+        names,
+        "mean",
+        per_arm,
+    )
 
 
 class TestNamedFailures:
@@ -199,14 +212,18 @@ class TestFoldFailuresAreNotSilent:
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            result = TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
-                n_folds=5,
-                targeting_scheme="fold",
-                random_state=1,
-                estimands=["ate"],
-            ).fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+            result = (
+                TMLE(
+                    outcome_learner="glm",
+                    treatment_learner="glm",
+                    n_folds=5,
+                    targeting_scheme="fold",
+                    random_state=1,
+                    estimands=["ate"],
+                )
+                .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+                .single()
+            )
 
         folds = result.fluctuations["mean"].folds
         assert not all(f.converged for f in folds), "the fixture stopped separating"

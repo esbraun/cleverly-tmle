@@ -69,9 +69,15 @@ where the claim genuinely requires it:
 
 - **Dataframes**: everything user-facing goes through narwhals; results are returned in
   the backend the caller passed in. Never branch on pandas vs polars.
-- **New estimands**: add the clever covariate to `fluctuation/submodel.py` and the
-  influence curve to `inference/influence.py`. The variance, bands, delta method and score
-  diagnostic then work without further changes.
+- **New estimands**: construct a `Target` and call `targets.register`. If it needs a score
+  equation no existing group solves, write the clever-covariate builder and call
+  `fluctuation.register_submodel` first — `register` refuses a target whose group has no
+  builder. The influence curve goes in `inference/influence.py`; the variance, bands, delta
+  method and score diagnostic then work without further changes.
+- **Counterfactual arms**: `Submodel` and `InitialFit` key their per-arm arrays by
+  treatment level (`arms[1.0]`), not by `at_one` / `at_zero` fields, and `arm_columns` says
+  which design column targets which arm. Use `map_arms` rather than writing a triple, so a
+  helper does not silently assume there are two arms.
 - **Nuisance reuse**: `TMLE.retarget` re-runs only the targeting step against cached
   nuisance fits. Sensitivity analyses must use it rather than refitting.
 - **New estimator variants**: a variant that only changes *which* nuisance estimate is

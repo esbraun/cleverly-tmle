@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from ..fluctuation.submodel import TargetGroup
+from ..fluctuation.submodel import SUBMODEL_BUILDERS, TargetGroup
 from .base import Identification, Target, TargetContext
 from .builtin import BUILTIN_TARGETS
 
@@ -47,11 +47,24 @@ def register(target: Target, *, replace: bool = False) -> Target:
 
     Raises unless ``replace=True`` when the name is taken, because silently
     shadowing a built-in estimand would change what every existing script reports.
+
+    Also refuses a target whose ``group`` names no registered fluctuation.  That used to
+    be a static check -- ``TargetGroup`` was a ``Literal`` of the three built-ins -- but a
+    registry the caller can extend cannot have an exhaustive one, so the check happens
+    here instead.  Registration is the right moment: the alternative is discovering it
+    when the fit tries to build a clever covariate, several steps further on.
     """
     if target.name in TARGETS and not replace:
         raise ValueError(
             f"a target named {target.name!r} is already registered; pass replace=True "
             "to override it deliberately"
+        )
+    if target.group not in SUBMODEL_BUILDERS:
+        raise ValueError(
+            f"target {target.name!r} declares group {target.group!r}, for which there is "
+            f"no submodel builder; registered groups are {sorted(SUBMODEL_BUILDERS)}. "
+            "Register the fluctuation with cleverly.fluctuation.register_submodel first -- "
+            "a group is a score equation, and a target cannot be solved without one."
         )
     TARGETS[target.name] = target
     return target

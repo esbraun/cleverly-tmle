@@ -37,8 +37,10 @@ NONLINEAR = ("rr", "or", "att", "atc")
 @pytest.fixture(scope="module")
 def cv_fit() -> object:
     frame, _ = make_linear_ate(n=600, seed=17)
-    return TMLE(**{**FAST_KWARGS, "targeting_scheme": "fold", "estimands": ("ate", "ey1")}).fit(
-        frame, outcome="Y", treatment="A"
+    return (
+        TMLE(**{**FAST_KWARGS, "targeting_scheme": "fold", "estimands": ("ate", "ey1")})
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
     )
 
 
@@ -52,7 +54,7 @@ def binary_frame() -> object:
 @pytest.fixture(scope="module")
 def pooled_report(binary_frame) -> object:
     settings = {**FAST_KWARGS, "targeting_scheme": "fold", "estimands": ALL_BINARY}
-    return TMLE(**settings).fit(binary_frame, outcome="Y", treatment="A")
+    return TMLE(**settings).fit(binary_frame, outcome="Y", treatment="A").single()
 
 
 @pytest.fixture(scope="module")
@@ -63,7 +65,7 @@ def canonical_report(binary_frame) -> object:
         "cv_evaluation": True,
         "estimands": ALL_BINARY,
     }
-    return TMLE(**settings).fit(binary_frame, outcome="Y", treatment="A")
+    return TMLE(**settings).fit(binary_frame, outcome="Y", treatment="A").single()
 
 
 class TestFoldWiseTargeting:
@@ -91,8 +93,10 @@ class TestFoldWiseTargeting:
 
     def test_a_pooled_fit_records_no_fold_detail(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=18)
-        result = TMLE(**{**FAST_KWARGS, "estimands": ("ate",)}).fit(
-            frame, outcome="Y", treatment="A"
+        result = (
+            TMLE(**{**FAST_KWARGS, "estimands": ("ate",)})
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
         )
         assert result.cv_targeting is None
         assert all(not f.folds for f in result.fluctuations.values())
@@ -104,10 +108,12 @@ class TestFoldWiseTargeting:
         # a CV-TMLE and got a cross-fitted TMLE should hear about it.
         frame, _ = make_linear_ate(n=400, seed=19)
         settings = {**FAST_KWARGS, "estimands": ("ate",), "cross_fit": False}
-        pooled = TMLE(**settings).fit(frame, outcome="Y", treatment="A")
+        pooled = TMLE(**settings).fit(frame, outcome="Y", treatment="A").single()
         with pytest.warns(UserWarning, match="falling back to pooled targeting"):
-            fold_wise = TMLE(**{**settings, "targeting_scheme": "fold"}).fit(
-                frame, outcome="Y", treatment="A"
+            fold_wise = (
+                TMLE(**{**settings, "targeting_scheme": "fold"})
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
             )
         assert fold_wise.psi("ate") == pooled.psi("ate")
         assert fold_wise["ate"].std_error == pooled["ate"].std_error

@@ -14,6 +14,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from cleverly.fluctuation.submodel import (
+    SUBMODEL_BUILDERS,
+    Submodel,
+    register_submodel,
+)
 from cleverly.inference.influence import ParameterEstimate
 from cleverly.targets import (
     TARGETS,
@@ -28,7 +33,9 @@ from cleverly.targets import (
 )
 from tests import discrete_law as law
 
-VALID_GROUPS = {"mean", "att", "atc"}
+#: Read off the submodel registry rather than written down, so a fluctuation added there
+#: does not need this list edited too -- which is the whole point of the registry.
+VALID_GROUPS = set(SUBMODEL_BUILDERS)
 VALID_SCALES = {"level", "difference", "ratio"}
 
 
@@ -169,6 +176,153 @@ class TestRegistration:
         assert "half_ate" not in TARGETS
 
 
+class TestGroupRegistry:
+    """A target's group has to name a fluctuation that exists.
+
+    Before the submodel registry, ``TargetGroup`` was a ``Literal`` and this was a static
+    check: mypy refused an unknown group and the runtime never had to. A registry the
+    caller can extend cannot have an exhaustive ``Literal``, so the check moved to
+    registration time -- earlier than the fit, which is where the old code would have
+    discovered it.
+    """
+
+    def test_every_registered_target_names_a_registered_fluctuation(self) -> None:
+        for name, target in TARGETS.items():
+            assert target.group in SUBMODEL_BUILDERS, (
+                f"target {name!r} declares group {target.group!r}, which no submodel "
+                "builder provides, so its score equation cannot be solved"
+            )
+
+    def test_registering_a_target_with_an_unknown_group_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="no submodel builder"):
+            register(
+                Target(
+                    name="groupless",
+                    group="no_such_fluctuation",
+                    scale="difference",
+                    build=lambda ctx: None,  # type: ignore[arg-type,return-value]
+                    identification=Identification(
+                        assumptions=("none",),
+                        required_nuisances=("outcome_regression",),
+                        dr_condition="none",
+                    ),
+                )
+            )
+        assert "groupless" not in TARGETS
+
+    def test_a_duplicate_submodel_group_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="already registered"):
+            register_submodel("mean", SUBMODEL_BUILDERS["mean"])
+
+    def test_replace_is_honoured_when_asked_for_explicitly(self) -> None:
+        original = SUBMODEL_BUILDERS["atc"]
+        try:
+            register_submodel("atc", original, replace=True)
+            assert SUBMODEL_BUILDERS["atc"] is original
+        finally:
+            SUBMODEL_BUILDERS["atc"] = original
+
+    def test_a_builder_must_label_its_submodel_with_its_own_group(self) -> None:
+        """A mismatch would silently route the wrong influence curve at the wrong estimand."""
+        from cleverly.fluctuation.submodel import mean_submodel, submodel_for
+
+        register_submodel("mislabelled", mean_submodel)
+        try:
+            with pytest.raises(ValueError, match="the two must agree"):
+                submodel_for("mislabelled", np.array([0.0, 1.0]), np.array([0.4, 0.6]))
+        finally:
+            del SUBMODEL_BUILDERS["mislabelled"]
+
+
+class TestACustomFluctuation:
+    """Registering a new score equation, end to end, without touching the estimator.
+
+    The built-in ``mean`` fluctuation fits two columns whose supports are disjoint, one
+    per arm, so its Hessian is diagonal and the coefficient on the treated column is the
+    same one a single-column fluctuation targeting only ``E[Y(1)]`` would find.  That is
+    what makes this a real check rather than a smoke test: the custom group must
+    reproduce the built-in ``ey1`` to solver precision, and it can only do so if the
+    registry, the clever covariate, the influence curve and the plug-in all lined up.
+    """
+
+    GROUP = "treated_only"
+    NAME = "ey1_solo"
+
+    @staticmethod
+    def _builder(
+        treatment,
+        propensity,
+        *,
+        treated_fraction=None,
+        missingness=None,
+        intermediate_density=None,
+        selection=None,
+    ):  # type: ignore[no-untyped-def]
+        """One column: ``1{A = 1} / g_1(W)``, the Riesz representer of ``E[Y(1)]``."""
+        a = np.asarray(treatment, dtype=float).reshape(-1)
+        g1 = np.asarray(propensity, dtype=float).reshape(-1)
+        n = a.shape[0]
+        inverse = (1.0 / g1).reshape(-1, 1)
+        return Submodel(
+            (a.reshape(-1, 1) * inverse),
+            {1.0: inverse, 0.0: np.zeros((n, 1))},
+            ("h1",),
+            TestACustomFluctuation.GROUP,
+            {1.0: 0},
+        )
+
+    @staticmethod
+    def _build(ctx):  # type: ignore[no-untyped-def]
+        residual = np.where(ctx.observed, ctx.scaled - ctx.targeted.observed, 0.0)
+        psi = float(np.average(ctx.targeted.arms[1.0], weights=ctx.weights))
+        curve = ctx.weights * (
+            ctx.submodel.column_for(1.0) * residual + ctx.targeted.arms[1.0] - psi
+        )
+        return ctx.finish(TestACustomFluctuation.NAME, psi, curve, "level")
+
+    @pytest.fixture
+    def registered(self):  # type: ignore[no-untyped-def]
+        register_submodel(self.GROUP, self._builder)
+        register(
+            Target(
+                name=self.NAME,
+                group=self.GROUP,
+                scale="level",
+                build=self._build,
+                identification=Identification(
+                    assumptions=("consistency", "no unmeasured confounding given W", "positivity"),
+                    required_nuisances=("outcome_regression", "treatment_mechanism"),
+                    dr_condition="consistent if either Qbar or g is consistent",
+                ),
+            )
+        )
+        try:
+            yield
+        finally:
+            # Popped so the oracle-coverage test above, which iterates the whole
+            # registry and demands a discrete-law branch per target, still holds.
+            del TARGETS[self.NAME]
+            del SUBMODEL_BUILDERS[self.GROUP]
+
+    def test_it_reaches_the_estimator_and_agrees_with_the_built_in(self, registered) -> None:
+        from cleverly.datasets import make_linear_ate
+        from tests.conftest import fast_tmle
+
+        frame, _ = make_linear_ate(n=400, seed=3)
+        result = (
+            fast_tmle(estimands=["ey1", self.NAME]).fit(frame, outcome="Y", treatment="A").single()
+        )
+        assert self.GROUP in result.fluctuations
+        assert result.fluctuations[self.GROUP].converged
+        assert result.psi(self.NAME) == pytest.approx(result.psi("ey1"), abs=1e-8)
+        assert result[self.NAME].std_error == pytest.approx(result["ey1"].std_error, rel=1e-6)
+
+    def test_the_new_group_is_grouped_and_resolved_like_any_other(self, registered) -> None:
+        assert self.GROUP in groups_for([self.NAME])
+        assert groups_for(["ate", self.NAME]) == ["mean", self.GROUP]
+        assert [t.name for t in targets_for(self.GROUP, [self.NAME])] == [self.NAME]
+
+
 class TestAgainstTheOracle:
     """The registry must not have changed what the estimands mean."""
 
@@ -228,13 +382,17 @@ class TestTheScalingContract:
         try:
             frame, _ = GENERATORS["binary_outcome"](n=300, seed=1)
             covariates = [c for c in frame.columns if c.startswith("W")]
-            result = TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
-                n_folds=4,
-                random_state=7,
-                estimands=["ate", "nnt"],
-            ).fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            result = (
+                TMLE(
+                    outcome_learner="glm",
+                    treatment_learner="glm",
+                    n_folds=4,
+                    random_state=7,
+                    estimands=["ate", "nnt"],
+                )
+                .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+                .single()
+            )
             assert result.nuisance.scaler.is_identity
             assert result["nnt"].psi == pytest.approx(1.0 / result["ate"].psi, rel=1e-12)
         finally:
@@ -249,13 +407,17 @@ class TestTheScalingContract:
         try:
             frame, _ = GENERATORS["linear_ate"](n=300, seed=1)
             covariates = [c for c in frame.columns if c.startswith("W")]
-            result = TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
-                n_folds=4,
-                random_state=7,
-                estimands=["ate", "nnt"],
-            ).fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            result = (
+                TMLE(
+                    outcome_learner="glm",
+                    treatment_learner="glm",
+                    n_folds=4,
+                    random_state=7,
+                    estimands=["ate", "nnt"],
+                )
+                .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+                .single()
+            )
             assert not result.nuisance.scaler.is_identity
             # Off by range**2, because the reciprocal does not commute with unscaling.
             assert result["nnt"].psi != pytest.approx(1.0 / result["ate"].psi, rel=1e-3)
