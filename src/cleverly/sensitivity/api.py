@@ -11,6 +11,7 @@ import contextlib
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+from ..interventions import SupportReport, check_support
 from .evalue import EValue, evalue
 from .missingness import missingness_tilt, tipping_gamma
 from .omitted_variable import (
@@ -53,6 +54,25 @@ class SensitivityAnalysis:
     def positivity(self) -> PositivityReport:
         """Overlap diagnostics: propensity distribution, effective sample size, weights."""
         return positivity_report(self._result)
+
+    def support(self) -> SupportReport:
+        """Overlap *for the declared regimes*, which the arm-level table cannot show.
+
+        A rule's positivity question is about ``g(d(W) | W)`` -- the propensity at the arm
+        the rule assigns -- and two fits with identical marginal overlap can differ
+        completely on it.  Raises on an arm-indexed fit, where there is no regime to
+        report and :meth:`positivity` is the diagnostic.
+        """
+        regimes = self._result.nuisance.regimes
+        if regimes is None:
+            raise ValueError(
+                "support() reports overlap for the regimes a fit declared, and this fit "
+                "declared none. Pass interventions= to TMLE, or use positivity() for the "
+                "arm-level report."
+            )
+        return check_support(
+            regimes, self._result.data.treatment, self._result.nuisance.propensity.values
+        )
 
     def truncation_curve(
         self,

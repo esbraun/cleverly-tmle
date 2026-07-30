@@ -54,6 +54,26 @@ _CONDITIONAL_ID = Identification(
 )
 
 
+_REGIME_ID = Identification(
+    assumptions=(
+        "consistency: Y = Y^a when A = a",
+        "no unmeasured confounding: Y^a is independent of A given W",
+        "positivity *for the regime*: g(a | W) > 0 wherever the regime assigns arm a "
+        "with positive probability -- a weaker requirement than positivity for every "
+        "arm when the regime is deterministic, and a different one",
+        "the regime is a known function of W: g* does not depend on the observed-data "
+        "law, so the influence function carries no term for estimating it",
+    ),
+    required_nuisances=("outcome_regression", "treatment_mechanism"),
+    dr_condition=(
+        "consistent if either Qbar(A, W) or g(W) is consistent; the mechanism half "
+        "picks up P(Delta = 1 | A, W) and P(Z = z | A, W) as a product exactly as the "
+        "arm-indexed means do"
+    ),
+    references=("Robins (2004)", "Diaz & van der Laan (2012)", "van der Laan (2013)"),
+)
+
+
 def _ey(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y(a)]`` for every arm, always named with its label.
 
@@ -80,18 +100,47 @@ def _ey0(ctx: TargetContext) -> list[ParameterEstimate]:
     return [ctx.finish("ey0", mean.psi, mean.influence_curve, "level")]
 
 
-def _ate(ctx: TargetContext) -> list[ParameterEstimate]:
-    """``E[Y(a)] - E[Y(ref)]``, once per non-reference arm."""
+def _difference_against_reference(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
+    """``E[Y(a)] - E[Y(ref)]``, once per non-reference arm -- or regime.
+
+    Shared by ``ate`` and ``ate_regime``, which are the same functional of whatever
+    :attr:`~cleverly.targets.TargetContext.means` is keyed by.  The stem is a parameter
+    rather than a constant only because a reported name has to say which of the two it
+    came from; see :data:`BUILTIN_TARGETS`.
+    """
     reference = ctx.means[ctx.reference]
     return [
         ctx.finish(
-            ctx.name_for("ate", arm, versus=ctx.reference),
+            ctx.name_for(stem, arm, versus=ctx.reference),
             ctx.means[arm].psi - reference.psi,
             ctx.means[arm].influence_curve - reference.influence_curve,
             "difference",
         )
         for arm in ctx.contrast_arms
     ]
+
+
+def _ate(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y(a)] - E[Y(ref)]``, once per non-reference arm."""
+    return _difference_against_reference(ctx, "ate")
+
+
+def _ey_regime(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{g*}]`` for every declared regime."""
+    return [
+        ctx.finish(
+            parameter_name("ey_regime", arm=ctx.label(code)),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+        )
+        for code, mean in sorted(ctx.means.items())
+    ]
+
+
+def _ate_regime(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{g*}] - E[Y^{g*_ref}]``, once per non-reference regime."""
+    return _difference_against_reference(ctx, "ate_regime")
 
 
 def _rr(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -234,5 +283,25 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         parameter_bounds=(0.0, float("inf")),
         undefined_when="a counterfactual risk is 0 or 1, leaving the odds undefined",
         description="odds ratio of the counterfactual risks",
+    ),
+    Target(
+        name="ey_regime",
+        group="regime",
+        scale="level",
+        build=_ey_regime,
+        identification=_REGIME_ID,
+        requires_intervention=True,
+        in_default_set=True,
+        description="counterfactual mean under each declared regime, E[Y^{g*}]",
+    ),
+    Target(
+        name="ate_regime",
+        group="regime",
+        scale="difference",
+        build=_ate_regime,
+        identification=_REGIME_ID,
+        requires_intervention=True,
+        in_default_set=True,
+        description="contrast of each regime against the reference regime",
     ),
 )

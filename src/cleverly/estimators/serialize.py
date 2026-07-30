@@ -45,6 +45,7 @@ from ..data.causal_data import CategoricalEncoding, CausalData
 from ..data.weighting import WeightSpec
 from ..fluctuation.iterative import Fluctuation, FoldFluctuation, InitialFit
 from ..inference.influence import ParameterEstimate
+from ..interventions import RegimeSet
 from ..learners.crossfit import Folds
 from ..provenance import Provenance
 from ..utils.bounds import OutcomeScaler
@@ -284,6 +285,19 @@ def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]
         "intermediate": arrays.put("nuisance.intermediate", nuisance.intermediate),
         "treatment_covariates": list(nuisance.treatment_covariates),
         "outcome_task": nuisance.outcome_task,
+        # The *evaluated* densities, not the rules that produced them. A rule is a
+        # callable and cannot be written; its output can, and it is the output that
+        # every reuse of the fit needs -- which is what keeps a loaded result's
+        # truncation curve, MNAR tilt and score check bit-for-bit identical.
+        "regimes": (
+            None
+            if nuisance.regimes is None
+            else {
+                "values": arrays.put("nuisance.regimes", nuisance.regimes.values),
+                "names": list(nuisance.regimes.names),
+                "reference": float(nuisance.regimes.reference),
+            }
+        ),
     }
 
 
@@ -306,6 +320,17 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
         # are not written; nuisance() falls back to what the arrays support.
         diagnostics={},
         outcome_task=payload["outcome_task"],
+        regimes=_regimes_from(arrays, payload.get("regimes")),
+    )
+
+
+def _regimes_from(arrays: _Arrays, payload: dict[str, Any] | None) -> RegimeSet | None:
+    if payload is None:
+        return None
+    return RegimeSet(
+        tuple(payload["names"]),
+        arrays.get(payload["values"]),
+        float(payload["reference"]),
     )
 
 

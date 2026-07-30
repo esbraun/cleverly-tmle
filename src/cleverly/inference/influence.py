@@ -59,6 +59,7 @@ __all__ = [
     "counterfactual_means",
     "make_estimate",
     "ratio_estimates",
+    "regime_means",
 ]
 
 Scale = Literal["level", "difference", "ratio"]
@@ -271,6 +272,68 @@ def counterfactual_means(
         # decomposition is a diagnostic (`counterfactual_mean_parts`); the estimation path
         # keeps the arithmetic its regression fixtures were built against.
         out[arm] = ArmMean(psi, w * (submodel.column_for(arm) * residual + prediction - psi))
+    return out
+
+
+def regime_means(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    submodel: Submodel,
+    regimes: FloatArray,
+    weights: FloatArray,
+    observed: BoolArray | None = None,
+) -> dict[float, ArmMean]:
+    r"""Every regime's counterfactual mean and influence curve, keyed by regime code.
+
+    .. math::
+
+        \hat\Psi_r = \frac1n \sum_i \sum_a g^\star_r(a \mid W_i)\, \bar Q^*(a, W_i),
+        \qquad
+        D_r^*(O) = h_r(A, W)\,\{Y - \bar Q^*(A, W)\}
+                   + \sum_a g^\star_r(a \mid W)\,\bar Q^*(a, W) - \Psi_r
+
+    The counterpart of :func:`counterfactual_means` for the ``regime`` fluctuation, and
+    the same influence curve with :math:`\mathbb 1\{a = v\}` in place of
+    :math:`g^\star_r` -- which is why a static regime reproduces the arm result.
+
+    Two details are not interchangeable with the arm version.  The mixture over arms is
+    taken **after** fluctuation, on :math:`\bar Q^*` rather than :math:`\bar Q^0`: a
+    plug-in of the *targeted* distribution is what makes this a substitution estimator
+    that solves the score equation.  And the residual column is read off the submodel
+    directly, because :attr:`~cleverly.fluctuation.submodel.Submodel.arm_columns` is
+    empty here -- no column belongs to an arm, so
+    :meth:`~cleverly.fluctuation.submodel.Submodel.column_for` has nothing to answer.
+
+    ``regimes`` is the ``(n, K, R)`` density; ``submodel`` must be the *unweighted*
+    ``regime`` submodel even when the fluctuation was fit in weighted form, for the
+    reason :func:`counterfactual_means` gives.
+    """
+    if submodel.group != "regime":
+        raise ValueError(f"expected the 'regime' submodel; got {submodel.group!r}")
+    star = np.asarray(regimes, dtype=float)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    residual = _residual(outcome, targeted, observed)
+    levels = targeted.levels
+    if star.shape[1] != len(levels):
+        raise ValueError(
+            f"regimes has {star.shape[1]} arm column(s) but the targeted fit has "
+            f"{len(levels)} arm(s) {list(levels)}"
+        )
+    if star.shape[2] != submodel.dim:
+        raise ValueError(
+            f"regimes describes {star.shape[2]} regime(s) but the submodel has "
+            f"{submodel.dim} column(s)"
+        )
+    # (n, K) of the targeted predictions, columns in the same order the densities use.
+    predictions = np.column_stack([targeted.arms[level] for level in levels])
+
+    out: dict[float, ArmMean] = {}
+    for index in range(star.shape[2]):
+        mixture = np.einsum("ij,ij->i", star[:, :, index], predictions)
+        psi = float(np.average(mixture, weights=w))
+        out[float(index)] = ArmMean(
+            psi, w * (submodel.observed[:, index] * residual + mixture - psi)
+        )
     return out
 
 

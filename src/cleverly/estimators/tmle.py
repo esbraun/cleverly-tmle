@@ -109,6 +109,7 @@ from ..inference.influence import (
     ParameterEstimate,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
+from ..interventions import RegimeSet, as_interventions
 from ..learners._fitting import Task
 from ..learners.crossfit import Folds, make_folds
 from ..learners.super_learner import resolve_learner
@@ -320,6 +321,7 @@ class TMLE:
         screen_threshold: float = 0.1,
         min_retain: int | None = None,
         estimands: Sequence[Estimand] | str | None = None,
+        interventions: Sequence[Any] | None = None,
         reference: Any = None,
         alpha_sig: float = 0.05,
         n_bootstrap: int = 0,
@@ -356,6 +358,7 @@ class TMLE:
         self.screen_threshold = screen_threshold
         self.min_retain = min_retain
         self.estimands = estimands
+        self.interventions = as_interventions(interventions)
         self.reference = reference
         self.alpha_sig = alpha_sig
         self.n_bootstrap = n_bootstrap
@@ -585,7 +588,9 @@ class TMLE:
         ``shared`` supplies nuisance fits already computed for every level of the
         intermediate; only the targeting step then runs per level.
         """
-        estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
+        estimands = resolve_estimands(
+            self.estimands, data.family, data.n_arms, interventions=bool(self.interventions)
+        )
         if shared is not None:
             scaler, folds, pooled = shared
             config = self._config(data, estimands, scaler, folds)
@@ -657,8 +662,13 @@ class TMLE:
         observed = data.outcome[data.observed]
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
 
-    def _reference_arm(self, data: CausalData) -> float:
-        """The arm code every contrast is taken against.
+    def _reference_arm(self, data: CausalData, regimes: RegimeSet | None = None) -> float:
+        """The arm -- or regime -- code every contrast is taken against.
+
+        On a regime fit the contrasts are between *regimes*, so ``reference=`` names one
+        of them and the code returned indexes :class:`~cleverly.interventions.RegimeSet`.
+        :meth:`_regimes` has already validated the name against the declared regimes,
+        which is why this simply reads the resolved code back.
 
         ``reference=None`` uses the lowest arm, which for a binary treatment is the
         control and so leaves ``ate`` meaning exactly what it always did.  Otherwise the
@@ -668,6 +678,13 @@ class TMLE:
         alphabetical, so the default reference on ``{"high", "low", "medium"}`` is
         ``"high"``; this argument is how to say otherwise.
         """
+        if regimes is not None:
+            return regimes.reference
+        if self.interventions:
+            # Resolved from the regime *names* rather than from an evaluated RegimeSet,
+            # so the config -- built before any nuisance is fitted -- can record it, and
+            # so a mistyped reference fails before the fitting rather than after it.
+            return self._reference_regime()
         if self.reference is None:
             return data.arm_codes[0]
         labels = list(data.treatment_levels)
@@ -715,7 +732,7 @@ class TMLE:
         extra_levels: Sequence[float] = (),
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
-        return fit_nuisances(
+        estimates = fit_nuisances(
             data,
             outcome_learner=self._resolve_learner(self.outcome_learner, task=outcome_task),
             treatment_learner=self._resolve_learner(self.treatment_learner, task="classification"),
@@ -746,6 +763,26 @@ class TMLE:
             min_retain=self.min_retain,
             n_jobs=self.n_jobs,
         )
+        # Evaluated once and carried with the fits, so that every reuse -- retarget, and
+        # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
+        # the regimes this fit declared without re-running the caller's rules.
+        return replace(estimates, regimes=self._regimes(data))
+
+    def _regimes(self, data: CausalData) -> RegimeSet | None:
+        """The declared regimes evaluated on ``data``, or ``None`` for an arm-indexed fit."""
+        if not self.interventions:
+            return None
+        reference = None if self.reference is None else str(self.reference)
+        return RegimeSet.evaluate(self.interventions, data, reference=reference)
+
+    def _reference_regime(self) -> float:
+        """The regime code contrasts are taken against, from ``reference=`` and the names."""
+        names = [intervention.name for intervention in self.interventions]
+        if self.reference is None:
+            return 0.0
+        if str(self.reference) not in names:
+            raise DataError(f"reference={self.reference!r} is not one of the regimes {names}")
+        return float(names.index(str(self.reference)))
 
     def _nuisances(
         self,
@@ -957,7 +994,8 @@ class TMLE:
         """
         requested = tuple(estimands)
         level = self.alpha_sig if alpha_sig is None else alpha_sig
-        reference = self._reference_arm(data)
+        regimes = nuisance.regimes
+        reference = self._reference_arm(data, regimes)
         mean_bounds = g_bounds or resolve_g_bounds(
             self.g_bounds, self._bounds_n(data), for_att=False
         )
@@ -1002,7 +1040,7 @@ class TMLE:
                     data, nuisance, group, submodel, fluctuation, requested, level, index
                 )
                 for index in indices
-            ]
+            ]  # regimes ride along on `nuisance`, and are sliced per fold below
             canonical = _average_over_folds(
                 per_fold, tuple(pooled), indices, n=data.n, cluster=data.cluster, alpha=level
             )
@@ -1063,7 +1101,7 @@ class TMLE:
             fluctuation,
             supported,
             alpha_sig,
-            self._reference_arm(data),
+            self._reference_arm(data, nuisance.regimes),
             index=index,
             drop_undefined=True,
         )
@@ -1291,6 +1329,7 @@ class TMLE:
         targeted = fluctuation.targeted
         weights, observed = data.weights, data.observed
         treatment, cluster, n = data.treatment, data.cluster, data.n
+        regimes = nuisance.regimes
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)
@@ -1300,8 +1339,12 @@ class TMLE:
             observed = observed[index]
             treatment = treatment[index]
             cluster = None if cluster is None else cluster[index]
+            regimes = None if regimes is None else regimes.subset(index)
             n = int(index.size)
 
+        # On a regime fit the parameter axis is the regime rather than the arm, so the
+        # context is keyed by regime code and labelled with the regime names. The two
+        # cases are the same shape on purpose -- see TargetContext.arms.
         context = TargetContext(
             scaled=scaled,
             targeted=targeted,
@@ -1313,9 +1356,15 @@ class TMLE:
             n=n,
             cluster=cluster,
             alpha_sig=alpha_sig,
-            arms=data.arm_codes,
-            arm_labels={arm: data.arm_label(arm) for arm in data.arm_codes},
+            arms=data.arm_codes if regimes is None else regimes.codes,
+            arm_labels=(
+                {arm: data.arm_label(arm) for arm in data.arm_codes}
+                if regimes is None
+                else dict(regimes.labels)
+            ),
             reference=reference,
+            regimes=None if regimes is None else regimes.values,
+            always_label=regimes is not None,
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted
@@ -1345,7 +1394,9 @@ class TMLE:
         replicate -- otherwise the bootstrap would understate the variability the
         selection itself contributes.
         """
-        estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
+        estimands = resolve_estimands(
+            self.estimands, data.family, data.n_arms, interventions=bool(self.interventions)
+        )
         scaler = self._scaler(data)
         folds = self._folds(data)
         config = self._config(data, estimands, scaler, folds)

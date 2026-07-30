@@ -282,6 +282,7 @@ class TestACustomFluctuation:
         missingness=None,
         intermediate_density=None,
         selection=None,
+        regimes=None,
     ):  # type: ignore[no-untyped-def]
         """One column: ``1{A = 1} / g_1(W)``, the Riesz representer of ``E[Y(1)]``."""
         a = np.asarray(treatment, dtype=float).reshape(-1)
