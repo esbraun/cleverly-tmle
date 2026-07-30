@@ -218,7 +218,7 @@ from ..learners.crossfit import Folds, make_folds
 from ..learners.screeners import correlation_strength
 from ..learners.super_learner import resolve_learner
 from ..utils.bounds import OutcomeScaler
-from ._nuisance import NuisanceEstimates, _fit_with_groups, cross_fit_predictions
+from ._nuisance import NuisanceEstimates, Propensity, _fit_with_groups, cross_fit_predictions
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, format_table, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
@@ -230,6 +230,20 @@ CTMLELoss = Literal["auto", "loglik", "squared"]
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
+
+
+def _binary_propensity(values: FloatArray) -> Propensity:
+    """Wrap a candidate ``P(A = 1 | W)`` as the two-arm treatment mechanism.
+
+    The selection works with the single propensity margin from end to end -- both
+    searches order candidate covariates by how much each moves *that* margin -- so the
+    per-arm matrix form is built here, at the boundary where a
+    :class:`~cleverly.estimators._nuisance.NuisanceEstimates` is assembled, rather than
+    threaded through the search.  :meth:`CTMLE._check_estimands` has already refused a
+    treatment with more than two arms, which is what makes the complement well defined.
+    """
+    one = np.asarray(values, dtype=float).reshape(-1)
+    return Propensity(np.column_stack([1.0 - one, one]), (0.0, 1.0))
 
 
 @dataclass(frozen=True)
@@ -468,7 +482,7 @@ class CTMLE(TMLE):
 
         nuisance = replace(
             base,
-            propensity=chosen.propensity,
+            propensity=_binary_propensity(chosen.propensity),
             treatment_covariates=chosen.covariates,
         )
         selection = CTMLESelection(
@@ -486,6 +500,15 @@ class CTMLE(TMLE):
         return nuisance, {"ctmle": selection}
 
     def _check_estimands(self, data: CausalData) -> None:
+        if not data.is_binary_treatment:
+            raise ValueError(
+                f"CTMLE supports a binary treatment only; {data.treatment_name} has "
+                f"{data.n_arms} levels {list(data.treatment_levels)}. Both searches order "
+                "candidates by how much a covariate moves a single propensity margin, and "
+                "with more than two arms there is no one margin to order them by -- the "
+                "selection would have to choose a model for each arm and score them jointly, "
+                "which is a different algorithm rather than a wider loop. Use a plain TMLE."
+            )
         estimands = resolve_estimands(self.estimands, data.family)
         conditional = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if conditional:
@@ -610,7 +633,7 @@ class _Selector:
 
     def submodel(self, propensity: FloatArray) -> Submodel:
         """The ``mean`` clever covariate at a candidate propensity."""
-        nuisance = replace(self.base, propensity=propensity)
+        nuisance = replace(self.base, propensity=_binary_propensity(propensity))
         return build_submodel(
             self.data,
             nuisance,

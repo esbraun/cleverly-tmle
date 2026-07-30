@@ -96,6 +96,18 @@ class PositivityReport:
         very unlikely to be observed at all.
     nuisance_bound:
         The lower bound applied to those mechanisms.
+    simplex_deviation:
+        Largest ``|sum_a g(a | W) - 1|`` across rows *after* truncation, and ``0`` for a
+        two-armed fit, where the complement form preserves the sum exactly.
+
+        Non-zero is expected rather than alarming: with more than two arms the bounds are
+        applied arm by arm and deliberately **not** renormalised, because rescaling a row
+        back onto the simplex can push a column below the floor and so undo the only
+        thing truncation is for.  The number is reported because it is the size of that
+        deliberate inconsistency, and a large value says the bounds are binding hard --
+        which is a positivity finding, not a bookkeeping one.  It does not bias the
+        plug-in: the plug-in averages targeted predictions and contains no mechanism at
+        all.
     """
 
     propensity_quantiles: dict[str, dict[float, float]]
@@ -108,6 +120,7 @@ class PositivityReport:
     n: int
     mechanisms: dict[str, dict[str, float]] = field(default_factory=dict)
     nuisance_bound: float = 0.0
+    simplex_deviation: float = 0.0
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame."""
@@ -244,10 +257,26 @@ class PositivityReport:
 
 
 def positivity_report(result: TMLEResult) -> PositivityReport:
-    """Compute overlap diagnostics for a fitted TMLE."""
+    """Compute overlap diagnostics for a fitted TMLE.
+
+    Two arms and more than two are reported by separate functions rather than one
+    parameterised by arm count, because the *questions* differ.  With two arms there is
+    one propensity and overlap is symmetric: ``g`` near zero and ``g`` near one are the
+    same problem seen from either arm, and the interesting split is treated versus
+    control.  With more there is no single margin and no mirror -- each arm has its own
+    denominator, which has to be reported and truncated in its own right.  Collapsing
+    the two into one function would mean picking definitions that read oddly in both.
+    """
+    if result.data.is_binary_treatment:
+        return _binary_positivity_report(result)
+    return _multi_arm_positivity_report(result)
+
+
+def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
+    """Overlap for a two-armed treatment, in terms of the single propensity ``g(W)``."""
     data = result.data
     bounds = result.config.g_bounds
-    raw = result.nuisance.propensity
+    raw = result.nuisance.propensity.arm(1.0)
     treated = data.treatment == 1.0
 
     quantiles: dict[str, dict[float, float]] = {
@@ -303,6 +332,87 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
         n=data.n,
         mechanisms=_mechanism_overlap(result),
         nuisance_bound=result.config.missingness_bound,
+    )
+
+
+def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
+    r"""Overlap for a ``K``-armed treatment, arm by arm.
+
+    Each arm's probability :math:`g_a(W)` is summarised over **all** rows, not just the
+    rows in that arm.  That is the distribution positivity actually depends on: the
+    clever covariate divides by :math:`g_a` and the plug-in evaluates
+    :math:`\bar Q(a, W)` at every unit, so a unit that could never have received arm
+    ``a`` is a problem for arm ``a`` whichever arm it did receive.
+
+    ``tail_mass`` loses its mirror here.  With two arms ``g > 1 - t`` is the same
+    statement as ``g < t`` read from the control arm; with more arms an arm being
+    *likely* is not another arm being unlikely, so ``below`` counts unit-arm pairs whose
+    probability sits under the threshold and ``above`` counts the unit-arm pairs that are
+    nearly deterministic -- related, but no longer the same number counted twice.
+    """
+    data = result.data
+    bounds = result.config.g_bounds
+    propensity = result.nuisance.propensity
+    raw = np.asarray(propensity.values, dtype=float)
+    labels = {arm: str(data.arm_label(arm)) for arm in propensity.arms}
+
+    quantiles: dict[str, dict[float, float]] = {
+        f"g[{labels[arm]}]": {q: float(np.quantile(propensity.arm(arm), q)) for q in _QUANTILES}
+        for arm in propensity.arms
+    }
+
+    tail_mass = {
+        threshold: {
+            "below": float(np.mean(raw < threshold)),
+            "above": float(np.mean(raw > 1.0 - threshold)),
+        }
+        for threshold in _THRESHOLDS
+    }
+
+    bounded = propensity.bounded(bounds)
+    ess: dict[str, dict[str, float]] = {}
+    share: dict[str, dict[str, float]] = {}
+    for arm in propensity.arms:
+        mask = data.treatment == arm
+        column = bounded[:, propensity.column_for(arm)]
+        arm_weights = (1.0 / column)[mask] * data.weights[mask]
+        nominal = float(mask.sum())
+        ess[labels[arm]] = {
+            "n": nominal,
+            "effective": _kish_ess(arm_weights),
+            "ratio": _kish_ess(arm_weights) / nominal if mask.any() else float("nan"),
+        }
+        share[labels[arm]] = {
+            "top_1pct": _top_share(arm_weights, 0.01),
+            "top_5pct": _top_share(arm_weights, 0.05),
+        }
+
+    clipped_cells = (raw < bounds[0]) | (raw > bounds[1])
+    clipped_units = np.any(clipped_cells, axis=1)
+    inside = raw[~clipped_cells]
+    # Only the approach to zero matters per arm, so the "most extreme" untruncated value
+    # is the smallest surviving probability rather than the two-sided minimum the binary
+    # report uses.
+    most_extreme = float(inside.min()) if inside.size else float("nan")
+
+    return PositivityReport(
+        propensity_quantiles=quantiles,
+        tail_mass=tail_mass,
+        effective_sample_size=ess,
+        weight_share=share,
+        truncated={
+            "count": float(clipped_units.sum()),
+            "fraction": float(clipped_units.mean()),
+            "most_extreme": most_extreme,
+        },
+        clever_covariate_max={
+            group: _max_abs_covariate(result, group) for group in result.fluctuations
+        },
+        bounds=bounds,
+        n=data.n,
+        mechanisms=_mechanism_overlap(result),
+        nuisance_bound=result.config.missingness_bound,
+        simplex_deviation=float(np.max(np.abs(bounded.sum(axis=1) - 1.0))),
     )
 
 
@@ -502,7 +612,10 @@ def truncation_curve(
 def _clipped_fraction(result: TMLEResult, lower: float, mechanism: bool) -> float:
     """Share of nuisance values the bound would clip, for whichever bound is swept."""
     if not mechanism:
-        propensity = result.nuisance.propensity
+        # Over the whole (n, K) mechanism.  With two arms the columns are ``g1`` and its
+        # complement, so a cell is clipped exactly when its mirror is and the fraction is
+        # the same one the single-vector form reported.
+        propensity = np.asarray(result.nuisance.propensity.values, dtype=float)
         return float(np.mean((propensity < lower) | (propensity > 1.0 - lower)))
     # The intermediate entry must be the density for the level being targeted, not the
     # raw P(Z = 1 | A, W): at z = 0 the covariate divides by the complement, so reading

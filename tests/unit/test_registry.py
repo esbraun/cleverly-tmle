@@ -253,6 +253,7 @@ class TestACustomFluctuation:
         treatment,
         propensity,
         *,
+        arms=(0.0, 1.0),
         treated_fraction=None,
         missingness=None,
         intermediate_density=None,
@@ -260,7 +261,8 @@ class TestACustomFluctuation:
     ):  # type: ignore[no-untyped-def]
         """One column: ``1{A = 1} / g_1(W)``, the Riesz representer of ``E[Y(1)]``."""
         a = np.asarray(treatment, dtype=float).reshape(-1)
-        g1 = np.asarray(propensity, dtype=float).reshape(-1)
+        g = np.asarray(propensity, dtype=float)
+        g1 = g.reshape(-1) if g.ndim == 1 else g[:, arms.index(1.0)]
         n = a.shape[0]
         inverse = (1.0 / g1).reshape(-1, 1)
         return Submodel(

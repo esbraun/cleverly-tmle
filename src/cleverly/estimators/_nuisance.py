@@ -2,8 +2,8 @@
 
 TMLE needs three or four regressions before any targeting happens:
 
-``g(W) = P(A = 1 | W)``
-    the treatment mechanism, which enters the clever covariate;
+``g(a | W) = P(A = a | W)``
+    the treatment mechanism, one column per arm, which enters the clever covariate;
 ``Qbar(A, W) = E[Y | A, W, Delta = 1]``
     the outcome regression, which is what gets fluctuated;
 ``P(Delta = 1 | A, W)``
@@ -33,7 +33,13 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import InitialFit
-from ..learners._fitting import Task, as_target, fit_learner, predict_mean
+from ..learners._fitting import (
+    Task,
+    as_target,
+    fit_learner,
+    predict_mean,
+    predict_probabilities,
+)
 from ..learners.crossfit import Folds
 from ..learners.screeners import CorrelationScreener
 from ..learners.super_learner import SuperLearnerDiagnostics
@@ -41,7 +47,81 @@ from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
 from .direct_effect import check_level
 
-__all__ = ["NuisanceEstimates", "cross_fit_predictions", "fit_nuisances"]
+__all__ = ["NuisanceEstimates", "Propensity", "cross_fit_predictions", "fit_nuisances"]
+
+
+@dataclass(frozen=True)
+class Propensity:
+    r"""The treatment mechanism :math:`g(a \mid W)`, one column per arm.
+
+    ``values`` is ``(n, K)`` with column ``j`` holding :math:`P(A = \text{arms}[j] \mid W)`
+    out of fold and **untruncated**; truncation happens at targeting time via
+    :meth:`bounded`, because the ATT tolerates far less extrapolation than the ATE and
+    so uses a tighter bound, and because a sensitivity sweep must be able to re-truncate
+    without refitting.
+
+    A matrix rather than the single :math:`g_1(W)` vector this used to be, even for two
+    arms -- where column 0 is exactly ``1 - g1`` and the arithmetic is unchanged.  With
+    more than two arms there is no margin to be the propensity: the mechanism is a
+    distribution over the arms, and every arm needs its own denominator.
+    """
+
+    values: FloatArray
+    arms: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        values = np.asarray(self.values, dtype=float)
+        if values.ndim != 2 or values.shape[1] != len(self.arms):
+            raise ValueError(
+                f"propensity must be (n, {len(self.arms)}) for arms {list(self.arms)}; "
+                f"got shape {values.shape}"
+            )
+
+    @property
+    def n(self) -> int:
+        return int(np.asarray(self.values).shape[0])
+
+    @property
+    def n_arms(self) -> int:
+        return len(self.arms)
+
+    def column_for(self, arm: float) -> int:
+        """Index of the column holding ``P(A = arm | W)``."""
+        match = [j for j, level in enumerate(self.arms) if level == float(arm)]
+        if not match:
+            raise KeyError(f"arm {float(arm)!r} is not one of {list(self.arms)}")
+        return match[0]
+
+    def arm(self, arm: float) -> FloatArray:
+        """``P(A = arm | W)``, untruncated."""
+        return np.asarray(self.values, dtype=float)[:, self.column_for(arm)]
+
+    def bounded(self, bounds: tuple[float, float]) -> FloatArray:
+        r"""The ``(n, K)`` mechanism truncated into ``bounds``.
+
+        **Two arms keep the complement form.**  ``g1`` is clipped and arm 0 is taken as
+        ``1 - g1``, which is exactly what the estimator has always done -- and it is not
+        the same as clipping both columns when ``bounds`` is asymmetric, so this is what
+        keeps every binary regression fixture valid.
+
+        **More than two arms are clipped column by column, and are not renormalised.**
+        Flooring a row of a multinomial breaks :math:`\sum_a g_a = 1`, and the obvious
+        repair -- rescale the row -- would undo the only thing truncation is for, since
+        rescaling can push a column back below the floor.  Nothing downstream needs the
+        simplex: arm ``a``'s clever covariate reads only :math:`\tilde g_a`, and the
+        plug-in is an average of targeted predictions containing no mechanism at all, so
+        no bound can move :math:`\Psi`.  What a binding bound moves is the second-order
+        remainder :math:`R_2`, exactly as :mod:`cleverly.fluctuation.submodel` sets out.
+        :meth:`~cleverly.sensitivity.PositivityReport` reports how far the truncated rows
+        depart from summing to one.
+        """
+        lower, upper = float(bounds[0]), float(bounds[1])
+        values = np.asarray(self.values, dtype=float)
+        if self.n_arms == 2:
+            one = bound(values[:, self.column_for(1.0)], lower, upper)
+            columns = {self.column_for(1.0): one, self.column_for(0.0): 1.0 - one}
+            return np.column_stack([columns[j] for j in range(2)])
+        return bound(values, lower, upper)
 
 
 @dataclass(frozen=True)
@@ -51,14 +131,13 @@ class NuisanceEstimates:
     Attributes
     ----------
     propensity:
-        Out-of-fold ``g(W)``, *not* truncated.  Truncation is applied per estimand
-        family at targeting time, because the ATT tolerates far less extrapolation
-        than the ATE and so uses a tighter bound.
+        Out-of-fold ``g(a | W)`` for every arm, *not* truncated -- see
+        :class:`Propensity`.
     outcome:
         Initial outcome regression on the ``[0, 1]`` scale, at the observed
-        treatment and at both counterfactual arms.
+        treatment and at every counterfactual arm.
     missingness, intermediate:
-        ``(n, 2)`` arrays indexed by treatment arm, or ``None`` when not applicable.
+        ``(n, K)`` arrays indexed by treatment arm, or ``None`` when not applicable.
     scaler:
         The transformation used to put the outcome on ``[0, 1]``.
     diagnostics:
@@ -66,7 +145,7 @@ class NuisanceEstimates:
         Super Learner was used.
     """
 
-    propensity: FloatArray
+    propensity: Propensity
     outcome: InitialFit
     scaler: OutcomeScaler
     folds: Folds
@@ -87,7 +166,12 @@ class NuisanceEstimates:
 
     @property
     def n(self) -> int:
-        return int(self.propensity.shape[0])
+        return self.propensity.n
+
+    @property
+    def arms(self) -> tuple[float, ...]:
+        """The arm codes every per-arm array here is keyed by."""
+        return self.propensity.arms
 
     def at_level(self, value: float) -> NuisanceEstimates:
         """The same nuisances, with the outcome regression evaluated at ``Z = value``."""
@@ -100,8 +184,8 @@ class NuisanceEstimates:
         return replace(self, outcome=fit)
 
     def bounded_propensity(self, bounds: tuple[float, float]) -> FloatArray:
-        """``g(W)`` truncated into ``bounds``."""
-        return bound(self.propensity, bounds[0], bounds[1])
+        """``g(a | W)`` truncated into ``bounds``, ``(n, K)`` -- see :meth:`Propensity.bounded`."""
+        return self.propensity.bounded(bounds)
 
     def bounded_missingness(self, lower: float) -> FloatArray | None:
         """``P(Delta = 1 | A, W)`` truncated away from zero."""
@@ -137,6 +221,7 @@ def cross_fit_predictions(
     fit_mask: BoolArray | None = None,
     groups: IntArray | None = None,
     clip: tuple[float, float] | None = None,
+    classes: Sequence[float] | None = None,
     n_jobs: int = 1,
 ) -> tuple[dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold predictions of one nuisance regression.
@@ -147,14 +232,19 @@ def cross_fit_predictions(
         Training data for the regression.
     predict_designs:
         Named design matrices to predict on -- for the outcome regression these are
-        the observed treatment and the two counterfactual arms, so a single pass
-        over the folds produces everything the fluctuation needs.
+        the observed treatment and every counterfactual arm, so a single pass over the
+        folds produces everything the fluctuation needs.
     fit_mask:
         Rows eligible for *training*.  The outcome regression is fit only where the
         outcome is observed, but must still predict everywhere.
     groups:
         Cluster codes, forwarded to any learner that cross-validates internally so its
         inner folds keep clusters intact too -- see :func:`_fit_with_groups`.
+    classes:
+        Set for a nuisance that is a conditional *distribution* over these classes
+        rather than a single conditional mean -- the treatment mechanism of a ``K``-armed
+        treatment.  Each named prediction then comes back ``(n, K)`` instead of ``(n,)``,
+        with columns in ``classes`` order.
 
     Returns
     -------
@@ -166,13 +256,15 @@ def cross_fit_predictions(
     if not mask.any():
         raise ValueError("no rows are eligible for fitting this nuisance model")
 
+    def predict(model: Learner, matrix: FloatArray) -> FloatArray:
+        if classes is None:
+            return _clip(predict_mean(model, matrix, task), clip)
+        return _clip(predict_probabilities(model, matrix, classes), clip)
+
     if folds.is_single:
         rows = np.flatnonzero(mask)
         model = _fit_with_groups(learner, design, target, weights, rows, task, groups)
-        predictions = {
-            name: _clip(predict_mean(model, matrix, task), clip)
-            for name, matrix in predict_designs.items()
-        }
+        predictions = {name: predict(model, matrix) for name, matrix in predict_designs.items()}
         diagnostics = getattr(model, "diagnostics_", None)
         return predictions, [diagnostics] if diagnostics is not None else []
 
@@ -187,13 +279,13 @@ def cross_fit_predictions(
             )
         model = _fit_with_groups(learner, design, target, weights, rows, task, groups)
         predictions = {
-            name: _clip(predict_mean(model, matrix[test], task), clip)
-            for name, matrix in predict_designs.items()
+            name: predict(model, matrix[test]) for name, matrix in predict_designs.items()
         }
         return test, predictions, getattr(model, "diagnostics_", None)
 
     results = map_parallel(run_fold, jobs, n_jobs=n_jobs)
-    out = {name: np.empty(n, dtype=float) for name in predict_designs}
+    shape: tuple[int, ...] = (n,) if classes is None else (n, len(tuple(classes)))
+    out = {name: np.empty(shape, dtype=float) for name in predict_designs}
     diagnostics_list: list[SuperLearnerDiagnostics] = []
     for test, predictions, diagnostics in results:
         for name, values in predictions.items():
@@ -258,11 +350,9 @@ def _screened(learner: Learner, threshold: float, min_retain: int | None) -> Lea
     )
 
 
-#: The treatment arms the outcome regression is predicted at.  A tuple rather than the
-#: literals it used to be spelled with, so that the prediction designs, the arm keys of
-#: the resulting :class:`~cleverly.fluctuation.iterative.InitialFit`, and anything that
-#: iterates either of them cannot drift apart.
-ARMS: tuple[float, ...] = (0.0, 1.0)
+def _arm_key(arm: float) -> str:
+    """Name of the counterfactual design for one arm, where no intermediate is involved."""
+    return f"arm@{arm}"
 
 
 def _design_key(arm: float, level: float | None) -> str:
@@ -322,6 +412,7 @@ def fit_nuisances(
         if screen_treatment
         else treatment_learner
     )
+    arms = data.arm_codes
     propensity_out, propensity_diagnostics = cross_fit_predictions(
         treatment_model,
         data.covariates,
@@ -329,12 +420,13 @@ def fit_nuisances(
         data.weights,
         folds,
         task="classification",
-        predict_designs={"g1": data.covariates},
+        predict_designs={"g": data.covariates},
         groups=groups,
         clip=(0.0, 1.0),
+        classes=arms,
         n_jobs=n_jobs,
     )
-    propensity = propensity_out["g1"]
+    propensity = Propensity(propensity_out["g"], arms)
     if propensity_diagnostics:
         diagnostics["propensity"] = propensity_diagnostics
 
@@ -356,15 +448,12 @@ def fit_nuisances(
             data.weights,
             folds,
             task="classification",
-            predict_designs={
-                "pi0": data.counterfactual_design(0.0),
-                "pi1": data.counterfactual_design(1.0),
-            },
+            predict_designs={_arm_key(arm): data.counterfactual_design(arm) for arm in arms},
             groups=groups,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
         )
-        missingness = np.column_stack([missing_out["pi0"], missing_out["pi1"]])
+        missingness = np.column_stack([missing_out[_arm_key(arm)] for arm in arms])
         if missing_diagnostics:
             diagnostics["missingness"] = missing_diagnostics
 
@@ -388,15 +477,12 @@ def fit_nuisances(
             data.weights,
             folds,
             task="classification",
-            predict_designs={
-                "pz0": data.counterfactual_design(0.0),
-                "pz1": data.counterfactual_design(1.0),
-            },
+            predict_designs={_arm_key(arm): data.counterfactual_design(arm) for arm in arms},
             groups=groups,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
         )
-        intermediate = np.column_stack([intermediate_out["pz0"], intermediate_out["pz1"]])
+        intermediate = np.column_stack([intermediate_out[_arm_key(arm)] for arm in arms])
         if intermediate_diagnostics:
             diagnostics["intermediate"] = intermediate_diagnostics
 
@@ -416,7 +502,7 @@ def fit_nuisances(
     levels = _requested_levels(intermediate_value, extra_levels)
     designs: dict[str, FloatArray] = {"observed": outcome_design}
     for level in levels:
-        for arm in ARMS:
+        for arm in arms:
             designs[_design_key(arm, level)] = data.counterfactual_design(
                 arm, intermediate_value=level
             )
@@ -440,7 +526,7 @@ def fit_nuisances(
     by_level = {
         level: InitialFit(
             outcome_out["observed"],
-            {arm: outcome_out[_design_key(arm, level)] for arm in ARMS},
+            {arm: outcome_out[_design_key(arm, level)] for arm in arms},
         )
         for level in levels
     }

@@ -48,7 +48,7 @@ from ..inference.influence import ParameterEstimate
 from ..learners.crossfit import Folds
 from ..provenance import Provenance
 from ..utils.bounds import OutcomeScaler
-from ._nuisance import NuisanceEstimates
+from ._nuisance import NuisanceEstimates, Propensity
 from .base import TMLEConfig, TMLEResult
 from .recipe import TMLERecipe
 from .targeting import TargetingSpec
@@ -61,7 +61,11 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #:
 #: ``2`` keys an initial fit's counterfactual predictions by treatment level (``arms``)
 #: instead of naming two fields ``at_one`` and ``at_zero``.
-FORMAT_VERSION = 2
+#:
+#: ``3`` stores the treatment mechanism as an ``(n, K)`` matrix over the arms plus the
+#: arm codes it is keyed by, rather than the single ``P(A = 1 | W)`` vector, which cannot
+#: describe a treatment with more than two levels.
+FORMAT_VERSION = 3
 
 _ARRAY_MARK = "__array__"
 
@@ -268,7 +272,8 @@ def _data_from(arrays: _Arrays, payload: dict[str, Any]) -> CausalData:
 
 def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]:
     return {
-        "propensity": arrays.put("nuisance.propensity", nuisance.propensity),
+        "propensity": arrays.put("nuisance.propensity", nuisance.propensity.values),
+        "propensity_arms": [float(arm) for arm in nuisance.propensity.arms],
         "outcome": _fit_to(arrays, "nuisance.outcome", nuisance.outcome),
         "scaler": {"lower": nuisance.scaler.lower, "upper": nuisance.scaler.upper},
         "folds": {
@@ -284,7 +289,10 @@ def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]
 
 def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimates:
     return NuisanceEstimates(
-        propensity=arrays.get(payload["propensity"]),
+        propensity=Propensity(
+            arrays.get(payload["propensity"]),
+            tuple(float(arm) for arm in payload["propensity_arms"]),
+        ),
         outcome=_fit_from(arrays, payload["outcome"]),
         scaler=OutcomeScaler(payload["scaler"]["lower"], payload["scaler"]["upper"]),
         folds=Folds(

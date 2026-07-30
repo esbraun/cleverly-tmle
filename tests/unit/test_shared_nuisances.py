@@ -63,7 +63,7 @@ class TestIdentical:
         """The level-independent arrays must be the same object's values, not a refit."""
         result = _fit(shared=True)
         first, second = result[0.0].nuisance, result[1.0].nuisance
-        np.testing.assert_array_equal(first.propensity, second.propensity)
+        np.testing.assert_array_equal(first.propensity.values, second.propensity.values)
         np.testing.assert_array_equal(first.folds.assignment, second.folds.assignment)
         assert first.intermediate is not None
         np.testing.assert_array_equal(first.intermediate, second.intermediate)

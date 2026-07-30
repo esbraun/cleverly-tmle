@@ -192,15 +192,31 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     nuisance = result.nuisance
     models: list[NuisanceModelReport] = []
 
-    models.append(
-        _binary_report(
-            "propensity",
-            nuisance.propensity,
-            data.treatment,
-            data.weights,
-            nuisance.diagnostics.get("propensity"),
+    if data.is_binary_treatment:
+        models.append(
+            _binary_report(
+                "propensity",
+                nuisance.propensity.arm(1.0),
+                data.treatment,
+                data.weights,
+                nuisance.diagnostics.get("propensity"),
+            )
         )
-    )
+    else:
+        # One one-vs-rest report per arm, rather than a single multi-class summary.
+        # Positivity is an arm-by-arm property -- the estimate can rest on a badly
+        # calibrated denominator for one arm while the pooled log loss looks fine --
+        # and a per-arm report is what says which arm to go and look at.
+        for arm in nuisance.arms:
+            models.append(
+                _binary_report(
+                    f"propensity[{data.arm_label(arm)}]",
+                    nuisance.propensity.arm(arm),
+                    (data.treatment == arm).astype(float),
+                    data.weights,
+                    nuisance.diagnostics.get("propensity"),
+                )
+            )
 
     if nuisance.missingness is not None:
         arm_probability = np.where(

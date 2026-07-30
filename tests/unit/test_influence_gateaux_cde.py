@@ -155,8 +155,8 @@ class TestTheSampleRealisesTheLaw:
         # windows.  If one bound started to bite, the estimator would be solving a
         # different score equation and the assertions below would be testing that.
         nuisance = exact_fit[float(level)].nuisance
-        assert float(np.min(nuisance.propensity)) > 0.2
-        assert float(np.max(nuisance.propensity)) < 0.8
+        assert float(np.min(nuisance.propensity.arm(1.0))) > 0.2
+        assert float(np.max(nuisance.propensity.arm(1.0))) < 0.8
         assert nuisance.missingness is not None
         assert nuisance.intermediate is not None
         bound = exact_fit[float(level)].config.missingness_bound

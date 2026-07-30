@@ -813,14 +813,20 @@ class TMLE:
         intermediate_value: float | None = None,
     ) -> None:
         lower, upper = config.g_bounds
-        propensity = nuisance.propensity
-        outside = float(np.mean((propensity < lower) | (propensity > upper)))
+        # Counted per *unit*: a row is extrapolated if any arm's probability is outside the
+        # bounds, since one binding denominator is enough to give that row unbounded
+        # leverage.  With two arms and the symmetric bounds ``"auto"`` and a scalar both
+        # produce, ``g0 < lower`` exactly when ``g1 > upper``, so this is the same count the
+        # single-vector form reported.
+        mechanism = np.asarray(nuisance.propensity.values, dtype=float)
+        outside = float(np.mean(np.any((mechanism < lower) | (mechanism > upper), axis=1)))
         if outside > _TRUNCATION_WARN_FRACTION:
             warnings.warn(
-                f"{outside:.1%} of estimated propensity scores fall outside the truncation "
-                f"bounds [{lower:.4g}, {upper:.4g}], so those units' contributions rest on "
-                "extrapolation rather than data. Inspect res.sensitivity.positivity() and "
-                "res.sensitivity.truncation_curve() before trusting the estimate.",
+                f"{outside:.1%} of units have an estimated treatment probability outside the "
+                f"truncation bounds [{lower:.4g}, {upper:.4g}] for at least one arm, so those "
+                "units' contributions rest on extrapolation rather than data. Inspect "
+                "res.sensitivity.positivity() and res.sensitivity.truncation_curve() before "
+                "trusting the estimate.",
                 PositivityWarning,
                 stacklevel=3,
             )

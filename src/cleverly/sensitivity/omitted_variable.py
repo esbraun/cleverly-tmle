@@ -121,6 +121,15 @@ def sensitivity_elements(
         )
     if estimand not in result.estimates:
         raise ValueError(f"estimand {estimand!r} was not requested in this fit")
+    if not result.data.is_binary_treatment:
+        raise ValueError(
+            "the omitted-variable bound is derived for a binary treatment; this fit has "
+            f"{result.data.n_arms} arms {list(result.data.treatment_levels)}. The bound "
+            "rests on a scalar confounding strength in the treatment equation, and with "
+            "more than two arms an omitted covariate has one such strength per arm -- a "
+            "different derivation, not a wider loop. Use sensitivity.evalue() for a "
+            "contrast, or restrict the fit to the two arms being compared."
+        )
 
     data = result.data
     scaler = result.nuisance.scaler
@@ -135,7 +144,9 @@ def sensitivity_elements(
         nuisance_bound=result.config.missingness_bound,
         intermediate_value=result.intermediate_value,
     )
-    propensity = result.nuisance.bounded_propensity(bounds)
+    # The arm-1 margin: ``_m_alpha`` weights the ATT/ATC contrast by ``g1`` and its
+    # complement, which is a two-arm statement -- guarded above.
+    propensity = result.nuisance.bounded_propensity(bounds)[:, result.nuisance.arms.index(1.0)]
 
     # sigma^2: residual variance of the targeted outcome regression, on the original
     # outcome scale so the bound is reported in the units the estimate uses.

@@ -78,7 +78,10 @@ class TestRoundTripIsExact:
             assert after.names == before.names
 
     def test_nuisances_and_folds_return_bit_for_bit(self, result, reloaded) -> None:  # type: ignore[no-untyped-def]
-        np.testing.assert_array_equal(reloaded.nuisance.propensity, result.nuisance.propensity)
+        np.testing.assert_array_equal(
+            reloaded.nuisance.propensity.values, result.nuisance.propensity.values
+        )
+        assert reloaded.nuisance.propensity.arms == result.nuisance.propensity.arms
         np.testing.assert_array_equal(
             reloaded.nuisance.folds.assignment, result.nuisance.folds.assignment
         )
