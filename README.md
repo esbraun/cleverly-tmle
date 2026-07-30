@@ -528,6 +528,40 @@ conditioned on rather than a bias — and what it is weighed against is a fold t
 the regression at all. Binary outcomes only; a continuous outcome and a continuous dose are
 both refused by name.
 
+A single split is one draw from a randomised procedure, and two seeds can move `psi` by an
+appreciable fraction of its standard error. `repeats=` draws the split several times and
+averages:
+
+```python
+TMLE(n_folds=10, repeats=5)   # psi_bar = mean_r psi_r, at five times the cost
+```
+
+Every row is out of fold in every draw, so `mean_r psi_r` is the same functional of the
+same data with influence curve `mean_r IC_r` — and because the variance, the delta method,
+the cluster-robust standard error and the simultaneous bands are all computed *from* the
+curve, they stay coherent without a second rule. The aggregation is the mean and only the
+mean: the median-of-estimates form common in the DML literature is refused, because the
+median of the `psi_r` is not the estimator whose influence curve is the median of the
+`IC_r`, so its interval would be describing something other than its point estimate.
+
+What it buys and what it costs were both measured rather than assumed
+(`tests/e2e/test_coverage_slow.py`). Holding the data fixed and varying only the fold seed,
+five draws cut the spread of `psi` from 0.0132 to 0.0065 — a ratio of 0.49 against the 0.45
+that fully independent draws would give, so fold noise behaves very nearly as an independent
+component. The cost is that the interval turns mildly conservative: `se_ratio` rises from
+about 1.0 to about 1.12, because the influence-curve standard error targets the *sampling*
+variance and never included fold noise, while the observed spread it is compared against
+did — and averaging is precisely what takes that out. Coverage is unaffected.
+
+`result.repeats` holds each draw's nuisance fits and fluctuations as a unit, since a draw's
+targeted `Q̄` and its mechanism are not interchangeable with another's. Everything that
+produces a number follows all of them — the truncation curve, the MNAR tilt, the
+omitted-variable bound, the bootstrap, and C-TMLE's propensity selection; the diagnostics
+that describe a fitted *mechanism*, where averaging would report a model no draw fitted,
+describe the first draw and say which. Refused rather than approximated: `cv_evaluation=True`,
+whose cross-validated variance is defined by a fold partition that an across-draw average
+curve belongs to none of.
+
 Fold-specific targeting is only the first of canonical CV-TMLE's three parts; the others
 are fold-wise evaluation of the parameter and the cross-validated variance. By default
 this estimator does neither — the fold-targeted predictions are stitched together and the
@@ -739,7 +773,7 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | Marginal structural model | `msm=` declares a working model `m(a, V; beta)` for `E[Y(a) \| V]` and makes the fit's parameters its coefficients, reported as `msm[a:W1]` under the term names you gave. `beta` is a **projection** under a known weight `h(a, V)`, not the truth of an assumed regression, so the estimand and its interval are well defined whether or not the model is correct (Neugebauer & van der Laan 2007). The clever covariate is `h(a,V) phi(a,V) / g(a \| W)`, one column per term, and the projection is solved by weighted least squares against the *targeted* `Qbar` — which zeroes the second half of the influence curve by construction, so no outer iteration is needed. A saturated working model reproduces the per-arm report exactly. What is refused rather than approximated: a non-identity link (its `dm/dbeta` depends on `beta`) and weights derived from the estimated mechanism (they would make `h` a functional of `P`) |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
-| Cross-fitting | out-of-fold nuisance fits; V-fold, stratified, grouped and cluster-level splits, with stratification handling a multi-valued treatment natively and `stratify_folds="treatment+outcome"` crossing the outcome in when events are rare enough that an arm-balanced fold can still contain none. The prohibitions are **checked, not assumed**: a fold index outside the declared range and an empty fold are refused by `Folds` itself, and a cluster with rows in more than one fold by a post-condition on every split the library builds — outer, Super Learner's inner, C-TMLE's selection. Every result carries the `CrossFitPlan` it *declared* beside the fold count it *ran*, which come apart whenever a cap fired. The inner CV that scores Super Learner candidates is nested inside one outer training fold and gets the same cluster codes. What is refused rather than approximated: blocked-temporal splits (no node carries a time index), rolling-origin splits (their nested training sets cannot give every row the one out-of-fold prediction the storage contract rests on — a different contract, not a different splitter), repeated cross-fitting (the aggregation is derived; the single `NuisanceEstimates` that `retarget` depends on is not), and splitting a cluster across folds to buy more of them |
+| Cross-fitting | out-of-fold nuisance fits; V-fold, stratified, grouped and cluster-level splits, with stratification handling a multi-valued treatment natively and `stratify_folds="treatment+outcome"` crossing the outcome in when events are rare enough that an arm-balanced fold can still contain none. The prohibitions are **checked, not assumed**: a fold index outside the declared range and an empty fold are refused by `Folds` itself, and a cluster with rows in more than one fold by a post-condition on every split the library builds — outer, Super Learner's inner, C-TMLE's selection. Every result carries the `CrossFitPlan` it *declared* beside the fold count it *ran*, which come apart whenever a cap fired. `repeats=R` averages over `R` independent draws of the split — `mean_r psi_r` with influence curve `mean_r IC_r`, so the variance, the delta method and the bands stay coherent without a second rule, and every analysis that produces a number follows all `R` draws while the ones describing a fitted mechanism name the draw they describe. Median-of-estimates aggregation is refused, since the median of the estimates is not the estimator whose curve is the median of the curves. The inner CV that scores Super Learner candidates is nested inside one outer training fold and gets the same cluster codes. What is refused rather than approximated: blocked-temporal splits (no node carries a time index), rolling-origin splits (their nested training sets cannot give every row the one out-of-fold prediction the storage contract rests on — a different contract, not a different splitter) and splitting a cluster across folds to buy more of them |
 | CV-TMLE | `targeting_scheme="fold"` — an `epsilon` per validation fold, plus per-fold diagnostics; `cv_evaluation=True` adds fold-wise evaluation and the cross-validated variance for the canonical construction |
 | C-TMLE | `CTMLE` — greedy, scalable-ordered and discrete collaborative selection of the covariates entering `g` |
 | Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
@@ -920,12 +954,6 @@ infrastructure; the following variants plug into them:
 - survival TMLE (`survtmle`) and competing risks
 - incremental propensity-score interventions, whose `g*` depends on the estimated
   mechanism and so needs a further influence-function term (Kennedy 2019)
-- repeated cross-fitting, to average away the fold draw. The aggregation is not the
-  obstacle — every row is out of fold in every repeat, so `mean_r psi_r` has influence curve
-  `mean_r IC_r` and stays coherent for the variance, the delta method and the bands. What is
-  missing is that `R` repeats mean `R` sets of nuisance fits, and `TMLEResult.nuisance` is
-  one `NuisanceEstimates` that `retarget`, and so every sensitivity analysis, takes as a
-  single object
 - doubly-robust TMLE with nonparametric inference (`drtmle`)
 
 ### On native acceleration
