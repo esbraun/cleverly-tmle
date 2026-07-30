@@ -553,14 +553,38 @@ about 1.0 to about 1.12, because the influence-curve standard error targets the 
 variance and never included fold noise, while the observed spread it is compared against
 did — and averaging is precisely what takes that out. Coverage is unaffected.
 
-`result.repeats` holds each draw's nuisance fits and fluctuations as a unit, since a draw's
-targeted `Q̄` and its mechanism are not interchangeable with another's. Everything that
-produces a number follows all of them — the truncation curve, the MNAR tilt, the
-omitted-variable bound, the bootstrap, and C-TMLE's propensity selection; the diagnostics
-that describe a fitted *mechanism*, where averaging would report a model no draw fitted,
-describe the first draw and say which. Refused rather than approximated: `cv_evaluation=True`,
-whose cross-validated variance is defined by a fold partition that an across-draw average
-curve belongs to none of.
+A draw redraws *every* split, not only the outer one: the inner cross-validation that
+scores Super Learner candidates and C-TMLE's selection folds are drawn from that draw's own
+seed, so what is averaged over is the randomised procedure rather than one stage of it.
+
+`result.repeats` holds each draw's nuisance fits, fluctuations and point estimates as a
+unit, since a draw's targeted `Q̄` and its mechanism are not interchangeable with another's.
+Everything that produces a number follows all of them — the truncation curve, the MNAR tilt,
+the omitted-variable bound, the bootstrap, and C-TMLE's propensity selection; the
+diagnostics that describe a fitted *mechanism*, where averaging would report a model no
+draw fitted, describe the first draw and say which. `result.repeat_spread()` reports
+`sd(psi_r)` across the draws beside the standard error, which is how much the fold
+assignment moved the answer — a diagnostic of split noise, and neither a substitute for the
+influence-curve standard error nor something to add to it.
+
+`cv_evaluation=True` combines with it, with one thing that cannot follow the curve. The
+cross-validated variance is defined by a fold partition, and the across-draw average curve
+belongs to none of the `R`, so what is reported is the mean of the `R` cross-validated
+variances, each computed on its own draw's partition:
+
+```python
+TMLE(targeting_scheme="fold", cv_evaluation=True, repeats=5)
+```
+
+Each of those is consistent for `Var(D*)/n`, which is what `Var(psi_bar)` converges to as
+well, and in finite samples the mean of them errs conservative — `Var(psi_bar) ≤ mean_r
+Var(psi_r)` by Cauchy–Schwarz and then Jensen — which is the direction anyone asking for the
+cross-validated variance wants. At `R = 1` it is Zheng & van der Laan's construction
+unchanged. The alternative that looks more natural, handing the averaged curve to
+`cross_validated_variance` under one draw's partition, is not merely arbitrary but vacuous:
+at equal fold sizes the fold-averaged second moment equals `mean(IC²)` for *every*
+partition, so the fold structure contributes nothing and the result would be the pooled
+uncentred second moment wearing a cross-validated name.
 
 Fold-specific targeting is only the first of canonical CV-TMLE's three parts; the others
 are fold-wise evaluation of the parameter and the cross-validated variance. By default
@@ -773,8 +797,8 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | Marginal structural model | `msm=` declares a working model `m(a, V; beta)` for `E[Y(a) \| V]` and makes the fit's parameters its coefficients, reported as `msm[a:W1]` under the term names you gave. `beta` is a **projection** under a known weight `h(a, V)`, not the truth of an assumed regression, so the estimand and its interval are well defined whether or not the model is correct (Neugebauer & van der Laan 2007). The clever covariate is `h(a,V) phi(a,V) / g(a \| W)`, one column per term, and the projection is solved by weighted least squares against the *targeted* `Qbar` — which zeroes the second half of the influence curve by construction, so no outer iteration is needed. A saturated working model reproduces the per-arm report exactly. What is refused rather than approximated: a non-identity link (its `dm/dbeta` depends on `beta`) and weights derived from the estimated mechanism (they would make `h` a functional of `P`) |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
-| Cross-fitting | out-of-fold nuisance fits; V-fold, stratified, grouped and cluster-level splits, with stratification handling a multi-valued treatment natively and `stratify_folds="treatment+outcome"` crossing the outcome in when events are rare enough that an arm-balanced fold can still contain none. The prohibitions are **checked, not assumed**: a fold index outside the declared range and an empty fold are refused by `Folds` itself, and a cluster with rows in more than one fold by a post-condition on every split the library builds — outer, Super Learner's inner, C-TMLE's selection. Every result carries the `CrossFitPlan` it *declared* beside the fold count it *ran*, which come apart whenever a cap fired. `repeats=R` averages over `R` independent draws of the split — `mean_r psi_r` with influence curve `mean_r IC_r`, so the variance, the delta method and the bands stay coherent without a second rule, and every analysis that produces a number follows all `R` draws while the ones describing a fitted mechanism name the draw they describe. Median-of-estimates aggregation is refused, since the median of the estimates is not the estimator whose curve is the median of the curves. The inner CV that scores Super Learner candidates is nested inside one outer training fold and gets the same cluster codes. What is refused rather than approximated: blocked-temporal splits (no node carries a time index), rolling-origin splits (their nested training sets cannot give every row the one out-of-fold prediction the storage contract rests on — a different contract, not a different splitter) and splitting a cluster across folds to buy more of them |
-| CV-TMLE | `targeting_scheme="fold"` — an `epsilon` per validation fold, plus per-fold diagnostics; `cv_evaluation=True` adds fold-wise evaluation and the cross-validated variance for the canonical construction |
+| Cross-fitting | out-of-fold nuisance fits; V-fold, stratified, grouped and cluster-level splits, with stratification handling a multi-valued treatment natively and `stratify_folds="treatment+outcome"` crossing the outcome in when events are rare enough that an arm-balanced fold can still contain none. The prohibitions are **checked, not assumed**: a fold index outside the declared range and an empty fold are refused by `Folds` itself, and a cluster with rows in more than one fold by a post-condition on every split the library builds — outer, Super Learner's inner, C-TMLE's selection. Every result carries the `CrossFitPlan` it *declared* beside the fold count it *ran*, which come apart whenever a cap fired. `repeats=R` averages over `R` independent draws of the split — `mean_r psi_r` with influence curve `mean_r IC_r`, so the variance, the delta method and the bands stay coherent without a second rule, and every analysis that produces a number follows all `R` draws while the ones describing a fitted mechanism name the draw they describe. A draw redraws every stage of the split, Super Learner's inner CV and C-TMLE's selection folds included, and `repeat_spread()` reports how far the draws moved as a diagnostic rather than a standard error. Median-of-estimates aggregation is refused, since the median of the estimates is not the estimator whose curve is the median of the curves. The inner CV that scores Super Learner candidates is nested inside one outer training fold and gets the same cluster codes. What is refused rather than approximated: blocked-temporal splits (no node carries a time index), rolling-origin splits (their nested training sets cannot give every row the one out-of-fold prediction the storage contract rests on — a different contract, not a different splitter) and splitting a cluster across folds to buy more of them |
+| CV-TMLE | `targeting_scheme="fold"` — an `epsilon` per validation fold, plus per-fold diagnostics; `cv_evaluation=True` adds fold-wise evaluation and the cross-validated variance for the canonical construction. Combines with `repeats=R`, where the reported variance is the mean of the draws' cross-validated variances — conservative for the average, and consistent for the same limit — since a cross-validated variance of the across-draw average curve would be vacuous rather than merely arbitrary |
 | C-TMLE | `CTMLE` — greedy, scalable-ordered and discrete collaborative selection of the covariates entering `g` |
 | Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
 | Fluctuation | logistic or linear; clever covariate or weighted (`target_weights`, R's `target.gwt`) |

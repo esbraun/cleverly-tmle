@@ -170,6 +170,13 @@ class TMLEConfig:
                     f"  (averaged over {self.crossfit.repeats} independent draws of the "
                     "split; the influence curve is the mean of theirs)"
                 )
+                if self.cv_evaluation:
+                    # Which variance rule produced the interval is not recoverable from
+                    # the number, and here it is not the one the line above implies.
+                    lines.append(
+                        "  (the standard error is the mean of the draws' cross-validated "
+                        "variances, not the variance of that curve)"
+                    )
         else:
             lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
         if self.cross_fit and self.crossfit.n_folds != self.n_folds:
@@ -232,6 +239,14 @@ class CVTargeting:
     effects weight by the whole sample's arm share rather than each fold's.  Which one
     ``result[name]`` carries is set by ``TMLE(cv_evaluation=...)``; both are always here.
 
+    Under ``repeats=R`` the fields divide by what they are.  The three that are
+    *estimates* -- :attr:`pooled`, :attr:`canonical` and :attr:`variance` -- follow every
+    draw, exactly as the headline report does.  The four that are indexed *by fold* --
+    :attr:`n_folds`, :attr:`fold_sizes`, :attr:`fold_estimates`, :attr:`fold_epsilon` --
+    describe the first draw alone, because fold 3 of one draw is not fold 3 of another
+    and there is no correspondence along which to average them.  :attr:`repeats` says how
+    many draws the first three cover.
+
     Attributes
     ----------
     variance, std_error:
@@ -239,15 +254,23 @@ class CVTargeting:
         second moment of the fold-specific influence curves -- per estimand.  This is the
         standard error attached to :attr:`canonical`; the pooled report carries the
         ordinary influence-curve one.  The two agree when the folds are balanced and the
-        score equation is solved, so a gap between them is itself informative.
+        score equation is solved, so a gap between them is itself informative.  Over
+        ``R`` draws it is the mean of their ``R`` cross-validated variances; see
+        ``cleverly.estimators.tmle._with_cross_validated_variance`` for why that, and not
+        a cross-validated variance of the averaged curve, is the reported quantity.
     fold_estimates:
-        Per-estimand tuple of fold-specific plug-in estimates.  Estimands that some fold
-        could not evaluate (no units in the conditioning arm, a boundary counterfactual
-        mean) are absent, and their omission was warned about at fit time.
+        Per-estimand tuple of fold-specific plug-in estimates, from the first draw.
+        Estimands that some fold could not evaluate (no units in the conditioning arm, a
+        boundary counterfactual mean) are absent, and their omission was warned about at
+        fit time.
     fold_epsilon:
-        Per-targeting-group tuple of that fold's fluctuation coefficients.
+        Per-targeting-group tuple of that fold's fluctuation coefficients, from the first
+        draw.
     pooled, canonical:
-        The two reports, per estimand.
+        The two reports, per estimand, averaged over every draw.
+    repeats:
+        How many cross-fitting draws :attr:`pooled`, :attr:`canonical` and
+        :attr:`variance` were averaged over.
     """
 
     n_folds: int
@@ -257,6 +280,7 @@ class CVTargeting:
     fold_epsilon: dict[str, tuple[tuple[float, ...], ...]]
     pooled: dict[str, ParameterEstimate] = field(default_factory=dict)
     canonical: dict[str, ParameterEstimate] = field(default_factory=dict)
+    repeats: int = 1
 
     @property
     def std_error(self) -> dict[str, float]:
@@ -318,8 +342,13 @@ class CVTargeting:
             f"(sizes {min(self.fold_sizes)}-{max(self.fold_sizes)})",
             "canonical: evaluated fold by fold and averaged (Zheng & van der Laan).",
             "pooled: the fold-targeted fits stitched together, evaluated once.",
-            "",
         ]
+        if self.repeats > 1:
+            header.append(
+                f"both reports and the cv std_err average {self.repeats} draws of the "
+                "split; the fold columns describe the first."
+            )
+        header.append("")
         epsilon_lines = ["", "fluctuation coefficients by fold:"]
         for group, per_fold in self.fold_epsilon.items():
             formatted = ", ".join(
@@ -399,6 +428,38 @@ class TMLEResult:
     def n_repeats(self) -> int:
         """How many draws of the cross-fitting split this fit averaged over."""
         return len(self.repeats)
+
+    def repeat_spread(self) -> dict[str, float]:
+        r"""Standard deviation of ``psi`` across the cross-fitting draws, per estimand.
+
+        A *diagnostic*, and emphatically not a standard error.  It measures how much the
+        arbitrary fold assignment moved the answer: the ``R`` draws differ in nothing but
+        the split, so :math:`\mathrm{sd}(\psi_r)` is the size of the fold noise a single
+        fit carries silently, and :math:`\mathrm{sd}(\psi_r)/\sqrt{R}` is roughly what
+        survives of it in the reported average.  Read against
+        :attr:`~cleverly.ParameterEstimate.std_error`: a spread that is an appreciable
+        fraction of the standard error means the split mattered, and one near zero means
+        the nuisance fits were stable enough that repeating bought little.
+
+        What it must not be used for is inference.  It says nothing about the *sampling*
+        variability of the estimand, so it is neither an alternative to the influence-curve
+        standard error nor something to add to it -- the reported interval already covers
+        the estimator that was reported, which is the average.
+
+        Raises when there is only one draw, since the standard deviation of one number is
+        not a diagnostic but an artefact.
+        """
+        if self.n_repeats < 2:
+            raise ValueError(
+                "repeat_spread() describes how much psi moved between draws of the "
+                f"cross-fitting split, and this fit has {self.n_repeats}. Fit with "
+                "repeats=2 or more."
+            )
+        shared = [name for name in self.estimates if all(name in r.psi for r in self.repeats)]
+        return {
+            name: float(np.std([repeat.psi[name] for repeat in self.repeats], ddof=1))
+            for name in shared
+        }
 
     # ------------------------------------------------------------- accessors
 
@@ -619,6 +680,19 @@ class TMLEResult:
         table = format_table(["estimand", "psi", "std_err", f"{level} CI", "p_value"], rows)
 
         parts = [*header, *facts, "", table]
+        if self.n_repeats > 1:
+            # Beside the standard error rather than in a separate report, because the
+            # comparison is the whole content of the number: on its own "0.0065" says
+            # nothing about whether the split mattered.
+            parts.append("")
+            parts.append(
+                f"split noise -- sd(psi) across the {self.n_repeats} draws, a diagnostic "
+                "and not a standard error:"
+            )
+            for name, value in self.repeat_spread().items():
+                error = self[name].std_error
+                share = f"{value / error:.0%} of std_err" if error > 0 else "std_err unavailable"
+                parts.append(f"  {name:<5s} {value:.4g}  ({share})")
         if self.simultaneous is not None:
             parts.append("")
             parts.append(

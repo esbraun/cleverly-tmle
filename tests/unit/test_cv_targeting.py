@@ -415,6 +415,63 @@ class TestWhichVarianceIsTheInferentialOne:
             assert estimate.variance != cv.variance[name]
 
 
+class TestRepeatedDraws:
+    """The canonical construction over several draws of the split.
+
+    ``repeats=R`` averages ``R`` canonical CV-TMLEs, and the one thing that cannot follow
+    the influence curve is the variance: the cross-validated one is defined by a fold
+    partition, and the averaged curve belongs to none of the ``R``.  What is reported is
+    the mean of the draws' cross-validated variances instead.  The arithmetic of that is
+    pinned in ``tests/unit/test_repeated_crossfit.py``; what is checked here is that the
+    *estimator* the setting names is still the one that ran.
+    """
+
+    @pytest.fixture(scope="class")
+    def repeated(self, binary_frame) -> object:
+        settings = {
+            **FAST_KWARGS,
+            "targeting_scheme": "fold",
+            "cv_evaluation": True,
+            "repeats": 3,
+            "estimands": ALL_BINARY,
+        }
+        return TMLE(**settings).fit(binary_frame, outcome="Y", treatment="A").single()
+
+    def test_it_is_still_the_canonical_estimator(self, repeated) -> None:
+        assert repeated.config.estimator_name == "canonical CV-TMLE"
+        assert repeated.cv_targeting.repeats == 3
+
+    def test_the_averaged_curve_is_no_longer_centred_inside_any_draws_folds(self, repeated) -> None:
+        # The negative control behind the whole variance decision. A *single* draw's
+        # canonical curve is exactly mean-zero within each of its own folds, which is what
+        # licenses the uncentred second moment. Average R of them and that property is
+        # gone in every one of the R partitions -- so there is no partition under which
+        # the averaged curve is the thing cross_validated_variance was defined for.
+        for repeat in repeated.repeats:
+            folds = [record.index for record in repeat.fluctuations["mean"].folds]
+            worst = max(
+                abs(float(np.mean(repeated[name].influence_curve[index])))
+                for name in repeated.estimates
+                for index in folds
+            )
+            assert worst > 1e-6
+
+    def test_the_linear_estimands_still_agree_with_the_pooled_report(self, repeated) -> None:
+        # Averaging over draws cannot change *which* estimands the two evaluations agree
+        # on: `ate`, `ey1` and `ey0` are linear in the targeted predictions in every draw,
+        # so they stay equal after averaging, and the rest stay apart.
+        detail = repeated.cv_targeting
+        for name in LINEAR:
+            assert detail.canonical[name].psi == pytest.approx(detail.pooled[name].psi, rel=1e-9)
+        for name in NONLINEAR:
+            assert detail.canonical[name].psi != pytest.approx(detail.pooled[name].psi, rel=1e-9)
+
+    def test_the_cross_validated_variance_is_reported_for_every_estimand(self, repeated) -> None:
+        assert set(repeated.cv_targeting.variance) == set(repeated.estimates)
+        for name, estimate in repeated.estimates.items():
+            assert repeated.cv_targeting.variance[name] == estimate.variance
+
+
 class TestCVTargetingReport:
     def test_fold_estimates_average_to_the_pooled_estimate(self, cv_fit) -> None:
         # Every estimand here is a weighted mean of the targeted predictions, so the

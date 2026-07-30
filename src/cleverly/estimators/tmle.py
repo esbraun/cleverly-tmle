@@ -256,6 +256,11 @@ class TMLE:
         Ratios are averaged on the log scale, which is where their influence curve and
         confidence interval already live.  Both reports are always available on
         ``result.cv_targeting`` regardless of this setting.
+
+        Combines with ``repeats=R``; see there for the variance rule.  What does *not*
+        follow the setting is :meth:`retarget`, which returns the pooled report, so every
+        sensitivity analysis reports pooled numbers whichever way this is set.  That is
+        true of an ordinary single-draw fit too and is not a consequence of repeating.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
@@ -276,6 +281,11 @@ class TMLE:
         method, the cluster-robust standard error and the simultaneous bands coherent,
         because all of them are computed from the curve.  Costs ``R`` times a fit.
 
+        A draw redraws *every* split, not only the outer one: the inner cross-validation
+        that scores the Super Learner's candidates, and C-TMLE's selection folds, are
+        drawn from the draw's own seed.  Holding those fixed would average over one stage
+        of a randomised procedure while pinning the rest.
+
         The aggregation is the **mean**, and only the mean.  The median-of-estimates
         aggregation common in the double-machine-learning literature (Chernozhukov et al.
         2018) is deliberately not offered: the median of the ``psi_r`` is not the
@@ -283,9 +293,20 @@ class TMLE:
         its delta method and its bands would every one of them be describing a different
         quantity than the point estimate they were attached to.
 
-        ``result.repeats`` holds the per-draw nuisance fits and fluctuations.  Every
-        sensitivity analysis that produces a number follows all ``R``; the diagnostics
-        that describe a fitted *mechanism* report the first draw and say so.
+        ``result.repeats`` holds the per-draw nuisance fits, fluctuations and point
+        estimates, and ``result.repeat_spread()`` reports how far the draws moved --
+        a diagnostic of the fold noise, never a standard error.  Every sensitivity
+        analysis that produces a number follows all ``R``; the diagnostics that describe
+        a fitted *mechanism* report the first draw and say so.
+
+        With ``cv_evaluation=True`` the point estimate is the mean of the ``R`` canonical
+        CV-TMLE estimates, but the standard error cannot come from the averaged curve: the
+        cross-validated variance is defined by a fold partition and the average belongs to
+        none of the ``R``.  Reported instead is the mean of the ``R`` cross-validated
+        variances, each computed on its own draw's partition.  That is consistent for the
+        same limit and errs conservative in finite samples; the derivation, and why a
+        cross-validated variance *of the averaged curve* would be vacuous rather than
+        merely arbitrary, are in :func:`_with_cross_validated_variance`.
     stratify_folds:
         What the outer folds are balanced on.  ``"treatment"``, the default, balances the
         arms so no fold is left without one and the propensity model is fittable
@@ -511,17 +532,6 @@ class TMLE:
                 "is no fold noise to average away when every nuisance is fitted in "
                 "sample. Set cross_fit=True, or leave repeats at 1."
             )
-        if self.repeats > 1 and self.cv_evaluation:
-            raise ValueError(
-                "repeats= cannot be combined with cv_evaluation=True. The cross-validated "
-                "variance is defined by a fold partition -- it is the second moment of the "
-                "influence curve within each validation fold, summed over folds -- and the "
-                "curve repeats report is an average across R different partitions, so it "
-                "belongs to none of them. Reporting one anyway would be naming Zheng & van "
-                "der Laan's construction for a quantity that is not it. Use repeats= with "
-                "targeting_scheme='fold' if you want fold-wise targeting, or "
-                "cv_evaluation=True on a single draw."
-            )
 
     # ------------------------------------------------------------------- fit
 
@@ -639,7 +649,12 @@ class TMLE:
         for seed in self.crossfit_plan(data).seeds():
             folds = self._folds(data, seed)
             draws.append(
-                (folds, self._fit_nuisances(data, folds, scaler, levels[0], tuple(levels[1:])))
+                (
+                    folds,
+                    self._fit_nuisances(
+                        data, folds, scaler, levels[0], tuple(levels[1:]), seed=seed
+                    ),
+                )
             )
         return scaler, tuple(draws)
 
@@ -745,6 +760,10 @@ class TMLE:
         selection is repeated per draw without ``estimators/ctmle.py`` knowing repeats
         exist.  The bootstrap and the simultaneous bands sit *after* the loop and read the
         averaged estimates, so they need no change either.
+
+        The one report that cannot be assembled by averaging alone is the canonical
+        CV-TMLE variance, which belongs to a fold partition rather than to a curve; see
+        :func:`_with_cross_validated_variance` and :meth:`_cv_detail`.
         """
         self._check_shifts(data)
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
@@ -759,7 +778,8 @@ class TMLE:
             config = self._config(data, estimands, scaler, fold_draws[0])
         else:
             scaler = self._scaler(data)
-            fold_draws = [self._folds(data, seed) for seed in self.crossfit_plan(data).seeds()]
+            seeds = self.crossfit_plan(data).seeds()
+            fold_draws = [self._folds(data, seed) for seed in seeds]
             # The realised fold count can differ between draws when a cap fires on one and
             # not another, so the config -- like every read-through attribute on the result
             # -- describes the first draw.  It is then the *same* config for every draw,
@@ -767,9 +787,9 @@ class TMLE:
             # on which draw it is, or the R estimates would not be estimating one thing.
             config = self._config(data, estimands, scaler, fold_draws[0])
             nuisances = []
-            for index, folds in enumerate(fold_draws):
+            for index, (folds, seed) in enumerate(zip(fold_draws, seeds, strict=True)):
                 nuisance, draw_extra = self._nuisances(
-                    data, folds, scaler, config, intermediate_value
+                    data, folds, scaler, config, intermediate_value, seed=seed
                 )
                 nuisances.append(nuisance)
                 if index == 0:
@@ -780,8 +800,8 @@ class TMLE:
 
         per_repeat: list[dict[str, ParameterEstimate]] = []
         repeats: list[RepeatFit] = []
-        cv_detail: CVTargeting | None = None
-        for index, nuisance in enumerate(nuisances):
+        details: list[CVTargeting | None] = []
+        for nuisance in nuisances:
             estimates, fluctuations, detail = self._retarget_detailed(
                 data,
                 nuisance,
@@ -791,11 +811,21 @@ class TMLE:
                 g_bounds_conditional=config.g_bounds_conditional,
             )
             per_repeat.append(estimates)
-            repeats.append(RepeatFit(nuisance=nuisance, fluctuations=fluctuations))
-            if index == 0:
-                cv_detail = detail
+            repeats.append(
+                RepeatFit(
+                    nuisance=nuisance,
+                    fluctuations=fluctuations,
+                    psi={name: value.psi for name, value in estimates.items()},
+                )
+            )
+            details.append(detail)
 
         estimates = average_estimates(per_repeat, cluster=data.cluster)
+        cv_detail = self._cv_detail(details, cluster=data.cluster)
+        if self.cv_evaluation and cv_detail is not None:
+            estimates = _with_cross_validated_variance(
+                estimates, [detail.variance for detail in cast("list[CVTargeting]", details)]
+            )
 
         result = TMLEResult(
             estimates=estimates,
@@ -833,6 +863,48 @@ class TMLE:
             result = attach_bootstrap(result, bootstrap)
 
         return result
+
+    def _cv_detail(
+        self, details: Sequence[CVTargeting | None], *, cluster: IntArray | None
+    ) -> CVTargeting | None:
+        """One fold-level report for the whole fit, however many draws it averaged.
+
+        The fields split by what they *are*.  ``pooled``, ``canonical`` and ``variance``
+        are estimates, so they follow every draw exactly as the headline report does.
+        ``n_folds``, ``fold_sizes``, ``fold_estimates`` and ``fold_epsilon`` are indexed
+        by fold, and fold 3 of one draw is not fold 3 of another -- there is no
+        correspondence to average along -- so they describe the first draw and
+        :class:`~cleverly.CVTargeting` says which.
+
+        A draw that produced no fold detail at all while others did would mean the draws
+        were not reporting the same estimator, so under ``cv_evaluation`` it is refused
+        rather than averaged around.
+        """
+        present = [detail for detail in details if detail is not None]
+        if not present:
+            return None
+        if self.cv_evaluation and len(present) != len(details):
+            raise RuntimeError(
+                f"{len(details) - len(present)} of {len(details)} cross-fitting draws "
+                "produced no validation folds to evaluate within while the others did, so "
+                "cv_evaluation=True would be averaging fold-wise estimates from some draws "
+                "with pooled ones from the rest under a single name. Re-run with fewer "
+                "n_folds, or with repeats=1."
+            )
+        first = present[0]
+        if len(present) == 1:
+            return first
+        canonical = _with_cross_validated_variance(
+            average_estimates([detail.canonical for detail in present], cluster=cluster),
+            [detail.variance for detail in present],
+        )
+        return replace(
+            first,
+            repeats=len(present),
+            pooled=average_estimates([detail.pooled for detail in present], cluster=cluster),
+            canonical=canonical,
+            variance={name: value.variance for name, value in canonical.items()},
+        )
 
     # ------------------------------------------------------------- internals
 
@@ -957,13 +1029,21 @@ class TMLE:
         *,
         task: Task,
         fallback: Learner | str | Sequence[Any] | None = None,
+        seed: int | None = None,
     ) -> Learner:
-        """Turn a learner specification into a fitted-per-fold estimator."""
+        """Turn a learner specification into a fitted-per-fold estimator.
+
+        ``seed`` is the draw's, under the same convention :meth:`_folds` uses: ``None``
+        means "the estimator's own ``random_state``".  It reaches the Super Learner's
+        *inner* split, so a repeat redraws the whole nested cross-validation rather than
+        only the outer one -- which is what makes ``repeats=R`` an average over the
+        randomised procedure instead of over one stage of it.
+        """
         return resolve_learner(
             spec,
             task=task,
             n_folds=self.learner_folds,
-            random_state=self.random_state,
+            random_state=self.random_state if seed is None else seed,
             fallback=fallback,
         )
 
@@ -974,17 +1054,23 @@ class TMLE:
         scaler: OutcomeScaler,
         intermediate_value: float | None,
         extra_levels: Sequence[float] = (),
+        seed: int | None = None,
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         estimates = fit_nuisances(
             data,
-            outcome_learner=self._resolve_learner(self.outcome_learner, task=outcome_task),
-            treatment_learner=self._resolve_learner(self.treatment_learner, task="classification"),
+            outcome_learner=self._resolve_learner(
+                self.outcome_learner, task=outcome_task, seed=seed
+            ),
+            treatment_learner=self._resolve_learner(
+                self.treatment_learner, task="classification", seed=seed
+            ),
             missingness_learner=(
                 self._resolve_learner(
                     self.missingness_learner,
                     task="classification",
                     fallback=self.treatment_learner,
+                    seed=seed,
                 )
                 if data.has_missing_outcome
                 else None
@@ -994,6 +1080,7 @@ class TMLE:
                     self.intermediate_learner,
                     task="classification",
                     fallback=self.treatment_learner,
+                    seed=seed,
                 )
                 if data.has_intermediate
                 else None
@@ -1058,14 +1145,20 @@ class TMLE:
         scaler: OutcomeScaler,
         config: TMLEConfig,
         intermediate_value: float | None,
+        seed: int | None = None,
     ) -> tuple[NuisanceEstimates, dict[str, Any]]:
         """The nuisance fits to target against, plus any variant-specific diagnostics.
 
         The extension point for TMLE variants that differ only in *which* nuisance
         estimate they hand to the targeting step -- :class:`~cleverly.CTMLE` selects a
         propensity model here and reports the selection path in the extras.
+
+        ``seed`` is the draw's, and an override that randomises anything of its own must
+        thread it through rather than reach for ``self.random_state``: under ``repeats=R``
+        every stage of the split is redrawn per draw, and a stage that is not would be
+        held fixed across draws that were supposed to be independent.
         """
-        return self._fit_nuisances(data, folds, scaler, intermediate_value), {}
+        return self._fit_nuisances(data, folds, scaler, intermediate_value, seed=seed), {}
 
     @staticmethod
     def _bounds_n(data: CausalData) -> float:
@@ -1791,11 +1884,14 @@ class TMLE:
         """
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         scaler = self._scaler(data)
-        fold_draws = [self._folds(data, seed) for seed in self.crossfit_plan(data).seeds()]
+        seeds = self.crossfit_plan(data).seeds()
+        fold_draws = [self._folds(data, seed) for seed in seeds]
         config = self._config(data, estimands, scaler, fold_draws[0])
         per_repeat = []
-        for folds in fold_draws:
-            nuisance, _ = self._nuisances(data, folds, scaler, config, intermediate_value)
+        for folds, seed in zip(fold_draws, seeds, strict=True):
+            nuisance, _ = self._nuisances(
+                data, folds, scaler, config, intermediate_value, seed=seed
+            )
             estimates, _ = self.retarget(
                 data,
                 nuisance,
@@ -1905,6 +2001,60 @@ def _average_over_folds(
             stacklevel=3,
         )
     return out
+
+
+def _with_cross_validated_variance(
+    averaged: Mapping[str, ParameterEstimate],
+    per_repeat_variance: Sequence[Mapping[str, float]],
+) -> dict[str, ParameterEstimate]:
+    r"""Give an averaged canonical report the mean of its draws' cross-validated variances.
+
+    Repeated cross-fitting reports :math:`\bar\psi = \frac1R\sum_r \psi_r` with influence
+    curve :math:`\frac1R\sum_r \mathrm{IC}_r`, and everywhere else in this library the
+    variance is then taken *from that curve*.  Under ``cv_evaluation`` it cannot be: the
+    cross-validated variance of Zheng & van der Laan is defined by a fold partition, and
+    the averaged curve belongs to none of the ``R`` partitions that made it.  What is
+    reported instead is the mean of the ``R`` cross-validated variances, each computed on
+    its own draw's partition from that draw's own fold-specific curve:
+
+    .. math:: \bar\sigma^2 = \frac1R \sum_r \hat\sigma^2_{CV,r}.
+
+    Two things make that the right quantity rather than merely an available one.  Each
+    :math:`\hat\sigma^2_{CV,r}` is consistent for :math:`\mathrm{Var}(D^*)/n`, which is
+    also what :math:`\mathrm{Var}(\bar\psi)` converges to, so nothing is given up
+    asymptotically.  And in finite samples it errs *conservative*, never the other way:
+    :math:`\mathrm{Var}(\bar\psi) = R^{-2}\sum_r\sum_s \mathrm{Cov}(\psi_r, \psi_s) \le
+    \big(\frac1R\sum_r \mathrm{sd}(\psi_r)\big)^2 \le \frac1R\sum_r
+    \mathrm{Var}(\psi_r)`, by Cauchy-Schwarz and then Jensen.  Erring that way is the
+    whole reason to have asked for the cross-validated variance in the first place.  At
+    ``R = 1`` the mean of one number is that number, so the construction is unchanged.
+
+    The alternative that looks more natural -- hand the *averaged* curve to
+    :func:`~cleverly.inference.cross_validated_variance` under one draw's partition -- is
+    not merely arbitrary in its choice of partition, it is vacuous.  At equal fold sizes
+    :math:`\frac1V\sum_v \frac{1}{n_v}\sum_{i \in \mathcal V_v} \mathrm{IC}_i^2 =
+    \frac1n\sum_i \mathrm{IC}_i^2` for *every* partition, so the fold structure
+    contributes nothing at all and the result is the pooled uncentred second moment
+    wearing a cross-validated name.  ``tests/unit/test_repeated_crossfit.py`` keeps that
+    identity as a negative control.
+
+    Only names present in every draw's variance mapping are touched.  A targeting group
+    that produced no folds is reported pooled and keeps its from-curve variance; a name
+    :func:`~cleverly.inference.average_estimates` already dropped never arrives here.
+    """
+    if not per_repeat_variance:
+        return dict(averaged)
+    return {
+        name: (
+            replace(
+                value,
+                variance=float(np.mean([draw[name] for draw in per_repeat_variance])),
+            )
+            if all(name in draw for draw in per_repeat_variance)
+            else value
+        )
+        for name, value in averaged.items()
+    }
 
 
 def tmle(

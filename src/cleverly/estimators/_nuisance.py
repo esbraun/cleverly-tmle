@@ -24,7 +24,7 @@ sensitivity analyses can re-truncate and re-target without refitting anything.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -275,10 +275,18 @@ class RepeatFit:
     fluctuations:
         The solved fluctuation per target group, holding this draw's ``epsilon`` and its
         targeted outcome regression.
+    psi:
+        This draw's own point estimates, per estimand -- the numbers the reported estimate
+        is the mean of.  The point estimates alone and not the whole
+        :class:`~cleverly.ParameterEstimate`: what they exist for is
+        :meth:`~cleverly.estimators.base.TMLEResult.repeat_spread`, and keeping ``R``
+        further copies of every influence curve to compute a standard deviation of ``R``
+        scalars would multiply the memory a fit holds for nothing.
     """
 
     nuisance: NuisanceEstimates
     fluctuations: dict[str, Fluctuation]
+    psi: Mapping[str, float] = field(default_factory=dict)
 
     @property
     def folds(self) -> Folds:
