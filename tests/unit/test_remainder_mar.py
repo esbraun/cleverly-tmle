@@ -52,8 +52,8 @@ import pytest
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.fluctuation.submodel import submodel_for
 from cleverly.inference.influence import atc_estimate, att_estimate
-from tests.conftest import binary_means
 from tests import discrete_law_mar as law
+from tests.conftest import binary_means
 
 #: A propensity that is wrong at every covariate value, and stays inside ``(0, 1)``.
 WRONG_G = np.array([0.55, 0.35, 0.45])

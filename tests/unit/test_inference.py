@@ -127,9 +127,7 @@ class TestInfluenceCurveIsTheGateauxDerivative:
         group = "mean" if estimand in ("ate", "ey1", "ey0") else "att"
         targeted, submodel = _targeted(setting, weights, group)
         if group == "mean":
-            psi_one, _, psi_zero, _ = binary_means(
-                setting["y"], targeted, submodel, weights
-            )
+            psi_one, _, psi_zero, _ = binary_means(setting["y"], targeted, submodel, weights)
             if estimand == "ey1":
                 return psi_one
             if estimand == "ey0":

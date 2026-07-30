@@ -119,8 +119,10 @@ def sensitivity_elements(
             f"the omitted-variable bound applies to {sorted(LINEAR_ESTIMANDS)}, not "
             f"{estimand!r}. For a risk ratio or odds ratio use sensitivity.evalue()."
         )
-    if estimand not in result.estimates:
-        raise ValueError(f"estimand {estimand!r} was not requested in this fit")
+    # Before the "was not requested" check: on a multi-arm fit no parameter is named
+    # plainly `ate` -- they are `ate[mid vs low]` and so on -- so that check would fire
+    # first and report a missing estimand when the real answer is that this bound does
+    # not apply to the fit at all.
     if not result.data.is_binary_treatment:
         raise ValueError(
             "the omitted-variable bound is derived for a binary treatment; this fit has "
@@ -130,6 +132,8 @@ def sensitivity_elements(
             "different derivation, not a wider loop. Use sensitivity.evalue() for a "
             "contrast, or restrict the fit to the two arms being compared."
         )
+    if estimand not in result.estimates:
+        raise ValueError(f"estimand {estimand!r} was not requested in this fit")
 
     data = result.data
     scaler = result.nuisance.scaler

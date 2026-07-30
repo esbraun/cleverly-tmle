@@ -96,6 +96,15 @@ def missingness_tilt(
             "missingness_tilt requires a fit with missing outcomes. Pass delta=<column> to "
             "fit() so the missingness mechanism is estimated."
         )
+    if not data.is_binary_treatment:
+        raise ValueError(
+            "missingness_tilt is written for a binary treatment; this fit has "
+            f"{data.n_arms} arms {list(data.treatment_levels)}. The tilt moves each arm's "
+            "missingness mechanism by one shared gamma and reports the estimands that name "
+            "two arms (ate/att/atc/ey1/ey0), none of which a multi-arm fit produces. "
+            "Extending it means deciding whether gamma is shared across arms or per arm, "
+            "which is a modelling choice this function should not make silently."
+        )
     nuisance = result.nuisance
     missingness = nuisance.bounded_missingness(result.config.missingness_bound)
     assert missingness is not None

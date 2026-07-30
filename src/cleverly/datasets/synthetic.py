@@ -832,7 +832,156 @@ def make_biased_sample(
     return frame_from_dict(payload, like=population), truth
 
 
+@dataclass(frozen=True)
+class MultiArmDGP:
+    """A process with ``K >= 2`` treatment arms and known counterfactual means.
+
+    Deliberately *not* a mode of :class:`DGP`.  That class is binary all the way down --
+    ``propensity`` returns one margin, ``outcome_mean`` takes ``a`` as a scalar 0 or 1,
+    and its truth is assembled from a ``(q1, q0, g)`` triple -- and widening it would
+    have meant reworking every process and every test that consumes one, to no benefit
+    for the binary cases.  The two live side by side instead, and the shared quasi-Monte
+    Carlo integration is the only thing that needs to be common.
+
+    Attributes
+    ----------
+    arm_logits:
+        ``(n, K)`` scores whose softmax is ``g(a | W)``.  A softmax rather than a list of
+        margins so the mechanism is a proper distribution over the arms by construction,
+        with no chance of a process whose probabilities fail to sum to one.
+    outcome_mean:
+        ``E[Y | A = a, latent]`` for an arm *index*.
+    labels:
+        What the treatment column holds.  Strings by default, because that is what a
+        real multi-arm treatment looks like and it exercises the label/code distinction.
+    """
+
+    name: str
+    n_latent: int
+    covariate_names: tuple[str, ...]
+    arm_logits: Callable[[FloatArray], FloatArray]
+    outcome_mean: Callable[[FloatArray, int], FloatArray]
+    labels: tuple[str, ...]
+    family: str = "gaussian"
+    noise_scale: float = 1.0
+
+    @property
+    def n_arms(self) -> int:
+        return len(self.labels)
+
+    def probabilities(self, latent: FloatArray) -> FloatArray:
+        """``g(a | W)`` as an ``(n, K)`` array whose rows sum to one."""
+        logits = np.asarray(self.arm_logits(latent), dtype=float)
+        shifted = logits - logits.max(axis=1, keepdims=True)
+        weights = np.exp(shifted)
+        return np.asarray(weights / weights.sum(axis=1, keepdims=True), dtype=float)
+
+    def truth(self, reference: str | None = None) -> dict[str, float]:
+        """Population ``E[Y(a)]`` per arm and ``E[Y(a)] - E[Y(ref)]`` per contrast.
+
+        Keyed by the names the estimator reports, so a test can compare without
+        translating.  ``reference`` defaults to the arm the estimator would choose --
+        the lowest *sorted* label, which is not generally the first one written down.
+        """
+        latent = _sobol_normal(self.n_latent, _TRUTH_POINTS)
+        means = {
+            label: float(np.mean(np.asarray(self.outcome_mean(latent, index), dtype=float)))
+            for index, label in enumerate(self.labels)
+        }
+        base = sorted(self.labels)[0] if reference is None else reference
+        truth = {f"ey[{label}]": value for label, value in means.items()}
+        for label, value in means.items():
+            if label != base:
+                truth[f"ate[{label} vs {base}]"] = value - means[base]
+        return truth
+
+    def sample(
+        self,
+        n: int,
+        *,
+        seed: int | np.random.Generator | None = None,
+        backend: Backend | str | None = None,
+    ) -> tuple[Any, dict[str, float]]:
+        """Draw ``n`` observations and report the truth."""
+        rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+        latent = rng.normal(size=(n, self.n_latent))
+        probabilities = self.probabilities(latent)
+        # One multinomial draw per row. Vectorised through the CDF rather than looped,
+        # so a large simulation does not pay a Python-level draw per observation.
+        thresholds = np.cumsum(probabilities, axis=1)
+        arm = (rng.random((n, 1)) > thresholds).sum(axis=1)
+        arm = np.clip(arm, 0, self.n_arms - 1)
+
+        mean = np.zeros(n)
+        for index in range(self.n_arms):
+            rows = arm == index
+            if rows.any():
+                mean[rows] = np.asarray(self.outcome_mean(latent[rows], index), dtype=float)
+        if self.family == "binomial":
+            y = rng.binomial(1, np.clip(mean, 0.0, 1.0)).astype(float)
+        else:
+            y = mean + rng.normal(scale=self.noise_scale, size=n)
+
+        payload: dict[str, Any] = {"Y": y, "A": np.array(self.labels)[arm]}
+        for index, name in enumerate(self.covariate_names):
+            payload[name] = latent[:, index]
+        return frame_from_dict(payload, backend=backend), self.truth()
+
+
+def multi_arm_dgp(*, effect: float = 0.6, confounding: float = 0.8) -> MultiArmDGP:
+    """Three arms, confounded, with an effect that is not linear in the arm index.
+
+    The middle arm is not halfway between the other two, so an estimator that treated
+    the treatment as a single numeric column would be biased rather than merely
+    inefficient -- which is the property that makes this process worth having.
+
+    The outcome mean is otherwise additive in the covariates and carries no arm-covariate
+    interaction, so the ``K - 1`` indicator design represents it *exactly*.  That is
+    deliberate: it makes recovery of the truth a genuine consistency check rather than a
+    measurement of how much bias a misspecified working model happens to leave, which is
+    a different question and needs a different test to answer honestly.
+    """
+    step = np.array([0.0, 1.0, 2.4])
+
+    def arm_logits(w: FloatArray) -> FloatArray:
+        return np.column_stack(
+            [
+                np.zeros(w.shape[0]),
+                confounding * w[:, 0] - 0.4 * w[:, 1],
+                -0.5 * w[:, 0] + confounding * w[:, 1],
+            ]
+        )
+
+    def outcome_mean(w: FloatArray, arm: int) -> FloatArray:
+        return effect * step[arm] + w[:, 0] - 0.5 * w[:, 1] + 0.2 * w[:, 2]
+
+    return MultiArmDGP(
+        name="multi_arm",
+        n_latent=3,
+        covariate_names=("W1", "W2", "W3"),
+        arm_logits=arm_logits,
+        outcome_mean=outcome_mean,
+        labels=("low", "medium", "high"),
+        noise_scale=0.8,
+    )
+
+
+def make_multi_arm(
+    n: int = 1000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """A three-armed confounded process with known counterfactual means."""
+    return multi_arm_dgp().sample(n, seed=seed, backend=backend)
+
+
 #: Every generator, for parametrised tests and the simulation harness.
+#:
+#: Multi-arm processes are deliberately absent: every consumer here -- the parametrised
+#: structural tests, the coverage study, the simulation harness -- reads a truth keyed
+#: ``ate``/``ey1``/``ey0`` and a binary ``A`` column, and a three-armed entry would
+#: report neither.  Reach for :func:`make_multi_arm` directly.
 GENERATORS: dict[str, Callable[..., tuple[Any, dict[str, float]]]] = {
     "linear_ate": make_linear_ate,
     "nonlinear_ate": make_nonlinear_ate,
