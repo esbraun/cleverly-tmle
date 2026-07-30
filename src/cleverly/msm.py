@@ -415,6 +415,18 @@ class MSMSet:
         """
         return np.einsum("ijp,ijq,ij->pq", self.design, self.design, self.weights) / max(self.n, 1)
 
+    @property
+    def weighted_design(self) -> FloatArray:
+        r"""``(n, K, p)`` array of :math:`h(a, V)\,\varphi(a, V)`.
+
+        The only thing the clever covariate needs of a working model -- it divides this by
+        the mechanism and nothing else -- so it is what
+        :func:`~cleverly.fluctuation.submodel.msm_submodel` is handed.  Passing the
+        product rather than this object keeps every submodel builder taking plain arrays,
+        which is what lets the registry dispatch on the group name alone.
+        """
+        return np.asarray(self.design * self.weights[:, :, None], dtype=float)
+
     def moment(self, means: FloatArray) -> FloatArray:
         r"""``(p,)`` vector :math:`P_n \sum_a h(a,V)\,\varphi(a,V)\,\bar Q(a, W)`.
 
