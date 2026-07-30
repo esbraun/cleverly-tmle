@@ -11,18 +11,44 @@ things must then hold, and each would break for a different reason:
 3. **the estimate lands within sampling error of the truth** -- if it does not, the
    estimand is misdefined.
 
-A binary outcome is used throughout so the outcome scaler is the identity and the true
-conditional mean can be supplied directly on the scale the fluctuation works on.
+Most of the module uses a binary outcome, so the outcome scaler is the identity and the
+true conditional mean can be supplied directly on the scale the fluctuation works on.
+:class:`TestRandomisedTreatment` also runs the continuous case, where the estimator maps
+``Y`` onto ``[0, 1]`` first and the oracle has to follow it there
+(:class:`tests.conftest.OracleOutcomeContinuous`) -- otherwise the scaling path would only
+ever be exercised alongside nuisance-estimation error.
+
+Between them the classes here cover the oracle cases worth distinguishing: randomised
+treatment with a binary and with a continuous outcome; confounded treatment with a known
+logistic ``g``; known missingness at random; and effect heterogeneity that separates
+``att``, ``ate`` and ``atc``.  The remaining two -- a nonlinear ``Qbar`` with known ``g``,
+and a weighted-population target -- live in :mod:`tests.e2e.test_double_robustness` and
+:mod:`tests.unit.test_weighted_estimand`, and the controlled intervention on ``Z`` in
+:mod:`tests.unit.test_influence_gateaux_cde`, where each has machinery of its own.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 import pytest
 
 from cleverly import TMLE
-from cleverly.datasets import binary_outcome_dgp, missing_outcome_binary_dgp
-from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment, aipw_ate
+from cleverly.datasets import (
+    DGP,
+    binary_outcome_dgp,
+    heterogeneous_dgp,
+    missing_outcome_binary_dgp,
+)
+from cleverly.utils.bounds import expit
+from tests.conftest import (
+    OracleMissingness,
+    OracleOutcome,
+    OracleOutcomeContinuous,
+    OracleTreatment,
+    aipw_ate,
+)
 
 
 @pytest.fixture(scope="module")
@@ -248,3 +274,194 @@ class TestOracleNuisancesWithMissingOutcomes:
         result, truth = oracle_fit
         low, high = result[estimand].ci
         assert low <= truth[estimand] <= high
+
+
+def _randomised(*, binary: bool) -> DGP:
+    """A DGP where treatment is assigned by a coin flip, independently of ``W``.
+
+    Every other oracle process in the suite confounds.  A randomised arm is worth having
+    on its own because it is the one setting with a reference that needs no nuisance model
+    at all: when ``A`` is independent of ``W``, the unadjusted difference in means already
+    estimates the ATE, so :class:`TestRandomisedTreatment` can check the estimator against
+    something outside the targeted-learning machinery entirely.
+
+    It is also the setting where the estimator has the least excuse to move: ``g`` is known
+    and constant, the outcome model is correct, and so the fluctuation has nothing to
+    correct.  An estimator that manufactured signal here would be doing so out of nothing.
+    """
+
+    def propensity(w: Any) -> Any:
+        return np.full(w.shape[0], 0.5)
+
+    if binary:
+
+        def outcome_mean(w: Any, a: float, z: float | None) -> Any:
+            del z
+            return expit(-0.3 + 0.8 * a + 0.6 * w[:, 0] - 0.4 * w[:, 1])
+
+        return DGP(
+            name="randomised_binary",
+            n_latent=2,
+            covariate_names=("W1", "W2"),
+            propensity=propensity,
+            outcome_mean=outcome_mean,
+            family="binomial",
+        )
+
+    def outcome_mean(w: Any, a: float, z: float | None) -> Any:
+        del z
+        # Heterogeneous in W1, so ATT and ATC are not equal by construction of the
+        # outcome model -- they are equal because the *assignment* is independent of W.
+        return 1.0 + 0.8 * w[:, 0] - 0.5 * w[:, 1] + (1.2 + 0.6 * w[:, 0]) * a
+
+    return DGP(
+        name="randomised_continuous",
+        n_latent=2,
+        covariate_names=("W1", "W2"),
+        propensity=propensity,
+        outcome_mean=outcome_mean,
+        noise_scale=1.0,
+    )
+
+
+class TestRandomisedTreatment:
+    """The two oracle cells the suite was missing: a randomised arm, binary and continuous.
+
+    A continuous outcome is the case :class:`tests.conftest.OracleOutcome` cannot serve,
+    because the estimator rescales ``Y`` onto ``[0, 1]`` before fitting and the oracle has
+    to follow it there -- which is what :class:`tests.conftest.OracleOutcomeContinuous`
+    exists for.  Running both here means the scaling path is exercised with the truth
+    plugged in, rather than only alongside nuisance-estimation error.
+    """
+
+    @pytest.fixture(scope="class", params=["binary", "continuous"])
+    def fit(self, request):
+        binary = request.param == "binary"
+        dgp = _randomised(binary=binary)
+        frame, truth = dgp.sample(4000, seed=7)
+        outcome_learner = OracleOutcome(dgp) if binary else OracleOutcomeContinuous(dgp)
+        estimator = TMLE(
+            outcome_learner=outcome_learner,
+            treatment_learner=OracleTreatment(dgp),
+            cross_fit=False,
+            estimands=("ate", "att", "atc", "ey1", "ey0"),
+            random_state=0,
+            simultaneous=False,
+        )
+        return estimator.fit(frame, outcome="Y", treatment="A"), truth, frame
+
+    def test_randomisation_makes_the_three_contrasts_coincide(self, fit) -> None:
+        # A is independent of W, so the treated and control populations have the same
+        # covariate distribution and hence the same average effect -- even though the
+        # effect itself varies with W in the continuous process.
+        _, truth, _ = fit
+        assert truth["att"] == pytest.approx(truth["ate"], abs=1e-3)
+        assert truth["atc"] == pytest.approx(truth["ate"], abs=1e-3)
+
+    def test_the_score_equation_is_solved_exactly(self, fit) -> None:
+        result, _, _ = fit
+        check = result.validation.score_check()
+        assert check.passed
+        for row in check.rows:
+            assert abs(row.score) < 1e-12
+
+    def test_targeting_has_almost_nothing_to_do(self, fit) -> None:
+        # Both nuisances are exactly right, so epsilon is pure sampling noise. This is the
+        # check that the machinery does not manufacture a correction out of nothing.
+        result, _, _ = fit
+        for fluctuation in result.fluctuations.values():
+            assert np.max(np.abs(fluctuation.epsilon)) < 0.1
+
+    def test_it_agrees_with_the_unadjusted_difference_in_means(self, fit) -> None:
+        """The reference that owes nothing to targeted learning.
+
+        Under randomisation ``E[Y | A = 1] - E[Y | A = 0]`` is already the ATE, so this
+        compares the estimator against arithmetic on the raw data.  It is the only anchor
+        in the suite that shares no assumption, no nuisance model and no code with the
+        thing it is checking.
+        """
+        result, _, frame = fit
+        y = frame["Y"].to_numpy(dtype=float)
+        a = frame["A"].to_numpy(dtype=float)
+        naive = float(y[a == 1.0].mean() - y[a == 0.0].mean())
+        assert result.psi("ate") == pytest.approx(naive, abs=3.0 * result["ate"].std_error)
+
+    @pytest.mark.parametrize("estimand", ["ate", "att", "atc", "ey1", "ey0"])
+    def test_recovers_the_truth_within_sampling_error(self, fit, estimand: str) -> None:
+        result, truth, _ = fit
+        estimate = result[estimand]
+        deviation = abs(estimate.psi - truth[estimand])
+        assert deviation < 4.0 * estimate.std_error, (
+            f"{estimand}: {estimate.psi:.4f} vs truth {truth[estimand]:.4f}, "
+            f"se {estimate.std_error:.4f}"
+        )
+
+
+class TestHeterogeneousContrastsAreRecovered:
+    """``att > ate > atc`` recovered from data, not merely true of the process.
+
+    :mod:`tests.unit.test_datasets` establishes that
+    :func:`~cleverly.datasets.heterogeneous_dgp` really does order its three contrasts,
+    with a margin of 0.69 on either side.  That is a statement about the integration.  This
+    is the statement about the estimator: handed the true nuisances, it has to find the
+    same order from a finite sample, and each contrast has to land near its own truth
+    rather than the three merely coming out in the right sequence.
+
+    A constant-effect process cannot make this check -- there is no order to recover -- and
+    :func:`~cleverly.datasets.nonlinear_dgp` separates the contrasts without fixing which
+    way round, so neither would notice an estimator that conditioned on the wrong arm.
+    """
+
+    SEEDS = (3, 17, 41, 59, 83)
+
+    @staticmethod
+    def _fit(seed: int):
+        dgp = heterogeneous_dgp()
+        frame, truth = dgp.sample(4000, seed=seed)
+        estimator = TMLE(
+            outcome_learner=OracleOutcomeContinuous(dgp),
+            treatment_learner=OracleTreatment(dgp),
+            cross_fit=False,
+            estimands=("ate", "att", "atc"),
+            random_state=0,
+            simultaneous=False,
+        )
+        return estimator.fit(frame, outcome="Y", treatment="A"), truth
+
+    @pytest.fixture(scope="class")
+    def fits(self):
+        return [self._fit(seed) for seed in self.SEEDS]
+
+    def test_the_ordering_holds_on_every_seed(self, fits) -> None:
+        # The population margin is 0.69 and the standard error is an order of magnitude
+        # smaller, so the ordering is not a coin flip that happens to land right; asking
+        # for five out of five is asking for something an estimator with the arms crossed
+        # could not supply.
+        for result, _ in fits:
+            att, ate, atc = (result.psi(name) for name in ("att", "ate", "atc"))
+            assert att > ate > atc, f"got att={att:.3f}, ate={ate:.3f}, atc={atc:.3f}"
+
+    @pytest.mark.parametrize("estimand", ["ate", "att", "atc"])
+    def test_each_contrast_lands_near_its_own_truth(self, fits, estimand: str) -> None:
+        # The ordering alone would be satisfied by three numbers that are merely spread
+        # out in the right direction, so pin each one to its own reference.
+        for result, truth in fits:
+            estimate = result[estimand]
+            deviation = abs(estimate.psi - truth[estimand])
+            assert deviation < 4.0 * estimate.std_error, (
+                f"{estimand}: {estimate.psi:.4f} vs truth {truth[estimand]:.4f}, "
+                f"se {estimate.std_error:.4f}"
+            )
+
+    def test_the_separation_is_recovered_not_just_the_order(self, fits) -> None:
+        # Averaging over the seeds removes most of the sampling error, so the estimated
+        # gaps can be compared against the population ones rather than only signed.
+        gaps = np.array(
+            [
+                [result.psi("att") - result.psi("ate"), result.psi("ate") - result.psi("atc")]
+                for result, _ in fits
+            ]
+        )
+        truth = heterogeneous_dgp().truth()
+        expected = [truth["att"] - truth["ate"], truth["ate"] - truth["atc"]]
+        np.testing.assert_allclose(gaps.mean(axis=0), expected, atol=0.06)

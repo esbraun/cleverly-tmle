@@ -86,6 +86,42 @@ class OracleOutcome(BaseEstimator):
         return self._mean(X)
 
 
+class OracleOutcomeContinuous(BaseEstimator):
+    """The true conditional mean for a *continuous* outcome, on the scaled scale.
+
+    The estimator maps ``Y`` onto ``[0, 1]`` before fitting ``Qbar``, so an oracle for a
+    continuous outcome cannot simply return the structural mean -- it has to apply the same
+    affine map, and it does not know the map in advance because the scaler is derived from
+    the observed outcome range.  Recovering it by regressing the scaled outcome the
+    estimator hands over on the raw structural mean is exact: both are affine images of the
+    same quantity, so the fit is a line through the points rather than an approximation.
+
+    :class:`OracleOutcome` is the binary counterpart, where the scaler is the identity and
+    none of this is needed.
+    """
+
+    def __init__(self, dgp: Any) -> None:
+        self.dgp = dgp
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleOutcomeContinuous:
+        design = np.asarray(X, dtype=float)
+        raw = self._raw_mean(design)
+        keep = np.isfinite(y)
+        slope, intercept = np.polyfit(raw[keep], np.asarray(y)[keep], 1)
+        self._slope, self._intercept = float(slope), float(intercept)
+        return self
+
+    def _raw_mean(self, design: Any) -> Any:
+        a, w = design[:, 0], design[:, 1:]
+        one = np.asarray(self.dgp.outcome_mean(w, 1.0, None), dtype=float)
+        zero = np.asarray(self.dgp.outcome_mean(w, 0.0, None), dtype=float)
+        return np.where(a == 1.0, one, zero)
+
+    def predict(self, X: Any) -> Any:
+        design = np.asarray(X, dtype=float)
+        return np.clip(self._intercept + self._slope * self._raw_mean(design), 1e-9, 1 - 1e-9)
+
+
 class OracleMissingness(BaseEstimator):
     """A missingness model returning the true ``P(Delta = 1 | A, W)``.
 

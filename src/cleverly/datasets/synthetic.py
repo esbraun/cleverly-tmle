@@ -47,6 +47,7 @@ __all__ = [
     "make_binary_outcome",
     "make_cde",
     "make_clustered",
+    "make_heterogeneous",
     "make_instrument",
     "make_linear_ate",
     "make_missing_outcome",
@@ -360,6 +361,76 @@ def make_nonlinear_ate(
     will fail here.
     """
     return _make(nonlinear_dgp(), n, seed, backend)
+
+
+def heterogeneous_dgp(slope: float = 1.5) -> DGP:
+    r"""Effect modification aligned with the propensity, so ``att > ate > atc`` strictly.
+
+    Every other process here leaves the *order* of the three contrasts to chance.
+    :func:`linear_dgp` has a constant effect, so all three coincide and no arrangement of
+    them can be wrong; :func:`nonlinear_dgp` separates them, but which of ``att`` and
+    ``atc`` comes out larger is an accident of its coefficients rather than something a
+    test can state in advance.  Neither can catch an estimator that conditions on the
+    wrong arm or inverts the propensity odds :math:`g_1/g_0`, because both mistakes return
+    a plausible number in the plausible range.
+
+    Here the conditional effect
+
+    .. math:: \tau(W) = \bar Q(1, W) - \bar Q(0, W) = 1 + \text{slope} \cdot W_1
+
+    is increasing in :math:`W_1` and so is the propensity, so the treated are drawn
+    disproportionately from the covariate values where the effect is large:
+
+    .. math::
+
+        \mathrm{ATT} = \frac{E[\tau(W) g(W)]}{E[g(W)]}
+              \;>\; E[\tau(W)] = \mathrm{ATE}
+              \;>\; \frac{E[\tau(W)(1 - g(W))]}{E[1 - g(W)]} = \mathrm{ATC},
+
+    the inequalities being strict exactly because :math:`\operatorname{Cov}(\tau, g) > 0`.
+    At the default slope the three sit near ``1.68``, ``1.00`` and ``0.32``: far enough
+    apart that the ordering survives sampling error at moderate ``n``, which is what makes
+    it assertable rather than merely true.
+
+    Both nuisance functions are GLM-correct in their own right -- the propensity is exactly
+    logistic and the outcome mean is linear in ``[A, W1, W2, A*W1]`` -- so a failure here
+    points at the estimator rather than at misspecification.  A GLM given only main effects
+    cannot represent the ``A * W1`` interaction, which is deliberate: it is what makes this
+    process discriminate between an estimator that assumes a constant effect and one that
+    does not.
+    """
+
+    def propensity(w: FloatArray) -> FloatArray:
+        return expit(1.2 * w[:, 0] - 0.3 * w[:, 1])
+
+    def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
+        del z
+        baseline = 0.5 + 0.7 * w[:, 0] + 0.4 * w[:, 1]
+        effect = 1.0 + slope * w[:, 0]
+        return baseline + effect * a
+
+    return DGP(
+        name=f"heterogeneous(slope={slope})",
+        n_latent=2,
+        covariate_names=("W1", "W2"),
+        propensity=propensity,
+        outcome_mean=outcome_mean,
+    )
+
+
+def make_heterogeneous(
+    n: int = 1000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    slope: float = 1.5,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """A sample whose treated and control populations have genuinely different effects.
+
+    Use this wherever a test needs ``att``, ``ate`` and ``atc`` to be distinguishable and
+    ordered in a known direction -- ``att > ate > atc`` -- rather than merely unequal.
+    """
+    return _make(heterogeneous_dgp(slope=slope), n, seed, backend)
 
 
 def weak_overlap_dgp(strength: float = 3.0) -> DGP:
@@ -769,6 +840,7 @@ GENERATORS: dict[str, Callable[..., tuple[Any, dict[str, float]]]] = {
     "instrument": make_instrument,
     "missing_outcome": make_missing_outcome,
     "cde": make_cde,
+    "heterogeneous": make_heterogeneous,
     "clustered": make_clustered,
     "binary_outcome": make_binary_outcome,
     "missing_outcome_binary": make_missing_outcome_binary,

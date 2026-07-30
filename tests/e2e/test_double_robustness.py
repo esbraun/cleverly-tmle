@@ -24,53 +24,12 @@ replications and compare the bias against its own Monte Carlo standard error.
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from cleverly import TMLE
 from cleverly.datasets import nonlinear_dgp
 from cleverly.validation import CoverageStudy
-from tests.conftest import OracleTreatment
-
-
-class _OracleOutcomeContinuous:
-    """The true conditional mean for a continuous outcome, on the scaled scale.
-
-    The estimator scales ``Y`` onto ``[0, 1]`` before fitting ``Qbar``, so an oracle for a
-    continuous outcome has to apply the same transformation.  The scaler is derived from
-    the training outcome it is handed, which is exactly what the estimator does.
-    """
-
-    def __init__(self, dgp: object) -> None:
-        self.dgp = dgp
-
-    def get_params(self, deep: bool = True) -> dict[str, object]:
-        return {"dgp": self.dgp}
-
-    def set_params(self, **params: object) -> _OracleOutcomeContinuous:
-        for key, value in params.items():
-            setattr(self, key, value)
-        return self
-
-    def fit(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None):
-        # y arrives already scaled onto [0, 1]; recover the affine map from the raw
-        # structural mean so predictions can be returned on the same scale.
-        design = np.asarray(X, dtype=float)
-        raw = self._raw_mean(design)
-        keep = np.isfinite(y)
-        slope, intercept = np.polyfit(raw[keep], np.asarray(y)[keep], 1)
-        self._slope, self._intercept = float(slope), float(intercept)
-        return self
-
-    def _raw_mean(self, design: np.ndarray) -> np.ndarray:
-        a, w = design[:, 0], design[:, 1:]
-        one = np.asarray(self.dgp.outcome_mean(w, 1.0, None), dtype=float)  # type: ignore[attr-defined]
-        zero = np.asarray(self.dgp.outcome_mean(w, 0.0, None), dtype=float)  # type: ignore[attr-defined]
-        return np.where(a == 1.0, one, zero)
-
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        design = np.asarray(X, dtype=float)
-        return np.clip(self._intercept + self._slope * self._raw_mean(design), 1e-9, 1 - 1e-9)
+from tests.conftest import OracleOutcomeContinuous, OracleTreatment
 
 
 def _study(
@@ -110,7 +69,7 @@ class TestDoubleRobustnessGrid:
         self, label: str, outcome_learner: str, treatment_learner: str
     ) -> None:
         dgp = nonlinear_dgp()
-        q = _OracleOutcomeContinuous(dgp) if outcome_learner == "oracle_q" else "glm"
+        q = OracleOutcomeContinuous(dgp) if outcome_learner == "oracle_q" else "glm"
         g = OracleTreatment(dgp) if treatment_learner == "oracle_g" else "glm"
         summary = _study(q, g, n=700, reps=40)["ate"]
         # The bias must be indistinguishable from zero at the Monte Carlo resolution.
