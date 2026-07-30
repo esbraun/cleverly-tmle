@@ -551,7 +551,7 @@ class TMLEResultSet(Mapping[float, TMLEResult]):
 
 def format_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
     """Render a fixed-width table without pulling in a dataframe dependency."""
-    columns = (
+    columns: list[Sequence[str]] = (
         list(zip(*([list(headers)] + [list(row) for row in rows]), strict=True))
         if rows
         else [[header] for header in headers]

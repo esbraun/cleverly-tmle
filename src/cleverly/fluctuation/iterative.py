@@ -30,6 +30,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
 from ..exceptions import ConvergenceWarning
 from ..utils.bounds import expit, logit, shrink_probabilities
+from ._score import quasi_loglik, relative_score, score_columns, score_scale
 from .submodel import Submodel, weighted_form
 
 __all__ = ["Fluctuation", "FoldFluctuation", "InitialFit", "solve_fluctuation"]
@@ -203,7 +204,7 @@ def solve_fluctuation(
 
     current = initial.shrunk(alpha)
     epsilon = np.zeros(fit_submodel.dim)
-    scale = _score_scale(scoring_submodel.observed, w, mask)
+    scale = score_scale(scoring_submodel.observed, w, mask)
     trace: list[float] = []
     iterations = 0
 
@@ -217,13 +218,13 @@ def solve_fluctuation(
         )
         epsilon = epsilon + step
         current = _apply_logistic(current, fit_submodel, step, alpha)
-        score = _score(y, current.observed, scoring_submodel.observed, w, mask)
-        trace.append(_relative(score, scale))
+        score = score_columns(y, current.observed, scoring_submodel.observed, w, mask)
+        trace.append(relative_score(score, scale))
         if trace[-1] <= tol or (step_converged and np.max(np.abs(step)) <= tol):
             break
 
-    score = _score(y, current.observed, scoring_submodel.observed, w, mask)
-    relative = _relative(score, scale)
+    score = score_columns(y, current.observed, scoring_submodel.observed, w, mask)
+    relative = relative_score(score, scale)
     converged = bool(relative <= tol)
     if not converged and warn:
         warnings.warn(
@@ -247,24 +248,6 @@ def solve_fluctuation(
     )
 
 
-def _score_scale(h: FloatArray, weights: FloatArray, mask: BoolArray) -> FloatArray:
-    """Per-column ``mean(|w * h|)``: the largest the score could be.
-
-    The residual ``Y - Q*`` is bounded by one on the ``[0, 1]`` outcome scale, so this
-    bounds ``|score|`` and makes the ratio dimensionless.
-    """
-    contribution = np.zeros_like(h)
-    contribution[mask] = np.abs(weights[mask])[:, None] * np.abs(h[mask])
-    return np.asarray(contribution.mean(axis=0), dtype=float)
-
-
-def _relative(score: FloatArray, scale: FloatArray) -> float:
-    """Largest score component relative to its maximum possible magnitude."""
-    if score.size == 0:
-        return 0.0
-    return float(np.max(np.abs(score) / np.maximum(scale, 1e-300)))
-
-
 def _apply_logistic(
     fit: InitialFit, submodel: Submodel, epsilon: FloatArray, alpha: float
 ) -> InitialFit:
@@ -274,25 +257,6 @@ def _apply_logistic(
         expit(logit(fit.at_one) + submodel.at_one @ epsilon),
         expit(logit(fit.at_zero) + submodel.at_zero @ epsilon),
     ).shrunk(alpha)
-
-
-def _score(
-    y: FloatArray,
-    q_star: FloatArray,
-    h: FloatArray,
-    weights: FloatArray,
-    mask: BoolArray,
-) -> FloatArray:
-    """``mean(w * h * (Y - Q*))`` over observed rows, scaled by the full sample.
-
-    The mean is taken over *all* ``n`` rows, not just the observed ones, because the
-    estimating equation carries a ``Delta`` factor: unobserved rows contribute a
-    genuine zero rather than being excluded from the average.
-    """
-    residual = np.zeros_like(y)
-    residual[mask] = y[mask] - q_star[mask]
-    contribution = (weights * residual)[:, None] * h
-    return np.asarray(contribution.mean(axis=0), dtype=float)
 
 
 def _newton_logistic(
@@ -320,7 +284,7 @@ def _newton_logistic(
     if total_weight <= 0:
         return epsilon, True
 
-    loglik = _quasi_loglik(y, expit(offset), weights)
+    loglik = quasi_loglik(y, expit(offset), weights)
     for _ in range(max_iter):
         eta = offset + x @ epsilon
         p = expit(eta)
@@ -344,7 +308,7 @@ def _newton_logistic(
         scale = 1.0
         for _ in range(30):
             candidate = epsilon + scale * step
-            candidate_loglik = _quasi_loglik(y, expit(offset + x @ candidate), weights)
+            candidate_loglik = quasi_loglik(y, expit(offset + x @ candidate), weights)
             if candidate_loglik >= loglik - slack:
                 epsilon, loglik = candidate, candidate_loglik
                 break
@@ -366,12 +330,6 @@ def _solve_step(hessian: FloatArray, gradient: FloatArray) -> FloatArray | None:
     if not np.all(np.isfinite(step)):
         return None
     return np.asarray(step, dtype=float)
-
-
-def _quasi_loglik(y: FloatArray, p: FloatArray, weights: FloatArray) -> float:
-    """Weighted binomial quasi-log-likelihood, valid for ``y`` in ``[0, 1]``."""
-    q = np.clip(p, 1e-15, 1.0 - 1e-15)
-    return float(np.sum(weights * (y * np.log(q) + (1.0 - y) * np.log(1.0 - q))))
 
 
 def _solve_linear(
@@ -414,15 +372,15 @@ def _solve_linear(
             UserWarning,
             stacklevel=3,
         )
-    score = _score(y, targeted.observed, submodel.observed, weights, mask)
-    scale = _score_scale(submodel.observed, weights, mask)
+    score = score_columns(y, targeted.observed, submodel.observed, weights, mask)
+    scale = score_scale(submodel.observed, weights, mask)
     return Fluctuation(
         epsilon=epsilon,
         targeted=targeted,
         score=score,
-        converged=bool(_relative(score, scale) <= 1e-8),
+        converged=bool(relative_score(score, scale) <= 1e-8),
         n_iter=1,
-        trace=(_relative(score, scale),),
+        trace=(relative_score(score, scale),),
         method="linear",
         names=submodel.names,
         score_scale=scale,

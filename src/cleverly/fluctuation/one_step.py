@@ -36,14 +36,8 @@ import numpy as np
 from .._typing import BoolArray, FloatArray
 from ..exceptions import ConvergenceWarning
 from ..utils.bounds import expit, logit
-from .iterative import (
-    Fluctuation,
-    InitialFit,
-    _quasi_loglik,
-    _relative,
-    _score,
-    _score_scale,
-)
+from ._score import quasi_loglik, relative_score, score_columns, score_scale
+from .iterative import Fluctuation, InitialFit
 from .submodel import Submodel, weighted_form
 
 __all__ = ["solve_one_step"]
@@ -88,22 +82,22 @@ def solve_one_step(
     current = initial.shrunk(alpha)
     epsilon = np.zeros(fit_submodel.dim)
     dx = float(step_size)
-    scale = _score_scale(scoring_h, w, mask)
+    scale = score_scale(scoring_h, w, mask)
     trace: list[float] = []
-    loglik = _quasi_loglik(y[mask], current.observed[mask], fit_weights[mask])
+    loglik = quasi_loglik(y[mask], current.observed[mask], fit_weights[mask])
     steps = 0
 
-    score = _score(y, current.observed, scoring_h, w, mask)
+    score = score_columns(y, current.observed, scoring_h, w, mask)
     norm = float(np.linalg.norm(score))
-    trace.append(_relative(score, scale))
+    trace.append(relative_score(score, scale))
 
-    while steps < max_steps and _relative(score, scale) > tol:
+    while steps < max_steps and relative_score(score, scale) > tol:
         if norm == 0.0:
             break
         direction = score / norm
         candidate_epsilon = epsilon + dx * direction
         candidate = _move(current, fit_submodel, dx * direction, alpha)
-        candidate_score = _score(y, candidate.observed, scoring_h, w, mask)
+        candidate_score = score_columns(y, candidate.observed, scoring_h, w, mask)
         candidate_norm = float(np.linalg.norm(candidate_score))
 
         if candidate_norm > norm:
@@ -117,11 +111,11 @@ def solve_one_step(
         current = candidate
         score = candidate_score
         norm = candidate_norm
-        loglik = _quasi_loglik(y[mask], current.observed[mask], fit_weights[mask])
-        trace.append(_relative(score, scale))
+        loglik = quasi_loglik(y[mask], current.observed[mask], fit_weights[mask])
+        trace.append(relative_score(score, scale))
         steps += 1
 
-    relative = _relative(score, scale)
+    relative = relative_score(score, scale)
     converged = bool(relative <= tol)
     if not converged and warn:
         warnings.warn(

@@ -49,7 +49,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly.fluctuation.iterative import InitialFit, _score, solve_fluctuation
+from cleverly.fluctuation._score import score_columns
+from cleverly.fluctuation.iterative import InitialFit, solve_fluctuation
 from cleverly.fluctuation.submodel import submodel_for
 from cleverly.inference.influence import counterfactual_means
 from tests import discrete_law as law
@@ -237,8 +238,8 @@ class TestTruncationRegularisesRatherThanRetargets:
 
         fit = solve_fluctuation(outcome, initial, bounded, weights)
         mask = np.ones(law.N, dtype=bool)
-        solved = _score(outcome, fit.targeted.observed, bounded.observed, weights, mask)
-        unsolved = _score(outcome, fit.targeted.observed, exact.observed, weights, mask)
+        solved = score_columns(outcome, fit.targeted.observed, bounded.observed, weights, mask)
+        unsolved = score_columns(outcome, fit.targeted.observed, exact.observed, weights, mask)
 
         # The score computed here is the one the solver reports, so this is the library's
         # own equation rather than a re-derivation of it.

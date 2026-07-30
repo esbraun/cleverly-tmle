@@ -85,12 +85,11 @@ from .._typing import (
 )
 from ..data.causal_data import CausalData
 from ..exceptions import PositivityWarning, WeightingWarning
+from ..fluctuation._score import relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
     InitialFit,
-    _relative,
-    _score_scale,
     solve_fluctuation,
 )
 from ..fluctuation.one_step import solve_one_step
@@ -1132,13 +1131,15 @@ class TMLE:
         epsilon = np.average(
             np.vstack([record.epsilon for record in fold_records]), axis=0, weights=weights_array
         )
-        score = _score_of(scaled, targeted, submodel, data.weights, data.observed)
-        scale = _score_scale(submodel.observed, data.weights, data.observed)
+        score = score_columns(
+            scaled, targeted.observed, submodel.observed, data.weights, data.observed
+        )
+        scale = score_scale(submodel.observed, data.weights, data.observed)
         return Fluctuation(
             epsilon=epsilon,
             targeted=targeted,
             score=score,
-            converged=bool(_relative(score, scale) <= self.tol),
+            converged=bool(relative_score(score, scale) <= self.tol),
             n_iter=iterations,
             trace=tuple(traces),
             method="iterative" if self.targeting == "iterative" else "one_step",
@@ -1323,18 +1324,6 @@ def _average_over_folds(
             stacklevel=3,
         )
     return out
-
-
-def _score_of(
-    scaled: FloatArray,
-    targeted: InitialFit,
-    submodel: Submodel,
-    weights: FloatArray,
-    observed: BoolArray,
-) -> FloatArray:
-    """``mean(w * h * (Y - Q*))`` per clever-covariate column."""
-    residual = np.where(observed, scaled - targeted.observed, 0.0)
-    return np.asarray(((weights * residual)[:, None] * submodel.observed).mean(axis=0), dtype=float)
 
 
 def tmle(
