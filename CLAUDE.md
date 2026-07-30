@@ -10,9 +10,9 @@ Claude Code cloud sandbox.** It is a small shared container (4 cores), and these
 
 - take tens of minutes and starve everything else on the box, which silently inflates
   every other timing measurement taken while they run;
-- spawn joblib/loky worker processes that **survive a killed pytest**. Orphaned workers
-  keep burning 100% CPU indefinitely and make later benchmarks meaningless. This has
-  already happened once here and produced a 300x bogus timing.
+- spawn joblib/loky worker processes that **survive a `SIGKILL`ed pytest**. Orphaned
+  workers keep burning 100% CPU indefinitely and make later benchmarks meaningless. This
+  has already happened once here and produced a 300x bogus timing.
 
 The slow tier belongs in the nightly GitHub Actions workflow (`.github/workflows/nightly.yml`)
 or on a developer machine with cores to spare.
@@ -21,7 +21,15 @@ or on a developer machine with cores to spare.
 pytest -m "not slow" -q        # the only tier to run in the sandbox
 ```
 
-If you ever do kill a test run, clean up after it:
+**Interrupt a test run with `Ctrl-C`, not `kill -9`.** Which signal you use is the whole
+difference: joblib registers an `atexit` handler that shuts its worker pool down on every
+path where Python still runs, so a `SIGINT` — and an ordinary failure, and a clean exit —
+leaves nothing behind. Measured here at zero survivors in each case. Only `SIGKILL`
+orphans them, because nothing in-process runs: a killed run leaves `LokyProcess` workers
+at ~75% CPU each, reparented to init, still going a minute later.
+
+No fixture or `n_jobs` setting can prevent that, so do not go looking for a code fix —
+the fix is the signal. If a run *was* `SIGKILL`ed, clean up after it:
 
 ```bash
 pkill -f pytest; sleep 2; pkill -f "joblib.externals.loky"
@@ -50,7 +58,23 @@ where the claim genuinely requires it:
   construction, so such a test is a coin flip that fails on a bad seed. Average over
   replications and compare against the Monte Carlo standard error.
 - Scope expensive fixtures with `scope="module"` or `scope="class"` so a fit is shared
-  across the tests that examine it.
+  across the tests that examine it. Then *use* the shared fit: a parametrized case that
+  refits a configuration the fixture already holds is the commonest waste here, and a
+  result object usually carries more than the one case reads — a CDE fit carries every
+  level of the intermediate, so parametrizing over the level and refitting inside each
+  case does the same work twice.
+- **Spell the fold counts out**, or build on `tests.conftest.FAST_KWARGS`. Writing
+  `outcome_learner="glm"` by hand and leaving `n_folds` off silently takes the `TMLE`
+  defaults of `n_folds=10, learner_folds=5` — twice the fast tier's budget, and the `glm`
+  in the constructor makes it read as though the fast-tier rules were being followed.
+
+**The `n_jobs=2` on the simulation studies is deliberate — leave it.** It looks like
+oversubscription under CI's `pytest -n auto`, and it is not: xdist parallelises *between*
+tests and cannot split one, so the handful of 6–13s `CoverageStudy` tests are the critical
+path and the inner pool halves each of them. Measured over three paired runs on four
+cores, dropping it to `n_jobs=1` made the e2e tier **35% slower** (75.7s → 102.3s), with
+three xdist workers idling while the longest test ran twice as long. Nesting here is
+load-balancing the tail, not contending for cores.
 
 ## Layout
 
