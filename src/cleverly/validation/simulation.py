@@ -341,31 +341,17 @@ class CoverageStudy:
             return self.dgp(self.n, seed=seed)
         return self.dgp(self.n, seed=seed, intermediate_value=self.intermediate_value)
 
-    def _select(self, result: TMLEResult | TMLEResultSet) -> TMLEResult:
+    def _select(self, result: TMLEResultSet) -> TMLEResult:
         """Pick the single result a replication is summarising.
 
         A fit with ``intermediate=`` returns one result per level, and the levels are
         different parameters rather than two views of one, so the study has to be told
-        which it is measuring coverage for rather than guessing.
+        which it is measuring coverage for rather than guessing.  That is now the set's
+        own key lookup: ``intermediate_value`` is ``None`` for an ordinary fit, which is
+        exactly the key such a fit uses, so a mismatch in either direction surfaces as a
+        ``KeyError`` naming the levels that are available.
         """
-        if isinstance(result, TMLEResultSet):
-            if self.intermediate_value is None:
-                raise TypeError(
-                    "CoverageStudy expects one result per fit; a controlled-direct-effect "
-                    "fit returns one per level of the intermediate. Pass "
-                    "intermediate_value=0.0 or 1.0 to study one level, and run a second "
-                    "study for the other."
-                )
-            return result[self.intermediate_value]
-        if self.intermediate_value is not None:
-            raise TypeError(
-                f"intermediate_value={self.intermediate_value} was given but the fit "
-                "returned a single result, so there is no level to select. Add "
-                "intermediate=<column> to fit_kwargs, or drop intermediate_value."
-            )
-        if not isinstance(result, TMLEResult):  # pragma: no cover - defensive
-            raise TypeError(f"expected a TMLEResult; got {type(result).__name__}")
-        return result
+        return result[self.intermediate_value]
 
     def run(self) -> StudyResult:
         """Execute the study."""
@@ -380,8 +366,8 @@ class CoverageStudy:
                     # Individual replications routinely trip positivity warnings; the
                     # aggregate coverage is the diagnostic here, not the per-fit warnings.
                     warnings.simplefilter("ignore")
-                    result = self.estimator().fit(frame, **self.fit_kwargs)
-                result = self._select(result)
+                    fitted = self.estimator().fit(frame, **self.fit_kwargs)
+                result = self._select(fitted)
                 names = self.estimands or tuple(result.estimates)
                 out: dict[str, tuple[float, float, float, float]] = {}
                 for name in names:

@@ -74,7 +74,7 @@ class TestIdentical:
         first, second = result[0.0].nuisance, result[1.0].nuisance
         np.testing.assert_array_equal(first.outcome.observed, second.outcome.observed)
         # ...and the counterfactual arms are genuinely different parameters.
-        assert not np.array_equal(first.outcome.at_one, second.outcome.at_one)
+        assert not np.array_equal(first.outcome.arms[1.0], second.outcome.arms[1.0])
 
     def test_the_two_levels_are_different_parameters(self) -> None:
         """A guard on the fixture: if these coincided the test above proves nothing."""
@@ -114,17 +114,19 @@ class TestAtLevel:
         result = _fit(shared=True)
         nuisance = result[0.0].nuisance
         np.testing.assert_array_equal(
-            nuisance.at_level(1.0).outcome.at_one, result[1.0].nuisance.outcome.at_one
+            nuisance.at_level(1.0).outcome.arms[1.0], result[1.0].nuisance.outcome.arms[1.0]
         )
         np.testing.assert_array_equal(
-            nuisance.at_level(0.0).outcome.at_one, result[0.0].nuisance.outcome.at_one
+            nuisance.at_level(0.0).outcome.arms[1.0], result[0.0].nuisance.outcome.arms[1.0]
         )
 
     def test_a_plain_fit_carries_no_levels(self) -> None:
         """No intermediate, no per-level bookkeeping."""
         frame, _ = GENERATORS["linear_ate"](n=200, seed=1)
         covariates = [c for c in frame.columns if c.startswith("W")]
-        result = TMLE(
-            outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7
-        ).fit(frame, outcome="Y", treatment="A", covariates=covariates)
+        result = (
+            TMLE(outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7)
+            .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            .single()
+        )
         assert result.nuisance.outcome_by_level == {}

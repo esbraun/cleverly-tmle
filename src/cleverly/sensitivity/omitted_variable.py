@@ -41,7 +41,7 @@ outcome regression, so use :mod:`cleverly.sensitivity.evalue` for those.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from scipy import optimize, stats
@@ -49,7 +49,6 @@ from scipy import optimize, stats
 from .._typing import FloatArray
 from ..estimators.base import format_table
 from ..estimators.targeting import build_submodel
-from ..fluctuation.submodel import TargetGroup
 from ..inference.cluster import influence_variance
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -131,7 +130,7 @@ def sensitivity_elements(
     submodel = build_submodel(
         data,
         result.nuisance,
-        cast("TargetGroup", group),
+        group,
         bounds=bounds,
         nuisance_bound=result.config.missingness_bound,
         intermediate_value=result.intermediate_value,
@@ -209,21 +208,25 @@ def _m_alpha(
     Used by the doubly robust estimator of :math:`\nu^2`, which relies on the Riesz
     identity :math:`E[m(W, \alpha)] = E[\alpha^2]`.
     """
+    # ``arms[a][:, c]`` is the covariate at arm ``a`` in the column targeting arm ``c``:
+    # the mean submodel has one column per arm, so both indices are arm levels and
+    # neither is a positional 0 or 1.
     if estimand == "ate":
+        one, zero = submodel.arms[1.0], submodel.arms[0.0]
+        treated, control = submodel.arm_columns[1.0], submodel.arm_columns[0.0]
         return np.asarray(
-            submodel.at_one[:, 1]
-            - submodel.at_one[:, 0]
-            - (submodel.at_zero[:, 1] - submodel.at_zero[:, 0]),
+            one[:, treated] - one[:, control] - (zero[:, treated] - zero[:, control]),
             dtype=float,
         )
     if estimand == "ey1":
-        return np.asarray(submodel.at_one[:, 1], dtype=float)
+        return np.asarray(submodel.arms[1.0][:, submodel.arm_columns[1.0]], dtype=float)
     if estimand == "ey0":
-        return np.asarray(submodel.at_zero[:, 0], dtype=float)
+        return np.asarray(submodel.arms[0.0][:, submodel.arm_columns[0.0]], dtype=float)
 
     # ATT / ATC: the functional carries an arm-membership weight, since it averages the
     # contrast over the treated (or control) subpopulation rather than over everyone.
-    contrast = np.asarray(submodel.at_one[:, 0] - submodel.at_zero[:, 0], dtype=float)
+    # Column 0 is the sole column of a contrast submodel, not an arm's column.
+    contrast = np.asarray(submodel.arms[1.0][:, 0] - submodel.arms[0.0][:, 0], dtype=float)
     if estimand == "att":
         weight = propensity / treated_fraction
     else:

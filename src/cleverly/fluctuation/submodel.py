@@ -84,58 +84,146 @@ is variance for second-order bias, and ``res.sensitivity.truncation_curve()`` (w
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
 
 __all__ = [
+    "SUBMODEL_BUILDERS",
     "Submodel",
+    "SubmodelBuilder",
     "TargetGroup",
     "atc_submodel",
     "att_submodel",
+    "check_arms",
     "mean_submodel",
+    "register_submodel",
     "restrict",
     "submodel_for",
 ]
 
-TargetGroup = Literal["mean", "att", "atc"]
+#: Which fluctuation a target's score equation needs.  A plain ``str`` rather than a
+#: ``Literal``, because the set is a registry the caller can extend -- see
+#: :func:`register_submodel`.  It is validated against :data:`SUBMODEL_BUILDERS` at the
+#: two places it matters, building a submodel and registering a target.
+TargetGroup = str
+
+
+def check_arms(observed: FloatArray, arms: Mapping[float, FloatArray], what: str) -> None:
+    """Validate an arm mapping against the observed array it accompanies.
+
+    Shared by :class:`Submodel` and :class:`~cleverly.fluctuation.iterative.InitialFit`,
+    which key their counterfactual quantities the same way and so can get them wrong the
+    same way.  The key check is not pedantry: ``arms[1]`` and ``arms[1.0]`` are different
+    dictionary entries, so an integer key would silently create a second arm that no
+    lookup ever finds.
+    """
+    if not arms:
+        raise ValueError(f"a {what} needs at least one counterfactual arm")
+    for level, values in arms.items():
+        if not isinstance(level, float):
+            raise TypeError(
+                f"{what} arm keys must be floats -- the treatment level the arm sets -- "
+                f"but got {level!r} of type {type(level).__name__}"
+            )
+        if np.asarray(values).shape != np.asarray(observed).shape:
+            raise ValueError(
+                f"{what} arm {level} has shape {np.asarray(values).shape}, but its observed "
+                f"array has shape {np.asarray(observed).shape}"
+            )
 
 
 @dataclass(frozen=True)
 class Submodel:
-    """Clever covariates evaluated at the observed and both counterfactual arms.
+    """Clever covariates evaluated at the observed treatment and at each arm.
 
     Attributes
     ----------
     observed:
         ``(n, k)`` covariate at the treatment each unit actually received; this is
         what the fluctuation regression uses.
-    at_one, at_zero:
-        ``(n, k)`` covariate with the treatment set to 1 and 0.  Applying the
-        fitted ``epsilon`` to these gives the targeted counterfactual predictions.
+    arms:
+        Maps a treatment level to the ``(n, k)`` covariate obtained by setting the
+        treatment to that level for everybody, so a binary treatment carries
+        ``{0.0: ..., 1.0: ...}``.  Applying the fitted ``epsilon`` to these gives the
+        targeted counterfactual predictions.
+
+        Keyed rather than named as two fields so that every routine which moves or
+        subsets a submodel -- :meth:`map_arms`, :func:`restrict`, :func:`weighted_form` --
+        is written once and does not count arms.  The mapping is not copied
+        defensively, on the same terms as the arrays it holds.
     names:
-        Column labels, for reporting ``epsilon`` back to the user.
+        Column labels, for reporting ``epsilon`` back to the user.  Their order is the
+        column order, which :attr:`arm_columns` refers to.
     group:
-        Which estimand family this submodel targets.
+        Which estimand family this submodel targets; a key of :data:`SUBMODEL_BUILDERS`.
+    arm_columns:
+        For a submodel that fits *one column per arm*, the column of ``observed`` whose
+        coefficient targets each arm -- ``{0.0: 0, 1.0: 1}`` for :func:`mean_submodel`.
+
+        **Empty for a contrast submodel** (``att``, ``atc``), where a single column
+        targets a difference of arms and no column belongs to one of them.  That
+        distinction is why this is a mapping rather than an assumed column order: it is
+        what lets the influence curves index a column by the arm it targets instead of
+        by the literal ``0`` and ``1`` that only a two-arm submodel has.
     """
 
     observed: FloatArray
-    at_one: FloatArray
-    at_zero: FloatArray
+    arms: dict[float, FloatArray]
     names: tuple[str, ...]
     group: TargetGroup
+    arm_columns: dict[float, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        shapes = {self.observed.shape, self.at_one.shape, self.at_zero.shape}
-        if len(shapes) != 1:
-            raise ValueError(f"submodel covariates have mismatched shapes: {shapes}")
+        check_arms(self.observed, self.arms, "submodel")
         if self.observed.shape[1] != len(self.names):
             raise ValueError(
                 f"{self.observed.shape[1]} covariate column(s) but {len(self.names)} name(s)"
             )
+        for level, column in self.arm_columns.items():
+            if level not in self.arms:
+                raise ValueError(
+                    f"arm_columns names level {level}, which is not one of the submodel's "
+                    f"arms {sorted(self.arms)}"
+                )
+            if not 0 <= column < self.observed.shape[1]:
+                raise ValueError(
+                    f"arm_columns maps level {level} to column {column}, outside the "
+                    f"{self.observed.shape[1]} column(s) this submodel has"
+                )
+
+    def map_arms(self, fn: Callable[[FloatArray], FloatArray]) -> Submodel:
+        """Apply ``fn`` to the observed covariate and to every arm's, keys preserved."""
+        return Submodel(
+            fn(self.observed),
+            {level: fn(values) for level, values in self.arms.items()},
+            self.names,
+            self.group,
+            dict(self.arm_columns),
+        )
+
+    def column_for(self, level: float) -> FloatArray:
+        """The observed covariate column whose coefficient targets ``level``.
+
+        Raises for a contrast submodel, where no single column belongs to one arm; the
+        influence curves for those estimands index the sole column directly.
+        """
+        try:
+            column = self.arm_columns[level]
+        except KeyError:
+            raise KeyError(
+                f"the {self.group!r} submodel has no column dedicated to arm {level}; it "
+                f"has arm columns for {sorted(self.arm_columns)}"
+            ) from None
+        return np.asarray(self.observed[:, column], dtype=float)
+
+    @property
+    def levels(self) -> tuple[float, ...]:
+        """The arm levels, ascending."""
+        return tuple(sorted(self.arms))
 
     @property
     def n(self) -> int:
@@ -186,6 +274,7 @@ def mean_submodel(
     treatment: FloatArray,
     propensity: FloatArray,
     *,
+    treated_fraction: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -198,6 +287,11 @@ def mean_submodel(
         Binary treatment indicator, length ``n``.
     propensity:
         ``g(W) = P(A = 1 | W)``, already truncated away from 0 and 1.
+    treated_fraction:
+        Accepted and ignored.  Every builder in :data:`SUBMODEL_BUILDERS` takes the same
+        keyword-only signature so the registry can dispatch without knowing which
+        arguments each one happens to need; the counterfactual means do not condition on
+        an arm and so have no use for the treated share.
     missingness:
         Optional ``(n, 2)`` array of ``P(Delta = 1 | A = a, W)`` for ``a = 0, 1``.
     intermediate_density, selection:
@@ -206,6 +300,7 @@ def mean_submodel(
         indicator multiplies only the *observed* covariate -- the counterfactual
         columns are already evaluated at ``Z = z`` by construction.
     """
+    del treated_fraction  # see the parameter's docstring
     a = np.asarray(treatment, dtype=float).reshape(-1)
     g1 = np.asarray(propensity, dtype=float).reshape(-1)
     n = a.shape[0]
@@ -221,17 +316,25 @@ def mean_submodel(
     inv_one = 1.0 / (g1 * pi1 * pz1)
     inv_zero = 1.0 / (g0 * pi0 * pz0)
 
-    observed = np.column_stack([(1.0 - a) * keep * inv_zero, a * keep * inv_one])
-    at_one = np.column_stack([np.zeros(n), inv_one])
-    at_zero = np.column_stack([inv_zero, np.zeros(n)])
-    return Submodel(observed, at_one, at_zero, ("h0", "h1"), "mean")
+    zeros = np.zeros(n)
+    return Submodel(
+        np.column_stack([(1.0 - a) * keep * inv_zero, a * keep * inv_one]),
+        {
+            0.0: np.column_stack([inv_zero, zeros]),
+            1.0: np.column_stack([zeros, inv_one]),
+        },
+        ("h0", "h1"),
+        "mean",
+        # One column per arm, in the order ``names`` gives: h0 is column 0, h1 column 1.
+        {0.0: 0, 1.0: 1},
+    )
 
 
 def att_submodel(
     treatment: FloatArray,
     propensity: FloatArray,
-    treated_fraction: float,
     *,
+    treated_fraction: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -255,8 +358,7 @@ def att_submodel(
     a = np.asarray(treatment, dtype=float).reshape(-1)
     g1 = np.asarray(propensity, dtype=float).reshape(-1)
     n = a.shape[0]
-    if not 0.0 < treated_fraction < 1.0:
-        raise ValueError(f"treated_fraction must lie in (0, 1); got {treated_fraction}")
+    share = _required_treated_fraction(treated_fraction, "att")
     if np.any(g1 <= 0) or np.any(g1 >= 1):
         raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
     g0 = 1.0 - g1
@@ -264,20 +366,24 @@ def att_submodel(
     pz0, pz1 = _arm_columns(n, intermediate_density, "intermediate probabilities")
     keep = _selection_indicator(n, selection)
 
-    treated_term = 1.0 / (treated_fraction * pi1 * pz1)
-    control_term = (g1 / g0) / (treated_fraction * pi0 * pz0)
+    treated_term = 1.0 / (share * pi1 * pz1)
+    control_term = (g1 / g0) / (share * pi0 * pz0)
 
-    observed = (keep * (a * treated_term - (1.0 - a) * control_term)).reshape(-1, 1)
-    at_one = treated_term.reshape(-1, 1)
-    at_zero = (-control_term).reshape(-1, 1)
-    return Submodel(observed, at_one, at_zero, ("h_att",), "att")
+    return Submodel(
+        (keep * (a * treated_term - (1.0 - a) * control_term)).reshape(-1, 1),
+        {1.0: treated_term.reshape(-1, 1), 0.0: (-control_term).reshape(-1, 1)},
+        ("h_att",),
+        "att",
+        # No arm_columns: the single column targets a contrast of the arms, so no column
+        # belongs to one of them.
+    )
 
 
 def atc_submodel(
     treatment: FloatArray,
     propensity: FloatArray,
-    treated_fraction: float,
     *,
+    treated_fraction: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -286,9 +392,9 @@ def atc_submodel(
     a = np.asarray(treatment, dtype=float).reshape(-1)
     g1 = np.asarray(propensity, dtype=float).reshape(-1)
     n = a.shape[0]
-    control_fraction = 1.0 - treated_fraction
-    if not 0.0 < control_fraction < 1.0:
-        raise ValueError(f"treated_fraction must lie in (0, 1); got {treated_fraction}")
+    # In (0, 1) because the treated share is, which the helper has already enforced --
+    # so there is no second range check here.
+    control_fraction = 1.0 - _required_treated_fraction(treated_fraction, "atc")
     if np.any(g1 <= 0) or np.any(g1 >= 1):
         raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
     g0 = 1.0 - g1
@@ -299,10 +405,67 @@ def atc_submodel(
     control_term = 1.0 / (control_fraction * pi0 * pz0)
     treated_term = (g0 / g1) / (control_fraction * pi1 * pz1)
 
-    observed = (keep * (a * treated_term - (1.0 - a) * control_term)).reshape(-1, 1)
-    at_one = treated_term.reshape(-1, 1)
-    at_zero = (-control_term).reshape(-1, 1)
-    return Submodel(observed, at_one, at_zero, ("h_atc",), "atc")
+    return Submodel(
+        (keep * (a * treated_term - (1.0 - a) * control_term)).reshape(-1, 1),
+        {1.0: treated_term.reshape(-1, 1), 0.0: (-control_term).reshape(-1, 1)},
+        ("h_atc",),
+        "atc",
+    )
+
+
+def _required_treated_fraction(treated_fraction: float | None, group: str) -> float:
+    """The treated share, for a builder that cannot work without one.
+
+    The uniform builder signature makes ``treated_fraction`` optional at the type level
+    even though the conditional-effect submodels require it, so the requirement is
+    enforced here instead of by the dispatcher.  That is deliberate: the dispatcher no
+    longer knows which builders need what, and a builder that silently substituted a
+    default would report an ATT against a population nobody specified.
+    """
+    if treated_fraction is None:
+        raise ValueError(f"the {group!r} submodel needs treated_fraction")
+    if not 0.0 < treated_fraction < 1.0:
+        raise ValueError(f"treated_fraction must lie in (0, 1); got {treated_fraction}")
+    return float(treated_fraction)
+
+
+#: What a submodel builder looks like from the registry's side.  Every builder takes the
+#: treatment, the truncated propensity, and the same four keyword arguments -- ignoring
+#: the ones it has no use for -- so that :func:`submodel_for` can dispatch on the group
+#: name alone.
+SubmodelBuilder = Callable[..., Submodel]
+
+#: The registered fluctuations, in report order.  A group is a *score equation*, not an
+#: estimand: several targets share one (see :mod:`cleverly.targets`), and adding a target
+#: to the registry there does not add a fluctuation here.
+SUBMODEL_BUILDERS: dict[str, SubmodelBuilder] = {}
+
+
+def register_submodel(
+    group: str, builder: SubmodelBuilder, *, replace: bool = False
+) -> SubmodelBuilder:
+    """Add a clever-covariate builder to the registry.
+
+    Mirrors :func:`cleverly.targets.register`, including the refusal to shadow an
+    existing entry without saying so: replacing the ``"mean"`` fluctuation silently would
+    change what five of the seven built-in estimands report.
+
+    A ``builder`` must accept the keyword arguments in :data:`SubmodelBuilder` and return
+    a :class:`Submodel` whose ``group`` equals ``group`` -- the latter is checked, since a
+    mismatch would send the influence curves looking for the wrong estimand family.
+    """
+    if group in SUBMODEL_BUILDERS and not replace:
+        raise ValueError(
+            f"a submodel builder for group {group!r} is already registered; pass "
+            "replace=True to override it deliberately"
+        )
+    SUBMODEL_BUILDERS[group] = builder
+    return builder
+
+
+register_submodel("mean", mean_submodel)
+register_submodel("att", att_submodel)
+register_submodel("atc", atc_submodel)
 
 
 def submodel_for(
@@ -315,21 +478,35 @@ def submodel_for(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
 ) -> Submodel:
-    """Dispatch to the submodel builder for an estimand family."""
-    if group not in ("mean", "att", "atc"):
-        raise ValueError(f"unknown target group {group!r}; expected 'mean', 'att' or 'atc'")
-    extras = {
-        "missingness": missingness,
-        "intermediate_density": intermediate_density,
-        "selection": selection,
-    }
-    if group == "mean":
-        return mean_submodel(treatment, propensity, **extras)
-    if treated_fraction is None:
-        raise ValueError(f"the {group!r} submodel needs treated_fraction")
-    if group == "att":
-        return att_submodel(treatment, propensity, treated_fraction, **extras)
-    return atc_submodel(treatment, propensity, treated_fraction, **extras)
+    """Build the clever covariate for an estimand family, by registry lookup.
+
+    Replaces an ``if/elif`` chain that hardcoded the three built-in groups, and with it
+    the last place a new fluctuation had to be threaded through by hand.  A group the
+    registry does not know is an error naming what it does know, which is strictly more
+    useful than the previous fixed list.
+    """
+    try:
+        builder = SUBMODEL_BUILDERS[group]
+    except KeyError:
+        raise ValueError(
+            f"unknown target group {group!r}; registered groups are "
+            f"{sorted(SUBMODEL_BUILDERS)}. Use register_submodel() to add one."
+        ) from None
+    submodel = builder(
+        treatment,
+        propensity,
+        treated_fraction=treated_fraction,
+        missingness=missingness,
+        intermediate_density=intermediate_density,
+        selection=selection,
+    )
+    if submodel.group != group:
+        raise ValueError(
+            f"the builder registered for group {group!r} returned a submodel labelled "
+            f"{submodel.group!r}; the label decides which influence curve is used, so the "
+            "two must agree"
+        )
+    return submodel
 
 
 def weighted_form(submodel: Submodel, weights: FloatArray) -> tuple[Submodel, FloatArray]:
@@ -351,14 +528,7 @@ def weighted_form(submodel: Submodel, weights: FloatArray) -> tuple[Submodel, Fl
     serves both.
     """
     magnitude = np.abs(submodel.observed).sum(axis=1)
-    signed = Submodel(
-        np.sign(submodel.observed),
-        np.sign(submodel.at_one),
-        np.sign(submodel.at_zero),
-        submodel.names,
-        submodel.group,
-    )
-    return signed, np.asarray(weights, dtype=float) * magnitude
+    return submodel.map_arms(np.sign), np.asarray(weights, dtype=float) * magnitude
 
 
 def restrict(submodel: Submodel, mask: BoolArray | IntArray) -> Submodel:
@@ -370,10 +540,4 @@ def restrict(submodel: Submodel, mask: BoolArray | IntArray) -> Submodel:
     where the estimating equation needs it.
     """
     index = np.asarray(mask)
-    return Submodel(
-        submodel.observed[index],
-        submodel.at_one[index],
-        submodel.at_zero[index],
-        submodel.names,
-        submodel.group,
-    )
+    return submodel.map_arms(lambda values: values[index])

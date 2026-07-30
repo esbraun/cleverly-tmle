@@ -36,7 +36,7 @@ res = est.fit(
     outcome="Y",
     treatment="A",
     covariates=["W1", "W2", "W3", "W4"],
-)
+).single()  # fit() returns one result per parameter; an ordinary fit has one
 
 print(res.summary())
 print(f"true ATE = {truth['ate']:.4f}")
@@ -69,9 +69,11 @@ from cleverly.datasets import make_instrument
 
 # W1 confounds; W2 predicts treatment but not the outcome; W3 predicts only the outcome.
 frame, truth = make_instrument(n=2000, seed=0)
-res = CTMLE(
-    search="ordered", estimands=("ate",), outcome_learner="glm", treatment_learner="glm"
-).fit(frame, outcome="Y", treatment="A")
+res = (
+    CTMLE(search="ordered", estimands=("ate",), outcome_learner="glm", treatment_learner="glm")
+    .fit(frame, outcome="Y", treatment="A")
+    .single()
+)
 print(res.extra["ctmle"].summary())
 ```
 
@@ -147,7 +149,7 @@ their result for the fold-targeted construction specifically. See `targeting_sch
 API docs for the full statement.
 
 ```python
-res = TMLE(targeting_scheme="fold").fit(frame, outcome="Y", treatment="A")
+res = TMLE(targeting_scheme="fold").fit(frame, outcome="Y", treatment="A").single()
 res.cv_targeting.summary()  # both reports side by side, per-fold psi and epsilon
 res.cv_targeting.variance["ate"]
 ```
@@ -161,7 +163,11 @@ and `atc` it is not: a ratio of means is not a mean of ratios, and the pooled co
 effects weight by the whole sample's arm share rather than each fold's.
 
 ```python
-res = TMLE(targeting_scheme="fold", cv_evaluation=True).fit(frame, outcome="Y", treatment="A")
+res = (
+    TMLE(targeting_scheme="fold", cv_evaluation=True)
+    .fit(frame, outcome="Y", treatment="A")
+    .single()
+)
 res["rr"].psi  # averaged over folds (on the log scale) rather than pooled
 res["rr"].std_error  # the cross-validated standard error
 res.cv_targeting.pooled["rr"], res.cv_targeting.canonical["rr"]  # both, always
@@ -177,13 +183,17 @@ back is the requested causal parameter evaluated in the tilted population
 is what the reported standard errors are built from.
 
 ```python
-res = TMLE().fit(
-    frame,
-    outcome="Y",
-    treatment="A",
-    weights="sampling_weight",  # 1 / P(selected | observed variables)
-    weights_estimated=False,  # True if they came out of a fitted model
-    id="psu",  # a multi-stage design must declare its PSU
+res = (
+    TMLE()
+    .fit(
+        frame,
+        outcome="Y",
+        treatment="A",
+        weights="sampling_weight",  # 1 / P(selected | observed variables)
+        weights_estimated=False,  # True if they came out of a fitted model
+        id="psu",  # a multi-stage design must declare its PSU
+    )
+    .single()
 )
 print(res.data.weight_report().summary())  # effective n, design effect, estimand statement
 ```
@@ -346,7 +356,7 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
 | Fluctuation | logistic or linear; clever covariate or weighted (`target_weights`, R's `target.gwt`) |
 | Missing outcomes | `delta=` with its own nuisance model, entering the clever covariate. Assumes MAR given `(A, W)`; the double-robustness condition becomes "`Q̄` right **or** the product `g·π` right" |
-| Controlled direct effect | `intermediate=` (R's `Z`) estimates `Ψ_z = E_W[E(Y \| A=a, Z=z, W)]` per level of `Z`, returning a `TMLEResultSet`. Needs `Y(a,z) ⊥ Z \| A, W` on top of the usual assumptions — no intermediate confounder affected by `A` — and the DR condition becomes "`Q̄` right **or** the product `g·q_z·π` right". Not a longitudinal estimator and not a natural direct effect; `cleverly.estimators.direct_effect` writes the parameter down, derives its EIF, and states the boundary. Its influence curve is checked against the numerical Gateaux derivative at machine precision, on the same footing as the ATE |
+| Controlled direct effect | `intermediate=` (R's `Z`) estimates `Ψ_z = E_W[E(Y \| A=a, Z=z, W)]` per level of `Z`, so the returned `TMLEResultSet` holds two results — index the level, `res[0.0]`, rather than calling `.single()`. Needs `Y(a,z) ⊥ Z \| A, W` on top of the usual assumptions — no intermediate confounder affected by `A` — and the DR condition becomes "`Q̄` right **or** the product `g·q_z·π` right". Not a longitudinal estimator and not a natural direct effect; `cleverly.estimators.direct_effect` writes the parameter down, derives its EIF, and states the boundary. Its influence curve is checked against the numerical Gateaux derivative at machine precision, on the same footing as the ATE |
 | Weights | probability/sampling weights, with the tilted-population estimand and its EIF stated and tested; frequency and replicate weights refused |
 | Clustering | `id=` for cluster-level influence-curve variance and cluster bootstrap |
 | Bounds | propensity truncation (`g_bounds`), outcome bounds (`q_bounds`), `alpha` shrinkage |
@@ -368,23 +378,27 @@ for *that* estimand specifically:
 ```python
 from cleverly import Identification, Target, register
 
+
 def number_needed_to_treat(ctx):
-    psi1, ic1, psi0, ic0 = ctx.means      # computed once and shared across the group
+    psi1, ic1, psi0, ic0 = ctx.means  # computed once and shared across the group
     difference = psi1 - psi0
     return ctx.finish("nnt", 1 / difference, -(ic1 - ic0) / difference**2, "difference")
 
-register(Target(
-    name="nnt",
-    group="mean",                     # shares the two-column mean fluctuation
-    scale="difference",
-    build=number_needed_to_treat,
-    requires_family="binomial",       # see below
-    identification=Identification(
-        assumptions=("consistency", "no unmeasured confounding given W", "positivity"),
-        required_nuisances=("outcome_regression", "treatment_mechanism"),
-        dr_condition="consistent if either Qbar or g is consistent",
-    ),
-))
+
+register(
+    Target(
+        name="nnt",
+        group="mean",  # shares the two-column mean fluctuation
+        scale="difference",
+        build=number_needed_to_treat,
+        requires_family="binomial",  # see below
+        identification=Identification(
+            assumptions=("consistency", "no unmeasured confounding given W", "positivity"),
+            required_nuisances=("outcome_regression", "treatment_mechanism"),
+            dr_condition="consistent if either Qbar or g is consistent",
+        ),
+    )
+)
 ```
 
 `requires_family="binomial"` is doing real work here rather than decorating. `ctx.means`
@@ -403,6 +417,56 @@ an influence curve is correct is that it agrees, to ~1e-12, with one obtained by
 differentiation of an independently written functional on an exactly representable law. An
 estimand without that has no such evidence, and the registry is deliberately not allowed to
 make skipping it easy.
+
+### Adding a fluctuation
+
+`group=` above names a *score equation*, not an estimand — five of the seven built-in
+targets share the two-column `mean` fluctuation because they are different functionals of
+one targeted distribution. Groups live in their own registry, so a target that needs a
+score equation nobody has written yet can supply one:
+
+```python
+import numpy as np
+
+from cleverly.fluctuation import Submodel, register_submodel
+
+
+def treated_only(
+    treatment,
+    propensity,
+    *,
+    treated_fraction=None,
+    missingness=None,
+    intermediate_density=None,
+    selection=None,
+):
+    """One column, 1{A = 1} / g₁(W) — the Riesz representer of E[Y(1)]."""
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    inverse = (1.0 / np.asarray(propensity, dtype=float)).reshape(-1, 1)
+    return Submodel(
+        a.reshape(-1, 1) * inverse,
+        {1.0: inverse, 0.0: np.zeros_like(inverse)},  # covariate per treatment arm
+        ("h1",),
+        "treated_only",  # must equal the registered name
+        {1.0: 0},  # which column targets which arm
+    )
+
+
+register_submodel("treated_only", treated_only)
+```
+
+Every builder takes the same keyword-only signature so the registry can dispatch on the
+group name alone, ignoring the arguments it has no use for. `Target.group` is validated
+against this registry at *registration* time rather than at fit time.
+
+Both `Submodel` and `InitialFit` key their counterfactual quantities by the treatment level
+the arm sets — `arms[1.0]`, `arms[0.0]` — rather than naming two fields, so shrinking,
+row-slicing, sign-taking and fluctuating are written once and do not count arms.
+`arm_columns` maps an arm to the column of the design whose coefficient targets it, and is
+**empty** for a contrast fluctuation like `att`, where the single column targets a
+difference and no column belongs to one arm. What is still binary is the estimand layer
+above: `counterfactual_means` returns one pair of means, so multi-valued treatment needs
+that signature generalised too.
 
 ## Roadmap
 

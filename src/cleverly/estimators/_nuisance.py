@@ -36,7 +36,7 @@ from ..fluctuation.iterative import InitialFit
 from ..learners._fitting import Task, as_target, fit_learner, predict_mean
 from ..learners.crossfit import Folds
 from ..learners.screeners import CorrelationScreener
-from ..learners.super_learner import SuperLearner, SuperLearnerDiagnostics
+from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
 from .direct_effect import check_level
@@ -153,8 +153,8 @@ def cross_fit_predictions(
         Rows eligible for *training*.  The outcome regression is fit only where the
         outcome is observed, but must still predict everywhere.
     groups:
-        Cluster codes, forwarded to a Super Learner so its inner folds keep clusters
-        intact too.
+        Cluster codes, forwarded to any learner that cross-validates internally so its
+        inner folds keep clusters intact too -- see :func:`_fit_with_groups`.
 
     Returns
     -------
@@ -212,23 +212,26 @@ def _fit_with_groups(
     task: Task,
     groups: IntArray | None,
 ) -> Learner:
-    """Fit a learner, passing cluster codes on to a Super Learner's inner folds."""
-    if isinstance(learner, SuperLearner) and groups is not None:
-        from sklearn.base import clone
+    """Fit a learner on ``rows``, passing cluster codes on to its inner folds.
 
-        model = clone(learner)
-        model.fit(
-            design[rows],
-            as_target(target[rows], task),
-            sample_weight=weights[rows],
-            groups=np.asarray(groups)[rows],
-        )
-        return model
+    ``rows`` is a subset of one outer training fold, so a learner that cross-validates
+    internally -- a :class:`~cleverly.learners.SuperLearner` scoring its candidates --
+    only ever splits rows this fold was already allowed to train on.  What it needs told
+    is the *cluster* structure, since an inner fold that splits a cluster scores a
+    candidate on rows correlated with its own training set.
+
+    :func:`~cleverly.learners._fitting.fit_learner` does the routing, which matters
+    because ``screen_treatment=True`` wraps the learner in a pipeline: this used to test
+    ``isinstance(learner, SuperLearner)`` and so dropped the cluster codes for exactly
+    the configuration that asked for both.  The codes are subset to ``rows`` first, to
+    stay aligned with the design handed alongside them.
+    """
     return fit_learner(
         learner,
         design[rows],
         as_target(target[rows], task),
         weights[rows],
+        groups=None if groups is None else np.asarray(groups)[rows],
         warn_unweighted=False,
     )
 
@@ -253,6 +256,22 @@ def _screened(learner: Learner, threshold: float, min_retain: int | None) -> Lea
             ("model", learner),
         ]
     )
+
+
+#: The treatment arms the outcome regression is predicted at.  A tuple rather than the
+#: literals it used to be spelled with, so that the prediction designs, the arm keys of
+#: the resulting :class:`~cleverly.fluctuation.iterative.InitialFit`, and anything that
+#: iterates either of them cannot drift apart.
+ARMS: tuple[float, ...] = (0.0, 1.0)
+
+
+def _design_key(arm: float, level: float | None) -> str:
+    """Name of the counterfactual design for one arm at one intermediate level.
+
+    A single flat namespace, because ``cross_fit_predictions`` takes one dict of designs
+    and returns one dict of predictions; the key has to carry both coordinates.
+    """
+    return f"arm@{arm}|z@{level}"
 
 
 def _requested_levels(
@@ -397,8 +416,10 @@ def fit_nuisances(
     levels = _requested_levels(intermediate_value, extra_levels)
     designs: dict[str, FloatArray] = {"observed": outcome_design}
     for level in levels:
-        designs[f"at_one@{level}"] = data.counterfactual_design(1.0, intermediate_value=level)
-        designs[f"at_zero@{level}"] = data.counterfactual_design(0.0, intermediate_value=level)
+        for arm in ARMS:
+            designs[_design_key(arm, level)] = data.counterfactual_design(
+                arm, intermediate_value=level
+            )
 
     outcome_out, outcome_diagnostics = cross_fit_predictions(
         outcome_learner,
@@ -418,7 +439,8 @@ def fit_nuisances(
 
     by_level = {
         level: InitialFit(
-            outcome_out["observed"], outcome_out[f"at_one@{level}"], outcome_out[f"at_zero@{level}"]
+            outcome_out["observed"],
+            {arm: outcome_out[_design_key(arm, level)] for arm in ARMS},
         )
         for level in levels
     }

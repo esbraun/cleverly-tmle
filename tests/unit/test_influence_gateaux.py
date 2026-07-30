@@ -64,7 +64,7 @@ def exact_fit():
         simultaneous=False,
         random_state=0,
     )
-    return estimator.fit(law.frame(), outcome="Y", treatment="A")
+    return estimator.fit(law.frame(), outcome="Y", treatment="A").single()
 
 
 class TestTheSampleRealisesTheLaw:

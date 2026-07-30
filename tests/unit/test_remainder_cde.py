@@ -133,8 +133,7 @@ def _fit(
         # The residual is nonzero only where the row is at the targeted level, so the
         # prediction at the row's own (A, Z) and at (A, z) agree wherever it matters.
         observed=q_hat[covariate, treatment.astype(int), intermediate],
-        at_one=at_one,
-        at_zero=at_zero,
+        arms={1.0: at_one, 0.0: at_zero},
     )
     density = _density(qz_hat, level)
     submodel = submodel_for(

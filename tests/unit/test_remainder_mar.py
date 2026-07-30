@@ -101,8 +101,7 @@ def _fit(g_hat: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray, group: str):
     at_one, at_zero = q_hat[covariate, 1], q_hat[covariate, 0]
     initial = InitialFit(
         observed=np.where(treatment == 1.0, at_one, at_zero),
-        at_one=at_one,
-        at_zero=at_zero,
+        arms={1.0: at_one, 0.0: at_zero},
     )
     missingness = np.column_stack([pi_hat[covariate, 0], pi_hat[covariate, 1]])
     submodel = submodel_for(

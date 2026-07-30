@@ -35,9 +35,11 @@ controlled direct effect at :math:`z` is the contrast
 Note the subscript.  A controlled direct effect is a *different parameter for each*
 :math:`z` -- "the effect of :math:`A` on :math:`Y` with :math:`Z` held at 0" and "... held
 at 1" are two questions, and they have the same answer only when :math:`A` and :math:`Z`
-do not interact in :math:`\bar Q`.  That is why :meth:`~cleverly.TMLE.fit` returns a
-:class:`~cleverly.estimators.base.TMLEResultSet` rather than a single result: it fits both
-levels and hands back one estimate per level.
+do not interact in :math:`\bar Q`.  That is why the
+:class:`~cleverly.estimators.base.TMLEResultSet` that :meth:`~cleverly.TMLE.fit` returns
+holds *two* entries on this path, keyed by level, and why
+:meth:`~cleverly.estimators.base.TMLEResultSet.single` refuses to choose between them --
+there is no defensible choice to make.
 
 Identification
 --------------

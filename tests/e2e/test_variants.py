@@ -24,7 +24,11 @@ def frame_and_truth() -> tuple[object, dict[str, float]]:
 
 
 def _fit(frame: object, **overrides: object) -> object:
-    return fast_tmle(estimands=("ate", "att"), **overrides).fit(frame, outcome="Y", treatment="A")
+    return (
+        fast_tmle(estimands=("ate", "att"), **overrides)
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
 
 
 class TestVariantsAgree:
@@ -111,8 +115,8 @@ class TestReproducibility:
     def test_an_estimator_can_be_reused(self, frame_and_truth) -> None:
         frame, _ = frame_and_truth
         estimator = fast_tmle(estimands=("ate",))
-        first = estimator.fit(frame, outcome="Y", treatment="A")
-        second = estimator.fit(frame, outcome="Y", treatment="A")
+        first = estimator.fit(frame, outcome="Y", treatment="A").single()
+        second = estimator.fit(frame, outcome="Y", treatment="A").single()
         assert first.psi("ate") == second.psi("ate")
 
 
@@ -120,14 +124,18 @@ class TestBoundsAndScaling:
     def test_tighter_truncation_reduces_the_standard_error(self) -> None:
         frame, _ = make_weak_overlap(n=1200, seed=32)
         with pytest.warns(PositivityWarning):
-            loose = fast_tmle(estimands=("ate",), g_bounds=0.001).fit(
-                frame, outcome="Y", treatment="A"
+            loose = (
+                fast_tmle(estimands=("ate",), g_bounds=0.001)
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
             )
         with pytest.warns(PositivityWarning):
             # A bound of 0.1 truncates most of this sample, which is exactly the
             # situation the warning exists to flag.
-            tight = fast_tmle(estimands=("ate",), g_bounds=0.1).fit(
-                frame, outcome="Y", treatment="A"
+            tight = (
+                fast_tmle(estimands=("ate",), g_bounds=0.1)
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
             )
         # Truncation trades bias for variance; the variance side must be visible.
         assert tight["ate"].std_error < loose["ate"].std_error
@@ -136,8 +144,10 @@ class TestBoundsAndScaling:
         frame, truth = make_linear_ate(n=800, seed=33)
         y = frame["Y"].to_numpy()
         bounds = (float(y.min()) - 1.0, float(y.max()) + 1.0)
-        result = fast_tmle(estimands=("ate",), q_bounds=bounds).fit(
-            frame, outcome="Y", treatment="A"
+        result = (
+            fast_tmle(estimands=("ate",), q_bounds=bounds)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
         )
         assert result.config.q_bounds == bounds
         low, high = result["ate"].ci
@@ -146,11 +156,11 @@ class TestBoundsAndScaling:
     def test_outcome_bounds_that_exclude_the_data_are_refused(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=34)
         with pytest.raises(ValueError, match="outside q_bounds"):
-            fast_tmle(q_bounds=(0.0, 0.1)).fit(frame, outcome="Y", treatment="A")
+            fast_tmle(q_bounds=(0.0, 0.1)).fit(frame, outcome="Y", treatment="A").single()
 
     def test_counterfactual_means_stay_inside_the_outcome_bounds(self) -> None:
         frame, _ = make_linear_ate(n=800, seed=35)
-        result = fast_tmle(estimands=("ey1", "ey0")).fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ey1", "ey0")).fit(frame, outcome="Y", treatment="A").single()
         lower, upper = result.config.q_bounds
         # The logistic fluctuation is bounded by construction, so this cannot fail
         # unless the unscaling is wrong.
@@ -159,7 +169,7 @@ class TestBoundsAndScaling:
 
     def test_auto_bounds_differ_between_the_ate_and_the_att(self) -> None:
         frame, _ = make_linear_ate(n=1000, seed=36)
-        result = fast_tmle(estimands=("ate", "att")).fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ate", "att")).fit(frame, outcome="Y", treatment="A").single()
         assert result.config.g_bounds != result.config.g_bounds_conditional
         assert result.config.g_bounds_conditional[0] == pytest.approx(0.025)
 
@@ -169,30 +179,42 @@ class TestWeightsAndClusters:
         frame, _ = make_nonlinear_ate(n=1200, seed=37)
         rng = np.random.default_rng(0)
         weighted_frame = frame.assign(w=rng.uniform(0.3, 2.0, len(frame)))
-        plain = fast_tmle(estimands=("ate",)).fit(
-            frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"]
+        plain = (
+            fast_tmle(estimands=("ate",))
+            .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"])
+            .single()
         )
-        weighted = fast_tmle(estimands=("ate",)).fit(
-            weighted_frame,
-            outcome="Y",
-            treatment="A",
-            covariates=["W1", "W2", "W3", "W4"],
-            weights="w",
+        weighted = (
+            fast_tmle(estimands=("ate",))
+            .fit(
+                weighted_frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3", "W4"],
+                weights="w",
+            )
+            .single()
         )
         assert weighted.psi("ate") != plain.psi("ate")
         assert weighted.validation.score_check().passed
 
     def test_uniform_weights_reproduce_the_unweighted_fit(self) -> None:
         frame, _ = make_linear_ate(n=800, seed=38)
-        plain = fast_tmle(estimands=("ate",)).fit(
-            frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"]
+        plain = (
+            fast_tmle(estimands=("ate",))
+            .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"])
+            .single()
         )
-        weighted = fast_tmle(estimands=("ate",)).fit(
-            frame.assign(w=2.5),
-            outcome="Y",
-            treatment="A",
-            covariates=["W1", "W2", "W3", "W4"],
-            weights="w",
+        weighted = (
+            fast_tmle(estimands=("ate",))
+            .fit(
+                frame.assign(w=2.5),
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3", "W4"],
+                weights="w",
+            )
+            .single()
         )
         # Weights are normalised to mean one, so a constant weight is a no-op.
         assert weighted.psi("ate") == pytest.approx(plain.psi("ate"), rel=1e-9)
@@ -211,8 +233,10 @@ class TestWeightsAndClusters:
 
         frame, truth = make_biased_sample(6000, seed=40)
         columns = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
-        weighted = fast_tmle(estimands=("ate",)).fit(frame, weights="sampling_weight", **columns)
-        unweighted = fast_tmle(estimands=("ate",)).fit(frame, **columns)
+        weighted = (
+            fast_tmle(estimands=("ate",)).fit(frame, weights="sampling_weight", **columns).single()
+        )
+        unweighted = fast_tmle(estimands=("ate",)).fit(frame, **columns).single()
 
         assert truth["ate_selected"] - truth["ate"] > 0.3
         assert weighted.psi("ate") == pytest.approx(
@@ -228,8 +252,8 @@ class TestWeightsAndClusters:
 
         frame, _ = make_clustered(n=1500, seed=39, cluster_size=15)
         columns = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
-        ignoring = fast_tmle(estimands=("ate",)).fit(frame, **columns)
-        clustered = fast_tmle(estimands=("ate",)).fit(frame, id="cluster", **columns)
+        ignoring = fast_tmle(estimands=("ate",)).fit(frame, **columns).single()
+        clustered = fast_tmle(estimands=("ate",)).fit(frame, id="cluster", **columns).single()
         # The DGP shares an unobserved latent within clusters, so ignoring the structure
         # understates the uncertainty.
         assert clustered["ate"].std_error > 1.2 * ignoring["ate"].std_error
@@ -247,7 +271,7 @@ class TestBinaryOutcome:
         from cleverly.datasets import make_binary_outcome
 
         frame, truth = make_binary_outcome(n=2500, seed=40)
-        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
         assert {"rr", "or"} <= set(result.estimates)
         for name in ("rr", "or"):
             low, high = result[name].ci
@@ -257,13 +281,13 @@ class TestBinaryOutcome:
     def test_ratios_are_refused_for_a_continuous_outcome(self) -> None:
         frame, _ = make_linear_ate(n=400, seed=41)
         with pytest.raises(ValueError, match="require a binary outcome"):
-            fast_tmle(estimands=("rr",)).fit(frame, outcome="Y", treatment="A")
+            fast_tmle(estimands=("rr",)).fit(frame, outcome="Y", treatment="A").single()
 
     def test_probabilities_stay_in_range(self) -> None:
         from cleverly.datasets import make_binary_outcome
 
         frame, _ = make_binary_outcome(n=1200, seed=42)
-        result = fast_tmle(estimands=("ey1", "ey0")).fit(frame, outcome="Y", treatment="A")
+        result = fast_tmle(estimands=("ey1", "ey0")).fit(frame, outcome="Y", treatment="A").single()
         for name in ("ey1", "ey0"):
             assert 0.0 <= result.psi(name) <= 1.0
 
@@ -274,8 +298,10 @@ class TestBootstrapAndBands:
         # The bootstrap refits the model per replicate, so this is the most expensive
         # test in the fast tier; 40 replicates is the minimum that makes the
         # standard-error comparison below meaningful.
-        result = fast_tmle(estimands=("ate",), n_bootstrap=40).fit(
-            frame, outcome="Y", treatment="A"
+        result = (
+            fast_tmle(estimands=("ate",), n_bootstrap=40)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
         )
         bootstrap = result["ate"].bootstrap
         assert bootstrap is not None
@@ -288,16 +314,20 @@ class TestBootstrapAndBands:
 
     def test_simultaneous_bands_contain_the_pointwise_intervals(self) -> None:
         frame, _ = make_linear_ate(n=800, seed=44)
-        result = TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
-            n_folds=4,
-            learner_folds=3,
-            random_state=0,
-            estimands=("ate", "att", "atc", "ey1", "ey0"),
-            simultaneous=True,
-            n_multiplier=400,
-        ).fit(frame, outcome="Y", treatment="A")
+        result = (
+            TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=4,
+                learner_folds=3,
+                random_state=0,
+                estimands=("ate", "att", "atc", "ey1", "ey0"),
+                simultaneous=True,
+                n_multiplier=400,
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         assert result.simultaneous is not None
         assert result.simultaneous.critical_value > result.simultaneous.pointwise_critical_value
         for name, estimate in result.estimates.items():
@@ -310,12 +340,16 @@ class TestBootstrapAndBands:
         from cleverly.datasets import make_clustered
 
         frame, _ = make_clustered(n=900, seed=45, cluster_size=15)
-        result = fast_tmle(estimands=("ate",), n_bootstrap=20).fit(
-            frame,
-            outcome="Y",
-            treatment="A",
-            covariates=["W1", "W2"],
-            id="cluster",
+        result = (
+            fast_tmle(estimands=("ate",), n_bootstrap=20)
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2"],
+                id="cluster",
+            )
+            .single()
         )
         assert result.bootstrap is not None
         assert result.bootstrap.resampling == "cluster"
@@ -343,11 +377,11 @@ class TestConfigurationErrors:
     def test_missing_column_names_are_refused(self) -> None:
         frame, _ = make_linear_ate(n=200, seed=46)
         with pytest.raises(ValueError, match="outcome= and treatment= are required"):
-            fast_tmle().fit(frame)
+            fast_tmle().fit(frame).single()
 
     def test_a_numpy_array_is_refused_with_guidance(self) -> None:
         with pytest.raises(TypeError, match=r"cleverly\.tmle"):
-            fast_tmle().fit(np.zeros((50, 4)), outcome="Y", treatment="A")
+            fast_tmle().fit(np.zeros((50, 4)), outcome="Y", treatment="A").single()
 
     def test_column_names_cannot_be_mixed_with_causal_data(self) -> None:
         from cleverly import CausalData
@@ -355,19 +389,19 @@ class TestConfigurationErrors:
         frame, _ = make_linear_ate(n=200, seed=47)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A")
         with pytest.raises(ValueError, match="cannot be combined"):
-            fast_tmle().fit(data, outcome="Y")
+            fast_tmle().fit(data, outcome="Y").single()
 
     def test_an_unknown_estimand_is_refused(self) -> None:
         frame, _ = make_linear_ate(n=200, seed=48)
         with pytest.raises(ValueError, match="unknown estimand"):
-            fast_tmle(estimands=("nope",)).fit(frame, outcome="Y", treatment="A")
+            fast_tmle(estimands=("nope",)).fit(frame, outcome="Y", treatment="A").single()
 
     def test_q_bounds_are_refused_for_a_binary_outcome(self) -> None:
         from cleverly.datasets import make_binary_outcome
 
         frame, _ = make_binary_outcome(n=300, seed=49)
         with pytest.raises(ValueError, match="q_bounds does not apply"):
-            fast_tmle(q_bounds=(0.0, 1.0)).fit(frame, outcome="Y", treatment="A")
+            fast_tmle(q_bounds=(0.0, 1.0)).fit(frame, outcome="Y", treatment="A").single()
 
 
 class TestArrayEntryPoint:
@@ -385,7 +419,7 @@ class TestArrayEntryPoint:
             estimands=("ate",),
             simultaneous=False,
             random_state=0,
-        )
+        ).single()
         low, high = result["ate"].ci
         assert low <= truth["ate"] <= high
 
@@ -406,7 +440,7 @@ class TestArrayEntryPoint:
             estimands=("ate",),
             simultaneous=False,
             random_state=0,
-        )
+        ).single()
         low, high = result["ate"].ci
         assert low <= truth["ate"] <= high
 
@@ -417,8 +451,10 @@ class TestScreening:
         noisy = frame.assign(
             **{f"noise{i}": np.random.default_rng(i).normal(size=len(frame)) for i in range(5)}
         )
-        result = fast_tmle(estimands=("ate",), screen_treatment=True, min_retain=2).fit(
-            noisy, outcome="Y", treatment="A"
+        result = (
+            fast_tmle(estimands=("ate",), screen_treatment=True, min_retain=2)
+            .fit(noisy, outcome="Y", treatment="A")
+            .single()
         )
         retained = result.nuisance.treatment_covariates
         assert 0 < len(retained) < noisy.shape[1] - 2

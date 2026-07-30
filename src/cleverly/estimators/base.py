@@ -563,43 +563,90 @@ class TMLEResult:
 
 
 @dataclass(frozen=True)
-class TMLEResultSet(Mapping[float, TMLEResult]):
-    """Results for each level of an intermediate variable.
+class TMLEResultSet(Mapping["float | None", TMLEResult]):
+    """What :meth:`~cleverly.TMLE.fit` returns: one result per parameter it estimated.
 
     A controlled direct effect is defined *per* value of the intermediate: "the
     effect of ``A`` on ``Y`` holding ``Z`` fixed at ``z``" is a different quantity for
     each ``z``.  Fitting with ``intermediate=`` therefore yields one
     :class:`TMLEResult` per level, exactly as R's ``tmle()`` returns a ``tmle.list``.
 
-    The two levels do *not* decompose the total effect into direct and indirect parts,
-    and their difference is an interaction contrast rather than a mediated effect.
-    :mod:`cleverly.estimators.direct_effect` writes the parameter down, derives its
-    influence function, and states the assumptions -- in particular the one that
-    separates a controlled direct effect from an average treatment effect, that ``W``
-    suffices to deconfound ``Z -> Y`` as well as ``A -> Y``.
+    ``fit`` returns this **always**, and an ordinary fit -- no intermediate variable, one
+    parameter -- is the single-entry case, keyed ``None``.  It used to return
+    ``TMLEResult | TMLEResultSet``, which pushed an ``isinstance`` check onto every caller
+    that could not know in advance which it would get; :class:`CoverageStudy
+    <cleverly.validation.simulation.CoverageStudy>` carried one, and any user code
+    branching on ``intermediate=`` carried another.  ``None`` is the key rather than an
+    invented level because it is what the estimator already calls the absence of one.
+
+    Use :meth:`single` for the ordinary case.  Attribute access is deliberately *not*
+    forwarded to a lone result: ``__getitem__`` is taken by the level key and cannot also
+    mean an estimand name, and implicit forwarding would be invisible to a type checker.
+
+    The two levels of a controlled direct effect do *not* decompose the total effect into
+    direct and indirect parts, and their difference is an interaction contrast rather than
+    a mediated effect.  :mod:`cleverly.estimators.direct_effect` writes the parameter
+    down, derives its influence function, and states the assumptions -- in particular the
+    one that separates a controlled direct effect from an average treatment effect, that
+    ``W`` suffices to deconfound ``Z -> Y`` as well as ``A -> Y``.
     """
 
-    results: dict[float, TMLEResult]
-    intermediate_name: str
+    results: dict[float | None, TMLEResult]
+    intermediate_name: str | None = None
 
-    def __getitem__(self, value: float) -> TMLEResult:
+    @property
+    def levels(self) -> tuple[float | None, ...]:
+        """The keys, ascending, with the no-intermediate key first."""
+        return tuple(sorted(self.results, key=_level_order))
+
+    def single(self) -> TMLEResult:
+        """The sole result.
+
+        Raises when the set holds more than one, because there is no defensible choice
+        between two controlled direct effects: they are different parameters, and picking
+        one silently is how a script ends up reporting the effect at ``Z = 0`` while its
+        author believes they asked about ``Z = 1``.
+        """
+        if len(self.results) != 1:
+            raise KeyError(
+                f"this fit produced {len(self.results)} results, one per level of "
+                f"{self.intermediate_name or 'the intermediate'} ({list(self.levels)}), so "
+                "there is no single one to return. A controlled direct effect is a "
+                "different parameter at each level -- index the level you mean, e.g. "
+                f"result[{self.levels[0]!r}]."
+            )
+        return next(iter(self.results.values()))
+
+    def __getitem__(self, value: float | None) -> TMLEResult:
+        if isinstance(value, str):
+            # The likeliest mistake, and worth catching by name: ``TMLEResult`` is indexed
+            # by estimand and this is indexed by level, so a caller who has not noticed
+            # which of the two they hold reaches for res["ate"] first.  Left to itself,
+            # float() reports 'could not convert string to float', which says nothing
+            # about what went wrong.
+            raise KeyError(
+                f"a result *set* is indexed by intermediate level, not by estimand: "
+                f"{value!r} is an estimand name. Use .single()[{value!r}] for an ordinary "
+                f"fit, or result[<level>][{value!r}] for a controlled direct effect."
+            )
+        key = None if value is None else float(value)
         try:
-            return self.results[float(value)]
+            return self.results[key]
         except KeyError:
             raise KeyError(
-                f"no result for {self.intermediate_name} = {value}; "
-                f"available: {sorted(self.results)}"
+                f"no result for {self.intermediate_name or 'intermediate'} = {value}; "
+                f"available: {list(self.levels)}"
             ) from None
 
-    def __iter__(self) -> Iterator[float]:
-        return iter(sorted(self.results))
+    def __iter__(self) -> Iterator[float | None]:
+        return iter(self.levels)
 
     def __len__(self) -> int:
         return len(self.results)
 
     def to_frame(self) -> Any:
         """Stacked results with an intermediate-value column."""
-        frames = [self.results[value].to_frame() for value in sorted(self.results)]
+        frames = [self.results[value].to_frame() for value in self.levels]
         if len(frames) == 1:
             return frames[0]
         import narwhals as nw
@@ -608,14 +655,35 @@ class TMLEResultSet(Mapping[float, TMLEResult]):
         return stacked.to_native()
 
     def summary(self) -> str:
+        """The results, headed by level -- or bare, when there is only one.
+
+        A single-entry set prints exactly what its result prints.  Heading it
+        ``--- None = ... ---`` would put the internal sentinel in front of every ordinary
+        fit's output.
+        """
+        if len(self.results) == 1 and self.levels[0] is None:
+            return self.single().summary()
         blocks = []
-        for value in sorted(self.results):
-            blocks.append(f"--- {self.intermediate_name} = {value:.0f} ---")
+        for value in self.levels:
+            label = (
+                "no intermediate" if value is None else f"{self.intermediate_name} = {value:.0f}"
+            )
+            blocks.append(f"--- {label} ---")
             blocks.append(self.results[value].summary())
         return "\n\n".join(blocks)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return self.summary()
+
+
+def _level_order(value: float | None) -> tuple[int, float]:
+    """Sort key that tolerates the ``None`` an ordinary fit is keyed by.
+
+    ``sorted`` on a mix of ``None`` and floats raises, and a set is only ever homogeneous
+    by construction -- but relying on that would make the ordering an invariant enforced
+    nowhere.
+    """
+    return (0, 0.0) if value is None else (1, float(value))
 
 
 def format_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:

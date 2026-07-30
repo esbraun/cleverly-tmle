@@ -41,7 +41,7 @@ def frame_and_truth() -> tuple[object, dict[str, float]]:
 @pytest.fixture(scope="module")
 def fit(frame_and_truth) -> object:
     frame, _ = frame_and_truth
-    return CTMLE(**SETTINGS).fit(frame, outcome="Y", treatment="A")
+    return CTMLE(**SETTINGS).fit(frame, outcome="Y", treatment="A").single()
 
 
 class TestTheFit:
@@ -75,7 +75,7 @@ class TestTheFit:
         # estimator -- but the mechanism is deterministic given the data: a narrower
         # propensity model means a smaller 1/g and a smaller influence curve.
         frame, _ = frame_and_truth
-        plain = TMLE(**TMLE_SETTINGS).fit(frame, outcome="Y", treatment="A")
+        plain = TMLE(**TMLE_SETTINGS).fit(frame, outcome="Y", treatment="A").single()
         assert fit["ate"].std_error < plain["ate"].std_error
 
 
@@ -110,8 +110,8 @@ class TestBackendParity:
         pandas_frame, _ = make_instrument(n=500, seed=6, backend="pandas")
         polars_frame, _ = make_instrument(n=500, seed=6, backend="polars")
         columns = {"outcome": "Y", "treatment": "A"}
-        from_pandas = CTMLE(**SETTINGS).fit(pandas_frame, **columns)
-        from_polars = CTMLE(**SETTINGS).fit(polars_frame, **columns)
+        from_pandas = CTMLE(**SETTINGS).fit(pandas_frame, **columns).single()
+        from_polars = CTMLE(**SETTINGS).fit(polars_frame, **columns).single()
 
         assert from_pandas.psi("ate") == from_polars.psi("ate")
         assert (
@@ -136,14 +136,16 @@ class TestCombinedWithOtherOptions:
         self, frame_and_truth, overrides: dict[str, object]
     ) -> None:
         frame, _ = frame_and_truth
-        result = CTMLE(**{**SETTINGS, **overrides}).fit(frame, outcome="Y", treatment="A")
+        result = CTMLE(**{**SETTINGS, **overrides}).fit(frame, outcome="Y", treatment="A").single()
         assert result.validation.score_check().passed
         assert "ctmle" in result.extra
 
     def test_a_cross_validated_ctmle_reports_both_diagnostics(self, frame_and_truth) -> None:
         frame, _ = frame_and_truth
-        result = CTMLE(**{**SETTINGS, "targeting_scheme": "fold"}).fit(
-            frame, outcome="Y", treatment="A"
+        result = (
+            CTMLE(**{**SETTINGS, "targeting_scheme": "fold"})
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
         )
         assert result.extra["ctmle"] is not None
         assert result.cv_targeting is not None
@@ -154,7 +156,9 @@ class TestCombinedWithOtherOptions:
         # The bootstrap can, because each replicate re-runs the search -- which is why
         # _bootstrap_point_estimates goes through the selection hook.
         frame, _ = make_instrument(n=400, seed=7)
-        result = CTMLE(**{**SETTINGS, "n_bootstrap": 4}).fit(frame, outcome="Y", treatment="A")
+        result = (
+            CTMLE(**{**SETTINGS, "n_bootstrap": 4}).fit(frame, outcome="Y", treatment="A").single()
+        )
         assert result.bootstrap is not None
         assert result["ate"].bootstrap is not None
         assert result["ate"].bootstrap.std_error > 0.0
@@ -209,9 +213,11 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
         out = []
         for seed in self.SEEDS:
             frame, _ = dgp.sample(self.N, seed=seed)
-            collaborative = CTMLE(**settings).fit(frame, outcome="Y", treatment="A")
-            nothing = CTMLE(**{**settings, "search": "discrete", "candidates": [()]}).fit(
-                frame, outcome="Y", treatment="A"
+            collaborative = CTMLE(**settings).fit(frame, outcome="Y", treatment="A").single()
+            nothing = (
+                CTMLE(**{**settings, "search": "discrete", "candidates": [()]})
+                .fit(frame, outcome="Y", treatment="A")
+                .single()
             )
             out.append((collaborative, nothing, truth))
         return out
@@ -228,8 +234,8 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
         """
         for collaborative, _, _ in fits:
             initial = collaborative.nuisance.outcome
-            np.testing.assert_allclose(initial.at_one, initial.at_zero, atol=1e-12, rtol=0)
-            spread = float(np.std(initial.at_one))
+            np.testing.assert_allclose(initial.arms[1.0], initial.arms[0.0], atol=1e-12, rtol=0)
+            spread = float(np.std(initial.arms[1.0]))
             assert spread < 0.01, spread
             # And negligible beside the outcome's own spread, which is what "carries no
             # information about this row" means.

@@ -25,13 +25,17 @@ from tests import discrete_law as law
 @pytest.fixture(scope="module")
 def result():
     """A fit on the exactly-representable discrete law, with oracle-friendly settings."""
-    return TMLE(
-        outcome_learner="glm",
-        treatment_learner="glm",
-        cross_fit=False,
-        estimands="all",
-        random_state=0,
-    ).fit(law.frame(), outcome="Y", treatment="A", covariates=["W"])
+    return (
+        TMLE(
+            outcome_learner="glm",
+            treatment_learner="glm",
+            cross_fit=False,
+            estimands="all",
+            random_state=0,
+        )
+        .fit(law.frame(), outcome="Y", treatment="A", covariates=["W"])
+        .single()
+    )
 
 
 def difference(p):  # type: ignore[no-untyped-def]
@@ -117,9 +121,11 @@ class TestClustering:
 
         frame, _ = GENERATORS["clustered"](n=400, seed=9)
         covariates = [c for c in frame.columns if c.startswith("W")]
-        result = TMLE(
-            outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7
-        ).fit(frame, outcome="Y", treatment="A", covariates=covariates, id="cluster")
+        result = (
+            TMLE(outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7)
+            .fit(frame, outcome="Y", treatment="A", covariates=covariates, id="cluster")
+            .single()
+        )
         contrast = result.contrast(
             difference, ["ey1", "ey0"], gradient=lambda p: np.array([1.0, -1.0])
         )

@@ -22,6 +22,7 @@ import pytest
 
 from cleverly.exceptions import ConvergenceWarning
 from cleverly.fluctuation import (
+    SUBMODEL_BUILDERS,
     InitialFit,
     Submodel,
     atc_submodel,
@@ -51,7 +52,7 @@ def setting() -> dict[str, np.ndarray]:
 
 def _flat_initial(n: int, value: float = 0.5) -> InitialFit:
     """A deliberately uninformative initial fit, so targeting has work to do."""
-    return InitialFit(np.full(n, value), np.full(n, value), np.full(n, value))
+    return InitialFit(np.full(n, value), {0.0: np.full(n, value), 1.0: np.full(n, value)})
 
 
 class TestCleverCovariates:
@@ -63,10 +64,10 @@ class TestCleverCovariates:
         assert np.allclose(submodel.observed[:, 1], expected_one)
         assert np.allclose(submodel.observed[:, 0], expected_zero)
         # Counterfactual columns drop the arm indicator: they are evaluated *at* the arm.
-        assert np.allclose(submodel.at_one[:, 1], 1.0 / g1)
-        assert np.allclose(submodel.at_zero[:, 0], 1.0 / (1.0 - g1))
-        assert np.allclose(submodel.at_one[:, 0], 0.0)
-        assert np.allclose(submodel.at_zero[:, 1], 0.0)
+        assert np.allclose(submodel.arms[1.0][:, 1], 1.0 / g1)
+        assert np.allclose(submodel.arms[0.0][:, 0], 1.0 / (1.0 - g1))
+        assert np.allclose(submodel.arms[1.0][:, 0], 0.0)
+        assert np.allclose(submodel.arms[0.0][:, 1], 0.0)
 
     def test_the_two_mean_columns_have_disjoint_support(self, setting) -> None:
         submodel = mean_submodel(setting["a"], setting["g1"])
@@ -83,22 +84,22 @@ class TestCleverCovariates:
     def test_att_reweights_controls_by_the_propensity_odds(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
         q = float(a.mean())
-        submodel = att_submodel(a, g1, q)
+        submodel = att_submodel(a, g1, treated_fraction=q)
         expected = (a - (1.0 - a) * g1 / (1.0 - g1)) / q
         assert np.allclose(submodel.observed[:, 0], expected)
         # The treated arm needs no reweighting: the ATT conditions on A = 1.
-        assert np.allclose(submodel.at_one[:, 0], 1.0 / q)
+        assert np.allclose(submodel.arms[1.0][:, 0], 1.0 / q)
 
     def test_atc_mirrors_the_att(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
         q = float(a.mean())
-        submodel = atc_submodel(a, g1, q)
+        submodel = atc_submodel(a, g1, treated_fraction=q)
         expected = (a * (1.0 - g1) / g1 - (1.0 - a)) / (1.0 - q)
         assert np.allclose(submodel.observed[:, 0], expected)
 
     def test_att_covariate_changes_sign_across_arms(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
-        submodel = att_submodel(a, g1, float(a.mean()))
+        submodel = att_submodel(a, g1, treated_fraction=float(a.mean()))
         values = submodel.observed[:, 0]
         assert np.all(values[a == 1.0] > 0)
         assert np.all(values[a == 0.0] < 0)
@@ -120,29 +121,60 @@ class TestCleverCovariates:
         with pytest.raises(ValueError, match="strictly inside"):
             mean_submodel(a, np.zeros_like(a))
 
-    def test_dispatch_covers_every_group(self, setting) -> None:
+    def test_dispatch_covers_every_registered_group(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
-        for group in ("mean", "att", "atc"):
+        assert set(SUBMODEL_BUILDERS) >= {"mean", "att", "atc"}
+        for group in SUBMODEL_BUILDERS:
             submodel = submodel_for(group, a, g1, treated_fraction=float(a.mean()))
             assert submodel.group == group
-        with pytest.raises(ValueError, match="unknown target group"):
-            submodel_for("nope", a, g1)  # type: ignore[arg-type]
+
+    def test_an_unregistered_group_says_what_is_registered(self, setting) -> None:
+        """Better than the fixed list the if/elif chain used to print."""
+        a, g1 = setting["a"], setting["g1"]
+        with pytest.raises(ValueError, match="unknown target group 'nope'") as raised:
+            submodel_for("nope", a, g1)
+        assert "'mean'" in str(raised.value)
+        assert "register_submodel" in str(raised.value)
 
     def test_conditional_groups_need_the_treated_fraction(self, setting) -> None:
+        """Enforced by the builder now, not by the dispatcher.
+
+        The uniform builder signature makes the argument optional at the type level, so
+        the requirement has to live where the builder can still refuse it.
+        """
         with pytest.raises(ValueError, match="needs treated_fraction"):
             submodel_for("att", setting["a"], setting["g1"])
+        with pytest.raises(ValueError, match="needs treated_fraction"):
+            atc_submodel(setting["a"], setting["g1"])
+
+    def test_the_mean_builder_ignores_the_treated_fraction(self, setting) -> None:
+        """It takes the argument only so the registry can dispatch uniformly."""
+        a, g1 = setting["a"], setting["g1"]
+        without = mean_submodel(a, g1)
+        with_share = mean_submodel(a, g1, treated_fraction=0.3)
+        np.testing.assert_array_equal(without.observed, with_share.observed)
 
     def test_max_abs_reports_the_worst_weight(self, setting) -> None:
         submodel = mean_submodel(setting["a"], setting["g1"])
         assert submodel.max_abs == pytest.approx(np.abs(submodel.observed).max())
 
     def test_mismatched_shapes_are_refused(self) -> None:
-        with pytest.raises(ValueError, match="mismatched shapes"):
-            Submodel(np.zeros((5, 1)), np.zeros((4, 1)), np.zeros((5, 1)), ("h",), "mean")
+        with pytest.raises(ValueError, match="shape"):
+            Submodel(
+                np.zeros((5, 1)),
+                {0.0: np.zeros((4, 1)), 1.0: np.zeros((5, 1))},
+                ("h",),
+                "mean",
+            )
 
     def test_name_count_must_match_columns(self) -> None:
         with pytest.raises(ValueError, match="name"):
-            Submodel(np.zeros((5, 2)), np.zeros((5, 2)), np.zeros((5, 2)), ("h",), "mean")
+            Submodel(
+                np.zeros((5, 2)),
+                {0.0: np.zeros((5, 2)), 1.0: np.zeros((5, 2))},
+                ("h",),
+                "mean",
+            )
 
 
 class TestWeightedForm:
@@ -156,7 +188,7 @@ class TestWeightedForm:
 
     def test_att_sign_trick_preserves_the_score(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
-        submodel = att_submodel(a, g1, float(a.mean()))
+        submodel = att_submodel(a, g1, treated_fraction=float(a.mean()))
         weights = np.ones(a.shape[0])
         signed, new_weights = weighted_form(submodel, weights)
         assert np.allclose(signed.observed[:, 0] * new_weights, submodel.observed[:, 0] * weights)
@@ -167,7 +199,7 @@ class TestNewtonSolver:
         a, g1, y = setting["a"], setting["g1"], setting["y"]
         n = a.shape[0]
         initial = _flat_initial(n)
-        submodel = att_submodel(a, g1, float(a.mean()))
+        submodel = att_submodel(a, g1, treated_fraction=float(a.mean()))
         fitted = solve_fluctuation(y, initial, submodel, np.ones(n))
 
         offset = logit(np.clip(initial.observed, 1e-9, 1 - 1e-9))
@@ -198,15 +230,15 @@ class TestNewtonSolver:
         # must drive the same estimating equation to zero.
         assert plain.score_norm < 1e-10
         assert weighted.score_norm < 1e-10
-        psi_plain = plain.targeted.at_one.mean() - plain.targeted.at_zero.mean()
-        psi_weighted = weighted.targeted.at_one.mean() - weighted.targeted.at_zero.mean()
+        psi_plain = plain.targeted.arms[1.0].mean() - plain.targeted.arms[0.0].mean()
+        psi_weighted = weighted.targeted.arms[1.0].mean() - weighted.targeted.arms[0.0].mean()
         assert psi_plain == pytest.approx(psi_weighted, abs=5e-3)
 
     def test_a_correct_initial_fit_needs_almost_no_fluctuation(self, setting) -> None:
         a, g1, y = setting["a"], setting["g1"], setting["y"]
         q1, q0 = setting["q1"], setting["q0"]
         n = a.shape[0]
-        initial = InitialFit(np.where(a == 1.0, q1, q0), q1, q0)
+        initial = InitialFit(np.where(a == 1.0, q1, q0), {1.0: q1, 0.0: q0})
         fitted = solve_fluctuation(y, initial, mean_submodel(a, g1), np.ones(n))
         # With the truth plugged in, epsilon is pure sampling noise: O(1/sqrt(n)).
         assert np.max(np.abs(fitted.epsilon)) < 0.15
@@ -279,7 +311,7 @@ class TestLinearFluctuation:
             warnings.simplefilter("error", UserWarning)
             fitted = solve_fluctuation(
                 y,
-                InitialFit(np.full(n, 0.5), np.full(n, 0.5), np.full(n, 0.5)),
+                InitialFit(np.full(n, 0.5), {0.0: np.full(n, 0.5), 1.0: np.full(n, 0.5)}),
                 mean_submodel(a, balanced),
                 np.ones(n),
                 kind="linear",
@@ -298,8 +330,8 @@ class TestOneStep:
         assert one_step.score_norm < 1e-9
         # Two independent paths to the same root.
         assert np.allclose(one_step.epsilon, iterative.epsilon, atol=5e-3)
-        assert one_step.targeted.at_one.mean() == pytest.approx(
-            iterative.targeted.at_one.mean(), abs=1e-4
+        assert one_step.targeted.arms[1.0].mean() == pytest.approx(
+            iterative.targeted.arms[1.0].mean(), abs=1e-4
         )
 
     def test_the_score_decreases_monotonically_along_the_path(self, setting) -> None:
@@ -344,10 +376,10 @@ class TestOneStep:
 
 class TestInitialFit:
     def test_shrinking_keeps_the_logit_finite(self) -> None:
-        fit = InitialFit(np.array([0.0]), np.array([1.0]), np.array([0.5]))
+        fit = InitialFit(np.array([0.0]), {1.0: np.array([1.0]), 0.0: np.array([0.5])})
         shrunk = fit.shrunk(0.9995)
         assert shrunk.observed[0] == pytest.approx(0.0005)
-        assert shrunk.at_one[0] == pytest.approx(0.9995)
+        assert shrunk.arms[1.0][0] == pytest.approx(0.9995)
         assert np.all(np.isfinite(logit(shrunk.observed)))
 
     def test_length_mismatch_is_refused(self, setting) -> None:

@@ -35,7 +35,7 @@ def _fit(**kwargs):  # type: ignore[no-untyped-def]
         "random_state": 7,
     }
     settings.update(kwargs)
-    return TMLE(**settings).fit(frame, outcome="Y", treatment="A", covariates=covariates)
+    return TMLE(**settings).fit(frame, outcome="Y", treatment="A", covariates=covariates).single()
 
 
 @pytest.fixture(scope="module")
@@ -71,8 +71,9 @@ class TestRoundTripIsExact:
             np.testing.assert_array_equal(after.epsilon, before.epsilon)
             np.testing.assert_array_equal(after.score, before.score)
             np.testing.assert_array_equal(after.targeted.observed, before.targeted.observed)
-            np.testing.assert_array_equal(after.targeted.at_one, before.targeted.at_one)
-            np.testing.assert_array_equal(after.targeted.at_zero, before.targeted.at_zero)
+            assert after.targeted.arms.keys() == before.targeted.arms.keys()
+            for level, values in before.targeted.arms.items():
+                np.testing.assert_array_equal(after.targeted.arms[level], values)
             assert after.converged == before.converged
             assert after.names == before.names
 
@@ -161,12 +162,16 @@ class TestTheRefitBoundary:
     def test_a_fitted_estimator_cannot_be_rebuilt_and_says_so(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         frame, _ = GENERATORS["linear_ate"](n=300, seed=1)
         covariates = [c for c in frame.columns if c.startswith("W")]
-        original = TMLE(
-            outcome_learner="glm",
-            treatment_learner=LogisticRegression(),
-            n_folds=4,
-            random_state=7,
-        ).fit(frame, outcome="Y", treatment="A", covariates=covariates)
+        original = (
+            TMLE(
+                outcome_learner="glm",
+                treatment_learner=LogisticRegression(),
+                n_folds=4,
+                random_state=7,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+            .single()
+        )
         path = tmp_path / "obj.npz"
         original.save(path)
         back = load(path)
@@ -229,10 +234,14 @@ class TestProvenance:
             "n_folds": 4,
             "random_state": 7,
         }
-        first = TMLE(**settings).fit(frame, outcome="Y", treatment="A", covariates=covariates)
+        first = (
+            TMLE(**settings).fit(frame, outcome="Y", treatment="A", covariates=covariates).single()
+        )
         moved = frame.copy()
         moved.loc[0, "W1"] = moved.loc[0, "W1"] + 1e-12
-        second = TMLE(**settings).fit(moved, outcome="Y", treatment="A", covariates=covariates)
+        second = (
+            TMLE(**settings).fit(moved, outcome="Y", treatment="A", covariates=covariates).single()
+        )
         assert first.provenance.data_fingerprint != second.provenance.data_fingerprint
 
     def test_the_fold_fingerprint_is_recorded_separately_from_the_seed(self) -> None:

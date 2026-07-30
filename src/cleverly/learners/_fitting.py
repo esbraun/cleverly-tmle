@@ -17,10 +17,16 @@ import numpy as np
 from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 
-from .._typing import FloatArray, Learner
+from .._typing import FloatArray, IntArray, Learner
 from ._threads import thread_limit
 
-__all__ = ["Task", "fit_learner", "predict_mean", "supports_sample_weight"]
+__all__ = [
+    "Task",
+    "accepts_groups",
+    "fit_learner",
+    "predict_mean",
+    "supports_sample_weight",
+]
 
 Task = Literal["regression", "classification"]
 
@@ -31,6 +37,18 @@ def _final_estimator(estimator: Learner) -> tuple[Learner, str | None]:
         name, step = estimator.steps[-1]
         return step, name
     return estimator, None
+
+
+def _qualified(param: str, step_name: str | None) -> str:
+    """The name a fit parameter must take to reach a pipeline's final step.
+
+    Screening wraps a learner in a :class:`~sklearn.pipeline.Pipeline`
+    (:func:`cleverly.estimators._nuisance._screened`), and a bare ``groups=`` handed to
+    a pipeline is not an error -- it is silently ignored.  Every fit parameter therefore
+    goes through here rather than being spelled out at the call site, so a wrapped
+    learner cannot quietly stop receiving one.
+    """
+    return param if step_name is None else f"{step_name}__{param}"
 
 
 def supports_sample_weight(estimator: Learner) -> bool:
@@ -50,31 +68,62 @@ def supports_sample_weight(estimator: Learner) -> bool:
     )
 
 
+def accepts_groups(estimator: Learner) -> bool:
+    """Whether ``estimator.fit`` (or its pipeline's final step) takes cluster codes.
+
+    Unlike :func:`supports_sample_weight` this does **not** count a ``**kwargs`` fit as
+    accepting them.  Weights may safely be offered to a learner that swallows unknown
+    keywords -- the worst case is that they are ignored, and the caller is warned.
+    Cluster codes are different: a learner that appears to take them but discards them
+    would report inner folds that look cluster-respecting and are not, which is the
+    failure this routing exists to prevent.  So ``groups`` travels only to a learner
+    that names it.
+    """
+    target, _ = _final_estimator(estimator)
+    fit = getattr(target, "fit", None)
+    if fit is None:
+        return False
+    try:
+        signature = inspect.signature(fit)
+    except (TypeError, ValueError):  # pragma: no cover - exotic callables
+        return False
+    return "groups" in signature.parameters
+
+
 def fit_learner(
     estimator: Learner,
     x: FloatArray,
     y: FloatArray,
     sample_weight: FloatArray | None = None,
     *,
+    groups: IntArray | None = None,
     copy: bool = True,
     warn_unweighted: bool = True,
 ) -> Learner:
-    """Fit ``estimator``, routing weights to wherever they belong.
+    """Fit ``estimator``, routing weights and cluster codes to wherever they belong.
 
     Returns a *fitted clone* by default so a learner passed by the user is never
     mutated and can be reused across folds.  A learner that cannot accept weights
     is fitted without them and warns once per call, rather than silently
     discarding a weighting scheme the user asked for.
+
+    ``groups`` reaches any learner whose ``fit`` names it -- a
+    :class:`~cleverly.learners.SuperLearner`, whose inner folds must keep a cluster
+    intact, but also a wrapped search whose own cross-validation should respect the
+    same structure.  It is dropped for a learner that has no use for it.
     """
     model = clone(estimator) if copy else estimator
-    if sample_weight is None:
-        with thread_limit():
-            model.fit(x, y)
-        return model
+    _, step_name = _final_estimator(model)
+    params: dict[str, Any] = {}
 
-    weights = np.asarray(sample_weight, dtype=float)
-    if not supports_sample_weight(model):
-        if warn_unweighted:
+    if groups is not None and accepts_groups(model):
+        params[_qualified("groups", step_name)] = np.asarray(groups)
+
+    if sample_weight is not None:
+        if supports_sample_weight(model):
+            weights = np.asarray(sample_weight, dtype=float)
+            params[_qualified("sample_weight", step_name)] = weights
+        elif warn_unweighted:
             warnings.warn(
                 f"{type(model).__name__} does not accept sample_weight; fitting it unweighted. "
                 "Observation weights will still be applied in the targeting step, but the "
@@ -82,16 +131,9 @@ def fit_learner(
                 UserWarning,
                 stacklevel=2,
             )
-        with thread_limit():
-            model.fit(x, y)
-        return model
 
-    _, step_name = _final_estimator(model)
     with thread_limit():
-        if step_name is None:
-            model.fit(x, y, sample_weight=weights)
-        else:
-            model.fit(x, y, **{f"{step_name}__sample_weight": weights})
+        model.fit(x, y, **params)
     return model
 
 
