@@ -105,6 +105,18 @@ model as given, so it does not include the variability the selection itself cont
 and is mildly anti-conservative as a result. Pass `n_bootstrap=` for inference that does
 — each replicate re-runs the search.
 
+Two more things about how this is evidenced, because they change how the numbers above
+should be read. When `Qbar` is correctly specified — as it is in the example process — the
+*empty* propensity model is a legitimate MSE-minimising choice, and C-TMLE usually makes
+it: 10 seeds out of 10 for the greedy search at `n = 700`. That is right, not a defect, but
+it means a favourable comparison against plain TMLE on such a process would also be won by
+a selector hard-wired to select nothing, so it is not evidence that the search
+discriminates between covariates. The claim that it does is tested where selecting nothing
+is *wrong* — with the outcome model reduced to a constant, the search includes the
+confounder in every seed and still leaves the instrument out, while a do-nothing selector
+is biased by 0.81 against 0.037. Second, there is no cross-language check: R's `ctmle` is
+not compared against here or in CI. `cleverly.estimators.ctmle` sets both out in full.
+
 ### Cross-fitting and CV-TMLE
 
 Three constructions, and it is worth knowing which one you are running:

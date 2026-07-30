@@ -313,6 +313,22 @@ class TestCollaborativeTmle:
     but that it stops paying variance for covariates that buy no bias reduction.  So
     the quantities to watch are the standard error and the root mean squared error,
     and the comparison has to be against a plain TMLE on the very same samples.
+
+    Read what these comparisons are evidence *for* with some care.  Both processes used
+    here have an outcome model a GLM fits well, so an empty propensity model is a
+    legitimate mean-squared-error-minimising choice and C-TMLE frequently makes it --
+    10 of 10 seeds for the greedy search on ``instrument_dgp`` at ``n = 700``.  A selector
+    hard-wired to return the empty model therefore passes every assertion in this class.
+    What they establish is that carrying an instrument in ``g`` costs variance and that
+    C-TMLE declines to; they do not establish that the search discriminates among
+    covariates, and dominance in a finite simulation would not establish it either -- a
+    valid implementation is not guaranteed to win, and a consistent win can just as easily
+    come from an over-eager penalty.
+
+    The claim that the search *selects* what it needs is made where selecting nothing is
+    wrong, in :class:`tests.e2e.test_ctmle.TestSelectionIsForcedWhenTheOutcomeModelCannotHelp`,
+    which fails outright under a degenerate selector.  These studies are the complementary
+    half: they price the variance C-TMLE saves, in a regime where the saving is real.
     """
 
     @staticmethod
@@ -383,9 +399,16 @@ class TestCollaborativeTmle:
 
         On this process a GLM is correctly specified for ``Qbar``, so the confounding
         is already handled before ``g`` is asked for anything.  C-TMLE notices and
-        selects a nearly empty propensity model -- and the estimate stays unbiased.
-        That is collaborative double robustness: the two nuisance fits only have to be
-        right *between* them.
+        selects a nearly empty propensity model -- usually an exactly empty one -- and the
+        estimate stays unbiased.  That is collaborative double robustness: the two nuisance
+        fits only have to be right *between* them.
+
+        This is also the one assertion in the class that a correct implementation must pass
+        unconditionally.  The root-mean-squared-error comparisons above are contingent on
+        the process, the sample size and how much variance the discarded covariates were
+        costing, so a valid implementation can lose them; consistency is not contingent.  A
+        selection that bought its variance reduction with bias -- what an over-eager penalty
+        would produce -- fails here and passes everything else.
         """
         summary = self._pair(instrument_dgp(), reps=200)["ctmle"]
         assert abs(summary.bias) < 3.0 * summary.bias_se, summary

@@ -206,11 +206,15 @@ class TestSelection:
         assert selection.selected_covariates == selection.path[selection.selected]
 
     def test_the_scalable_search_leaves_the_instrument_out(self) -> None:
-        # The headline claim, at the smallest budget that settles it. Five samples,
-        # not one: the selection is a cross-validated choice and so has a little
-        # sampling noise, but it is emphatic here -- over 15 seeds during development
-        # the ordered search excluded W2 every single time, so a demand for 5 out of
-        # 5 is a real assertion rather than a coin flip.
+        """The instrument is never selected -- but read the next test before believing this.
+
+        The assertion is true and reproducible: over ten seeds the ordered search puts
+        ``W2`` in the selected model zero times.  What it does *not* establish is that the
+        search discriminated against the instrument, because on this process the selected
+        model is usually **empty**, and the empty set excludes ``W2`` for free.
+        :meth:`test_the_exclusion_is_mostly_carried_by_selecting_nothing` measures that
+        directly rather than leaving it implicit.
+        """
         excluded = 0
         for seed in range(5):
             frame, _ = make_instrument(n=700, seed=seed)
@@ -221,6 +225,66 @@ class TestSelection:
             )
             excluded += "W2" not in selection.selected_covariates
         assert excluded == 5
+
+    def test_the_exclusion_is_mostly_carried_by_selecting_nothing(self) -> None:
+        """How often the selected propensity model is empty on this process: usually.
+
+        This is recorded as an assertion rather than left as folklore, because it changes
+        what every other C-TMLE claim in the suite is evidence *for*.  On
+        :func:`~cleverly.datasets.instrument_dgp` a GLM is correctly specified for
+        ``Qbar`` -- the outcome mean is exactly ``1 + a + 1.5 W1 + 0.8 W3`` -- so under
+        collaborative double robustness the confounding is already handled before ``g`` is
+        asked for anything, and an empty propensity model is a legitimate risk-minimising
+        choice rather than a failure.  Measured at ``n = 700``: the ordered search selects
+        nothing in 7 of 10 seeds and the greedy search in 10 of 10.
+
+        The consequence is the point, and it was checked rather than assumed: replacing the
+        selection with ``selected = 0`` -- a selector hard-wired to return the empty
+        candidate -- left every C-TMLE test in this suite passing except this one and the
+        four in
+        :class:`tests.e2e.test_ctmle.TestSelectionIsForcedWhenTheOutcomeModelCannotHelp`.
+        The loss, penalty and path tests below all passed too, because they exercise
+        :class:`~cleverly.estimators.ctmle._Selector`'s methods directly and never reach the
+        step that chooses among candidates.
+
+        So the variance and RMSE comparisons in the slow tier are not evidence that the
+        collaborative search works; they are evidence that a propensity model containing an
+        instrument costs variance, which is a fact about plain TMLE.  The test that does
+        discriminate has to make selecting nothing *wrong*, which means taking away the
+        correctly specified outcome model -- see the class named above.
+        """
+        empty = 0
+        for seed in range(5):
+            frame, _ = make_instrument(n=700, seed=seed)
+            selection = (
+                CTMLE(**{**CTMLE_KWARGS, "search": "ordered"})
+                .fit(frame, outcome="Y", treatment="A")
+                .extra["ctmle"]
+            )
+            empty += len(selection.selected_covariates) == 0
+        # A majority, not all of them: if this ever reached 5 of 5 the search would have
+        # stopped selecting anything at all on this process, which is worth noticing.
+        assert 2 <= empty <= 4, f"empty in {empty} of 5 seeds"
+
+    def test_the_empty_model_beats_the_full_one_when_the_outcome_model_is_right(self) -> None:
+        # The head-to-head behind the test above, without the search's noise: offered only
+        # "adjust for nothing" and "adjust for everything", the risk criterion prefers
+        # nothing on this process. That is the correct answer here -- and it is why the
+        # dominance comparisons cannot tell a working search from a broken one.
+        frame, _ = make_instrument(n=700, seed=0)
+        selection = (
+            CTMLE(
+                **{
+                    **CTMLE_KWARGS,
+                    "search": "discrete",
+                    "candidates": [(), ("W1", "W2", "W3")],
+                }
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .extra["ctmle"]
+        )
+        assert selection.selected_covariates == ()
+        assert selection.cv_risk[0] < selection.cv_risk[1]
 
     def test_the_selected_model_is_the_one_that_was_used(self, instrument_frame) -> None:
         result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A")

@@ -140,6 +140,39 @@ coverage no worse than a plain TMLE's; but where the selection matters and hones
 inference is the point, pass ``n_bootstrap=``.  Each replicate re-runs the search, so
 the bootstrap standard error does see it.
 
+State of the evidence
+---------------------
+
+Worth knowing before reading a favourable simulation as a verdict on this
+implementation.
+
+On a process whose outcome model is correctly specified, the *empty* propensity model is
+a legitimate mean-squared-error-minimising choice -- collaborative double robustness says
+the confounding is already handled, and adjusting for nothing carries the least variance.
+So C-TMLE selects one, often.  Measured on the instrument process at ``n = 700``: the
+greedy search selects no covariates in 10 seeds out of 10, the ordered search in 7 out of
+10.  That is correct behaviour, not a defect.
+
+It does mean a comparison against plain TMLE on such a process is weaker evidence than it
+looks.  A selector hard-wired to return the empty model would win it, so winning it does
+not show that the search discriminates among covariates; and losing it would not show the
+search is broken either, since dominance is contingent on how much variance the discarded
+covariates were costing.  Verified by making that substitution: a degenerate
+``selected = 0`` left every C-TMLE test in the suite passing except the five that were
+added to catch exactly this.
+
+The claim that the search selects what it needs is therefore made where selecting nothing
+is *wrong*.  Reduce the outcome learner to a constant, so every bit of adjustment has to
+come through ``g``, and on the same instrument process the greedy search includes the
+confounder ``W1`` in every seed, never selects the empty model, and still leaves the
+instrument out -- while a selector restricted to the empty candidate is biased by 0.81
+against the collaborative fit's 0.037.  See
+``tests/e2e/test_ctmle.py::TestSelectionIsForcedWhenTheOutcomeModelCannotHelp``.
+
+There is no cross-implementation check.  R's ``ctmle`` is not compared against, here or in
+CI, so nothing in this package's evidence rules out a shared misreading of the algorithm
+that happens to satisfy every internal check listed above.
+
 References
 ----------
 - van der Laan & Gruber (2010), *Collaborative Double Robust Targeted Maximum
@@ -158,7 +191,13 @@ Example
 ...     frame, outcome="Y", treatment="A"
 ... )
 >>> res.extra["ctmle"].selected_covariates            # doctest: +SKIP
-('W1',)
+()
+
+On this process that empty result is the right answer rather than a failure to select:
+``Qbar`` is correctly specified, so ``g`` has nothing left to adjust for.  Inspect
+``res.extra["ctmle"].cv_risk`` alongside ``.path`` to see what each candidate was worth,
+and read the section above before concluding anything from a comparison against a plain
+fit.
 """
 
 from __future__ import annotations
