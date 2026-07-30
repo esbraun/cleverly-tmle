@@ -222,38 +222,56 @@ def _residual(outcome: FloatArray, targeted: InitialFit, observed: BoolArray | N
     return np.where(np.asarray(observed, dtype=bool), residual, 0.0)
 
 
+class ArmMean(NamedTuple):
+    r"""One counterfactual mean :math:`E[Y(a)]` and its influence curve.
+
+    Both on the *scaled* outcome scale; :meth:`~cleverly.targets.TargetContext.finish`
+    maps back.
+    """
+
+    psi: float
+    influence_curve: FloatArray
+
+
 def counterfactual_means(
     outcome: FloatArray,
     targeted: InitialFit,
     submodel: Submodel,
     weights: FloatArray,
     observed: BoolArray | None = None,
-) -> tuple[float, FloatArray, float, FloatArray]:
-    """``(psi1, IC1, psi0, IC0)`` on the scaled outcome scale.
+) -> dict[float, ArmMean]:
+    r"""Every counterfactual mean and its influence curve, keyed by arm.
 
-    ``submodel`` must be the *unweighted* two-column mean submodel even when the
-    fluctuation was fit in weighted form: the influence curve is defined by the
-    true clever covariate, not by the reparameterisation used to fit it.
+    .. math::
+
+        \hat\Psi_a = \frac1n \sum_i \bar Q^*(a, W_i),
+        \qquad
+        D_a^*(O) = h_a(A, W)\,\{Y - \bar Q^*(A, W)\} + \bar Q^*(a, W) - \Psi_a
+
+    A mapping rather than the ``(psi1, IC1, psi0, IC0)`` tuple this used to return: the
+    four-tuple could not describe a third arm, and unpacking it was the last thing in the
+    estimand layer that counted the arms.
+
+    ``submodel`` must be the *unweighted* mean submodel even when the fluctuation was fit
+    in weighted form: the influence curve is defined by the true clever covariate, not by
+    the reparameterisation used to fit it.
     """
     if submodel.group != "mean":
         raise ValueError(f"expected the 'mean' submodel; got {submodel.group!r}")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
-    # Indexed by the arm each column targets rather than by a literal 0 and 1, which are
-    # only the right columns while there are exactly two arms.
-    h_zero = submodel.column_for(0.0)
-    h_one = submodel.column_for(1.0)
 
-    psi_one = float(np.average(targeted.arms[1.0], weights=w))
-    psi_zero = float(np.average(targeted.arms[0.0], weights=w))
-    # Summed in this association deliberately.  Splitting the bracket to reuse
-    # ICParts here would be mathematically identical and would change the last bit of
-    # every influence curve, because floating-point addition is not associative. The
-    # decomposition is a diagnostic (`counterfactual_mean_parts`); the estimation path
-    # keeps the arithmetic its regression fixtures were built against.
-    ic_one = w * (h_one * residual + targeted.arms[1.0] - psi_one)
-    ic_zero = w * (h_zero * residual + targeted.arms[0.0] - psi_zero)
-    return psi_one, ic_one, psi_zero, ic_zero
+    out: dict[float, ArmMean] = {}
+    for arm in targeted.levels:
+        prediction = targeted.arms[arm]
+        psi = float(np.average(prediction, weights=w))
+        # Summed in this association deliberately.  Splitting the bracket to reuse
+        # ICParts here would be mathematically identical and would change the last bit of
+        # every influence curve, because floating-point addition is not associative. The
+        # decomposition is a diagnostic (`counterfactual_mean_parts`); the estimation path
+        # keeps the arithmetic its regression fixtures were built against.
+        out[arm] = ArmMean(psi, w * (submodel.column_for(arm) * residual + prediction - psi))
+    return out
 
 
 class ICParts(NamedTuple):
@@ -296,8 +314,8 @@ def counterfactual_mean_parts(
     submodel: Submodel,
     weights: FloatArray,
     observed: BoolArray | None = None,
-) -> tuple[ICParts, ICParts]:
-    """The decomposed influence curves behind :func:`counterfactual_means`.
+) -> dict[float, ICParts]:
+    """The decomposed influence curves behind :func:`counterfactual_means`, per arm.
 
     ``parts.total`` agrees with the summed curve to floating-point rounding rather
     than bit-for-bit: the sum there is bracketed differently, and addition is not
@@ -309,12 +327,13 @@ def counterfactual_mean_parts(
         raise ValueError(f"expected the 'mean' submodel; got {submodel.group!r}")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
-    psi_one = float(np.average(targeted.arms[1.0], weights=w))
-    psi_zero = float(np.average(targeted.arms[0.0], weights=w))
-    return (
-        ICParts(w * submodel.column_for(1.0) * residual, w * (targeted.arms[1.0] - psi_one)),
-        ICParts(w * submodel.column_for(0.0) * residual, w * (targeted.arms[0.0] - psi_zero)),
-    )
+    return {
+        arm: ICParts(
+            w * submodel.column_for(arm) * residual,
+            w * (targeted.arms[arm] - float(np.average(targeted.arms[arm], weights=w))),
+        )
+        for arm in targeted.levels
+    }
 
 
 def att_estimate(

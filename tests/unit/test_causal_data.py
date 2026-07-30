@@ -10,6 +10,7 @@ import polars as pl
 import pytest
 
 from cleverly.data import CausalData
+from cleverly.data.validate import encode_binary, encode_treatment
 from cleverly.exceptions import DataError, WeightingWarning
 
 
@@ -74,17 +75,58 @@ class TestTreatmentEncoding:
         data = CausalData.from_frame(frame, outcome="Y", treatment="A")
         assert data.treatment_levels == (2.0, 5.0)
 
-    def test_rejects_a_multi_valued_treatment(self) -> None:
+    def test_a_multi_valued_treatment_records_every_level(self) -> None:
         frame = _frame()
         frame["A"] = np.repeat([0.0, 1.0, 2.0, 3.0], len(frame) // 4)
-        with pytest.raises(DataError, match="must be binary"):
-            CausalData.from_frame(frame, outcome="Y", treatment="A")
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A")
+        assert data.treatment_levels == (0.0, 1.0, 2.0, 3.0)
+        assert data.n_arms == 4
+        assert data.arm_codes == (0.0, 1.0, 2.0, 3.0)
+        assert not data.is_binary_treatment
+
+    def test_multi_valued_labels_survive_encoding(self) -> None:
+        frame = _frame()
+        frame["A"] = np.resize(["low", "med", "high"], len(frame))
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A")
+        # Levels sort in their natural order, which for strings is alphabetical -- the
+        # codes are an implementation detail and the labels are what gets reported.
+        assert data.treatment_levels == ("high", "low", "med")
+        assert [data.arm_label(c) for c in data.arm_codes] == ["high", "low", "med"]
 
     def test_rejects_a_single_armed_treatment(self) -> None:
         frame = _frame()
         frame["A"] = 1.0
-        with pytest.raises(DataError, match="both levels must be present"):
+        with pytest.raises(DataError, match="takes only one value"):
             CausalData.from_frame(frame, outcome="Y", treatment="A")
+
+    def test_rejects_more_arms_than_the_limit(self) -> None:
+        frame = _frame(n=200)
+        frame["A"] = np.repeat(np.arange(25.0), len(frame) // 25)
+        with pytest.raises(DataError, match="above the limit of 20"):
+            CausalData.from_frame(frame, outcome="Y", treatment="A")
+
+    def test_encode_treatment_reproduces_encode_binary_exactly(self) -> None:
+        """The two-arm path must be byte-identical, not merely equivalent.
+
+        Every regression fixture in the suite depends on a binary fit producing the
+        numbers it always did, and the encoder is the first place that could drift.
+        """
+        for values in (
+            np.array([0.0, 1.0] * 10),
+            np.array([0, 1] * 10),
+            np.array([2.0, 5.0] * 10),
+            np.array([-1.0, 1.0] * 10),
+            np.array(["ctl", "trt"] * 10),
+        ):
+            binary_codes, binary_levels = encode_binary(values, "A")
+            multi_codes, multi_levels = encode_treatment(values, "A")
+            assert binary_codes.tobytes() == multi_codes.tobytes()
+            assert tuple(binary_levels) == tuple(multi_levels)
+
+    def test_a_thin_arm_is_refused_when_a_minimum_is_asked_for(self) -> None:
+        values = np.array([0.0] * 20 + [1.0] * 20 + [2.0])
+        with pytest.raises(DataError, match="too few observations"):
+            encode_treatment(values, "A", min_per_arm=5)
 
 
 class TestCovariateHandling:
@@ -339,6 +381,41 @@ class TestDesignMatrices:
         data = CausalData.from_frame(_frame(), outcome="Y", treatment="A")
         with pytest.raises(DataError, match="no intermediate"):
             data.treatment_design(include_intermediate=True)
+
+    def test_a_binary_design_is_byte_identical_to_the_single_column_form(self) -> None:
+        """The K-1 indicator block must not perturb the two-arm design at all.
+
+        With two arms the block is one column holding the 0/1 code, so this is the
+        assertion that lets every binary regression fixture stand unchanged.
+        """
+        data = CausalData.from_frame(_frame(), outcome="Y", treatment="A")
+        legacy = np.hstack([data.treatment.reshape(-1, 1), data.covariates])
+        assert data.treatment_design().tobytes() == legacy.tobytes()
+        for arm in (0.0, 1.0):
+            legacy_arm = np.hstack([np.full((data.n, 1), arm), data.covariates])
+            assert data.counterfactual_design(arm).tobytes() == legacy_arm.tobytes()
+
+    def test_a_three_arm_design_uses_drop_first_indicators(self) -> None:
+        frame = _frame(n=300)
+        frame["A"] = np.resize([0.0, 1.0, 2.0], len(frame))
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A")
+        design = data.treatment_design()
+        assert design.shape == (data.n, data.n_covariates + 2)
+        # The dropped first arm is the all-zero row of the indicator block, and each
+        # counterfactual design pins exactly one pattern.
+        assert np.array_equal(data.counterfactual_design(0.0)[:, :2], np.zeros((data.n, 2)))
+        assert np.array_equal(data.counterfactual_design(1.0)[:, 0], np.ones(data.n))
+        assert np.array_equal(data.counterfactual_design(1.0)[:, 1], np.zeros(data.n))
+        assert np.array_equal(data.counterfactual_design(2.0)[:, 1], np.ones(data.n))
+        # An indicator design leaves the arms unconstrained: no two counterfactual
+        # designs coincide, which a single numeric column could not guarantee.
+        blocks = {data.counterfactual_design(a)[:, :2].tobytes() for a in data.arm_codes}
+        assert len(blocks) == data.n_arms
+
+    def test_counterfactual_design_rejects_an_arm_outside_the_support(self) -> None:
+        data = CausalData.from_frame(_frame(), outcome="Y", treatment="A")
+        with pytest.raises(DataError, match="is not an arm of A"):
+            data.counterfactual_design(2.0)
 
 
 class TestBackends:

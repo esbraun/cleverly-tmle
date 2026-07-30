@@ -91,6 +91,7 @@ def build_submodel(
         group,
         data.treatment,
         propensity,
+        arms=nuisance.arms,
         treated_fraction=data.treated_fraction,
         missingness=missingness,
         intermediate_density=intermediate_density,

@@ -284,3 +284,27 @@ def nonlinear_process() -> Any:
 @pytest.fixture
 def binary_process() -> Any:
     return binary_outcome_dgp()
+
+
+def binary_means(*args: Any, **kwargs: Any) -> tuple[float, Any, float, Any]:
+    """``(psi1, IC1, psi0, IC0)`` from :func:`counterfactual_means`' arm mapping.
+
+    Most of the influence-curve tests are *about* the two-arm contrast -- the Gateaux
+    derivative of the ATE, the second-order remainder, the ``IC_ate == IC_ey1 - IC_ey0``
+    identity -- and read better naming the two arms than indexing a mapping twice. The
+    arm-general shape is exercised directly by the multi-arm tests rather than by making
+    every binary test spell it out.
+    """
+    from cleverly.inference.influence import counterfactual_means
+
+    means = counterfactual_means(*args, **kwargs)
+    one, zero = means[1.0], means[0.0]
+    return one.psi, one.influence_curve, zero.psi, zero.influence_curve
+
+
+def binary_mean_parts(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
+    """``(parts_one, parts_zero)`` from :func:`counterfactual_mean_parts`' arm mapping."""
+    from cleverly.inference.influence import counterfactual_mean_parts
+
+    parts = counterfactual_mean_parts(*args, **kwargs)
+    return parts[1.0], parts[0.0]

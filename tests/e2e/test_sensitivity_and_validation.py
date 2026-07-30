@@ -492,7 +492,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         assert report.clever_covariate_max["mean"] > 40.0
         # The mechanism is where the leverage lives, and its ESS says so on the same
         # scale the propensity's is reported on.
-        assert mechanism["min"] < 0.5 * float(np.min(strained.nuisance.propensity))
+        assert mechanism["min"] < 0.5 * float(np.min(strained.nuisance.propensity.values))
         assert mechanism["ess_ratio"] < 0.90
 
     def test_clipping_the_mechanism_reaches_the_verdict(self) -> None:

@@ -52,8 +52,8 @@ import pytest
 from cleverly.fluctuation._score import score_columns
 from cleverly.fluctuation.iterative import InitialFit, solve_fluctuation
 from cleverly.fluctuation.submodel import submodel_for
-from cleverly.inference.influence import counterfactual_means
 from tests import discrete_law as law
+from tests.conftest import binary_means
 
 #: A propensity that is wrong at every covariate value, and stays inside ``(0, 1)``.
 WRONG_G = np.array([0.55, 0.35, 0.45])
@@ -82,9 +82,7 @@ def _expansion(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
         arms={1.0: at_one, 0.0: at_zero},
     )
     submodel = submodel_for("mean", treatment, g_hat[covariate])
-    psi_one, ic_one, psi_zero, ic_zero = counterfactual_means(
-        outcome, initial, submodel, np.ones(law.N)
-    )
+    psi_one, ic_one, psi_zero, ic_zero = binary_means(outcome, initial, submodel, np.ones(law.N))
 
     remainder_one = psi_one - law.TRUTH["ey1"] + float(np.mean(ic_one))
     remainder_zero = psi_zero - law.TRUTH["ey0"] + float(np.mean(ic_zero))
@@ -113,7 +111,7 @@ def _plug_in(g_hat: np.ndarray, q_hat: np.ndarray) -> tuple[float, float]:
         arms={1.0: at_one, 0.0: at_zero},
     )
     submodel = submodel_for("mean", treatment, g_hat[covariate])
-    psi_one, _, psi_zero, _ = counterfactual_means(outcome, initial, submodel, np.ones(law.N))
+    psi_one, _, psi_zero, _ = binary_means(outcome, initial, submodel, np.ones(law.N))
     return psi_one, psi_zero
 
 

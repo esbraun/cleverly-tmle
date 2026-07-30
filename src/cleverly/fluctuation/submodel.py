@@ -24,11 +24,12 @@ For a logistic fluctuation the submodel is
 where :math:`h` is the *clever covariate*.  Its form depends on the target:
 
 ``mean`` (used for ``EY1``, ``EY0``, ``ATE``, ``RR``, ``OR``)
-    Two columns, :math:`h_1(a, W) = \mathbb 1\{a = 1\} / (g_1(W)\,\pi_1(W))` and
-    :math:`h_0(a, W) = \mathbb 1\{a = 0\} / (g_0(W)\,\pi_0(W))`.  Fitting both
-    coefficients solves the score equation for each counterfactual mean
-    separately, which is what makes the risk ratio and odds ratio available in
-    addition to the difference.
+    One column per arm, :math:`h_a(A, W) = \mathbb 1\{A = a\} / (g_a(W)\,\pi_a(W))` --
+    two of them for a binary treatment, ``K`` for a ``K``-armed one.  Fitting every
+    coefficient solves the score equation for each counterfactual mean separately, which
+    is what makes the risk ratio and odds ratio available in addition to the difference,
+    and what makes any contrast across ``K`` arms a functional of one targeted
+    distribution rather than a fluctuation of its own.
 
 ``att`` / ``atc``
     A single column contrasting the arms, with the control arm reweighted by the
@@ -246,18 +247,21 @@ class Submodel:
         return float(np.max(np.abs(self.observed)))
 
 
-def _arm_columns(
-    n: int, probabilities: FloatArray | None, label: str
-) -> tuple[FloatArray, FloatArray]:
-    """Split an ``(n, 2)`` arm-indexed probability array into its two columns."""
+def _arm_matrix(n: int, k: int, probabilities: FloatArray | None, label: str) -> FloatArray:
+    """Validate an ``(n, K)`` arm-indexed probability array, or ones when absent.
+
+    Ones rather than ``None`` so the callers multiply unconditionally: a mechanism that
+    does not apply contributes a factor of one to every arm's denominator, which is an
+    identity rather than a special case.
+    """
     if probabilities is None:
-        return np.ones(n), np.ones(n)
+        return np.ones((n, k))
     probs = np.asarray(probabilities, dtype=float)
-    if probs.shape != (n, 2):
-        raise ValueError(f"{label} must have shape ({n}, 2); got {probs.shape}")
+    if probs.shape != (n, k):
+        raise ValueError(f"{label} must have shape ({n}, {k}); got {probs.shape}")
     if np.any(probs <= 0):
         raise ValueError(f"{label} must be strictly positive after bounding")
-    return probs[:, 0], probs[:, 1]
+    return probs
 
 
 def _selection_indicator(n: int, selection: FloatArray | None) -> FloatArray:
@@ -274,26 +278,46 @@ def mean_submodel(
     treatment: FloatArray,
     propensity: FloatArray,
     *,
+    arms: tuple[float, ...] = (0.0, 1.0),
     treated_fraction: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
 ) -> Submodel:
-    """Two-column submodel targeting both counterfactual means.
+    r"""One column per arm, targeting every counterfactual mean at once.
+
+    .. math::
+
+        h_a(A, W) = \frac{\mathbb 1\{A = a\}}
+                         {g_a(W)\,\pi_a(W)\,q_a(W)}
+
+    Fitting all ``K`` coefficients solves the score equation for each counterfactual mean
+    separately, which is what makes any contrast of them -- a difference against a
+    reference arm, a risk ratio, a linear combination across a dose -- available from one
+    targeted distribution rather than one fluctuation each.
 
     Parameters
     ----------
     treatment:
-        Binary treatment indicator, length ``n``.
+        Arm codes, length ``n``; see
+        :attr:`~cleverly.data.CausalData.arm_codes`.
     propensity:
-        ``g(W) = P(A = 1 | W)``, already truncated away from 0 and 1.
+        ``(n, K)`` array of ``g(a | W) = P(A = a | W)``, columns in ``arms`` order and
+        already truncated away from zero.  Rows need **not** sum to one: with more than
+        two arms the truncation is applied arm by arm and deliberately not renormalised,
+        for the reasons :meth:`~cleverly.estimators._nuisance.Propensity.bounded` sets
+        out.  Only ``g_a`` enters arm ``a``'s column, so the sum never appears.
+    arms:
+        The arm codes ``propensity``'s columns are keyed by, ascending.  Defaults to the
+        two-arm case so that the many places constructing a binary submodel directly need
+        not repeat it.
     treated_fraction:
         Accepted and ignored.  Every builder in :data:`SUBMODEL_BUILDERS` takes the same
         keyword-only signature so the registry can dispatch without knowing which
         arguments each one happens to need; the counterfactual means do not condition on
         an arm and so have no use for the treated share.
     missingness:
-        Optional ``(n, 2)`` array of ``P(Delta = 1 | A = a, W)`` for ``a = 0, 1``.
+        Optional ``(n, K)`` array of ``P(Delta = 1 | A = a, W)`` per arm.
     intermediate_density, selection:
         For a controlled direct effect at intermediate value ``z``:
         ``P(Z = z | A = a, W)`` per arm, and the indicator ``1{Z_i = z}``.  The
@@ -302,38 +326,77 @@ def mean_submodel(
     """
     del treated_fraction  # see the parameter's docstring
     a = np.asarray(treatment, dtype=float).reshape(-1)
-    g1 = np.asarray(propensity, dtype=float).reshape(-1)
     n = a.shape[0]
-    if g1.shape[0] != n:
-        raise ValueError(f"propensity has length {g1.shape[0]}, expected {n}")
-    if np.any(g1 <= 0) or np.any(g1 >= 1):
+    k = len(arms)
+    g = np.asarray(propensity, dtype=float)
+    if g.ndim == 1:
+        # The two-arm convenience form: a bare ``g1`` vector, with arm 0 the complement.
+        # Kept because the sensitivity code, the C-TMLE search and the tests all build a
+        # binary submodel from one vector, and spelling out both columns at every one of
+        # those call sites would be noise.
+        if k != 2:
+            raise ValueError(
+                f"propensity was given as a single vector but there are {k} arms {list(arms)}; "
+                "supply the (n, K) mechanism"
+            )
+        g = np.column_stack([1.0 - g.reshape(-1), g.reshape(-1)])
+    if g.shape != (n, k):
+        raise ValueError(f"propensity must have shape ({n}, {k}); got {g.shape}")
+    if np.any(g <= 0) or np.any(g >= 1):
         raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
-    g0 = 1.0 - g1
-    pi0, pi1 = _arm_columns(n, missingness, "missingness probabilities")
-    pz0, pz1 = _arm_columns(n, intermediate_density, "intermediate probabilities")
+
+    pi = _arm_matrix(n, k, missingness, "missingness probabilities")
+    pz = _arm_matrix(n, k, intermediate_density, "intermediate probabilities")
     keep = _selection_indicator(n, selection)
 
-    inv_one = 1.0 / (g1 * pi1 * pz1)
-    inv_zero = 1.0 / (g0 * pi0 * pz0)
-
+    inverse = [1.0 / (g[:, j] * pi[:, j] * pz[:, j]) for j in range(k)]
     zeros = np.zeros(n)
     return Submodel(
-        np.column_stack([(1.0 - a) * keep * inv_zero, a * keep * inv_one]),
+        np.column_stack([(a == arm) * keep * inverse[j] for j, arm in enumerate(arms)]),
         {
-            0.0: np.column_stack([inv_zero, zeros]),
-            1.0: np.column_stack([zeros, inv_one]),
+            arm: np.column_stack(
+                [inverse[j] if i == j else zeros for i in range(k)],
+            )
+            for j, arm in enumerate(arms)
         },
-        ("h0", "h1"),
+        tuple(f"h{arm:g}" for arm in arms),
         "mean",
-        # One column per arm, in the order ``names`` gives: h0 is column 0, h1 column 1.
-        {0.0: 0, 1.0: 1},
+        # One column per arm, in the order ``names`` gives.
+        {arm: j for j, arm in enumerate(arms)},
     )
+
+
+def _binary_margin(
+    propensity: FloatArray, arms: tuple[float, ...], group: str
+) -> tuple[FloatArray, FloatArray]:
+    r"""``(g_0, g_1)`` for a submodel that is defined only against a single contrast.
+
+    The conditional-effect submodels reweight one arm by the propensity *odds*
+    :math:`g_1 / g_0`, and an odds needs exactly two arms to be an odds.  With more, "the
+    effect among the treated" does not name one parameter -- there is a separate
+    conditional effect for each non-reference arm, each with its own contrast submodel --
+    so this refuses rather than silently taking arms 0 and 1 and reporting an answer for
+    a subset of the data nobody asked about.
+    """
+    if len(arms) != 2:
+        raise ValueError(
+            f"the {group!r} submodel needs a binary treatment; got {len(arms)} arms "
+            f"{list(arms)}. It reweights one arm by the propensity odds g1 / g0, which is "
+            "only an odds with two arms. Estimate the counterfactual means and take the "
+            "contrast you want with result.contrast()."
+        )
+    g = np.asarray(propensity, dtype=float)
+    one = g.reshape(-1) if g.ndim == 1 else g[:, arms.index(1.0)]
+    if np.any(one <= 0) or np.any(one >= 1):
+        raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
+    return 1.0 - one, one
 
 
 def att_submodel(
     treatment: FloatArray,
     propensity: FloatArray,
     *,
+    arms: tuple[float, ...] = (0.0, 1.0),
     treated_fraction: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
@@ -356,14 +419,13 @@ def att_submodel(
     for this estimand.
     """
     a = np.asarray(treatment, dtype=float).reshape(-1)
-    g1 = np.asarray(propensity, dtype=float).reshape(-1)
     n = a.shape[0]
     share = _required_treated_fraction(treated_fraction, "att")
-    if np.any(g1 <= 0) or np.any(g1 >= 1):
-        raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
-    g0 = 1.0 - g1
-    pi0, pi1 = _arm_columns(n, missingness, "missingness probabilities")
-    pz0, pz1 = _arm_columns(n, intermediate_density, "intermediate probabilities")
+    g0, g1 = _binary_margin(propensity, arms, "att")
+    pi = _arm_matrix(n, 2, missingness, "missingness probabilities")
+    pz = _arm_matrix(n, 2, intermediate_density, "intermediate probabilities")
+    pi0, pi1 = pi[:, 0], pi[:, 1]
+    pz0, pz1 = pz[:, 0], pz[:, 1]
     keep = _selection_indicator(n, selection)
 
     treated_term = 1.0 / (share * pi1 * pz1)
@@ -383,6 +445,7 @@ def atc_submodel(
     treatment: FloatArray,
     propensity: FloatArray,
     *,
+    arms: tuple[float, ...] = (0.0, 1.0),
     treated_fraction: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
@@ -390,16 +453,15 @@ def atc_submodel(
 ) -> Submodel:
     """One-column submodel targeting the ATC -- the mirror image of the ATT."""
     a = np.asarray(treatment, dtype=float).reshape(-1)
-    g1 = np.asarray(propensity, dtype=float).reshape(-1)
     n = a.shape[0]
     # In (0, 1) because the treated share is, which the helper has already enforced --
     # so there is no second range check here.
     control_fraction = 1.0 - _required_treated_fraction(treated_fraction, "atc")
-    if np.any(g1 <= 0) or np.any(g1 >= 1):
-        raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
-    g0 = 1.0 - g1
-    pi0, pi1 = _arm_columns(n, missingness, "missingness probabilities")
-    pz0, pz1 = _arm_columns(n, intermediate_density, "intermediate probabilities")
+    g0, g1 = _binary_margin(propensity, arms, "atc")
+    pi = _arm_matrix(n, 2, missingness, "missingness probabilities")
+    pz = _arm_matrix(n, 2, intermediate_density, "intermediate probabilities")
+    pi0, pi1 = pi[:, 0], pi[:, 1]
+    pz0, pz1 = pz[:, 0], pz[:, 1]
     keep = _selection_indicator(n, selection)
 
     control_term = 1.0 / (control_fraction * pi0 * pz0)
@@ -430,9 +492,12 @@ def _required_treated_fraction(treated_fraction: float | None, group: str) -> fl
 
 
 #: What a submodel builder looks like from the registry's side.  Every builder takes the
-#: treatment, the truncated propensity, and the same four keyword arguments -- ignoring
-#: the ones it has no use for -- so that :func:`submodel_for` can dispatch on the group
-#: name alone.
+#: treatment, the truncated per-arm propensity, and the same five keyword arguments --
+#: ignoring the ones it has no use for -- so that :func:`submodel_for` can dispatch on the
+#: group name alone.  ``arms`` joined that signature when the treatment stopped being
+#: binary: a builder cannot key its output by arm without being told which arms there are,
+#: and inferring them from the observed treatment would go wrong on exactly the subsample
+#: that is missing one.
 SubmodelBuilder = Callable[..., Submodel]
 
 #: The registered fluctuations, in report order.  A group is a *score equation*, not an
@@ -448,7 +513,7 @@ def register_submodel(
 
     Mirrors :func:`cleverly.targets.register`, including the refusal to shadow an
     existing entry without saying so: replacing the ``"mean"`` fluctuation silently would
-    change what five of the seven built-in estimands report.
+    change what most of the built-in estimands report.
 
     A ``builder`` must accept the keyword arguments in :data:`SubmodelBuilder` and return
     a :class:`Submodel` whose ``group`` equals ``group`` -- the latter is checked, since a
@@ -473,6 +538,7 @@ def submodel_for(
     treatment: FloatArray,
     propensity: FloatArray,
     *,
+    arms: tuple[float, ...] = (0.0, 1.0),
     treated_fraction: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
@@ -492,14 +558,28 @@ def submodel_for(
             f"unknown target group {group!r}; registered groups are "
             f"{sorted(SUBMODEL_BUILDERS)}. Use register_submodel() to add one."
         ) from None
-    submodel = builder(
-        treatment,
-        propensity,
-        treated_fraction=treated_fraction,
-        missingness=missingness,
-        intermediate_density=intermediate_density,
-        selection=selection,
-    )
+    try:
+        submodel = builder(
+            treatment,
+            propensity,
+            arms=arms,
+            treated_fraction=treated_fraction,
+            missingness=missingness,
+            intermediate_density=intermediate_density,
+            selection=selection,
+        )
+    except TypeError as error:
+        # ``arms`` is newer than the extension point, so a builder written against the
+        # old signature fails here with a bare "unexpected keyword argument". Saying what
+        # to add is worth the branch: the builder is user code the library cannot fix.
+        if "arms" not in str(error):
+            raise
+        raise TypeError(
+            f"the builder registered for group {group!r} does not accept 'arms'. Every "
+            "submodel builder now takes the arm codes its columns are keyed by, because "
+            "a treatment may have more than two arms; add 'arms=(0.0, 1.0)' to its "
+            "keyword-only parameters and index the (n, K) propensity with it."
+        ) from error
     if submodel.group != group:
         raise ValueError(
             f"the builder registered for group {group!r} returned a submodel labelled "

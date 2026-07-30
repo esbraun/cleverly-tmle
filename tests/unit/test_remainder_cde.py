@@ -52,8 +52,9 @@ import pytest
 
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.fluctuation.submodel import submodel_for
-from cleverly.inference.influence import atc_estimate, att_estimate, counterfactual_means
+from cleverly.inference.influence import atc_estimate, att_estimate
 from tests import discrete_law_cde as law
+from tests.conftest import binary_means
 
 ESTIMANDS = ("ey1", "ey0", "ate", "att", "atc")
 
@@ -147,7 +148,7 @@ def _fit(
     )
     weights = np.ones(law.N)
     if group == "mean":
-        return counterfactual_means(outcome, initial, submodel, weights, observed)
+        return binary_means(outcome, initial, submodel, weights, observed)
     estimate = att_estimate if group == "att" else atc_estimate
     return estimate(outcome, initial, submodel, treatment, weights, observed)
 

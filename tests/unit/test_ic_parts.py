@@ -15,7 +15,7 @@ import pytest
 from cleverly import TMLE
 from cleverly.datasets import GENERATORS
 from cleverly.estimators.targeting import build_submodel
-from cleverly.inference.influence import counterfactual_mean_parts, counterfactual_means
+from tests.conftest import binary_mean_parts, binary_means
 
 
 def _pieces(result):  # type: ignore[no-untyped-def]
@@ -46,15 +46,15 @@ def test_the_parts_sum_to_the_whole(result) -> None:  # type: ignore[no-untyped-
     """Agreement to rounding, not bit-for-bit: the sum is bracketed differently."""
     scaled, targeted, submodel = _pieces(result)
     weights, observed = result.data.weights, result.data.observed
-    _, ic_one, _, ic_zero = counterfactual_means(scaled, targeted, submodel, weights, observed)
-    parts_one, parts_zero = counterfactual_mean_parts(scaled, targeted, submodel, weights, observed)
+    _, ic_one, _, ic_zero = binary_means(scaled, targeted, submodel, weights, observed)
+    parts_one, parts_zero = binary_mean_parts(scaled, targeted, submodel, weights, observed)
     np.testing.assert_allclose(parts_one.total, ic_one, rtol=0, atol=1e-15)
     np.testing.assert_allclose(parts_zero.total, ic_zero, rtol=0, atol=1e-15)
 
 
 def test_the_shares_add_up_and_are_informative(result) -> None:  # type: ignore[no-untyped-def]
     scaled, targeted, submodel = _pieces(result)
-    parts, _ = counterfactual_mean_parts(
+    parts, _ = binary_mean_parts(
         scaled, targeted, submodel, result.data.weights, result.data.observed
     )
     shares = parts.shares()
@@ -90,7 +90,7 @@ def test_the_residual_term_grows_as_truncation_is_loosened() -> None:
             bounds=(bound, 1.0 - bound),
             nuisance_bound=fit.config.missingness_bound,
         )
-        parts, _ = counterfactual_mean_parts(
+        parts, _ = binary_mean_parts(
             fit.nuisance.scaler.scale(fit.data.outcome),
             fit.fluctuations["mean"].targeted,
             submodel,

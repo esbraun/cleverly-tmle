@@ -74,10 +74,24 @@ where the claim genuinely requires it:
   `fluctuation.register_submodel` first — `register` refuses a target whose group has no
   builder. The influence curve goes in `inference/influence.py`; the variance, bands, delta
   method and score diagnostic then work without further changes.
-- **Counterfactual arms**: `Submodel` and `InitialFit` key their per-arm arrays by
-  treatment level (`arms[1.0]`), not by `at_one` / `at_zero` fields, and `arm_columns` says
-  which design column targets which arm. Use `map_arms` rather than writing a triple, so a
-  helper does not silently assume there are two arms.
+- **Counterfactual arms**: `Submodel`, `InitialFit`, `Propensity` and
+  `counterfactual_means` key their per-arm arrays by treatment level (`arms[1.0]`), not by
+  `at_one` / `at_zero` fields, and `arm_columns` says which design column targets which arm.
+  Use `map_arms` rather than writing a triple, so a helper does not silently assume there
+  are two arms. A treatment may have up to 20 levels; `data.arm_codes` is the internal
+  coding and `data.arm_label` maps back to what the user passed, which is what every
+  reported name, table and error message must use.
+- **The binary path is a regression surface.** Multi-arm support was built so that a
+  two-armed fit stays bit-for-bit identical, and several choices exist only for that:
+  `predict_probabilities` takes the complement rather than reading `predict_proba`'s zero
+  column, `Propensity.bounded` clips `g1` and complements it rather than clipping both
+  columns, and the `K-1` indicator design collapses to the old single column. Before
+  changing any of them, check the claim still holds — the fixtures in `tests/unit` and the
+  oracle laws are what enforce it.
+- **Binary-only by declaration, not by accident.** A target that names an arm declares
+  `requires_binary_treatment=True`; C-TMLE, the omitted-variable bound and the MNAR tilt
+  raise on a multi-arm fit. Prefer refusing with a message that says what the derivation
+  would need over quietly reporting arms 0 and 1.
 - **Nuisance reuse**: `TMLE.retarget` re-runs only the targeting step against cached
   nuisance fits. Sensitivity analyses must use it rather than refitting.
 - **New estimator variants**: a variant that only changes *which* nuisance estimate is

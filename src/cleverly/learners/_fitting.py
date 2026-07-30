@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import inspect
 import warnings
+from collections.abc import Sequence
 from typing import Any, Literal
 
 import numpy as np
@@ -25,6 +26,7 @@ __all__ = [
     "accepts_groups",
     "fit_learner",
     "predict_mean",
+    "predict_probabilities",
     "supports_sample_weight",
 ]
 
@@ -173,6 +175,60 @@ def predict_mean(estimator: Learner, x: FloatArray, task: Task) -> FloatArray:
 
     with thread_limit():
         return np.asarray(estimator.predict(matrix), dtype=float).reshape(-1)
+
+
+def predict_probabilities(
+    estimator: Learner, x: FloatArray, classes: Sequence[float]
+) -> FloatArray:
+    """``P(y = c | x)`` for each ``c`` in ``classes``, as an ``(n, K)`` array.
+
+    The multi-class counterpart of :func:`predict_mean`, used for the treatment
+    mechanism of a ``K``-armed treatment.  Columns follow ``classes``, not the
+    estimator's own ``classes_`` ordering: a learner fit on a fold that happened to
+    see the arms in a different order, or not to see one at all, must still line up
+    with the arm whose clever-covariate column it will divide.
+
+    **Two arms delegate to :func:`predict_mean` and take the complement.**  That is
+    not an optimisation, it is what keeps a binary fit bit-for-bit unchanged: the
+    clever covariate has always been built from ``g1`` and ``1 - g1``, and reading
+    ``predict_proba``'s own zero column instead would differ in the last bit and move
+    every influence curve with it.
+
+    A degenerate fold -- one whose training rows held a single arm -- yields ``1`` for
+    that arm and ``0`` for the others, so the row still sums to one and the missing
+    arm's clever covariate is the one that blows up, which is the honest signal.  It is
+    not silently rescaled into something plausible.
+    """
+    wanted = np.asarray(classes, dtype=float).reshape(-1)
+    if wanted.size < 2:
+        raise ValueError(f"need at least two classes to predict over; got {wanted.tolist()}")
+
+    if wanted.size == 2:
+        positive = predict_mean(estimator, x, "classification")
+        return np.column_stack([1.0 - positive, positive])
+
+    matrix = np.asarray(x, dtype=float)
+    if not hasattr(estimator, "predict_proba"):
+        raise TypeError(
+            f"{type(estimator).__name__} has no predict_proba, so it cannot model a "
+            f"treatment with {wanted.size} arms. A multi-arm treatment mechanism is a "
+            "conditional probability over the arms, not a single margin; supply a "
+            "multiclass classifier (most scikit-learn classifiers qualify) or the "
+            "built-in SuperLearner."
+        )
+
+    with thread_limit():
+        proba = np.asarray(estimator.predict_proba(matrix), dtype=float)
+    if proba.ndim == 1:  # pragma: no cover - non-standard estimator
+        proba = proba.reshape(-1, 1)
+    fitted = np.asarray(getattr(estimator, "classes_", wanted), dtype=float).reshape(-1)
+
+    out = np.zeros((matrix.shape[0], wanted.size), dtype=float)
+    for column, level in enumerate(wanted):
+        match = np.flatnonzero(fitted == level)
+        if match.size and int(match[0]) < proba.shape[1]:
+            out[:, column] = proba[:, int(match[0])]
+    return out
 
 
 def infer_task(y: FloatArray) -> Task:

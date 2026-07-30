@@ -10,11 +10,11 @@ works for a new target without further changes.
 
 Two design points are worth stating because both are easy to get wrong.
 
-**Name and group are separate axes.**  Five of the seven built-in estimands share
-the two-column ``mean`` fluctuation: they are different functionals of the *same*
-targeted distribution, not different targeting problems.  Collapsing the two
-would fit five fluctuations where one is needed and, worse, would suggest that
-adding a functional requires a new score equation.
+**Name and group are separate axes.**  Most of the built-in estimands share the
+``mean`` fluctuation -- one column per treatment arm: they are different functionals
+of the *same* targeted distribution, not different targeting problems.  Collapsing
+the two would fit one fluctuation per functional where one in total is needed and,
+worse, would suggest that adding a functional requires a new score equation.
 
 **Identification is declared, not derived.**  :class:`Identification` records the
 assumptions a target rests on, which nuisances it consumes, and what its
@@ -27,10 +27,10 @@ assumptions written down where ``summary()`` can print them.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -38,6 +38,7 @@ from .._typing import BoolArray, FloatArray, IntArray
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel, TargetGroup
 from ..inference.influence import (
+    ArmMean,
     ParameterEstimate,
     Scale,
     counterfactual_means,
@@ -49,7 +50,48 @@ from ..utils.bounds import OutcomeScaler
 if TYPE_CHECKING:  # pragma: no cover - typing only
     pass
 
-__all__ = ["Identification", "Target", "TargetContext"]
+__all__ = [
+    "Identification",
+    "Target",
+    "TargetContext",
+    "parameter_name",
+    "parameter_stem",
+]
+
+
+def parameter_name(stem: str, *, arm: Any = None, versus: Any = None) -> str:
+    """The reported name of one parameter, given the arms it refers to.
+
+    The single place the naming rule lives, so that it is one documented convention
+    rather than a decision repeated at every target.
+
+    With **two arms** the historical short names are kept -- ``"ate"``, ``"ey1"``,
+    ``"ey0"``, ``"rr"``, ``"or"`` -- by the targets passing no arm at all.  They are
+    unambiguous there, and every doc, test, fixture and downstream script uses them;
+    renaming them would buy nothing.
+
+    With **more than two arms** there is no unambiguous short name, so the arms appear:
+    ``"ey[high]"``, ``"ate[high vs low]"``.  The labels are the user's own levels, taken
+    from :attr:`~cleverly.data.CausalData.treatment_levels`, never the internal float
+    codes -- a reader should not have to translate ``2.0`` back to ``"high"``.
+    """
+    if arm is None:
+        return stem
+    if versus is None:
+        return f"{stem}[{arm}]"
+    return f"{stem}[{arm} vs {versus}]"
+
+
+def parameter_stem(name: str) -> str:
+    """The target a reported parameter came from: everything before the ``[``.
+
+    The inverse of :func:`parameter_name`, and the reason that function is the only
+    place the convention lives.  Needed because a target now reports several parameters
+    and the caller has to get back from ``"ate[medium vs low]"`` to the target ``"ate"``
+    -- to order the report by target, and to re-request the target when a sensitivity
+    sweep re-targets.
+    """
+    return name.split("[", 1)[0]
 
 
 @dataclass(frozen=True)
@@ -106,24 +148,44 @@ class Target:
         This replaces a bare ``except ValueError`` that retried without ``{"rr","or"}``
         and then returned an empty dict, which turned any exception anywhere in the
         estimate path into a silently missing fold.
+    requires_binary_treatment:
+        ``True`` for a target defined only against a single contrast.  The ATT and ATC
+        are the built-in cases: their clever covariate reweights one arm by the
+        propensity odds, which is only an odds with two arms, and "the effect among the
+        treated" does not name one parameter when there are three.  Such a target is
+        refused on a multi-arm fit rather than quietly reported for arms 0 and 1.
     build:
-        Maps a :class:`TargetContext` to the estimate.  Raises ``ValueError`` when
-        the target is undefined on those rows.
+        Maps a :class:`TargetContext` to **one or more** estimates.  Returns a sequence
+        because one target is one *functional*, not one number: with ``K`` arms ``ey``
+        is a mean per arm and ``ate`` a contrast per non-reference arm.  Raises
+        ``ValueError`` when the target is undefined on those rows.
     """
 
     name: str
     group: TargetGroup
     scale: Scale
-    build: Callable[[TargetContext], ParameterEstimate]
+    build: Callable[[TargetContext], Sequence[ParameterEstimate]]
     identification: Identification
     requires_family: str | None = None
+    requires_binary_treatment: bool = False
     in_default_set: bool = False
+    #: Restricts which arm counts this target is *defaulted* for, without restricting
+    #: which it is *defined* for.  ``"multi"`` keeps a target out of a two-armed fit's
+    #: default report, for the one case where a narrower target already covers it there:
+    #: ``ey`` reports a mean per arm, which on two arms is ``ey1`` and ``ey0`` under
+    #: clumsier names.  Asking for it explicitly still works.  A target requiring a binary
+    #: treatment is implicitly default-for-binary-only and need not say so twice.
+    default_arms: Literal["any", "multi"] = "any"
     parameter_bounds: tuple[float, float] | None = None
     undefined_when: str = ""
     description: str = ""
 
     def supported_by(self, family: str) -> bool:
         return self.requires_family is None or self.requires_family == family
+
+    def supports_arms(self, n_arms: int) -> bool:
+        """Whether this target is defined for a treatment with ``n_arms`` levels."""
+        return n_arms == 2 or not self.requires_binary_treatment
 
 
 @dataclass
@@ -145,12 +207,48 @@ class TargetContext:
     n: int
     cluster: IntArray | None = None
     alpha_sig: float = 0.05
+    #: Arm codes, ascending, and the labels to report them under.  ``arm_labels`` maps a
+    #: code to the level the user supplied, and is what :func:`parameter_name` is given.
+    arms: tuple[float, ...] = (0.0, 1.0)
+    arm_labels: dict[float, Any] = field(default_factory=dict)
+    #: The arm contrasts are taken against.  Every non-reference arm gets one contrast.
+    reference: float = 0.0
 
     @cached_property
-    def means(self) -> tuple[float, FloatArray, float, FloatArray]:
-        """``(psi1, IC1, psi0, IC0)`` on the scaled outcome scale, computed once."""
+    def means(self) -> dict[float, ArmMean]:
+        """Each arm's counterfactual mean and influence curve, computed once.
+
+        On the *scaled* outcome scale, and shared by every target in the group -- which is
+        what keeps the mean-group estimands from recomputing them one target at a time.
+        """
         return counterfactual_means(
             self.scaled, self.targeted, self.submodel, self.weights, self.observed
+        )
+
+    @property
+    def is_binary(self) -> bool:
+        return len(self.arms) == 2
+
+    @property
+    def contrast_arms(self) -> tuple[float, ...]:
+        """The non-reference arms, in ascending order: one contrast each."""
+        return tuple(arm for arm in self.arms if arm != self.reference)
+
+    def label(self, arm: float) -> Any:
+        """The reported label for an arm code."""
+        return self.arm_labels.get(arm, arm)
+
+    def name_for(self, stem: str, arm: float, *, versus: float | None = None) -> str:
+        """The parameter name for a per-arm or per-contrast estimate of ``stem``.
+
+        Collapses to the bare stem on a two-armed fit; see :func:`parameter_name`.
+        """
+        if self.is_binary:
+            return parameter_name(stem)
+        return parameter_name(
+            stem,
+            arm=self.label(arm),
+            versus=None if versus is None else self.label(versus),
         )
 
     def finish(

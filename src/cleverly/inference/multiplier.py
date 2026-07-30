@@ -1,6 +1,6 @@
 r"""Simultaneous confidence bands via the multiplier bootstrap.
 
-Reporting seven estimands with seven 95% intervals does not give 95% confidence
+Reporting several estimands with a 95% interval each does not give 95% confidence
 that *all seven* contain their truth -- with correlated estimates the joint
 coverage is somewhere below that, and the usual fixes (Bonferroni) are needlessly
 wide precisely because the estimates are correlated.

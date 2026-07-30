@@ -33,7 +33,7 @@ from cleverly.fluctuation.iterative import (
     solve_fluctuation,
 )
 from cleverly.fluctuation.submodel import Submodel, mean_submodel, restrict, weighted_form
-from cleverly.inference.influence import counterfactual_mean_parts, counterfactual_means
+from tests.conftest import binary_mean_parts, binary_means
 
 LEVELS = (0.0, 1.0, 2.0)
 
@@ -182,7 +182,7 @@ class TestArmColumns:
         submodel = mean_submodel(a, np.full(n, 0.45))
         fit = InitialFit(np.full(n, 0.5), {0.0: np.full(n, 0.4), 1.0: np.full(n, 0.6)})
 
-        psi_one, _, psi_zero, _ = counterfactual_means(y, fit, submodel, np.ones(n))
+        psi_one, _, psi_zero, _ = binary_means(y, fit, submodel, np.ones(n))
 
         # Same arrays, but the map now claims h0 targets the treated arm and h1 the
         # control one.  Only the residual weights move, so the plug-in means are
@@ -194,7 +194,7 @@ class TestArmColumns:
             submodel.group,
             {0.0: 1, 1.0: 0},
         )
-        swapped_one, swapped_one_ic, swapped_zero, swapped_zero_ic = counterfactual_means(
+        swapped_one, swapped_one_ic, swapped_zero, swapped_zero_ic = binary_means(
             y, fit, swapped, np.ones(n)
         )
         assert swapped_one == pytest.approx(psi_one)
@@ -216,8 +216,8 @@ class TestArmColumns:
         y = rng.random(n)
         submodel = mean_submodel(a, np.full(n, 0.4))
         fit = InitialFit(np.full(n, 0.5), {0.0: np.full(n, 0.45), 1.0: np.full(n, 0.55)})
-        psi_one, ic_one, psi_zero, ic_zero = counterfactual_means(y, fit, submodel, np.ones(n))
-        parts_one, parts_zero = counterfactual_mean_parts(y, fit, submodel, np.ones(n))
+        psi_one, ic_one, psi_zero, ic_zero = binary_means(y, fit, submodel, np.ones(n))
+        parts_one, parts_zero = binary_mean_parts(y, fit, submodel, np.ones(n))
         np.testing.assert_allclose(parts_one.total, ic_one, atol=1e-14, rtol=0)
         np.testing.assert_allclose(parts_zero.total, ic_zero, atol=1e-14, rtol=0)
         assert np.isfinite([psi_one, psi_zero]).all()

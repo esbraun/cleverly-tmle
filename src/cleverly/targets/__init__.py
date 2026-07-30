@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ..fluctuation.submodel import SUBMODEL_BUILDERS, TargetGroup
-from .base import Identification, Target, TargetContext
+from .base import Identification, Target, TargetContext, parameter_name, parameter_stem
 from .builtin import BUILTIN_TARGETS
 
 __all__ = [
@@ -29,6 +29,8 @@ __all__ = [
     "all_names",
     "default_names",
     "groups_for",
+    "parameter_name",
+    "parameter_stem",
     "register",
     "resolve_estimands",
     "targets_for",
@@ -74,23 +76,32 @@ for _target in BUILTIN_TARGETS:
     register(_target)
 
 
-def all_names(family: str | None = None) -> tuple[str, ...]:
-    """Every registered target, optionally restricted to one outcome family."""
+def all_names(family: str | None = None, n_arms: int = 2) -> tuple[str, ...]:
+    """Every registered target the family and arm count support."""
     return tuple(
-        name for name, target in TARGETS.items() if family is None or target.supported_by(family)
+        name
+        for name, target in TARGETS.items()
+        if (family is None or target.supported_by(family)) and target.supports_arms(n_arms)
     )
 
 
-def default_names(family: str) -> tuple[str, ...]:
+def default_names(family: str, n_arms: int = 2) -> tuple[str, ...]:
     """The default report: the default set, plus whatever else the family supports.
 
     For a binary outcome that adds the risk ratio and odds ratio, which are only
     defined when the counterfactual means are probabilities.
+
+    ``n_arms`` drops what a given arm count cannot report: the ATT, ATC, ``ey1`` and
+    ``ey0`` name two arms and leave a multi-arm default, while ``ey`` -- one mean per arm
+    -- joins it, since with three arms there is no ``ey1`` to carry the means.
     """
     return tuple(
         name
         for name, target in TARGETS.items()
-        if target.supported_by(family) and (target.in_default_set or family == "binomial")
+        if target.supported_by(family)
+        and target.supports_arms(n_arms)
+        and not (target.default_arms == "multi" and n_arms == 2)
+        and (target.in_default_set or family == "binomial")
     )
 
 
@@ -120,25 +131,36 @@ def targets_for(group: TargetGroup, estimands: Sequence[str]) -> tuple[Target, .
 def resolve_estimands(
     requested: Sequence[str] | str | None,
     family: str,
+    n_arms: int = 2,
 ) -> tuple[str, ...]:
     """Normalise and validate a requested estimand list.
 
-    ``None`` gives the default report for the outcome family and ``"all"`` gives
-    everything the family supports.  An estimand the family cannot support is an
-    error rather than a silent drop: asking for a risk ratio of two means that may
-    be negative is a mistake worth surfacing, not a preference to be honoured
-    quietly.
+    ``None`` gives the default report for the outcome family and arm count, and ``"all"``
+    gives everything they support.  An estimand the family or the arm count cannot support
+    is an error rather than a silent drop: asking for a risk ratio of two means that may
+    be negative is a mistake worth surfacing, not a preference to be honoured quietly,
+    and the same goes for asking a three-armed fit for "the effect on the treated".
     """
     if requested is None:
-        names: tuple[str, ...] = default_names(family)
+        names: tuple[str, ...] = default_names(family, n_arms)
     elif isinstance(requested, str):
-        names = all_names(family) if requested == "all" else (requested,)
+        names = all_names(family, n_arms) if requested == "all" else (requested,)
     else:
         names = tuple(requested)
 
     unknown = [name for name in names if name not in TARGETS]
     if unknown:
         raise ValueError(f"unknown estimand(s) {unknown}; choose from {list(TARGETS)}")
+
+    wrong_arms = [name for name in names if not TARGETS[name].supports_arms(n_arms)]
+    if wrong_arms:
+        raise ValueError(
+            f"estimand(s) {wrong_arms} are defined for a binary treatment only, but this "
+            f"fit has {n_arms} arms. They condition on one arm of a single contrast, and "
+            "with more arms there is a separate such parameter per non-reference arm -- a "
+            f"different derivation rather than a wider loop. Available here: "
+            f"{list(all_names(family, n_arms))}."
+        )
 
     unsupported = [name for name in names if not TARGETS[name].supported_by(family)]
     if unsupported:

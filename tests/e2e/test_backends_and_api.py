@@ -211,13 +211,19 @@ class TestResultApi:
     def test_the_nuisance_fits_are_retained_for_reuse(self, paired_fits) -> None:
         result, _ = paired_fits
         nuisance = result.nuisance
-        assert nuisance.propensity.shape == (result.n,)
+        # One column per arm, even for a binary treatment, where column 0 is 1 - g1.
+        assert nuisance.propensity.values.shape == (result.n, 2)
+        assert nuisance.propensity.arms == (0.0, 1.0)
         assert nuisance.outcome.observed.shape == (result.n,)
         # The raw, untruncated propensity is what makes the truncation curve cheap.
-        assert nuisance.propensity.min() < result.config.g_bounds[1]
+        assert nuisance.propensity.arm(1.0).min() < result.config.g_bounds[1]
         bounded = nuisance.bounded_propensity((0.2, 0.8))
+        assert bounded.shape == (result.n, 2)
         assert bounded.min() >= 0.2
         assert bounded.max() <= 0.8
+        # The two arms still sum to one exactly: with two arms the bound is applied to
+        # g1 and arm 0 taken as its complement, rather than clipped independently.
+        np.testing.assert_array_equal(bounded.sum(axis=1), np.ones(result.n))
 
 
 class TestPackageSurface:
