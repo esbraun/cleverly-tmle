@@ -1,4 +1,4 @@
-"""The seven estimands a classic point-treatment fit reports.
+"""The estimands a classic point-treatment fit reports.
 
 Each is a thin adapter over the influence-function builders in
 :mod:`cleverly.inference.influence`, which are unchanged: this module says *which*

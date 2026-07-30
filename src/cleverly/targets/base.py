@@ -10,11 +10,11 @@ works for a new target without further changes.
 
 Two design points are worth stating because both are easy to get wrong.
 
-**Name and group are separate axes.**  Five of the seven built-in estimands share
-the two-column ``mean`` fluctuation: they are different functionals of the *same*
-targeted distribution, not different targeting problems.  Collapsing the two
-would fit five fluctuations where one is needed and, worse, would suggest that
-adding a functional requires a new score equation.
+**Name and group are separate axes.**  Most of the built-in estimands share the
+``mean`` fluctuation -- one column per treatment arm: they are different functionals
+of the *same* targeted distribution, not different targeting problems.  Collapsing
+the two would fit one fluctuation per functional where one in total is needed and,
+worse, would suggest that adding a functional requires a new score equation.
 
 **Identification is declared, not derived.**  :class:`Identification` records the
 assumptions a target rests on, which nuisances it consumes, and what its

@@ -513,7 +513,7 @@ def register_submodel(
 
     Mirrors :func:`cleverly.targets.register`, including the refusal to shadow an
     existing entry without saying so: replacing the ``"mean"`` fluctuation silently would
-    change what five of the seven built-in estimands report.
+    change what most of the built-in estimands report.
 
     A ``builder`` must accept the keyword arguments in :data:`SubmodelBuilder` and return
     a :class:`Submodel` whose ``group`` equals ``group`` -- the latter is checked, since a

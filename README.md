@@ -54,6 +54,49 @@ att      1.994884    0.078210      1.841595    2.148173    0.000000
 ...
 ```
 
+### Multi-valued treatment
+
+A treatment with more than two levels is estimated the same way, and reports one
+counterfactual mean per arm plus a contrast against a reference arm you choose:
+
+```python
+from cleverly import TMLE
+from cleverly.datasets import make_multi_arm
+
+frame, truth = make_multi_arm(n=2000, seed=0)  # arms "low", "medium", "high"
+res = TMLE(random_state=0, reference="low").fit(frame, outcome="Y", treatment="A").single()
+print(res.summary())
+```
+
+```
+n = 2000; covariates = 3; arm shares: high=0.364, low=0.284, medium=0.351
+...
+estimand            psi       std_err  95% CI                 p_value
+------------------  --------  -------  ---------------------  -------
+ate[high vs low]    1.3749    0.04624  [1.2843, 1.4656]       <1e-4
+ate[medium vs low]  0.65619   0.05255  [0.55319, 0.75918]     <1e-4
+ey[high]            1.3908    0.0414   [1.3097, 1.4719]       <1e-4
+ey[low]             0.015852  0.04233  [-0.067105, 0.098808]  0.7080
+ey[medium]          0.67204   0.0467   [0.58052, 0.76356]     <1e-4
+```
+
+(Population values for this process are `ey[low] = 0`, `ey[medium] = 0.6`,
+`ey[high] = 1.44`.)
+
+Parameters are named with your own labels, not the internal codes. Any contrast the
+reference did not produce comes from the joint influence curve with no refit:
+
+```python
+res.contrast(lambda psi: psi[0] - psi[1], ["ey[high]", "ey[medium]"])
+```
+
+Without `reference=`, the reference is the lowest level in sort order — which for string
+labels is alphabetical, so `{"low", "medium", "high"}` defaults to `"high"`. Pass
+`reference=` whenever the ordering matters, which for an ordered treatment is always.
+
+A two-armed fit is unchanged in every respect, including the familiar `ate` / `ey1` /
+`ey0` names.
+
 ### Collaborative TMLE
 
 A propensity model fitted to predict treatment as well as possible is fitted to the wrong
@@ -309,9 +352,13 @@ finite-support distributions whose every cell probability is a multiple of `1/N`
 fit is exactly right, `epsilon` is zero, and the influence curve the estimator reports is
 the EIF at `P₀` rather than an estimate of it. Against that: the reported curve equals the
 complex-step Gateaux derivative of the identification formula — written longhand, sharing no
-code with the library — to `1e-12`, for all seven estimands, without missingness
-(`test_influence_gateaux.py`), under MAR (`..._mar.py`) and for the controlled direct effect
-(`..._cde.py`). The second-order remainder is checked against its closed form in the three
+code with the library — to `1e-12`, for every estimand: the seven binary ones without
+missingness (`test_influence_gateaux.py`), under MAR (`..._mar.py`) and for the controlled
+direct effect (`..._cde.py`), and the per-arm means and contrasts on a **three-armed** law
+(`..._multi.py`, against `tests/discrete_law_multi.py`). The third arm is not decoration:
+two arms cannot distinguish code that keys everything by arm from code that has two columns
+and calls them 0 and 1, and that law's labels sort into a different order than they were
+written in so a helper equating arm code with arm position fails rather than passes. The second-order remainder is checked against its closed form in the three
 matching `test_remainder*.py` modules, which is what double robustness actually consists of.
 Every one of these modules carries deliberate-mutation controls: each plausible way of
 building the thing wrong is shown to move the answer by more than `1e-2`, four orders past
@@ -347,10 +394,11 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 
 | Capability | Notes |
 | --- | --- |
-| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` |
+| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one |
+| Multi-valued treatment | any number of arms up to 20. The mechanism becomes a distribution over the arms and the `mean` fluctuation gets one clever-covariate column per arm, so the fit reports `K` counterfactual means with a joint influence-curve matrix and `K-1` contrasts against `reference=`. Every other contrast — a dose-response comparison, a pairwise difference the reference skipped — comes from `result.contrast()` with no refit. Parameters are named with your own labels: `ey[high]`, `ate[high vs low]`. A two-armed fit is unchanged, bit for bit, and keeps the short names. What is refused rather than guessed at: `ATT`/`ATC` (they reweight one arm by the propensity odds), `CTMLE` (both searches order candidates by one propensity margin), the omitted-variable bound and the MNAR tilt |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
-| Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete) |
-| Cross-fitting | out-of-fold nuisance fits; stratified and cluster-respecting folds |
+| Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
+| Cross-fitting | out-of-fold nuisance fits; stratified and cluster-respecting folds. Stratification handles a multi-valued treatment natively |
 | CV-TMLE | `targeting_scheme="fold"` — an `epsilon` per validation fold, plus per-fold diagnostics; `cv_evaluation=True` adds fold-wise evaluation and the cross-validated variance for the canonical construction |
 | C-TMLE | `CTMLE` — greedy, scalable-ordered and discrete collaborative selection of the covariates entering `g` |
 | Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
@@ -359,7 +407,7 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | Controlled direct effect | `intermediate=` (R's `Z`) estimates `Ψ_z = E_W[E(Y \| A=a, Z=z, W)]` per level of `Z`, so the returned `TMLEResultSet` holds two results — index the level, `res[0.0]`, rather than calling `.single()`. Needs `Y(a,z) ⊥ Z \| A, W` on top of the usual assumptions — no intermediate confounder affected by `A` — and the DR condition becomes "`Q̄` right **or** the product `g·q_z·π` right". Not a longitudinal estimator and not a natural direct effect; `cleverly.estimators.direct_effect` writes the parameter down, derives its EIF, and states the boundary. Its influence curve is checked against the numerical Gateaux derivative at machine precision, on the same footing as the ATE |
 | Weights | probability/sampling weights, with the tilted-population estimand and its EIF stated and tested; frequency and replicate weights refused |
 | Clustering | `id=` for cluster-level influence-curve variance and cluster bootstrap |
-| Bounds | propensity truncation (`g_bounds`), outcome bounds (`q_bounds`), `alpha` shrinkage |
+| Bounds | propensity truncation (`g_bounds`), outcome bounds (`q_bounds`), `alpha` shrinkage. With two arms `g₁` is clipped and the control arm is its complement, so the pair sums to one. With more, each arm is clipped in its own right and the row is **not** renormalised — rescaling back onto the simplex can push a column under the floor and undo the only thing the floor is for. `PositivityReport.simplex_deviation` reports the size of that deliberate inconsistency; it cannot move `Ψ`, which contains no mechanism at all, only the second-order remainder |
 | Screening | pre-screening of covariates for the treatment model (`prescreenW.g`, `min_retain`) |
 | Inference | IC-based, cluster-robust, targeted bootstrap, multiplier bootstrap, delta method |
 | Contrasts | `result.contrast(fn, names)` applies the delta method to the *joint* influence curve, and `result.covariance()` returns the joint covariance matrix. Pass `gradient=` when the derivative is known in closed form: the default central difference is accurate to ~1e-10 relative, which is fine for reporting and not enough to reproduce a closed-form influence curve at 1e-12 |
@@ -380,18 +428,22 @@ from cleverly import Identification, Target, register
 
 
 def number_needed_to_treat(ctx):
-    psi1, ic1, psi0, ic0 = ctx.means  # computed once and shared across the group
-    difference = psi1 - psi0
-    return ctx.finish("nnt", 1 / difference, -(ic1 - ic0) / difference**2, "difference")
+    one, zero = ctx.means[1.0], ctx.means[0.0]  # computed once, shared across the group
+    difference = one.psi - zero.psi
+    ic = one.influence_curve - zero.influence_curve
+    # A *list*: one target is one functional, and a functional may report several
+    # numbers. This one reports a single contrast, so the list has one entry.
+    return [ctx.finish("nnt", 1 / difference, -ic / difference**2, "difference")]
 
 
 register(
     Target(
         name="nnt",
-        group="mean",  # shares the two-column mean fluctuation
+        group="mean",  # shares the per-arm mean fluctuation
         scale="difference",
         build=number_needed_to_treat,
         requires_family="binomial",  # see below
+        requires_binary_treatment=True,  # `means[1.0]` names an arm; see below
         identification=Identification(
             assumptions=("consistency", "no unmeasured confounding given W", "positivity"),
             required_nuisances=("outcome_regression", "treatment_mechanism"),
@@ -399,6 +451,28 @@ register(
         ),
     )
 )
+```
+
+`ctx.means` is a mapping keyed by **arm**, not a `(psi1, ic1, psi0, ic0)` tuple, because a
+treatment may have more than two arms. A target that names particular arms — as this one
+does, reaching for `1.0` and `0.0` — must declare `requires_binary_treatment=True`, and a
+multi-arm fit then refuses it by name instead of quietly reporting a contrast of two arms
+out of five. A target that works for any arm count instead loops `ctx.contrast_arms` and
+names each parameter with `ctx.name_for`, which collapses to the bare stem when there are
+exactly two arms so the familiar names survive:
+
+```python
+def risk_difference(ctx):
+    reference = ctx.means[ctx.reference]
+    return [
+        ctx.finish(
+            ctx.name_for("rd", arm, versus=ctx.reference),  # "rd", or "rd[high vs low]"
+            ctx.means[arm].psi - reference.psi,
+            ctx.means[arm].influence_curve - reference.influence_curve,
+            "difference",
+        )
+        for arm in ctx.contrast_arms
+    ]
 ```
 
 `requires_family="binomial"` is doing real work here rather than decorating. `ctx.means`
@@ -411,19 +485,23 @@ A nonlinear target on a continuous outcome must unscale the means itself.
 The variance, confidence intervals, simultaneous bands, delta method, score diagnostic and
 bootstrap then work without further changes.
 
-Registering a target whose name has no branch in `tests/discrete_law.py`'s `functional` is a
-**test failure**, not an oversight caught in review. The evidence this package offers that
+Registering a target whose reported parameters have no branch in `tests/discrete_law.py`'s
+`functional` is a **test failure**, not an oversight caught in review. The evidence this package offers that
 an influence curve is correct is that it agrees, to ~1e-12, with one obtained by complex-step
 differentiation of an independently written functional on an exactly representable law. An
 estimand without that has no such evidence, and the registry is deliberately not allowed to
-make skipping it easy.
+make skipping it easy. The gate walks the *parameter* names a target reports rather than the
+target name, so a per-arm target needs an oracle for each — and a target intended for more
+than two arms needs one on `tests/discrete_law_multi.py`, the three-armed law, since two arms
+cannot distinguish code that keys by arm from code that has two columns and calls them 0 and 1.
 
 ### Adding a fluctuation
 
-`group=` above names a *score equation*, not an estimand — five of the seven built-in
-targets share the two-column `mean` fluctuation because they are different functionals of
-one targeted distribution. Groups live in their own registry, so a target that needs a
-score equation nobody has written yet can supply one:
+`group=` above names a *score equation*, not an estimand — six of the eight built-in
+targets share the `mean` fluctuation because they are different functionals of one targeted
+distribution. That fluctuation has one column per treatment arm: two for a binary treatment,
+`K` for a `K`-armed one. Groups live in their own registry, so a target that needs a score
+equation nobody has written yet can supply one:
 
 ```python
 import numpy as np
@@ -435,6 +513,7 @@ def treated_only(
     treatment,
     propensity,
     *,
+    arms=(0.0, 1.0),
     treated_fraction=None,
     missingness=None,
     intermediate_density=None,
@@ -442,7 +521,10 @@ def treated_only(
 ):
     """One column, 1{A = 1} / g₁(W) — the Riesz representer of E[Y(1)]."""
     a = np.asarray(treatment, dtype=float).reshape(-1)
-    inverse = (1.0 / np.asarray(propensity, dtype=float)).reshape(-1, 1)
+    # `propensity` is the (n, K) mechanism, columns in `arms` order.
+    g = np.asarray(propensity, dtype=float)
+    g1 = g.reshape(-1) if g.ndim == 1 else g[:, arms.index(1.0)]
+    inverse = (1.0 / g1).reshape(-1, 1)
     return Submodel(
         a.reshape(-1, 1) * inverse,
         {1.0: inverse, 0.0: np.zeros_like(inverse)},  # covariate per treatment arm
@@ -456,24 +538,29 @@ register_submodel("treated_only", treated_only)
 ```
 
 Every builder takes the same keyword-only signature so the registry can dispatch on the
-group name alone, ignoring the arguments it has no use for. `Target.group` is validated
-against this registry at *registration* time rather than at fit time.
+group name alone, ignoring the arguments it has no use for. `arms` joined that signature
+when the treatment stopped being binary: a builder cannot key its output by arm without
+being told which arms exist, and inferring them from the observed treatment would go wrong
+on exactly the subsample that is missing one. A builder written against the older signature
+gets a `TypeError` naming the fix rather than a bare "unexpected keyword argument".
+`Target.group` is validated against this registry at *registration* time rather than at fit
+time.
 
 Both `Submodel` and `InitialFit` key their counterfactual quantities by the treatment level
 the arm sets — `arms[1.0]`, `arms[0.0]` — rather than naming two fields, so shrinking,
 row-slicing, sign-taking and fluctuating are written once and do not count arms.
 `arm_columns` maps an arm to the column of the design whose coefficient targets it, and is
 **empty** for a contrast fluctuation like `att`, where the single column targets a
-difference and no column belongs to one arm. What is still binary is the estimand layer
-above: `counterfactual_means` returns one pair of means, so multi-valued treatment needs
-that signature generalised too.
+difference and no column belongs to one arm. The estimand layer above keys by arm the same
+way: `counterfactual_means` returns a mapping of arm to `(psi, influence_curve)`, and
+`Target.build` returns one estimate per arm or per contrast.
 
 ## Roadmap
 
 The base classes (`estimators/base.py`, `inference/`, `learners/`, `fluctuation/`) are shared
 infrastructure; the following variants plug into them:
 
-- marginal structural model TMLE (`tmleMSM`) and multi-valued / categorical treatments
+- marginal structural model TMLE (`tmleMSM`), now that multi-valued treatments are in place
 - longitudinal TMLE (`ltmle`) for time-varying treatments and censoring
 - survival TMLE (`survtmle`) and competing risks
 - stochastic-intervention / shift TMLE (`txshift`, `tmle3shift`)
