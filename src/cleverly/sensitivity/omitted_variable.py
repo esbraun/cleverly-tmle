@@ -50,6 +50,7 @@ from .._typing import FloatArray
 from ..estimators.base import format_table
 from ..estimators.targeting import build_submodel
 from ..inference.cluster import influence_variance
+from ..utils.bounds import g_bounds_for
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -139,7 +140,7 @@ def sensitivity_elements(
     scaler = result.nuisance.scaler
     group = "mean" if estimand in ("ate", "ey1", "ey0") else estimand
     fluctuation = result.fluctuations[group]
-    bounds = result.config.g_bounds if group == "mean" else result.config.g_bounds_conditional
+    bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
     submodel = build_submodel(
         data,
         result.nuisance,

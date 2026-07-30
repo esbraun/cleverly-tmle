@@ -412,6 +412,12 @@ class MSMSet:
         distribution of :math:`V`.  That is what keeps the influence curve to the two
         terms in :func:`~cleverly.inference.influence.msm_coefficients` rather than
         carrying a third for the estimation of :math:`M`.
+
+        Here for :meth:`_check_rank` only: the *observation*-weighted form the estimate
+        uses is built inside :func:`~cleverly.inference.influence.msm_coefficients`, and
+        this deliberately does not try to be it.  Two implementations of one projection
+        would be two things to keep in step, and it is the estimate's that is checked
+        against an oracle.
         """
         return np.einsum("ijp,ijq,ij->pq", self.design, self.design, self.weights) / max(self.n, 1)
 
@@ -426,27 +432,6 @@ class MSMSet:
         which is what lets the registry dispatch on the group name alone.
         """
         return np.asarray(self.design * self.weights[:, :, None], dtype=float)
-
-    def moment(self, means: FloatArray) -> FloatArray:
-        r"""``(p,)`` vector :math:`P_n \sum_a h(a,V)\,\varphi(a,V)\,\bar Q(a, W)`.
-
-        ``means`` is the ``(n, K)`` array of counterfactual predictions, arms in
-        :attr:`arms` order.
-        """
-        values = np.asarray(means, dtype=float)
-        if values.shape != self.design.shape[:2]:
-            raise DataError(
-                f"counterfactual means must have shape {self.design.shape[:2]}; got {values.shape}"
-            )
-        return np.einsum("ijp,ij,ij->p", self.design, self.weights, values) / max(self.n, 1)
-
-    def coefficients(self, means: FloatArray) -> FloatArray:
-        r"""The projection :math:`\hat\beta = M^{-1} P_n \sum_a h\,\varphi\,\bar Q`."""
-        return np.asarray(np.linalg.solve(self.gram, self.moment(means)), dtype=float)
-
-    def fitted(self, beta: FloatArray) -> FloatArray:
-        r"""``(n, K)`` array of :math:`m(a, V_i; \beta)` -- the working model's own values."""
-        return np.asarray(self.design @ np.asarray(beta, dtype=float).reshape(-1), dtype=float)
 
     def arm_column(self, code: float) -> FloatArray:
         """One arm's ``(n, p)`` design."""

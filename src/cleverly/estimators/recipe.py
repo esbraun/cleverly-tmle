@@ -68,7 +68,7 @@ SETTING_NAMES: tuple[str, ...] = (
 
 #: Constructor arguments handled by hand rather than by :func:`_jsonable`, so that
 #: :func:`_subclass_settings` does not pick them up and try.
-_HANDLED_ELSEWHERE: frozenset[str] = frozenset({"interventions", "shifts"})
+_HANDLED_ELSEWHERE: frozenset[str] = frozenset({"interventions", "shifts", "msm"})
 
 
 def _is_specification(value: Any) -> bool:
@@ -136,6 +136,12 @@ class TMLERecipe:
         interventions = _interventions_to(getattr(estimator, "interventions", ()))
         if interventions is None:
             unreconstructible.append("interventions")
+        if getattr(estimator, "msm", None) is not None:
+            # A working model is a design *function*, which no recipe can write down --
+            # the same limit a Rule runs into, and recorded the same way. Everything
+            # reached through retarget still works: the evaluated design is stored with
+            # the nuisances, so the fit goes on targeting the model it declared.
+            unreconstructible.append("msm")
         return cls(
             settings=settings,
             learners=learners,
@@ -157,16 +163,20 @@ class TMLERecipe:
         """
         if not self.learners_reconstructible:
             slots = ", ".join(self.unreconstructible_slots)
+            callable_slots = {
+                "interventions": "a rule or a stochastic density",
+                "msm": "a working model's design",
+            }
             held = (
-                "a rule or a stochastic density, which is a callable"
-                if self.unreconstructible_slots == ("interventions",)
+                f"{callable_slots[self.unreconstructible_slots[0]]}, which is a callable"
+                if self.unreconstructible_slots in (("interventions",), ("msm",))
                 else "a scikit-learn estimator rather than a library name"
             )
             raise ValueError(
                 f"this result's {slots} held {held}, so the estimator cannot be rebuilt "
                 "from the recipe. Everything reached through retarget() -- positivity, "
                 "truncation curves, the score check, the bootstrap -- works without it, "
-                "because the evaluated regime densities are stored with the nuisances; "
+                "because the evaluated densities and designs are stored with the nuisances; "
                 "only refit-based analyses (refute, benchmark) need the original "
                 "estimator object."
             )

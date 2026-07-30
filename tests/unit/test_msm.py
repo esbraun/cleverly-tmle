@@ -181,8 +181,16 @@ class TestEvaluate:
 # ------------------------------------------------------------------- projection
 
 
-class TestProjection:
-    def test_the_gram_matrix_is_the_weighted_sum_over_arms(self) -> None:
+class TestTheGramMatrix:
+    """``M``, which exists here only so a rank-deficient design can be refused.
+
+    The projection itself lives in ``inference.influence.msm_coefficients``, where the
+    observation weights and the unscaling belong, and is checked against an oracle in
+    ``tests/unit/test_influence_gateaux_msm.py``.  There is deliberately no second copy
+    of it on this object to keep in step.
+    """
+
+    def test_it_is_the_weighted_sum_over_arms(self) -> None:
         data = make_data(levels=(0, 1, 2))
         evaluated = MSMSet.evaluate(MSM.linear(modifiers=("W1",)), data)
         expected = np.zeros((4, 4))
@@ -192,12 +200,8 @@ class TestProjection:
                 expected += evaluated.weights[i, j] * np.outer(phi, phi)
         assert np.allclose(evaluated.gram, expected / data.n)
 
-    def test_a_saturated_model_reproduces_the_means_exactly(self) -> None:
-        """With one indicator per arm, ``m(a, V; beta)`` interpolates rather than projects.
-
-        The sharpest available check of the closed form: the coefficients must come back
-        as the arm-wise averages of whatever means were handed in, to machine precision.
-        """
+    def test_a_saturated_model_makes_it_the_identity(self) -> None:
+        """One indicator per arm and uniform weights: ``M = I``, so ``beta`` is the means."""
         data = make_data(levels=(0, 1, 2))
         saturated = MSM(
             design=lambda a, w, arms=(0.0, 1.0, 2.0): np.column_stack(
@@ -205,40 +209,15 @@ class TestProjection:
             ),
             terms=("arm0", "arm1", "arm2"),
         )
-        evaluated = MSMSet.evaluate(saturated, data)
-        rng = np.random.default_rng(3)
-        means = rng.normal(size=(data.n, 3))
-        assert np.allclose(evaluated.coefficients(means), means.mean(axis=0))
+        assert np.allclose(MSMSet.evaluate(saturated, data).gram, np.eye(3))
 
-    def test_the_projection_matches_an_explicit_weighted_least_squares(self) -> None:
+    def test_the_weighted_design_is_the_product_the_covariate_needs(self) -> None:
         data = make_data(levels=(0, 1, 2))
         model = MSM.linear(modifiers=("W1",), weights=lambda a, w: 1.0 + float(a) * np.ones(len(w)))
         evaluated = MSMSet.evaluate(model, data)
-        rng = np.random.default_rng(5)
-        means = rng.normal(size=(data.n, 3))
-
-        # Stack the (unit, arm) pairs into one long weighted regression, which is what the
-        # projection is -- written out here rather than reusing the einsum being checked.
-        long_design = evaluated.design.reshape(-1, evaluated.n_terms)
-        long_weight = evaluated.weights.reshape(-1)
-        long_target = means.reshape(-1)
-        root = np.sqrt(long_weight)[:, None]
-        expected, *_ = np.linalg.lstsq(root * long_design, root[:, 0] * long_target, rcond=None)
-        assert np.allclose(evaluated.coefficients(means), expected)
-
-    def test_fitted_evaluates_the_working_model_at_every_arm(self) -> None:
-        data = make_data(levels=(0, 1))
-        evaluated = MSMSet.evaluate(MSM.linear(), data)
-        beta = np.array([0.3, 1.7])
-        fitted = evaluated.fitted(beta)
-        assert fitted.shape == (data.n, 2)
-        assert np.allclose(fitted[:, 0], 0.3)
-        assert np.allclose(fitted[:, 1], 0.3 + 1.7)
-
-    def test_moment_refuses_means_of_the_wrong_shape(self) -> None:
-        evaluated = MSMSet.evaluate(constant_design(), make_data())
-        with pytest.raises(DataError, match="counterfactual means must have shape"):
-            evaluated.moment(np.zeros((10, 2)))
+        assert np.allclose(
+            evaluated.weighted_design, evaluated.design * evaluated.weights[:, :, None]
+        )
 
 
 class TestSubset:

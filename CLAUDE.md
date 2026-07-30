@@ -104,8 +104,8 @@ where the claim genuinely requires it:
   regimes without the caller's rules being callable again.
 - **A shift moves the dose the unit received.** `shifts=` is a third parameter axis, not a
   kind of regime: a regime assigns an arm from `W` alone, an MTP reads `A`. `Target`
-  declares which of `arm` / `regime` / `shift` it belongs to via `parameter_axis`, and the
-  three partition the registry — a fit reporting parameters from two of them would be
+  declares which of `arm` / `regime` / `shift` / `msm` it belongs to via `parameter_axis`,
+  and the four partition the registry — a fit reporting parameters from two of them would be
   putting two score equations under one heading. `shifts=` also declares the treatment
   continuous, since a dose has no arms to index by. The mechanism is a `ConditionalDensity`
   rather than a `Propensity`, and it lives on `NuisanceEstimates` beside `regimes` for the
@@ -115,6 +115,25 @@ where the claim genuinely requires it:
   stochastic regime at the induced density; its influence curve does not, and
   `tests/unit/test_influence_gateaux_shift.py` keeps the negative control that fails if
   someone delegates one to the other.
+- **A working model summarises the arms; it does not replace them.** `msm=` is a fourth
+  parameter axis and the one that is *not* about what "counterfactual" means: the
+  counterfactuals are still the arms and the fluctuation still updates `Qbar` at every one
+  of them. What moves is the report — `p` score equations, one per term, in place of `K`,
+  one per arm — which is enough to need its own group and its own axis. `beta` is a
+  *projection* under a known weight `h(a, V)`, so it is well defined whether or not the
+  working model is right, and the interval is not secretly one for a misspecified
+  regression; say so wherever a reader could assume otherwise. Two consequences are easy
+  to get wrong. The projection is solved on the **raw** outcome scale, unlike every other
+  estimand, because a coefficient vector has no single `Scale` to map back with — use
+  `TargetContext.finish_unscaled`, not `finish`. And a *saturated* working model must
+  reproduce the per-arm report exactly; `tests/unit/test_msm_submodel.py` and
+  `tests/e2e/test_msm.py` are what enforce that, at the covariate and at the estimate.
+- **Which truncation bound a group gets is a statement about its covariate.**
+  `utils.bounds.CONDITIONAL_GROUPS` names the groups whose clever covariate is a propensity
+  *odds* (`att`, `atc`) and so needs the tighter bound; everything else divides by `g` once
+  and takes the ordinary one. Do not reintroduce the `group == "mean"` test this replaced —
+  it was written when those were the only three groups, and every group added since
+  inherited the ATT bound silently, as would any group a caller registers.
 - **Binary-only by declaration, not by accident.** A target that names an arm declares
   `requires_binary_treatment=True`; C-TMLE, the omitted-variable bound and the MNAR tilt
   raise on a multi-arm fit. Prefer refusing with a message that says what the derivation

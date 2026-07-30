@@ -417,8 +417,13 @@ class TestAgainstTheOracle:
     @staticmethod
     def _check(value: float, target) -> None:  # type: ignore[no-untyped-def]
         assert np.isfinite(value)
-        if target.scale == "level":
-            # A counterfactual mean of a binary outcome is a probability.
+        if target.scale == "level" and target.parameter_axis != "msm":
+            # A counterfactual mean of a binary outcome is a probability. The exception is
+            # not a loosening: `msm` reports the coefficients of a working model, and
+            # `scale="level"` there says only that inference is a Wald interval on the
+            # coefficient itself with no log transform. A slope is not a mean of anything
+            # and has no reason to sit in [0, 1] -- it happens to on this law, which is
+            # exactly why the assertion would have passed while meaning nothing.
             assert 0.0 <= value <= 1.0
         if target.parameter_bounds is not None:
             # Ratios are held on the log scale by the oracle, so exponentiate first.

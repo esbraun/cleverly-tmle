@@ -114,9 +114,10 @@ from ..interventions import RegimeSet, Shift, ShiftSet, as_interventions
 from ..learners._fitting import Task
 from ..learners.crossfit import Folds, make_folds
 from ..learners.super_learner import resolve_learner
+from ..msm import MSM, MSMSet
 from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
-from ..utils.bounds import OutcomeScaler, resolve_g_bounds
+from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
 from ._nuisance import NuisanceEstimates, fit_nuisances
 from .base import (
@@ -324,6 +325,7 @@ class TMLE:
         estimands: Sequence[Estimand] | str | None = None,
         interventions: Sequence[Any] | None = None,
         shifts: Sequence[Shift] | None = None,
+        msm: MSM | None = None,
         density_bins: int = 20,
         reference: Any = None,
         alpha_sig: float = 0.05,
@@ -363,6 +365,7 @@ class TMLE:
         self.estimands = estimands
         self.interventions = as_interventions(interventions)
         self.shifts = tuple(shifts or ())
+        self.msm = msm
         self.density_bins = density_bins
         self.reference = reference
         self.alpha_sig = alpha_sig
@@ -419,6 +422,24 @@ class TMLE:
                 "are -- a regime assigns an arm from W alone, a shift moves the dose the "
                 "unit actually received -- and one fluctuation cannot solve both score "
                 "equations. Fit them separately."
+            )
+        if self.msm is not None and (self.interventions or self.shifts):
+            other = "interventions=" if self.interventions else "shifts="
+            raise ValueError(
+                f"msm= and {other} cannot be combined. A working model summarises the "
+                "counterfactual means with p score equations, one per term, and "
+                f"{other} replaces what those means are; one fluctuation cannot solve "
+                "both. A working model over declared regimes is a coherent estimand and "
+                "is not implemented -- its design would have to be indexed by regime "
+                "rather than by arm."
+            )
+        if self.msm is not None and self.reference is not None:
+            raise ValueError(
+                "reference= names the arm, regime or shift every contrast is taken "
+                "against, and a working model reports coefficients rather than contrasts "
+                "-- there is nothing for it to be a reference for. Which arm is the "
+                "baseline is decided by the design you gave msm=, usually by an intercept "
+                "column. A difference of two coefficients comes from result.contrast()."
             )
         if self.density_bins < 3:
             raise ValueError(
@@ -712,9 +733,11 @@ class TMLE:
 
         Read off the declaration rather than off the data, so that asking a continuous
         fit for ``ate`` is refused by name instead of resolving to a report the treatment
-        cannot support.  ``_validate_settings`` has already refused the two keywords
-        together, so at most one branch can be taken.
+        cannot support.  ``_validate_settings`` has already refused the keywords in
+        combination, so at most one branch can be taken.
         """
+        if self.msm is not None:
+            return "msm"
         if self.shifts:
             return "shift"
         if self.interventions:
@@ -870,8 +893,13 @@ class TMLE:
         )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
-        # the regimes this fit declared without re-running the caller's rules.
-        return replace(estimates, regimes=self._regimes(data))
+        # the regimes and the working model this fit declared, without re-running the
+        # caller's rules or its design.
+        return replace(estimates, regimes=self._regimes(data), msm=self._msm(data))
+
+    def _msm(self, data: CausalData) -> MSMSet | None:
+        """The declared working model evaluated on ``data``, or ``None`` if none was."""
+        return None if self.msm is None else MSMSet.evaluate(self.msm, data)
 
     def _regimes(self, data: CausalData) -> RegimeSet | None:
         """The declared regimes evaluated on ``data``, or ``None`` for an arm-indexed fit."""
@@ -1133,7 +1161,7 @@ class TMLE:
         indices: list[IntArray] = []
 
         for group in self._groups(requested):
-            bounds = mean_bounds if group == "mean" else conditional_bounds
+            bounds = g_bounds_for(group, mean_bounds, conditional_bounds)
             submodel = self._submodel(
                 data, nuisance, group, bounds, intermediate_value, missingness, nuisance_bound
             )
@@ -1425,14 +1453,22 @@ class TMLE:
 
     @staticmethod
     def _parameter_axis(
-        data: CausalData, regimes: RegimeSet | None, shifts: ShiftSet | None
+        data: CausalData,
+        regimes: RegimeSet | None,
+        shifts: ShiftSet | None,
+        msm: MSMSet | None,
     ) -> tuple[tuple[float, ...], dict[float, Any]]:
         """The codes this fit's parameters are keyed by, and what to report them as.
 
-        Exactly one of the three sources is live, which :meth:`_validate_settings` and
-        :meth:`_check_shifts` have already established: a fit cannot declare both
+        Exactly one of the four sources is live, which :meth:`_validate_settings` and
+        :meth:`_check_shifts` have already established: a fit cannot declare two of the
         keywords, and a continuous treatment must declare ``shifts=``.
+
+        The working model's codes index its *terms*, not its arms -- which is the whole of
+        what makes ``msm`` a fourth axis rather than a target on the arm axis.
         """
+        if msm is not None:
+            return msm.codes, dict(msm.labels)
         if shifts is not None:
             return shifts.codes, dict(shifts.labels)
         if regimes is not None:
@@ -1468,6 +1504,7 @@ class TMLE:
         treatment, cluster, n = data.treatment, data.cluster, data.n
         regimes = nuisance.regimes
         shifts = nuisance.shifts
+        msm = nuisance.msm
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)
@@ -1479,13 +1516,15 @@ class TMLE:
             cluster = None if cluster is None else cluster[index]
             regimes = None if regimes is None else regimes.subset(index)
             shifts = None if shifts is None else shifts.subset(index)
+            msm = None if msm is None else msm.subset(index)
             n = int(index.size)
 
-        # On a regime or shift fit the parameter axis is the regime (or shift) rather
-        # than the arm, so the context is keyed by that code and labelled with those
-        # names. The three cases are the same shape on purpose -- see TargetContext.arms.
-        # `data.arm_label` is not reached on a continuous fit, where it would raise.
-        codes, labels = self._parameter_axis(data, regimes, shifts)
+        # On a regime, shift or working-model fit the parameter axis is the regime (or
+        # shift, or coefficient) rather than the arm, so the context is keyed by that code
+        # and labelled with those names. The four cases are the same shape on purpose --
+        # see TargetContext.arms. `data.arm_label` is not reached on a continuous fit,
+        # where it would raise.
+        codes, labels = self._parameter_axis(data, regimes, shifts, msm)
         context = TargetContext(
             scaled=scaled,
             targeted=targeted,
@@ -1502,7 +1541,9 @@ class TMLE:
             reference=reference,
             regimes=None if regimes is None else regimes.values,
             shifts=None if shifts is None else shifts.design,
-            always_label=regimes is not None or shifts is not None,
+            msm_design=None if msm is None else msm.design,
+            msm_weights=None if msm is None else msm.weights,
+            always_label=regimes is not None or shifts is not None or msm is not None,
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted

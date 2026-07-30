@@ -45,12 +45,16 @@ TargetingMethod = Literal["iterative", "one_step"]
 TargetingScheme = Literal["pooled", "fold"]
 Estimand = Literal["ey1", "ey0", "ate", "att", "atc", "rr", "or"]
 
-#: What a fit's parameters are indexed *by*, which is what declares the meaning of
-#: "counterfactual" for that fit: a treatment arm, a declared regime, or a declared
-#: shift.  The three partition the target registry -- see
-#: :attr:`cleverly.Target.parameter_axis` for why they are exclusive rather than
-#: cumulative.
-ParameterAxis = Literal["arm", "regime", "shift"]
+#: What a fit's parameters are indexed *by*: a treatment arm, a declared regime, a
+#: declared shift, or a coefficient of a declared working model.  The four partition the
+#: target registry -- see :attr:`cleverly.Target.parameter_axis` for why they are
+#: exclusive rather than cumulative.
+#:
+#: The first three also declare what "counterfactual" means for the fit.  ``"msm"`` does
+#: not: its counterfactuals are still the arms, and what moves is the *summary* the fit
+#: reports of them.  It is an axis all the same, because a summary's coefficients are not
+#: indexed by anything the other three name.
+ParameterAxis = Literal["arm", "regime", "shift", "msm"]
 
 #: Propensity-score truncation: ``"auto"`` for the sample-size dependent
 #: default, a single float ``lo`` meaning ``[lo, 1 - lo]``, or an explicit pair.

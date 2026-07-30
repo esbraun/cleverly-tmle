@@ -102,6 +102,29 @@ _SHIFT_ID = Identification(
 )
 
 
+_MSM_ID = Identification(
+    assumptions=(
+        *_POINT_TREATMENT,
+        "the working model and its weights are known functions of (a, V): neither phi "
+        "nor h depends on the observed-data law, so the influence function carries no "
+        "term for estimating them",
+        "the weighted Gram matrix is invertible, so the projection is a single "
+        "coefficient vector rather than a set of them",
+    ),
+    required_nuisances=("outcome_regression", "treatment_mechanism"),
+    dr_condition=(
+        "consistent if either Qbar(A, W) or g(W) is consistent, exactly as for the "
+        "arm-indexed means -- beta is a smooth function of them and of nothing else. "
+        "Note this says nothing about the working model being correct: beta is defined "
+        "as a projection, so it is the same functional either way"
+    ),
+    references=(
+        "Neugebauer & van der Laan (2007)",
+        "van der Laan & Rose (2011), chapter 12",
+    ),
+)
+
+
 def _ey(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y(a)]`` for every arm, always named with its label.
 
@@ -197,6 +220,29 @@ def _ate_shift(ctx: TargetContext) -> list[ParameterEstimate]:
     shift the fit declared as reference, exactly as for arms and regimes.
     """
     return _difference_against_reference(ctx, "ate_shift")
+
+
+def _msm(ctx: TargetContext) -> list[ParameterEstimate]:
+    """One coefficient of the declared working model per term.
+
+    :meth:`~cleverly.targets.TargetContext.finish_unscaled` rather than ``finish``,
+    because a coefficient vector has no single scale to map back with and the projection
+    was therefore solved on the outcome's own scale --
+    :func:`~cleverly.inference.influence.msm_coefficients` sets out why.
+
+    The declared ``scale`` is ``"level"`` for every coefficient, which is a statement
+    about *inference* and not about the mapping back: a Wald interval on the coefficient
+    itself, with no log transform.  That is right for a slope as much as for an intercept.
+    """
+    return [
+        ctx.finish_unscaled(
+            parameter_name("msm", arm=ctx.label(code)),
+            coefficient.psi,
+            coefficient.influence_curve,
+            "level",
+        )
+        for code, coefficient in sorted(ctx.means.items())
+    ]
 
 
 def _rr(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -379,5 +425,18 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         parameter_axis="shift",
         in_default_set=True,
         description="contrast of each shift against the reference shift",
+    ),
+    Target(
+        name="msm",
+        group="msm",
+        scale="level",
+        build=_msm,
+        identification=_MSM_ID,
+        parameter_axis="msm",
+        in_default_set=True,
+        description=(
+            "coefficients of the declared working model, the h-weighted projection of "
+            "the counterfactual means onto m(a, V; beta)"
+        ),
     ),
 )

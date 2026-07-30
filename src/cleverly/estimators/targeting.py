@@ -101,6 +101,9 @@ def build_submodel(
         selection=selection,
         regimes=None if nuisance.regimes is None else nuisance.regimes.values,
         shifts=None if nuisance.shifts is None else nuisance.shifts.design,
+        # The covariate needs only h * phi; the two factors are wanted apart one layer up,
+        # in the projection itself. See cleverly.msm.MSMSet.weighted_design.
+        msm=None if nuisance.msm is None else nuisance.msm.weighted_design,
     )
 
 

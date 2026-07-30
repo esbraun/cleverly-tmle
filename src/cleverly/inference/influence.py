@@ -58,6 +58,7 @@ __all__ = [
     "counterfactual_mean_parts",
     "counterfactual_means",
     "make_estimate",
+    "msm_coefficients",
     "ratio_estimates",
     "regime_means",
     "shift_means",
@@ -407,6 +408,126 @@ def regime_means(
             psi, w * (submodel.observed[:, index] * residual + mixture - psi)
         )
     return out
+
+
+def _raw_predictions(
+    targeted: InitialFit, levels: tuple[float, ...], scaler: OutcomeScaler
+) -> FloatArray:
+    """``(n, K)`` targeted predictions on the *original* outcome scale, arms in order."""
+    stacked = np.column_stack([targeted.arms[level] for level in levels])
+    if scaler.is_identity:
+        return stacked
+    return np.asarray(scaler.lower + scaler.range * stacked, dtype=float)
+
+
+def msm_coefficients(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    submodel: Submodel,
+    design: FloatArray,
+    model_weights: FloatArray,
+    weights: FloatArray,
+    scaler: OutcomeScaler,
+    observed: BoolArray | None = None,
+) -> dict[float, ArmMean]:
+    r"""A working model's coefficients and their influence curves, keyed by coefficient.
+
+    .. math::
+
+        \hat\beta = M^{-1} P_n \Big[\sum_a h(a, V)\,\varphi(a, V)\,\bar Q^*(a, W)\Big],
+        \qquad
+        M = P_n\Big[\sum_a h(a, V)\,\varphi(a, V)\varphi(a, V)^\top\Big]
+
+    .. math::
+
+        D_\beta^*(O) = M^{-1}\Big[
+            H(A, W)\,\{Y - \bar Q^*(A, W)\}
+            + \sum_a h(a, V)\,\varphi(a, V)\,
+              \big\{\bar Q^*(a, W) - \varphi(a, V)^\top\hat\beta\big\}
+        \Big]
+
+    -- the standard M-estimation form.  :math:`M` carries no further term because
+    :math:`U(\beta_0, \bar Q_0) = 0` at the truth, and no nuisance because :math:`h` and
+    :math:`\varphi` are known functions; see :mod:`cleverly.msm` for the estimand and for
+    why the weights have to be known for that to hold.
+
+    Both terms are zero in the sample after targeting, and for different reasons.  The
+    first is the ``msm`` fluctuation's own score equation.  The second is zero *by
+    construction*: :math:`\hat\beta` is the weighted least-squares solution against
+    :math:`\bar Q^*`, so the residuals it leaves are orthogonal to the design.  That is
+    what makes this a one-fluctuation TMLE rather than an iteration between
+    :math:`\epsilon` and :math:`\beta`.
+
+    **The projection is solved on the original outcome scale**, unlike every other
+    estimand here, which works on the scaled outcome and maps back afterwards.  A
+    coefficient vector has no single :class:`Scale` to map back *with*: writing
+    :math:`\bar Q^*_{\text{raw}} = \ell + r\,\bar Q^*_{\text{scaled}}` gives
+    :math:`\beta_{\text{raw}} = \ell M^{-1} P_n[\sum_a h \varphi] + r\,
+    \beta_{\text{scaled}}`, and the first term collapses to "the intercept picks up
+    :math:`\ell`, the slopes pick up nothing" *only* when the design happens to contain an
+    intercept column.  Solving where the coefficients are reported removes the question
+    rather than requiring a design to promise something.  Nothing is lost: the residual
+    rescales by the same :math:`r`, so a score that is zero on one scale is zero on the
+    other.  The consequence for callers is that these estimates must **not** go through
+    :meth:`~cleverly.targets.TargetContext.finish`, which would unscale a second time.
+
+    Parameters
+    ----------
+    design:
+        ``(n, K, p)`` array :math:`\varphi(a, V)`, arms in ``targeted.levels`` order.
+    model_weights:
+        ``(n, K)`` array :math:`h(a, V)`.
+    weights:
+        The ``(n,)`` *observation* weights, which are a different thing: they tilt the
+        population the projection is taken over, while ``model_weights`` says how the
+        arms are traded off within it.
+    scaler:
+        Maps the targeted predictions back off ``[0, 1]``.
+
+    Both arrays are passed plainly rather than as a
+    :class:`~cleverly.msm.MSMSet`, on the same terms as ``regimes`` and ``shifts``: the
+    inference layer is written against arrays so that it does not depend on the objects
+    that produced them.
+    """
+    if submodel.group != "msm":
+        raise ValueError(f"expected the 'msm' submodel; got {submodel.group!r}")
+    phi = np.asarray(design, dtype=float)
+    h = np.asarray(model_weights, dtype=float)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    levels = targeted.levels
+    if phi.ndim != 3 or phi.shape[1] != len(levels):
+        raise ValueError(
+            f"the working model's design must have shape (n, {len(levels)}, p) for arms "
+            f"{list(levels)}; got {phi.shape}"
+        )
+    if phi.shape[2] != submodel.dim:
+        raise ValueError(
+            f"the working model has {phi.shape[2]} term(s) but the submodel has "
+            f"{submodel.dim} column(s)"
+        )
+    if h.shape != phi.shape[:2]:
+        raise ValueError(
+            f"the working model's weights must have shape {phi.shape[:2]}; got {h.shape}"
+        )
+
+    residual = scaler.unscale_influence(_residual(outcome, targeted, observed))
+    predictions = _raw_predictions(targeted, levels, scaler)
+    mass = float(w.sum())
+
+    weighted_design = phi * h[:, :, None]  # (n, K, p) -- h * phi
+    gram = np.einsum("ijp,ijq,ij,i->pq", phi, phi, h, w) / mass
+    moment = np.einsum("ijp,ij,i->p", weighted_design, predictions, w) / mass
+    beta = np.linalg.solve(gram, moment)
+
+    # (n, p): the plug-in half, sum_a h * phi * (Qbar* - m(a, V; beta)).
+    plugin = np.einsum("ijp,ij->ip", weighted_design, predictions - phi @ beta)
+    contribution = w[:, None] * (submodel.observed * residual[:, None] + plugin)
+    influence = np.linalg.solve(gram, contribution.T).T
+
+    return {
+        float(j): ArmMean(float(beta[j]), np.ascontiguousarray(influence[:, j]))
+        for j in range(phi.shape[2])
+    }
 
 
 class ICParts(NamedTuple):

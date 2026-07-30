@@ -48,6 +48,7 @@ from ..inference.influence import ParameterEstimate
 from ..interventions import RegimeSet, ShiftSet
 from ..learners.crossfit import Folds
 from ..learners.density import ConditionalDensity
+from ..msm import MSMSet
 from ..provenance import Provenance
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import NuisanceEstimates, Propensity
@@ -72,7 +73,12 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: continuous fit targets.  Without the kind a dose reloaded as a discrete treatment with
 #: no levels -- ``is_continuous_treatment`` silently flipped to ``False`` -- and without
 #: the density the mechanism half of a shift fit was simply absent from the file.
-FORMAT_VERSION = 4
+#:
+#: ``5`` records the *evaluated* working model a fit declared with ``msm=``.  Without it a
+#: reloaded fit had no design to project onto, so every retargeted analysis -- the
+#: truncation curve, the score check, the MNAR tilt -- would have reported the arm-indexed
+#: estimands instead of the coefficients the fit was about.
+FORMAT_VERSION = 5
 
 _ARRAY_MARK = "__array__"
 
@@ -339,6 +345,20 @@ def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]
                 "reference": float(nuisance.shifts.reference),
             }
         ),
+        # The working model, likewise as arrays: its design is a callable and cannot be
+        # written, its output can, and the output is what every reuse needs. This is the
+        # whole of why a loaded result can still be retargeted against the model the fit
+        # declared, even though `recipe` records that fit as unreconstructible.
+        "msm": (
+            None
+            if nuisance.msm is None
+            else {
+                "terms": list(nuisance.msm.terms),
+                "design": arrays.put("nuisance.msm.design", nuisance.msm.design),
+                "weights": arrays.put("nuisance.msm.weights", nuisance.msm.weights),
+                "arms": [float(arm) for arm in nuisance.msm.arms],
+            }
+        ),
     }
 
 
@@ -364,6 +384,7 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
         regimes=_regimes_from(arrays, payload.get("regimes")),
         density=_density_from(arrays, payload.get("density")),
         shifts=_shifts_from(arrays, payload.get("shifts")),
+        msm=_msm_from(arrays, payload.get("msm")),
     )
 
 
@@ -374,6 +395,17 @@ def _regimes_from(arrays: _Arrays, payload: dict[str, Any] | None) -> RegimeSet 
         tuple(payload["names"]),
         arrays.get(payload["values"]),
         float(payload["reference"]),
+    )
+
+
+def _msm_from(arrays: _Arrays, payload: dict[str, Any] | None) -> MSMSet | None:
+    if payload is None:
+        return None
+    return MSMSet(
+        tuple(payload["terms"]),
+        arrays.get(payload["design"]),
+        arrays.get(payload["weights"]),
+        tuple(float(arm) for arm in payload["arms"]),
     )
 
 

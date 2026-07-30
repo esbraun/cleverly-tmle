@@ -47,6 +47,7 @@ from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import DataError
 from ..targets import parameter_stem
+from ..utils.bounds import g_bounds_for
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -523,7 +524,7 @@ def _max_abs_covariate(result: TMLEResult, group: str) -> float:
     Rebuilt from the data, the nuisance estimates and the config rather than from the
     estimator, so this stays a real number on a result whose estimator is gone.
     """
-    bounds = result.config.g_bounds if group == "mean" else result.config.g_bounds_conditional
+    bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
     submodel = build_submodel(
         result.data,
         result.nuisance,

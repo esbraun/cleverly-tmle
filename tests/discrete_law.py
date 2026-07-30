@@ -108,6 +108,34 @@ REGIMES: dict[str, np.ndarray] = {
 REGIME_REFERENCE = "never"
 
 
+#: The working model the ``msm`` estimand is checked against: ``m(a, W) = b0 + b1 a + b2 W``,
+#: with ``W`` read as a number.  Its term names are part of what is checked, because they
+#: are what the reported parameter names carry.
+MSM_TERMS: tuple[str, ...] = ("(intercept)", "a", "W")
+
+#: ``phi(a, W = w)`` as a ``(3, 2, 3)`` array indexed ``[w, a, term]``, and the weights
+#: ``h(a, W = w)`` as ``(3, 2)``.  Built here, outside :func:`functional`, for the reason
+#: ``tests/discrete_law_shift.py`` precomputes its shift map: both are constants of the
+#: law, and constructing them inside would put a comparison or an integer index into a
+#: function that has to stay analytic in the cell probabilities.
+#:
+#: Three coefficients against six ``(w, a)`` cells, so the model is **not** saturated and
+#: ``beta`` really is a projection rather than a reparameterisation of the six conditional
+#: means.  That is the point of choosing it: a saturated working model would agree with the
+#: means whatever the projection code did, and could not tell a correct ``M^-1`` from a
+#: missing one.
+#:
+#: The weights are **not** uniform, and that is load-bearing rather than decoration.  With
+#: ``h = 1`` the ``a`` column is orthogonal to ``{1, W}`` across the cells -- each ``w``
+#: carries both arms at the same mass -- so ``beta_a`` collapses to the marginal ATE
+#: *identically*, as a functional and not just numerically.  Its influence curve would then
+#: be the ATE's too, and code that reported the ATE under the name ``msm[a]`` would pass
+#: every check here.  A weight that varies in both arguments breaks that orthogonality and
+#: is the only thing that exercises ``h`` at all.
+MSM_DESIGN = np.array([[[1.0, float(a), float(w)] for a in range(2)] for w in range(3)])
+MSM_WEIGHTS = np.array([[1.0 + 0.5 * a + 0.25 * w for a in range(2)] for w in range(3)])
+
+
 def functional(probs: Any, estimand: str) -> Any:
     r"""The target parameter as a closed-form function of the cell probabilities.
 
@@ -153,6 +181,21 @@ def functional(probs: Any, estimand: str) -> Any:
         left, right = estimand[len("ate_regime[") : -1].split(" vs ")
         return functional(p, f"ey_regime[{left}]") - functional(p, f"ey_regime[{right}]")
 
+    # beta = M^-1 b, the h-weighted least-squares projection of the counterfactual means
+    # onto m(a, W; beta), written straight off the normal equations:
+    #
+    #   M = sum_w P(w) sum_a h(a, w) phi(a, w) phi(a, w)'
+    #   b = sum_w P(w) sum_a h(a, w) phi(a, w) E[Y | A = a, W = w]
+    #
+    # M depends on the law only through P(W), which is where its own contribution to the
+    # influence curve comes from -- an implementation that treated M as a constant would
+    # pass every check that fixes P(W) and fail this one.
+    if estimand.startswith("msm["):
+        gram = np.einsum("wap,waq,wa,w->pq", MSM_DESIGN, MSM_DESIGN, MSM_WEIGHTS, p_w)
+        moment = np.einsum("wap,wa,wa,w->p", MSM_DESIGN, MSM_WEIGHTS, q, p_w)
+        beta = np.linalg.solve(gram, moment)
+        return beta[MSM_TERMS.index(estimand[len("msm[") : -1])]
+
     raise ValueError(f"unknown estimand {estimand!r}")
 
 
@@ -168,6 +211,7 @@ PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
         for label in REGIMES
         if label != REGIME_REFERENCE
     ),
+    "msm": tuple(f"msm[{term}]" for term in MSM_TERMS),
 }
 
 
@@ -206,6 +250,7 @@ TRUTH = {
         "atc",
         *PER_ARM_NAMES["ey_regime"],
         *PER_ARM_NAMES["ate_regime"],
+        *PER_ARM_NAMES["msm"],
     )
 }
 
