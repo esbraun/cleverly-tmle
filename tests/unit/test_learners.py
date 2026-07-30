@@ -25,6 +25,7 @@ from cleverly.learners import (
     screen_by_correlation,
     supports_sample_weight,
 )
+from tests.conftest import fast_tmle
 
 
 @pytest.fixture
@@ -244,6 +245,66 @@ class TestCrossFitPlan:
         plan = CrossFitPlan(n_folds=5, scheme="grouped", stratify_by=("A",))
         assert plan.describe() == "declared: 5-fold grouped stratified on A"
         assert "no cross-fitting" in CrossFitPlan(n_folds=1).describe()
+
+
+class TestTheDeclaredPlanIsRecordedOnAFit:
+    """What the fit asked for, beside what it got -- which is the whole point.
+
+    ``TMLEConfig.n_folds`` is the realised count and always has been.  The two agree in
+    the ordinary case and come apart exactly when a cap fired, at which point the warning
+    that explained it has already gone.
+    """
+
+    def _frame(self, n_clusters: int = 3, per_cluster: int = 20):  # type: ignore[no-untyped-def]
+        pd = pytest.importorskip("pandas")
+        n = n_clusters * per_cluster
+        rng = np.random.default_rng(0)
+        w = rng.normal(size=n)
+        a = rng.binomial(1, 0.5, n).astype(float)
+        return pd.DataFrame(
+            {
+                "Y": w + a + rng.normal(scale=0.5, size=n),
+                "A": a,
+                "W": w,
+                "pid": np.repeat(np.arange(n_clusters), per_cluster),
+            }
+        )
+
+    def _fit(self, frame, *, cluster_id: str | None = None, **kwargs):  # type: ignore[no-untyped-def]
+        fit_args = {"covariates": ["W"]}
+        if cluster_id is not None:
+            fit_args["id"] = cluster_id  # type: ignore[assignment]
+        return fast_tmle(**kwargs).fit(frame, outcome="Y", treatment="A", **fit_args).single()
+
+    def test_an_ordinary_fit_declares_what_it_ran(self) -> None:
+        config = self._fit(self._frame(), n_folds=3).config
+        assert config.crossfit.n_folds == 3 == config.n_folds
+        assert config.crossfit.scheme == "stratified"
+        assert config.crossfit.stratify_by == ("A",)
+
+    def test_a_capped_split_records_both_counts(self) -> None:
+        # Three clusters cannot support ten folds. Before the plan, the realised 3 was
+        # the only number on the result and the declared 10 was unrecoverable.
+        frame = self._frame(n_clusters=3, per_cluster=20)
+        with pytest.warns(UserWarning, match="only 3 clusters"):
+            config = self._fit(frame, n_folds=10, cluster_id="pid").config
+        assert config.crossfit.n_folds == 10
+        assert config.n_folds == 3
+        assert config.crossfit.scheme == "stratified-grouped"
+
+    def test_the_summary_says_so_only_when_they_disagree(self) -> None:
+        frame = self._frame(n_clusters=3, per_cluster=20)
+        with pytest.warns(UserWarning, match="only 3 clusters"):
+            capped = self._fit(frame, n_folds=10, cluster_id="pid").config
+        assert any("10 folds were declared" in line for line in capped.describe())
+        agreed = self._fit(self._frame(), n_folds=3).config
+        assert not any("were declared" in line for line in agreed.describe())
+
+    def test_no_cross_fitting_is_declared_as_one_fold(self) -> None:
+        config = self._fit(self._frame(), cross_fit=False).config
+        assert not config.crossfit.cross_fit
+        assert config.crossfit.scheme == "none"
+        assert config.crossfit.stratify_by == ()
 
 
 class TestScreening:

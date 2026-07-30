@@ -46,7 +46,7 @@ from ..data.weighting import WeightSpec
 from ..fluctuation.iterative import Fluctuation, FoldFluctuation, InitialFit
 from ..inference.influence import ParameterEstimate
 from ..interventions import RegimeSet, ShiftSet
-from ..learners.crossfit import Folds
+from ..learners.crossfit import CrossFitPlan, Folds
 from ..learners.density import ConditionalDensity
 from ..msm import MSMSet
 from ..provenance import Provenance
@@ -78,7 +78,12 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: reloaded fit had no design to project onto, so every retargeted analysis -- the
 #: truncation curve, the score check, the MNAR tilt -- would have reported the arm-indexed
 #: estimands instead of the coefficients the fit was about.
-FORMAT_VERSION = 5
+#:
+#: ``6`` records the fold policy the fit *declared* (``TMLEConfig.crossfit``) beside the
+#: fold count it ran.  The two come apart whenever the split was capped at the rarest
+#: stratum or the cluster count, and the warning that said so does not survive the fit, so
+#: without it a reloaded result could not say that a 10-fold fit had run 3.
+FORMAT_VERSION = 6
 
 _ARRAY_MARK = "__array__"
 
@@ -462,6 +467,15 @@ def _config_to(config: TMLEConfig) -> dict[str, Any]:
         "bounded_mechanisms": list(config.bounded_mechanisms),
         "reference_arm": config.reference_arm,
         "parameter_axis": config.parameter_axis,
+        # Flat, like targeting_spec above and for the same reason: a plan is numbers and
+        # strings, so it needs no codec of its own.
+        "crossfit": {
+            "n_folds": config.crossfit.n_folds,
+            "learner_folds": config.crossfit.learner_folds,
+            "scheme": config.crossfit.scheme,
+            "stratify_by": list(config.crossfit.stratify_by),
+            "random_state": config.crossfit.random_state,
+        },
     }
 
 
@@ -486,6 +500,9 @@ def _config_from(payload: dict[str, Any]) -> TMLEConfig:
         bounded_mechanisms=tuple(payload["bounded_mechanisms"]),
         reference_arm=float(payload["reference_arm"]),
         parameter_axis=payload["parameter_axis"],
+        crossfit=CrossFitPlan(
+            **{**payload["crossfit"], "stratify_by": tuple(payload["crossfit"]["stratify_by"])}
+        ),
     )
 
 

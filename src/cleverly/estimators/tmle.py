@@ -112,7 +112,7 @@ from ..inference.influence import (
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import RegimeSet, Shift, ShiftSet, as_interventions
 from ..learners._fitting import Task
-from ..learners.crossfit import Folds, make_folds
+from ..learners.crossfit import CrossFitPlan, Folds, make_folds
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, MSMSet
 from ..provenance import record as provenance_record
@@ -816,20 +816,22 @@ class TMLE:
         )
 
     def _folds(self, data: CausalData) -> Folds:
-        if not self.cross_fit:
+        plan = self.crossfit_plan(data)
+        if not plan.cross_fit:
             return Folds.single(data.n)
         return make_folds(
             data.n,
-            self.n_folds,
+            plan.n_folds,
             # Stratifying on a dose would ask for folds balanced on a variable whose every
             # value is its own stratum, which caps the fold count at the rarest "class" --
             # one row -- and refuses to split at all. The density's bins are what a
             # continuous treatment stratifies on in spirit, and they are chosen inside
             # fit_conditional_density from the training rows of each fold, so they cannot
-            # be known here without leaking the split into itself.
-            stratify=None if data.is_continuous_treatment else data.treatment,
+            # be known here without leaking the split into itself. `plan.stratify_by` is
+            # empty in exactly that case, so the decision is made once.
+            stratify=data.treatment if plan.stratify_by else None,
             cluster=data.cluster,
-            random_state=self.random_state,
+            random_state=plan.random_state,
         )
 
     def _resolve_learner(
@@ -999,6 +1001,7 @@ class TMLE:
             n_bootstrap=self.n_bootstrap,
             reference_arm=self._reference_arm(data),
             parameter_axis=self._axis,
+            crossfit=self.crossfit_plan(data),
         )
 
     def _warn_on_estimated_weights(self, data: CausalData) -> None:
@@ -1278,6 +1281,42 @@ class TMLE:
             max_iter=self.max_iter,
             tol=self.tol,
             step_size=self.step_size,
+        )
+
+    def crossfit_plan(self, data: CausalData) -> CrossFitPlan:
+        """The fold policy this estimator declared, as one object.
+
+        Recorded on every result via :attr:`TMLEConfig.crossfit`, beside the fold count
+        the fit actually ran.  The two can differ -- ``resolve_n_folds`` caps at the
+        rarest stratum and ``make_folds`` at the cluster count -- and the warnings that
+        say so are gone by the time anyone reads the result.
+
+        Takes ``data`` because two of the fields are answers about it rather than
+        settings: whether clusters were declared, and whether the treatment has strata to
+        balance at all.  Both decisions are made here and in :meth:`_folds`, which is one
+        place too many, so :meth:`_folds` reads them off the plan.
+        """
+        cross_fit = self.cross_fit
+        stratify_by: tuple[str, ...] = (
+            () if data.is_continuous_treatment or not cross_fit else (data.treatment_name,)
+        )
+        clustered = cross_fit and data.cluster is not None
+        if not cross_fit:
+            scheme = "none"
+        elif clustered and stratify_by:
+            scheme = "stratified-grouped"
+        elif clustered:
+            scheme = "grouped"
+        elif stratify_by:
+            scheme = "stratified"
+        else:
+            scheme = "vfold"
+        return CrossFitPlan(
+            n_folds=self.n_folds if cross_fit else 1,
+            learner_folds=self.learner_folds,
+            scheme=scheme,
+            stratify_by=stratify_by,
+            random_state=self.random_state,
         )
 
     def _submodel(
