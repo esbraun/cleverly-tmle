@@ -40,6 +40,7 @@ outcome regression, so use :mod:`cleverly.sensitivity.evalue` for those.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -53,6 +54,7 @@ from ..inference.cluster import influence_variance
 from ..utils.bounds import g_bounds_for
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..estimators._nuisance import RepeatFit
     from ..estimators.base import TMLEResult
 
 __all__ = [
@@ -136,14 +138,64 @@ def sensitivity_elements(
     if estimand not in result.estimates:
         raise ValueError(f"estimand {estimand!r} was not requested in this fit")
 
+    per_repeat = [
+        _elements_for(result, repeat, estimand, nu2_estimator) for repeat in result.repeats
+    ]
+    return _average_elements(per_repeat)
+
+
+def _average_elements(per_repeat: Sequence[SensitivityElements]) -> SensitivityElements:
+    """Average the bound's pieces over the cross-fitting draws.
+
+    Every field is averaged, scalars and per-unit arrays alike, which is the same rule
+    :func:`~cleverly.inference.average_estimates` applies to the estimate itself: the
+    reported bound is the mean of the per-draw bounds, and the curve that goes with it is
+    the mean of theirs.  ``max_bias`` is averaged rather than recomputed from the averaged
+    ``sigma2`` and ``nu2`` for exactly that reason -- ``sqrt`` of the averages is not the
+    average of the ``sqrt``s, and it is the bound that is being reported.
+    """
+    if len(per_repeat) == 1:
+        return per_repeat[0]
+    methods = {elements.nu2_estimator for elements in per_repeat}
+    return SensitivityElements(
+        estimand=per_repeat[0].estimand,
+        sigma2=float(np.mean([e.sigma2 for e in per_repeat])),
+        nu2=float(np.mean([e.nu2 for e in per_repeat])),
+        max_bias=float(np.mean([e.max_bias for e in per_repeat])),
+        psi_sigma2=np.mean([e.psi_sigma2 for e in per_repeat], axis=0),
+        psi_nu2=np.mean([e.psi_nu2 for e in per_repeat], axis=0),
+        psi_max_bias=np.mean([e.psi_max_bias for e in per_repeat], axis=0),
+        riesz_representer=np.mean([e.riesz_representer for e in per_repeat], axis=0),
+        # Named as a mixture rather than as whichever came first when the draws disagree,
+        # which happens only when the doubly-robust nu2 went non-positive on some of them
+        # and fell back. That is a diagnosis of the propensity fit, and hiding it behind
+        # one draw's label would lose it.
+        nu2_estimator=(
+            per_repeat[0].nu2_estimator if len(methods) == 1 else "+".join(sorted(methods))
+        ),
+    )
+
+
+def _elements_for(
+    result: TMLEResult,
+    repeat: RepeatFit,
+    estimand: str,
+    nu2_estimator: str,
+) -> SensitivityElements:
+    """The bound's pieces under one cross-fitting draw.
+
+    Takes the targeted ``Qbar`` and the mechanism from the same
+    :class:`~cleverly.estimators._nuisance.RepeatFit`, which is what makes ``sigma2`` the
+    residual variance of the regression whose propensity ``nu2`` was computed from.
+    """
     data = result.data
-    scaler = result.nuisance.scaler
+    scaler = repeat.nuisance.scaler
     group = "mean" if estimand in ("ate", "ey1", "ey0") else estimand
-    fluctuation = result.fluctuations[group]
+    fluctuation = repeat.fluctuations[group]
     bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
     submodel = build_submodel(
         data,
-        result.nuisance,
+        repeat.nuisance,
         group,
         bounds=bounds,
         nuisance_bound=result.config.missingness_bound,
@@ -151,7 +203,7 @@ def sensitivity_elements(
     )
     # The arm-1 margin: ``_m_alpha`` weights the ATT/ATC contrast by ``g1`` and its
     # complement, which is a two-arm statement -- guarded above.
-    propensity = result.nuisance.bounded_propensity(bounds)[:, result.nuisance.arms.index(1.0)]
+    propensity = repeat.nuisance.bounded_propensity(bounds)[:, repeat.nuisance.arms.index(1.0)]
 
     # sigma^2: residual variance of the targeted outcome regression, on the original
     # outcome scale so the bound is reported in the units the estimate uses.

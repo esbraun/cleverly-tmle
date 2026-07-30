@@ -46,6 +46,7 @@ from ..estimators.base import format_table
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import DataError
+from ..inference.influence import average_estimates
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
 
@@ -124,6 +125,15 @@ class PositivityReport:
     mechanisms: dict[str, dict[str, float]] = field(default_factory=dict)
     nuisance_bound: float = 0.0
     simplex_deviation: float = 0.0
+    #: How many cross-fitting draws the fit averaged over.  Everything above describes the
+    #: **first** of them, and this is here so a reader knows that.  Overlap is a property
+    #: of one fitted mechanism, and averaging ``R`` propensity vectors would produce a
+    #: perfectly good estimate of ``g`` that is nonetheless not the object any reported
+    #: ``psi`` was computed from -- a different aggregation from the one the estimates use,
+    #: under the same heading.  The draws share the data and differ only in the split, so
+    #: their overlap is near identical in practice; when it is not, that is itself worth
+    #: seeing rather than averaging away.
+    n_repeats: int = 1
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame."""
@@ -149,8 +159,13 @@ class PositivityReport:
             "Positivity / overlap diagnostics",
             "-" * 32,
             f"n = {self.n}; propensity truncated to [{self.bounds[0]:.4g}, {self.bounds[1]:.4g}]",
-            "",
         ]
+        if self.n_repeats > 1:
+            lines.append(
+                f"describing draw 1 of {self.n_repeats}: overlap is a property of one "
+                "fitted mechanism, not of the averaged estimate"
+            )
+        lines.append("")
         quantiles = sorted(next(iter(self.propensity_quantiles.values())))
         lines.append(
             format_table(
@@ -351,6 +366,7 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         n=data.n,
         mechanisms=_mechanism_overlap(result),
         nuisance_bound=result.config.missingness_bound,
+        n_repeats=result.n_repeats,
     )
 
 
@@ -432,6 +448,7 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         mechanisms=_mechanism_overlap(result),
         nuisance_bound=result.config.missingness_bound,
         simplex_deviation=float(np.max(np.abs(bounded.sum(axis=1) - 1.0))),
+        n_repeats=result.n_repeats,
     )
 
 
@@ -605,14 +622,25 @@ def truncation_curve(
         if not 0.0 < lower < 0.5:
             raise ValueError(f"truncation bounds must lie in (0, 0.5); got {lower}")
         pair = (lower, 1.0 - lower)
-        estimates, _ = estimator.retarget(
-            result.data,
-            result.nuisance,
-            estimands=names,
-            intermediate_value=result.intermediate_value,
-            g_bounds=None if mechanism else pair,
-            g_bounds_conditional=None if mechanism else pair,
-            nuisance_bound=lower if mechanism else None,
+        # Every draw, then averaged the way the fit averaged them. Sweeping one draw and
+        # calling the answer the fit's would compare a bound's effect on one split against
+        # a reported estimate that came from R -- and the difference between the two curves
+        # would read as sensitivity to the bound. Costs R times the sweep, which is still a
+        # fraction of one refit.
+        estimates = average_estimates(
+            [
+                estimator.retarget(
+                    result.data,
+                    repeat.nuisance,
+                    estimands=names,
+                    intermediate_value=result.intermediate_value,
+                    g_bounds=None if mechanism else pair,
+                    g_bounds_conditional=None if mechanism else pair,
+                    nuisance_bound=lower if mechanism else None,
+                )[0]
+                for repeat in result.repeats
+            ],
+            cluster=result.data.cluster,
         )
         for name, estimate in estimates.items():
             low, high = estimate.ci

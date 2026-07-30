@@ -78,6 +78,13 @@ class NuisanceDiagnostics:
     """Out-of-fold fit quality for every nuisance model in a TMLE fit."""
 
     models: tuple[NuisanceModelReport, ...]
+    #: How many cross-fitting draws the fit averaged over.  The reports above describe the
+    #: **first** draw, for the reason
+    #: :attr:`~cleverly.sensitivity.PositivityReport.n_repeats` gives: a model's
+    #: out-of-fold calibration is a property of that model, and one fitted under a
+    #: different split is a different model rather than another measurement of the same
+    #: one.  Averaging their AUCs would report a number no model achieved.
+    n_repeats: int = 1
 
     def __getitem__(self, name: str) -> NuisanceModelReport:
         for model in self.models:
@@ -116,11 +123,15 @@ class NuisanceDiagnostics:
         lines = [
             "Nuisance model diagnostics (out of fold)",
             "-" * 40,
+        ]
+        if self.n_repeats > 1:
+            lines.append(f"describing draw 1 of {self.n_repeats}; each draw fits its own models")
+        lines.append(
             format_table(
                 ["model", "auc", "brier", "log_loss", "r2", "mse", "cal_slope"],
                 [model.row() for model in self.models],
-            ),
-        ]
+            )
+        )
         for model in self.models:
             if not model.learner_weights:
                 continue
@@ -269,7 +280,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 mask=data.observed,
             )
         )
-    return NuisanceDiagnostics(models=tuple(models))
+    return NuisanceDiagnostics(models=tuple(models), n_repeats=result.n_repeats)
 
 
 def _aggregate_learner_info(
