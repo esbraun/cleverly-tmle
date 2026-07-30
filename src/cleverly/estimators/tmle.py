@@ -680,6 +680,11 @@ class TMLE:
         """
         if regimes is not None:
             return regimes.reference
+        if self.interventions:
+            # Resolved from the regime *names* rather than from an evaluated RegimeSet,
+            # so the config -- built before any nuisance is fitted -- can record it, and
+            # so a mistyped reference fails before the fitting rather than after it.
+            return self._reference_regime()
         if self.reference is None:
             return data.arm_codes[0]
         labels = list(data.treatment_levels)
@@ -769,6 +774,15 @@ class TMLE:
             return None
         reference = None if self.reference is None else str(self.reference)
         return RegimeSet.evaluate(self.interventions, data, reference=reference)
+
+    def _reference_regime(self) -> float:
+        """The regime code contrasts are taken against, from ``reference=`` and the names."""
+        names = [intervention.name for intervention in self.interventions]
+        if self.reference is None:
+            return 0.0
+        if str(self.reference) not in names:
+            raise DataError(f"reference={self.reference!r} is not one of the regimes {names}")
+        return float(names.index(str(self.reference)))
 
     def _nuisances(
         self,

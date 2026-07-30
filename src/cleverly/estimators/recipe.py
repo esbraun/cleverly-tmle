@@ -66,6 +66,10 @@ SETTING_NAMES: tuple[str, ...] = (
     "n_jobs",
 )
 
+#: Constructor arguments handled by hand rather than by :func:`_jsonable`, so that
+#: :func:`_subclass_settings` does not pick them up and try.
+_HANDLED_ELSEWHERE: frozenset[str] = frozenset({"interventions"})
+
 
 def _is_specification(value: Any) -> bool:
     """Is this a library name or list of names, rather than a fitted estimator?"""
@@ -92,6 +96,13 @@ class TMLERecipe:
 
     settings: dict[str, Any]
     learners: dict[str, Any]
+    #: The declared regimes, as ``{"level": ..., "name": ...}`` -- but only when every
+    #: one of them is :class:`~cleverly.interventions.Static`.  A ``Rule`` or a
+    #: ``Stochastic`` regime holds a *callable*, which no recipe can describe, so such a
+    #: fit is recorded as unreconstructible on the same terms as a fitted learner: the
+    #: numbers a result already carries are unaffected, and only the analyses that refit
+    #: need the estimator back.
+    interventions: list[dict[str, Any]] = field(default_factory=list)
     learners_reconstructible: bool = True
     unreconstructible_slots: tuple[str, ...] = ()
     class_name: str = "TMLE"
@@ -115,9 +126,13 @@ class TMLERecipe:
             else:
                 unreconstructible.append(slot)
                 learners[slot] = None
+        interventions = _interventions_to(getattr(estimator, "interventions", ()))
+        if interventions is None:
+            unreconstructible.append("interventions")
         return cls(
             settings=settings,
             learners=learners,
+            interventions=interventions or [],
             learners_reconstructible=not unreconstructible,
             unreconstructible_slots=tuple(unreconstructible),
             class_name=type(estimator).__name__,
@@ -133,25 +148,34 @@ class TMLERecipe:
         that looks right and is not the one that made these numbers.
         """
         if not self.learners_reconstructible:
+            slots = ", ".join(self.unreconstructible_slots)
+            held = (
+                "a rule or a stochastic density, which is a callable"
+                if self.unreconstructible_slots == ("interventions",)
+                else "a scikit-learn estimator rather than a library name"
+            )
             raise ValueError(
-                f"this result's {', '.join(self.unreconstructible_slots)} held a "
-                "scikit-learn estimator rather than a library name, so the estimator "
-                "cannot be rebuilt from the recipe. Everything reached through "
-                "retarget() -- positivity, truncation curves, the score check, the "
-                "bootstrap -- works without it; only refit-based analyses (refute, "
-                "benchmark) need the original estimator object."
+                f"this result's {slots} held {held}, so the estimator cannot be rebuilt "
+                "from the recipe. Everything reached through retarget() -- positivity, "
+                "truncation curves, the score check, the bootstrap -- works without it, "
+                "because the evaluated regime densities are stored with the nuisances; "
+                "only refit-based analyses (refute, benchmark) need the original "
+                "estimator object."
             )
         module = __import__(self.class_module, fromlist=[self.class_name])
         klass = getattr(module, self.class_name)
         kwargs = {**self.settings, **self.extra_settings}
         kwargs = {key: _restore(key, value) for key, value in kwargs.items()}
         kwargs.update({slot: self.learners[slot] for slot in LEARNER_SLOTS})
+        if self.interventions:
+            kwargs["interventions"] = _interventions_from(self.interventions)
         return klass(**kwargs)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "settings": self.settings,
             "learners": self.learners,
+            "interventions": self.interventions,
             "learners_reconstructible": self.learners_reconstructible,
             "unreconstructible_slots": list(self.unreconstructible_slots),
             "class_name": self.class_name,
@@ -164,6 +188,7 @@ class TMLERecipe:
         return cls(
             settings=payload["settings"],
             learners=payload["learners"],
+            interventions=payload.get("interventions", []),
             learners_reconstructible=payload["learners_reconstructible"],
             unreconstructible_slots=tuple(payload.get("unreconstructible_slots", ())),
             class_name=payload.get("class_name", "TMLE"),
@@ -188,11 +213,29 @@ def _restore(key: str, value: Any) -> Any:
     return value
 
 
+def _interventions_to(interventions: Any) -> list[dict[str, Any]] | None:
+    """The declared regimes as JSON, or ``None`` when one of them holds a callable."""
+    from ..interventions import Static
+
+    recorded: list[dict[str, Any]] = []
+    for intervention in interventions or ():
+        if not isinstance(intervention, Static):
+            return None
+        recorded.append({"level": _jsonable(intervention.level), "name": intervention.name})
+    return recorded
+
+
+def _interventions_from(recorded: list[dict[str, Any]]) -> tuple[Any, ...]:
+    from ..interventions import Static
+
+    return tuple(Static(item["level"], name=item["name"]) for item in recorded)
+
+
 def _subclass_settings(estimator: TMLE) -> dict[str, Any]:
     """Constructor arguments a subclass added, found by inspecting its signature."""
     import inspect
 
-    known = set(SETTING_NAMES) | set(LEARNER_SLOTS)
+    known = set(SETTING_NAMES) | set(LEARNER_SLOTS) | _HANDLED_ELSEWHERE
     try:
         parameters = inspect.signature(type(estimator).__init__).parameters
     except (TypeError, ValueError):  # pragma: no cover - builtins only
