@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from collections.abc import Sequence
+
     from .data.causal_data import CausalData
     from .learners.crossfit import Folds
 
@@ -81,6 +83,10 @@ class Provenance:
         ``random_state`` because folds are *not* recoverable from a seed alone --
         they also depend on row order, on the stratification variable, and on the
         scikit-learn version that generated them.
+
+        Under ``repeats=R`` this covers *every* draw, in fit order.  A repeated fit is
+        reproducible only if all ``R`` splits are, so a digest of one of them would be
+        stating a guarantee the fit does not make.
     """
 
     cleverly_version: str
@@ -116,13 +122,20 @@ class Provenance:
 
 def record(
     data: CausalData,
-    folds: Folds,
+    folds: Folds | Sequence[Folds],
     *,
     random_state: int | None = None,
     run_id: str | None = None,
 ) -> Provenance:
-    """Build the provenance record for one fit."""
+    """Build the provenance record for one fit.
+
+    ``folds`` may be a single split or, under repeated cross-fitting, every draw in fit
+    order -- all of which go into the one ``fold_fingerprint``.
+    """
     from ._version import __version__
+    from .learners.crossfit import Folds as _Folds
+
+    draws = [folds] if isinstance(folds, _Folds) else list(folds)
 
     return Provenance(
         cleverly_version=__version__,
@@ -133,7 +146,7 @@ def record(
         n_covariates=len(data.covariate_names),
         n_clusters=None if data.cluster is None else int(np.unique(data.cluster).size),
         data_fingerprint=fingerprint_array(data.outcome, data.treatment, data.covariates),
-        fold_fingerprint=fingerprint_array(folds.assignment),
+        fold_fingerprint=fingerprint_array(*(draw.assignment for draw in draws)),
         random_state=random_state,
         run_id=run_id,
         package_versions={

@@ -204,7 +204,11 @@ class TestFoldInvariants:
 
 
 class TestRefusedSchemes:
-    """Four schemes, four different reasons -- which is why they are named separately."""
+    """Three schemes, three different reasons -- which is why they are named separately.
+
+    Plus one that is no longer refused at all: ``"repeated"`` shipped as ``repeats=``, and
+    the branch survives only to say it was never a scheme.
+    """
 
     def test_blocked_temporal_names_the_missing_ordering(self) -> None:
         with pytest.raises(NotImplementedError, match="no node carries a time index"):
@@ -217,9 +221,13 @@ class TestRefusedSchemes:
         with pytest.raises(NotImplementedError, match="different storage contract"):
             refuse_scheme("rolling_origin")
 
-    def test_repeated_names_the_plumbing_rather_than_the_derivation(self) -> None:
-        with pytest.raises(NotImplementedError, match="aggregation is not the obstacle"):
+    def test_repeated_is_redirected_rather_than_refused(self) -> None:
+        # A ValueError rather than NotImplementedError, and that is the whole point: the
+        # feature exists, so the caller is pointed at repeats= rather than told to wait.
+        with pytest.raises(ValueError, match="is not a scheme") as excinfo:
             refuse_scheme("repeated")
+        assert not isinstance(excinfo.value, NotImplementedError)
+        assert "repeats=" in str(excinfo.value)
 
     def test_splitting_a_cluster_to_buy_more_folds_is_refused(self) -> None:
         with pytest.raises(ValueError, match="reduce n_folds, not to unfuse them"):
@@ -245,6 +253,34 @@ class TestCrossFitPlan:
         plan = CrossFitPlan(n_folds=5, scheme="grouped", stratify_by=("A",))
         assert plan.describe() == "declared: 5-fold grouped stratified on A"
         assert "no cross-fitting" in CrossFitPlan(n_folds=1).describe()
+
+    def test_describe_names_the_repeat_count_only_when_there_is_one(self) -> None:
+        # An ordinary fit's line must not grow a clause saying "averaged over 1 draw":
+        # a line that always appears is a line nobody reads.
+        assert "draws" not in CrossFitPlan(n_folds=5, scheme="vfold").describe()
+        assert CrossFitPlan(n_folds=5, scheme="vfold", repeats=4).describe() == (
+            "declared: 5-fold vfold, averaged over 4 draws"
+        )
+
+    def test_one_repeat_passes_the_seed_straight_through(self) -> None:
+        # The bit-for-bit guarantee rests on this: spawning from SeedSequence would give
+        # repeats=1 a *different* seed from no repeats at all, and every fold assignment
+        # would move.
+        assert CrossFitPlan(random_state=7).seeds() == (7,)
+        assert CrossFitPlan(random_state=None).seeds() == (None,)
+
+    def test_repeats_get_distinct_reproducible_seeds(self) -> None:
+        seeds = CrossFitPlan(random_state=7, repeats=4).seeds()
+        assert len(seeds) == 4
+        assert len(set(seeds)) == 4
+        assert seeds == CrossFitPlan(random_state=7, repeats=4).seeds()
+        assert seeds != CrossFitPlan(random_state=8, repeats=4).seeds()
+
+    def test_unseeded_repeats_stay_unseeded(self) -> None:
+        # None per draw rather than invented seeds: make_folds always shuffles, so the
+        # draws differ anyway, and pinning them would promise a reproducibility the
+        # caller declined by passing random_state=None.
+        assert CrossFitPlan(random_state=None, repeats=3).seeds() == (None, None, None)
 
 
 class TestTheDeclaredPlanIsRecordedOnAFit:

@@ -37,6 +37,8 @@ statement of :math:`\Psi(P_w)`.
 
 from __future__ import annotations
 
+import warnings
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, NamedTuple
 
@@ -55,6 +57,7 @@ __all__ = [
     "Scale",
     "atc_estimate",
     "att_estimate",
+    "average_estimates",
     "counterfactual_mean_parts",
     "counterfactual_means",
     "make_estimate",
@@ -214,6 +217,95 @@ def make_estimate(
         alpha=alpha,
         log_psi=log_psi,
     )
+
+
+def average_estimates(
+    per_repeat: Sequence[Mapping[str, ParameterEstimate]],
+    *,
+    cluster: IntArray | None = None,
+) -> dict[str, ParameterEstimate]:
+    r"""Average estimates from repeated cross-fitting into one.
+
+    Each entry of ``per_repeat`` is the report from one independent draw of the whole
+    cross-fitting split.  Every row is out of fold in every draw, so the average
+
+    .. math:: \bar\psi = \frac{1}{R}\sum_r \psi_r
+
+    is the same functional of the same data with the fold noise averaged down, and its
+    influence curve is :math:`\frac{1}{R}\sum_r \mathrm{IC}_r`.  The variance is then
+    recomputed from that averaged curve rather than pooled from the per-draw variances,
+    which is what keeps the reported variance the variance *of the reported curve* -- and
+    with it the delta method, the cluster-robust variance, the simultaneous bands and the
+    score diagnostic, all of which read the curve and not the variance.
+
+    Not to be confused with :func:`~cleverly.estimators.tmle._average_over_folds`, which
+    also averages a report but along the other axis and by a different rule.  Folds are
+    **stitched** by index -- a row appears in exactly one validation fold, so its curve
+    has exactly one fold-specific value.  Repeats are **averaged** elementwise -- a row
+    appears in every repeat, so it has :math:`R` of them.  Unifying the two would have to
+    get that difference wrong in one direction or the other.
+
+    Ratios average on the log scale, where their influence curve and Wald interval live,
+    so ``psi == exp(log_psi)`` holds and :attr:`ParameterEstimate.ci` stays on the
+    boundary-respecting scale.
+
+    Parameters
+    ----------
+    per_repeat:
+        One mapping per draw.  A one-element sequence returns its input unchanged, so an
+        ordinary fit is untouched by the averaging path.
+    cluster:
+        Cluster codes, so the variance of the averaged curve is taken at the independent
+        sampling unit exactly as a single fit's is.
+
+    The confidence level is not a parameter here: every draw was produced by the same
+    ``retarget`` call under the same ``alpha_sig``, so it is carried through from the
+    per-draw estimates rather than re-declared at the point of averaging, where a
+    disagreeing value could only be a mistake.
+    """
+    if not per_repeat:
+        raise ValueError("average_estimates needs at least one repeat to average")
+    if len(per_repeat) == 1:
+        return dict(per_repeat[0])
+
+    shared = [name for name in per_repeat[0] if all(name in report for report in per_repeat)]
+    dropped = [name for name in per_repeat[0] if name not in shared]
+    if dropped:
+        # Silence here would report an average over a subset of the draws under the same
+        # name as an average over all of them.
+        warnings.warn(
+            f"{', '.join(dropped)} was estimated in some cross-fitting repeats but not "
+            "in all of them -- a draw whose targeting step failed, or a fold with no "
+            "units in the conditioning arm -- so it is omitted from the averaged report "
+            "rather than averaged over fewer draws than the rest.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    out: dict[str, ParameterEstimate] = {}
+    for name in shared:
+        parts = [report[name] for report in per_repeat]
+        influence_curve = np.mean(
+            [np.asarray(part.influence_curve, dtype=float) for part in parts], axis=0
+        )
+        scale = parts[0].scale
+        log_psi: float | None = None
+        if scale == "ratio":
+            log_psi = float(np.mean([part.log_psi for part in parts]))
+            psi = float(np.exp(log_psi))
+        else:
+            psi = float(np.mean([part.psi for part in parts]))
+        out[name] = make_estimate(
+            name,
+            psi,
+            influence_curve,
+            n=parts[0].n,
+            cluster=cluster,
+            scale=scale,
+            alpha=parts[0].alpha,
+            log_psi=log_psi,
+        )
+    return out
 
 
 def _residual(outcome: FloatArray, targeted: InitialFit, observed: BoolArray | None) -> FloatArray:

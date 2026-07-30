@@ -237,30 +237,36 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
         default=1.0,
     )
 
-    for group, fluctuation in result.fluctuations.items():
-        threshold = tolerance * reference_se / np.sqrt(n)
-        score = fluctuation.score_norm
-        rows.append(
-            ScoreCheckRow(
-                name=group,
-                kind="fluctuation",
-                score=score,
-                threshold=float(threshold),
-                std_error=float(reference_se),
-                passed=bool(score <= threshold),
-                converged=fluctuation.converged,
-                n_iter=fluctuation.n_iter,
-                method=fluctuation.method,
-                score_initial=fluctuation.initial_score_norm,
-                failure=fluctuation.failure or "",
-                hessian_condition=fluctuation.hessian_condition,
-                folds_converged=(
-                    (sum(f.converged for f in fluctuation.folds), len(fluctuation.folds))
-                    if fluctuation.folds
-                    else None
-                ),
+    # Every draw's fluctuation, not just the first. Each solved its own score equation,
+    # and a draw whose Newton step failed contributes to the reported estimate exactly as
+    # the others do -- checking one of R would let that failure through silently. The row
+    # name carries the draw index only when there is more than one, so an ordinary fit's
+    # report is unchanged.
+    for index, repeat in enumerate(result.repeats):
+        for group, fluctuation in repeat.fluctuations.items():
+            threshold = tolerance * reference_se / np.sqrt(n)
+            score = fluctuation.score_norm
+            rows.append(
+                ScoreCheckRow(
+                    name=group if result.n_repeats == 1 else f"{group}[draw {index}]",
+                    kind="fluctuation",
+                    score=score,
+                    threshold=float(threshold),
+                    std_error=float(reference_se),
+                    passed=bool(score <= threshold),
+                    converged=fluctuation.converged,
+                    n_iter=fluctuation.n_iter,
+                    method=fluctuation.method,
+                    score_initial=fluctuation.initial_score_norm,
+                    failure=fluctuation.failure or "",
+                    hessian_condition=fluctuation.hessian_condition,
+                    folds_converged=(
+                        (sum(f.converged for f in fluctuation.folds), len(fluctuation.folds))
+                        if fluctuation.folds
+                        else None
+                    ),
+                )
             )
-        )
 
     for name, estimate in result.estimates.items():
         threshold = tolerance * estimate.std_error / np.sqrt(n)

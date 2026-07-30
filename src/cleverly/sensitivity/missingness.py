@@ -48,6 +48,7 @@ from ..inference.delta import normal_ci
 from ..utils.bounds import expit, logit
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..estimators._nuisance import RepeatFit
     from ..estimators.base import TMLEResult
 
 __all__ = ["DEFAULT_GAMMA_GRID", "missingness_tilt", "tipping_gamma"]
@@ -105,9 +106,8 @@ def missingness_tilt(
             "Extending it means deciding whether gamma is shared across arms or per arm, "
             "which is a modelling choice this function should not make silently."
         )
-    nuisance = result.nuisance
-    missingness = nuisance.bounded_missingness(result.config.missingness_bound)
-    assert missingness is not None
+    if result.nuisance.missingness is None:  # pragma: no cover - guarded above
+        raise ValueError("missingness_tilt requires a fitted missingness mechanism")
 
     names = tuple(
         name
@@ -118,37 +118,20 @@ def missingness_tilt(
         raise ValueError("no tiltable estimands requested; the tilt applies to ate/att/atc/ey1/ey0")
 
     grid = tuple(DEFAULT_GAMMA_GRID if gamma is None else (float(g) for g in gamma))
-    scaler = nuisance.scaler
-    weights = data.weights
-    treated = data.treatment
 
     rows: list[dict[str, Any]] = []
     for value in grid:
         for name in names:
-            group = "mean" if name in ("ate", "ey1", "ey0") else name
-            targeted = result.fluctuations[group].targeted
-            full_one = _tilted(targeted.arms[1.0], missingness[:, 1], value)
-            full_zero = _tilted(targeted.arms[0.0], missingness[:, 0], value)
-
-            if name == "ey1":
-                psi_scaled = float(np.average(full_one, weights=weights))
-                psi = scaler.unscale_level(psi_scaled) if not scaler.is_identity else psi_scaled
-            elif name == "ey0":
-                psi_scaled = float(np.average(full_zero, weights=weights))
-                psi = scaler.unscale_level(psi_scaled) if not scaler.is_identity else psi_scaled
-            else:
-                contrast = full_one - full_zero
-                if name == "ate":
-                    psi_scaled = float(np.average(contrast, weights=weights))
-                else:
-                    # The ATT and ATC average the contrast over one arm only, so the arm
-                    # indicator multiplies the observation weights.
-                    indicator = treated if name == "att" else 1.0 - treated
-                    psi_scaled = float(np.average(contrast, weights=weights * indicator))
-                psi = (
-                    scaler.unscale_difference(psi_scaled) if not scaler.is_identity else psi_scaled
-                )
-
+            # Averaged over the cross-fitting draws, as the fit's own report was. Each
+            # draw has its own targeted Qbar and its own missingness mechanism, and the
+            # tilt is a function of both, so a tilt read off one draw would sit at a
+            # different level from the psi at gamma = 0 that the fit reported -- the curve
+            # would step at its own origin. Every estimand here is a level or a
+            # difference, so the plain mean is the right average; there is no ratio to
+            # take on the log scale.
+            psi = float(
+                np.mean([_tilted_psi(result, repeat, name, value) for repeat in result.repeats])
+            )
             std_error = result[name].std_error
             low, high = normal_ci(psi, std_error, result.config.alpha_sig)
             rows.append(
@@ -165,6 +148,40 @@ def missingness_tilt(
 
     payload = {key: [row[key] for row in rows] for key in rows[0]}
     return data.frame_like(payload)
+
+
+def _tilted_psi(result: TMLEResult, repeat: RepeatFit, name: str, gamma: float) -> float:
+    """One estimand under one cross-fitting draw, at tilt ``gamma``.
+
+    Reads the targeted ``Qbar`` and the missingness mechanism from the *same* draw, which
+    is the whole reason :class:`~cleverly.estimators._nuisance.RepeatFit` holds them
+    together: mixing one draw's regression with another's mechanism would produce a
+    perfectly plausible number for a fit that never happened.
+    """
+    data = result.data
+    scaler = repeat.nuisance.scaler
+    missingness = repeat.nuisance.bounded_missingness(result.config.missingness_bound)
+    assert missingness is not None
+    weights = data.weights
+
+    group = "mean" if name in ("ate", "ey1", "ey0") else name
+    targeted = repeat.fluctuations[group].targeted
+    full_one = _tilted(targeted.arms[1.0], missingness[:, 1], gamma)
+    full_zero = _tilted(targeted.arms[0.0], missingness[:, 0], gamma)
+
+    if name in ("ey1", "ey0"):
+        psi_scaled = float(np.average(full_one if name == "ey1" else full_zero, weights=weights))
+        return scaler.unscale_level(psi_scaled) if not scaler.is_identity else psi_scaled
+
+    contrast = full_one - full_zero
+    if name == "ate":
+        psi_scaled = float(np.average(contrast, weights=weights))
+    else:
+        # The ATT and ATC average the contrast over one arm only, so the arm indicator
+        # multiplies the observation weights.
+        indicator = data.treatment if name == "att" else 1.0 - data.treatment
+        psi_scaled = float(np.average(contrast, weights=weights * indicator))
+    return scaler.unscale_difference(psi_scaled) if not scaler.is_identity else psi_scaled
 
 
 def _tilted(targeted: FloatArray, observed_probability: FloatArray, gamma: float) -> FloatArray:
