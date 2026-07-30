@@ -19,6 +19,7 @@ from cleverly.datasets import (
     binary_outcome_dgp,
     cde_dgp,
     clustered_dgp,
+    heterogeneous_dgp,
     instrument_dgp,
     linear_dgp,
     make_binary_outcome,
@@ -58,6 +59,34 @@ class TestTruth:
         # subpopulations must have different average effects.
         assert truth["att"] != pytest.approx(truth["atc"], abs=1e-3)
         assert min(truth["att"], truth["atc"]) < truth["ate"] < max(truth["att"], truth["atc"])
+
+    def test_the_heterogeneous_process_orders_the_contrasts_in_a_known_direction(self) -> None:
+        """``att > ate > atc``, in that order, by a margin no sampling error can cross.
+
+        The check above says the three contrasts differ; it does not say which is which,
+        so it passes for an estimator that conditions on the wrong arm.  Here the
+        conditional effect and the propensity both increase in ``W1``, so the treated are
+        drawn from the covariate values where the effect is larger and the ordering is
+        fixed in advance by :math:`\\operatorname{Cov}(\\tau, g) > 0`.
+        """
+        truth = heterogeneous_dgp().truth()
+        assert truth["att"] > truth["ate"] > truth["atc"]
+        assert min(truth["att"] - truth["ate"], truth["ate"] - truth["atc"]) > 0.5
+        # E[tau(W)] = 1 + slope * E[W1] = 1, in closed form.
+        assert truth["ate"] == pytest.approx(1.0, abs=1e-3)
+
+    def test_the_heterogeneous_ordering_is_produced_by_the_covariance(self) -> None:
+        # Not a coincidence of the coefficients: recompute ATT and ATC from the defining
+        # ratios by plain Monte Carlo and confirm they bracket the ATE the same way.
+        dgp = heterogeneous_dgp()
+        rng = np.random.default_rng(11)
+        latent = rng.normal(size=(400_000, dgp.n_latent))
+        g = dgp.propensity(latent)
+        tau = dgp.outcome_mean(latent, 1.0, None) - dgp.outcome_mean(latent, 0.0, None)
+        assert np.cov(tau, g)[0, 1] > 0.1
+        truth = dgp.truth()
+        assert truth["att"] == pytest.approx(float(np.average(tau, weights=g)), abs=0.01)
+        assert truth["atc"] == pytest.approx(float(np.average(tau, weights=1.0 - g)), abs=0.01)
 
     def test_quasi_monte_carlo_agrees_with_plain_monte_carlo(self) -> None:
         dgp = nonlinear_dgp()

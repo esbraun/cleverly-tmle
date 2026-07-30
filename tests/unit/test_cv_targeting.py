@@ -158,6 +158,81 @@ class TestCrossValidatedVariance:
             cross_validated_variance(ic, index), rel=1e-12
         )
 
+    def test_unequal_folds_weight_each_fold_equally_not_each_row(self) -> None:
+        r"""``1/V``, not ``n_v/n`` -- and on unequal folds the two are different numbers.
+
+        Every other test of this function uses folds that divide the sample evenly, where
+        the two weightings coincide and the choice is invisible.  Zheng & van der Laan
+        average the folds, so a fold of two rows counts as much as a fold of six; the
+        row-weighted alternative collapses to ``mean(IC**2) / n``, which is a different
+        estimator and the one a reader would probably assume.  Pinning the difference is
+        what stops the weighting being "optimised" into the other one later.
+        """
+        ic = np.array([0.1, -0.1, 0.2, -0.2, 0.15, -0.15, 3.0, -3.0, 2.5, -2.5])
+        index = [np.arange(6), np.array([6, 7]), np.array([8, 9])]
+
+        by_fold = float(np.mean([np.mean(ic[test] ** 2) for test in index]) / 10)
+        by_row = float(np.mean(ic**2) / 10)
+        assert cross_validated_variance(ic, index) == pytest.approx(by_fold, rel=1e-12)
+        # Not a rounding difference: the small fold holds six of the ten rows but only a
+        # third of the weight, so the two answers differ by two thirds.
+        assert by_fold > 1.6 * by_row
+
+    def test_it_matches_a_longhand_cluster_aware_loop(self) -> None:
+        """Real clusters, not the singleton degenerate case.
+
+        With several observations per cluster the fold contribution is the mean squared
+        *cluster sum* rather than the mean squared row, and the ``n_clusters / n**2``
+        scaling replaces ``1 / n``.  The singleton test above cannot see either, because
+        both reduce to the unclustered form when every cluster has one member.
+        """
+        rng = np.random.default_rng(23)
+        cluster = np.repeat(np.arange(10), 4)
+        # A shared per-cluster component, so the rows inside a cluster really are
+        # dependent and the cluster-robust form has something to correct for.
+        ic = np.repeat(rng.normal(size=10), 4) + 0.3 * rng.normal(size=40)
+        index = [np.arange(40).reshape(10, 4)[k::5].reshape(-1) for k in range(5)]
+
+        moments = []
+        for test in index:
+            codes = cluster[test]
+            sums = [ic[test][codes == code].sum() for code in np.unique(codes)]
+            moments.append(float(np.mean(np.square(sums))))
+        expected = 10 * float(np.mean(moments)) / 40**2
+        assert cross_validated_variance(ic, index, cluster) == pytest.approx(expected, rel=1e-12)
+
+    def test_ignoring_real_clusters_understates_the_variance(self) -> None:
+        # Teeth for the test above: if the clustered and unclustered forms happened to
+        # agree on this input, matching the longhand loop would prove very little.
+        rng = np.random.default_rng(24)
+        cluster = np.repeat(np.arange(10), 4)
+        ic = np.repeat(rng.normal(size=10), 4) + 0.3 * rng.normal(size=40)
+        index = [np.arange(40).reshape(10, 4)[k::5].reshape(-1) for k in range(5)]
+        clustered = cross_validated_variance(ic, index, cluster)
+        naive = cross_validated_variance(ic, index)
+        assert clustered > 2.0 * naive
+
+    def test_splitting_a_cluster_across_folds_understates_it_too(self) -> None:
+        """Why folds have to respect clusters, stated as a number rather than advice.
+
+        The function sums within a cluster *inside each fold*, which is the only thing it
+        can do -- it sees one fold at a time.  So a cluster split across folds contributes
+        several small partial sums instead of one large one, and the dependence it was
+        meant to capture is discarded exactly in proportion to how finely it was split.
+        Fold construction is the caller's job (:func:`~cleverly.learners.crossfit.make_folds`
+        takes ``groups=``), and this is what neglecting it costs.
+        """
+        rng = np.random.default_rng(25)
+        cluster = np.repeat(np.arange(10), 4)
+        ic = np.repeat(rng.normal(size=10), 4) + 0.3 * rng.normal(size=40)
+        whole = [np.arange(40).reshape(10, 4)[k::5].reshape(-1) for k in range(5)]
+        # The same five folds, but assigned round-robin by row, so every cluster is
+        # spread across all of them.
+        shredded = [np.arange(40)[k::5] for k in range(5)]
+        assert cross_validated_variance(ic, whole, cluster) > 2.0 * cross_validated_variance(
+            ic, shredded, cluster
+        )
+
 
 class TestCanonicalEvaluation:
     """Fold-wise evaluation is a different estimator, not a different view of one.
@@ -281,6 +356,57 @@ def _fake_estimate(name: str, psi: float, ic: np.ndarray) -> object:
     return ParameterEstimate(
         name=name, psi=psi, influence_curve=ic, variance=1.0, n=ic.size, n_clusters=ic.size
     )
+
+
+class TestWhichVarianceIsTheInferentialOne:
+    """Which number the interval is built from, asserted rather than left to the prose.
+
+    The package reports two variances for a fold-targeted fit and the README says which is
+    headline; nothing checked that the code agreed.  The distinction matters because they
+    are variances of two different estimators: the pooled one is the sample variance of the
+    stitched influence curve, the canonical one is the fold-averaged uncentred second
+    moment that Zheng & van der Laan pair with fold-wise evaluation.  Mixing them -- a
+    canonical point estimate with a pooled standard error, or the reverse -- would be
+    wrong in a way no coverage study at one sample size would reliably catch.
+    """
+
+    def test_the_pooled_report_uses_the_stitched_influence_curve(self, pooled_report) -> None:
+        for name, estimate in pooled_report.estimates.items():
+            expected = influence_variance(estimate.influence_curve, pooled_report.data.cluster)
+            assert estimate.variance == pytest.approx(expected, rel=1e-12), name
+
+    def test_the_canonical_report_uses_the_cross_validated_variance(self, canonical_report) -> None:
+        folds = [record.index for record in canonical_report.fluctuations["mean"].folds]
+        for name in LINEAR:
+            estimate = canonical_report[name]
+            expected = cross_validated_variance(
+                estimate.influence_curve, folds, canonical_report.data.cluster
+            )
+            assert estimate.variance == pytest.approx(expected, rel=1e-12), name
+
+    def test_the_two_variances_are_not_interchangeable(
+        self, pooled_report, canonical_report
+    ) -> None:
+        # They estimate the same quantity, so they are close; they are computed from
+        # different curves by different formulas, so they are not equal. If they came out
+        # identical, the two tests above would not be distinguishing anything.
+        differs = 0
+        for name in ALL_BINARY:
+            pooled = pooled_report[name].variance
+            canonical = canonical_report[name].variance
+            assert canonical == pytest.approx(pooled, rel=0.05), name
+            differs += canonical != pooled
+        assert differs == len(ALL_BINARY)
+
+    def test_a_pooled_fit_reports_no_cross_validated_variance_as_headline(
+        self, pooled_report
+    ) -> None:
+        # The headline standard error of a fold-targeted-but-pooled-evaluation fit must be
+        # the pooled one, even though the cross-validated number is computed and kept.
+        cv = pooled_report.cv_targeting
+        for name, estimate in pooled_report.estimates.items():
+            assert estimate.std_error == pytest.approx(cv.pooled[name].std_error, rel=1e-12)
+            assert estimate.variance != cv.variance[name]
 
 
 class TestCVTargetingReport:

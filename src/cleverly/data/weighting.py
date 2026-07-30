@@ -174,6 +174,28 @@ selection mechanism.  There the honest options are a bootstrap that re-derives t
 weights inside each replicate (which this library's bootstrap does *not* do: it resamples
 rows and renormalises the weights it was given), or a design-based package.
 
+Four things called "weights", and which of them differ
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The names in circulation suggest four distinct modes.  They are not four:
+
+**Fixed analytic weights**, **sampling (design, inverse-probability, calibrated) weights**
+and **estimated weights** all define the *same* estimand -- :math:`\Psi(P_w)` on the tilted
+law :math:`dP_w = w\,dP/E[w]` -- and are estimated by the same arithmetic.  Where they
+differ is only in what the interval conditions on.  For the first two the weight is a known
+function of the row, so nothing extra is random and the variance above is complete.  For the
+third the weight came out of a fitted model, and the interval is *conditional on that fit*:
+the section immediately above says why dropping the :math:`\hat\pi` term is conservative
+under a likelihood-based selection model and not guaranteed otherwise.  There is no
+separate code path and there should not be one; ``weights_type=`` therefore does not
+distinguish them, and ``weights_estimated=`` records the distinction that does exist.
+
+**Frequency (count) weights** are the odd one out, and they are refused -- they change what
+:math:`n` means rather than which population is targeted.  See below.
+
+**Replicate weights** (BRR, jackknife) are refused too, for a different reason again: they
+are a set of designs rather than one weight vector, so there is no single tilt to estimate.
+
 Complex survey designs
 ^^^^^^^^^^^^^^^^^^^^^^
 

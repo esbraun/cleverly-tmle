@@ -105,6 +105,18 @@ model as given, so it does not include the variability the selection itself cont
 and is mildly anti-conservative as a result. Pass `n_bootstrap=` for inference that does
 — each replicate re-runs the search.
 
+Two more things about how this is evidenced, because they change how the numbers above
+should be read. When `Qbar` is correctly specified — as it is in the example process — the
+*empty* propensity model is a legitimate MSE-minimising choice, and C-TMLE usually makes
+it: 10 seeds out of 10 for the greedy search at `n = 700`. That is right, not a defect, but
+it means a favourable comparison against plain TMLE on such a process would also be won by
+a selector hard-wired to select nothing, so it is not evidence that the search
+discriminates between covariates. The claim that it does is tested where selecting nothing
+is *wrong* — with the outcome model reduced to a constant, the search includes the
+confounder in every seed and still leaves the instrument out, while a do-nothing selector
+is biased by 0.81 against 0.037. Second, there is no cross-language check: R's `ctmle` is
+not compared against here or in CI. `cleverly.estimators.ctmle` sets both out in full.
+
 ### Cross-fitting and CV-TMLE
 
 Three constructions, and it is worth knowing which one you are running:
@@ -244,6 +256,23 @@ means without missingness, and the remainder module states it: **consistent if `
 right, or if the _product_ `g·π` is right** — a correct propensity buys nothing on its own
 when the missingness model is wrong, and errors in the two mechanisms can cancel exactly.
 
+The controlled direct effect now has the same class of proof rather than an argument for one.
+`tests/discrete_law_cde.py` carries a law on `(W, A, Z, Δ, ΔY)` whose CDE changes sign between
+the two levels of `Z` — so confusing them inverts the answer rather than nudging it — and
+whose negative controls are the mistakes this parameter invites: dropping the `q_z` factor
+(which quietly estimates a total effect), using the other level's density, substituting the
+marginal `P(Z=z)` for the conditional `q_z(a, W)`, and averaging the plug-in over the `Z=z`
+stratum instead of over everybody.
+
+One more thing worth knowing about double robustness, because the reassuring form of the
+slogan is the one that sticks: **the two halves are not interchangeable when positivity is
+strained.** With `Q̄` right the estimand is recovered by integrating a regression over the
+covariate distribution, which needs no overlap at all. With only `g` right, everything rests
+on `1/g` weights — and on a process with 11% of the population below `g = 0.05` that half
+stops delivering, at a measured bias of −0.13 against −0.01 for the outcome half. It is not a
+truncation artefact and not a bug; it is the positivity premise failing.
+`tests/e2e/test_double_robustness.py` runs both overlap regimes and pins the asymmetry.
+
 ```python
 from cleverly.datasets import nonlinear_dgp
 from cleverly.validation import CoverageStudy
@@ -258,10 +287,53 @@ study = CoverageStudy(
 print(study.run().summary())  # bias, sqrt(n) bias, mc se, mean se, coverage, rejection rate
 ```
 
+## How this is validated
+
+Three tiers, and they fail on different mistakes. Worth knowing which claims rest on which,
+because a simulation that comes out well is the weakest of the three and the easiest to read
+too much into.
+
+**Exact proofs, on laws a sample realises exactly.** `tests/discrete_law*.py` build
+finite-support distributions whose every cell probability is a multiple of `1/N`, so an
+`N`-row frame *is* the law rather than a draw from it. Handed oracle nuisances the initial
+fit is exactly right, `epsilon` is zero, and the influence curve the estimator reports is
+the EIF at `P₀` rather than an estimate of it. Against that: the reported curve equals the
+complex-step Gateaux derivative of the identification formula — written longhand, sharing no
+code with the library — to `1e-12`, for all seven estimands, without missingness
+(`test_influence_gateaux.py`), under MAR (`..._mar.py`) and for the controlled direct effect
+(`..._cde.py`). The second-order remainder is checked against its closed form in the three
+matching `test_remainder*.py` modules, which is what double robustness actually consists of.
+Every one of these modules carries deliberate-mutation controls: each plausible way of
+building the thing wrong is shown to move the answer by more than `1e-2`, four orders past
+the window the real assertions use.
+
+**Deterministic invariants and algebraic identities.** Relabelling `A ← 1 - A` has to swap
+`EY1`/`EY0`, negate the ATE and turn ATT into `-ATC`; an arm-independent outcome mean has to
+give exactly zero however hard the treatment was confounded; weights scale out; the iterative
+and one-step solvers agree; the weighted and clever-covariate fluctuations solve the same
+equation. These are cheap and they fail on the mistakes statistics is worst at catching — a
+swapped sign, a swapped conditioning population.
+
+**Simulation, for the claims that are about repeated sampling and nothing else.** Coverage,
+root-n consistency, type I error and the estimator variants live in
+`tests/e2e/test_coverage_slow.py` and run nightly. The double-robustness grid runs on every
+push, in both a comfortable-overlap and a weak-overlap version — and the two disagree, which
+is the point of having both.
+
+Two things this does **not** include, stated plainly because their absence is easy to miss.
+There is no comparison against another implementation: not R's `tmle`, not `tmle3`, not
+`ctmle`. And `score_check()` passing is not evidence that the equation was the right one —
+see below.
+
 ## What is implemented
 
-Classic point-treatment TMLE for a binary treatment, at feature parity with R's `tmle` package
-plus the pieces that matter from `tmle3` and the literature:
+Classic point-treatment TMLE for a binary treatment. The table below covers what R's `tmle`
+package covers, plus the pieces that matter from `tmle3` and the literature — but read that
+as a statement about *features*, not about numbers: **`cleverly` has never been compared
+against R's output.** No cross-language test exists here or in CI, and there are already
+known deliberate divergences (`g_bounds="auto"` resolves at Kish's effective sample size on
+weighted fits; see below). What the estimates *are* checked against is set out under
+[How this is validated](#how-this-is-validated).
 
 | Capability | Notes |
 | --- | --- |
@@ -274,7 +346,7 @@ plus the pieces that matter from `tmle3` and the literature:
 | Targeting | iterative fluctuation (Newton) or one-step universal least-favorable submodel |
 | Fluctuation | logistic or linear; clever covariate or weighted (`target_weights`, R's `target.gwt`) |
 | Missing outcomes | `delta=` with its own nuisance model, entering the clever covariate. Assumes MAR given `(A, W)`; the double-robustness condition becomes "`Q̄` right **or** the product `g·π` right" |
-| Controlled direct effect | `intermediate=` (R's `Z`) estimates `Ψ_z = E_W[E(Y \| A=a, Z=z, W)]` per level of `Z`, returning a `TMLEResultSet`. Needs `Y(a,z) ⊥ Z \| A, W` on top of the usual assumptions — no intermediate confounder affected by `A` — and the DR condition becomes "`Q̄` right **or** the product `g·q_z·π` right". Not a longitudinal estimator and not a natural direct effect; `cleverly.estimators.direct_effect` writes the parameter down, derives its EIF, and states the boundary |
+| Controlled direct effect | `intermediate=` (R's `Z`) estimates `Ψ_z = E_W[E(Y \| A=a, Z=z, W)]` per level of `Z`, returning a `TMLEResultSet`. Needs `Y(a,z) ⊥ Z \| A, W` on top of the usual assumptions — no intermediate confounder affected by `A` — and the DR condition becomes "`Q̄` right **or** the product `g·q_z·π` right". Not a longitudinal estimator and not a natural direct effect; `cleverly.estimators.direct_effect` writes the parameter down, derives its EIF, and states the boundary. Its influence curve is checked against the numerical Gateaux derivative at machine precision, on the same footing as the ATE |
 | Weights | probability/sampling weights, with the tilted-population estimand and its EIF stated and tested; frequency and replicate weights refused |
 | Clustering | `id=` for cluster-level influence-curve variance and cluster bootstrap |
 | Bounds | propensity truncation (`g_bounds`), outcome bounds (`q_bounds`), `alpha` shrinkage |
