@@ -354,6 +354,10 @@ class CrossFitPlan:
     random_state:
         Seed for the split.  Not enough to reproduce it on its own; see
         :mod:`cleverly.provenance`.
+    repeats:
+        How many independent draws of the whole split the fit averaged over.  ``1`` is
+        an ordinary fit.  A count layered over whichever ``scheme`` the data resolved to,
+        not a scheme of its own -- repeating a grouped split gives grouped splits.
     """
 
     n_folds: int = 10
@@ -361,26 +365,59 @@ class CrossFitPlan:
     scheme: str = "stratified"
     stratify_by: tuple[str, ...] = ()
     random_state: int | None = None
+    repeats: int = 1
 
     @property
     def cross_fit(self) -> bool:
         """Whether the outer nuisance fits are cross-fitted at all."""
         return self.n_folds > 1
 
+    @property
+    def repeated(self) -> bool:
+        """Whether more than one draw of the split was averaged over."""
+        return self.repeats > 1
+
     def describe(self) -> str:
         by = f" stratified on {', '.join(self.stratify_by)}" if self.stratify_by else ""
         if not self.cross_fit:
             return "declared: no cross-fitting (cross_fit=False)"
-        return f"declared: {self.n_folds}-fold {self.scheme}{by}"
+        over = f", averaged over {self.repeats} draws" if self.repeated else ""
+        return f"declared: {self.n_folds}-fold {self.scheme}{by}{over}"
+
+    def seeds(self) -> tuple[int | None, ...]:
+        """One seed per repeat, for the fold draws to average over.
+
+        Spawned from ``random_state`` rather than derived by addition, so the draws are
+        independent rather than merely different, and a repeated fit stays reproducible
+        under a seed.  ``random_state=None`` yields ``None`` per repeat: the draws differ
+        anyway, since :func:`make_folds` always shuffles, and pinning them here would
+        invent a reproducibility the caller declined.
+
+        One repeat passes ``random_state`` straight through rather than spawning from it,
+        which is what makes ``repeats=1`` bit-for-bit an ordinary fit rather than merely
+        an equivalent one.  ``tests/unit/test_repeated_crossfit.py`` enforces that.
+        """
+        if not self.repeated:
+            return (self.random_state,)
+        if self.random_state is None:
+            return (None,) * self.repeats
+        state = np.random.SeedSequence(self.random_state).generate_state(self.repeats)
+        return tuple(int(value) % (2**31 - 1) for value in state)
 
 
 def refuse_scheme(kind: str) -> None:
     """Raise for a fold scheme this package will not fake.
 
-    Four names, and four different reasons -- which is why they are spelled out rather
-    than collected under one "not implemented".  Two of them are missing a derivation or
-    a data layer; one of them is *incompatible with the storage contract* and would still
-    be after both arrived, which is the one worth reading.
+    Three refusals, for three different reasons -- which is why they are spelled out
+    rather than collected under one "not implemented".  ``"blocked"`` is missing a data
+    layer; ``"rolling_origin"`` is *incompatible with the storage contract* and would
+    still be after that layer arrived, which is the one worth reading; and
+    ``"row_within_cluster"`` is refused outright rather than unimplemented.
+
+    A fourth name is handled here and is no longer a refusal at all.  ``"repeated"``
+    shipped as ``repeats=``, and it keeps a branch only to say that it was never a
+    *scheme* -- so a caller who reaches for it by name is redirected to the option that
+    exists rather than told the feature does not.
     """
     if kind == "blocked":
         raise NotImplementedError(
@@ -402,14 +439,11 @@ def refuse_scheme(kind: str) -> None:
             "different storage contract, not a different splitter."
         )
     if kind in {"repeated", "repeats"}:
-        raise NotImplementedError(
-            "repeated cross-fitting is not implemented. The aggregation is not the "
-            "obstacle: every row is out of fold in every repeat, so averaging gives "
-            "psi_bar = mean_r psi_r with influence curve mean_r IC_r, which stays "
-            "coherent for the variance, the delta method and the simultaneous bands. "
-            "What is missing is that R repeats mean R sets of nuisance fits, and "
-            "TMLEResult.nuisance is one NuisanceEstimates that retarget -- and so every "
-            "sensitivity analysis -- takes as a single object."
+        raise ValueError(
+            "repeated cross-fitting is implemented, and it is not a scheme: it is a count "
+            "layered over whichever scheme the data resolved to, so repeating a grouped "
+            "split gives grouped splits. Pass repeats= to the estimator rather than "
+            "naming it here; the count is recorded on CrossFitPlan.repeats."
         )
     if kind == "row_within_cluster":
         raise ValueError(

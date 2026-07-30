@@ -109,6 +109,7 @@ from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     ParameterEstimate,
+    average_estimates,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import RegimeSet, Shift, ShiftSet, as_interventions
@@ -120,7 +121,7 @@ from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, parameter_stem, targets_for
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
-from ._nuisance import NuisanceEstimates, fit_nuisances
+from ._nuisance import NuisanceEstimates, RepeatFit, fit_nuisances
 from .base import (
     CVTargeting,
     TMLEConfig,
@@ -258,6 +259,33 @@ class TMLE:
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
+    repeats:
+        How many independent draws of the whole cross-fitting split to average the
+        estimate over.  ``1`` (default) is an ordinary fit, and is bit-for-bit an
+        ordinary fit rather than an equivalent one.
+
+        A single split is one draw from a randomised procedure, and on a moderate sample
+        two seeds can move ``psi`` by an appreciable fraction of its standard error.
+        Repeating the split and averaging removes that component of the variability
+        without touching the estimand.  Every row is out of fold in every draw, so
+
+        .. math:: \\bar\\psi = \\tfrac{1}{R}\\sum_r \\psi_r
+
+        is the same functional of the same data, with influence curve
+        :math:`\\tfrac{1}{R}\\sum_r \\mathrm{IC}_r` -- which keeps the variance, the delta
+        method, the cluster-robust standard error and the simultaneous bands coherent,
+        because all of them are computed from the curve.  Costs ``R`` times a fit.
+
+        The aggregation is the **mean**, and only the mean.  The median-of-estimates
+        aggregation common in the double-machine-learning literature (Chernozhukov et al.
+        2018) is deliberately not offered: the median of the ``psi_r`` is not the
+        estimator whose influence curve is the median of the ``IC_r``, so its variance,
+        its delta method and its bands would every one of them be describing a different
+        quantity than the point estimate they were attached to.
+
+        ``result.repeats`` holds the per-draw nuisance fits and fluctuations.  Every
+        sensitivity analysis that produces a number follows all ``R``; the diagnostics
+        that describe a fitted *mechanism* report the first draw and say so.
     stratify_folds:
         What the outer folds are balanced on.  ``"treatment"``, the default, balances the
         arms so no fold is left without one and the propensity model is fittable
@@ -333,6 +361,7 @@ class TMLE:
         cv_evaluation: bool = False,
         n_folds: int = 10,
         learner_folds: int = 5,
+        repeats: int = 1,
         stratify_folds: FoldStrata = "treatment",
         g_bounds: GBounds = "auto",
         q_bounds: tuple[float, float] | None = None,
@@ -374,6 +403,7 @@ class TMLE:
         self.cv_evaluation = cv_evaluation
         self.n_folds = n_folds
         self.learner_folds = learner_folds
+        self.repeats = repeats
         self.stratify_folds = stratify_folds
         self.g_bounds = g_bounds
         self.q_bounds = q_bounds
@@ -471,6 +501,26 @@ class TMLE:
             raise ValueError(
                 f"density_bins must be at least 3; got {self.density_bins}. Two bins make "
                 "the density a single hazard, which cannot describe a dose-response."
+            )
+        if self.repeats < 1:
+            raise ValueError(f"repeats must be at least 1; got {self.repeats}")
+        if self.repeats > 1 and not self.cross_fit:
+            raise ValueError(
+                "repeats= averages the estimate over independent draws of the "
+                "cross-fitting split, and cross_fit=False makes no split to draw. There "
+                "is no fold noise to average away when every nuisance is fitted in "
+                "sample. Set cross_fit=True, or leave repeats at 1."
+            )
+        if self.repeats > 1 and self.cv_evaluation:
+            raise ValueError(
+                "repeats= cannot be combined with cv_evaluation=True. The cross-validated "
+                "variance is defined by a fold partition -- it is the second moment of the "
+                "influence curve within each validation fold, summed over folds -- and the "
+                "curve repeats report is an average across R different partitions, so it "
+                "belongs to none of them. Reporting one anyway would be naming Zheng & van "
+                "der Laan's construction for a quantity that is not it. Use repeats= with "
+                "targeting_scheme='fold' if you want fold-wise targeting, or "
+                "cv_evaluation=True on a single draw."
             )
 
     # ------------------------------------------------------------------- fit
@@ -576,14 +626,22 @@ class TMLE:
 
     def _prepare_shared(
         self, data: CausalData, levels: Sequence[float]
-    ) -> tuple[OutcomeScaler, Folds, NuisanceEstimates]:
-        """Fit the level-independent nuisances once, for every requested level."""
+    ) -> tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates], ...]]:
+        """Fit the level-independent nuisances once, for every requested level.
+
+        One ``(folds, nuisance)`` pair per repeat: the levels share nuisances *within* a
+        draw, which is what this method exists for, and the draws remain separate, which
+        is what makes them repeats.  The scaler is a function of the outcome alone and so
+        is shared across both.
+        """
         scaler = self._scaler(data)
-        folds = self._folds(data)
-        nuisance = self._fit_nuisances(
-            data, folds, scaler, levels[0], extra_levels=tuple(levels[1:])
-        )
-        return scaler, folds, nuisance
+        draws = []
+        for seed in self.crossfit_plan(data).seeds():
+            folds = self._folds(data, seed)
+            draws.append(
+                (folds, self._fit_nuisances(data, folds, scaler, levels[0], tuple(levels[1:])))
+            )
+        return scaler, tuple(draws)
 
     def refit(self, data: CausalData, *, intermediate_value: float | None = None) -> TMLEResult:
         """Run the whole fit again -- nuisances included -- on already-prepared data.
@@ -673,46 +731,80 @@ class TMLE:
         data: CausalData,
         *,
         intermediate_value: float | None,
-        shared: tuple[OutcomeScaler, Folds, NuisanceEstimates] | None = None,
+        shared: tuple[OutcomeScaler, tuple[tuple[Folds, NuisanceEstimates], ...]] | None = None,
     ) -> TMLEResult:
         """Fit for one value of the intermediate (or for no intermediate at all).
 
         ``shared`` supplies nuisance fits already computed for every level of the
         intermediate; only the targeting step then runs per level.
+
+        With ``repeats=R`` the whole construction below -- split, nuisances, targeting --
+        runs ``R`` times and the reports are averaged.  The loop sits here, around
+        :meth:`_nuisances` rather than inside it, which is what makes it free for the
+        variants: :class:`~cleverly.CTMLE` overrides that method alone, so its propensity
+        selection is repeated per draw without ``estimators/ctmle.py`` knowing repeats
+        exist.  The bootstrap and the simultaneous bands sit *after* the loop and read the
+        averaged estimates, so they need no change either.
         """
         self._check_shifts(data)
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
+
+        extra: dict[str, Any] = {}
         if shared is not None:
-            scaler, folds, pooled = shared
-            config = self._config(data, estimands, scaler, folds)
-            extra: dict[str, Any] = {}
-            nuisance = pooled.at_level(cast("float", intermediate_value))
+            scaler, pooled = shared
+            fold_draws = [folds for folds, _ in pooled]
+            nuisances = [
+                nuisance.at_level(cast("float", intermediate_value)) for _, nuisance in pooled
+            ]
+            config = self._config(data, estimands, scaler, fold_draws[0])
         else:
             scaler = self._scaler(data)
-            folds = self._folds(data)
-            config = self._config(data, estimands, scaler, folds)
-            nuisance, extra = self._nuisances(data, folds, scaler, config, intermediate_value)
-        self._warn_on_positivity(nuisance, config, intermediate_value)
+            fold_draws = [self._folds(data, seed) for seed in self.crossfit_plan(data).seeds()]
+            # The realised fold count can differ between draws when a cap fires on one and
+            # not another, so the config -- like every read-through attribute on the result
+            # -- describes the first draw.  It is then the *same* config for every draw,
+            # which matters: the truncation bounds a draw is fitted under must not depend
+            # on which draw it is, or the R estimates would not be estimating one thing.
+            config = self._config(data, estimands, scaler, fold_draws[0])
+            nuisances = []
+            for index, folds in enumerate(fold_draws):
+                nuisance, draw_extra = self._nuisances(
+                    data, folds, scaler, config, intermediate_value
+                )
+                nuisances.append(nuisance)
+                if index == 0:
+                    extra = draw_extra
+
+        self._warn_on_positivity(nuisances[0], config, intermediate_value)
         self._warn_on_estimated_weights(data)
 
-        estimates, fluctuations, cv_detail = self._retarget_detailed(
-            data,
-            nuisance,
-            estimands=estimands,
-            intermediate_value=intermediate_value,
-            g_bounds=config.g_bounds,
-            g_bounds_conditional=config.g_bounds_conditional,
-        )
+        per_repeat: list[dict[str, ParameterEstimate]] = []
+        repeats: list[RepeatFit] = []
+        cv_detail: CVTargeting | None = None
+        for index, nuisance in enumerate(nuisances):
+            estimates, fluctuations, detail = self._retarget_detailed(
+                data,
+                nuisance,
+                estimands=estimands,
+                intermediate_value=intermediate_value,
+                g_bounds=config.g_bounds,
+                g_bounds_conditional=config.g_bounds_conditional,
+            )
+            per_repeat.append(estimates)
+            repeats.append(RepeatFit(nuisance=nuisance, fluctuations=fluctuations))
+            if index == 0:
+                cv_detail = detail
+
+        estimates = average_estimates(per_repeat, cluster=data.cluster)
 
         result = TMLEResult(
             estimates=estimates,
-            fluctuations=fluctuations,
-            nuisance=nuisance,
+            repeats=tuple(repeats),
             data=data,
             config=config,
             estimator=self,
             provenance=provenance_record(
-                data, folds, random_state=self.random_state, run_id=self.run_id
+                data, fold_draws, random_state=self.random_state, run_id=self.run_id
             ),
             intermediate_value=intermediate_value,
             extra=extra if cv_detail is None else {**extra, "cv_tmle": cv_detail},
@@ -841,7 +933,13 @@ class TMLE:
             f"levels are {labels}"
         )
 
-    def _folds(self, data: CausalData) -> Folds:
+    def _folds(self, data: CausalData, seed: int | None = None) -> Folds:
+        """One draw of the split, from ``seed`` or from the plan's own.
+
+        ``seed=None`` means "the plan's", which is unambiguous rather than merely
+        convenient: :meth:`CrossFitPlan.seeds` hands a repeat ``None`` in exactly the case
+        where ``random_state`` is ``None`` too, so the two readings never disagree.
+        """
         plan = self.crossfit_plan(data)
         if not plan.cross_fit:
             return Folds.single(data.n)
@@ -850,7 +948,7 @@ class TMLE:
             plan.n_folds,
             stratify=self._fold_strata(data),
             cluster=data.cluster,
-            random_state=plan.random_state,
+            random_state=plan.random_state if seed is None else seed,
         )
 
     def _resolve_learner(
@@ -1387,6 +1485,7 @@ class TMLE:
             scheme=scheme,
             stratify_by=stratify_by,
             random_state=self.random_state,
+            repeats=self.repeats,
         )
 
     def _submodel(
@@ -1681,19 +1780,31 @@ class TMLE:
         variant which *selects* a nuisance model repeats that selection in every
         replicate -- otherwise the bootstrap would understate the variability the
         selection itself contributes.
+
+        A replicate repeats the cross-fitting draws for the same reason, which is why the
+        loop is here rather than around the caller: the bootstrap has to resample the
+        estimator that was reported, and under ``repeats=R`` that estimator is the average
+        of ``R`` draws, whose fold noise is already averaged down.  Bootstrapping a single
+        draw instead would attribute variability to ``psi_bar`` that ``psi_bar`` does not
+        have.  It costs ``B * R`` fits, which is the honest price of the two settings
+        together.
         """
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         scaler = self._scaler(data)
-        folds = self._folds(data)
-        config = self._config(data, estimands, scaler, folds)
-        nuisance, _ = self._nuisances(data, folds, scaler, config, intermediate_value)
-        estimates, _ = self.retarget(
-            data,
-            nuisance,
-            estimands=estimands,
-            intermediate_value=intermediate_value,
-        )
-        return {name: estimate.psi for name, estimate in estimates.items()}
+        fold_draws = [self._folds(data, seed) for seed in self.crossfit_plan(data).seeds()]
+        config = self._config(data, estimands, scaler, fold_draws[0])
+        per_repeat = []
+        for folds in fold_draws:
+            nuisance, _ = self._nuisances(data, folds, scaler, config, intermediate_value)
+            estimates, _ = self.retarget(
+                data,
+                nuisance,
+                estimands=estimands,
+                intermediate_value=intermediate_value,
+            )
+            per_repeat.append(estimates)
+        averaged = average_estimates(per_repeat, cluster=data.cluster)
+        return {name: estimate.psi for name, estimate in averaged.items()}
 
 
 def _slice_fit(fit: InitialFit, index: IntArray) -> InitialFit:

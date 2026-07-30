@@ -27,7 +27,7 @@ from ..inference.multiplier import SimultaneousBands
 from ..learners.crossfit import CrossFitPlan
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
-from ._nuisance import NuisanceEstimates
+from ._nuisance import NuisanceEstimates, RepeatFit
 from .direct_effect import describe as describe_direct_effect
 from .targeting import TargetingSpec
 
@@ -162,6 +162,14 @@ class TMLEConfig:
                 f"{self.estimator_name}: nuisances cross-fitted over {self.n_folds} folds; "
                 f"targeting: {self.targeting_scheme}"
             )
+            if self.crossfit.repeated:
+                # Always shown when it applies, unlike the capped-folds line below: a
+                # repeated fit reports a different estimator from an ordinary one, and a
+                # reader who cannot tell them apart cannot compare two summaries.
+                lines.append(
+                    f"  (averaged over {self.crossfit.repeats} independent draws of the "
+                    "split; the influence curve is the mean of theirs)"
+                )
         else:
             lines.append(f"{self.estimator_name}: nuisances fitted in-sample (cross_fit=False)")
         if self.cross_fit and self.crossfit.n_folds != self.n_folds:
@@ -331,6 +339,14 @@ class TMLEResult:
 
     Attributes
     ----------
+    repeats:
+        One :class:`~cleverly.estimators._nuisance.RepeatFit` per draw of the
+        cross-fitting split -- a one-element tuple for an ordinary fit, ``R`` of them
+        under ``repeats=R``.  This is where the nuisances and the fluctuations actually
+        live; :attr:`nuisance` and :attr:`fluctuations` read through to the first entry,
+        which is what keeps every analysis written against a single fit working unchanged.
+        Anything that must account for *all* the draws -- and every analysis that produces
+        a number, as against one that describes a mechanism, must -- iterates this.
     intermediate_value:
         The level of the intermediate variable this fit targets, or ``None`` for an
         ordinary point-treatment fit.  It is part of the *estimand*, not a setting: every
@@ -340,8 +356,7 @@ class TMLEResult:
     """
 
     estimates: dict[str, ParameterEstimate]
-    fluctuations: dict[str, Fluctuation]
-    nuisance: NuisanceEstimates
+    repeats: tuple[RepeatFit, ...]
     data: CausalData
     config: TMLEConfig
     estimator: Any = None
@@ -350,6 +365,40 @@ class TMLEResult:
     bootstrap: BootstrapResult | None = None
     intermediate_value: float | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+
+    # --------------------------------------------------------------- repeats
+
+    @property
+    def nuisance(self) -> NuisanceEstimates:
+        """The first draw's nuisance predictions.
+
+        The attribute every sensitivity analysis and validation diagnostic was written
+        against, kept pointing at one object so that a fit with no repeats behaves exactly
+        as it always has.  On a repeated fit this is draw zero of ``R`` and *nothing
+        else*: it is the right thing to describe a fitted mechanism with, and the wrong
+        thing to compute a reported number from.  Use :attr:`repeats` for the latter.
+        """
+        return self.repeats[0].nuisance
+
+    @property
+    def fluctuations(self) -> dict[str, Fluctuation]:
+        """The first draw's solved fluctuations, keyed by target group.
+
+        Reads through to :attr:`repeats` for the reason :attr:`nuisance` does, and carries
+        the same warning: on a repeated fit this is one draw's ``epsilon`` and one draw's
+        targeted ``Qbar``.
+        """
+        return self.repeats[0].fluctuations
+
+    @property
+    def nuisances(self) -> tuple[NuisanceEstimates, ...]:
+        """Every draw's nuisance predictions, in fit order."""
+        return tuple(repeat.nuisance for repeat in self.repeats)
+
+    @property
+    def n_repeats(self) -> int:
+        """How many draws of the cross-fitting split this fit averaged over."""
+        return len(self.repeats)
 
     # ------------------------------------------------------------- accessors
 

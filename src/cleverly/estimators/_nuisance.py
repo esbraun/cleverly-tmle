@@ -32,7 +32,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..fluctuation.iterative import InitialFit
+from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..interventions import RegimeSet, Shift, ShiftSet
 from ..learners._fitting import (
     Task,
@@ -50,7 +50,13 @@ from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
 from .direct_effect import check_level
 
-__all__ = ["NuisanceEstimates", "Propensity", "cross_fit_predictions", "fit_nuisances"]
+__all__ = [
+    "NuisanceEstimates",
+    "Propensity",
+    "RepeatFit",
+    "cross_fit_predictions",
+    "fit_nuisances",
+]
 
 
 @dataclass(frozen=True)
@@ -241,6 +247,43 @@ class NuisanceEstimates:
         level = check_level(value)
         probs = self.intermediate if level == 1.0 else 1.0 - self.intermediate
         return bound(probs, lower, 1.0)
+
+
+@dataclass(frozen=True)
+class RepeatFit:
+    """One draw of the cross-fitting split, with everything that draw produced.
+
+    A fit with ``repeats=R`` runs the whole construction ``R`` times over independent
+    fold draws and averages the estimates (see
+    :func:`~cleverly.inference.average_estimates`).  The four things a draw produces --
+    its folds, its nuisance predictions, the ``epsilon`` its targeting step solved, and
+    the targeted ``Qbar`` that came out -- are *not* interchangeable between draws, so
+    they are held together here rather than in parallel tuples on the result.  The pairing
+    is the point: an analysis that took one draw's targeted ``Qbar`` and another draw's
+    mechanism would be describing a fit that never happened, and the two arrays would give
+    no sign of it.
+
+    ``fluctuations`` is keyed by target group exactly as
+    :attr:`~cleverly.estimators.base.TMLEResult.fluctuations` is -- that attribute now
+    reads through to the first repeat.
+
+    Attributes
+    ----------
+    nuisance:
+        The out-of-fold nuisance predictions from this draw.  ``nuisance.folds`` is the
+        draw itself, so a repeat carries the split that made it.
+    fluctuations:
+        The solved fluctuation per target group, holding this draw's ``epsilon`` and its
+        targeted outcome regression.
+    """
+
+    nuisance: NuisanceEstimates
+    fluctuations: dict[str, Fluctuation]
+
+    @property
+    def folds(self) -> Folds:
+        """The split this draw realised."""
+        return self.nuisance.folds
 
 
 def cross_fit_predictions(

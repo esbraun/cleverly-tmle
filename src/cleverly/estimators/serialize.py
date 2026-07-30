@@ -51,7 +51,7 @@ from ..learners.density import ConditionalDensity
 from ..msm import MSMSet
 from ..provenance import Provenance
 from ..utils.bounds import OutcomeScaler
-from ._nuisance import NuisanceEstimates, Propensity
+from ._nuisance import NuisanceEstimates, Propensity, RepeatFit
 from .base import TMLEConfig, TMLEResult
 from .recipe import TMLERecipe
 from .targeting import TargetingSpec
@@ -83,7 +83,14 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: fold count it ran.  The two come apart whenever the split was capped at the rarest
 #: stratum or the cluster count, and the warning that said so does not survive the fit, so
 #: without it a reloaded result could not say that a 10-fold fit had run 3.
-FORMAT_VERSION = 6
+#:
+#: ``7`` stores a *list* of repeats -- each draw's nuisances and fluctuations -- where the
+#: previous versions stored one of each.  The shape change is why this is a version bump
+#: rather than an added key: under ``repeats=R`` the reported estimates are the average
+#: over all ``R`` draws, so a file holding only the first would reload as a result whose
+#: own numbers none of its analyses could reproduce.  An ordinary fit writes a one-element
+#: list and reads back byte-identically.
+FORMAT_VERSION = 7
 
 _ARRAY_MARK = "__array__"
 
@@ -293,18 +300,18 @@ def _data_from(arrays: _Arrays, payload: dict[str, Any]) -> CausalData:
     )
 
 
-def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]:
+def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> dict[str, Any]:
     return {
-        "propensity": arrays.put("nuisance.propensity", nuisance.propensity.values),
+        "propensity": arrays.put(f"{prefix}.propensity", nuisance.propensity.values),
         "propensity_arms": [float(arm) for arm in nuisance.propensity.arms],
-        "outcome": _fit_to(arrays, "nuisance.outcome", nuisance.outcome),
+        "outcome": _fit_to(arrays, f"{prefix}.outcome", nuisance.outcome),
         "scaler": {"lower": nuisance.scaler.lower, "upper": nuisance.scaler.upper},
         "folds": {
-            "assignment": arrays.put("nuisance.folds", nuisance.folds.assignment),
+            "assignment": arrays.put(f"{prefix}.folds", nuisance.folds.assignment),
             "n_folds": nuisance.folds.n_folds,
         },
-        "missingness": arrays.put("nuisance.missingness", nuisance.missingness),
-        "intermediate": arrays.put("nuisance.intermediate", nuisance.intermediate),
+        "missingness": arrays.put(f"{prefix}.missingness", nuisance.missingness),
+        "intermediate": arrays.put(f"{prefix}.intermediate", nuisance.intermediate),
         "treatment_covariates": list(nuisance.treatment_covariates),
         "outcome_task": nuisance.outcome_task,
         # The *evaluated* densities, not the rules that produced them. A rule is a
@@ -315,7 +322,7 @@ def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]
             None
             if nuisance.regimes is None
             else {
-                "values": arrays.put("nuisance.regimes", nuisance.regimes.values),
+                "values": arrays.put(f"{prefix}.regimes", nuisance.regimes.values),
                 "names": list(nuisance.regimes.names),
                 "reference": float(nuisance.regimes.reference),
             }
@@ -328,9 +335,9 @@ def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]
             if nuisance.density is None
             else {
                 "bin_probabilities": arrays.put(
-                    "nuisance.density", nuisance.density.bin_probabilities
+                    f"{prefix}.density", nuisance.density.bin_probabilities
                 ),
-                "edges": arrays.put("nuisance.density.edges", nuisance.density.edges),
+                "edges": arrays.put(f"{prefix}.density.edges", nuisance.density.edges),
             }
         ),
         # Every array of a ShiftSet, rather than the shifts plus a rule for rebuilding
@@ -343,10 +350,10 @@ def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]
             else {
                 "names": list(nuisance.shifts.names),
                 "deltas": [float(delta) for delta in nuisance.shifts.deltas],
-                "shifted": arrays.put("nuisance.shifts.shifted", nuisance.shifts.shifted),
-                "ratio": arrays.put("nuisance.shifts.ratio", nuisance.shifts.ratio),
-                "ratio_at": arrays.put("nuisance.shifts.ratio_at", nuisance.shifts.ratio_at),
-                "capped": arrays.put("nuisance.shifts.capped", nuisance.shifts.capped),
+                "shifted": arrays.put(f"{prefix}.shifts.shifted", nuisance.shifts.shifted),
+                "ratio": arrays.put(f"{prefix}.shifts.ratio", nuisance.shifts.ratio),
+                "ratio_at": arrays.put(f"{prefix}.shifts.ratio_at", nuisance.shifts.ratio_at),
+                "capped": arrays.put(f"{prefix}.shifts.capped", nuisance.shifts.capped),
                 "reference": float(nuisance.shifts.reference),
             }
         ),
@@ -359,8 +366,8 @@ def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]
             if nuisance.msm is None
             else {
                 "terms": list(nuisance.msm.terms),
-                "design": arrays.put("nuisance.msm.design", nuisance.msm.design),
-                "weights": arrays.put("nuisance.msm.weights", nuisance.msm.weights),
+                "design": arrays.put(f"{prefix}.msm.design", nuisance.msm.design),
+                "weights": arrays.put(f"{prefix}.msm.weights", nuisance.msm.weights),
                 "arms": [float(arm) for arm in nuisance.msm.arms],
             }
         ),
@@ -475,6 +482,7 @@ def _config_to(config: TMLEConfig) -> dict[str, Any]:
             "scheme": config.crossfit.scheme,
             "stratify_by": list(config.crossfit.stratify_by),
             "random_state": config.crossfit.random_state,
+            "repeats": config.crossfit.repeats,
         },
     }
 
@@ -514,11 +522,19 @@ def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatA
         "estimates": {
             name: _estimate_to(arrays, f"est.{name}", est) for name, est in result.estimates.items()
         },
-        "fluctuations": {
-            group: _fluctuation_to(arrays, f"fluc.{group}", fl)
-            for group, fl in result.fluctuations.items()
-        },
-        "nuisance": _nuisance_to(arrays, result.nuisance),
+        # Every draw, not the first one: a repeated fit's estimates are the average over
+        # all R, so a file holding one of them would reload as a result whose reported
+        # numbers no analysis could reproduce.
+        "repeats": [
+            {
+                "fluctuations": {
+                    group: _fluctuation_to(arrays, f"fluc.{index}.{group}", fl)
+                    for group, fl in repeat.fluctuations.items()
+                },
+                "nuisance": _nuisance_to(arrays, f"nuisance.{index}", repeat.nuisance),
+            }
+            for index, repeat in enumerate(result.repeats)
+        ],
         "data": _data_to(arrays, result.data),
         "config": _config_to(result.config),
         "intermediate_value": result.intermediate_value,
@@ -562,11 +578,16 @@ def result_from_dict(manifest: dict[str, Any], store: dict[str, FloatArray]) -> 
         estimates={
             name: _estimate_from(arrays, payload) for name, payload in manifest["estimates"].items()
         },
-        fluctuations={
-            group: _fluctuation_from(arrays, payload)
-            for group, payload in manifest["fluctuations"].items()
-        },
-        nuisance=_nuisance_from(arrays, manifest["nuisance"]),
+        repeats=tuple(
+            RepeatFit(
+                nuisance=_nuisance_from(arrays, payload["nuisance"]),
+                fluctuations={
+                    group: _fluctuation_from(arrays, fluctuation)
+                    for group, fluctuation in payload["fluctuations"].items()
+                },
+            )
+            for payload in manifest["repeats"]
+        ),
         data=_data_from(arrays, manifest["data"]),
         config=_config_from(manifest["config"]),
         estimator=_LazyEstimator(recipe) if recipe is not None else None,
