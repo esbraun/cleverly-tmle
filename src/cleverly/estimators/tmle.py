@@ -96,22 +96,16 @@ from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     ParameterEstimate,
-    atc_estimate,
-    att_estimate,
-    counterfactual_means,
-    make_estimate,
-    ratio_estimates,
-    unscale,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..learners._fitting import Task
 from ..learners.crossfit import Folds, make_folds
 from ..learners.super_learner import resolve_learner
+from ..targets import TargetContext, groups_for, targets_for
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.frames import is_dataframe
 from ._nuisance import NuisanceEstimates, fit_nuisances
 from .base import (
-    MEAN_GROUP_ESTIMANDS,
     CVTargeting,
     TMLEConfig,
     TMLEResult,
@@ -942,22 +936,23 @@ class TMLE:
         a ratio undefined.  Those estimands are dropped from this fold's report rather
         than allowed to abort the others; :func:`_average_over_folds` then drops them
         from the canonical estimate altogether and says so.
+
+        Only a target that declares ``undefined_when`` may be dropped, and only its own
+        entry is lost.  This replaces a bare ``except ValueError`` that retried without
+        ``{"rr", "or"}`` and then returned an empty dict -- which turned any exception
+        anywhere in the estimate path into a fold that silently reported nothing.
         """
-        try:
-            return self._estimates_for(
-                data, nuisance, group, submodel, fluctuation, supported, alpha_sig, index=index
-            )
-        except ValueError:
-            fragile = {"rr", "or"}
-            safe = tuple(name for name in supported if name not in fragile)
-            if len(safe) == len(supported):
-                return {}
-            try:
-                return self._estimates_for(
-                    data, nuisance, group, submodel, fluctuation, safe, alpha_sig, index=index
-                )
-            except ValueError:
-                return {}
+        return self._estimates_for(
+            data,
+            nuisance,
+            group,
+            submodel,
+            fluctuation,
+            supported,
+            alpha_sig,
+            index=index,
+            drop_undefined=True,
+        )
 
     @staticmethod
     def _groups(estimands: Sequence[str]) -> list[TargetGroup]:
@@ -966,14 +961,7 @@ class TMLE:
         Each estimand family gets its own targeting step, because each has its own
         efficient influence function and therefore its own score equation to solve.
         """
-        groups: list[TargetGroup] = []
-        if any(name in MEAN_GROUP_ESTIMANDS for name in estimands):
-            groups.append("mean")
-        if "att" in estimands:
-            groups.append("att")
-        if "atc" in estimands:
-            groups.append("atc")
-        return groups
+        return groups_for(estimands)
 
     def targeting_spec(self) -> TargetingSpec:
         """The targeting settings this estimator would use, as one object.
@@ -1149,6 +1137,7 @@ class TMLE:
         requested: Sequence[str],
         alpha_sig: float,
         index: IntArray | None = None,
+        drop_undefined: bool = False,
     ) -> dict[str, ParameterEstimate]:
         """Build every estimand that this fluctuation supports.
 
@@ -1175,46 +1164,30 @@ class TMLE:
             cluster = None if cluster is None else cluster[index]
             n = int(index.size)
 
+        context = TargetContext(
+            scaled=scaled,
+            targeted=targeted,
+            submodel=submodel,
+            treatment=treatment,
+            weights=weights,
+            observed=observed,
+            scaler=scaler,
+            n=n,
+            cluster=cluster,
+            alpha_sig=alpha_sig,
+        )
+        # One context per fluctuation, shared by every target in the group: the five
+        # mean-group estimands are different functionals of the same targeted
+        # distribution, and `context.means` computes the counterfactual means once.
         out: dict[str, ParameterEstimate] = {}
-        common: dict[str, Any] = {
-            "n": n,
-            "cluster": cluster,
-            "alpha": alpha_sig,
-        }
-
-        if group == "mean":
-            psi_one, ic_one, psi_zero, ic_zero = counterfactual_means(
-                scaled, targeted, submodel, weights, observed
-            )
-            if "ey1" in requested:
-                value, ic = unscale(psi_one, ic_one, scaler, "level")
-                out["ey1"] = make_estimate("ey1", value, ic, scale="level", **common)
-            if "ey0" in requested:
-                value, ic = unscale(psi_zero, ic_zero, scaler, "level")
-                out["ey0"] = make_estimate("ey0", value, ic, scale="level", **common)
-            if "ate" in requested:
-                value, ic = unscale(psi_one - psi_zero, ic_one - ic_zero, scaler, "difference")
-                out["ate"] = make_estimate("ate", value, ic, scale="difference", **common)
-            ratios = tuple(name for name in ("rr", "or") if name in requested)
-            if ratios:
-                out.update(
-                    ratio_estimates(
-                        psi_one,
-                        ic_one,
-                        psi_zero,
-                        ic_zero,
-                        n=n,
-                        cluster=cluster,
-                        alpha=alpha_sig,
-                        which=ratios,
-                    )
-                )
-            return out
-
-        estimator_fn = att_estimate if group == "att" else atc_estimate
-        psi, ic = estimator_fn(scaled, targeted, submodel, treatment, weights, observed)
-        value, unscaled_ic = unscale(psi, ic, scaler, "difference")
-        out[group] = make_estimate(group, value, unscaled_ic, scale="difference", **common)
+        for target in targets_for(group, requested):
+            try:
+                out[target.name] = target.build(context)
+            except ValueError:
+                # A target that declares `undefined_when` may legitimately fail on a
+                # subsample; anything else failing is a bug and must not be swallowed.
+                if not (drop_undefined and target.undefined_when):
+                    raise
         return out
 
     def _bootstrap_point_estimates(

@@ -15,13 +15,14 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .._typing import Estimand, FloatArray
+from .._typing import FloatArray
 from ..data.causal_data import CausalData
 from ..exceptions import CleverlyError
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
 from ..inference.influence import ParameterEstimate
 from ..inference.multiplier import SimultaneousBands
+from ..targets import TARGETS, all_names, resolve_estimands
 from ._nuisance import NuisanceEstimates
 from .direct_effect import describe as describe_direct_effect
 from .targeting import TargetingSpec
@@ -42,58 +43,21 @@ __all__ = [
     "resolve_estimands",
 ]
 
-#: Estimands available from a classic point-treatment fit, in report order.
-ALL_ESTIMANDS: tuple[Estimand, ...] = ("ate", "att", "atc", "ey1", "ey0", "rr", "or")
+#: Estimands available from a classic point-treatment fit, in report order.  Derived
+#: from the registry rather than declared here, so a registered target appears in it
+#: automatically and the two cannot disagree.
+ALL_ESTIMANDS: tuple[str, ...] = all_names()
 
 #: Estimands produced by the two-column ``mean`` fluctuation.
-MEAN_GROUP_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey1", "ey0", "rr", "or"})
+MEAN_GROUP_ESTIMANDS: frozenset[str] = frozenset(
+    name for name, target in TARGETS.items() if target.group == "mean"
+)
 
-#: The default set: the ATE family plus the counterfactual means.  ``rr``/``or`` are
-#: added automatically for a binary outcome, where they are defined.
-DEFAULT_ESTIMANDS: tuple[Estimand, ...] = ("ate", "att", "atc", "ey1", "ey0")
-
-_RATIO_ESTIMANDS: frozenset[str] = frozenset({"rr", "or"})
-
-
-def resolve_estimands(
-    requested: Sequence[str] | str | None,
-    family: str,
-) -> tuple[str, ...]:
-    """Normalise and validate a requested estimand list.
-
-    ``"all"`` expands to everything the outcome type supports.  Ratios are dropped
-    with an explanation for a continuous outcome: a risk ratio of two means that can
-    be negative is not a meaningful quantity.
-    """
-    if requested is None:
-        names: tuple[str, ...] = DEFAULT_ESTIMANDS
-        if family == "binomial":
-            names = (*names, "rr", "or")
-    elif isinstance(requested, str):
-        if requested == "all":
-            names = ALL_ESTIMANDS if family == "binomial" else DEFAULT_ESTIMANDS
-        else:
-            names = (requested,)
-    else:
-        names = tuple(requested)
-
-    unknown = [name for name in names if name not in ALL_ESTIMANDS]
-    if unknown:
-        raise ValueError(f"unknown estimand(s) {unknown}; choose from {list(ALL_ESTIMANDS)}")
-
-    if family != "binomial":
-        ratios = [name for name in names if name in _RATIO_ESTIMANDS]
-        if ratios:
-            raise ValueError(
-                f"estimand(s) {ratios} require a binary outcome (family='binomial'); the risk "
-                "ratio and odds ratio are not defined for a continuous outcome. Drop them or "
-                "dichotomise the outcome."
-            )
-
-    ordered = tuple(name for name in ALL_ESTIMANDS if name in set(names))
-    if not ordered:
-        raise ValueError("no estimands requested")
-    return ordered
+#: The default report for a continuous outcome.  A binary outcome additionally gets
+#: ``rr`` and ``or``, which are only defined when the means are probabilities.
+DEFAULT_ESTIMANDS: tuple[str, ...] = tuple(
+    name for name, target in TARGETS.items() if target.in_default_set
+)
 
 
 @dataclass(frozen=True)

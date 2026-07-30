@@ -39,11 +39,13 @@ from .exceptions import (
 )
 from .inference import ParameterEstimate
 from .learners import SuperLearner
+from .targets import TARGETS, Identification, Target, register
 
 __all__ = [
     "ALL_ESTIMANDS",
     "CTMLE",
     "DEFAULT_ESTIMANDS",
+    "TARGETS",
     "TMLE",
     "CTMLESelection",
     "CVTargeting",
@@ -51,13 +53,16 @@ __all__ = [
     "CleverlyError",
     "ConvergenceWarning",
     "DataError",
+    "Identification",
     "NotFittedError",
     "ParameterEstimate",
     "PositivityWarning",
     "SuperLearner",
     "TMLEResult",
     "TMLEResultSet",
+    "Target",
     "WeightingWarning",
     "__version__",
+    "register",
     "tmle",
 ]
