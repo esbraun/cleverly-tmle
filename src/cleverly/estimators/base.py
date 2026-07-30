@@ -8,7 +8,7 @@ reporting are written once, here, rather than per estimator.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
@@ -20,8 +20,11 @@ from ..data.causal_data import CausalData
 from ..exceptions import CleverlyError
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
-from ..inference.influence import ParameterEstimate
+from ..inference.cluster import influence_covariance
+from ..inference.delta import delta_method
+from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.multiplier import SimultaneousBands
+from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
 from ._nuisance import NuisanceEstimates
 from .direct_effect import describe as describe_direct_effect
@@ -305,6 +308,7 @@ class TMLEResult:
     data: CausalData
     config: TMLEConfig
     estimator: Any = None
+    provenance: Provenance | None = None
     simultaneous: SimultaneousBands | None = None
     bootstrap: BootstrapResult | None = None
     intermediate_value: float | None = None
@@ -353,6 +357,73 @@ class TMLEResult:
         value = self.extra.get("cv_tmle")
         return value if isinstance(value, CVTargeting) else None
 
+    # ------------------------------------------------------------- contrasts
+
+    def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
+        """Joint covariance matrix of the requested estimates.
+
+        The estimands are *not* independent -- they are functionals of one targeted
+        distribution and share most of their influence curve -- so a contrast built
+        from two of them needs this rather than the two variances.  Computed from the
+        influence curves at the right independent unit, so a clustered fit gets the
+        cluster-level covariance.
+        """
+        chosen = self._names(names)
+        # column_stack, not a list: influence_covariance takes an (n, m) matrix, and a
+        # list of m curves would be read as m observations of n estimands.
+        curves = np.column_stack([self[name].influence_curve for name in chosen])
+        return influence_covariance(curves, cluster=self.data.cluster)
+
+    def contrast(
+        self,
+        function: Callable[[FloatArray], float],
+        names: Sequence[str],
+        *,
+        name: str | None = None,
+        scale: Scale = "difference",
+        gradient: Callable[[FloatArray], FloatArray] | None = None,
+    ) -> ParameterEstimate:
+        r"""A smooth function of several estimands, with correct inference.
+
+        Applies the delta method to the *joint* influence curve, so the correlation
+        between the estimands is handled rather than ignored:
+        :math:`D_\phi = \nabla\phi(\hat\psi)^\top D`.
+
+        >>> res.contrast(lambda p: p[0] - p[1], ["ey1", "ey0"])   # doctest: +SKIP
+
+        Pass ``gradient`` when the function's derivative is known in closed form.  The
+        default is a central difference, which is accurate to about ``1e-10`` relative
+        -- fine for reporting, but not for a test asserting agreement at ``1e-12``.
+
+        The result is an ordinary :class:`~cleverly.inference.ParameterEstimate`, so it
+        carries its own influence curve and can itself be fed back into a contrast.
+        """
+        chosen = self._names(names)
+        estimates = [self[key].psi for key in chosen]
+        curves = [self[key].influence_curve for key in chosen]
+        value, curve = delta_method(function, estimates, curves, gradient=gradient)
+        label = name or f"contrast({', '.join(chosen)})"
+        return make_estimate(
+            label,
+            value,
+            curve,
+            n=self.n,
+            cluster=self.data.cluster,
+            scale=scale,
+            alpha=self.config.alpha_sig,
+        )
+
+    def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
+        chosen = tuple(self.estimates) if names is None else tuple(names)
+        missing = [key for key in chosen if key not in self.estimates]
+        if missing:
+            raise KeyError(
+                f"estimand(s) {missing} were not requested; available: {list(self.estimates)}"
+            )
+        if not chosen:
+            raise ValueError("no estimands selected")
+        return chosen
+
     # ----------------------------------------------------------- diagnostics
 
     @cached_property
@@ -370,6 +441,19 @@ class TMLEResult:
         return ValidationSuite(self)
 
     # ---------------------------------------------------------------- output
+
+    def save(self, path: Any) -> Any:
+        """Write this result to a single ``.npz`` file; see :func:`cleverly.load`.
+
+        Arrays plus JSON -- no pickle, so the file does not depend on the exact
+        scikit-learn version that wrote it and is not an execution vector.  After a
+        round trip everything reached through :meth:`~cleverly.TMLE.retarget` works;
+        the two analyses that genuinely refit need the learners to have been library
+        specifications rather than fitted objects.
+        """
+        from .serialize import save as _save
+
+        return _save(self, path)
 
     def to_frame(self) -> Any:
         """Tidy results, one row per estimand, in the caller's dataframe backend."""
@@ -430,6 +514,8 @@ class TMLEResult:
         if self.intermediate_value is not None:
             facts.append(describe_direct_effect(self.intermediate_value, data.intermediate_name))
         facts.extend(self.config.describe())
+        if self.provenance is not None:
+            facts.extend(self.provenance.describe())
 
         level = f"{(1 - self.config.alpha_sig) * 100:g}%"
         rows = []

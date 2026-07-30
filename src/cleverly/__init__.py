@@ -29,6 +29,7 @@ from .estimators import (
     TMLEResultSet,
     tmle,
 )
+from .estimators.serialize import load
 from .exceptions import (
     CleverlyError,
     ConvergenceWarning,
@@ -39,6 +40,7 @@ from .exceptions import (
 )
 from .inference import ParameterEstimate
 from .learners import SuperLearner
+from .provenance import Provenance
 from .targets import TARGETS, Identification, Target, register
 
 __all__ = [
@@ -57,12 +59,14 @@ __all__ = [
     "NotFittedError",
     "ParameterEstimate",
     "PositivityWarning",
+    "Provenance",
     "SuperLearner",
     "TMLEResult",
     "TMLEResultSet",
     "Target",
     "WeightingWarning",
     "__version__",
+    "load",
     "register",
     "tmle",
 ]

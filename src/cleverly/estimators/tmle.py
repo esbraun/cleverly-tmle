@@ -101,6 +101,7 @@ from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..learners._fitting import Task
 from ..learners.crossfit import Folds, make_folds
 from ..learners.super_learner import resolve_learner
+from ..provenance import record as provenance_record
 from ..targets import TargetContext, groups_for, targets_for
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.frames import is_dataframe
@@ -271,6 +272,10 @@ class TMLE:
         under weak overlap.  See :mod:`cleverly.inference.multiplier`.
     step_size, max_iter, tol:
         Targeting-step controls.
+    run_id:
+        An identifier of your own -- an experiment id, a ticket number -- recorded on
+        :attr:`TMLEResult.provenance`.  The library records no git commit of its own:
+        it must not assume it is being run from inside a repository.
     random_state, n_jobs:
         Reproducibility and parallelism.
 
@@ -314,8 +319,10 @@ class TMLE:
         max_iter: int = 20,
         tol: float = 1e-10,
         random_state: int | None = None,
+        run_id: str | None = None,
         n_jobs: int = 1,
     ) -> None:
+        self.run_id = run_id
         self.outcome_learner = outcome_learner
         self.treatment_learner = treatment_learner
         self.missingness_learner = missingness_learner
@@ -539,6 +546,9 @@ class TMLE:
             data=data,
             config=config,
             estimator=self,
+            provenance=provenance_record(
+                data, folds, random_state=self.random_state, run_id=self.run_id
+            ),
             intermediate_value=intermediate_value,
             extra=extra if cv_detail is None else {**extra, "cv_tmle": cv_detail},
         )
