@@ -29,6 +29,12 @@ error honest where in-sample fitting does not.
 These runs take minutes rather than seconds, so they are marked ``slow`` and run
 nightly rather than on every push.  The thresholds are set from the Monte Carlo standard
 error of each quantity, so a pass is evidence rather than a formality.
+
+What is *not* here, deliberately: the misspecification grid crossed with overlap.  Both
+arms of it live in :mod:`tests.e2e.test_double_robustness` and run in the fast tier, where
+they are cheap enough to be checked on every push -- and where the finding they carry (the
+propensity half of double robustness does not survive a practical positivity violation,
+while the outcome half does) was measured rather than assumed.
 """
 
 from __future__ import annotations
