@@ -7,7 +7,9 @@ it means constructing one :class:`~cleverly.targets.base.Target` and calling
 :func:`register`.
 
 The registry is *not* an invitation to add estimands casually.  Registering one
-without a matching branch in ``tests/discrete_law.functional`` is a test failure
+without a matching branch in the ``functional`` of one of the oracle laws
+(``tests/discrete_law.py`` for the arm- and regime-indexed estimands,
+``tests/discrete_law_shift.py`` for the shift-indexed ones) is a test failure
 (``tests/unit/test_registry.py``): the package's evidence that an influence curve
 is right is that it matches a numerically differentiated one on an exactly
 representable law, and an estimand with no oracle has no such evidence.
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from .._typing import ParameterAxis
 from ..fluctuation.submodel import SUBMODEL_BUILDERS, TargetGroup
 from .base import Identification, Target, TargetContext, parameter_name, parameter_stem
 from .builtin import BUILTIN_TARGETS
@@ -77,19 +80,19 @@ for _target in BUILTIN_TARGETS:
 
 
 def all_names(
-    family: str | None = None, n_arms: int = 2, *, interventions: bool = False
+    family: str | None = None, n_arms: int = 2, *, axis: ParameterAxis = "arm"
 ) -> tuple[str, ...]:
-    """Every registered target the family, arm count and intervention setting support."""
+    """Every registered target the family, arm count and parameter axis support."""
     return tuple(
         name
         for name, target in TARGETS.items()
         if (family is None or target.supported_by(family))
         and target.supports_arms(n_arms)
-        and target.matches_interventions(interventions)
+        and target.matches_axis(axis)
     )
 
 
-def default_names(family: str, n_arms: int = 2, *, interventions: bool = False) -> tuple[str, ...]:
+def default_names(family: str, n_arms: int = 2, *, axis: ParameterAxis = "arm") -> tuple[str, ...]:
     """The default report: the default set, plus whatever else the family supports.
 
     For a binary outcome that adds the risk ratio and odds ratio, which are only
@@ -99,17 +102,17 @@ def default_names(family: str, n_arms: int = 2, *, interventions: bool = False) 
     ``ey0`` name two arms and leave a multi-arm default, while ``ey`` -- one mean per arm
     -- joins it, since with three arms there is no ``ey1`` to carry the means.
 
-    ``interventions`` switches the report between the arm-indexed estimands and the
-    regime-indexed ones.  It is a switch rather than a widening because declaring
-    ``interventions=`` says what the fit's counterfactuals *are*; see
-    :attr:`~cleverly.targets.Target.requires_intervention`.
+    ``axis`` switches the report between the arm-indexed estimands, the regime-indexed
+    ones and the shift-indexed ones.  It is a switch rather than a widening because
+    declaring ``interventions=`` or ``shifts=`` says what the fit's counterfactuals
+    *are*; see :attr:`~cleverly.targets.Target.parameter_axis`.
     """
     return tuple(
         name
         for name, target in TARGETS.items()
         if target.supported_by(family)
         and target.supports_arms(n_arms)
-        and target.matches_interventions(interventions)
+        and target.matches_axis(axis)
         and not (target.default_arms == "multi" and n_arms == 2)
         and (target.in_default_set or family == "binomial")
     )
@@ -138,12 +141,29 @@ def targets_for(group: TargetGroup, estimands: Sequence[str]) -> tuple[Target, .
     )
 
 
+#: How each parameter axis is *declared*, for the message a caller who crossed two of
+#: them will read.  Keyed by axis so the sentence names the keyword rather than the
+#: internal word.
+_AXIS_DECLARED_BY = {
+    "arm": "a fit without interventions= or shifts=",
+    "regime": "a fit that declares interventions=",
+    "shift": "a fit that declares shifts=",
+}
+
+#: What each axis indexes its parameters by, for the same message.
+_AXIS_INDEXES_BY = {
+    "arm": "treatment arm",
+    "regime": "declared regime",
+    "shift": "declared shift",
+}
+
+
 def resolve_estimands(
     requested: Sequence[str] | str | None,
     family: str,
     n_arms: int = 2,
     *,
-    interventions: bool = False,
+    axis: ParameterAxis = "arm",
 ) -> tuple[str, ...]:
     """Normalise and validate a requested estimand list.
 
@@ -153,19 +173,15 @@ def resolve_estimands(
     be negative is a mistake worth surfacing, not a preference to be honoured quietly,
     and the same goes for asking a three-armed fit for "the effect on the treated".
 
-    ``interventions`` says whether the fit declared regimes.  It selects between the
-    arm-indexed and regime-indexed estimands rather than widening the choice; asking
-    across the two is refused, for the reason
-    :attr:`~cleverly.targets.Target.requires_intervention` gives.
+    ``axis`` says what the fit's parameters are indexed by.  It selects between the
+    arm-indexed, regime-indexed and shift-indexed estimands rather than widening the
+    choice; asking across two of them is refused, for the reason
+    :attr:`~cleverly.targets.Target.parameter_axis` gives.
     """
     if requested is None:
-        names: tuple[str, ...] = default_names(family, n_arms, interventions=interventions)
+        names: tuple[str, ...] = default_names(family, n_arms, axis=axis)
     elif isinstance(requested, str):
-        names = (
-            all_names(family, n_arms, interventions=interventions)
-            if requested == "all"
-            else (requested,)
-        )
+        names = all_names(family, n_arms, axis=axis) if requested == "all" else (requested,)
     else:
         names = tuple(requested)
 
@@ -173,16 +189,17 @@ def resolve_estimands(
     if unknown:
         raise ValueError(f"unknown estimand(s) {unknown}; choose from {list(TARGETS)}")
 
-    mismatched = [name for name in names if not TARGETS[name].matches_interventions(interventions)]
+    mismatched = [name for name in names if not TARGETS[name].matches_axis(axis)]
     if mismatched:
-        available = list(all_names(family, n_arms, interventions=interventions))
+        available = list(all_names(family, n_arms, axis=axis))
+        other_axes = sorted({TARGETS[name].parameter_axis for name in mismatched})
         raise ValueError(
-            f"estimand(s) {mismatched} do not belong to a fit "
-            f"{'that declares interventions=' if interventions else 'without interventions='}. "
-            "An intervention declares what the fit's counterfactuals are: with one, the "
-            "parameters are indexed by regime; without one, by treatment arm. Reporting "
-            "both from a single fluctuation would put two score equations under one "
-            f"heading. Available here: {available}."
+            f"estimand(s) {mismatched} do not belong to {_AXIS_DECLARED_BY[axis]}; they are "
+            f"indexed by {' and '.join(_AXIS_INDEXES_BY[other] for other in other_axes)}, and this "
+            f"fit's parameters are indexed by {_AXIS_INDEXES_BY[axis]}. Declaring "
+            "interventions= or shifts= says what the fit's counterfactuals are, so reporting "
+            "across two of them from a single fluctuation would put two score equations "
+            f"under one heading. Available here: {available}."
         )
 
     wrong_arms = [name for name in names if not TARGETS[name].supports_arms(n_arms)]
@@ -192,7 +209,7 @@ def resolve_estimands(
             f"fit has {n_arms} arms. They condition on one arm of a single contrast, and "
             "with more arms there is a separate such parameter per non-reference arm -- a "
             f"different derivation rather than a wider loop. Available here: "
-            f"{list(all_names(family, n_arms))}."
+            f"{list(all_names(family, n_arms, axis=axis))}."
         )
 
     unsupported = [name for name in names if not TARGETS[name].supported_by(family)]

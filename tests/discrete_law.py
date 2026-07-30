@@ -172,14 +172,23 @@ PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
 
 
 def oracle_names(target: str) -> tuple[str, ...]:
-    """The parameter name(s) ``target`` reports, which is what the oracle keys on.
+    """The parameter name(s) ``target`` reports here, or none if this law does not own it.
 
     A target is one *functional*, and a functional can report more than one number --
     which is what made this indirection necessary once a treatment could have more than
     two arms.  The coverage gate in ``tests/unit/test_registry.py`` walks these rather
     than the bare target names, so a per-arm target still cannot ship without an oracle.
+
+    Returning ``()`` for a target this law does not cover is what lets that gate walk
+    *several* laws: a shift is checked against ``tests/discrete_law_shift.py``, whose
+    treatment has four ordered doses rather than two arms, and neither law can express
+    the other's estimands.  The bare-name fallback is guarded by :data:`TRUTH` so that
+    "this law has no branch for it" and "this law owns it under its own name" stay
+    distinguishable.
     """
-    return PER_ARM_NAMES.get(target, (target,))
+    if target in PER_ARM_NAMES:
+        return PER_ARM_NAMES[target]
+    return (target,) if target in TRUTH else ()
 
 
 #: Population values of every estimand, on the scale :func:`functional` returns.

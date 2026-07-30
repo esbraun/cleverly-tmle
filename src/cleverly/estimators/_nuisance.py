@@ -33,7 +33,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import InitialFit
-from ..interventions import RegimeSet
+from ..interventions import RegimeSet, Shift, ShiftSet
 from ..learners._fitting import (
     Task,
     as_target,
@@ -42,6 +42,7 @@ from ..learners._fitting import (
     predict_probabilities,
 )
 from ..learners.crossfit import Folds
+from ..learners.density import ConditionalDensity, fit_conditional_density
 from ..learners.screeners import CorrelationScreener
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler, bound
@@ -133,7 +134,12 @@ class NuisanceEstimates:
     ----------
     propensity:
         Out-of-fold ``g(a | W)`` for every arm, *not* truncated -- see
-        :class:`Propensity`.
+        :class:`Propensity`.  On a **continuous** treatment there are no arms and no
+        propensity: the mechanism is ``density`` instead, and this holds an ``(n, 0)``
+        placeholder so that ``n`` and ``arms`` keep answering.  Every reader that would
+        misread that placeholder as a real mechanism refuses a continuous fit by name --
+        :func:`~cleverly.sensitivity.positivity_report` is the one that would otherwise
+        report a spurious simplex deviation.
     outcome:
         Initial outcome regression on the ``[0, 1]`` scale, at the observed
         treatment and at every counterfactual arm.
@@ -172,6 +178,18 @@ class NuisanceEstimates:
     #: including on a result read back from disk, where the rules that built the
     #: densities are no longer callable.
     regimes: RegimeSet | None = None
+    #: The conditional treatment density ``g(a | W)`` on a continuous fit, evaluated at
+    #: every row and every bin, or ``None`` when the treatment has arms.  This is the
+    #: mechanism half of double robustness there, standing where ``propensity`` stands
+    #: for a discrete treatment.
+    density: ConditionalDensity | None = None
+    #: The shifts this fit targets, evaluated against ``density``, or ``None`` for a fit
+    #: that declared none.  Carried for the reason ``regimes`` is, and built *inside*
+    #: :func:`fit_nuisances` rather than beside it -- unlike a regime, a shift's clever
+    #: covariate is a ratio of densities, so it cannot be evaluated until the density
+    #: exists, and evaluating it here is what makes "g(A | W) and g(A - delta | W) come
+    #: from the same out-of-fold model" structural rather than an invariant to maintain.
+    shifts: ShiftSet | None = None
 
     @property
     def n(self) -> int:
@@ -402,6 +420,9 @@ def fit_nuisances(
     screen_treatment: bool = False,
     screen_threshold: float = 0.1,
     min_retain: int | None = None,
+    shifts: Sequence[Shift] = (),
+    shift_reference: str | None = None,
+    density_bins: int = 20,
     n_jobs: int = 1,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
@@ -411,6 +432,13 @@ def fit_nuisances(
     intermediate variable.  ``extra_levels`` asks for the outcome regression to be
     evaluated at further levels in the *same* pass over the folds, which is what lets
     both controlled direct effects be estimated from one set of nuisance fits.
+
+    ``shifts`` declares modified treatment policies, which a continuous treatment
+    requires and an arm-coded one refuses.  They are evaluated *here*, against the
+    density fitted a few lines above, rather than by the caller: the clever covariate is
+    the ratio :math:`g(a - \\delta \\mid W) / g(a \\mid W)`, so numerator and denominator
+    come from one out-of-fold model by construction and there is no second model for a
+    later step to get wrong.
     """
     diagnostics: dict[str, Any] = {}
     groups = data.cluster
@@ -422,22 +450,44 @@ def fit_nuisances(
         else treatment_learner
     )
     arms = data.arm_codes
-    propensity_out, propensity_diagnostics = cross_fit_predictions(
-        treatment_model,
-        data.covariates,
-        data.treatment,
-        data.weights,
-        folds,
-        task="classification",
-        predict_designs={"g": data.covariates},
-        groups=groups,
-        clip=(0.0, 1.0),
-        classes=arms,
-        n_jobs=n_jobs,
-    )
-    propensity = Propensity(propensity_out["g"], arms)
-    if propensity_diagnostics:
-        diagnostics["propensity"] = propensity_diagnostics
+    density: ConditionalDensity | None = None
+    shift_set: ShiftSet | None = None
+    if data.is_continuous_treatment:
+        # A dose has no arms, so there is no P(A = a | W) to classify: the mechanism is a
+        # density. The learner is the same one either way -- fit_conditional_density
+        # factorises the density into bin hazards, each a conditional probability of a
+        # binary event, so the classifier in treatment_learner= estimates all of them at
+        # once. The propensity below is an (n, 0) placeholder; see NuisanceEstimates.
+        density, density_diagnostics = fit_conditional_density(
+            treatment_model,
+            data.covariates,
+            data.treatment,
+            data.weights,
+            folds,
+            n_bins=density_bins,
+            groups=groups,
+            n_jobs=n_jobs,
+        )
+        diagnostics["density"] = density_diagnostics
+        propensity = Propensity(np.zeros((data.n, 0)), ())
+        shift_set = ShiftSet.evaluate(tuple(shifts), data, density, reference=shift_reference)
+    else:
+        propensity_out, propensity_diagnostics = cross_fit_predictions(
+            treatment_model,
+            data.covariates,
+            data.treatment,
+            data.weights,
+            folds,
+            task="classification",
+            predict_designs={"g": data.covariates},
+            groups=groups,
+            clip=(0.0, 1.0),
+            classes=arms,
+            n_jobs=n_jobs,
+        )
+        propensity = Propensity(propensity_out["g"], arms)
+        if propensity_diagnostics:
+            diagnostics["propensity"] = propensity_diagnostics
 
     retained = data.covariate_names
     if screen_treatment:
@@ -509,11 +559,23 @@ def fit_nuisances(
     # which is exactly what predict_designs is for. Fitting them separately refits all
     # four nuisance models to obtain two extra prediction vectors.
     levels = _requested_levels(intermediate_value, extra_levels)
+
+    # What the counterfactual predictions are keyed by, and what treatment value each
+    # one sets. An arm fit sets one level for everybody; a shift fit sets a *different*
+    # dose per row, which is what makes a modified treatment policy modified -- so the
+    # value here is an (n,) array rather than a scalar, and the keys are shift codes.
+    if shift_set is None:
+        counterfactual: dict[float, float | FloatArray] = {arm: arm for arm in arms}
+    else:
+        counterfactual = {
+            code: shift_set.shifted[:, index] for index, code in enumerate(shift_set.codes)
+        }
+
     designs: dict[str, FloatArray] = {"observed": outcome_design}
     for level in levels:
-        for arm in arms:
-            designs[_design_key(arm, level)] = data.counterfactual_design(
-                arm, intermediate_value=level
+        for code, value in counterfactual.items():
+            designs[_design_key(code, level)] = data.counterfactual_design(
+                value, intermediate_value=level
             )
 
     outcome_out, outcome_diagnostics = cross_fit_predictions(
@@ -535,7 +597,7 @@ def fit_nuisances(
     by_level = {
         level: InitialFit(
             outcome_out["observed"],
-            {arm: outcome_out[_design_key(arm, level)] for arm in arms},
+            {code: outcome_out[_design_key(code, level)] for code in counterfactual},
         )
         for level in levels
     }
@@ -552,6 +614,8 @@ def fit_nuisances(
         treatment_covariates=tuple(retained),
         diagnostics=diagnostics,
         outcome_task=outcome_task,
+        density=density,
+        shifts=shift_set,
     )
 
 

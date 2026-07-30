@@ -45,8 +45,9 @@ from ..data.causal_data import CategoricalEncoding, CausalData
 from ..data.weighting import WeightSpec
 from ..fluctuation.iterative import Fluctuation, FoldFluctuation, InitialFit
 from ..inference.influence import ParameterEstimate
-from ..interventions import RegimeSet
+from ..interventions import RegimeSet, ShiftSet
 from ..learners.crossfit import Folds
+from ..learners.density import ConditionalDensity
 from ..provenance import Provenance
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import NuisanceEstimates, Propensity
@@ -66,7 +67,12 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: ``3`` stores the treatment mechanism as an ``(n, K)`` matrix over the arms plus the
 #: arm codes it is keyed by, rather than the single ``P(A = 1 | W)`` vector, which cannot
 #: describe a treatment with more than two levels.
-FORMAT_VERSION = 3
+#:
+#: ``4`` records the treatment's *kind*, and the conditional density and shifts a
+#: continuous fit targets.  Without the kind a dose reloaded as a discrete treatment with
+#: no levels -- ``is_continuous_treatment`` silently flipped to ``False`` -- and without
+#: the density the mechanism half of a shift fit was simply absent from the file.
+FORMAT_VERSION = 4
 
 _ARRAY_MARK = "__array__"
 
@@ -213,6 +219,10 @@ def _data_to(arrays: _Arrays, data: CausalData) -> dict[str, Any]:
         "outcome_name": data.outcome_name,
         "treatment_name": data.treatment_name,
         "treatment_levels": list(data.treatment_levels),
+        # Declared, never inferred -- exactly as on the way in. A continuous treatment
+        # has no levels, so a reader recovering the kind from an empty level list would
+        # be guessing, and would guess "discrete" for a dose.
+        "treatment_kind": data.treatment_kind,
         "delta_name": data.delta_name,
         "cluster": arrays.put("data.cluster", data.cluster),
         "cluster_name": data.cluster_name,
@@ -251,6 +261,7 @@ def _data_from(arrays: _Arrays, payload: dict[str, Any]) -> CausalData:
         outcome_name=payload["outcome_name"],
         treatment_name=payload["treatment_name"],
         treatment_levels=tuple(payload["treatment_levels"]),
+        treatment_kind=payload["treatment_kind"],
         delta_name=payload["delta_name"],
         cluster=None if cluster is None else cluster.astype(np.int64),
         cluster_name=payload["cluster_name"],
@@ -298,6 +309,36 @@ def _nuisance_to(arrays: _Arrays, nuisance: NuisanceEstimates) -> dict[str, Any]
                 "reference": float(nuisance.regimes.reference),
             }
         ),
+        # The density is written for the same reason: it holds evaluated bin
+        # probabilities and no learner, so a reloaded shift fit can be retargeted,
+        # swept over truncation bounds and score-checked without refitting anything.
+        "density": (
+            None
+            if nuisance.density is None
+            else {
+                "bin_probabilities": arrays.put(
+                    "nuisance.density", nuisance.density.bin_probabilities
+                ),
+                "edges": arrays.put("nuisance.density.edges", nuisance.density.edges),
+            }
+        ),
+        # Every array of a ShiftSet, rather than the shifts plus a rule for rebuilding
+        # them: re-evaluating on load would recompute the density ratios from the
+        # reloaded density, and an evaluation that agrees to fifteen digits rather than
+        # exactly is not the round trip this format promises.
+        "shifts": (
+            None
+            if nuisance.shifts is None
+            else {
+                "names": list(nuisance.shifts.names),
+                "deltas": [float(delta) for delta in nuisance.shifts.deltas],
+                "shifted": arrays.put("nuisance.shifts.shifted", nuisance.shifts.shifted),
+                "ratio": arrays.put("nuisance.shifts.ratio", nuisance.shifts.ratio),
+                "ratio_at": arrays.put("nuisance.shifts.ratio_at", nuisance.shifts.ratio_at),
+                "capped": arrays.put("nuisance.shifts.capped", nuisance.shifts.capped),
+                "reference": float(nuisance.shifts.reference),
+            }
+        ),
     }
 
 
@@ -321,6 +362,8 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
         diagnostics={},
         outcome_task=payload["outcome_task"],
         regimes=_regimes_from(arrays, payload.get("regimes")),
+        density=_density_from(arrays, payload.get("density")),
+        shifts=_shifts_from(arrays, payload.get("shifts")),
     )
 
 
@@ -330,6 +373,29 @@ def _regimes_from(arrays: _Arrays, payload: dict[str, Any] | None) -> RegimeSet 
     return RegimeSet(
         tuple(payload["names"]),
         arrays.get(payload["values"]),
+        float(payload["reference"]),
+    )
+
+
+def _density_from(arrays: _Arrays, payload: dict[str, Any] | None) -> ConditionalDensity | None:
+    if payload is None:
+        return None
+    return ConditionalDensity(
+        arrays.get(payload["bin_probabilities"]),
+        arrays.get(payload["edges"]),
+    )
+
+
+def _shifts_from(arrays: _Arrays, payload: dict[str, Any] | None) -> ShiftSet | None:
+    if payload is None:
+        return None
+    return ShiftSet(
+        tuple(payload["names"]),
+        tuple(float(delta) for delta in payload["deltas"]),
+        arrays.get(payload["shifted"]),
+        arrays.get(payload["ratio"]),
+        arrays.get(payload["ratio_at"]),
+        arrays.get(payload["capped"]).astype(bool),
         float(payload["reference"]),
     )
 
@@ -363,6 +429,7 @@ def _config_to(config: TMLEConfig) -> dict[str, Any]:
         "auto_bounds_n": config.auto_bounds_n,
         "bounded_mechanisms": list(config.bounded_mechanisms),
         "reference_arm": config.reference_arm,
+        "parameter_axis": config.parameter_axis,
     }
 
 
@@ -386,6 +453,7 @@ def _config_from(payload: dict[str, Any]) -> TMLEConfig:
         auto_bounds_n=payload["auto_bounds_n"],
         bounded_mechanisms=tuple(payload["bounded_mechanisms"]),
         reference_arm=float(payload["reference_arm"]),
+        parameter_axis=payload["parameter_axis"],
     )
 
 

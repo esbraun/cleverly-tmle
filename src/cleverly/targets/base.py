@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from .._typing import BoolArray, FloatArray, IntArray
+from .._typing import BoolArray, FloatArray, IntArray, ParameterAxis
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel, TargetGroup
 from ..inference.influence import (
@@ -44,6 +44,7 @@ from ..inference.influence import (
     counterfactual_means,
     make_estimate,
     regime_means,
+    shift_means,
     unscale,
 )
 from ..utils.bounds import OutcomeScaler
@@ -155,14 +156,24 @@ class Target:
         propensity odds, which is only an odds with two arms, and "the effect among the
         treated" does not name one parameter when there are three.  Such a target is
         refused on a multi-arm fit rather than quietly reported for arms 0 and 1.
-    requires_intervention:
-        ``True`` for a target whose parameters are indexed by *regime* rather than by
-        arm.  Such a target is unavailable unless the fit declares ``interventions=``,
-        and when one does, the arm-indexed targets become unavailable in turn.  The two
-        are not alternative spellings of one report: ``interventions=`` declares what
-        "counterfactual" means for the fit, and a single fit reporting both
-        ``E[Y(1)]`` and ``E[Y^d]`` from one fluctuation would be reporting two
-        different score equations under one heading.
+    parameter_axis:
+        What this target's parameters are indexed by: ``"arm"`` for a treatment level,
+        ``"regime"`` for a regime declared with ``interventions=``, ``"shift"`` for a
+        modified treatment policy declared with ``shifts=``.
+
+        The three **partition** the registry rather than accumulating: a target is
+        unavailable unless the fit's own axis matches, and declaring one axis makes the
+        other two unavailable in turn.  They are not alternative spellings of one
+        report.  Each keyword declares what "counterfactual" means for the fit, and a
+        single fit reporting ``E[Y(1)]``, ``E[Y^{g*}]`` and ``E[Y^{d}]`` from one
+        fluctuation would be reporting three different score equations under one
+        heading.
+
+        The axis is also not the same question as ``group``.  A group is a score
+        equation and several targets share one; an axis is what the resulting
+        parameters are *named by*.  ``ey_shift`` and ``ate_shift`` share the ``mtp``
+        group and the ``"shift"`` axis, but ``ate`` and ``att`` share the ``"arm"``
+        axis across two different groups.
     build:
         Maps a :class:`TargetContext` to **one or more** estimates.  Returns a sequence
         because one target is one *functional*, not one number: with ``K`` arms ``ey``
@@ -177,7 +188,7 @@ class Target:
     identification: Identification
     requires_family: str | None = None
     requires_binary_treatment: bool = False
-    requires_intervention: bool = False
+    parameter_axis: ParameterAxis = "arm"
     in_default_set: bool = False
     #: Restricts which arm counts this target is *defaulted* for, without restricting
     #: which it is *defined* for.  ``"multi"`` keeps a target out of a two-armed fit's
@@ -197,9 +208,9 @@ class Target:
         """Whether this target is defined for a treatment with ``n_arms`` levels."""
         return n_arms == 2 or not self.requires_binary_treatment
 
-    def matches_interventions(self, declared: bool) -> bool:
-        """Whether this target belongs in a fit that did (or did not) declare regimes."""
-        return self.requires_intervention == declared
+    def matches_axis(self, axis: ParameterAxis) -> bool:
+        """Whether this target belongs in a fit whose parameters are indexed by ``axis``."""
+        return self.parameter_axis == axis
 
 
 @dataclass
@@ -224,16 +235,22 @@ class TargetContext:
     #: Arm codes, ascending, and the labels to report them under.  ``arm_labels`` maps a
     #: code to the level the user supplied, and is what :func:`parameter_name` is given.
     #:
-    #: On a **regime** fit these carry regime codes and regime labels instead.  The two
-    #: axes are interchangeable here on purpose: a target that loops the keys of
-    #: :attr:`means` and names each one is estimating a mean per arm or a mean per regime
-    #: with the same code, which is what lets the regime targets reuse the arm builders.
+    #: On a **regime** or **shift** fit these carry regime (or shift) codes and labels
+    #: instead.  The three axes are interchangeable here on purpose: a target that loops
+    #: the keys of :attr:`means` and names each one is estimating a mean per arm, per
+    #: regime or per shift with the same code, which is what lets the regime and shift
+    #: targets reuse the arm builders.
     arms: tuple[float, ...] = (0.0, 1.0)
     arm_labels: dict[float, Any] = field(default_factory=dict)
     #: The arm contrasts are taken against.  Every non-reference arm gets one contrast.
     reference: float = 0.0
     #: ``(n, K, R)`` regime densities, for the ``regime`` fluctuation; ``None`` otherwise.
     regimes: FloatArray | None = None
+    #: ``(n, S + 1, S)`` shift clever covariates, for the ``mtp`` fluctuation; ``None``
+    #: otherwise.  Carried only to select the mean function: unlike ``regimes``, whose
+    #: densities the plug-in term averages ``Qbar`` against, a shift's plug-in term is
+    #: already in ``targeted.arms`` and the covariate is already in ``submodel``.
+    shifts: FloatArray | None = None
     #: Report every parameter with its label even when there are exactly two of them.
     #: The two-arm short names (``"ate"``, ``"ey1"``) exist because they are historical
     #: and unambiguous; two *regimes* have neither property, and "the ATE" of a rule
@@ -242,12 +259,24 @@ class TargetContext:
 
     @cached_property
     def means(self) -> dict[float, ArmMean]:
-        """Each arm's -- or regime's -- counterfactual mean and influence curve.
+        """Each arm's -- or regime's, or shift's -- mean and influence curve.
 
         On the *scaled* outcome scale, computed once and shared by every target in the
         group, which is what keeps the mean-group estimands from recomputing them one
         target at a time.
+
+        The shift branch comes first and does *not* delegate to ``regime_means``, though
+        the induced density makes the two clever covariates identical entry for entry.
+        A regime's plug-in term averages ``Qbar`` over the arms; a shift's reads the dose
+        the unit actually received, and the two agree only in conditional expectation
+        given ``W`` -- see :func:`~cleverly.inference.influence.shift_means`, whose
+        docstring states the exact variance gap, and the negative control in
+        ``tests/unit/test_influence_gateaux_shift.py`` that fails if someone merges them.
         """
+        if self.shifts is not None:
+            return shift_means(
+                self.scaled, self.targeted, self.submodel, self.weights, self.observed
+            )
         if self.regimes is not None:
             return regime_means(
                 self.scaled,

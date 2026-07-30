@@ -43,6 +43,8 @@ from ..utils.frames import as_frame, column_array, frame_from_dict
 
 __all__ = [
     "DGP",
+    "MultiArmDGP",
+    "ShiftDGP",
     "make_biased_sample",
     "make_binary_outcome",
     "make_cde",
@@ -52,7 +54,9 @@ __all__ = [
     "make_linear_ate",
     "make_missing_outcome",
     "make_missing_outcome_binary",
+    "make_multi_arm",
     "make_nonlinear_ate",
+    "make_shift_dose",
     "make_weak_overlap",
 ]
 
@@ -976,12 +980,176 @@ def make_multi_arm(
     return multi_arm_dgp().sample(n, seed=seed, backend=backend)
 
 
+@dataclass(frozen=True)
+class ShiftDGP:
+    r"""A continuous dose with a known mean under each modified treatment policy.
+
+    A third process class beside :class:`DGP` and :class:`MultiArmDGP`, for the reason
+    :class:`MultiArmDGP` gives: ``DGP`` is binary all the way down, ``MultiArmDGP`` is
+    categorical, and a dose is neither.  Here the mechanism is a conditional *density*
+    :math:`A \mid W \sim N(\mu(W), \sigma^2)` and the parameter is
+    :math:`E[Y^{d}] = E[\bar Q(d(A, W), W)]` for :math:`d(a, w) = \min(a + \delta, u)`.
+
+    **The dose response has to be non-linear, and that is the whole design.**  If
+    :math:`\bar Q` were linear in ``a`` -- say :math:`\beta a + h(w)` -- then an uncapped
+    shift would give :math:`E[\bar Q(A + \delta, W)] - E[\bar Q(A, W)] = \beta\delta`
+    whatever the density of ``A`` is.  The density would cancel out of the point estimate
+    entirely, so an oracle test built on such a process would pass with the conditional
+    density estimator returning arbitrary numbers, and would be checking the outcome
+    regression alone.  The quadratic term makes the truth depend on
+    :math:`E[A \mid W]`, so the density has to be right for the estimate to be, and the
+    cap makes it depend on the density's *spread* as well as its mean.
+
+    Attributes
+    ----------
+    dose_mean, dose_scale:
+        :math:`\mu(W)` and :math:`\sigma`.  Normal rather than something heavier-tailed
+        so the truth is a clean two-dimensional integral, and confounded through
+        ``dose_mean`` so the estimand is not the marginal one.
+    outcome_mean:
+        :math:`E[Y \mid A = a, W]` given ``(latent, dose)`` as arrays of the same length,
+        so the caller can write the interaction between them.
+    """
+
+    name: str
+    n_latent: int
+    covariate_names: tuple[str, ...]
+    dose_mean: Callable[[FloatArray], FloatArray]
+    outcome_mean: Callable[[FloatArray, FloatArray], FloatArray]
+    dose_scale: float = 1.0
+    family: str = "gaussian"
+    noise_scale: float = 1.0
+
+    def shifted(self, dose: FloatArray, delta: float, cap: float | None) -> FloatArray:
+        """``d(a, w) = min(a + delta, cap)``, holding a unit at its own dose past the cap.
+
+        Written here as well as in :class:`~cleverly.interventions.Shift` on purpose: an
+        oracle that imported the estimator's own policy would agree with it by
+        construction, including where both are wrong.
+        """
+        moved = np.asarray(dose, dtype=float) + float(delta)
+        if cap is None:
+            return moved
+        return np.where(moved > float(cap), np.asarray(dose, dtype=float), moved)
+
+    def truth(self, shifts: Sequence[tuple[float, float | None, str]]) -> dict[str, float]:
+        r"""``E[Y^{d}]`` per shift and ``E[Y^{d}] - E[Y^{d_ref}]`` per contrast.
+
+        Keyed by the names the estimator reports, so a test can compare without
+        translating.  ``shifts`` is ``(delta, cap, name)`` per policy and the *first* is
+        the reference, which is the rule the estimator follows.
+
+        Integrated over a Sobol sequence in ``n_latent + 1`` dimensions: the covariates
+        take the first columns and the last supplies :math:`A`'s conditional noise, so
+        the joint law of ``(W, A)`` is covered rather than ``W`` alone.  A shift's
+        parameter reads the dose the unit *received*, so integrating over ``W`` and
+        plugging in :math:`\mu(W)` would compute a different functional.
+        """
+        draws = _sobol_normal(self.n_latent + 1, _TRUTH_POINTS)
+        latent, noise = draws[:, : self.n_latent], draws[:, self.n_latent]
+        dose = np.asarray(self.dose_mean(latent), dtype=float) + self.dose_scale * noise
+        means = {
+            name: float(
+                np.mean(
+                    np.asarray(
+                        self.outcome_mean(latent, self.shifted(dose, delta, cap)), dtype=float
+                    )
+                )
+            )
+            for delta, cap, name in shifts
+        }
+        base = shifts[0][2]
+        truth = {f"ey_shift[{name}]": value for name, value in means.items()}
+        for name, value in means.items():
+            if name != base:
+                truth[f"ate_shift[{name} vs {base}]"] = value - means[base]
+        return truth
+
+    def sample(
+        self,
+        n: int,
+        *,
+        shifts: Sequence[tuple[float, float | None, str]] = ((0.0, None, "natural course"),),
+        seed: int | np.random.Generator | None = None,
+        backend: Backend | str | None = None,
+    ) -> tuple[Any, dict[str, float]]:
+        """Draw ``n`` observations and report the truth for the given policies."""
+        rng = seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+        latent = rng.normal(size=(n, self.n_latent))
+        dose = np.asarray(self.dose_mean(latent), dtype=float) + self.dose_scale * rng.normal(
+            size=n
+        )
+        mean = np.asarray(self.outcome_mean(latent, dose), dtype=float)
+        if self.family == "binomial":
+            y = rng.binomial(1, np.clip(mean, 0.0, 1.0)).astype(float)
+        else:
+            y = mean + rng.normal(scale=self.noise_scale, size=n)
+
+        payload: dict[str, Any] = {"Y": y, "A": dose}
+        for index, name in enumerate(self.covariate_names):
+            payload[name] = latent[:, index]
+        return frame_from_dict(payload, backend=backend), self.truth(shifts)
+
+
+def shift_dgp(*, curvature: float = 0.25, confounding: float = 0.7) -> ShiftDGP:
+    """A confounded dose with a quadratic response, so the density is load-bearing.
+
+    ``curvature`` is the coefficient on :math:`a^2`.  At zero the process is still a
+    valid one, but the shift effect collapses to a constant that no density can move --
+    see :class:`ShiftDGP`.  It is a parameter rather than a constant so a test can
+    *demonstrate* that, rather than the docstring merely asserting it.
+
+    The outcome mean is otherwise additive in the covariates and carries no
+    dose-covariate interaction, so a design holding ``[a, a^2, W]`` represents it
+    exactly.  Deliberate, and for the reason :func:`multi_arm_dgp` gives: recovery of the
+    truth is then a consistency check rather than a measurement of how much bias a
+    misspecified working model happens to leave.
+    """
+
+    def dose_mean(w: FloatArray) -> FloatArray:
+        return 2.0 + confounding * w[:, 0] - 0.3 * w[:, 1]
+
+    def outcome_mean(w: FloatArray, a: FloatArray) -> FloatArray:
+        return 1.0 + 0.5 * a + curvature * a**2 + w[:, 0] - 0.5 * w[:, 1] + 0.2 * w[:, 2]
+
+    return ShiftDGP(
+        name="shift_dose",
+        n_latent=3,
+        covariate_names=("W1", "W2", "W3"),
+        dose_mean=dose_mean,
+        outcome_mean=outcome_mean,
+        dose_scale=1.0,
+        noise_scale=0.8,
+    )
+
+
+def make_shift_dose(
+    n: int = 1000,
+    *,
+    shifts: Sequence[tuple[float, float | None, str]] = (
+        (0.0, None, "natural course"),
+        (0.5, 5.0, "+0.5"),
+    ),
+    seed: int | np.random.Generator | None = None,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """A confounded continuous dose with known means under each declared shift.
+
+    The default policies are the natural course and a ``+0.5`` shift capped at ``5.0``,
+    which is what :class:`~cleverly.interventions.Shift` would be given for the same
+    analysis -- and the names match, so the truth is keyed exactly as the estimator
+    reports.
+    """
+    return shift_dgp().sample(n, shifts=shifts, seed=seed, backend=backend)
+
+
 #: Every generator, for parametrised tests and the simulation harness.
 #:
-#: Multi-arm processes are deliberately absent: every consumer here -- the parametrised
-#: structural tests, the coverage study, the simulation harness -- reads a truth keyed
-#: ``ate``/``ey1``/``ey0`` and a binary ``A`` column, and a three-armed entry would
-#: report neither.  Reach for :func:`make_multi_arm` directly.
+#: Multi-arm and continuous-dose processes are deliberately absent: every consumer here
+#: -- the parametrised structural tests, the coverage study, the simulation harness --
+#: reads a truth keyed ``ate``/``ey1``/``ey0`` and a binary ``A`` column, and a
+#: three-armed or dose-valued entry would report neither.  Reach for
+#: :func:`make_multi_arm` and :func:`make_shift_dose` directly.
 GENERATORS: dict[str, Callable[..., tuple[Any, dict[str, float]]]] = {
     "linear_ate": make_linear_ate,
     "nonlinear_ate": make_nonlinear_ate,

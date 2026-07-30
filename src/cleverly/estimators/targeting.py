@@ -92,11 +92,15 @@ def build_submodel(
         data.treatment,
         propensity,
         arms=nuisance.arms,
-        treated_fraction=data.treated_fraction,
+        # Read lazily: `treated_fraction` names no quantity on a continuous treatment and
+        # raises, and every builder is called through this one signature -- so evaluating
+        # it eagerly would refuse a shift fit on behalf of a builder that discards it.
+        treated_fraction=None if data.is_continuous_treatment else data.treated_fraction,
         missingness=missingness,
         intermediate_density=intermediate_density,
         selection=selection,
         regimes=None if nuisance.regimes is None else nuisance.regimes.values,
+        shifts=None if nuisance.shifts is None else nuisance.shifts.design,
     )
 
 

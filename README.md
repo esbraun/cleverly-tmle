@@ -176,19 +176,127 @@ A rule's positivity question is not "is `g` bounded away from zero" but "is it b
 away from zero at the arm this rule assigns". Two fits with identical marginal overlap can
 differ completely on that, and no arm-level table shows it.
 
-Two interventions are **refused rather than approximated**, both because of the influence
+One intervention is **refused rather than approximated**, because of the influence
 function and not for want of effort:
 
 | refused | what it would need |
 | --- | --- |
 | incremental propensity-score interventions (`g*_δ = δg / (δg + 1 - g)`) | `g*` is a functional of `P`, so the EIF carries a further term for the pathwise derivative through `g` (Kennedy 2019). Estimating one as a `Stochastic` regime would report a standard error for a different functional |
-| modified treatment policies shifting a *continuous* treatment | `g*` and `g` as conditional densities on a continuum; the learner interface estimates means and probabilities over a finite set of arms, with no `predict_density`. A shift of a discrete treatment is a `Rule` |
+
+A modified treatment policy — shifting a *continuous* dose — is **not** an intervention in
+this sense and does not go in `interventions=`. It reads the treatment a unit actually
+received rather than assigning one from `W`, so it has its own keyword and its own score
+equation; see [Shifting a continuous dose](#shifting-a-continuous-dose).
 
 The influence curve is checked on the same footing as the ATE's: against the complex-step
 Gateaux derivative of an independently written functional at `1e-12`
 (`tests/unit/test_influence_gateaux_regime.py`), and the second-order remainder against its
 closed form (`tests/unit/test_remainder_regime.py`), over a static regime, a rule that
 depends on `W`, and a stochastic one that is degenerate nowhere.
+
+### Shifting a continuous dose
+
+Every estimand above names an arm, and a dose has none. A **modified treatment policy**
+names a change instead: `d(a, w) = a + δ`, held back at a cap `u`. `shifts=` declares one,
+which also declares the treatment continuous — so the column keeps its own values rather
+than being coded into arms, the mechanism becomes a conditional density `g(a | W)`, and the
+clever covariate becomes a density *ratio* rather than an inverse probability:
+
+```
+h(a, W) = g(a - δ | W) / g(a | W) · 1{a ≤ u}  +  1{a > u - δ}
+```
+
+```python
+from cleverly import TMLE
+from cleverly.datasets import make_shift_dose
+from cleverly.interventions import Shift
+
+frame, truth = make_shift_dose(n=2000, seed=0)
+
+res = (
+    TMLE(
+        shifts=[Shift(0.0, cap=None), Shift(0.5, cap=5.0)],
+        density_bins=40,
+        random_state=0,
+    )
+    .fit(frame, outcome="Y", treatment="A")
+    .single()
+)
+print(res.summary())
+```
+
+```
+n = 2000; covariates = 3; dose: mean 1.974, range [-2.94, 6.41]
+
+estimand                           psi      std_err  95% CI              p_value
+---------------------------------  -------  -------  ------------------  -------
+ey_shift[natural course]           3.349    0.06501  [3.2216, 3.4764]    <1e-4
+ey_shift[+0.5]                     4.1036   0.07395  [3.9586, 4.2485]    <1e-4
+ate_shift[+0.5 vs natural course]  0.75459  0.02486  [0.70587, 0.80331]  <1e-4
+```
+
+`Shift(0.0, cap=None)` is the *natural course* — the policy that changes nothing. Its mean
+is `E[Y]` exactly, not approximately, and declaring it first makes `ate_shift` read as
+*the effect of shifting* rather than as a contrast of two arbitrary policies.
+
+**The cap is declared, never estimated.** `cap=` is required and has no default. Fitting a
+support boundary `u(w)` from the data would make the *parameter* depend on the data: the
+reported standard error would condition on an estimated boundary, and every bootstrap
+replicate would target a slightly different policy. Defaulting it to `max(A)` is worse,
+pinning the estimand to an extreme order statistic. `cap=None` is allowed, means no cap,
+and warns with the share of rows whose shifted dose leaves the observed range — because
+there `Qbar` is being extrapolated.
+
+**The density is a discrete hazard, not a new learner contract.** Adding `predict_density`
+would have split `Learner` into two incompatible tiers and invalidated every preset. Instead
+the dose is binned and `λ_b(W) = P(bin = b | bin ≥ b, W)` is a conditional probability of a
+binary event, so one classifier on a long `(unit, bin)` expansion estimates all of them —
+`treatment_learner=` unchanged, and the Super Learner's negative log-likelihood on the long
+data *is* the discretised conditional log-likelihood. `density_bins=` sets the resolution,
+and what the bins cost is reported rather than hidden: a shift much smaller than a bin
+leaves the clever covariate at exactly one for most rows, so the intervention is invisible
+rather than merely noisy, and the fit says so.
+
+Positivity is a different question here, so it has a different report. `sensitivity.positivity()`
+refuses a continuous fit — there is no per-arm propensity to tabulate — and what matters
+instead is whether the *ratio* stays bounded:
+
+```python
+for report in res.sensitivity.shift_support().values():
+    print(report.summary())
+```
+
+```
+natural course: min g(A|W)=0.000483, max ratio=1, ESS=2000 (100.0% of n), capped=0.0%, unsupported=0
+    ratio quantiles -- 1%: 1, 5%: 1, 50%: 1, 95%: 1, 99%: 1
++0.5: min g(A|W)=0.000483, max ratio=23, ESS=863 (43.1% of n), capped=2.4%, unsupported=0
+    ratio quantiles -- 1%: 0.085, 5%: 0.337, 50%: 0.893, 95%: 2.54, 99%: 7.46
+```
+
+A shift is *not* the stochastic regime that induces the same density, though the temptation
+to reuse `regime_means` is real: `d` induces `g^d(b | W) = Σ_{a: d(a,W)=b} g(a | W)`, and the
+`Stochastic` regime at that density has the same mean *and* the same clever covariate, entry
+for entry. The influence curves differ anyway. A regime's plug-in term averages `Qbar` over
+the doses, `Σ_b g^d(b | W) Qbar(b, W)`, a function of `W` alone; a shift's reads the dose the
+unit actually received, `Qbar(d(A, W), W)`. The two agree only in conditional expectation
+given `W`, and the gap is exactly
+
+```
+Var(D_mtp) = Var(D_regime) + Var( Qbar(d(A,W),W) − E[Qbar(d(A,W),W) | W] )
+```
+
+so a modified treatment policy is strictly *harder* to estimate than the regime inducing the
+same mean. `tests/unit/test_influence_gateaux_shift.py` keeps that as a negative control: it
+asserts the two means agree, the two influence curves do not, and the identity above holds —
+so a later "simplification" that delegates one to the other fails loudly.
+
+The influence curve is checked on the same footing as the rest: against the complex-step
+Gateaux derivative of an independently written functional at `1e-12`, on a law with four
+ordered doses and **two** caps (`tests/discrete_law_shift.py`). The second cap is not
+redundant. A unit can only have been shifted *to* dose `a` if the shift from `a - δ` was not
+itself held back, so `h` carries the further indicator `1{a ≤ u}` — which is invisible
+whenever the cap sits at or above the largest dose, the common case. The tight cap is what
+caught that term missing.
 
 ### Collaborative TMLE
 
@@ -455,7 +563,10 @@ written in so a helper equating arm code with arm position fails rather than pas
 regime estimands get the same treatment (`..._regime.py`), over a static regime, a rule
 that depends on `W` and a stochastic one that is degenerate nowhere — three kinds because
 two static regimes could not distinguish code that mixes over the arms from code that
-picks a column. The second-order remainder is checked against its closed form in the four
+picks a column. The shift estimands get it too (`..._shift.py`, against
+`tests/discrete_law_shift.py`), on a law with four ordered doses and two caps — the tight
+one because a cap above the largest dose never exercises the `1{a ≤ u}` factor, and that
+law found the factor missing. The second-order remainder is checked against its closed form in the four
 matching `test_remainder*.py` modules, which is what double robustness actually consists of.
 Every one of these modules carries deliberate-mutation controls: each plausible way of
 building the thing wrong is shown to move the answer by more than `1e-2`, four orders past
@@ -491,9 +602,10 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 
 | Capability | Notes |
 | --- | --- |
-| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one; `ey_regime` / `ate_regime` when the fit declares `interventions=` |
+| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one; `ey_regime` / `ate_regime` when the fit declares `interventions=`; `ey_shift` / `ate_shift` when it declares `shifts=`. The three sets are exclusive, not cumulative: each keyword declares what "counterfactual" means for the fit, and one fluctuation cannot report parameters from two score equations under one heading |
 | Multi-valued treatment | any number of arms up to 20. The mechanism becomes a distribution over the arms and the `mean` fluctuation gets one clever-covariate column per arm, so the fit reports `K` counterfactual means with a joint influence-curve matrix and `K-1` contrasts against `reference=`. Every other contrast — a dose-response comparison, a pairwise difference the reference skipped — comes from `result.contrast()` with no refit. Parameters are named with your own labels: `ey[high]`, `ate[high vs low]`. A two-armed fit is unchanged, bit for bit, and keeps the short names. What is refused rather than guessed at: `ATT`/`ATC` (they reweight one arm by the propensity odds), `CTMLE` (both searches order candidates by one propensity margin), the omitted-variable bound and the MNAR tilt |
-| Interventions | `interventions=` declares what "counterfactual" means for the fit: a constant arm (`Static`), a deterministic rule `d(W)` (`Rule`), or a known stochastic assignment `g*(a | W)` (`Stochastic`). All three are one `(n, K)` density over the arms, so one clever covariate `g*(A | W) / g(A | W)` covers them and collapses to the familiar indicator form exactly when the regime is static — where the numbers are bit for bit an ordinary fit's. The report becomes `ey_regime[...]` per regime and `ate_regime[... vs ...]` per non-reference regime, and `sensitivity.support()` reports the positivity a regime actually needs. What is refused rather than approximated: incremental propensity-score interventions (their `g*` depends on `P`, so the EIF carries a further term) and shifts of a continuous treatment (no conditional density estimation) |
+| Interventions | `interventions=` declares what "counterfactual" means for the fit: a constant arm (`Static`), a deterministic rule `d(W)` (`Rule`), or a known stochastic assignment `g*(a | W)` (`Stochastic`). All three are one `(n, K)` density over the arms, so one clever covariate `g*(A | W) / g(A | W)` covers them and collapses to the familiar indicator form exactly when the regime is static — where the numbers are bit for bit an ordinary fit's. The report becomes `ey_regime[...]` per regime and `ate_regime[... vs ...]` per non-reference regime, and `sensitivity.support()` reports the positivity a regime actually needs. What is refused rather than approximated: incremental propensity-score interventions (their `g*` depends on `P`, so the EIF carries a further term) |
+| Continuous treatment | `shifts=` declares a modified treatment policy `d(a, w) = min(a + δ, u)` and with it that the treatment is a dose: no arms, a conditional density `g(a \| W)` in place of the propensity, and a clever covariate that is a density ratio. The density is a discrete hazard fitted by the ordinary `treatment_learner=` on a long `(unit, bin)` expansion, so every preset, screener and thread limit works untouched. The report becomes `ey_shift[...]` and `ate_shift[... vs ...]`, and `sensitivity.shift_support()` reports the ratio's tail and the effective sample size it leaves. `cap=` is required rather than estimated, since a fitted support boundary would make the parameter itself data-dependent. What is refused rather than guessed at: `delta=`, `intermediate=` and estimated weights, each of which puts a further conditional density beside `g` and needs its own derivation |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
 | Cross-fitting | out-of-fold nuisance fits; stratified and cluster-respecting folds. Stratification handles a multi-valued treatment natively |
@@ -583,8 +695,16 @@ A nonlinear target on a continuous outcome must unscale the means itself.
 The variance, confidence intervals, simultaneous bands, delta method, score diagnostic and
 bootstrap then work without further changes.
 
-Registering a target whose reported parameters have no branch in `tests/discrete_law.py`'s
-`functional` is a **test failure**, not an oversight caught in review. The evidence this package offers that
+`parameter_axis=` says what the new target's parameters are indexed *by* — a treatment arm,
+a regime declared with `interventions=`, or a shift declared with `shifts=`. The three
+partition the registry rather than accumulating, so declaring one axis makes the other two
+unavailable to that fit. It is not the same question as `group=`: `ate` and `att` share the
+`arm` axis across two different score equations, while `ey_shift` and `ate_shift` share both.
+
+Registering a target whose reported parameters have no branch in the `functional` of an
+oracle law — `tests/discrete_law.py` for the arm- and regime-indexed estimands,
+`tests/discrete_law_shift.py` for the shift-indexed ones — is a **test failure**, not an
+oversight caught in review. The evidence this package offers that
 an influence curve is correct is that it agrees, to ~1e-12, with one obtained by complex-step
 differentiation of an independently written functional on an exactly representable law. An
 estimand without that has no such evidence, and the registry is deliberately not allowed to
@@ -592,6 +712,8 @@ make skipping it easy. The gate walks the *parameter* names a target reports rat
 target name, so a per-arm target needs an oracle for each — and a target intended for more
 than two arms needs one on `tests/discrete_law_multi.py`, the three-armed law, since two arms
 cannot distinguish code that keys by arm from code that has two columns and calls them 0 and 1.
+The gate runs in both directions: an oracle branch no target reports is dead code, so a law
+and the registry must cover each other exactly.
 
 ### Adding a fluctuation
 
@@ -665,8 +787,6 @@ infrastructure; the following variants plug into them:
 - marginal structural model TMLE (`tmleMSM`), now that multi-valued treatments are in place
 - longitudinal TMLE (`ltmle`) for time-varying treatments and censoring
 - survival TMLE (`survtmle`) and competing risks
-- shift TMLE for a *continuous* treatment (`txshift`, `tmle3shift`) — the discrete case is
-  covered by `interventions=`; the continuous one needs conditional density estimation
 - incremental propensity-score interventions, whose `g*` depends on the estimated
   mechanism and so needs a further influence-function term (Kennedy 2019)
 - doubly-robust TMLE with nonparametric inference (`drtmle`)

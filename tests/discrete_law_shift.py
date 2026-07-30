@@ -203,13 +203,24 @@ def eif(estimand: str) -> np.ndarray:
     return np.array([gateaux(estimand, point) for point in range(len(SUPPORT))])
 
 
-NAMES: tuple[str, ...] = (
-    "ey_shift[natural course]",
-    "ey_shift[+1]",
-    "ey_shift[+1 (cap 2)]",
-    "ate_shift[+1 vs natural course]",
-    "ate_shift[+1 (cap 2) vs natural course]",
-)
+#: Target name to the parameter names it reports, for the registry's coverage gate.
+#: The same protocol ``tests/discrete_law.py`` exposes, so ``test_registry`` can walk a
+#: tuple of laws without knowing which one owns which estimand.  ``natural course`` is
+#: the reference here, exactly as ``Shift(0.0, cap=None)`` declared first would be.
+PER_TARGET_NAMES: dict[str, tuple[str, ...]] = {
+    "ey_shift": tuple(f"ey_shift[{label}]" for label in POLICIES),
+    "ate_shift": tuple(
+        f"ate_shift[{label} vs natural course]" for label in POLICIES if label != "natural course"
+    ),
+}
+
+
+def oracle_names(target: str) -> tuple[str, ...]:
+    """The parameter names ``target`` reports here, or none if this law does not own it."""
+    return PER_TARGET_NAMES.get(target, ())
+
+
+NAMES: tuple[str, ...] = (*PER_TARGET_NAMES["ey_shift"], *PER_TARGET_NAMES["ate_shift"])
 
 TRUTH: dict[str, float] = {name: float(functional(PROBS, name)) for name in NAMES}
 
