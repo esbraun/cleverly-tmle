@@ -83,15 +83,30 @@ def _refuse_continuous_combinations(
     intermediate: Any,
     weights: Any,
 ) -> None:
-    """Refuse the roles whose derivations assume a finite set of arms.
+    """Refuse the roles whose per-arm factor has no counterpart built on a continuum.
 
     Each of these works for an arm-coded treatment because its clever covariate carries a
     per-arm factor: the missingness mechanism is ``P(Delta = 1 | A = a, W)`` at each arm,
     the intermediate density is ``P(Z = z | A = a, W)``, and the weighted estimand's tilt
-    is stated arm by arm.  On a continuum "each arm" is not a finite loop, and the
-    products these form with the density ratio have to be re-derived rather than
-    re-indexed.  Refusing by name is the alternative to reporting a number whose target
-    nobody has written down.
+    is stated arm by arm.
+
+    This used to say the obstacle was that on a continuum each factor "is a conditional
+    density whose product with the treatment density needs its own derivation".  That is
+    **wrong**, and the README's roadmap says so: ``P(Delta = 1 | A, W)`` is a conditional
+    *probability* of a binary event, which an ordinary classifier estimates with the dose
+    as a numeric feature, and it does not become a density because ``A`` is continuous;
+    ``P(Z = z | A, W)`` is a probability for the same reason.  The same mistake was made
+    for ``incremental=`` with ``delta=`` and overturned there once a law was looked for.
+
+    What is really missing is narrower.  The arm path evaluates ``pi_a(W)`` at each
+    *counterfactual* arm, so the shift path needs it at each shifted dose as well as at
+    the observed one -- an ``(n, S + 1)`` array threaded through
+    :class:`~cleverly.interventions.ShiftSet` and
+    :func:`~cleverly.fluctuation.submodel.mtp_submodel`, which discards ``missingness``
+    outright -- and an oracle law crossing ``tests/discrete_law_shift.py`` (no ``Delta``)
+    with ``tests/discrete_law_mar.py`` (no doses).  Until one exists this is refused by
+    name, because the alternative is reporting a number nothing here checks; it is a gap
+    and not a warning, and it is on the roadmap.
     """
     unsupported = [
         label
@@ -107,10 +122,12 @@ def _refuse_continuous_combinations(
             f"{name} was declared continuous, which is not yet supported together with "
             f"{', '.join(unsupported)}. Each of those puts a further per-arm factor in "
             "the clever covariate's denominator -- P(Delta = 1 | A, W), P(Z = z | A, W), "
-            "the weight tilt -- and on a continuum that factor is a conditional density "
-            "whose product with the treatment density needs its own derivation, not a "
-            "wider loop over arms. Estimate the shift on complete, unweighted rows, or "
-            "discretise the treatment into arms and use the existing estimands."
+            "the weight tilt -- which the arm path evaluates at each counterfactual arm. "
+            "A shift would need it at each shifted dose, which nothing here builds and no "
+            "law here checks. This is a gap rather than a warning: the parameter is well "
+            "defined and it is on the roadmap. Meanwhile, estimate the shift on complete, "
+            "unweighted rows, or discretise the treatment into arms and use the existing "
+            "estimands."
         )
 
 
