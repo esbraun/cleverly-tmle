@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from scipy.special import expit
 
 from cleverly import TMLE, load
 from cleverly.datasets import make_multi_arm
+from cleverly.datasets.synthetic import MultiArmDGP
 from cleverly.interventions import Shift, Static
 from cleverly.msm import MSM
 from tests.conftest import FAST_KWARGS
@@ -31,24 +33,50 @@ N = 2000
 SEED = 0
 
 
-def dose_response() -> MSM:
-    """``m(a) = beta0 + beta1 * dose(a)``, uniform weights."""
+def dose_response(link: str = "identity") -> MSM:
+    """``link(m(a)) = beta0 + beta1 * dose(a)``, uniform weights."""
     return MSM(
         design=lambda arm, frame: np.column_stack(
             [np.ones(len(frame)), np.full(len(frame), DOSE[arm])]
         ),
         terms=("(intercept)", "dose"),
+        link=link,  # type: ignore[arg-type]
     )
 
 
-def saturated() -> MSM:
+def saturated(link: str = "identity") -> MSM:
     """One indicator per arm: the working model that summarises nothing."""
     return MSM(
         design=lambda arm, frame: np.column_stack(
             [np.full(len(frame), float(arm == label)) for label in DOSE]
         ),
         terms=tuple(f"arm[{label}]" for label in DOSE),
+        link=link,  # type: ignore[arg-type]
     )
+
+
+def make_binary_multi_arm(n: int, seed: int):
+    """Three arms and a *binary* outcome, which is what a log or logit model needs.
+
+    ``make_multi_arm`` has a Gaussian outcome that goes negative, so ``exp(beta' phi)``
+    could not reach it and ``MSMSet.evaluate`` refuses the link -- correctly.  The process
+    here is that one with the mean put through ``expit``: the same confounding, the same
+    three labelled arms, the same non-linear step between them, so the working model is
+    still wrong and ``beta`` is still a projection rather than a truth.
+    """
+    step = np.array([0.0, 1.0, 2.4])
+    dgp = MultiArmDGP(
+        name="multi_arm_binary",
+        n_latent=3,
+        covariate_names=("W1", "W2", "W3"),
+        arm_logits=lambda w: np.column_stack(
+            [np.zeros(w.shape[0]), 0.8 * w[:, 0] - 0.4 * w[:, 1], -0.5 * w[:, 0] + 0.8 * w[:, 1]]
+        ),
+        outcome_mean=lambda w, arm: expit(-0.4 + 0.6 * step[arm] + w[:, 0] - 0.5 * w[:, 1]),
+        labels=("low", "medium", "high"),
+        family="binomial",
+    )
+    return dgp.sample(n, seed=seed)
 
 
 def projection(means: dict[str, float]) -> np.ndarray:
@@ -157,6 +185,200 @@ class TestASaturatedModelIsTheArmReport:
                 rtol=1e-11,
                 atol=1e-13,
             )
+
+
+class TestALinkChangesTheParameterAndNotTheMachinery:
+    """``link="log"`` and ``link="logit"``, end to end on a binary outcome.
+
+    The exact claims are the oracle's, as above.  What only a real fit can show is that
+    the alternation between the projection and the fluctuation converges and leaves both
+    equations solved -- and that a *saturated* working model still reproduces the arm
+    report, now through the link, which is what says the link is a reparameterisation of
+    the same counterfactual means rather than a second estimator.
+    """
+
+    @pytest.fixture(scope="class")
+    def binary(self):
+        return make_binary_multi_arm(n=N, seed=SEED)
+
+    @pytest.fixture(scope="class")
+    def arms(self, binary):
+        frame, _ = binary
+        return TMLE(estimands=("ey",), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
+
+    @pytest.fixture(scope="class")
+    def saturated_fits(self, binary):
+        frame, _ = binary
+        return {
+            link: TMLE(msm=saturated(link=link), **SETTINGS)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+            for link in ("log", "logit")
+        }
+
+    @pytest.mark.parametrize("link", ["log", "logit"])
+    def test_a_saturated_model_is_the_arm_report_through_the_link(
+        self, saturated_fits, arms, link: str
+    ) -> None:
+        """``expit(beta_a)`` -- or ``exp`` -- is ``E[Y(a)]``, to machine precision.
+
+        With one indicator per arm the model fits the means exactly whatever the link, so
+        this is an *identity* rather than an approximation, and it exercises the whole
+        path at once: the alternation, the covariate's ``dm/deta`` factor, the Jacobian's
+        curvature term and the projection's Newton solve.
+        """
+        inverse = np.exp if link == "log" else lambda eta: 1.0 / (1.0 + np.exp(-eta))
+        model = saturated_fits[link]
+        for label in DOSE:
+            assert inverse(model.estimates[f"msm[arm[{label}]]"].psi) == pytest.approx(
+                arms.estimates[f"ey[{label}]"].psi, rel=1e-9
+            )
+
+    @pytest.mark.parametrize("link", ["log", "logit"])
+    def test_the_influence_curve_is_the_arm_report_s_by_the_delta_method(
+        self, saturated_fits, arms, link: str
+    ) -> None:
+        """``beta = link(psi)``, so ``IC_beta = IC_psi / (dm/deta)`` at the fitted mean."""
+        model = saturated_fits[link]
+        for label in DOSE:
+            psi = arms.estimates[f"ey[{label}]"].psi
+            slope = psi if link == "log" else psi * (1.0 - psi)
+            np.testing.assert_allclose(
+                model.estimates[f"msm[arm[{label}]]"].influence_curve,
+                arms.estimates[f"ey[{label}]"].influence_curve / slope,
+                rtol=1e-7,
+                atol=1e-9,
+            )
+
+    @pytest.mark.parametrize("link", ["log", "logit"])
+    def test_both_equations_are_solved_at_the_reported_coefficients(self, binary, link) -> None:
+        frame, _ = binary
+        result = (
+            TMLE(msm=dose_response(link=link), **SETTINGS)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        check = result.validation.score_check()
+        assert check.passed, check.summary()
+        # The plug-in half is zero by construction and the residual half by the
+        # fluctuation; together they are the reported curve's mean.
+        for estimate in result.estimates.values():
+            assert abs(float(np.mean(estimate.influence_curve))) < 1e-10
+
+    @pytest.mark.parametrize("link", ["log", "logit"])
+    def test_the_alternation_converges_and_records_how(self, binary, link) -> None:
+        frame, _ = binary
+        result = (
+            TMLE(msm=dose_response(link=link), **SETTINGS)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        projection = result.fluctuations["msm"].projection
+        assert projection is not None and projection.converged
+        assert projection.failure is None
+        # Fast: beta reaches the covariate only through a smooth factor, so the shift
+        # contracts by orders of magnitude per round rather than by a constant factor.
+        assert projection.n_outer <= 10
+        shifts = [row[2] for row in projection.trace]
+        assert shifts[-1] < shifts[0]
+
+    def test_an_identity_link_fit_records_no_projection(self, fitted) -> None:
+        """The covariate is free of ``beta`` there, so there is nothing to alternate."""
+        result, _ = fitted
+        assert result.fluctuations["msm"].projection is None
+
+
+class TestFoldWiseTargetingGivesEachFoldItsOwnBeta:
+    """``targeting_scheme="fold"`` under a link, where the covariate is fold-specific.
+
+    The point of fold-wise targeting is that no row contributes to the coefficient that
+    fluctuates it.  Under a link ``beta`` is one of those coefficients, so it is solved on
+    each fold's own rows -- and the pooled score has to stay exactly zero anyway, because
+    each fold's score is zero at the ``beta`` its own rows were fluctuated at.
+    """
+
+    @pytest.fixture(scope="class")
+    def fold_fit(self):
+        frame, _ = make_binary_multi_arm(n=N, seed=SEED)
+        return (
+            TMLE(msm=dose_response(link="logit"), targeting_scheme="fold", **SETTINGS)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+
+    def test_each_fold_carries_its_own_projection(self, fold_fit) -> None:
+        projection = fold_fit.fluctuations["msm"].projection
+        assert len(projection.folds) == FAST_KWARGS["n_folds"]
+        betas = np.vstack([record.beta for record in projection.folds])
+        assert np.max(np.ptp(betas, axis=0)) > 1e-6, "the folds should not agree exactly"
+
+    def test_the_stitched_score_is_still_zero(self, fold_fit) -> None:
+        for record in fold_fit.fluctuations["msm"].folds:
+            assert np.max(np.abs(record.score)) < 1e-9
+        assert fold_fit.validation.score_check().passed
+        for estimate in fold_fit.estimates.values():
+            assert abs(float(np.mean(estimate.influence_curve))) < 1e-9
+
+    def test_the_reported_beta_is_the_projection_of_the_stitched_fit(self, fold_fit) -> None:
+        """No fold's beta is *the* answer; the report's is, and the record says so."""
+        projection = fold_fit.fluctuations["msm"].projection
+        reported = np.array([fold_fit.estimates[name].psi for name in fold_fit.estimates])
+        np.testing.assert_allclose(projection.beta, reported, rtol=1e-10)
+
+
+class TestTheExponentiatedView:
+    @pytest.fixture(scope="class")
+    def fits(self):
+        frame, _ = make_binary_multi_arm(n=N, seed=SEED)
+        return {
+            link: TMLE(msm=dose_response(link=link), **SETTINGS)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+            for link in ("log", "logit")
+        }
+
+    @pytest.mark.parametrize("link", ["log", "logit"])
+    def test_it_exponentiates_the_estimate_and_its_interval(self, fits, link: str) -> None:
+        result = fits[link]
+        frame = result.coefficients(scale="ratio")
+        for row, name in enumerate(result.estimates):
+            estimate = result.estimates[name]
+            assert frame["psi"][row] == pytest.approx(float(np.exp(estimate.psi)))
+            assert frame["ci_lower"][row] == pytest.approx(float(np.exp(estimate.ci[0])))
+            assert frame["ci_upper"][row] == pytest.approx(float(np.exp(estimate.ci[1])))
+            # The p-value is unchanged: the null is beta = 0, which is ratio = 1.
+            assert frame["p_value"][row] == pytest.approx(estimate.pvalue)
+
+    def test_it_names_the_ratio_the_link_actually_gives(self, fits) -> None:
+        """An odds ratio reported as a risk ratio would be a wrong number, not a wording."""
+        assert list(fits["log"].coefficients(scale="ratio")["scale"]) == [
+            "baseline",
+            "risk ratio",
+        ]
+        assert list(fits["logit"].coefficients(scale="ratio")["scale"]) == [
+            "baseline",
+            "odds ratio",
+        ]
+
+    def test_the_link_scale_view_is_the_report(self, fits) -> None:
+        frame = fits["logit"].coefficients()
+        assert list(frame["estimand"]) == list(fits["logit"].estimates)
+        assert list(frame["psi"]) == [e.psi for e in fits["logit"].estimates.values()]
+
+    def test_exponentiating_an_identity_link_fit_is_refused(self, fitted) -> None:
+        result, _ = fitted
+        with pytest.raises(ValueError, match="not a quantity anybody reports"):
+            result.coefficients(scale="ratio")
+
+    def test_a_fit_with_no_working_model_has_no_coefficients(self) -> None:
+        frame, _ = make_multi_arm(n=200, seed=SEED)
+        result = TMLE(estimands=("ey",), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
+        with pytest.raises(ValueError, match="no working model"):
+            result.coefficients()
+
+    def test_an_unknown_scale_says_which_two_exist(self, fits) -> None:
+        with pytest.raises(ValueError, match="'link' or 'ratio'"):
+            fits["log"].coefficients(scale="odds")
 
 
 class TestTheSurroundingMachineryWorks:
