@@ -29,12 +29,12 @@ they are strictly stronger than at one time point:
 * **consistency**, and no interference.
 
 What is refused rather than approximated is listed in the README; the short version is
-that this estimator answers for a static regimen, a binary treatment at every node, a
-single end-of-study outcome and monotone censoring.  A dynamic rule, a survival outcome
-with a time-varying event indicator, competing risks and a marginal structural model
-over time each need their own derivation, and each is refused by name -- the keyword is
-accepted and rejected with what the derivation would need, rather than arriving as an
-``unexpected keyword argument``.  :data:`_REFUSED` is that table.
+that this estimator answers for a regimen -- static or dynamic -- over a binary treatment
+at every node, with a single end-of-study outcome and monotone censoring.  A survival
+outcome with a time-varying event indicator, competing risks and a marginal structural
+model over time each need their own derivation, and each is refused by name -- the
+keyword is accepted and rejected with what the derivation would need, rather than
+arriving as an ``unexpected keyword argument``.  :data:`_REFUSED` is that table.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from .data import LongitudinalData
-from .regimen import Regimen, resolve_regimens
+from .regimen import DynamicRegimen, RegimenSpec, describe_plan, resolve_plans, resolve_regimens
 from .sequential import Mechanism, RegimenFit, fit_mechanism, fit_regimen
 
 __all__ = ["LTMLE", "LongitudinalConfig", "LongitudinalResult", "ltmle"]
@@ -82,9 +82,10 @@ _REFUSED: dict[str, str] = {
         "needs its own weight function h(a-bar, V) and its own projection"
     ),
     "interventions": (
-        "a regime assigns an arm from W at one node; the longitudinal analogue is a "
-        "dynamic rule d_t(H_t), whose followers are a covariate-dependent set at every "
-        "node -- the next step, and it needs an oracle law of its own"
+        "a regime is a density over the arms at one node, and a regimen is a plan "
+        "across nodes -- so the longitudinal analogue of a rule d(W) is not a further "
+        "parameter axis but a regimen whose nodes are rules. Declare it in regimens=, "
+        "for example regimens={'treat once L2 rises': (0, lambda h: h['L2'] > 0)}"
     ),
     "shifts": (
         "a shift moves a continuous dose, and a longitudinal fit takes a binary "
@@ -136,7 +137,7 @@ class LongitudinalConfig:
 
     family: str
     n_times: int
-    regimens: tuple[Regimen, ...]
+    regimens: tuple[RegimenSpec, ...]
     reference: str
     n_folds: int
     g_bounds: tuple[float, float]
@@ -146,13 +147,23 @@ class LongitudinalConfig:
 
     def describe(self) -> list[str]:
         plans = ", ".join(
-            f"{regimen.label}=({'/'.join(str(int(v)) for v in regimen.values)})"
-            for regimen in self.regimens
+            f"{regimen.label}=({describe_plan(regimen)})" for regimen in self.regimens
         )
         lines = [
             f"time points: {self.n_times}",
             f"outcome family: {self.family}",
             f"regimens: {plans}",
+        ]
+        if any(isinstance(regimen, DynamicRegimen) for regimen in self.regimens):
+            # Worth a line rather than leaving "d" to be guessed at, because it changes
+            # how the follower counts below should be read: a static regimen's followers
+            # are whoever happened to receive that sequence, and a rule's are whoever the
+            # rule would have treated -- a set this sample determines.
+            lines.append(
+                "  a 'd' is a rule d_t(H_t) read off [W, L_1, ..., L_t]; its followers "
+                "are a covariate-dependent set, so the counts below describe this sample"
+            )
+        lines += [
             f"reference: {self.reference}",
             # A single fold is not cross-fitting, and printing "1 fold(s)" reads as
             # though it were: the nuisances are then fitted on the rows they predict
@@ -277,11 +288,18 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         ``max_weight`` and ``effective_n`` describe the cumulative clever covariate, which
         is where sequential positivity shows up: they are properties of the *product* of
         the node-by-node mechanisms and can be alarming while every node looks fine.
+
+        ``share_assigned_1`` is the fraction of the units at risk at that node whom the
+        regimen would treat.  For a static regimen it is exactly ``0`` or ``1``, so the
+        column doubles as a check on the plan the fit actually ran; for a dynamic rule it
+        is the number a reader needs, since what a rule assigns is a property of the data
+        rather than of the declaration and appears nowhere in the settings report.
         """
         rows: dict[str, list[Any]] = {
             "regimen": [],
             "time": [],
             "n_followed": [],
+            "share_assigned_1": [],
             "max_weight": [],
             "effective_n": [],
             "epsilon": [],
@@ -291,9 +309,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             for step in fit.steps:
                 weights = step.clever[step.trained_on]
                 total = float(np.sum(weights))
+                assigned = fit.assignment[step.at_risk, step.time - 1]
                 rows["regimen"].append(label)
                 rows["time"].append(step.time)
                 rows["n_followed"].append(step.n_trained)
+                rows["share_assigned_1"].append(
+                    float(np.mean(assigned == 1.0)) if assigned.size else float("nan")
+                )
                 rows["max_weight"].append(float(np.max(weights)) if weights.size else float("nan"))
                 rows["effective_n"].append(
                     float(total**2 / np.sum(weights**2)) if total > 0 else 0.0
@@ -544,6 +566,9 @@ class LTMLE:
         )
         regimens = resolve_regimens(self.regimens, prepared.n_times)
         reference = self._reference(regimens)
+        # Every rule is called here and nowhere else, so a mask and the design the
+        # mechanism was evaluated at cannot disagree about what the regimen assigned.
+        plans = resolve_plans(regimens, prepared)
 
         folds = self._folds(prepared)
         scaler = self._scaler(prepared)
@@ -551,7 +576,7 @@ class LTMLE:
 
         mechanism = fit_mechanism(
             prepared,
-            regimens,
+            plans,
             treatment_learner=resolve_learner(
                 self.treatment_learner,
                 task="classification",
@@ -571,9 +596,9 @@ class LTMLE:
 
         outcome_task = "classification" if prepared.family == "binomial" else "regression"
         fits = {
-            regimen.label: fit_regimen(
+            plan.label: fit_regimen(
                 prepared,
-                regimen,
+                plan,
                 mechanism,
                 outcome_learner=resolve_learner(
                     self.outcome_learner,
@@ -596,7 +621,7 @@ class LTMLE:
                 tol=self.tol,
                 n_jobs=self.n_jobs,
             )
-            for regimen in regimens
+            for plan in plans
         }
 
         config = LongitudinalConfig(
@@ -737,7 +762,7 @@ class LTMLE:
             run_id=self.run_id,
         )
 
-    def _reference(self, regimens: Sequence[Regimen]) -> Regimen:
+    def _reference(self, regimens: Sequence[RegimenSpec]) -> RegimenSpec:
         if self.reference is None:
             return regimens[0]
         for regimen in regimens:
@@ -768,7 +793,7 @@ class LTMLE:
         data: LongitudinalData,
         fits: Mapping[str, RegimenFit],
         scaler: OutcomeScaler,
-        reference: Regimen,
+        reference: RegimenSpec,
     ) -> dict[str, ParameterEstimate]:
         estimates: dict[str, ParameterEstimate] = {}
         for label, fit in fits.items():

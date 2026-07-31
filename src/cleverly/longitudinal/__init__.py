@@ -23,7 +23,14 @@ from __future__ import annotations
 from ..exceptions import LongitudinalError
 from .data import LongitudinalData
 from .estimator import LTMLE, LongitudinalConfig, LongitudinalResult, ltmle
-from .regimen import Regimen, resolve_regimens
+from .regimen import (
+    DynamicRegimen,
+    Plan,
+    Regimen,
+    RegimenSpec,
+    resolve_plans,
+    resolve_regimens,
+)
 from .sequential import (
     Mechanism,
     RegimenFit,
@@ -34,16 +41,20 @@ from .sequential import (
 
 __all__ = [
     "LTMLE",
+    "DynamicRegimen",
     "LongitudinalConfig",
     "LongitudinalData",
     "LongitudinalError",
     "LongitudinalResult",
     "Mechanism",
+    "Plan",
     "Regimen",
     "RegimenFit",
+    "RegimenSpec",
     "SequentialStep",
     "fit_mechanism",
     "fit_regimen",
     "ltmle",
+    "resolve_plans",
     "resolve_regimens",
 ]

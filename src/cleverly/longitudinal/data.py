@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeAlias
 
 import narwhals as nw
 import numpy as np
@@ -50,9 +50,44 @@ from ..data.validate import check_covariates, encode_clusters, infer_family
 from ..exceptions import DataError
 from ..utils.frames import as_frame, frame_from_dict, is_dataframe, matrix_from_columns
 
-__all__ = ["LongitudinalData"]
+__all__ = ["Assignment", "LongitudinalData", "assignment_matrix"]
 
 _MIN_OBSERVATIONS = 10
+
+#: What arm a regimen assigns at each node: one arm per node for a static plan, or an
+#: ``(n, T)`` matrix when a dynamic rule assigns a different arm to different units.
+#: Every mask and design here reads it through :func:`assignment_matrix`, so the static
+#: case is the broadcast of the dynamic one rather than a second code path.
+Assignment: TypeAlias = Sequence[float] | FloatArray
+
+
+def assignment_matrix(assignment: Assignment, n: int, n_times: int) -> FloatArray:
+    """Read a plan as one ``(n, T)`` matrix, whether or not it varies by unit.
+
+    A one-dimensional plan is *broadcast*, not tiled: the result is a read-only view
+    costing no memory, so a static regimen pays nothing for the generality.  That the
+    two paths then produce bit-identical floats is what lets a static fit stay
+    bit-for-bit what it was before dynamic rules existed.
+    """
+    values = np.asarray(assignment, dtype=float)
+    if values.ndim == 1:
+        if values.shape[0] != n_times:
+            raise DataError(
+                f"a plan assigns {values.shape[0]} arm(s) but the data has {n_times} "
+                "treatment node(s); it must say what happens at every one of them"
+            )
+        return np.broadcast_to(values, (n, n_times))
+    if values.ndim == 2:
+        if values.shape != (n, n_times):
+            raise DataError(
+                f"a per-unit assignment must be ({n}, {n_times}) -- a row per unit and a "
+                f"column per treatment node -- but got {values.shape}"
+            )
+        return values
+    raise DataError(
+        f"an assignment must be one arm per node or an (n, T) matrix; got {values.ndim} "
+        "dimension(s)"
+    )
 
 
 @dataclass(frozen=True)
@@ -355,33 +390,41 @@ class LongitudinalData:
         """
         return _through(self.uncensored, time)
 
-    def followed_through(self, values: Sequence[float], time: int) -> BoolArray:
+    def followed_through(self, assignment: Assignment, time: int) -> BoolArray:
         """Took the regimen's arm at every node up to and including ``time``.
+
+        ``assignment`` is either one arm per node -- a static plan -- or the ``(n, T)``
+        matrix a dynamic rule produces, where the arm a unit was to be given depends on
+        its own history.  Both are read through :func:`assignment_matrix`, so this is one
+        comparison either way rather than a branch.
 
         A unit whose treatment is missing at a node it was censored before has not
         followed anything, and comes back false -- which is what the mask is for, since
-        such a unit contributes to no regression from that node on.
+        such a unit contributes to no regression from that node on.  That holds under a
+        rule too: ``nan`` compares false against whatever arm the rule assigned it.
         """
+        plan = assignment_matrix(assignment, self.n, self.n_times)
         mask = np.ones(self.n, dtype=bool)
         for t in range(1, time + 1):
-            mask &= self.treatment[:, t - 1] == float(values[t - 1])
+            mask &= self.treatment[:, t - 1] == plan[:, t - 1]
         return mask
 
-    def at_risk(self, values: Sequence[float], time: int) -> BoolArray:
+    def at_risk(self, assignment: Assignment, time: int) -> BoolArray:
         """Rows whose history :math:`H_t` is observed and regimen-consistent.
 
         The sequential regression at ``time`` predicts for exactly these rows, and the
         one at ``time - 1`` is *fitted* on exactly these rows -- the two sets are the
-        same object, which is what makes the recursion close.
+        same object, which is what makes the recursion close.  A dynamic rule does not
+        weaken that: it changes *which* rows, not the identity between the two masks.
         """
-        return self.uncensored_through(time - 1) & self.followed_through(values, time - 1)
+        return self.uncensored_through(time - 1) & self.followed_through(assignment, time - 1)
 
-    def following(self, values: Sequence[float], time: int) -> BoolArray:
+    def following(self, assignment: Assignment, time: int) -> BoolArray:
         """Rows still on the regimen and under observation *after* ``time``.
 
         The clever covariate at ``time`` is supported on these rows and zero elsewhere.
         """
-        return self.uncensored_through(time) & self.followed_through(values, time)
+        return self.uncensored_through(time) & self.followed_through(assignment, time)
 
     # ----------------------------------------------------------------- design
 
@@ -402,11 +445,44 @@ class LongitudinalData:
         matrix = np.hstack([block for block in blocks if block.shape[1]])
         return np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
+    def history_names(self, time: int) -> tuple[str, ...]:
+        """Column names of :meth:`covariate_history`, in its column order.
+
+        Kept beside that method rather than derived at the call site, because the
+        correspondence is otherwise an accident of two independent loops: the matrix
+        skips a zero-width block and the names of a zero-width block are the empty
+        tuple, so flattening happens to drop the same ones.
+        :func:`tests.unit.test_longitudinal_data.test_the_history_names_are_the_history_columns`
+        pins it, since a rule handed a mislabelled frame reads the wrong covariate and
+        still returns a perfectly valid-looking arm.
+        """
+        if not 1 <= time <= self.n_times:
+            raise DataError(f"time {time} is outside 1..{self.n_times}")
+        return (
+            *self.baseline_names,
+            *(name for block in self.time_varying_names[:time] for name in block),
+        )
+
+    def history_frame(self, time: int) -> Any:
+        """:meth:`covariate_history` as a dataframe, in the backend the data came from.
+
+        This is what a dynamic rule :math:`d_t(H_t)` is handed: ``[W, L_1, ..., L_t]``
+        and nothing else.  The outcome is not in it because reading it is not an
+        intervention, and the earlier *treatments* are not in it because under the
+        regimen they are what the rule itself assigned -- passing them would let a rule
+        read the treatment of a unit that deviated, which is a different object from the
+        one it is assigning.  The same reasoning, and the same omissions, as
+        :func:`cleverly.interventions.base._covariate_frame` at one time point.
+        """
+        matrix = self.covariate_history(time)
+        names = self.history_names(time)
+        return self.frame_like({name: matrix[:, index] for index, name in enumerate(names)})
+
     def history_design(
         self,
         time: int,
         *,
-        treatment: Sequence[float] | None = None,
+        treatment: Assignment | None = None,
         include_current: bool = False,
     ) -> FloatArray:
         """The conditioning set of a mechanism model at ``time``.
@@ -414,22 +490,30 @@ class LongitudinalData:
         ``[W, L_1, ..., L_t]`` plus a column per earlier treatment, and -- with
         ``include_current``, for the censoring model, which sits *after* the treatment
         decision -- a column for the current one.  ``treatment=None`` uses what each
-        unit actually received, which is how the model is fitted; a sequence sets the
-        arms a regimen would have assigned, which is where it is evaluated.
+        unit actually received, which is how the model is fitted; an assignment sets the
+        arms a regimen would have assigned, which is where it is evaluated.  A dynamic
+        rule assigns a different arm to different units, so that column is per row.
 
         The *outcome* sequence uses :meth:`covariate_history` instead, with no treatment
-        columns at all.  That is not an inconsistency: it is fitted only on the units
-        that followed the regimen, where every past treatment is a constant, so a
-        column for it would be collinear with the intercept.
+        columns at all, and that holds under a rule as well as under a constant plan.
+        The reason is not that a follower's past treatment is a constant -- under a rule
+        it is not -- but that among the followers :math:`A_s = d_s(W, L_1, \\ldots, L_s)`
+        is a *deterministic function of columns this design already carries*, since that
+        is precisely the frame :meth:`history_frame` handed the rule.  Adding it would
+        buy no information and cost the identity between a rule that returns a constant
+        and the constant plan itself, which no oracle can police: a saturated learner
+        partitions by distinct design row, and a column that is a function of the others
+        leaves that partition untouched.
         """
         columns = [self.covariate_history(time)]
         last = time if include_current else time - 1
+        plan = None if treatment is None else assignment_matrix(treatment, self.n, self.n_times)
         for t in range(1, last + 1):
-            if treatment is None:
+            if plan is None:
                 observed = np.nan_to_num(self.treatment[:, t - 1], nan=0.0)
                 columns.append(observed.reshape(-1, 1))
             else:
-                columns.append(np.full((self.n, 1), float(treatment[t - 1])))
+                columns.append(plan[:, t - 1].reshape(-1, 1))
         return np.hstack(columns)
 
     # ------------------------------------------------------------------ output

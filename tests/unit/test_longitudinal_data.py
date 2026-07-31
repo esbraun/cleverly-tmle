@@ -10,7 +10,12 @@ import pandas as pd
 import pytest
 
 from cleverly.exceptions import DataError
-from cleverly.longitudinal import LongitudinalData, Regimen, resolve_regimens
+from cleverly.longitudinal import (
+    DynamicRegimen,
+    LongitudinalData,
+    Regimen,
+    resolve_regimens,
+)
 
 
 def panel(n: int = 40, *, seed: int = 0) -> pd.DataFrame:
@@ -212,9 +217,32 @@ class TestRegimens:
         with pytest.raises(DataError, match="must be 0 or 1"):
             Regimen("dose", (0.5, 1.0))
 
-    def test_refuses_a_rule_that_reads_the_history(self) -> None:
-        with pytest.raises(DataError, match="dynamic rule"):
-            resolve_regimens({"dynamic": lambda history: history}, 2)
+    def test_a_rule_that_reads_the_history_is_a_dynamic_regimen(self) -> None:
+        """This used to be a refusal, and the shape of the replacement is the point.
+
+        A callable plan is broadcast across the nodes exactly as a scalar arm is, and
+        comes back a ``DynamicRegimen`` rather than a ``Regimen`` -- so which class
+        ``resolve_regimens`` returns *is* the statement about whether the followers are a
+        fixed slice or a set this sample determines.
+        """
+        resolved = resolve_regimens({"dynamic": lambda history: history["W"]}, 2)
+        assert isinstance(resolved[0], DynamicRegimen)
+        assert len(resolved[0].plan) == 2
+        assert all(callable(node) for node in resolved[0].plan)
+
+    def test_a_plan_with_no_rule_in_it_stays_static(self) -> None:
+        """The load-bearing half of the previous test.
+
+        A static plan must come back a ``Regimen``, because that is what keeps it on the
+        broadcast path whose arithmetic is bit-for-bit what it was before rules existed.
+        """
+        assert isinstance(resolve_regimens({"early": (1, 0)}, 2)[0], Regimen)
+
+    def test_a_plan_may_mix_a_constant_node_with_a_rule(self) -> None:
+        resolved = resolve_regimens({"then decide": (1, lambda history: history["L2"])}, 2)
+        assert isinstance(resolved[0], DynamicRegimen)
+        assert resolved[0].plan[0] == 1.0
+        assert resolved[0].is_rule(2) and not resolved[0].is_rule(1)
 
     def test_an_array_plan_is_read_as_a_plan(self) -> None:
         """A numpy plan is a plan, and must not be diagnosed as a dynamic rule.
@@ -243,7 +271,7 @@ class TestRegimens:
             resolve_regimens([Regimen("a", (1.0, 1.0)), Regimen("a", (0.0, 0.0))], 2)
 
     def test_refuses_a_sequence_of_non_regimens(self) -> None:
-        with pytest.raises(DataError, match="must hold Regimen objects"):
+        with pytest.raises(DataError, match="must hold Regimen or DynamicRegimen objects"):
             resolve_regimens([(1.0, 1.0)], 2)
 
     def test_refuses_a_spec_that_is_neither_mapping_nor_sequence(self) -> None:

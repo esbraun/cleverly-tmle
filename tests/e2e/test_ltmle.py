@@ -525,7 +525,7 @@ class TestItRefusesByName:
             ("weights", "weighted efficient influence function"),
             ("intermediate", "different identification"),
             ("msm", "own weight function"),
-            ("interventions", "dynamic rule"),
+            ("interventions", "Declare it in regimens="),
             ("shifts", "continuous dose"),
             ("incremental", "tilted mechanisms"),
             ("event", "node at every time point"),

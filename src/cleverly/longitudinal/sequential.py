@@ -62,7 +62,7 @@ from ..fluctuation.submodel import Submodel
 from ..learners.crossfit import Folds
 from ..utils.bounds import OutcomeScaler, bound
 from .data import LongitudinalData
-from .regimen import Regimen
+from .regimen import Plan, Regimen, RegimenSpec
 
 __all__ = [
     "Mechanism",
@@ -77,6 +77,17 @@ __all__ = [
 #: the node in question.  Any finite number in ``(0, 1)`` would do; a half keeps ``logit``
 #: at zero, so a filled row cannot make a Newton step look large.
 _FILLER = 0.5
+
+#: The key under which a node's single counterfactual prediction is filed on its
+#: :class:`~cleverly.fluctuation.iterative.InitialFit` and
+#: :class:`~cleverly.fluctuation.submodel.Submodel`.
+#:
+#: An index, **not a treatment level**, and that is the point: under a dynamic rule
+#: different units are assigned different arms at the same node, so there is no level to
+#: key by.  ``mtp_submodel`` keys by shift index for the same reason.  Nothing observable
+#: depends on the value -- ``check_arms`` requires only that it be a float, and
+#: ``check_matching_arms`` only that the fit and the submodel agree on it.
+_REGIMEN_ARM = 0.0
 
 
 @dataclass(frozen=True)
@@ -97,7 +108,7 @@ class Mechanism:
     censoring: tuple[dict[str, FloatArray], ...]
 
     def cumulative(
-        self, data: LongitudinalData, regimen: Regimen, bounds: tuple[float, float]
+        self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
     ) -> FloatArray:
         r"""``(n, T)`` cumulative product :math:`\prod_{s \le t} g_s c_s`, bounded.
 
@@ -105,18 +116,23 @@ class Mechanism:
         product afterwards, so a single near-deterministic node cannot be rescued by
         the others -- a distinction that does not arise at one time point, where the
         two are the same operation.
+
+        The arm is read per *unit*, since a dynamic rule assigns different units
+        different arms at the same node.  Under a static plan the column is constant and
+        the ``where`` picks the same branch for every row, which is why this is the old
+        expression rather than a generalisation of it.
         """
         lower, upper = bounds
         running = np.ones(data.n)
         columns = []
         for time in range(1, data.n_times + 1):
-            arm = regimen.at(time)
+            arm = plan.arm(time)
             # ``g1`` is clipped and the control arm is its complement, so the two sum to
             # one -- the same convention ``Propensity.bounded`` keeps at one time point.
-            g1 = bound(self.treatment[time - 1][regimen.label], lower, upper)
-            running = running * (g1 if arm == 1.0 else 1.0 - g1)
+            g1 = bound(self.treatment[time - 1][plan.label], lower, upper)
+            running = running * np.where(arm == 1.0, g1, 1.0 - g1)
             if data.censoring_names:
-                running = running * bound(self.censoring[time - 1][regimen.label], lower, upper)
+                running = running * bound(self.censoring[time - 1][plan.label], lower, upper)
             columns.append(running.copy())
         return np.column_stack(columns)
 
@@ -129,6 +145,11 @@ class SequentialStep:
     #: Rows the regression was fitted on: followed the regimen and stayed under
     #: observation through this node.
     trained_on: BoolArray
+    #: Rows whose history at this node is observed and regimen-consistent -- the set the
+    #: regression *predicts* for, and the population the assigned arm is a statement
+    #: about.  Equal to the previous node's ``trained_on``, which is what closes the
+    #: recursion.
+    at_risk: BoolArray
     initial: FloatArray
     targeted: FloatArray
     clever: FloatArray
@@ -143,12 +164,17 @@ class SequentialStep:
 class RegimenFit:
     """The estimate under one regimen, with the pieces that produced it."""
 
-    regimen: Regimen
+    regimen: RegimenSpec
     #: On the ``[0, 1]`` outcome scale, as everything inside the recursion is.
     psi_scaled: float
     influence_curve_scaled: FloatArray
     steps: tuple[SequentialStep, ...]
     cumulative: FloatArray
+    #: The ``(n, T)`` arms this regimen assigned *this* sample.  Constant down each
+    #: column for a static plan; for a rule it is the thing ``diagnostics()`` reports,
+    #: since what share of the at-risk units a rule would treat is a property of the
+    #: data rather than of the declaration.
+    assignment: FloatArray
 
     @property
     def max_weight(self) -> float:
@@ -181,7 +207,7 @@ class RegimenFit:
 
 def fit_mechanism(
     data: LongitudinalData,
-    regimens: Sequence[Regimen],
+    plans: Sequence[Plan],
     *,
     treatment_learner: Learner,
     censoring_learner: Learner,
@@ -193,17 +219,15 @@ def fit_mechanism(
     Each node's model is fitted on the units still under observation *before* that
     node's decision -- not on the regimen's followers.  The conditioning set carries the
     earlier treatments as columns, so one model answers for every regimen and is simply
-    evaluated at each one's arms.
+    evaluated at each one's arms.  Under a dynamic rule those arms differ by row, which
+    changes where the model is *evaluated* and nothing about how it is fitted.
     """
     treatment: list[dict[str, FloatArray]] = []
     censoring: list[dict[str, FloatArray]] = []
     for time in range(1, data.n_times + 1):
         at_risk = data.uncensored_through(time - 1)
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
-        designs = {
-            regimen.label: data.history_design(time, treatment=regimen.values)
-            for regimen in regimens
-        }
+        designs = {plan.label: data.history_design(time, treatment=plan.values) for plan in plans}
         predictions, _ = cross_fit_predictions(
             treatment_learner,
             data.history_design(time),
@@ -220,12 +244,12 @@ def fit_mechanism(
         treatment.append(predictions)
 
         if not data.censoring_names:
-            censoring.append({regimen.label: np.ones(data.n) for regimen in regimens})
+            censoring.append({plan.label: np.ones(data.n) for plan in plans})
             continue
         stayed = np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0)
         censor_designs = {
-            regimen.label: data.history_design(time, treatment=regimen.values, include_current=True)
-            for regimen in regimens
+            plan.label: data.history_design(time, treatment=plan.values, include_current=True)
+            for plan in plans
         }
         predictions, _ = cross_fit_predictions(
             censoring_learner,
@@ -246,7 +270,7 @@ def fit_mechanism(
 
 def fit_regimen(
     data: LongitudinalData,
-    regimen: Regimen,
+    plan: Plan,
     mechanism: Mechanism,
     *,
     outcome_learner: Learner,
@@ -267,20 +291,21 @@ def fit_regimen(
     outcome is a classification problem, and the pseudo-outcome that replaces it one node
     earlier never is, whatever the outcome's family.
     """
-    cumulative = mechanism.cumulative(data, regimen, g_bounds)
+    cumulative = mechanism.cumulative(data, plan, g_bounds)
     observed_outcome = data.uncensored_through(data.n_times)
     scaled = np.where(observed_outcome, scaler.scale(np.nan_to_num(data.outcome, nan=0.0)), _FILLER)
     next_outcome = np.clip(scaled, 0.0, 1.0)
 
     steps: list[SequentialStep] = []
     for time in range(data.n_times, 0, -1):
-        at_risk = data.at_risk(regimen.values, time)
-        trained_on = data.following(regimen.values, time)
+        at_risk = data.at_risk(plan.values, time)
+        trained_on = data.following(plan.values, time)
         if not trained_on.any():
             raise LongitudinalError(
-                f"no unit followed regimen {regimen.label!r} through time {time} while "
+                f"no unit followed regimen {plan.label!r} through time {time} while "
                 "remaining under observation, so the sequential regression there has "
                 "nothing to fit. The regimen is not supported by this sample."
+                + _rule_hint(plan, at_risk, time)
             )
         design = data.covariate_history(time)
         learner = outcome_learner if time == data.n_times else pseudo_learner
@@ -306,14 +331,13 @@ def fit_regimen(
         counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
         clever = np.where(trained_on, counterfactual, 0.0)
 
-        arm = float(regimen.at(time))
         fluctuation = solve_fluctuation(
             next_outcome,
-            InitialFit(initial, {arm: initial}),
+            InitialFit(initial, {_REGIMEN_ARM: initial}),
             Submodel(
                 clever.reshape(-1, 1),
-                {arm: counterfactual.reshape(-1, 1)},
-                (f"h[{regimen.label}, t={time}]",),
+                {_REGIMEN_ARM: counterfactual.reshape(-1, 1)},
+                (f"h[{plan.label}, t={time}]",),
                 "sequential",
             ),
             np.ones(data.n),
@@ -322,11 +346,12 @@ def fit_regimen(
             max_iter=max_iter,
             tol=tol,
         )
-        targeted = fluctuation.targeted.arms[arm]
+        targeted = fluctuation.targeted.arms[_REGIMEN_ARM]
         steps.append(
             SequentialStep(
                 time=time,
                 trained_on=trained_on,
+                at_risk=at_risk,
                 initial=initial,
                 targeted=targeted,
                 clever=clever,
@@ -343,9 +368,30 @@ def fit_regimen(
         later = steps[index + 1].targeted if index + 1 < len(steps) else final
         influence = influence + step.clever * (later - step.targeted)
     return RegimenFit(
-        regimen=regimen,
+        regimen=plan.regimen,
         psi_scaled=psi,
         influence_curve_scaled=influence,
         steps=tuple(steps),
         cumulative=cumulative,
+        assignment=np.asarray(plan.values),
+    )
+
+
+def _rule_hint(plan: Plan, at_risk: BoolArray, time: int) -> str:
+    """For an unsupported regimen, what the rule asked for where nobody was left.
+
+    A static plan is unsupported because the sample happens not to contain the sequence.
+    A rule can be unsupported because it asks for an arm nobody at risk received, and
+    that is a different diagnosis -- so say which arm it wanted and how many units were
+    there to give it to.
+    """
+    if isinstance(plan.regimen, Regimen):
+        return ""
+    if not plan.regimen.is_rule(time):
+        return ""
+    assigned = plan.arm(time)[at_risk]
+    treated = int(np.sum(assigned == 1.0))
+    return (
+        f" The rule at time {time} assigned arm 1 to {treated} of the "
+        f"{int(at_risk.sum())} unit(s) at risk there."
     )
