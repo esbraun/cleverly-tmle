@@ -41,7 +41,7 @@ COLUMNS: dict[str, Any] = {
 
 
 #: Arguments of ``fit`` rather than of the estimator, so ``run`` knows which is which.
-FIT_ARGUMENTS = (*COLUMNS, "family", "id")
+FIT_ARGUMENTS = (*COLUMNS, "family", "id", "weights", "weights_type", "weights_estimated")
 
 
 def run(frame: Any, **overrides: Any) -> LongitudinalResult:
@@ -517,6 +517,138 @@ def test_cluster_variance_is_reported_at_the_cluster() -> None:
     assert "cluster-robust variance" in clustered.summary()
 
 
+class TestObservationWeights:
+    """What a weighted longitudinal fit does with the process rather than with the law.
+
+    ``tests/unit/test_weighted_estimand_longitudinal.py`` proves the estimand and the
+    influence curve, on a law a sample realises exactly and handed a saturated learner.
+    What is left over is everything around them: that the fit accepts the column, that the
+    weighting reaches the report, that ``g_bounds="auto"`` moves with the effective ``n``,
+    and that an unweighted fit is untouched.
+    """
+
+    @staticmethod
+    def _biased(n: int = 2000, seed: int = 5) -> tuple[Any, dict[str, float]]:
+        """A frame whose ``w`` is the reciprocal of a known selection probability.
+
+        Selection depends on ``W1``, which moves both treatments and the outcome, so a fit
+        that ignored ``w`` would answer for the selected population instead of for the
+        one the truth describes.
+        """
+        frame, truth = make_longitudinal(n=n, seed=seed)
+        keep_probability = np.where(np.asarray(frame["W1"]) > 0, 0.3, 0.9)
+        rng = np.random.default_rng(seed)
+        selected = rng.random(n) < keep_probability
+        sampled = frame.loc[selected].reset_index(drop=True)
+        sampled["w"] = 1.0 / keep_probability[selected]
+        return sampled, truth
+
+    def test_a_constant_weight_column_is_the_unweighted_fit(self) -> None:
+        """Bit for bit, not approximately: weighting is a generalisation of the old path."""
+        frame, _ = make_longitudinal(n=800, seed=3)
+        plain = run(frame)
+        weighted = run(frame.assign(w=2.5), weights="w")
+        assert not weighted.data.is_weighted
+        for name in plain:
+            assert weighted.psi(name) == plain.psi(name)
+            np.testing.assert_array_equal(
+                weighted.influence_curves[name], plain.influence_curves[name]
+            )
+
+    def test_the_weights_move_the_fit(self) -> None:
+        """The premise: an unweighted fit of a biased sample answers a different question.
+
+        Without this the checks below could all pass on an implementation that read the
+        column and dropped it.  Two halves, and neither is a statistical claim: the tilt
+        moves the covariate distribution the plug-in averages over -- by a lot, and
+        deterministically, since selection is a known function of ``W1`` -- and the two
+        fits therefore report different numbers.  *How far apart* they land is a property
+        of the draw and is deliberately not asserted; whether the weighted one is the
+        answer for the population the truth describes is a coverage claim, and
+        ``tests/e2e/test_coverage_slow.py`` makes it over many draws rather than one.
+        """
+        frame, _ = self._biased()
+        weighted = run(frame, weights="w", reference="never")
+        ignored = run(frame, reference="never")
+        w1 = np.asarray(frame["W1"], dtype=float)
+        tilted_mean = float(np.average(w1, weights=np.asarray(frame["w"], dtype=float)))
+        assert abs(tilted_mean - float(w1.mean())) > 0.2
+        name = "ate_regimen[always vs never]"
+        assert weighted.psi(name) != ignored.psi(name)
+
+    def test_the_report_names_the_population_and_the_cost(self) -> None:
+        frame, _ = self._biased()
+        result = run(frame, weights="w")
+        summary = result.summary()
+        assert "observation weights (w, fixed)" in summary
+        assert "weight-tilted population" in summary
+        report = result.data.weight_report()
+        assert report.effective_n < result.n
+        assert report.design_effect > 1.0
+
+    def test_estimated_weights_are_declared(self) -> None:
+        frame, _ = self._biased()
+        result = run(frame, weights="w", weights_estimated=True)
+        assert "observation weights (w, estimated)" in result.summary()
+        assert "conditions on the fitted weights" in result.data.weight_report().summary()
+
+    def test_the_auto_bound_is_resolved_at_the_effective_n(self) -> None:
+        """Which is not the row count, and over ``2T`` factors that compounds.
+
+        ``5 / (sqrt(n) log n)`` is a bias-variance compromise, and the variance side of it
+        is working from the information in the sample rather than from how many rows it
+        was written on.
+        """
+        frame, _ = self._biased()
+        result = run(frame, weights="w")
+        effective = result.data.effective_n
+        expected = 5.0 / (np.sqrt(effective) * np.log(effective))
+        assert result.config.g_bounds[0] == pytest.approx(expected)
+        assert result.config.auto_bounds_n == pytest.approx(effective)
+        assert expected > 5.0 / (np.sqrt(result.n) * np.log(result.n))
+        assert "resolved at the effective n" in result.summary()
+
+    def test_an_explicit_bound_is_never_second_guessed(self) -> None:
+        frame, _ = self._biased()
+        result = run(frame, weights="w", g_bounds=(0.02, 0.98))
+        assert result.config.g_bounds == (0.02, 0.98)
+        assert result.config.auto_bounds_n is None
+        assert "resolved at the effective n" not in result.summary()
+
+    def test_the_diagnostics_fold_the_weights_into_the_leverage(self) -> None:
+        """The two reweightings multiply, so the leverage reported is their product.
+
+        A fit can be comfortable on the observation weights and comfortable on the clever
+        covariate and thin on both together, which is the case a diagnostic showing one of
+        them alone reads as fine.  Same reasoning, and the same choice, as
+        ``cleverly.sensitivity.positivity``.
+        """
+        frame, _ = self._biased()
+        result = run(frame, weights="w")
+        rows = {(row["regimen"], row["time"]): row for _, row in result.diagnostics().iterrows()}
+        for label, fit in result.fits.items():
+            for step in fit.steps:
+                leverage = (fit.obs_weights * step.clever)[step.trained_on]
+                row = rows[(label, step.time)]
+                assert row["max_weight"] == pytest.approx(float(np.max(leverage)), abs=0)
+                kish = float(np.sum(leverage) ** 2 / np.sum(leverage**2))
+                assert row["effective_n"] == pytest.approx(kish, abs=0)
+            # Strictly heavier than the clever covariate alone here, which is what says
+            # the fold happened rather than that the arrays happen to agree.
+            assert fit.max_weight > float(np.max(step.clever))
+
+    def test_the_weight_column_cannot_be_combined_with_a_container(self) -> None:
+        from cleverly.longitudinal import LongitudinalData
+
+        frame, _ = self._biased()
+        data = LongitudinalData.from_frame(frame, weights="w", **COLUMNS)
+        for keyword in ({"weights": "w"}, {"weights_type": "survey"}, {"weights_estimated": True}):
+            with pytest.raises(ValueError, match="cannot be combined with a LongitudinalData"):
+                LTMLE({"always": 1}, **FAST).fit(data, **keyword)
+        # The container carries them, so the bare call is the supported one and is weighted.
+        assert LTMLE({"always": 1, "never": 0}, **FAST).fit(data).data.is_weighted
+
+
 class TestADynamicRule:
     """A regimen whose nodes are rules, on the process rather than on the exact law.
 
@@ -691,7 +823,11 @@ class TestItRefusesByName:
     @pytest.mark.parametrize(
         "keyword,expected",
         [
-            ("weights", "weighted efficient influence function"),
+            # No longer a refusal but a redirect, as ``event`` and ``competing`` are: the
+            # weights are a column of the data, so they are declared where the columns are
+            # read.  Kept as a key so that passing them here says so rather than falling
+            # through to "unexpected keyword argument".
+            ("weights", "column of the data"),
             ("intermediate", "different identification"),
             ("msm", "own weight function"),
             ("interventions", "Declare it in regimens="),

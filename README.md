@@ -760,6 +760,23 @@ truncated *before* multiplying rather than the product afterwards, so one near-d
 node cannot be rescued by the others; `res.diagnostics()` reports the weight and the
 effective `n` per regimen per node, beside that node's `epsilon` and whether it converged.
 
+**Observation weights** are read here exactly as they are at one time point. Pass
+`weights="w"` to `.fit()` and the estimand becomes the same regimen parameter in the tilted
+population `dP_w = w dP / E[w]`: every node's mechanism, every node's censoring factor and
+every regression in the backward recursion is fitted by weighted loss, each node's
+fluctuation solves the weighted score `Σ w h_t (Z_t − Q̄*_t) = 0`, the plug-in is a weighted
+average, and the reported curve is `(w / E[w]) · D*(P_w)`. A weight is a tilt of the
+*population*, so it is **not** a factor in `h_t` — the denominator is still the `2T`
+mechanism factors and nothing else. `res.diagnostics()` reports the leverage of `w / ∏g`
+rather than of `1/∏g`, since the two reweightings multiply, and `g_bounds="auto"` is
+resolved at the effective `n` for the reason
+[the weights section](#observation-weights-and-which-population-they-define) gives — which
+bites harder here, because that bound reaches all `2T` factors.
+`tests/unit/test_weighted_estimand_longitudinal.py` checks the estimand and the curve
+against a longhand `Ψ(P_w)` on the exact law, including for a weight reading the treatment,
+the censoring indicator, the time-varying confounder and the outcome — where the tilt moves
+every one of those nuisances rather than only the covariate marginal.
+
 The influence curve is checked on the same footing as every other estimand in this library:
 against the complex-step Gateaux derivative of an independently written g-formula, on a
 two-time-point law whose every cell probability is a multiple of `1/N` so that a sample of
@@ -784,7 +801,6 @@ analysis rather than about this package's coverage.
 | eliminating the competing events | a different question | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions. **Competing risks themselves are supported** — see [Competing risks](#competing-risks) |
 | `intermediate=` | a different question | a controlled direct effect fixes a mediator at one time point; over a sequence of nodes, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | a marginal structural model over time | not written yet | `msm=` summarises arms at one node; summarising `2^T` regimens is a different projection with its own weight function `h(ā, V)`. On the [roadmap](#roadmap) — it is the standard answer to reporting a grid of dynamic rules, and the derivation is settled |
-| observation weights | not written yet | a further per-unit factor at every node. The tilted-population estimand and its EIF are already derived for the point-treatment path (`data/weighting.py`), and this is that statement applied to the sequential regression. On the [roadmap](#roadmap) |
 | a multi-valued treatment at a node | not written yet | the cumulative product needs one factor per arm per node, and the report one parameter per *sequence* of arms — which is only readable through an MSM over regimens, so that is the row to want |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | the targeted bootstrap, and `res.sensitivity` | not written yet | both refit against resampled or re-truncated nuisances. `g_bounds` enters the *pseudo-outcome* of every earlier node through the recursion, so changing it changes what the earlier regressions were fitted to: there is no `retarget` here that re-solves the fluctuation alone, and the whole backward pass has to run again. For positivity — the assumption that bites hardest here — `res.diagnostics()` already answers the question |
@@ -1384,11 +1400,16 @@ does **not** rescue estimated weights — every replicate inherits and renormali
 weight column rather than re-deriving it, so those intervals condition on the fitted
 weights too; the package says so at fit time rather than letting the mistake pass.
 
+`LTMLE` takes `weights=` on exactly these terms — the same tilted-population estimand, the
+same influence function, the same `g_bounds="auto"` divergence — with every node's nuisance
+fitted by weighted loss and every node's score equation weighted; see
+[treatment over time](#treatment-given-over-time).
+
 That statement is derived and its limits set out in
 [`cleverly/data/weighting.py`](src/cleverly/data/weighting.py), and verified numerically
-against a longhand statement of `Psi(P_w)` in `tests/unit/test_weighted_estimand.py` —
-including for weights that depend on the outcome, where the tilt changes `Qbar` itself.
-The short version:
+against a longhand statement of `Psi(P_w)` in `tests/unit/test_weighted_estimand.py` and
+`tests/unit/test_weighted_estimand_longitudinal.py` — including for weights that depend on
+the outcome, where the tilt changes `Qbar` itself. The short version:
 
 | supplied weights | status |
 | --- | --- |
@@ -1591,14 +1612,14 @@ so rather than implying the request was ill-posed.
 | `CTMLE`, the omitted-variable bound and the MNAR tilt on a multi-valued treatment | [multi-valued treatment](#multi-valued-treatment) |
 | `delta=`, `intermediate=` and estimated weights with `shifts=` | [shifting a continuous dose](#shifting-a-continuous-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](#tilting-the-odds-of-treatment) |
-| observation weights, an MSM over regimens, a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](#treatment-given-over-time) |
+| an MSM over regimens, a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](#treatment-given-over-time) |
 | blocked-temporal and rolling-origin splits | [cross-fitting](#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](#observation-weights-and-which-population-they-define) |
 
-Four of these are on the [roadmap](#refusals-worth-lifting), and one has left the list
-entirely: `ATT` / `ATC` on a multi-valued treatment is item 1 and has landed. The rest are
-there because nobody has asked, not because anything stands in the way — with one exception
-worth naming:
+Three of these are on the [roadmap](#refusals-worth-lifting), and two have left the list
+entirely: `ATT` / `ATC` on a multi-valued treatment is item 1 and has landed, and
+observation weights for `LTMLE` is item 3 and has landed. The rest are there because nobody
+has asked, not because anything stands in the way — with one exception worth naming:
 `CTMLE` on a multi-valued treatment is the only row here whose *derivation* is unsettled,
 since both searches order candidates by one propensity margin and with `K` arms there is no
 canonical single ordering.
@@ -1662,7 +1683,7 @@ sections above each row belongs to.
 | Continuous treatment | `shifts=` declares a modified treatment policy `d(a, w) = min(a + δ, u)` and with it that the treatment is a dose: no arms, a conditional density `g(a \| W)` in place of the propensity, and a clever covariate that is a density ratio. The density is a discrete hazard fitted by the ordinary `treatment_learner=` on a long `(unit, bin)` expansion, so every preset, screener and thread limit works untouched. The report becomes `ey_shift[...]` and `ate_shift[... vs ...]`, and `sensitivity.shift_support()` reports the ratio's tail and the effective sample size it leaves. `cap=` is required rather than estimated, since a fitted support boundary would make the parameter itself data-dependent. What is refused rather than guessed at: `delta=`, `intermediate=` and estimated weights, each of which puts a further conditional density beside `g` and needs its own derivation |
 | Incremental interventions | `incremental=` multiplies everyone's *odds* of treatment by `δ` rather than assigning an arm (Kennedy 2019), reporting `ey_ipsi[...]` and `ate_ipsi[... vs ...]`. Two things make it unlike every other axis. **No positivity assumption**: the clever covariate is `δ/D` at `A=1` and `1/D` at `A=0` with `D = δg + 1 - g`, so it lies in `[min(δ,1/δ), max(δ,1/δ)]` however small `g` is — the leverage is bounded by a number the analyst chose. `g_bounds=` is therefore refused, since `g` is inside the estimand and truncating it would move `Ψ(δ)`. And it is **not doubly robust** — the only estimand here that is not: every term of the remainder carries `(ĝ - g₀)`, so a consistent mechanism is required and a consistent `Q̄` cannot substitute. Because `q_δ` is a functional of `P`, the EIF carries a `∂m/∂g` term and the estimator fluctuates the *mechanism* as well as `Q̄`, alternating to convergence; `score_check()` reports both equations. `ey_ipsi` at `δ=1` is `mean(Y)` row by row, whatever the nuisances — absent `delta=`, with which `Ψ(1)` is the MAR-identified `E[Y]` instead. `delta=` **is** supported, and tightens the guarantee to "`ĝ` right **and** one of `π̂`, `Q̄` right". What is refused: a multi-valued treatment and `intermediate=` (not written yet), and `CTMLE` (wrong by construction — each candidate `ĝ` defines a different `Ψ(δ)`) |
 | Marginal structural model | `msm=` declares a working model `m(a, V; beta)` for `E[Y(a) \| V]` and makes the fit's parameters its coefficients, reported as `msm[a:W1]` under the term names you gave. `beta` is a **projection** under a known weight `h(a, V)`, not the truth of an assumed regression, so the estimand and its interval are well defined whether or not the model is correct (Neugebauer & van der Laan 2007). The clever covariate is `h(a,V) (dm/deta) phi(a,V) / g(a \| W)`, one column per term, and the projection is solved by weighted least squares against the *targeted* `Qbar` — which zeroes the second half of the influence curve by construction. `link=` may be `"identity"` (the default, whose `dm/deta` is one, so the covariate is free of `beta` and the fit is a single fluctuation), `"log"` (coefficients are log risk ratios) or `"logit"` (log odds ratios); `res.coefficients(scale="ratio")` exponentiates them, naming which ratio each is and marking the intercept as a baseline rather than one. Under a link the covariate reads `beta`, so the fluctuation and the projection alternate — fold by fold under `targeting_scheme="fold"`, since `beta` is a coefficient no row should contribute to its own fluctuation through — and `M` gains a curvature term that vanishes only where the model fits. A saturated working model reproduces the per-arm report exactly, through the link. What is refused rather than approximated: weights derived from the estimated mechanism (they would make `h` a functional of `P`) |
-| Treatment over time | `LTMLE` estimates `E[Y_ā]` under a regimen across `T` nodes — static, or **dynamic**, where any node's arm may be a rule `d_t(H_t)` handed `[W, L_1, ..., L_t]` and nothing else — with time-varying confounding and monotone censoring, reporting `ey_regimen[...]` and `ate_regimen[... vs ...]`. The estimator is the sequential regression (Bang & Robins 2005) targeted node by node (van der Laan & Gruber 2012): `T` regressions run backwards, each fitted on the regimen's followers and each fluctuated by the reciprocal of the *cumulative* product of the treatment and censoring probabilities. Positivity is therefore a statement about a product of `2T` factors, and each is truncated before multiplying rather than the product afterwards; `res.diagnostics()` reports the weight and effective `n` per regimen per node, plus `share_assigned_1` — what a rule assigned the units at risk there, which is a property of the sample rather than of the declaration. A rule's followers are a covariate-dependent set at every node, so the rows each regression is fitted on move with the data; a rule that ignores the history reproduces the constant plan it equals bit for bit, which is what pins the dynamic path as a generalisation of the static one rather than a second estimator beside it. This is a separate estimator with its own result object rather than a `Target`: a regimen is not an arm, a regime, a shift, a tilt or an MSM coefficient. Its result object carries the same inference surface as a point-treatment one — `contrast()`, `covariance()`, `to_frame()` under the same column names, `id=`, and simultaneous bands across the reported regimens — and refuses the rest by name. A **survival outcome** is declared by passing one absorbing event indicator per node as `outcome=[...]`: the outcome joins the time ordering, the parameter becomes the cumulative risk curve `risk_regimen[... @ t=k]` at every horizon, and the joint influence-curve matrix across regimens *and* horizons makes a simultaneous band over the curve the natural object. Each horizon is its own backward pass — `T(T+1)/2` regressions per regimen, with the mechanism fitted once and shared, and `horizons=` to name the ones you report — and each is fitted on the units at risk *entering* the node, one event node earlier than the censoring factor runs to, since a unit that has the event at `t` is the observation that it happened. Being event-free is part of the history rather than an intervened node, so it enters the clever covariate's indicator and never its denominator: positivity is what it was. A fit whose event can only happen at the last node reproduces the end-of-study fit bit for bit. **Competing risks** are declared by passing a *mapping* of cause to its indicator column per node, and report `cif_regimen[..., cause @ t=k]` — a cause-specific numerator against an all-cause survival factor, with the competing causes left alone, so a competing event enters the clever covariate's indicator and never its denominator and positivity is what it was; the causes share every nuisance fit, a single-cause fit reproduces a single-event one bit for bit, and `incidence_total()` reports how far the causes sum from one rather than renormalising them onto it. What is refused rather than approximated: *eliminating* the competing events (a different estimand, which would make them intervened nodes), a multi-valued treatment at a node, an MSM over regimens, observation weights, `intermediate=`, the targeted bootstrap and `res.sensitivity` — the last two because `g_bounds` enters the pseudo-outcome of every earlier node, so there is no retarget that re-solves the fluctuation alone |
+| Treatment over time | `LTMLE` estimates `E[Y_ā]` under a regimen across `T` nodes — static, or **dynamic**, where any node's arm may be a rule `d_t(H_t)` handed `[W, L_1, ..., L_t]` and nothing else — with time-varying confounding and monotone censoring, reporting `ey_regimen[...]` and `ate_regimen[... vs ...]`, with `weights=` read as it is at one time point — the tilted-population estimand, every node's nuisance fitted by weighted loss and every node's score equation weighted. The estimator is the sequential regression (Bang & Robins 2005) targeted node by node (van der Laan & Gruber 2012): `T` regressions run backwards, each fitted on the regimen's followers and each fluctuated by the reciprocal of the *cumulative* product of the treatment and censoring probabilities. Positivity is therefore a statement about a product of `2T` factors, and each is truncated before multiplying rather than the product afterwards; `res.diagnostics()` reports the weight and effective `n` per regimen per node, plus `share_assigned_1` — what a rule assigned the units at risk there, which is a property of the sample rather than of the declaration. A rule's followers are a covariate-dependent set at every node, so the rows each regression is fitted on move with the data; a rule that ignores the history reproduces the constant plan it equals bit for bit, which is what pins the dynamic path as a generalisation of the static one rather than a second estimator beside it. This is a separate estimator with its own result object rather than a `Target`: a regimen is not an arm, a regime, a shift, a tilt or an MSM coefficient. Its result object carries the same inference surface as a point-treatment one — `contrast()`, `covariance()`, `to_frame()` under the same column names, `id=`, and simultaneous bands across the reported regimens — and refuses the rest by name. A **survival outcome** is declared by passing one absorbing event indicator per node as `outcome=[...]`: the outcome joins the time ordering, the parameter becomes the cumulative risk curve `risk_regimen[... @ t=k]` at every horizon, and the joint influence-curve matrix across regimens *and* horizons makes a simultaneous band over the curve the natural object. Each horizon is its own backward pass — `T(T+1)/2` regressions per regimen, with the mechanism fitted once and shared, and `horizons=` to name the ones you report — and each is fitted on the units at risk *entering* the node, one event node earlier than the censoring factor runs to, since a unit that has the event at `t` is the observation that it happened. Being event-free is part of the history rather than an intervened node, so it enters the clever covariate's indicator and never its denominator: positivity is what it was. A fit whose event can only happen at the last node reproduces the end-of-study fit bit for bit. **Competing risks** are declared by passing a *mapping* of cause to its indicator column per node, and report `cif_regimen[..., cause @ t=k]` — a cause-specific numerator against an all-cause survival factor, with the competing causes left alone, so a competing event enters the clever covariate's indicator and never its denominator and positivity is what it was; the causes share every nuisance fit, a single-cause fit reproduces a single-event one bit for bit, and `incidence_total()` reports how far the causes sum from one rather than renormalising them onto it. What is refused rather than approximated: *eliminating* the competing events (a different estimand, which would make them intervened nodes), a multi-valued treatment at a node, an MSM over regimens, `intermediate=`, the targeted bootstrap and `res.sensitivity` — the last two because `g_bounds` enters the pseudo-outcome of every earlier node, so there is no retarget that re-solves the fluctuation alone |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
 | Cross-fitting | out-of-fold nuisance fits; V-fold, stratified, grouped and cluster-level splits, with stratification handling a multi-valued treatment natively and `stratify_folds="treatment+outcome"` crossing the outcome in when events are rare enough that an arm-balanced fold can still contain none. The prohibitions are **checked, not assumed**: a fold index outside the declared range and an empty fold are refused by `Folds` itself, and a cluster with rows in more than one fold by a post-condition on every split the library builds — outer, Super Learner's inner, C-TMLE's selection. Every result carries the `CrossFitPlan` it *declared* beside the fold count it *ran*, which come apart whenever a cap fired. `repeats=R` averages over `R` independent draws of the split — `mean_r psi_r` with influence curve `mean_r IC_r`, so the variance, the delta method and the bands stay coherent without a second rule, and every analysis that produces a number follows all `R` draws while the ones describing a fitted mechanism name the draw they describe. A draw redraws every stage of the split, Super Learner's inner CV and C-TMLE's selection folds included, and `repeat_spread()` reports how far the draws moved as a diagnostic rather than a standard error. Median-of-estimates aggregation is refused, since the median of the estimates is not the estimator whose curve is the median of the curves. The inner CV that scores Super Learner candidates is nested inside one outer training fold and gets the same cluster codes. What is refused rather than approximated: blocked-temporal splits (no node carries a time index), rolling-origin splits (their nested training sets cannot give every row the one out-of-fold prediction the storage contract rests on — a different contract, not a different splitter) and splitting a cluster across folds to buy more of them |
@@ -1672,7 +1693,7 @@ sections above each row belongs to.
 | Fluctuation | logistic or linear; clever covariate or weighted (`target_weights`, R's `target.gwt`) |
 | Missing outcomes | `delta=` with its own nuisance model, entering the clever covariate. Assumes MAR given `(A, W)`; the double-robustness condition becomes "`Q̄` right **or** the product `g·π` right" |
 | Controlled direct effect | `intermediate=` (R's `Z`) estimates `Ψ_z = E_W[E(Y \| A=a, Z=z, W)]` per level of `Z`, so the returned `TMLEResultSet` holds two results — index the level, `res[0.0]`, rather than calling `.single()`. Needs `Y(a,z) ⊥ Z \| A, W` on top of the usual assumptions — no intermediate confounder affected by `A` — and the DR condition becomes "`Q̄` right **or** the product `g·q_z·π` right". Not a longitudinal estimator and not a natural direct effect; `cleverly.estimators.direct_effect` writes the parameter down, derives its EIF, and states the boundary. Its influence curve is checked against the numerical Gateaux derivative at machine precision, on the same footing as the ATE |
-| Weights | probability/sampling weights, with the tilted-population estimand and its EIF stated and tested; frequency and replicate weights refused |
+| Weights | probability/sampling weights, with the tilted-population estimand and its EIF stated and tested, at one time point and over a regimen alike; frequency and replicate weights refused |
 | Clustering | `id=` for cluster-level influence-curve variance and cluster bootstrap |
 | Bounds | propensity truncation (`g_bounds`), outcome bounds (`q_bounds`), `alpha` shrinkage. With two arms `g₁` is clipped and the control arm is its complement, so the pair sums to one. With more, each arm is clipped in its own right and the row is **not** renormalised — rescaling back onto the simplex can push a column under the floor and undo the only thing the floor is for. `PositivityReport.simplex_deviation` reports the size of that deliberate inconsistency; it cannot move `Ψ`, which contains no mechanism at all, only the second-order remainder |
 | Screening | pre-screening of covariates for the treatment model (`prescreenW.g`, `min_retain`) |
@@ -1892,7 +1913,9 @@ shippable, but taken in sequence some of them hand work to the next: the first w
 self-contained and unblocks two sensitivity analyses; the second builds the projection
 machinery the fourth copies; the third and fourth both change `fit_regimen` and
 `fit_mechanism`, so doing them adjacent is one round of churn in those signatures rather than
-two. The fifth is last because its cost is dominated by test infrastructure rather than by
+two — the third has landed, and left those two functions taking the data's weights, which is
+the change the fourth would otherwise have had to make.
+The fifth is last because its cost is dominated by test infrastructure rather than by
 derivation — it is the only one needing a *new* oracle law rather than a branch on an
 existing one.
 
@@ -1930,15 +1953,31 @@ existing one.
    mechanism is right — that exactness was the linearity of the estimating equation in `β`,
    not a stronger double robustness — so the test measures a rate where it asserted an
    equality. What this unblocks is the fourth item, which copies the projection's shape
-3. **Observation weights for `LTMLE`.** Survey-weighted and selection-weighted longitudinal
-   cohorts are ordinary, and the statement they need is already derived *here*:
-   `dP_w = w dP / E[w]` with EIF `(w / E[w]) · D*(P_w)`, set out in `data/weighting.py` and
-   verified longhand in `tests/unit/test_weighted_estimand.py`. Applied to the sequential
-   regression it is that same statement about a tilted population on a different estimator,
-   assuming nothing new. The learner plumbing exists too — `learners/_fitting.py` routes
-   `sample_weight` and `estimators/_nuisance.py` threads `data.weights` through every fit;
-   it is `fit_regimen` and `fit_mechanism` that do not carry them, the same two functions
-   the next item changes, which is the whole reason these two sit together
+3. **Observation weights for `LTMLE` — landed.** `LTMLE(...).fit(frame, weights="w")`
+   estimates the declared regimen parameters in the tilted population `dP_w = w dP / E[w]`,
+   with every node's mechanism, censoring factor and sequential regression fitted by
+   weighted loss, every node's score equation weighted, and the reported curve
+   `(w / E[w]) · D*(P_w)`; see [treatment over time](#treatment-given-over-time). It was
+   the transcription the sizing said it was — the statement was already derived in
+   `data/weighting.py` and the plumbing already carried a weight vector — but three things
+   are worth recording. The **refusal's stated reason was wrong**, in the same way item 5's
+   was: it said observation weights "put a further per-unit factor in the clever covariate's
+   denominator at every node", and they do not. A weight tilts the *population*; `h_t`
+   divides by the `2T` mechanism factors and by nothing else, and putting `w` there would
+   divide the estimating equation by the very tilt it applies. What *does* move is
+   `g_bounds="auto"`, resolved at Kish's effective `n` as it is at one node — and over `T`
+   nodes that compounds rather than cancels, since the bound reaches every factor. And the
+   leverage `res.diagnostics()` reports is now `w / ∏g` rather than `1/∏g`, on
+   `sensitivity/positivity.py`'s reasoning that the two reweightings multiply. The oracle
+   was a branch on the existing law rather than a new one: `tests/discrete_law_longitudinal.py`
+   gained the tilt and its Gateaux derivative, and its saturated learner had to start
+   *honouring* `sample_weight` — accepting and discarding it would have left the estimator
+   holding `P_0`'s conditionals while its estimand was at `P_w`, which is the one mistake
+   here that leaves `epsilon` non-zero rather than silent. The nightly tier gained a
+   coverage study on a *biased sample*, where selection is a known `π(W_1)` and `w = 1/π`,
+   so the truth is the unweighted one unchanged; ignoring the weights there costs about
+   fourteen Monte Carlo standard errors of bias on each counterfactual mean — and almost
+   nothing on their contrast, which is why that control is taken on a level
 4. **A marginal structural model over regimens, for `LTMLE`.** The largest lift on this
    list, and the largest thing `LTMLE` is missing as against refusing. Worth it anyway: it
    is the standard answer to the `2^T` problem, and the way the applied literature reports
@@ -1949,8 +1988,14 @@ existing one.
    it. It needs its own weight function `h(ā, V)`, its own projection, and its own branch
    in `tests/discrete_law_longitudinal.py` — the projection is solved on the raw outcome
    scale for the reason the point-treatment MSM is, and a saturated working model over the
-   regimens must reproduce the per-regimen report exactly. It wants item 2 landed first for
-   the projection machinery, and item 3 landed first for the signature churn
+   regimens must reproduce the per-regimen report exactly. It wanted items 2 and 3 landed
+   first — the projection machinery from one and the signature churn in `fit_regimen` and
+   `fit_mechanism` from the other — and both now are, so it is the next thing on this list.
+   One thing item 3 settled for it: those two functions now take the data's weights rather
+   than a vector of ones, so an MSM over regimens inherits observation weights instead of
+   having to add them, and its `h(ā, V)` is the *working model's* weight and a different
+   object — the point-treatment MSM already keeps the two apart, and
+   `inference/influence.py` names them `model_weights` and `weights` for that reason
 5. **`shifts=` with `delta=`.** Last for what it costs rather than for what it is worth: it
    is the only one of the five needing a *new* oracle law, so most of the work is test
    infrastructure. The audit also changed what this item is. The refusal's stated reason

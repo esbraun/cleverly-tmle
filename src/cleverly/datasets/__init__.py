@@ -10,6 +10,7 @@ from .longitudinal import (
     make_longitudinal,
     make_longitudinal_competing,
     make_longitudinal_survival,
+    make_longitudinal_weighted,
     rule_arm_at_node_two,
     survival_truth,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "make_longitudinal",
     "make_longitudinal_competing",
     "make_longitudinal_survival",
+    "make_longitudinal_weighted",
     "make_missing_outcome",
     "make_missing_outcome_binary",
     "make_multi_arm",

@@ -315,6 +315,71 @@ def first_row_of() -> np.ndarray:
     return np.concatenate([[0], np.cumsum(COUNTS)[:-1]])
 
 
+# ------------------------------------------------------------------ observation weights
+#
+# The same construction as ``tests/discrete_law.py``, and it exists here for the same
+# reason: ``cleverly.data.weighting`` claims a weighted fit estimates ``Psi(P_w)`` on the
+# tilted law, and that claim is checked by writing ``Psi(P_w)`` out longhand rather than by
+# agreeing with the library's own arithmetic.  A weight is a function of the observed row,
+# so on a law with finite support it is one number per support point.
+
+
+def cell_weights(weight_of: Any) -> np.ndarray:
+    """A weight per support point, from a function of the whole observed history.
+
+    ``weight_of`` is called with ``(w, a1, c1, l2, a2, c2, y)``, the support point itself,
+    so a weight may read any node -- including one a censored unit never reached, which
+    arrives as ``None`` exactly as it does in :data:`SUPPORT`.
+    """
+    return np.array([float(weight_of(*point)) for point in SUPPORT], dtype=float)
+
+
+def row_weights(weights: np.ndarray) -> np.ndarray:
+    """Cell weights expanded to one value per row of :func:`frame`."""
+    return np.repeat(np.asarray(weights, dtype=float), COUNTS)
+
+
+def tilt(probs: Any, weights: Any) -> Any:
+    r"""The weighted law :math:`dP_w = w\,dP / E_P[w]`, as cell probabilities.
+
+    Kept analytic in ``probs`` -- a ratio of linear functions -- so
+    :func:`weighted_gateaux` can differentiate through it by a complex step.
+    """
+    tilted = np.asarray(weights, dtype=float) * np.asarray(probs)
+    return tilted / tilted.sum()
+
+
+def weighted_functional(probs: Any, estimand: str, weights: Any) -> Any:
+    """``Psi(P_w)`` -- the estimand of the tilted law, longhand.
+
+    Tilt the law, then apply the same sequential g-formula :func:`functional` already
+    spells out.  Nothing here touches a clever covariate, a cumulative product or a
+    weighted score equation, so comparing a weighted fit against it is a check of the
+    claim rather than a restatement of the implementation.
+    """
+    return functional(tilt(probs, weights), estimand)
+
+
+def weighted_gateaux(estimand: str, point: int, weights: Any, *, step: float = 1e-30) -> float:
+    r"""Gateaux derivative of :math:`P \mapsto \Psi(P_w)` at support point ``point``.
+
+    The contamination is of :math:`P`, the law the *rows are drawn from* -- not of
+    :math:`P_w`.  That is the whole content of the check: the weights are part of the
+    data-generating experiment, so the influence function has to be taken with respect to
+    the law that generates them.
+    """
+    base = PROBS.astype(complex)
+    mass = np.zeros_like(base)
+    mass[point] = 1.0
+    perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+    return float(np.imag(weighted_functional(perturbed, estimand, weights)) / step)
+
+
+def weighted_eif(estimand: str, weights: Any) -> np.ndarray:
+    """The EIF of ``Psi(P_w)`` at every support point, in support order."""
+    return np.array([weighted_gateaux(estimand, point, weights) for point in range(len(SUPPORT))])
+
+
 class CellMeans(BaseEstimator):
     """The saturated learner: the sample mean of ``y`` within each distinct design row.
 
@@ -327,17 +392,33 @@ class CellMeans(BaseEstimator):
     A design row the fit never saw falls back to the training mean.  Only rows the
     estimator masks away can hit that path: a unit censored before the node in question
     has its history filled with zeros, and nothing reads its prediction.
+
+    ``sample_weight`` is **honoured, not accepted and dropped**, and that is what makes the
+    saturated fit the oracle of the *tilted* law as well as of ``P_0``.  A weighted cell
+    mean is ``sum_cell w y / sum_cell w``, which on a sample that realises the law exactly
+    is ``E_{P_w}[y | cell]`` exactly.  Discarding the weights would leave the estimator
+    holding ``P_0``'s conditionals while its estimand is at ``P_w``, so ``epsilon`` would
+    not come back zero and every exactness argument in the weighted test module would
+    quietly become an approximation.
     """
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CellMeans:
         matrix = np.asarray(X, dtype=float)
         target = np.asarray(y, dtype=float).reshape(-1)
+        weights = (
+            np.ones_like(target)
+            if sample_weight is None
+            else np.asarray(sample_weight, dtype=float).reshape(-1)
+        )
         keys, inverse = np.unique(np.round(matrix, 9), axis=0, return_inverse=True)
-        totals = np.bincount(inverse, weights=target, minlength=keys.shape[0])
-        sizes = np.bincount(inverse, minlength=keys.shape[0])
+        totals = np.bincount(inverse, weights=weights * target, minlength=keys.shape[0])
+        sizes = np.bincount(inverse, weights=weights, minlength=keys.shape[0])
         self.keys_ = keys
-        self.means_ = totals / np.maximum(sizes, 1)
-        self.default_ = float(target.mean())
+        # ``np.maximum(sizes, 0)`` would not do: a cell can carry zero total weight when
+        # every row in it was zero-weighted, and the fallback there is the same "nothing
+        # reads this prediction" case as an unseen design row.
+        self.means_ = np.where(sizes > 0, totals / np.where(sizes > 0, sizes, 1.0), 0.0)
+        self.default_ = float(np.average(target, weights=weights))
         self.classes_ = np.array([0.0, 1.0])
         return self
 

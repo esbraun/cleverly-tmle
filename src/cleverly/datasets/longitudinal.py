@@ -35,6 +35,7 @@ __all__ = [
     "make_longitudinal",
     "make_longitudinal_competing",
     "make_longitudinal_survival",
+    "make_longitudinal_weighted",
     "rule_arm_at_node_two",
     "survival_truth",
 ]
@@ -338,6 +339,47 @@ def make_longitudinal(
     truth[f"ate_regimen[{RULE_LABEL} vs never]"] = (
         truth[f"ey_regimen[{RULE_LABEL}]"] - truth["ey_regimen[never]"]
     )
+    return frame_from_dict(payload, backend=backend), truth
+
+
+#: Probability of being kept in the biased sample of :func:`make_longitudinal_weighted`,
+#: as ``(low, high)`` -- the low one applying where ``W1`` is positive.  Selection depends
+#: on a covariate that moves both treatment decisions and the outcome, so an unweighted
+#: analysis of the retained rows answers for the wrong population; and both values are far
+#: from zero, so the weights are a tilt rather than a positivity problem of their own.
+_SELECTION = (0.3, 0.9)
+
+
+def make_longitudinal_weighted(
+    n: int = 2000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    backend: str = "pandas",
+) -> tuple[Any, dict[str, float]]:
+    r"""A *biased sample* of :func:`make_longitudinal`, with the design weights that undo it.
+
+    Each unit is kept with a known probability :math:`\pi(W_1)` and carries
+    :math:`w = 1/\pi`, which is the survey case: the sampling law is
+    :math:`dP_S = \pi\,dP / E[\pi]`, so tilting it by :math:`w` gives
+    :math:`dP_{S,w} = w\,dP_S/E_S[w] = dP` **exactly**.  The truth is therefore
+    :func:`make_longitudinal`'s unchanged, and that is what makes this a real end-to-end
+    check of the weighting rather than a restatement of it: a fit that ignored ``w`` would
+    estimate the *selected* population's parameter and miss its nominal coverage, while one
+    that applies it is estimating the parameter this ``truth`` names.
+
+    ``n`` is the number of units drawn *before* selection, so the returned frame has about
+    ``(pi_low + pi_high) / 2 * n`` rows.  Returned rather than resampled to a fixed size
+    because the retained count is part of the experiment: forcing it would condition on
+    something the design did not.
+    """
+    rng = np.random.default_rng(seed)
+    frame, truth = make_longitudinal(n=n, seed=rng, backend="pandas")
+    low, high = _SELECTION
+    keep_probability = np.where(np.asarray(frame["W1"], dtype=float) > 0.0, low, high)
+    selected = rng.random(n) < keep_probability
+    sampled = frame.loc[selected].reset_index(drop=True)
+    payload = {name: np.asarray(sampled[name], dtype=float) for name in sampled.columns}
+    payload["w"] = 1.0 / keep_probability[selected]
     return frame_from_dict(payload, backend=backend), truth
 
 
