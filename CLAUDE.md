@@ -253,6 +253,38 @@ load-balancing the tail, not contending for cores.
   representations so a slip is a wrong number rather than one that cancels on both sides. Keep
   `functional` selecting arms by **cell index** — a rule written as an indicator *of the
   probabilities* makes the complex step come back real, silently.
+- **A survival outcome is a population, not a parameter axis.** `outcome=[...]` — a sequence
+  rather than a name — puts an absorbing `Y_t` into the ordering and makes the report the
+  cumulative risk at every horizon. It is *not* a fifth axis beside `arm`/`regime`/`shift`/
+  `ipsi`/`msm`: the counterfactual is still a regimen, and `LTMLE` is still not a `Target`.
+  What changes is which rows each node's regression is fitted on, and there are three ways to
+  get that backwards, each with a test that fails when you do.
+  *The event node is one earlier than the censoring node.* `following(t)` reads
+  `event_free_through(t - 1)` while `uncensored_through` reads `t`, so `at_risk(t+1) ==
+  following(t) & event-free at t` — the closure identity generalised, not broken. A unit that
+  has the event at `t` **is** in node `t`'s regression, because it is the observation that the
+  event happened. "Tidying" that `t - 1` to a `t` reads like a correction and turns 26 of
+  `tests/unit/test_influence_gateaux_survival.py`'s 30 tests red; do not.
+  *The mechanism's fit mask is event-aware too.* A unit that has already had the event has no
+  `A_t`, and `history_design` fills a missing arm with zero — so leaving it in `fit_mechanism`'s
+  mask trains it as an untreated observation and biases `g`. That mutation is **silent**: every
+  point estimate stays green, since with an exact initial fit `epsilon` is zero and no error in
+  `g` can move `psi`. Only the Gateaux comparison catches it.
+  *The event contributes no factor to the clever covariate.* Being event-free is `H_t`-measurable
+  — part of the history, not an intervened node — so it enters the *indicator* of `h_t` and never
+  the denominator. `g_bounds` and the per-factor truncation mean exactly what they meant.
+  Two further things. Each horizon is its own backward pass (`T(T+1)/2` regressions per regimen,
+  mechanism fitted once and shared); `horizons=` is the lever, and is refused on an end-of-study
+  fit rather than ignored. And `fits` is keyed by `(label, horizon)` **composed forward** in
+  `LTMLE.fit`, never parsed back out of a report name — `diagnostics()` and `summary()` read
+  `fit.regimen.label` and `fit.horizon`, which is why the `regimen` column is still a regimen.
+  The report is the **risk**; `res.curve(scale="survival")` is a derived view, and it branches on
+  `ParameterEstimate.scale` because `S = 1 - F` is right for a level and *wrong* for a contrast,
+  where the map is `-(F_a - F_b)`. A fit whose event can only happen at the last node reproduces
+  the end-of-study fit bit for bit — `psi`, the whole curve, every `epsilon` — which is the pin
+  that says this is a generalisation and not a second estimator. The oracle is
+  `tests/discrete_law_survival.py`, a **new** law rather than a wider `discrete_law_longitudinal`,
+  because that one has to go on proving the end-of-study derivation unchanged.
 - **Which truncation bound a group gets is a statement about its covariate.**
   `utils.bounds.CONDITIONAL_GROUPS` names the groups whose clever covariate is a propensity
   *odds* (`att`, `atc`) and so needs the tighter bound; everything else divides by `g` once

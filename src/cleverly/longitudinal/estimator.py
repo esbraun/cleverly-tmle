@@ -28,13 +28,20 @@ they are strictly stronger than at one time point:
   cumulative weight it produced;
 * **consistency**, and no interference.
 
+With a **survival** outcome -- one absorbing event indicator per node, declared by passing
+``outcome=[...]`` rather than a single name -- the parameter is instead the cumulative
+risk curve :math:`F_{\bar a}(t) = P(\text{event by } t)` at every horizon, reported with
+the joint influence-curve matrix that makes a simultaneous band over the curve the natural
+object.  It is the same recursion and the same clever covariate; what moves is which rows
+each node's regression is fitted on.
+
 What is refused rather than approximated is listed in the README; the short version is
 that this estimator answers for a regimen -- static or dynamic -- over a binary treatment
-at every node, with a single end-of-study outcome and monotone censoring.  A survival
-outcome with a time-varying event indicator, competing risks and a marginal structural
-model over time each need their own derivation, and each is refused by name -- the
-keyword is accepted and rejected with what the derivation would need, rather than
-arriving as an ``unexpected keyword argument``.  :data:`_REFUSED` is that table.
+at every node, for one end-of-study outcome or one absorbing event, with monotone
+censoring.  Competing risks and a marginal structural model over time each need their own
+derivation, and each is refused by name -- the keyword is accepted and rejected with what
+the derivation would need, rather than arriving as an ``unexpected keyword argument``.
+:data:`_REFUSED` is that table.
 """
 
 from __future__ import annotations

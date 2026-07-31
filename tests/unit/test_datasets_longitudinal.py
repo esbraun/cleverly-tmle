@@ -14,7 +14,7 @@ and leave both passing.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -25,8 +25,12 @@ from cleverly.datasets import (
     longitudinal_rule_truth,
     longitudinal_truth,
     make_longitudinal,
+    make_longitudinal_survival,
     rule_arm_at_node_two,
+    survival_truth,
 )
+from cleverly.datasets.longitudinal import _L2, _hazard_one, _hazard_two
+from cleverly.longitudinal import LongitudinalData
 
 #: The four static plans over two nodes.  Written out rather than read off the generator,
 #: so a change there shows up here.
@@ -225,3 +229,113 @@ class TestTheProcess:
         treated = under.loc[under["A1"] == 1, "L2"].mean()
         untreated = under.loc[under["A1"] == 0, "L2"].mean()
         assert treated - untreated > 0.5
+
+
+class TestTheSurvivalProcess:
+    """``make_longitudinal_survival``: the quadrature, and the missingness it produces."""
+
+    PLANS: ClassVar = [(1.0, 1.0), (0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
+
+    @pytest.mark.parametrize("a1,a2", PLANS)
+    @pytest.mark.parametrize("horizon", [1, 2])
+    def test_the_quadrature_agrees_with_plain_monte_carlo(
+        self, a1: float, a2: float, horizon: int
+    ) -> None:
+        """Two independent routes to the same number, as the end-of-study truth has.
+
+        The Monte Carlo draws the *intervened* process directly -- no mechanism, no
+        censoring, both hazards evaluated at the regimen's arms -- so it shares nothing
+        with the Gauss--Hermite rule but the two hazard functions.
+        """
+        rng = np.random.default_rng(11)
+        m = 400_000
+        w1, w2, noise = (rng.standard_normal(m) for _ in range(3))
+        hazard1 = _hazard_one(w1, w2, a1)
+        y1 = rng.binomial(1, hazard1)
+        l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + noise
+        y2 = rng.binomial(1, _hazard_two(w1, w2, l2, a1, a2))
+        observed = y1.mean() if horizon == 1 else np.where(y1 == 1, 1, y2).mean()
+        assert survival_truth(a1, a2, horizon) == pytest.approx(float(observed), abs=5e-3)
+
+    def test_the_quadrature_has_converged(self) -> None:
+        """Refining the rule must not move the answer, or the tolerance above is fiction."""
+        for a1, a2 in self.PLANS:
+            for horizon in (1, 2):
+                coarse = survival_truth(a1, a2, horizon, 48)
+                fine = survival_truth(a1, a2, horizon, 64)
+                assert coarse == pytest.approx(fine, abs=1e-12)
+
+    def test_the_risk_is_monotone_in_the_horizon(self) -> None:
+        _, truth = make_longitudinal_survival(n=50, seed=0)
+        for label in ("always", "never", "early", "late"):
+            assert truth[f"risk_regimen[{label} @ t=1]"] <= truth[f"risk_regimen[{label} @ t=2]"]
+
+    def test_no_truth_sits_on_the_filler(self) -> None:
+        """``sequential._FILLER`` is a half; a parameter sitting there proves nothing.
+
+        The end-of-study rule's docstring records falling into this trap once. With two
+        horizons per regimen there are twice as many ways to.
+        """
+        _, truth = make_longitudinal_survival(n=50, seed=0)
+        for name, value in truth.items():
+            assert abs(value - 0.5) > 1e-2, name
+
+    def test_treatment_lowers_the_risk_at_both_horizons(self) -> None:
+        _, truth = make_longitudinal_survival(n=50, seed=0)
+        for horizon in (1, 2):
+            assert truth[f"ate_regimen[always vs never @ t={horizon}]"] < 0
+
+    def test_the_frame_is_usable_and_time_ordered(self) -> None:
+        frame, truth = make_longitudinal_survival(n=200, seed=1)
+        assert list(frame.columns) == ["W1", "W2", "A1", "C1", "Y1", "L2", "A2", "C2", "Y2"]
+        assert len(frame) == 200
+        assert truth
+
+    def test_the_same_seed_gives_the_same_data(self) -> None:
+        left, _ = make_longitudinal_survival(n=100, seed=3)
+        right, _ = make_longitudinal_survival(n=100, seed=3)
+        np.testing.assert_array_equal(left.to_numpy(), right.to_numpy())
+
+    def test_the_event_is_absorbing_in_the_frame(self) -> None:
+        """A unit that has the event has no later nodes, and carries its ``1`` forward.
+
+        Two causes of missingness rather than one, which is what a survival frame adds:
+        ``LongitudinalData`` refuses a node recorded after *either* exit, so producing
+        this correctly is a precondition of the generator being usable at all.
+        """
+        frame, _ = make_longitudinal_survival(n=3000, seed=2)
+        failed = frame["Y1"] == 1
+        assert failed.any()
+        for column in ("L2", "A2", "C2"):
+            assert frame.loc[failed, column].isna().all()
+        assert (frame.loc[failed, "Y2"] == 1).all()
+        censored = frame["C1"] == 0
+        assert censored.any()
+        for column in ("Y1", "L2", "A2", "C2", "Y2"):
+            assert frame.loc[censored, column].isna().all()
+
+    def test_the_container_accepts_what_the_generator_produces(self) -> None:
+        """The generator's convention and the container's are the same one."""
+        frame, _ = make_longitudinal_survival(n=500, seed=5)
+        data = LongitudinalData.from_frame(
+            frame,
+            outcome=["Y1", "Y2"],
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        )
+        assert data.is_survival
+        assert data.n_times == 2
+
+    def test_declaring_no_censoring_drops_the_columns(self) -> None:
+        frame, _ = make_longitudinal_survival(n=200, seed=2, censoring=False)
+        assert "C1" not in frame.columns
+        assert frame["Y1"].notna().all()
+
+    @pytest.mark.parametrize("backend,expected", [("pandas", "DataFrame"), ("polars", "DataFrame")])
+    def test_the_requested_backend_is_produced(self, backend: str, expected: str) -> None:
+        pytest.importorskip(backend)
+        frame, _ = make_longitudinal_survival(n=100, seed=0, backend=backend)
+        assert type(frame).__name__ == expected
+        assert backend in type(frame).__module__

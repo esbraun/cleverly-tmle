@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.datasets import make_longitudinal
-from cleverly.longitudinal import LTMLE, LongitudinalResult
+from cleverly.datasets import make_longitudinal, make_longitudinal_survival
+from cleverly.longitudinal import LTMLE, LongitudinalError, LongitudinalResult
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
 #: ``make_longitudinal`` is logistic-linear in the recorded history, so ``glm`` estimates
@@ -794,3 +794,245 @@ class TestTheSuitesItCannotServe:
         result, _ = fitted
         with pytest.raises(TypeError, match="needs a subset\\(\\) on the data container"):
             run_bootstrap(result.data, lambda data: {}, n_replicates=5)  # type: ignore[arg-type]
+
+
+class TestASurvivalOutcome:
+    """One event indicator per node: the report becomes a curve.
+
+    The fixture is class-scoped and every case reads it, per the fast tier's rules -- a
+    survival fit is ``T(T+1)/2`` regressions per regimen rather than ``T``, so refitting
+    per case is the one waste here that costs more than it used to.
+    """
+
+    SURVIVAL_COLUMNS: ClassVar[dict[str, Any]] = {
+        "outcome": ["Y1", "Y2"],
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+        "censoring": ["C1", "C2"],
+    }
+
+    @pytest.fixture(scope="class")
+    def fitted(self) -> tuple[LongitudinalResult, dict[str, float]]:
+        frame, truth = make_longitudinal_survival(n=3000, seed=11)
+        result = LTMLE({"always": 1, "never": 0}, reference="never", **FAST).fit(
+            frame, **self.SURVIVAL_COLUMNS
+        )
+        return result, truth
+
+    def test_reports_a_risk_per_regimen_per_horizon(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        result, _ = fitted
+        assert list(result) == [
+            "risk_regimen[always @ t=1]",
+            "risk_regimen[always @ t=2]",
+            "risk_regimen[never @ t=1]",
+            "risk_regimen[never @ t=2]",
+            "ate_regimen[always vs never @ t=1]",
+            "ate_regimen[always vs never @ t=2]",
+        ]
+        assert result.converged
+
+    def test_the_risk_is_monotone_in_the_horizon(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        """Nothing in the estimator imposes this: each horizon is its own backward pass."""
+        result, _ = fitted
+        for label in ("always", "never"):
+            first = result.psi(f"risk_regimen[{label} @ t=1]")
+            second = result.psi(f"risk_regimen[{label} @ t=2]")
+            assert first <= second
+
+    def test_it_recovers_the_truth_at_every_horizon(self) -> None:
+        """Averaged over replicates, as every accuracy claim here is.
+
+        Eight replicates at ``n=1500``: enough that ``3 * MC-se`` is a window a biased
+        estimator would miss, and few enough to keep the case in the fast tier.  A single
+        fit would be a coin flip on the seed, which is what the coverage tier is for.
+        """
+        names = [
+            "risk_regimen[always @ t=1]",
+            "risk_regimen[always @ t=2]",
+            "ate_regimen[always vs never @ t=2]",
+        ]
+        estimates: dict[str, list[float]] = {name: [] for name in names}
+        truth: dict[str, float] = {}
+        for seed in range(8):
+            frame, truth = make_longitudinal_survival(n=1500, seed=100 + seed)
+            result = LTMLE({"always": 1, "never": 0}, reference="never", **FAST).fit(
+                frame, **self.SURVIVAL_COLUMNS
+            )
+            for name in names:
+                estimates[name].append(result.psi(name))
+        for name in names:
+            draws = np.asarray(estimates[name])
+            error = float(np.mean(draws)) - truth[name]
+            assert abs(error) < 3 * float(np.std(draws, ddof=1)) / np.sqrt(len(draws)) + 0.01
+
+    def test_every_node_of_every_horizon_solves_its_score_equation(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        result, _ = fitted
+        for fit in result.fits.values():
+            for step in fit.steps:
+                assert step.fluctuation.relative_score_norm < 1e-8
+        for name in result:
+            assert abs(float(np.mean(result.influence_curves[name]))) < 1e-8
+
+    def test_the_survival_view_is_the_complement_of_the_risk(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        """``S = 1 - F`` for a level, ``-(F_a - F_b)`` for a contrast.
+
+        The two maps are different and only one of them is ``1 - x``: applying that to a
+        risk *difference* would report ``1 - RD``, which is not a quantity, with an
+        interval that would read perfectly plausibly.  The standard error is the same
+        under either map, both being linear with slope of modulus one.
+        """
+        result, _ = fitted
+        risk = result.curve(scale="risk")
+        survival = result.curve(scale="survival")
+        for position in range(len(risk)):
+            row, mirrored = risk.iloc[position], survival.iloc[position]
+            assert row["estimand"] == mirrored["estimand"]
+            assert mirrored["std_err"] == pytest.approx(row["std_err"])
+            if row["scale"] == "level":
+                assert mirrored["psi"] == pytest.approx(1.0 - row["psi"])
+                assert mirrored["ci_lower"] == pytest.approx(1.0 - row["ci_upper"])
+                assert mirrored["ci_upper"] == pytest.approx(1.0 - row["ci_lower"])
+            else:
+                assert mirrored["psi"] == pytest.approx(-row["psi"])
+                assert mirrored["ci_lower"] == pytest.approx(-row["ci_upper"])
+                assert mirrored["ci_upper"] == pytest.approx(-row["ci_lower"])
+
+    def test_the_curve_carries_the_time_and_the_frame_does_not(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        """``to_frame`` keeps the column names a point-treatment fit reports.
+
+        The horizon lives inside ``estimand`` there and gets a column of its own only in
+        ``curve()``.  Two result objects in one library disagreeing about the name of
+        every column is the cost this avoids, and it does not stop being worth avoiding
+        because the parameter gained an index.
+        """
+        result, _ = fitted
+        assert "time" not in result.to_frame().columns
+        curve = result.curve()
+        assert list(curve["time"]) == [1, 2, 1, 2, 1, 2]
+        assert list(curve["regimen"]) == [
+            "always",
+            "always",
+            "never",
+            "never",
+            "always vs never",
+            "always vs never",
+        ]
+
+    def test_diagnostics_carry_the_regimen_and_the_horizon_apart(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        """The ``regimen`` column is the regimen, not the key the fit is filed under."""
+        result, _ = fitted
+        rows = result.diagnostics()
+        assert set(rows["regimen"]) == {"always", "never"}
+        assert set(rows["horizon"]) == {1, 2}
+        # One row per node of every horizon of every regimen: 2 * (1 + 2).
+        assert len(rows) == 6
+
+    def test_the_bands_are_joint_over_the_whole_curve(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        """Which is the object a curve wants, and the reason they are on by default."""
+        result, _ = fitted
+        assert result.simultaneous is not None
+        assert set(result.simultaneous.bands) == set(result)
+        assert result.simultaneous.critical_value > result.simultaneous.pointwise_critical_value
+
+    def test_horizons_reports_fewer_parameters_and_does_less_work(self) -> None:
+        """The knob that makes a long panel affordable, doing what it says.
+
+        A horizon is its own backward pass, so naming one is ``T`` regressions per
+        regimen rather than ``T(T+1)/2`` -- checked by counting the steps rather than by
+        timing anything.
+        """
+        frame, _ = make_longitudinal_survival(n=600, seed=9)
+        result = LTMLE({"always": 1}, horizons=(2,), **FAST).fit(frame, **self.SURVIVAL_COLUMNS)
+        assert list(result) == ["risk_regimen[always @ t=2]"]
+        assert sum(len(fit.steps) for fit in result.fits.values()) == 2
+        whole = LTMLE({"always": 1}, **FAST).fit(frame, **self.SURVIVAL_COLUMNS)
+        assert sum(len(fit.steps) for fit in whole.fits.values()) == 3
+
+    def test_horizons_is_refused_on_an_end_of_study_outcome(self) -> None:
+        frame, _ = make_longitudinal(n=200, seed=1)
+        with pytest.raises(ValueError, match="only horizon is the end of the study"):
+            run(frame, horizons=(1,))
+
+    def test_the_curve_is_refused_on_an_end_of_study_outcome(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        frame, _ = make_longitudinal(n=200, seed=1)
+        with pytest.raises(ValueError, match="report is a number and not a curve"):
+            run(frame).curve()
+
+    def test_an_event_only_at_the_last_node_reproduces_the_end_of_study_fit(self) -> None:
+        """Bit for bit: ``psi``, the whole influence curve, and every ``epsilon``.
+
+        This is what says a survival outcome is a *generalisation* of the end-of-study
+        one rather than a second estimator beside it -- the same claim, and the same kind
+        of claim, as a history-ignoring rule reproducing the constant plan it equals.
+        With ``Y1 = 0`` for everyone at risk, the pseudo-outcome carried back from the
+        second node is ``0 + (1 - 0) * Qbar*_2``, the masks lose their event factor, and
+        the horizon-2 pass is the end-of-study recursion line for line.
+
+        ``horizons=(2,)`` because the horizon-1 risk of a sample with no events at the
+        first node is not estimable, and is refused as such -- which is itself the right
+        answer and is checked below.
+        """
+        frame, _ = make_longitudinal(n=1200, seed=4)
+        survival = frame.copy()
+        survival["Y1"] = np.where(frame["C1"] == 1, 0.0, np.nan)
+        survival = survival.rename(columns={"Y": "Y2"})
+
+        settings = {**FAST, "simultaneous": False}
+        terminal = LTMLE({"always": 1, "never": 0}, reference="never", **settings).fit(
+            frame, **COLUMNS
+        )
+        curve = LTMLE({"always": 1, "never": 0}, reference="never", horizons=(2,), **settings).fit(
+            survival, **self.SURVIVAL_COLUMNS
+        )
+
+        for label in ("always", "never"):
+            end_of_study = terminal.fits[label]
+            survival_fit = curve.fits[f"{label} @ t=2"]
+            assert survival_fit.psi_scaled == end_of_study.psi_scaled
+            np.testing.assert_array_equal(
+                survival_fit.influence_curve_scaled, end_of_study.influence_curve_scaled
+            )
+            for left, right in zip(end_of_study.steps, survival_fit.steps, strict=True):
+                np.testing.assert_array_equal(left.fluctuation.epsilon, right.fluctuation.epsilon)
+
+    def test_a_horizon_with_no_events_is_refused_by_name(self) -> None:
+        """Rather than handed to a classifier with one class in it.
+
+        Reachable on any real survival data -- a late node with a thin risk set, a rare
+        event, a small fold -- where the learner's own failure would be a
+        ``RuntimeError`` from the Super Learner naming no cause.
+        """
+        frame, _ = make_longitudinal(n=1200, seed=4)
+        survival = frame.copy()
+        survival["Y1"] = np.where(frame["C1"] == 1, 0.0, np.nan)
+        survival = survival.rename(columns={"Y": "Y2"})
+        with pytest.raises(LongitudinalError, match="not estimable from this sample"):
+            LTMLE({"always": 1}, **FAST).fit(survival, **self.SURVIVAL_COLUMNS)
+
+    def test_the_settings_report_says_the_outcome_is_a_survival_one(
+        self, fitted: tuple[LongitudinalResult, dict[str, float]]
+    ) -> None:
+        result, _ = fitted
+        summary = result.summary()
+        assert "outcome: survival, event indicator at Y1, Y2" in summary
+        assert "horizons reported: t = 1, 2" in summary
+        # "throughout" means through the study, so it is said once per regimen and from
+        # the fit that runs to the last node -- not once per horizon.
+        assert summary.count("units followed it throughout") == 2
