@@ -549,6 +549,9 @@ def _max_abs_covariate(result: TMLEResult, group: str) -> float:
         bounds=bounds,
         nuisance_bound=result.config.missingness_bound,
         intermediate_value=result.intermediate_value,
+        # The fit's own reference, so a conditional-effect covariate is rebuilt with the
+        # contrasts it was targeted with rather than with the lowest arm's.
+        reference=result.config.reference_arm,
     )
     return submodel.max_abs
 

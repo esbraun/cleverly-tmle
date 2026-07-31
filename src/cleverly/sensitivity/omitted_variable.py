@@ -193,6 +193,7 @@ def _elements_for(
     group = "mean" if estimand in ("ate", "ey1", "ey0") else estimand
     fluctuation = repeat.fluctuations[group]
     bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
+    reference = result.config.reference_arm
     submodel = build_submodel(
         data,
         repeat.nuisance,
@@ -200,10 +201,18 @@ def _elements_for(
         bounds=bounds,
         nuisance_bound=result.config.missingness_bound,
         intermediate_value=result.intermediate_value,
+        # The conditional-effect fluctuations contrast against the arm this fit declared,
+        # so the covariate rebuilt here must be the one it was targeted with.
+        reference=reference,
     )
-    # The arm-1 margin: ``_m_alpha`` weights the ATT/ATC contrast by ``g1`` and its
-    # complement, which is a two-arm statement -- guarded above.
-    propensity = repeat.nuisance.bounded_propensity(bounds)[:, repeat.nuisance.arms.index(1.0)]
+    # The margin of the arm the estimand *conditions on*: ``_m_alpha`` weights the
+    # contrast by the density ratio dP(W | A = c) / dP(W), which is g_c / P(A = c).
+    # Binary throughout -- guarded above -- so the contrast arm is simply the other one.
+    arms = repeat.nuisance.arms
+    contrast = next(arm for arm in arms if arm != reference)
+    conditioning = contrast if estimand == "att" else reference
+    propensity = repeat.nuisance.bounded_propensity(bounds)[:, arms.index(conditioning)]
+    conditioning_share = float(data.arm_fractions[arms.index(conditioning)])
 
     # sigma^2: residual variance of the targeted outcome regression, on the original
     # outcome scale so the bound is reported in the units the estimate uses.
@@ -223,7 +232,7 @@ def _elements_for(
     if method == "auto":
         method = "doubly_robust"
     if method == "doubly_robust":
-        m_alpha = _m_alpha(estimand, submodel, propensity, data.treated_fraction)
+        m_alpha = _m_alpha(estimand, submodel, propensity, conditioning_share, reference, contrast)
         nu2_element = 2.0 * m_alpha - representer**2
         nu2 = float(np.average(nu2_element, weights=weights))
         if nu2 <= 0:  # pragma: no cover - only with a pathological propensity fit
@@ -269,12 +278,22 @@ def _riesz_representer(estimand: str, submodel: Any, treatment: FloatArray) -> F
 
 
 def _m_alpha(
-    estimand: str, submodel: Any, propensity: FloatArray, treated_fraction: float
+    estimand: str,
+    submodel: Any,
+    propensity: FloatArray,
+    conditioning_share: float,
+    reference: float,
+    contrast: float,
 ) -> FloatArray:
     r"""The target functional applied to the Riesz representer, ``m(W, alpha)``.
 
     Used by the doubly robust estimator of :math:`\nu^2`, which relies on the Riesz
     identity :math:`E[m(W, \alpha)] = E[\alpha^2]`.
+
+    ``propensity`` and ``conditioning_share`` belong to the arm the estimand conditions
+    on -- arm ``contrast`` for the ATT and arm ``reference`` for the ATC -- rather than to
+    arm 1 and its complement.  With the default reference those are the same two numbers;
+    naming the arm is what keeps them right when a binary fit declares the other one.
     """
     # ``arms[a][:, c]`` is the covariate at arm ``a`` in the column targeting arm ``c``:
     # the mean submodel has one column per arm, so both indices are arm levels and
@@ -292,14 +311,13 @@ def _m_alpha(
         return np.asarray(submodel.arms[0.0][:, submodel.arm_columns[0.0]], dtype=float)
 
     # ATT / ATC: the functional carries an arm-membership weight, since it averages the
-    # contrast over the treated (or control) subpopulation rather than over everyone.
-    # Column 0 is the sole column of a contrast submodel, not an arm's column.
-    contrast = np.asarray(submodel.arms[1.0][:, 0] - submodel.arms[0.0][:, 0], dtype=float)
-    if estimand == "att":
-        weight = propensity / treated_fraction
-    else:
-        weight = (1.0 - propensity) / (1.0 - treated_fraction)
-    return np.asarray(weight * contrast, dtype=float)
+    # contrast over the conditioning arm's subpopulation rather than over everyone. The
+    # column is read by the arm whose contrast it carries, not as a literal 0.
+    column = submodel.contrast_columns[contrast]
+    difference = np.asarray(
+        submodel.arms[contrast][:, column] - submodel.arms[reference][:, column], dtype=float
+    )
+    return np.asarray((propensity / conditioning_share) * difference, dtype=float)
 
 
 @dataclass(frozen=True)

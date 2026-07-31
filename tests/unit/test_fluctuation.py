@@ -84,7 +84,7 @@ class TestCleverCovariates:
     def test_att_reweights_controls_by_the_propensity_odds(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
         q = float(a.mean())
-        submodel = att_submodel(a, g1, treated_fraction=q)
+        submodel = att_submodel(a, g1, arm_fractions=q)
         expected = (a - (1.0 - a) * g1 / (1.0 - g1)) / q
         assert np.allclose(submodel.observed[:, 0], expected)
         # The treated arm needs no reweighting: the ATT conditions on A = 1.
@@ -93,13 +93,13 @@ class TestCleverCovariates:
     def test_atc_mirrors_the_att(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
         q = float(a.mean())
-        submodel = atc_submodel(a, g1, treated_fraction=q)
+        submodel = atc_submodel(a, g1, arm_fractions=q)
         expected = (a * (1.0 - g1) / g1 - (1.0 - a)) / (1.0 - q)
         assert np.allclose(submodel.observed[:, 0], expected)
 
     def test_att_covariate_changes_sign_across_arms(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
-        submodel = att_submodel(a, g1, treated_fraction=float(a.mean()))
+        submodel = att_submodel(a, g1, arm_fractions=float(a.mean()))
         values = submodel.observed[:, 0]
         assert np.all(values[a == 1.0] > 0)
         assert np.all(values[a == 0.0] < 0)
@@ -136,7 +136,7 @@ class TestCleverCovariates:
                 group,
                 a,
                 g1,
-                treated_fraction=float(a.mean()),
+                arm_fractions=float(a.mean()),
                 regimes=regimes,
                 shifts=shifts,
                 msm=msm,
@@ -152,22 +152,22 @@ class TestCleverCovariates:
         assert "'mean'" in str(raised.value)
         assert "register_submodel" in str(raised.value)
 
-    def test_conditional_groups_need_the_treated_fraction(self, setting) -> None:
+    def test_conditional_groups_need_the_arm_fractions(self, setting) -> None:
         """Enforced by the builder now, not by the dispatcher.
 
         The uniform builder signature makes the argument optional at the type level, so
         the requirement has to live where the builder can still refuse it.
         """
-        with pytest.raises(ValueError, match="needs treated_fraction"):
+        with pytest.raises(ValueError, match="needs arm_fractions"):
             submodel_for("att", setting["a"], setting["g1"])
-        with pytest.raises(ValueError, match="needs treated_fraction"):
+        with pytest.raises(ValueError, match="needs arm_fractions"):
             atc_submodel(setting["a"], setting["g1"])
 
-    def test_the_mean_builder_ignores_the_treated_fraction(self, setting) -> None:
+    def test_the_mean_builder_ignores_the_arm_fractions(self, setting) -> None:
         """It takes the argument only so the registry can dispatch uniformly."""
         a, g1 = setting["a"], setting["g1"]
         without = mean_submodel(a, g1)
-        with_share = mean_submodel(a, g1, treated_fraction=0.3)
+        with_share = mean_submodel(a, g1, arm_fractions=0.3)
         np.testing.assert_array_equal(without.observed, with_share.observed)
 
     def test_max_abs_reports_the_worst_weight(self, setting) -> None:
@@ -204,7 +204,7 @@ class TestWeightedForm:
 
     def test_att_sign_trick_preserves_the_score(self, setting) -> None:
         a, g1 = setting["a"], setting["g1"]
-        submodel = att_submodel(a, g1, treated_fraction=float(a.mean()))
+        submodel = att_submodel(a, g1, arm_fractions=float(a.mean()))
         weights = np.ones(a.shape[0])
         signed, new_weights = weighted_form(submodel, weights)
         assert np.allclose(signed.observed[:, 0] * new_weights, submodel.observed[:, 0] * weights)
@@ -215,7 +215,7 @@ class TestNewtonSolver:
         a, g1, y = setting["a"], setting["g1"], setting["y"]
         n = a.shape[0]
         initial = _flat_initial(n)
-        submodel = att_submodel(a, g1, treated_fraction=float(a.mean()))
+        submodel = att_submodel(a, g1, arm_fractions=float(a.mean()))
         fitted = solve_fluctuation(y, initial, submodel, np.ones(n))
 
         offset = logit(np.clip(initial.observed, 1e-9, 1 - 1e-9))

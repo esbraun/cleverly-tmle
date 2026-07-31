@@ -153,11 +153,16 @@ class Target:
         and then returned an empty dict, which turned any exception anywhere in the
         estimate path into a silently missing fold.
     requires_binary_treatment:
-        ``True`` for a target defined only against a single contrast.  The ATT and ATC
-        are the built-in cases: their clever covariate reweights one arm by the
-        propensity odds, which is only an odds with two arms, and "the effect among the
-        treated" does not name one parameter when there are three.  Such a target is
-        refused on a multi-arm fit rather than quietly reported for arms 0 and 1.
+        ``True`` for a target that names one of exactly two arms, or whose intervention
+        does.  ``ey1`` and ``ey0`` are the plain cases -- with three arms there is no
+        "the" treated mean, and ``ey`` reports one per arm instead -- and the incremental
+        estimands are the substantive one: Kennedy's tilt multiplies the *odds* of
+        treatment, which is an odds only with two arms.  Such a target is refused on a
+        multi-arm fit rather than quietly reported for arms 0 and 1.
+
+        The ATT and ATC used to declare this and no longer do: they are one parameter per
+        non-reference arm, ``E[Y^a - Y^ref | A = a]``, which is the same derivation with
+        ``1{A = a}`` and the odds ``g_a / g_ref`` in place of the binary pair.
     parameter_axis:
         What this target's parameters are indexed by: ``"arm"`` for a treatment level,
         ``"regime"`` for a regime declared with ``interventions=``, ``"shift"`` for a
@@ -206,12 +211,19 @@ class Target:
     parameter_axis: ParameterAxis = "arm"
     in_default_set: bool = False
     #: Restricts which arm counts this target is *defaulted* for, without restricting
-    #: which it is *defined* for.  ``"multi"`` keeps a target out of a two-armed fit's
-    #: default report, for the one case where a narrower target already covers it there:
-    #: ``ey`` reports a mean per arm, which on two arms is ``ey1`` and ``ey0`` under
-    #: clumsier names.  Asking for it explicitly still works.  A target requiring a binary
-    #: treatment is implicitly default-for-binary-only and need not say so twice.
-    default_arms: Literal["any", "multi"] = "any"
+    #: which it is *defined* for.  Asking for it explicitly always works.
+    #:
+    #: ``"multi"`` keeps a target out of a two-armed fit's default report, for the one
+    #: case where a narrower target already covers it there: ``ey`` reports a mean per
+    #: arm, which on two arms is ``ey1`` and ``ey0`` under clumsier names.
+    #:
+    #: ``"binary"`` is the converse, and is about not changing a report rather than about
+    #: redundancy: ``att`` and ``atc`` are defined for any number of arms, but on ``K``
+    #: they are ``2(K - 1)`` further parameters and two further fluctuations, and a
+    #: default that grew to include them would move the simultaneous bands of every
+    #: multi-arm fit that already existed.  A target requiring a binary treatment is
+    #: implicitly default-for-binary-only and need not say so twice.
+    default_arms: Literal["any", "multi", "binary"] = "any"
     parameter_bounds: tuple[float, float] | None = None
     undefined_when: str = ""
     description: str = ""

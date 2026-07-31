@@ -32,8 +32,11 @@ where :math:`h` is the *clever covariate*.  Its form depends on the target:
     distribution rather than a fluctuation of its own.
 
 ``att`` / ``atc``
-    A single column contrasting the arms, with the control arm reweighted by the
-    propensity odds -- see :func:`att_submodel`.
+    One column per *non-reference arm*, contrasting that arm with the reference and
+    reweighting one of the two by the propensity odds :math:`g_a / g_r` -- a single
+    column for a binary treatment, which is the classic ATT.  Unlike ``mean``, the
+    columns are not disjoint: the reference arm loads every one of them, since it is the
+    arm every contrast is taken against.  See :func:`att_submodel`.
 
 ``regime``
     One column per *intervention*, :math:`h_r(A, W) = g^\star_r(A \mid W) / g(A \mid W)`
@@ -200,11 +203,23 @@ class Submodel:
         For a submodel that fits *one column per arm*, the column of ``observed`` whose
         coefficient targets each arm -- ``{0.0: 0, 1.0: 1}`` for :func:`mean_submodel`.
 
-        **Empty for a contrast submodel** (``att``, ``atc``), where a single column
-        targets a difference of arms and no column belongs to one of them.  That
-        distinction is why this is a mapping rather than an assumed column order: it is
-        what lets the influence curves index a column by the arm it targets instead of
-        by the literal ``0`` and ``1`` that only a two-arm submodel has.
+        **Empty for a contrast submodel** (``att``, ``atc``), where a column targets a
+        difference of arms and no column belongs to one of them.  That distinction is why
+        this is a mapping rather than an assumed column order: it is what lets the
+        influence curves index a column by the arm it targets instead of by the literal
+        ``0`` and ``1`` that only a two-arm submodel has.
+    contrast_columns:
+        The mirror of :attr:`arm_columns` for a contrast submodel: the column whose
+        coefficient targets the contrast *of* that arm against the reference.  Populated
+        by :func:`att_submodel` and :func:`atc_submodel`, which fit one column per
+        non-reference arm -- a single column for a binary treatment, and ``K - 1`` for a
+        ``K``-armed one.  Empty for every per-arm submodel.
+
+        Two mappings rather than one with a wider meaning, because they answer different
+        questions: ``arm_columns[a]`` says which column *updates* arm ``a``, and
+        ``contrast_columns[a]`` says which column carries the parameter ``a`` is contrasted
+        under.  A contrast submodel's reference arm appears in every column and belongs to
+        none, which is exactly what makes ``column_for`` inapplicable there.
     """
 
     observed: FloatArray
@@ -212,6 +227,7 @@ class Submodel:
     names: tuple[str, ...]
     group: TargetGroup
     arm_columns: dict[float, int] = field(default_factory=dict)
+    contrast_columns: dict[float, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         check_arms(self.observed, self.arms, "submodel")
@@ -219,17 +235,21 @@ class Submodel:
             raise ValueError(
                 f"{self.observed.shape[1]} covariate column(s) but {len(self.names)} name(s)"
             )
-        for level, column in self.arm_columns.items():
-            if level not in self.arms:
-                raise ValueError(
-                    f"arm_columns names level {level}, which is not one of the submodel's "
-                    f"arms {sorted(self.arms)}"
-                )
-            if not 0 <= column < self.observed.shape[1]:
-                raise ValueError(
-                    f"arm_columns maps level {level} to column {column}, outside the "
-                    f"{self.observed.shape[1]} column(s) this submodel has"
-                )
+        for label, mapping in (
+            ("arm_columns", self.arm_columns),
+            ("contrast_columns", self.contrast_columns),
+        ):
+            for level, column in mapping.items():
+                if level not in self.arms:
+                    raise ValueError(
+                        f"{label} names level {level}, which is not one of the submodel's "
+                        f"arms {sorted(self.arms)}"
+                    )
+                if not 0 <= column < self.observed.shape[1]:
+                    raise ValueError(
+                        f"{label} maps level {level} to column {column}, outside the "
+                        f"{self.observed.shape[1]} column(s) this submodel has"
+                    )
 
     def map_arms(self, fn: Callable[[FloatArray], FloatArray]) -> Submodel:
         """Apply ``fn`` to the observed covariate and to every arm's, keys preserved."""
@@ -239,13 +259,14 @@ class Submodel:
             self.names,
             self.group,
             dict(self.arm_columns),
+            dict(self.contrast_columns),
         )
 
     def column_for(self, level: float) -> FloatArray:
         """The observed covariate column whose coefficient targets ``level``.
 
         Raises for a contrast submodel, where no single column belongs to one arm; the
-        influence curves for those estimands index the sole column directly.
+        influence curves for those estimands read :meth:`contrast_column_for` instead.
         """
         try:
             column = self.arm_columns[level]
@@ -253,6 +274,23 @@ class Submodel:
             raise KeyError(
                 f"the {self.group!r} submodel has no column dedicated to arm {level}; it "
                 f"has arm columns for {sorted(self.arm_columns)}"
+            ) from None
+        return np.asarray(self.observed[:, column], dtype=float)
+
+    def contrast_column_for(self, level: float) -> FloatArray:
+        """The observed covariate column carrying the contrast of ``level`` and the reference.
+
+        The counterpart of :meth:`column_for` for the conditional-effect submodels, and
+        the reason the influence curves never index column ``0``: with more than two arms
+        there is one such column per non-reference arm, and which is which is a statement
+        about arm *codes* rather than about position.
+        """
+        try:
+            column = self.contrast_columns[level]
+        except KeyError:
+            raise KeyError(
+                f"the {self.group!r} submodel has no column carrying a contrast of arm "
+                f"{level}; it has contrast columns for {sorted(self.contrast_columns)}"
             ) from None
         return np.asarray(self.observed[:, column], dtype=float)
 
@@ -341,7 +379,8 @@ def mean_submodel(
     propensity: FloatArray,
     *,
     arms: tuple[float, ...] = (0.0, 1.0),
-    treated_fraction: float | None = None,
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -377,11 +416,12 @@ def mean_submodel(
         The arm codes ``propensity``'s columns are keyed by, ascending.  Defaults to the
         two-arm case so that the many places constructing a binary submodel directly need
         not repeat it.
-    treated_fraction:
+    arm_fractions, reference:
         Accepted and ignored.  Every builder in :data:`SUBMODEL_BUILDERS` takes the same
         keyword-only signature so the registry can dispatch without knowing which
-        arguments each one happens to need; the counterfactual means do not condition on
-        an arm and so have no use for the treated share.
+        arguments each one happens to need; the counterfactual means condition on no arm
+        and are contrasted by the *estimand* rather than by the fluctuation, so they have
+        use for neither the arm shares nor the reference.
     missingness:
         Optional ``(n, K)`` array of ``P(Delta = 1 | A = a, W)`` per arm.
     intermediate_density, selection:
@@ -390,7 +430,7 @@ def mean_submodel(
         indicator multiplies only the *observed* covariate -- the counterfactual
         columns are already evaluated at ``Z = z`` by construction.
     """
-    del treated_fraction, regimes, shifts, msm, incremental  # see the parameters' docstrings
+    del arm_fractions, reference, regimes, shifts, msm, incremental  # see the docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -448,7 +488,8 @@ def regime_submodel(
     propensity: FloatArray,
     *,
     arms: tuple[float, ...] = (0.0, 1.0),
-    treated_fraction: float | None = None,
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -485,10 +526,10 @@ def regime_submodel(
     ----------
     regimes:
         ``(n, K, R)``: ``regimes[i, j, r]`` is :math:`g^\star_r(\text{arms}[j] \mid W_i)`.
-    treated_fraction:
+    arm_fractions, reference:
         Accepted and ignored; see :func:`mean_submodel`.
     """
-    del treated_fraction, shifts, msm, incremental  # see the parameter's docstring
+    del arm_fractions, reference, shifts, msm, incremental  # see the parameter's docstring
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -548,7 +589,8 @@ def ipsi_submodel(
     propensity: FloatArray,
     *,
     arms: tuple[float, ...] = (0.0, 1.0),
-    treated_fraction: float | None = None,
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -609,13 +651,13 @@ def ipsi_submodel(
         is a functional of :math:`P(A \mid W)` and both :math:`A` and :math:`W` are
         recorded for every row.  ``tests/unit/test_influence_gateaux_ipsi_mar.py`` checks
         that against a complex-step Gateaux derivative on ``tests/discrete_law_mar.py``.
-    treated_fraction, intermediate_density, selection:
+    arm_fractions, reference, intermediate_density, selection:
         Accepted and ignored.  A fit that declares ``incremental=`` still refuses
         ``intermediate=`` in :meth:`~cleverly.estimators.TMLE._validate_settings`, for
         want of a written-down parameter rather than for want of a factor -- so the last
         two are never anything but trivial by the time they arrive.
     """
-    del propensity, treated_fraction, intermediate_density, selection
+    del propensity, arm_fractions, reference, intermediate_density, selection
     del regimes, shifts, msm  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
@@ -669,7 +711,8 @@ def msm_submodel(
     propensity: FloatArray,
     *,
     arms: tuple[float, ...] = (0.0, 1.0),
-    treated_fraction: float | None = None,
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -721,10 +764,10 @@ def msm_submodel(
         :attr:`cleverly.msm.MSMSet.weighted_design`.  The weight is folded in there
         because the covariate needs only the product, and passing plain arrays is what
         lets the registry dispatch on the group name alone.
-    treated_fraction:
+    arm_fractions, reference:
         Accepted and ignored; see :func:`mean_submodel`.
     """
-    del treated_fraction, regimes, shifts, incremental  # see the parameters' docstrings
+    del arm_fractions, reference, regimes, shifts, incremental  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -759,7 +802,8 @@ def mtp_submodel(
     propensity: FloatArray,
     *,
     arms: tuple[float, ...] = (0.0, 1.0),
-    treated_fraction: float | None = None,
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -790,7 +834,8 @@ def mtp_submodel(
     :meth:`~Submodel.column_for` can answer and
     :func:`~cleverly.inference.influence.shift_means` reads it.
     """
-    del propensity, arms, treated_fraction, missingness, intermediate_density, regimes, msm
+    del propensity, arms, arm_fractions, reference, missingness, intermediate_density, regimes
+    del msm
     del incremental
     if shifts is None:
         raise ValueError(
@@ -821,30 +866,22 @@ def mtp_submodel(
     )
 
 
-def _binary_margin(
-    propensity: FloatArray, arms: tuple[float, ...], group: str
-) -> tuple[FloatArray, FloatArray]:
-    r"""``(g_0, g_1)`` for a submodel that is defined only against a single contrast.
+def _reference_index(reference: float | None, arms: tuple[float, ...], group: str) -> int:
+    """Which arm every conditional contrast is taken against, as a column index.
 
-    The conditional-effect submodels reweight one arm by the propensity *odds*
-    :math:`g_1 / g_0`, and an odds needs exactly two arms to be an odds.  With more, "the
-    effect among the treated" does not name one parameter -- there is a separate
-    conditional effect for each non-reference arm, each with its own contrast submodel --
-    so this refuses rather than silently taking arms 0 and 1 and reporting an answer for
-    a subset of the data nobody asked about.
+    ``None`` is the lowest arm, which is the rule ``reference=`` follows everywhere else
+    and which for a binary treatment is the control -- so a two-armed conditional effect
+    means exactly what it always did without the caller saying so.
     """
-    if len(arms) != 2:
+    if reference is None:
+        return 0
+    level = float(reference)
+    if level not in arms:
         raise ValueError(
-            f"the {group!r} submodel needs a binary treatment; got {len(arms)} arms "
-            f"{list(arms)}. It reweights one arm by the propensity odds g1 / g0, which is "
-            "only an odds with two arms. Estimate the counterfactual means and take the "
-            "contrast you want with result.contrast()."
+            f"the {group!r} submodel was given reference={reference!r}, which is not one "
+            f"of the arms {list(arms)}"
         )
-    g = np.asarray(propensity, dtype=float)
-    one = g.reshape(-1) if g.ndim == 1 else g[:, arms.index(1.0)]
-    if np.any(one <= 0) or np.any(one >= 1):
-        raise ValueError("propensity scores must lie strictly inside (0, 1) after truncation")
-    return 1.0 - one, one
+    return arms.index(level)
 
 
 def att_submodel(
@@ -852,7 +889,8 @@ def att_submodel(
     propensity: FloatArray,
     *,
     arms: tuple[float, ...] = (0.0, 1.0),
-    treated_fraction: float | None = None,
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -861,44 +899,52 @@ def att_submodel(
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
-    r"""One-column submodel targeting the ATT.
+    r"""One column per non-reference arm, targeting the effect among that arm's units.
 
     .. math::
 
-        h(a, W) = \frac{1}{P(A = 1)}
-                  \left( \frac{\mathbb 1\{a = 1\}}{\pi_1(W)}
-                       - \frac{\mathbb 1\{a = 0\}}{\pi_0(W)}
-                         \frac{g_1(W)}{g_0(W)} \right)
+        h_a(A, W) = \frac{1}{P(A = a)}
+                  \left( \frac{\mathbb 1\{A = a\}}{\pi_a(W)}
+                       - \frac{\mathbb 1\{A = r\}}{\pi_r(W)}
+                         \frac{g_a(W)}{g_r(W)} \right)
 
-    The treated arm needs no reweighting -- the ATT conditions on ``A = 1``, so the
-    treated outcomes are already drawn from the target population.  Control units
-    are reweighted by the propensity odds ``g_1 / g_0`` to make them resemble the
-    treated, which is why the ATT is far more sensitive than the ATE to small
-    ``g_0(W)``; it is also why ``g_bounds="auto"`` uses a more conservative bound
-    for this estimand.
+    with ``r`` the reference arm.  Arm ``a`` needs no reweighting -- the parameter
+    conditions on ``A = a``, so those outcomes are already drawn from the target
+    population.  Reference units are reweighted by the propensity odds ``g_a / g_r`` to
+    make them resemble arm ``a``'s, which is why this estimand is far more sensitive than
+    the ATE to small ``g_r(W)``; it is also why ``g_bounds="auto"`` uses a more
+    conservative bound for it.
+
+    With two arms this is the classic ATT: one column, ``r = 0``, ``a = 1``, and the
+    arrays are bit for bit what they were before the estimand was defined for more arms.
+    With ``K`` arms there are ``K - 1`` columns and ``K - 1`` score equations solved in
+    **one** fluctuation, because they share a targeted ``Qbar``: the reference arm's
+    prediction is updated by every column, since ``r`` appears in every contrast.  That
+    also makes the Hessian non-diagonal here, unlike :func:`mean_submodel`'s.
+
+    ``arm_fractions`` is ``P(A = a)`` per arm, in ``arms`` order, and may be given as a
+    bare ``P(A = 1)`` for a binary treatment on the same terms as ``propensity`` may be
+    given as a bare ``g_1``.
     """
-    del regimes, shifts, msm, incremental  # accepted and ignored; the ATT conditions on an arm
+    del regimes, shifts, msm, incremental  # accepted and ignored; this conditions on an arm
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
-    share = _required_treated_fraction(treated_fraction, "att")
-    g0, g1 = _binary_margin(propensity, arms, "att")
-    pi = _arm_matrix(n, 2, missingness, "missingness probabilities")
-    pz = _arm_matrix(n, 2, intermediate_density, "intermediate probabilities")
-    pi0, pi1 = pi[:, 0], pi[:, 1]
-    pz0, pz1 = pz[:, 0], pz[:, 1]
+    k = len(arms)
+    shares = _required_arm_fractions(arm_fractions, arms, "att")
+    g = _arm_mechanism(propensity, n, k, arms)
+    pi = _arm_matrix(n, k, missingness, "missingness probabilities")
+    pz = _arm_matrix(n, k, intermediate_density, "intermediate probabilities")
     keep = _selection_indicator(n, selection)
+    r = _reference_index(reference, arms, "att")
 
-    treated_term = 1.0 / (share * pi1 * pz1)
-    control_term = (g1 / g0) / (share * pi0 * pz0)
+    contrasts = [j for j in range(k) if j != r]
+    # The conditioning arm's own term, and the reference units reweighted to resemble it.
+    # One pair per contrast: the parameter is "the effect among those who received a",
+    # which is a different population for each a.
+    own = [1.0 / (shares[j] * pi[:, j] * pz[:, j]) for j in contrasts]
+    against = [(g[:, j] / g[:, r]) / (shares[j] * pi[:, r] * pz[:, r]) for j in contrasts]
 
-    return Submodel(
-        (keep * (a * treated_term - (1.0 - a) * control_term)).reshape(-1, 1),
-        {1.0: treated_term.reshape(-1, 1), 0.0: (-control_term).reshape(-1, 1)},
-        ("h_att",),
-        "att",
-        # No arm_columns: the single column targets a contrast of the arms, so no column
-        # belongs to one of them.
-    )
+    return _contrast_submodel(a, arms, keep, r, contrasts, own, against, "att")
 
 
 def atc_submodel(
@@ -906,7 +952,8 @@ def atc_submodel(
     propensity: FloatArray,
     *,
     arms: tuple[float, ...] = (0.0, 1.0),
-    treated_fraction: float | None = None,
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -915,45 +962,127 @@ def atc_submodel(
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
-    """One-column submodel targeting the ATC -- the mirror image of the ATT."""
+    r"""The mirror image of :func:`att_submodel`: the effect among the *reference* arm.
+
+    .. math::
+
+        h_a(A, W) = \frac{1}{P(A = r)}
+                  \left( \frac{\mathbb 1\{A = a\}}{\pi_a(W)}\frac{g_r(W)}{g_a(W)}
+                       - \frac{\mathbb 1\{A = r\}}{\pi_r(W)} \right)
+
+    Every column conditions on the *same* population, ``A = r``, which is the sense in
+    which "the controls" generalises: with two arms the reference is the control arm and
+    this is the classic ATC, and with more there is one such effect per non-reference arm,
+    all averaged over the reference arm's covariate distribution.
+    """
     del regimes, shifts, msm, incremental  # accepted and ignored, as in att_submodel
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
-    # In (0, 1) because the treated share is, which the helper has already enforced --
-    # so there is no second range check here.
-    control_fraction = 1.0 - _required_treated_fraction(treated_fraction, "atc")
-    g0, g1 = _binary_margin(propensity, arms, "atc")
-    pi = _arm_matrix(n, 2, missingness, "missingness probabilities")
-    pz = _arm_matrix(n, 2, intermediate_density, "intermediate probabilities")
-    pi0, pi1 = pi[:, 0], pi[:, 1]
-    pz0, pz1 = pz[:, 0], pz[:, 1]
+    k = len(arms)
+    shares = _required_arm_fractions(arm_fractions, arms, "atc")
+    g = _arm_mechanism(propensity, n, k, arms)
+    pi = _arm_matrix(n, k, missingness, "missingness probabilities")
+    pz = _arm_matrix(n, k, intermediate_density, "intermediate probabilities")
     keep = _selection_indicator(n, selection)
+    r = _reference_index(reference, arms, "atc")
 
-    control_term = 1.0 / (control_fraction * pi0 * pz0)
-    treated_term = (g0 / g1) / (control_fraction * pi1 * pz1)
+    contrasts = [j for j in range(k) if j != r]
+    # The reference arm's share throughout, since every column conditions on A = r.
+    own = [(g[:, r] / g[:, j]) / (shares[r] * pi[:, j] * pz[:, j]) for j in contrasts]
+    against = [1.0 / (shares[r] * pi[:, r] * pz[:, r]) for _ in contrasts]
 
+    return _contrast_submodel(a, arms, keep, r, contrasts, own, against, "atc")
+
+
+def _contrast_submodel(
+    treatment: FloatArray,
+    arms: tuple[float, ...],
+    keep: FloatArray,
+    reference: int,
+    contrasts: list[int],
+    own: list[FloatArray],
+    against: list[FloatArray],
+    group: str,
+) -> Submodel:
+    """Assemble a conditional-effect submodel from its two per-contrast terms.
+
+    ``own[c]`` is the covariate at the contrast arm itself and ``against[c]`` the one at
+    the reference arm, both already carrying whichever conditioning share the group uses.
+    Shared by the two builders because only those terms differ between them, and the
+    column bookkeeping -- which arm loads which column, and that the reference loads all
+    of them -- is the part that a copy could get subtly wrong.
+    """
+    n = treatment.shape[0]
+    zeros = np.zeros(n)
+    observed = np.column_stack(
+        [
+            keep * ((treatment == arms[j]) * own[c] - (treatment == arms[reference]) * against[c])
+            for c, j in enumerate(contrasts)
+        ]
+    )
+    counterfactual = {
+        # The reference arm's prediction is updated by every column: it is the arm every
+        # contrast is taken against, so it belongs to none of them and appears in all.
+        arms[reference]: np.column_stack([-term for term in against]),
+        **{
+            arms[j]: np.column_stack(
+                [own[c] if c == other else zeros for other in range(len(contrasts))]
+            )
+            for c, j in enumerate(contrasts)
+        },
+    }
     return Submodel(
-        (keep * (a * treated_term - (1.0 - a) * control_term)).reshape(-1, 1),
-        {1.0: treated_term.reshape(-1, 1), 0.0: (-control_term).reshape(-1, 1)},
-        ("h_atc",),
-        "atc",
+        observed,
+        counterfactual,
+        # The bare name on a binary treatment, where there is one contrast and nothing to
+        # distinguish -- the same rule reported parameter names follow, and the reason a
+        # two-armed fit's score diagnostics read exactly as they did.
+        (f"h_{group}",)
+        if len(contrasts) == 1
+        else tuple(f"h_{group}[{arms[j]:g}]" for j in contrasts),
+        group,
+        # No arm_columns: a column targets a *contrast* of two arms, so none belongs to
+        # one of them. Which contrast it carries is `contrast_columns`.
+        {},
+        {arms[j]: c for c, j in enumerate(contrasts)},
     )
 
 
-def _required_treated_fraction(treated_fraction: float | None, group: str) -> float:
-    """The treated share, for a builder that cannot work without one.
+def _required_arm_fractions(
+    arm_fractions: FloatArray | float | None, arms: tuple[float, ...], group: str
+) -> FloatArray:
+    """``P(A = a)`` per arm, for a builder that cannot work without them.
 
-    The uniform builder signature makes ``treated_fraction`` optional at the type level
-    even though the conditional-effect submodels require it, so the requirement is
-    enforced here instead of by the dispatcher.  That is deliberate: the dispatcher no
-    longer knows which builders need what, and a builder that silently substituted a
-    default would report an ATT against a population nobody specified.
+    The uniform builder signature makes ``arm_fractions`` optional at the type level even
+    though the conditional-effect submodels require it, so the requirement is enforced
+    here instead of by the dispatcher.  That is deliberate: the dispatcher no longer knows
+    which builders need what, and a builder that silently substituted a default would
+    report an ATT against a population nobody specified.
+
+    A scalar is read as ``P(A = 1)`` on a binary treatment, exactly as
+    :func:`_arm_mechanism` reads a bare vector as ``g_1`` -- the complement is taken
+    rather than a second number accepted, which is what keeps the two-arm arithmetic
+    identical to what it was.
     """
-    if treated_fraction is None:
-        raise ValueError(f"the {group!r} submodel needs treated_fraction")
-    if not 0.0 < treated_fraction < 1.0:
-        raise ValueError(f"treated_fraction must lie in (0, 1); got {treated_fraction}")
-    return float(treated_fraction)
+    if arm_fractions is None:
+        raise ValueError(f"the {group!r} submodel needs arm_fractions")
+    if isinstance(arm_fractions, (int, float)) and not isinstance(arm_fractions, bool):
+        if len(arms) != 2:
+            raise ValueError(
+                f"arm_fractions was given as a single share but there are {len(arms)} arms "
+                f"{list(arms)}; supply one share per arm"
+            )
+        share = float(arm_fractions)
+        shares = np.array([1.0 - share, share])
+    else:
+        shares = np.asarray(arm_fractions, dtype=float).reshape(-1)
+    if shares.shape != (len(arms),):
+        raise ValueError(
+            f"arm_fractions must have one share per arm {list(arms)}; got shape {shares.shape}"
+        )
+    if np.any(shares <= 0.0) or np.any(shares >= 1.0):
+        raise ValueError(f"arm_fractions must lie in (0, 1); got {list(shares)}")
+    return shares
 
 
 #: What a submodel builder looks like from the registry's side.  Every builder takes the
@@ -962,7 +1091,9 @@ def _required_treated_fraction(treated_fraction: float | None, group: str) -> fl
 #: group name alone.  ``arms`` joined that signature when the treatment stopped being
 #: binary: a builder cannot key its output by arm without being told which arms there are,
 #: and inferring them from the observed treatment would go wrong on exactly the subsample
-#: that is missing one.
+#: that is missing one.  ``reference`` joined it for the same reason one step on: a
+#: conditional effect is one parameter per *non-reference* arm, so a builder that targets
+#: contrasts has to be told which arm they are taken against.
 SubmodelBuilder = Callable[..., Submodel]
 
 #: The registered fluctuations, in report order.  A group is a *score equation*, not an
@@ -1032,6 +1163,20 @@ _SIGNATURE_ADDITIONS: dict[str, str] = {
         "A builder that targets arms, regimes or shifts should accept and ignore it, as "
         "mean_submodel does."
     ),
+    "arm_fractions": (
+        "'treated_fraction' is now 'arm_fractions': the share of the sample in *each* "
+        "arm, in 'arms' order, because a conditional effect on a multi-valued treatment "
+        "conditions on an arm that need not be arm 1. Rename the keyword; a builder that "
+        "wants only the treated share can still be handed one, since a scalar is read as "
+        "P(A = 1) on a binary treatment."
+    ),
+    "reference": (
+        "Every submodel builder now takes the arm every contrast is taken against, "
+        "because a conditional effect on a multi-valued treatment is one parameter per "
+        "non-reference arm and the fluctuation has to know which arm that is; add "
+        "'reference=None' to its keyword-only parameters. A builder whose columns target "
+        "arms rather than contrasts should accept and ignore it, as mean_submodel does."
+    ),
     "incremental": (
         "Every submodel builder now takes the incremental interventions' clever "
         "covariates, because a fit's intervention may be a tilt of the estimated "
@@ -1048,7 +1193,8 @@ def submodel_for(
     propensity: FloatArray,
     *,
     arms: tuple[float, ...] = (0.0, 1.0),
-    treated_fraction: float | None = None,
+    arm_fractions: FloatArray | float | None = None,
+    reference: float | None = None,
     missingness: FloatArray | None = None,
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
@@ -1076,7 +1222,8 @@ def submodel_for(
             treatment,
             propensity,
             arms=arms,
-            treated_fraction=treated_fraction,
+            arm_fractions=arm_fractions,
+            reference=reference,
             missingness=missingness,
             intermediate_density=intermediate_density,
             selection=selection,

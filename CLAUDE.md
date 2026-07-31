@@ -317,13 +317,33 @@ load-balancing the tail, not contending for cores.
 - **Which truncation bound a group gets is a statement about its covariate.**
   `utils.bounds.CONDITIONAL_GROUPS` names the groups whose clever covariate is a propensity
   *odds* (`att`, `atc`) and so needs the tighter bound; everything else divides by `g` once
-  and takes the ordinary one. Do not reintroduce the `group == "mean"` test this replaced —
+  and takes the ordinary one. That is a statement about the covariate and not about the arm
+  count: `g_a / g_ref` is an odds at any number of arms, so a conditional group needs the
+  tighter bound and is not binary-only. Do not reintroduce the `group == "mean"` test this
+  replaced —
   it was written when those were the only three groups, and every group added since
   inherited the ATT bound silently, as would any group a caller registers.
-- **Binary-only by declaration, not by accident.** A target that names an arm declares
-  `requires_binary_treatment=True`; C-TMLE, the omitted-variable bound and the MNAR tilt
-  raise on a multi-arm fit. Prefer refusing with a message that says what the derivation
-  would need over quietly reporting arms 0 and 1.
+- **Binary-only by declaration, not by accident.** A target that names one of exactly two
+  arms declares `requires_binary_treatment=True` — `ey1`, `ey0`, and the `ipsi` pair, whose
+  tilt multiplies an *odds*; C-TMLE, the omitted-variable bound and the MNAR tilt raise on a
+  multi-arm fit. Prefer refusing with a message that says what the derivation would need
+  over quietly reporting arms 0 and 1.
+- **A conditional effect is one parameter per non-reference arm.** `att` and `atc` are *not*
+  binary-only: `E[Y^a - Y^ref | A = c]` is the binary derivation with `1{A=a}` and the odds
+  `g_a / g_ref` in place of the treated/untreated pair, with `c = a` for `att` and `c = ref`
+  for `atc`, so the fluctuation gets `K-1` columns rather than a new group. Three things
+  follow and each has a test. The reference arm loads **every** column — it is the arm each
+  contrast is taken against — so `arm_columns` stays empty, `contrast_columns` maps the
+  non-reference arm to its column, and the Hessian is not diagonal the way `mean`'s is; read
+  the column with `Submodel.contrast_column_for`, never as `observed[:, 0]`. The builders
+  take `arm_fractions` (a share per arm, or a scalar `P(A=1)` for two arms, exactly as
+  `propensity` takes a bare `g1`) and `reference`, which `build_submodel` threads from the
+  same `_reference_arm` the estimand layer reports against — resolving it twice would let the
+  covariate and the report disagree about which contrast is which. And they are **opt-in on a
+  multi-arm fit** (`default_arms="binary"`): `2(K-1)` further parameters in the default report
+  would move the simultaneous bands of every multi-arm fit that already existed, which are
+  computed across whatever is reported. The oracle is `tests/discrete_law_multi.py`; the
+  binary path is bit-for-bit unchanged, including `epsilon`'s column name `h_att`.
 - **Nuisance reuse**: `TMLE.retarget` re-runs only the targeting step against cached
   nuisance fits. Sensitivity analyses must use it rather than refitting.
 - **New estimator variants**: a variant that only changes *which* nuisance estimate is

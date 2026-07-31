@@ -163,7 +163,7 @@ class TestArmColumns:
 
         rng = np.random.default_rng(2)
         a = (rng.random(40) < 0.5).astype(float)
-        submodel = att_submodel(a, np.full(40, 0.4), treated_fraction=float(a.mean()))
+        submodel = att_submodel(a, np.full(40, 0.4), arm_fractions=float(a.mean()))
         assert submodel.arm_columns == {}
         with pytest.raises(KeyError, match="no column dedicated to arm"):
             submodel.column_for(1.0)

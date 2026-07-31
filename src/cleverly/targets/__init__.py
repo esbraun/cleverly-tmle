@@ -98,9 +98,11 @@ def default_names(family: str, n_arms: int = 2, *, axis: ParameterAxis = "arm") 
     For a binary outcome that adds the risk ratio and odds ratio, which are only
     defined when the counterfactual means are probabilities.
 
-    ``n_arms`` drops what a given arm count cannot report: the ATT, ATC, ``ey1`` and
-    ``ey0`` name two arms and leave a multi-arm default, while ``ey`` -- one mean per arm
-    -- joins it, since with three arms there is no ``ey1`` to carry the means.
+    ``n_arms`` decides what belongs in the report at that arm count.  ``ey1`` and ``ey0``
+    name two arms and cannot be reported at three; ``ey`` -- one mean per arm -- joins the
+    default there instead, since there is no ``ey1`` to carry the means.  The ATT and ATC
+    are *defined* at every arm count but stay out of a multi-arm default, which
+    :attr:`~cleverly.targets.Target.default_arms` explains; ``estimands=`` is how to ask.
 
     ``axis`` switches the report between the arm-indexed estimands, the regime-indexed
     ones and the shift-indexed ones.  It is a switch rather than a widening because
@@ -114,6 +116,7 @@ def default_names(family: str, n_arms: int = 2, *, axis: ParameterAxis = "arm") 
         and target.supports_arms(n_arms)
         and target.matches_axis(axis)
         and not (target.default_arms == "multi" and n_arms == 2)
+        and not (target.default_arms == "binary" and n_arms != 2)
         and (target.in_default_set or family == "binomial")
     )
 
@@ -212,9 +215,9 @@ def resolve_estimands(
     if wrong_arms:
         raise ValueError(
             f"estimand(s) {wrong_arms} are defined for a binary treatment only, but this "
-            f"fit has {n_arms} arms. They condition on one arm of a single contrast, and "
-            "with more arms there is a separate such parameter per non-reference arm -- a "
-            f"different derivation rather than a wider loop. Available here: "
+            f"fit has {n_arms} arms. They name one of exactly two arms -- or their "
+            "intervention does, as an incremental tilt of the odds of treatment does -- "
+            "so with more arms they name no single parameter. Available here: "
             f"{list(all_names(family, n_arms, axis=axis))}."
         )
 

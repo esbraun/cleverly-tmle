@@ -119,24 +119,26 @@ class TestWhichBoundAGroupGets:
     ) -> None:
         assert g_bounds_for(group, self.MEAN, self.CONDITIONAL) == self.MEAN
 
-    def test_every_conditional_group_is_binary_only(self) -> None:
-        """One direction holds by derivation: an odds needs two arms to be an odds.
+    def test_needing_the_tighter_bound_says_nothing_about_the_arm_count(self) -> None:
+        """The two questions are independent, and the ATT is why they read as one.
 
-        The converse does **not** hold, and it is worth saying why rather than leaving
-        the set difference to be rediscovered.  ``mean`` is binary-only only through the
-        targets that name particular arms (``rr``, ``or``), and its covariate is an
-        inverse probability rather than an odds.  ``ipsi`` is binary-only because an
-        *odds multiplier* needs two arms -- but its covariate divides by no mechanism at
-        all, so it takes neither bound, and the truncation it does not need is the point
-        of the estimand.  "Binary-only" and "needs the tighter bound" are two questions
-        that happened to have the same answer while ``att`` and ``atc`` were the only
-        binary-only groups with a mechanism in the denominator.
+        An odds needs two arms *per contrast*, which is not the same as two arms in the
+        treatment: ``g_a / g_ref`` is an odds at any arm count, and the conditional
+        effects are one such contrast per non-reference arm.  So the conditional groups
+        take the tighter bound and are **not** binary-only.
+
+        Nor does the converse hold.  ``mean`` is binary-only only through the targets that
+        name particular arms (``rr``, ``or``, ``ey1``, ``ey0``), and its covariate is an
+        inverse probability rather than an odds.  ``ipsi`` is binary-only because an *odds
+        multiplier* needs two arms -- but its covariate divides by no mechanism at all, so
+        it takes neither bound, and the truncation it does not need is the point of the
+        estimand.
         """
         from cleverly.targets import TARGETS
 
         binary_only = {t.group for t in TARGETS.values() if t.requires_binary_treatment}
-        assert binary_only >= CONDITIONAL_GROUPS
-        assert binary_only - CONDITIONAL_GROUPS == {"mean", "ipsi"}
+        assert binary_only.isdisjoint(CONDITIONAL_GROUPS)
+        assert binary_only == {"mean", "ipsi"}
 
 
 class TestOutcomeScaler:
