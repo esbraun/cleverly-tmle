@@ -1741,8 +1741,13 @@ way: `counterfactual_means` returns a mapping of arm to `(psi, influence_curve)`
 
 ## Roadmap
 
-The base classes (`estimators/base.py`, `inference/`, `learners/`, `fluctuation/`) are shared
-infrastructure; the following variants plug into them:
+Two lists, and they are different kinds of thing. **Variants** are estimators that plug into
+the shared base classes (`estimators/base.py`, `inference/`, `learners/`, `fluctuation/`).
+[Refusals worth lifting](#refusals-worth-lifting) are parameters this package already has the
+machinery for and has simply not written down — drawn from [Not written
+yet](#not-written-yet), which is the full list of candidates rather than the chosen ones.
+
+### Variants
 
 - **longitudinal TMLE (`cleverly.longitudinal.LTMLE`) — landed**, for static regimens and
   for **dynamic rules** `d_t(H_t)`, with time-varying confounding and monotone censoring,
@@ -1751,70 +1756,99 @@ infrastructure; the following variants plug into them:
   than one absorbing state per node makes the report a cause-specific cumulative incidence
   per cause; see [Treatment given over time](#treatment-given-over-time),
   [A survival outcome](#a-survival-outcome) and [Competing risks](#competing-risks). What
-  it still refuses is listed there, and the largest of those is the *other*
-  competing-risks estimand: the incidence under **elimination** of the competing events,
-  which intervenes on them rather than conditioning on the history and so needs a further
-  factor per node in the denominator and its own identification
-- doubly-robust TMLE with nonparametric inference (`drtmle`)
+  it still refuses is listed there under a `kind` column. The largest thing it will go on
+  refusing is the *other* competing-risks estimand — the incidence under **elimination** of
+  the competing events, which intervenes on them rather than conditioning on the history,
+  and so is [a different question](#a-different-question) rather than a gap: a further
+  factor per node in the denominator, and its own identification. The largest thing it is
+  missing, as against refusing, is a working model over regimens, which is fourth below
+- **doubly-robust nonparametric inference (`drtmle`)** — Benkeser, Carone, van der Laan &
+  Gilbert (2017). Every interval reported here is valid when the second-order remainder is
+  negligible, which needs *both* nuisances converging fast enough; `drtmle` buys an interval
+  that stays valid when only one of them is consistent, by estimating additional
+  reduced-dimension regressions of each nuisance's residual on the other and solving their
+  score equations too. That is a genuine variant rather than a further estimand, so it plugs
+  in at `TMLE._nuisances` and the targeting step rather than at the target registry. **Its
+  scope has not been audited against this codebase**, unlike the five below — it predates
+  them, and the sizing here is from the paper rather than from a read of what would have to
+  change
 
 ### Refusals worth lifting
 
-Everything under [Not written yet](#not-written-yet) is a
-candidate; these are the ones that answer a question applied causal inference actually asks
-*and* rest on a derivation that is already settled, so the work is transcription and
-checking rather than research. Nothing here is blocked on a modelling question.
+Everything under [Not written yet](#not-written-yet) is a candidate; these five are the ones
+that answer a question applied causal inference actually asks *and* rest on a derivation
+that is already settled, so the work is transcription and checking rather than research.
+Nothing here is blocked on a modelling question.
 
-- **`ATT` / `ATC` for a multi-valued treatment.** The most-missed parameter of the set: "the
-  effect among those who actually received arm `a`" is a routine question the moment a
-  treatment has more than two levels, and there is currently no way to ask it — the marginal
-  means `result.contrast()` combines cannot express a parameter that conditions on `A = a`.
-  The derivation is the existing binary one with `1{A=1}` and `1{A=0}` replaced by `1{A=a}`
-  and `1{A=r}` and the odds by `g_a / g_r`, giving one conditional effect per non-reference
-  arm rather than one parameter. `_binary_margin` generalises to a contrast margin,
-  `CONDITIONAL_GROUPS` already routes the tighter truncation bound by group name, and
-  `tests/discrete_law_multi.py` needs `att[a vs r]` branches rather than a new law. The
-  omitted-variable bound and the MNAR tilt follow the same contrast machinery once it exists
-- **A non-identity link for `msm=`.** For a binary outcome the identity link is a
-  linear-risk model, frequently out of range and not the parameterisation the applied
-  literature reports; log-link (risk ratios) and logit MSMs are. The obstacle named in
-  [the MSM section](#summarising-the-arms-a-marginal-structural-model) is the outer
-  `(β, ε)` iteration — which is the alternating solve `targeting.solve_with_mechanism`
-  already runs for the incremental axis, stall threshold and outer cap included. The
-  existing oracle (`tests/unit/test_influence_gateaux_msm.py`) gains a link rather than a law
-- **Observation weights for `LTMLE`.** Survey-weighted and selection-weighted longitudinal
-  cohorts are ordinary, and the statement they need is already derived *here*: `dP_w = w dP
-  / E[w]` with EIF `(w / E[w]) · D*(P_w)`, set out in `data/weighting.py` and verified
-  longhand in `tests/unit/test_weighted_estimand.py`. Applied to the sequential regression
-  it is that same statement about a tilted population on a different estimator, assuming
-  nothing new. The learner plumbing exists too — `learners/_fitting.py` routes
-  `sample_weight` and `estimators/_nuisance.py` threads `data.weights` through every fit;
-  it is `fit_regimen` and `fit_mechanism` that do not carry them
-- **A marginal structural model over regimens, for `LTMLE`.** The largest lift on this list
-  and worth it anyway: it is the standard answer to the `2^T` problem, and the way the
-  applied literature reports a grid of dynamic rules — a coefficient on the rule's threshold
-  rather than a mean per plan. Without it, a fit over many regimens reports a table rather
-  than an answer, which is the same complaint `msm=` exists to answer at one node. The
-  theory is settled (Robins; Orellana, Rotnitzky & Robins; van der Laan & Petersen) and R's
-  `ltmle` supports it. It needs its own weight function `h(ā, V)`, its own projection, and
-  its own branch in `tests/discrete_law_longitudinal.py` — the projection is solved on the
-  raw outcome scale for the reason the point-treatment MSM is, and a saturated working model
-  over the regimens must reproduce the per-regimen report exactly
-- **`shifts=` with `delta=`.** Listed last because the audit changed what it is rather than
-  finishing it. The refusal's stated reason is **wrong**: `data/causal_data.py` says each of
-  `delta=`, `intermediate=` and `weights=` becomes "a conditional density" on a continuum,
-  but `P(Δ = 1 | A, W)` is a conditional *probability* of a binary event — an ordinary
-  classifier with the dose as a numeric feature — and does not become a density because `A`
-  is continuous. This is the same mistake that was made and then overturned for
-  `incremental=` with `delta=`, where the derivation turned out to be the existing one with
-  an extra factor. What is genuinely required is smaller than the message claims and larger
-  than nothing: `π` evaluated at the *shifted* dose as well as the observed one, since the
-  arm path evaluates `π_a(W)` at each counterfactual arm rather than at the observed
-  treatment — an `(n, S + 1)` array threaded through `ShiftSet` and `mtp_submodel`, which
-  currently discards `missingness` outright — and an oracle law crossing the two that exist,
-  `tests/discrete_law_shift.py` having no `Δ` and `tests/discrete_law_mar.py` no doses.
-  Missing outcomes with a continuous exposure are routine, so this is worth doing; correct
-  the stated reason first, and re-audit `intermediate=` on the same grounds, since
-  `P(Z = z | A, W)` is a probability too
+**The order is a dependency order, not a preference order.** Each of the five is independently
+shippable, but taken in sequence three of them hand work to the next: the first is
+self-contained and unblocks two sensitivity analyses; the second builds the projection
+machinery the fourth copies; the third and fourth both change `fit_regimen` and
+`fit_mechanism`, so doing them adjacent is one round of churn in those signatures rather than
+two. The fifth is last because its cost is dominated by test infrastructure rather than by
+derivation — it is the only one needing a *new* oracle law rather than a branch on an
+existing one.
+
+1. **`ATT` / `ATC` for a multi-valued treatment.** The most-missed parameter of the set:
+   "the effect among those who actually received arm `a`" is a routine question the moment
+   a treatment has more than two levels, and there is currently no way to ask it — the
+   marginal means `result.contrast()` combines cannot express a parameter that conditions
+   on `A = a`. The derivation is the existing binary one with `1{A=1}` and `1{A=0}`
+   replaced by `1{A=a}` and `1{A=r}` and the odds by `g_a / g_r`, giving one conditional
+   effect per non-reference arm rather than one parameter. `_binary_margin` generalises to
+   a contrast margin, `CONDITIONAL_GROUPS` already routes the tighter truncation bound by
+   group name, and `tests/discrete_law_multi.py` needs `att[a vs r]` branches rather than a
+   new law. The omitted-variable bound and the MNAR tilt then follow from the same contrast
+   machinery, and are follow-on work rather than part of this item. Nothing else here waits
+   on it
+2. **A non-identity link for `msm=`.** For a binary outcome the identity link is a
+   linear-risk model, frequently out of range and not the parameterisation the applied
+   literature reports; log-link (risk ratios) and logit MSMs are. The obstacle named in
+   [the MSM section](#summarising-the-arms-a-marginal-structural-model) is the outer
+   `(β, ε)` iteration — which is the alternating solve `solve_with_mechanism`
+   (`estimators/targeting.py`) already runs for the incremental axis, stall threshold
+   (`_STALL_FACTOR`) and outer cap (`max_outer`) included. The existing oracle
+   (`tests/unit/test_influence_gateaux_msm.py`) gains a link rather than a law. Do it
+   before the working model over regimens, which copies this projection's shape
+3. **Observation weights for `LTMLE`.** Survey-weighted and selection-weighted longitudinal
+   cohorts are ordinary, and the statement they need is already derived *here*:
+   `dP_w = w dP / E[w]` with EIF `(w / E[w]) · D*(P_w)`, set out in `data/weighting.py` and
+   verified longhand in `tests/unit/test_weighted_estimand.py`. Applied to the sequential
+   regression it is that same statement about a tilted population on a different estimator,
+   assuming nothing new. The learner plumbing exists too — `learners/_fitting.py` routes
+   `sample_weight` and `estimators/_nuisance.py` threads `data.weights` through every fit;
+   it is `fit_regimen` and `fit_mechanism` that do not carry them, the same two functions
+   the next item changes, which is the whole reason these two sit together
+4. **A marginal structural model over regimens, for `LTMLE`.** The largest lift on this
+   list, and the largest thing `LTMLE` is missing as against refusing. Worth it anyway: it
+   is the standard answer to the `2^T` problem, and the way the applied literature reports
+   a grid of dynamic rules — a coefficient on the rule's threshold rather than a mean per
+   plan. Without it, a fit over many regimens reports a table rather than an answer, which
+   is the same complaint `msm=` exists to answer at one node. The theory is settled
+   (Robins; Orellana, Rotnitzky & Robins; van der Laan & Petersen) and R's `ltmle` supports
+   it. It needs its own weight function `h(ā, V)`, its own projection, and its own branch
+   in `tests/discrete_law_longitudinal.py` — the projection is solved on the raw outcome
+   scale for the reason the point-treatment MSM is, and a saturated working model over the
+   regimens must reproduce the per-regimen report exactly. It wants item 2 landed first for
+   the projection machinery, and item 3 landed first for the signature churn
+5. **`shifts=` with `delta=`.** Last for what it costs rather than for what it is worth: it
+   is the only one of the five needing a *new* oracle law, so most of the work is test
+   infrastructure. The audit also changed what this item is. The refusal's stated reason
+   was **wrong** — `data/causal_data.py` said each of `delta=`, `intermediate=` and
+   `weights=` becomes "a conditional density" on a continuum, but `P(Δ = 1 | A, W)` is a
+   conditional *probability* of a binary event, an ordinary classifier with the dose as a
+   numeric feature, and does not become a density because `A` is continuous. That is the
+   same mistake made and then overturned for `incremental=` with `delta=`, where the
+   derivation turned out to be the existing one with an extra factor. What is genuinely
+   required is smaller than the old message claimed and larger than nothing: `π` evaluated
+   at the *shifted* dose as well as the observed one, since the arm path evaluates `π_a(W)`
+   at each counterfactual arm rather than at the observed treatment — an `(n, S + 1)` array
+   threaded through `ShiftSet` and `mtp_submodel`, which currently discards `missingness`
+   outright — and an oracle law crossing the two that exist,
+   `tests/discrete_law_shift.py` having no `Δ` and `tests/discrete_law_mar.py` no doses.
+   Missing outcomes with a continuous exposure are routine, so this is worth doing.
+   Correcting the stated reason has already been done and is not part of it; re-auditing
+   `intermediate=` on the same grounds is, since `P(Z = z | A, W)` is a probability too
 
 ### On native acceleration
 
