@@ -26,11 +26,17 @@ rather than merely lose efficiency.
 
 Positivity holds comfortably: every conditional probability lies in ``[0.25, 0.75]``, so
 no truncation is active and the estimator runs on the unmodified mechanism.
+
+Both kinds of regimen answer to the same law.  Because ``W`` and ``L2`` are binary, a
+dynamic rule :math:`d_t(H_t)` on this law is a lookup over four cells, which is what lets
+the oracle state one longhand and the estimator be handed the same plan as a callable --
+see :data:`REGIMEN_ARMS` and :data:`REGIMEN_SPEC`.
 """
 
 from __future__ import annotations
 
 import itertools
+from functools import cache
 from typing import Any
 
 import numpy as np
@@ -74,13 +80,50 @@ Q = np.array(
 
 #: The regimens the estimands are checked against, in report order.  The first is the
 #: reference every contrast is taken against, as the estimator defaults.
-REGIMENS: dict[str, tuple[float, float]] = {
-    "never": (0.0, 0.0),
-    "always": (1.0, 1.0),
-    "early": (1.0, 0.0),
+#:
+#: **The oracle side.**  Arms as a lookup over *cell indices*: a scalar is a constant
+#: node, an array at the first node is indexed ``[w]`` and at the second ``[w, l2]``.
+#: The estimator is handed :data:`REGIMEN_SPEC` instead, which states the same six plans
+#: as callables over a dataframe.  Writing them twice, in two representations, is
+#: deliberate: a slip in one is a wrong number rather than a mistake that cancels against
+#: itself on both sides of the comparison.
+REGIMEN_ARMS: dict[str, tuple[Any, Any]] = {
+    "never": (0, 0),
+    "always": (1, 1),
+    "early": (1, 0),
+    # A rule that ignores the history.  It must reproduce ``always`` exactly, which is
+    # the strongest single assertion here: it fails if the follower masks, the mechanism's
+    # arm selection, the censoring model's current-arm column, the outcome design or the
+    # submodel's key treats a rule differently from a constant.
+    "always_rule": (np.array([1, 1]), np.array([[1, 1], [1, 1]])),
+    # d_2 = 1{L2 = 1}.  ``L2`` is caused by ``A1`` and causes ``Y``, so no static plan
+    # reaches this parameter -- which is the case the module exists for.
+    "treat_if_l2": (0, np.array([[0, 1], [0, 1]])),
+    # Dynamic at the *first* node, which ``treat_if_l2`` never exercises: the only case
+    # where the follower mask at ``t = 1`` compares against a per-row value.
+    "respond": (np.array([0, 1]), np.array([[1, 0], [1, 0]])),
+}
+
+#: The estimator side of :data:`REGIMEN_ARMS`: what ``LTMLE`` is handed as ``regimens=``.
+#: A rule is called with ``[W]`` at the first node and ``[W, L2]`` at the second, so
+#: ``treat_if_l2`` cannot be written as one callable for both nodes.
+REGIMEN_SPEC: dict[str, Any] = {
+    "never": 0,
+    "always": 1,
+    "early": (1, 0),
+    "always_rule": (lambda h: np.ones(len(h)), lambda h: np.ones(len(h))),
+    "treat_if_l2": (0, lambda h: h["L2"]),
+    "respond": (lambda h: h["W"], lambda h: 1.0 - h["L2"]),
 }
 
 REGIMEN_REFERENCE = "never"
+
+if set(REGIMEN_ARMS) != set(REGIMEN_SPEC):  # pragma: no cover - guards the two tables
+    raise AssertionError(
+        "REGIMEN_ARMS and REGIMEN_SPEC must state the same regimens; a plan the oracle "
+        "knows and the estimator is never handed proves nothing, and the reverse is a "
+        "parameter with no truth to check against"
+    )
 
 #: One support point per observable history.  ``None`` marks a node the unit never
 #: reached: a unit censored at the first time point has no ``L2``, no ``A2`` and no ``Y``,
@@ -133,13 +176,31 @@ COUNTS = _counts()
 PROBS = COUNTS / N
 
 
+@cache
 def _index(**pattern: int) -> tuple[int, ...]:
-    """Support points matching every named node."""
+    """Support points matching every named node.
+
+    Memoised because :func:`functional` calls it about thirty times per evaluation and
+    :func:`eif` evaluates the functional once per support point per parameter -- and the
+    number of parameters went from five to eleven when dynamic rules were added.  The
+    result is an immutable tuple over a fixed ``SUPPORT``, so caching it cannot go stale.
+    """
     return tuple(
         position
         for position, point in enumerate(SUPPORT)
         if all(point[_NODES.index(node)] == value for node, value in pattern.items())
     )
+
+
+def _arm(node: Any, *index: int) -> int:
+    """The arm a plan's node assigns in the cell named by ``index``.
+
+    A scalar node is a constant; an array node is a rule, read as a lookup over the
+    cells.  Selecting by cell *index* is what keeps :func:`functional` analytic in the
+    cell probabilities: the arm is fixed before the complex perturbation is applied, so
+    no comparison ever touches ``probs``.
+    """
+    return int(node) if np.ndim(node) == 0 else int(node[index])
 
 
 def _mass(probs: Any, **pattern: int) -> Any:
@@ -161,6 +222,13 @@ def functional(probs: Any, estimand: str) -> Any:
     a restatement.  Every operation is a sum or a quotient of sums, so this stays
     analytic in the cell probabilities -- which is what lets :func:`gateaux` differentiate
     it by a complex step.  Do not introduce ``clip``, ``abs`` or a comparison here.
+
+    A **dynamic** regimen changes only where the arms come from: :func:`_arm` reads them
+    off the cell being summed over, so :math:`a_1` depends on ``w`` and :math:`a_2` on
+    ``(w, l2)``.  That keeps the analyticity above intact, because the arms are integers
+    fixed by the index before any perturbation reaches ``probs``.  A rule expressed as an
+    indicator *of the probabilities* would break it, and would break it silently -- the
+    complex step would come back real.
     """
     p = probs
     if estimand.startswith("ate_regimen["):
@@ -169,13 +237,15 @@ def functional(probs: Any, estimand: str) -> Any:
     if not estimand.startswith("ey_regimen["):
         raise ValueError(f"unknown estimand {estimand!r}")
 
-    a1, a2 = (int(arm) for arm in REGIMENS[estimand[len("ey_regimen[") : -1]])
+    node1, node2 = REGIMEN_ARMS[estimand[len("ey_regimen[") : -1]]
     total = _mass(p)
     psi = 0.0
     for w in (0, 1):
+        a1 = _arm(node1, w)
         share = _mass(p, w=w) / total
         reached = _mass(p, w=w, a1=a1, c1=1)
         for l2 in (0, 1):
+            a2 = _arm(node2, w, l2)
             density = _mass(p, w=w, a1=a1, c1=1, l2=l2) / reached
             uncensored = _mass(p, w=w, a1=a1, c1=1, l2=l2, a2=a2, c2=1)
             events = _mass(p, w=w, a1=a1, c1=1, l2=l2, a2=a2, c2=1, y=1)
@@ -184,9 +254,9 @@ def functional(probs: Any, estimand: str) -> Any:
 
 
 #: The parameter names a longitudinal fit reports on this law, in report order.
-NAMES: tuple[str, ...] = tuple(f"ey_regimen[{label}]" for label in REGIMENS) + tuple(
+NAMES: tuple[str, ...] = tuple(f"ey_regimen[{label}]" for label in REGIMEN_ARMS) + tuple(
     f"ate_regimen[{label} vs {REGIMEN_REFERENCE}]"
-    for label in REGIMENS
+    for label in REGIMEN_ARMS
     if label != REGIMEN_REFERENCE
 )
 
