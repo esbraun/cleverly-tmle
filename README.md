@@ -1106,7 +1106,7 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 
 | Capability | Notes |
 | --- | --- |
-| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one; `ey_regime` / `ate_regime` when the fit declares `interventions=`; `ey_shift` / `ate_shift` when it declares `shifts=`; `msm[...]`, one per term, when it declares `msm=`. The four sets are exclusive, not cumulative: `interventions=` and `shifts=` declare what "counterfactual" means for the fit and `msm=` declares how the counterfactuals are summarised, and one fluctuation cannot report parameters from two score equations under one heading |
+| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one; `ey_regime` / `ate_regime` when the fit declares `interventions=`; `ey_shift` / `ate_shift` when it declares `shifts=`; `ey_ipsi` / `ate_ipsi` when it declares `incremental=`; `msm[...]`, one per term, when it declares `msm=`. The five sets are exclusive, not cumulative: `interventions=`, `shifts=` and `incremental=` each declare what "counterfactual" means for the fit and `msm=` declares how the counterfactuals are summarised, and one fluctuation cannot report parameters from two score equations under one heading |
 | Multi-valued treatment | any number of arms up to 20. The mechanism becomes a distribution over the arms and the `mean` fluctuation gets one clever-covariate column per arm, so the fit reports `K` counterfactual means with a joint influence-curve matrix and `K-1` contrasts against `reference=`. Every other contrast — a dose-response comparison, a pairwise difference the reference skipped — comes from `result.contrast()` with no refit. Parameters are named with your own labels: `ey[high]`, `ate[high vs low]`. A two-armed fit is unchanged, bit for bit, and keeps the short names. What is refused rather than guessed at: `ATT`/`ATC` (they reweight one arm by the propensity odds), `CTMLE` (both searches order candidates by one propensity margin), the omitted-variable bound and the MNAR tilt |
 | Interventions | `interventions=` declares what "counterfactual" means for the fit: a constant arm (`Static`), a deterministic rule `d(W)` (`Rule`), or a known stochastic assignment `g*(a \| W)` (`Stochastic`). All three are one `(n, K)` density over the arms, so one clever covariate `g*(A \| W) / g(A \| W)` covers them and collapses to the familiar indicator form exactly when the regime is static — where the numbers are bit for bit an ordinary fit's. The report becomes `ey_regime[...]` per regime and `ate_regime[... vs ...]` per non-reference regime, and `sensitivity.support()` reports the positivity a regime actually needs. An intervention whose `g*` depends on `P` is not one of these and has its own row below |
 | Continuous treatment | `shifts=` declares a modified treatment policy `d(a, w) = min(a + δ, u)` and with it that the treatment is a dose: no arms, a conditional density `g(a \| W)` in place of the propensity, and a clever covariate that is a density ratio. The density is a discrete hazard fitted by the ordinary `treatment_learner=` on a long `(unit, bin)` expansion, so every preset, screener and thread limit works untouched. The report becomes `ey_shift[...]` and `ate_shift[... vs ...]`, and `sensitivity.shift_support()` reports the ratio's tail and the effective sample size it leaves. `cap=` is required rather than estimated, since a fitted support boundary would make the parameter itself data-dependent. What is refused rather than guessed at: `delta=`, `intermediate=` and estimated weights, each of which puts a further conditional density beside `g` and needs its own derivation |
@@ -1203,10 +1203,12 @@ The variance, confidence intervals, simultaneous bands, delta method, score diag
 bootstrap then work without further changes.
 
 `parameter_axis=` says what the new target's parameters are indexed *by* — a treatment arm,
-a regime declared with `interventions=`, or a shift declared with `shifts=`. The three
-partition the registry rather than accumulating, so declaring one axis makes the other two
-unavailable to that fit. It is not the same question as `group=`: `ate` and `att` share the
-`arm` axis across two different score equations, while `ey_shift` and `ate_shift` share both.
+a regime declared with `interventions=`, a shift declared with `shifts=`, a tilt of the
+mechanism declared with `incremental=`, or a coefficient of a working model declared with
+`msm=`. The five partition the registry rather than accumulating, so declaring one axis
+makes the other four unavailable to that fit. It is not the same question as `group=`:
+`ate` and `att` share the `arm` axis across two different score equations, while `ey_shift`
+and `ate_shift` share both.
 
 Registering a target whose reported parameters have no branch in the `functional` of an
 oracle law — `tests/discrete_law.py` for the arm- and regime-indexed estimands,
