@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.exceptions import DataError
+from cleverly.exceptions import DataError, WeightingWarning
 from cleverly.longitudinal import (
     DynamicRegimen,
     LongitudinalData,
@@ -381,6 +381,100 @@ class TestRegimens:
 
     def test_a_single_regimen_object_is_accepted(self) -> None:
         assert resolve_regimens(Regimen("a", (1.0, 0.0)), 2)[0].label == "a"
+
+
+class TestObservationWeights:
+    """A weight is a property of the unit, read exactly as the point-treatment container reads it.
+
+    The arithmetic is shared -- ``check_weights``, ``resolve_weight_kind``,
+    ``describe_weights`` -- and deliberately so, because what a weight *means* cannot differ
+    between one time point and several.  What these pin is that the container reaches those
+    functions at all, and reaches them with the column it was handed.
+    """
+
+    def test_no_weights_is_a_vector_of_ones(self) -> None:
+        data = build(panel())
+        assert not data.is_weighted
+        np.testing.assert_array_equal(data.weights, np.ones(data.n))
+        assert data.effective_n == pytest.approx(float(data.n))
+        assert "unweighted" in data.weight_report().summary()
+
+    def test_weights_are_normalised_to_mean_one(self) -> None:
+        frame = panel().assign(w=lambda f: 2.5 + 0.75 * f["A1"])
+        data = build(frame, weights="w")
+        supplied = np.asarray(frame["w"], dtype=float)
+        assert data.is_weighted
+        assert float(np.mean(data.weights)) == pytest.approx(1.0)
+        # The tilt is the *relative* weight, so what is stored is the supplied column
+        # rescaled -- and the scale it was rescaled by is recoverable from the spec.
+        np.testing.assert_allclose(data.weights, supplied / supplied.mean(), rtol=1e-12)
+        assert data.weight_spec.scale == pytest.approx(float(supplied.mean()))
+        assert data.weights_name == "w"
+
+    def test_the_report_is_kish(self) -> None:
+        frame = panel().assign(w=lambda f: 1.0 + 2.5 * (f["A1"] == 1))
+        data = build(frame, weights="w")
+        w = np.asarray(frame["w"], dtype=float)
+        expected = float(w.sum() ** 2 / np.square(w).sum())
+        report = data.weight_report()
+        assert report.effective_n == pytest.approx(expected)
+        assert data.effective_n == pytest.approx(expected)
+        assert report.design_effect == pytest.approx(data.n / expected)
+        assert "weight-tilted population" in report.summary()
+
+    def test_estimated_weights_are_recorded(self) -> None:
+        data = build(
+            panel().assign(w=lambda f: 1.0 + 0.6 * f["A1"]), weights="w", weights_estimated=True
+        )
+        assert data.weight_spec.estimated
+        assert "estimated" in data.weight_report().summary()
+
+    def test_frequency_weights_are_refused(self) -> None:
+        """Counts are a different experiment: they change what ``n`` means."""
+        with pytest.raises(DataError, match="frequency"):
+            build(panel().assign(w=2.0), weights="w", weights_type="frequency")
+
+    def test_an_unknown_weights_type_names_the_two_it_knows(self) -> None:
+        with pytest.raises(DataError, match="unknown weights_type"):
+            build(panel().assign(w=1.0), weights="w", weights_type="replicate")
+
+    @pytest.mark.parametrize(
+        "column,message",
+        [
+            (lambda f: np.where(f["A1"] == 1, -1.0, 1.0), "negative"),
+            (lambda f: np.where(f["A1"] == 1, np.nan, 1.0), "missing or non-finite"),
+            (lambda f: np.zeros(len(f)), "sums to zero"),
+        ],
+    )
+    def test_a_weight_that_is_not_one_is_refused(self, column: Any, message: str) -> None:
+        with pytest.raises(DataError, match=message):
+            build(panel().assign(w=column), weights="w")
+
+    def test_a_missing_weight_column_is_named(self) -> None:
+        with pytest.raises(DataError, match="columns not found"):
+            build(panel(), weights="nope")
+
+    def test_count_looking_weights_warn(self) -> None:
+        rng = np.random.default_rng(0)
+        frame = panel().assign(w=rng.integers(1, 5, size=40).astype(float))
+        with pytest.warns(WeightingWarning, match="counts"):
+            build(frame, weights="w")
+
+    def test_concentrated_weights_warn_at_construction(self) -> None:
+        # A design effect above four: the estimate rests on a small part of the sample, and
+        # every sample-size-dependent setting -- g_bounds="auto" above all -- is resolved
+        # from that smaller number rather than from the row count.
+        heavy = np.where(np.arange(40) < 2, 50.5, 1.0)
+        with pytest.warns(WeightingWarning, match="concentrated"):
+            build(panel().assign(w=heavy), weights="w")
+
+    def test_a_weight_column_changes_the_fingerprint_of_the_data(self) -> None:
+        """Two fits differing only in the weights are different fits, and say so."""
+        from cleverly.provenance import fingerprint_array
+
+        plain = build(panel())
+        weighted = build(panel().assign(w=lambda f: 1.0 + 0.6 * f["A1"]), weights="w")
+        assert fingerprint_array(plain.weights) != fingerprint_array(weighted.weights)
 
 
 class TestTheContainerRefusesByName:

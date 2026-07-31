@@ -227,6 +227,19 @@ load-balancing the tail, not contending for cores.
   Gateaux derivative to `1e-14` **absolute, with `rtol=0`** — pass it explicitly as every
   sibling module does, since these curves reach order 20 and numpy's default relative
   tolerance would loosen the check to ~`1e-6` while still reading as exact.
+  **`weights=` is supported and means what it means on `TMLE`**: the estimand is the regimen
+  parameter at `dP_w = w dP / E[w]`, every node's nuisance is fitted by weighted loss, every
+  node's fluctuation solves `Σ w h_t (Z_t − Q̄*_t) = 0`, and the curve is `w` times the whole
+  bracket — the centring included, since the estimator is a Hájek ratio. A weight is a tilt
+  of the *population*, so it is **not** a factor in `h_t`, whose denominator is the `2T`
+  mechanism factors and nothing else; the refusal this replaced claimed otherwise, and
+  `data/weighting.py` now says so by name. Two consequences. `g_bounds="auto"` resolves at
+  `data.effective_n`, which over `T` nodes reaches every one of the `2T` factors, and
+  `diagnostics()` reports the leverage of `w/∏g` because the two reweightings multiply
+  (`sensitivity/positivity.py`'s reasoning). The oracle is a branch on
+  `tests/discrete_law_longitudinal.py`, whose `CellMeans` **honours `sample_weight`** — a
+  saturated fit that discarded it would hold `P_0`'s conditionals against a `P_w` estimand,
+  which is the one mistake here that leaves `epsilon` non-zero rather than silent.
   Two further things it does *not* reuse, and both are refusals rather than gaps.
   `res.sensitivity` and the targeted bootstrap need a refit against re-truncated or
   resampled nuisances, and `g_bounds` enters the *pseudo-outcome* of every earlier node

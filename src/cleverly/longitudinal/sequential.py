@@ -67,6 +67,17 @@ Note what does **not** change.  ``1{event-free through t-1}`` is a function of
 *indicator* of :math:`h_t` and never its denominator.  The cumulative product is still
 over the :math:`2T` treatment and censoring factors, and the positivity assumption a
 survival fit makes is the one an end-of-study fit makes.
+
+**Observation weights** are a tilt of the population and not a further node.  Every
+regression here -- each mechanism factor, the outcome, every pseudo-outcome -- is fitted by
+weighted loss, each node's fluctuation solves the weighted score
+:math:`\sum_i w_i h_t(i) (Z_t(i) - \bar Q^*_t(i)) = 0`, the plug-in is a weighted average,
+and the reported curve is :math:`w_i D^*(O_i)` with :math:`w` normalised to mean one.  So
+the parameter is the one :mod:`cleverly.data.weighting` states, evaluated on the tilted law
+at every node at once.  What a weight is emphatically **not** is a factor in
+:math:`h_t`: the clever covariate's denominator is the :math:`2T` mechanism factors and
+nothing else, and putting :math:`w` there would divide the estimating equation by the tilt
+it is supposed to apply.
 """
 
 from __future__ import annotations
@@ -215,26 +226,43 @@ class RegimenFit:
     #: since what share of the at-risk units a rule would treat is a property of the
     #: data rather than of the declaration.
     assignment: FloatArray
+    #: The observation weights the fit ran under, normalised to mean one and all-ones on
+    #: an unweighted fit.  Held so the leverage below can be reported at
+    #: :math:`w_i / \\prod g`: the weighting's cost and the clever covariate's *multiply*,
+    #: and a diagnostic showing only one of them reads as comfortable on a fit that is thin
+    #: on both -- the reasoning :mod:`cleverly.sensitivity.positivity` already applies at
+    #: one time point.
+    obs_weights: FloatArray
+
+    @property
+    def leverage(self) -> FloatArray:
+        """Final node's clever covariate, weighted: :math:`w_i / \\prod_{s} g_s c_s`.
+
+        What one unit can contribute to the estimating equation, which is the product of
+        the two reweightings a fit applies and not either alone.
+        """
+        return np.asarray(self.obs_weights * self.steps[-1].clever, dtype=float)
 
     @property
     def max_weight(self) -> float:
-        """Largest clever-covariate value at the final node.
+        """Largest weighted clever-covariate value at the final node.
 
         The reciprocal of the smallest cumulative probability of following the regimen,
-        so it is the leverage a single unit can have on the estimate.
+        times the unit's observation weight, so it is the leverage a single unit can have
+        on the estimate.
         """
-        weights = self.steps[-1].clever
+        weights = self.leverage
         return float(np.max(weights)) if weights.size else float("nan")
 
     @property
     def effective_n(self) -> float:
-        """Kish effective sample size of the final node's clever covariate.
+        """Kish effective sample size of the final node's weighted clever covariate.
 
         How many units the estimate is really averaging over once the weighting by
-        :math:`1 / \\prod g` is taken into account.  A number far below ``n`` says the
+        :math:`w / \\prod g` is taken into account.  A number far below ``n`` says the
         regimen is supported by few units, whatever the reported standard error.
         """
-        weights = self.steps[-1].clever
+        weights = self.leverage
         total = float(np.sum(weights))
         if total <= 0:
             return 0.0
@@ -267,6 +295,10 @@ def fit_mechanism(
     so its ``A_t`` is missing, and the design fills a missing arm with zero.  Left in the
     fit mask it would be trained on as an untreated observation and bias ``g_t`` -- and
     with it every clever covariate downstream of it.
+
+    Both factors are fitted by weighted loss when the data carries observation weights, so
+    what they estimate is the *tilted* law's mechanism -- which is what that law's
+    influence function is built from, and what a weighted learner converges to.
     """
     treatment: list[dict[str, FloatArray]] = []
     censoring: list[dict[str, FloatArray]] = []
@@ -278,7 +310,7 @@ def fit_mechanism(
             treatment_learner,
             data.history_design(time),
             arm,
-            np.ones(data.n),
+            data.weights,
             folds,
             task="classification",
             predict_designs=designs,
@@ -301,7 +333,7 @@ def fit_mechanism(
             censoring_learner,
             data.history_design(time, include_current=True),
             stayed,
-            np.ones(data.n),
+            data.weights,
             folds,
             task="classification",
             predict_designs=censor_designs,
@@ -354,6 +386,10 @@ def fit_regimen(
     intervenes on.  So the causes share every nuisance fit and differ only in what is
     regressed, which is also why a curve per cause costs ``J`` backward passes and one
     mechanism rather than ``J`` of each.
+
+    Observation weights reach every regression, the fluctuation's score and the plug-in,
+    and multiply the returned curve row-wise -- the module docstring says what that is and
+    what it is not.
     """
     horizon = data.n_times if horizon is None else horizon
     if not 1 <= horizon <= data.n_times:
@@ -424,7 +460,7 @@ def fit_regimen(
             learner,
             design,
             next_outcome,
-            np.ones(data.n),
+            data.weights,
             folds,
             task=task,  # type: ignore[arg-type]
             predict_designs={"history": design},
@@ -448,7 +484,7 @@ def fit_regimen(
                 (f"h[{plan.label}, t={time}]",),
                 "sequential",
             ),
-            np.ones(data.n),
+            data.weights,
             trained_on,
             alpha=alpha,
             max_iter=max_iter,
@@ -470,13 +506,23 @@ def fit_regimen(
         carried = np.where(at_risk, targeted, _FILLER)
 
     steps.reverse()
-    psi = float(np.mean(steps[0].targeted))
+    # Every unit is at risk at the first node, so this averages predictions rather than
+    # fillers.  ``np.average`` against a mean-one weight vector is the ``np.mean`` it
+    # replaced entry for entry when the weights are constant, which is what keeps an
+    # unweighted fit bit-for-bit what it was.
+    psi = float(np.average(steps[0].targeted, weights=data.weights))
     influence = steps[0].targeted - psi
     for step in steps:
         # The ``t``-th term of the efficient influence function reads the very array the
         # ``t``-th regression was fitted to -- the later node's targeted prediction, or,
         # on a survival fit, that prediction composed with this node's event indicator.
         influence = influence + step.clever * (step.pseudo_outcome - step.targeted)
+    # Row-wise at the end rather than term by term: the weighted EIF is
+    # ``(w / E[w]) D*(P_w)``, one factor multiplying the whole curve, and the *centring*
+    # inside the bracket is what linearises the Hajek ratio above.  Multiplying only the
+    # residual terms, or subtracting ``psi`` outside the weight, is the classic error and
+    # would leave a curve whose mean is not zero.
+    influence = data.weights * influence
     return RegimenFit(
         regimen=plan.regimen,
         psi_scaled=psi,
@@ -486,6 +532,7 @@ def fit_regimen(
         steps=tuple(steps),
         cumulative=cumulative,
         assignment=np.asarray(plan.values),
+        obs_weights=np.asarray(data.weights, dtype=float),
     )
 
 

@@ -35,13 +35,21 @@ the joint influence-curve matrix that makes a simultaneous band over the curve t
 object.  It is the same recursion and the same clever covariate; what moves is which rows
 each node's regression is fitted on.
 
+``weights=`` names a column of observation weights and means what it means on a
+point-treatment fit: the parameter is the declared one in the tilted population
+:math:`dP_w = w\,dP/E[w]`, every node's nuisance is fitted by weighted loss, every node's
+score equation is weighted, and the reported curve is :math:`(w/E[w])\,D^*(P_w)`.  See
+:mod:`cleverly.data.weighting` for the statement and its limits, and
+:mod:`cleverly.longitudinal.sequential` for what a weight is *not* -- a factor in the
+clever covariate.
+
 What is refused rather than approximated is listed in the README; the short version is
 that this estimator answers for a regimen -- static or dynamic -- over a binary treatment
-at every node, for one end-of-study outcome or one absorbing event, with monotone
-censoring.  Competing risks and a marginal structural model over time each need their own
-derivation, and each is refused by name -- the keyword is accepted and rejected with what
-the derivation would need, rather than arriving as an ``unexpected keyword argument``.
-:data:`_REFUSED` is that table.
+at every node, for one end-of-study outcome or one absorbing event per cause, with
+monotone censoring.  A marginal structural model over regimens needs its own derivation
+and is refused by name -- the keyword is accepted and rejected with what the derivation
+would need, rather than arriving as an ``unexpected keyword argument``.  :data:`_REFUSED`
+is that table.
 """
 
 from __future__ import annotations
@@ -74,10 +82,19 @@ __all__ = ["LTMLE", "LongitudinalConfig", "LongitudinalResult", "ltmle"]
 #: The module docstring and the README both say these are refused *by name*; without
 #: this table they were refused by absence, which is a ``TypeError`` naming no reason.
 _REFUSED: dict[str, str] = {
+    # Kept as a key rather than deleted now that observation weights are supported, for the
+    # reason ``event`` and ``competing`` are: a weight is a *column of the data*, so it is
+    # declared where the columns are read, and falling through to "unexpected keyword
+    # argument" here would read as a misspelling rather than as a pointer to the call that
+    # takes it.  The refusal this replaced said weights put "a further per-unit factor in
+    # the clever covariate's denominator at every node", which was simply wrong: a weight
+    # tilts the population, and the denominator is the 2T mechanism factors and nothing
+    # else.
     "weights": (
-        "observation weights put a further per-unit factor in the clever covariate's "
-        "denominator at every node, and the weighted efficient influence function has "
-        "to be derived rather than re-indexed"
+        "observation weights are a column of the data rather than a setting on the "
+        "estimator, so they are declared where the columns are read: "
+        "LTMLE(...).fit(frame, weights='w', ...), or "
+        "LongitudinalData.from_frame(frame, weights='w', ...)"
     ),
     "intermediate": (
         "a controlled direct effect fixes a mediator at one time point; over a sequence "
@@ -210,6 +227,10 @@ class LongitudinalConfig:
     g_bounds: tuple[float, float]
     q_bounds: tuple[float, float] | None
     alpha_sig: float
+    #: The sample size ``g_bounds="auto"`` was resolved at, when that is not the row
+    #: count -- a weighted fit truncates at Kish's effective ``n``.  ``None`` whenever the
+    #: bound was explicit or the fit unweighted, exactly as on a point-treatment config.
+    auto_bounds_n: float | None = None
     random_state: int | None = None
     #: ``(label, digest)`` per regimen, digesting the ``(n, T)`` arms it assigned *this*
     #: sample.  A static plan is already stated in full by its ``1/0``; a rule is not, and
@@ -270,7 +291,14 @@ class LongitudinalConfig:
             # Both factors of every node's mechanism go through this bound, not just
             # the treatment one, and the difference matters wherever censoring is heavy.
             f"g_bounds: [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}] on the treatment "
-            "and censoring mechanism at every node",
+            "and censoring mechanism at every node"
+            # Named because it is a deliberate divergence from R's rule, and because a
+            # reader comparing two fits needs to know the bound moved with the weights.
+            + (
+                ""
+                if self.auto_bounds_n is None
+                else f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
+            ),
         ]
         if self.q_bounds is not None:
             lines.append(f"q_bounds: [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}]")
@@ -386,7 +414,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         observation through the node -- the sample the regression there was fitted on.
         ``max_weight`` and ``effective_n`` describe the cumulative clever covariate, which
         is where sequential positivity shows up: they are properties of the *product* of
-        the node-by-node mechanisms and can be alarming while every node looks fine.
+        the node-by-node mechanisms and can be alarming while every node looks fine.  On a
+        weighted fit they describe ``w / prod g`` rather than ``1 / prod g``, because the
+        two reweightings multiply -- see
+        :attr:`~cleverly.longitudinal.sequential.RegimenFit.leverage`.  For the weighting's
+        own cost, and the estimand statement that goes with it, see
+        ``result.data.weight_report()``.
 
         ``share_assigned_1`` is the fraction of the units at risk at that node whom the
         regimen would treat.  For a static regimen it is exactly ``0`` or ``1``, so the
@@ -413,7 +446,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # column carrying both would be the one column here nobody could group by.
         for fit in self.fits.values():
             for step in fit.steps:
-                weights = step.clever[step.trained_on]
+                weights = (fit.obs_weights * step.clever)[step.trained_on]
                 total = float(np.sum(weights))
                 assigned = fit.assignment[step.at_risk, step.time - 1]
                 rows["regimen"].append(fit.regimen.label)
@@ -625,6 +658,18 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 f"clusters = {self.data.n_clusters} ({self.data.cluster_name}, "
                 "cluster-robust variance)"
             )
+        if self.data.is_weighted:
+            report = self.data.weight_report()
+            facts.append(
+                f"observation weights ({report.name or 'weights'}, "
+                + ("estimated" if report.estimated else "fixed")
+                + f"): effective n = {report.effective_n:.1f}, "
+                f"design effect = {report.design_effect:.2f}"
+            )
+            facts.append(
+                "estimand: the parameter in the weight-tilted population dP_w = w dP / E[w]; "
+                "see result.data.weight_report()"
+            )
         facts.extend(self.provenance.describe())
         lines = [
             f"Longitudinal TMLE ({self.data.n_times} time points, n = {self.n})",
@@ -797,10 +842,20 @@ class LTMLE:
         time_varying: Sequence[Sequence[str]] | None = None,
         censoring: Sequence[str] | None = None,
         id: str | None = None,
+        weights: str | None = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
         family: str = "auto",
         **refused: Any,
     ) -> LongitudinalResult:
-        """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`."""
+        """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`.
+
+        ``weights=`` names a column of observation weights, read exactly as
+        :meth:`cleverly.TMLE.fit` reads them: the estimand becomes the declared parameter
+        in the tilted population ``dP_w = w dP / E[w]``, every node's nuisance is fitted by
+        weighted loss, every node's score equation is weighted, and the reported curve is
+        ``(w / E[w]) D*(P_w)``.  See :mod:`cleverly.data.weighting`.
+        """
         refuse_unsupported(refused, where="LTMLE.fit")
         prepared = self._prepare(
             data,
@@ -810,6 +865,9 @@ class LTMLE:
             time_varying=time_varying,
             censoring=censoring,
             id=id,
+            weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
             family=family,
         )
         regimens = resolve_regimens(self.regimens, prepared.n_times)
@@ -837,7 +895,12 @@ class LTMLE:
 
         folds = self._folds(prepared)
         scaler = self._scaler(prepared)
-        bounds = resolve_g_bounds(self.g_bounds, float(prepared.n))
+        # Kish's effective n rather than the row count, which they are equal to on an
+        # unweighted fit: ``5 / (sqrt(n) log n)`` is a bias-variance compromise, and both
+        # sides of it are governed by the information in the sample.  Over ``T`` nodes the
+        # bound reaches every one of the ``2T`` factors, so resolving it too loosely
+        # compounds rather than cancels.
+        bounds = resolve_g_bounds(self.g_bounds, prepared.effective_n)
 
         mechanism = fit_mechanism(
             prepared,
@@ -911,6 +974,9 @@ class LTMLE:
             g_bounds=bounds,
             q_bounds=self.q_bounds,
             alpha_sig=self.alpha_sig,
+            auto_bounds_n=(
+                prepared.effective_n if self.g_bounds == "auto" and prepared.is_weighted else None
+            ),
             random_state=self.random_state,
             # From the matrix ``resolve_plans`` already built, so this is the assignment
             # the fit ran on rather than a second evaluation of the rules.
@@ -941,6 +1007,9 @@ class LTMLE:
         time_varying: Sequence[Sequence[str]] | None,
         censoring: Sequence[str] | None,
         id: str | None,
+        weights: str | None,
+        weights_type: str,
+        weights_estimated: bool,
         family: str,
     ) -> LongitudinalData:
         if isinstance(data, LongitudinalData):
@@ -951,10 +1020,18 @@ class LTMLE:
                 "time_varying": time_varying,
                 "censoring": censoring,
                 "id": id,
+                "weights": weights,
             }
             named = sorted(key for key, value in declared.items() if value is not None)
             if family != "auto":
                 named.append("family")
+            # The two that are not column names, and so cannot be caught by the ``is not
+            # None`` sweep above: they say how a weight column is to be *read*, and a
+            # container has already read it.
+            if weights_type != "probability":
+                named.append("weights_type")
+            if weights_estimated:
+                named.append("weights_estimated")
             if named:
                 raise ValueError(
                     f"{named} cannot be combined with a LongitudinalData input; the node "
@@ -976,6 +1053,9 @@ class LTMLE:
             time_varying=time_varying,
             censoring=censoring,
             id=id,
+            weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
             family=family,
         )
 
@@ -1069,6 +1149,7 @@ class LTMLE:
                 data.treatment,
                 data.uncensored.astype(float),
                 data.baseline,
+                data.weights,
                 *data.time_varying,
             ),
             fold_fingerprint=fingerprint_array(folds.assignment),
@@ -1170,6 +1251,9 @@ def ltmle(
     time_varying: Sequence[Sequence[str]] | None = None,
     censoring: Sequence[str] | None = None,
     id: str | None = None,
+    weights: str | None = None,
+    weights_type: str = "probability",
+    weights_estimated: bool = False,
     family: str = "auto",
     **kwargs: Any,
 ) -> LongitudinalResult:
@@ -1182,5 +1266,8 @@ def ltmle(
         time_varying=time_varying,
         censoring=censoring,
         id=id,
+        weights=weights,
+        weights_type=weights_type,
+        weights_estimated=weights_estimated,
         family=family,
     )

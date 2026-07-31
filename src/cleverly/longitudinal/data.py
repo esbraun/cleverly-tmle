@@ -48,6 +48,14 @@ estimand if it is read the other way:
   censoring, a unit that has already had the event may carry ``1`` at the later nodes or
   nothing at all, since either way it says the same absorbing thing.
 
+Observation weights are read exactly as :class:`~cleverly.data.causal_data.CausalData`
+reads them, and mean exactly what they mean there: the estimand becomes the causal
+parameter of the tilted law :math:`dP_w = w\,dP/E[w]`, and the whole fit runs on the
+weighted empirical measure.  A weight is a property of the *unit* rather than of a node,
+so it is one column whatever ``T`` is, and it is required at every row.
+:mod:`cleverly.data.weighting` states the parameter, the influence function that goes with
+it, and the readings of "weight" this container refuses rather than approximates.
+
 The container holds numpy arrays and never branches on the dataframe backend; like
 :class:`~cleverly.data.causal_data.CausalData` it records the backend it came from so
 results are returned in it.
@@ -63,7 +71,16 @@ import narwhals as nw
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..data.validate import check_covariates, encode_clusters, infer_family
+from ..data.validate import check_covariates, check_weights, encode_clusters, infer_family
+from ..data.weighting import (
+    WeightReport,
+    WeightSpec,
+    describe_weights,
+    effective_sample_size,
+    resolve_weight_kind,
+    warn_if_concentrated,
+    warn_if_counts,
+)
 from ..exceptions import DataError
 from ..utils.frames import as_frame, frame_from_dict, is_dataframe, matrix_from_columns
 
@@ -130,6 +147,10 @@ class LongitudinalData:
     time_varying: tuple[FloatArray, ...]
     time_varying_names: tuple[tuple[str, ...], ...]
     family: str
+    #: Observation weights, normalised to mean one, all-ones on an unweighted fit.  One
+    #: value per *unit* rather than per node: the tilt is of the population the parameter
+    #: is defined in, not of any one node's mechanism.
+    weights: FloatArray
     outcome_name: str = "Y"
     #: ``(n, T)`` "had the event at or before ``t``" on a survival fit, and ``None`` on a
     #: fit with one end-of-study outcome.  Cumulative, so it is monotone by construction
@@ -151,6 +172,8 @@ class LongitudinalData:
     censoring_names: tuple[str, ...] = ()
     cluster: IntArray | None = None
     cluster_name: str | None = None
+    weights_name: str | None = None
+    weight_spec: WeightSpec = field(default_factory=WeightSpec)
     dropped_covariates: tuple[str, ...] = field(default_factory=tuple)
     _template: Any = None
 
@@ -167,6 +190,9 @@ class LongitudinalData:
         time_varying: Sequence[Sequence[str]] | None = None,
         censoring: Sequence[str] | None = None,
         id: str | None = None,
+        weights: str | None = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
         family: str = "auto",
     ) -> LongitudinalData:
         """Build from one wide dataframe: a row per unit, a column per node.
@@ -196,6 +222,18 @@ class LongitudinalData:
         censoring:
             One column per time point, ``1`` where the unit is still under observation
             after that point.  ``None`` means nobody was censored.
+        weights:
+            Observation weights: one column, one value per unit, present at every row.
+            The estimand becomes the causal parameter in the tilted population
+            ``dP_w = w dP / E[w]`` -- see :mod:`cleverly.data.weighting`, which states it
+            for the point-treatment estimator in the same terms it holds here.
+        weights_type:
+            How to read ``weights``, as for
+            :meth:`cleverly.data.CausalData.from_frame`.  ``"frequency"`` -- counts of
+            identical units -- is a different experiment and is refused with instructions.
+        weights_estimated:
+            Declare that the weights came out of a fitted model.  Changes no number; it
+            makes the reports state that the intervals condition on them.
         """
         if not is_dataframe(data):
             raise DataError("LongitudinalData.from_frame expects a pandas or polars DataFrame")
@@ -268,6 +306,8 @@ class LongitudinalData:
             wanted.extend(block)
         if id is not None:
             wanted.append(id)
+        if weights is not None:
+            wanted.append(str(weights))
         missing = [name for name in wanted if name not in columns]
         if missing:
             raise DataError(f"columns not found in the frame: {missing}; available: {columns}")
@@ -311,6 +351,10 @@ class LongitudinalData:
             time_varying_names=blocks,
             cluster=None if id is None else frame[id].to_numpy(),
             cluster_name=id,
+            weights=None if weights is None else frame[weights].to_numpy(),
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            weights_name=weights,
             outcome_name=outcome_names[-1],
             family=family,
             template=frame,
@@ -334,6 +378,10 @@ class LongitudinalData:
         time_varying_names: Sequence[Sequence[str]],
         cluster: Any,
         cluster_name: str | None,
+        weights: Any = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
+        weights_name: str | None = None,
         outcome_name: str,
         family: str,
         template: Any,
@@ -473,6 +521,25 @@ class LongitudinalData:
 
         codes = None if cluster is None else encode_clusters(cluster, cluster_name or "id")
 
+        # Read exactly as the point-treatment container reads them, and by the same
+        # functions: the normalisation, the refusals and the warnings are statements about
+        # what a weight *means*, and they cannot mean one thing at one time point and
+        # another over several.
+        label = weights_name or "weights"
+        kind = resolve_weight_kind(weights_type, n)
+        obs_weights = check_weights(weights, n, label)
+        if weights is None:
+            spec = WeightSpec(kind=kind, estimated=weights_estimated)
+        else:
+            warn_if_counts(np.asarray(weights, dtype=float), label)
+            warn_if_concentrated(obs_weights, label)
+            spec = WeightSpec(
+                kind=kind,
+                estimated=weights_estimated,
+                name=label,
+                scale=float(np.mean(np.asarray(weights, dtype=float))),
+            )
+
         return cls(
             outcome=y,
             baseline=w,
@@ -483,6 +550,7 @@ class LongitudinalData:
             time_varying=tuple(blocks),
             time_varying_names=tuple(names),
             family=resolved,
+            weights=obs_weights,
             outcome_name=outcome_name,
             event=failed,
             event_names=tuple(str(name) for block in event_names for name in block),
@@ -494,6 +562,8 @@ class LongitudinalData:
             censoring_names=tuple(str(name) for name in censoring_names),
             cluster=codes,
             cluster_name=cluster_name,
+            weights_name=weights_name,
+            weight_spec=spec,
             dropped_covariates=tuple(dropped),
             _template=template,
         )
@@ -518,6 +588,30 @@ class LongitudinalData:
     @property
     def has_censoring(self) -> bool:
         return bool(self.censoring_names) and bool(not self.uncensored.all())
+
+    @property
+    def is_weighted(self) -> bool:
+        return bool(not np.allclose(self.weights, 1.0))
+
+    @property
+    def effective_n(self) -> float:
+        """Kish effective sample size of the observation weights, ``(sum w)^2 / sum w^2``.
+
+        The same quantity, for the same reason, as
+        :attr:`cleverly.data.CausalData.effective_n`: not only a diagnostic, but the
+        sample size ``g_bounds="auto"`` is resolved at, since the rule is a bias-variance
+        compromise and this is the number the variance side is working from.  Over ``T``
+        nodes that matters more rather than less -- the bound is applied to every one of
+        the ``2T`` factors.
+        """
+        return effective_sample_size(self.weights)
+
+    def weight_report(self) -> WeightReport:
+        """Effective sample size, weight concentration and the estimand statement.
+
+        See :mod:`cleverly.data.weighting`; ``print(data.weight_report().summary())``.
+        """
+        return describe_weights(self.weights, self.weight_spec)
 
     @property
     def is_survival(self) -> bool:
@@ -785,6 +879,8 @@ class LongitudinalData:
             parts.append(f"uncensored={share:.3f}")
         if self.cluster is not None:
             parts.append(f"clusters={self.n_clusters}")
+        if self.is_weighted:
+            parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
         return f"LongitudinalData({', '.join(parts)})"
 
 

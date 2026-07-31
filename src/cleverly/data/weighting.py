@@ -76,6 +76,33 @@ rows are i.i.d. draws of** :math:`(O_i, w_i)` **and** :math:`w_i` **is observed 
 than estimated.**  Everything below is a consequence of, or an exception to, that
 sentence.
 
+Over time
+---------
+
+Nothing above is about one time point, and :class:`~cleverly.longitudinal.LTMLE` reads
+``weights=`` on exactly these terms.  With :math:`O = (W, L_1, A_1, C_1, \ldots, Y)` and
+:math:`w = w(O)` a function of the observed row, the estimand is the same regimen
+parameter at :math:`P_w`; every node's mechanism, every node's censoring factor and every
+regression in the backward recursion is fitted by weighted loss; each node's fluctuation
+solves :math:`\sum_i w_i h_t(i)\,(Z_t(i) - \bar Q^*_t(i)) = 0`; the plug-in is a weighted
+average; and the reported curve is :math:`\tilde w_i D^*(O_i)` for the sequential
+:math:`D^*`.  Verified against a longhand :math:`\Psi(P_w)` in
+``tests/unit/test_weighted_estimand_longitudinal.py``, including for a weight that reads
+the treatment, the censoring indicator, the time-varying confounder and the outcome --
+where the tilt moves every one of those nuisances rather than only the covariate marginal.
+
+**A weight is not a factor in the clever covariate**, and this is worth stating because
+the refusal that preceded the implementation said it was.  :math:`h_t` divides by the
+:math:`2T` treatment and censoring probabilities and by nothing else; the weight tilts the
+population the parameter is defined in, and it enters the estimating equation as a
+multiplier of each row's score, not as a denominator.  Putting :math:`w` inside
+:math:`h_t` would divide the equation by the very tilt it is supposed to apply.
+
+The one thing that does change is the same one that changes at a single node:
+``g_bounds="auto"`` is resolved at Kish's effective sample size, discussed next -- and over
+:math:`T` nodes it reaches every one of the :math:`2T` factors, so resolving it at the row
+count compounds rather than cancels.
+
 Normalisation
 -------------
 
