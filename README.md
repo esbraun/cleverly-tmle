@@ -530,6 +530,129 @@ deliberately **not** uniform: with `h ≡ 1` the design is orthogonal and `β_a`
 the marginal ATE *identically*, so code that reported the ATE under the name `msm[a]` would
 pass every check.
 
+### Treatment given over time
+
+Everything above gives the treatment once. `LTMLE` gives it repeatedly, and estimates the
+mean outcome under a **regimen** `ā = (a₁, …, a_T)` — a plan for every node, not a decision
+at one. What makes this a different estimator rather than a wider loop is the covariate
+measured *between* the decisions: `L₂` is caused by `A₁` and confounds `A₂`, so it is a
+mediator and a confounder at once. Adjust for it and you block the part of `A₁`'s effect
+that runs through it; leave it out and the second decision stays confounded. No single
+adjustment set is right, which is the whole reason for the module.
+
+```python
+from cleverly import LTMLE
+from cleverly.datasets import make_longitudinal
+
+frame, truth = make_longitudinal(n=4000, seed=0)  # W1 W2 | A1 C1 | L2 A2 C2 | Y
+
+res = LTMLE(
+    {"always": 1, "never": 0},  # a scalar means that arm at every node
+    reference="never",
+    outcome_learner="glm",  # so the numbers below are quick to reproduce
+    treatment_learner="glm",
+    n_folds=5,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],  # the node ordering: one column per time point
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],  # measured before that node's treatment
+    censoring=["C1", "C2"],  # 1 = still under observation after that node
+)
+print(res.summary())
+```
+
+```
+Longitudinal TMLE (2 time points, n = 4000)
+
+parameter                     estimate  std. error  95% CI            p-value
+----------------------------  --------  ----------  ----------------  -------
+ey_regimen[always]            0.7685    0.0131      [0.7429, 0.7941]  0.0000
+ey_regimen[never]             0.3954    0.0198      [0.3565, 0.4342]  0.0000
+ate_regimen[always vs never]  0.3731    0.0236      [0.3268, 0.4193]  0.0000
+
+  time points: 2
+  regimens: always=(1/1), never=(0/0)
+  reference: never
+  cross-fitting: 5 fold(s)
+  g_bounds: [0.009532, 0.9905] at every node
+  always: 1263 of 4000 units followed it throughout; max weight 12.0, effective n 1096
+  never: 822 of 4000 units followed it throughout; max weight 34.6, effective n 630
+```
+
+The truth for this process is `0.3616`, known by quadrature rather than by simulation:
+under the intervention the mechanism drops out and what is left is a three-dimensional
+Gaussian integral of the outcome regression.
+
+The estimator is the **sequential regression** of Bang & Robins (2005) as targeted by van
+der Laan & Gruber (2012). The g-formula here is an iterated conditional expectation, so it
+is `T` ordinary regressions run backwards, each one's prediction the next one's outcome:
+
+```
+Q̄_{T+1} = Y
+Q̄_t(H_t) = E[ Q̄_{t+1} | H_t, A_t = a_t, C_t = 1 ]        for t = T, …, 1
+Ψ        = E[ Q̄_1(H_1) ]
+```
+
+Each regression is fitted on the units that followed `ā` and stayed under observation
+through `t`, and predicts for those that did so through `t − 1` — which are *exactly* the
+units the previous step is fitted on. That is what makes the recursion close, and
+`tests/unit/test_longitudinal_data.py` asserts the two masks are the same set rather than
+leaving it to be read off this paragraph.
+
+That substitution estimator is not efficient and has no influence curve. Each node
+therefore gets its own logistic submodel, with clever covariate
+
+```
+h_t = 1{Ā_t = ā_t, C̄_t = 1} / ∏_{s ≤ t} g_s(a_s | H_s) c_s(H_s, a_s)
+```
+
+whose score is the `t`-th term of
+
+```
+D*(O) = Σ_t h_t ( Q̄*_{t+1} − Q̄*_t ) + Q̄*_1(H_1) − Ψ
+```
+
+so solving all `T` of them makes the fit solve `P_n D* = 0`. The recursion carries the
+**targeted** prediction forward, not the initial one, so a residual left by one node is
+regressed away by the next instead of accumulating.
+
+**Positivity is the assumption that bites**, and it does so differently here. The clever
+covariate divides by a *cumulative* product of `2T` probabilities, so a mechanism that
+looks harmless node by node still leaves a handful of units carrying most of the weight —
+above, `never` is supported by 822 units whose effective sample size is 630. Each factor is
+truncated *before* multiplying rather than the product afterwards, so one near-deterministic
+node cannot be rescued by the others; `res.diagnostics()` reports the weight and the
+effective `n` per regimen per node, beside that node's `epsilon` and whether it converged.
+
+The influence curve is checked on the same footing as every other estimand in this library:
+against the complex-step Gateaux derivative of an independently written g-formula, on a
+two-time-point law whose every cell probability is a multiple of `1/N` so that a sample of
+`N` rows realises it *exactly* (`tests/discrete_law_longitudinal.py`). Handed the saturated
+learner there, the point estimate is the truth to the last bit and the reported curve
+matches the derivative to `1e-15`. A negative control in the same file fails if the
+censoring probabilities are dropped from the cumulative product.
+
+What is **refused rather than approximated**, and why:
+
+| refused | what it would need |
+| --- | --- |
+| a dynamic rule `d_t(H_t)` | the followers of a rule are a different set at every node and depend on the covariates, so the regression's training set is data-dependent in a way a constant plan's is not. It is the natural next step and needs an oracle law of its own |
+| a survival outcome, or competing risks | a time-varying event indicator makes `Y` a node at every time point rather than one at the end, and the parameter becomes a curve. That is the next roadmap item |
+| a multi-valued treatment at a node | the cumulative product needs one factor per arm per node, and the report one parameter per *sequence* of arms |
+| a marginal structural model over time | `msm=` summarises arms at one node; summarising `2^T` regimens is a different projection with its own weight function |
+| observation weights, and `intermediate=` | each puts a further per-node factor in the clever covariate's denominator, which has to be derived rather than re-indexed |
+| an outcome missing for a reason other than censoring | encode it as a final censoring column, so its probability is estimated and enters the cumulative product rather than being assumed one |
+
+Nothing here shares the point-treatment estimator's target registry, and that is deliberate:
+a `Target` is indexed by an arm, a regime, a shift, a tilt or an MSM coefficient, and a
+regimen is none of those. What *is* shared is everything below the estimand — cross-fitting,
+the Super Learner, the logistic fluctuation and its failure diagnostics, the influence-curve
+variance, the delta method and the cluster-robust variance — so `res.contrast()`,
+`res.covariance()` and `id=` work exactly as they do on a point-treatment fit.
+
 ### Collaborative TMLE
 
 A propensity model fitted to predict treatment as well as possible is fitted to the wrong
@@ -905,7 +1028,15 @@ error in `∂m/∂g` survives on one side; and `δ = 1`, where the curve is `Y -
 whatever the nuisances are. The shift estimands get it too (`..._shift.py`, against
 `tests/discrete_law_shift.py`), on a law with four ordered doses and two caps — the tight
 one because a cap above the largest dose never exercises the `1{a ≤ u}` factor, and that
-law found the factor missing. The second-order remainder is checked against its closed form in the four
+law found the factor missing. The longitudinal estimator answers to a law of its own
+(`..._longitudinal.py`, against `tests/discrete_law_longitudinal.py`), on a two-time-point
+process where `L₂` is caused by `A₁` and confounds `A₂` and where censoring depends on the
+history at both nodes — so a fit that dropped either the intermediate covariate or the
+censoring factors misses the truth rather than merely losing efficiency. Its oracle is a
+*saturated learner* rather than a hand-written nuisance, because the oracle at the earlier
+node is an expectation of the later node's regression: nothing anybody would want to
+transcribe, and an unpenalised cell-mean fit on a law the sample realises exactly is
+identical to it. The second-order remainder is checked against its closed form in the four
 matching `test_remainder*.py` modules, which is what double robustness actually consists of.
 Every one of these modules carries deliberate-mutation controls: each plausible way of
 building the thing wrong is shown to move the answer by more than `1e-2`, four orders past
@@ -947,6 +1078,7 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | Continuous treatment | `shifts=` declares a modified treatment policy `d(a, w) = min(a + δ, u)` and with it that the treatment is a dose: no arms, a conditional density `g(a \| W)` in place of the propensity, and a clever covariate that is a density ratio. The density is a discrete hazard fitted by the ordinary `treatment_learner=` on a long `(unit, bin)` expansion, so every preset, screener and thread limit works untouched. The report becomes `ey_shift[...]` and `ate_shift[... vs ...]`, and `sensitivity.shift_support()` reports the ratio's tail and the effective sample size it leaves. `cap=` is required rather than estimated, since a fitted support boundary would make the parameter itself data-dependent. What is refused rather than guessed at: `delta=`, `intermediate=` and estimated weights, each of which puts a further conditional density beside `g` and needs its own derivation |
 | Incremental interventions | `incremental=` multiplies everyone's *odds* of treatment by `δ` rather than assigning an arm (Kennedy 2019), reporting `ey_ipsi[...]` and `ate_ipsi[... vs ...]`. Two things make it unlike every other axis. **No positivity assumption**: the clever covariate is `δ/D` at `A=1` and `1/D` at `A=0` with `D = δg + 1 - g`, so it lies in `[min(δ,1/δ), max(δ,1/δ)]` however small `g` is — the leverage is bounded by a number the analyst chose. `g_bounds=` is therefore refused, since `g` is inside the estimand and truncating it would move `Ψ(δ)`. And it is **not doubly robust** — the only estimand here that is not: every term of the remainder carries `(ĝ - g₀)`, so a consistent mechanism is required and a consistent `Q̄` cannot substitute. Because `q_δ` is a functional of `P`, the EIF carries a `∂m/∂g` term and the estimator fluctuates the *mechanism* as well as `Q̄`, alternating to convergence; `score_check()` reports both equations. `ey_ipsi` at `δ=1` is `mean(Y)` row by row, whatever the nuisances. What is refused rather than approximated: a multi-valued treatment, `delta=`, `intermediate=` and `CTMLE` |
 | Marginal structural model | `msm=` declares a working model `m(a, V; beta)` for `E[Y(a) \| V]` and makes the fit's parameters its coefficients, reported as `msm[a:W1]` under the term names you gave. `beta` is a **projection** under a known weight `h(a, V)`, not the truth of an assumed regression, so the estimand and its interval are well defined whether or not the model is correct (Neugebauer & van der Laan 2007). The clever covariate is `h(a,V) phi(a,V) / g(a \| W)`, one column per term, and the projection is solved by weighted least squares against the *targeted* `Qbar` — which zeroes the second half of the influence curve by construction, so no outer iteration is needed. A saturated working model reproduces the per-arm report exactly. What is refused rather than approximated: a non-identity link (its `dm/dbeta` depends on `beta`) and weights derived from the estimated mechanism (they would make `h` a functional of `P`) |
+| Treatment over time | `LTMLE` estimates `E[Y_ā]` under a static regimen across `T` nodes, with time-varying confounding and monotone censoring, reporting `ey_regimen[...]` and `ate_regimen[... vs ...]`. The estimator is the sequential regression (Bang & Robins 2005) targeted node by node (van der Laan & Gruber 2012): `T` regressions run backwards, each fitted on the regimen's followers and each fluctuated by the reciprocal of the *cumulative* product of the treatment and censoring probabilities. Positivity is therefore a statement about a product of `2T` factors, and each is truncated before multiplying rather than the product afterwards; `res.diagnostics()` reports the weight and effective `n` per regimen per node. This is a separate estimator with its own result object rather than a `Target`: a regimen is not an arm, a regime, a shift, a tilt or an MSM coefficient. What is refused rather than approximated: a dynamic rule `d_t(H_t)`, a survival outcome or competing risks, a multi-valued treatment at a node, an MSM over regimens, observation weights and `intermediate=` |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
 | Cross-fitting | out-of-fold nuisance fits; V-fold, stratified, grouped and cluster-level splits, with stratification handling a multi-valued treatment natively and `stratify_folds="treatment+outcome"` crossing the outcome in when events are rare enough that an arm-balanced fold can still contain none. The prohibitions are **checked, not assumed**: a fold index outside the declared range and an empty fold are refused by `Folds` itself, and a cluster with rows in more than one fold by a post-condition on every split the library builds — outer, Super Learner's inner, C-TMLE's selection. Every result carries the `CrossFitPlan` it *declared* beside the fold count it *ran*, which come apart whenever a cap fired. `repeats=R` averages over `R` independent draws of the split — `mean_r psi_r` with influence curve `mean_r IC_r`, so the variance, the delta method and the bands stay coherent without a second rule, and every analysis that produces a number follows all `R` draws while the ones describing a fitted mechanism name the draw they describe. A draw redraws every stage of the split, Super Learner's inner CV and C-TMLE's selection folds included, and `repeat_spread()` reports how far the draws moved as a diagnostic rather than a standard error. Median-of-estimates aggregation is refused, since the median of the estimates is not the estimator whose curve is the median of the curves. The inner CV that scores Super Learner candidates is nested inside one outer training fold and gets the same cluster codes. What is refused rather than approximated: blocked-temporal splits (no node carries a time index), rolling-origin splits (their nested training sets cannot give every row the one out-of-fold prediction the storage contract rests on — a different contract, not a different splitter) and splitting a cluster across folds to buy more of them |
@@ -1127,8 +1259,13 @@ way: `counterfactual_means` returns a mapping of arm to `(psi, influence_curve)`
 The base classes (`estimators/base.py`, `inference/`, `learners/`, `fluctuation/`) are shared
 infrastructure; the following variants plug into them:
 
-- longitudinal TMLE (`ltmle`) for time-varying treatments and censoring
-- survival TMLE (`survtmle`) and competing risks
+- **longitudinal TMLE (`cleverly.longitudinal.LTMLE`) — landed for a static regimen**, with
+  time-varying confounding and monotone censoring; see
+  [Treatment given over time](#treatment-given-over-time). What it still refuses is listed
+  there, and the first of those is the next step: a **dynamic rule** `d_t(H_t)`, whose
+  followers are a different, covariate-dependent set at every node
+- survival TMLE (`survtmle`) and competing risks — the outcome becomes a node at every time
+  point rather than one at the end, and the parameter a curve
 - doubly-robust TMLE with nonparametric inference (`drtmle`)
 
 ### On native acceleration
@@ -1216,6 +1353,13 @@ Python 3.10–3.13 in CI.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), *Scalable
   collaborative targeted learning for high-dimensional data*.
 - van der Laan & Gruber (2016), *One-step targeted minimum loss-based estimation*.
+- Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*.
+- van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
+  multiple time point interventions*.
+- Neugebauer & van der Laan (2007), *Nonparametric causal effects based on marginal structural
+  models*.
+- Kennedy (2019), *Nonparametric causal effects based on incremental propensity score
+  interventions*.
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2022), *Long story short: omitted variable bias
   in causal machine learning*.
 - VanderWeele & Ding (2017), *Sensitivity analysis in observational research: introducing the

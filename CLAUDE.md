@@ -86,6 +86,7 @@ load-balancing the tail, not contending for cores.
 | `src/cleverly/msm.py` | the working model a fit projects the counterfactual means onto |
 | `src/cleverly/fluctuation` | clever covariates and the targeting step |
 | `src/cleverly/estimators` | nuisance orchestration, `TMLE`, result objects |
+| `src/cleverly/longitudinal` | the time-ordered container, regimens, sequential regression, `LTMLE` |
 | `src/cleverly/inference` | influence curves, clustering, bootstrap, simultaneous bands |
 | `src/cleverly/sensitivity` | positivity, omitted-variable bias, E-values, MNAR tilt |
 | `src/cleverly/validation` | score check, nuisance diagnostics, refutation, simulation |
@@ -184,6 +185,25 @@ load-balancing the tail, not contending for cores.
   `TargetContext.finish_unscaled`, not `finish`. And a *saturated* working model must
   reproduce the per-arm report exactly; `tests/unit/test_msm_submodel.py` and
   `tests/e2e/test_msm.py` are what enforce that, at the covariate and at the estimate.
+- **A regimen is a plan over nodes, and it is not a `Target`.** `cleverly.longitudinal` is a
+  separate estimator with its own container and result object, not a fifth parameter axis:
+  a `Target` is indexed by an arm, a regime, a shift, a tilt or an MSM coefficient, and the
+  point-treatment pipeline is built around one `Qbar(a, W)` and one `g(a | W)`. What it
+  *does* reuse is everything below the estimand — `cross_fit_predictions`, `Submodel` and
+  `solve_fluctuation` (with `group="sequential"`, which needs no `register_submodel` since
+  `TargetGroup` is a plain `str`), `make_estimate`, `delta_method`, `influence_covariance`
+  — so do not fork any of those. Three things are easy to get wrong here and each has a
+  test that fails when it is. The recursion's masks must line up: `at_risk(t+1)` **is**
+  `following(t)`, the set the previous node's regression was fitted on, and if the two come
+  apart the pseudo-outcome is regressed on a population it was not computed for. The update
+  is applied at the *counterfactual* covariate (`1/∏g`, no indicator) while the score uses
+  the observed one (`1{followed}/∏g`), exactly as the arm path takes `Q*(1, W)` from
+  `submodel.arms[1.0]` — read `fluctuation.targeted.arms[a]`, never `.observed`, or the
+  nodes after the first stop being updated at all. And the recursion carries the *targeted*
+  prediction forward, not the initial one. `tests/discrete_law_longitudinal.py` catches all
+  three: on a law the sample realises exactly, a saturated learner makes every score zero,
+  so `epsilon` must come back zero and the reported curve must equal the complex-step
+  Gateaux derivative to `1e-15`.
 - **Which truncation bound a group gets is a statement about its covariate.**
   `utils.bounds.CONDITIONAL_GROUPS` names the groups whose clever covariate is a propensity
   *odds* (`att`, `atc`) and so needs the tighter bound; everything else divides by `g` once
