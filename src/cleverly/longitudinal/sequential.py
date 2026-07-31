@@ -45,6 +45,28 @@ positivity story of a longitudinal fit: :math:`T` probabilities multiply, so a m
 that looks harmless node by node can leave a handful of units carrying most of the
 weight.  :attr:`RegimenFit.max_weight` and the effective sample size it implies are
 reported for that reason rather than as decoration.
+
+**A survival outcome** puts an absorbing :math:`Y_t` at every node, and the parameter
+becomes the cumulative risk at a horizon :math:`k`,
+:math:`\Psi_k(P) = P(Y_k^{\bar a} = 1)`.  The recursion above generalises by seeding
+:math:`\bar Q_{k+1} = 0` and composing the event indicator into the pseudo-outcome:
+
+.. math::
+
+    Z_t &= Y_t + (1 - Y_t)\, \bar Q^*_{t+1} \\
+    \bar Q_t(H_t) &= E\bigl[Z_t \bigm| H_t,\, A_t = a_t,\, C_t = 1\bigr]
+
+fitted on the units at risk entering :math:`t` -- event-free through :math:`t - 1`, which
+is one node *earlier* than the censoring factor, because a unit that has the event at
+:math:`t` is exactly the observation that it happened and belongs in that regression.  So
+one backward pass answers one horizon, and a curve is :math:`k` of them; the mechanism is
+fitted once and shared across all of them, which is where the cost would otherwise be.
+
+Note what does **not** change.  ``1{event-free through t-1}`` is a function of
+:math:`H_t` -- it is part of the history, not an intervened node -- so it enters the
+*indicator* of :math:`h_t` and never its denominator.  The cumulative product is still
+over the :math:`2T` treatment and censoring factors, and the positivity assumption a
+survival fit makes is the one an end-of-study fit makes.
 """
 
 from __future__ import annotations
@@ -147,9 +169,17 @@ class SequentialStep:
     trained_on: BoolArray
     #: Rows whose history at this node is observed and regimen-consistent -- the set the
     #: regression *predicts* for, and the population the assigned arm is a statement
-    #: about.  Equal to the previous node's ``trained_on``, which is what closes the
-    #: recursion.
+    #: about.  Equal to the previous node's ``trained_on`` on an end-of-study fit, which
+    #: is what closes the recursion; on a survival fit it is that set less the units that
+    #: had the event there, which closes it just as well and is the general statement.
     at_risk: BoolArray
+    #: What this node's regression was fitted *to*: the later node's targeted prediction
+    #: on an end-of-study fit, and on a survival one the composition
+    #: :math:`Z_t = Y_t + (1 - Y_t)\\,\\bar{Q}^*_{t+1}`.  Stored rather than recomputed
+    #: because the influence curve's ``t``-th term needs the same quantity, and the one
+    #: place this recursion could silently disagree with itself is by composing the
+    #: pseudo-outcome twice and composing it differently.
+    pseudo_outcome: FloatArray
     initial: FloatArray
     targeted: FloatArray
     clever: FloatArray
@@ -168,6 +198,11 @@ class RegimenFit:
     #: On the ``[0, 1]`` outcome scale, as everything inside the recursion is.
     psi_scaled: float
     influence_curve_scaled: FloatArray
+    #: The node this fit's parameter is indexed by: ``T`` for an end-of-study outcome,
+    #: and the horizon of the cumulative risk for a survival one.  Carried as a field
+    #: rather than parsed back out of a report name, so ``diagnostics()`` and
+    #: ``summary()`` read the regimen and the horizon rather than reconstructing them.
+    horizon: int
     steps: tuple[SequentialStep, ...]
     cumulative: FloatArray
     #: The ``(n, T)`` arms this regimen assigned *this* sample.  Constant down each
@@ -216,16 +251,22 @@ def fit_mechanism(
 ) -> Mechanism:
     """Fit the treatment and censoring mechanisms at every node, out of fold.
 
-    Each node's model is fitted on the units still under observation *before* that
-    node's decision -- not on the regimen's followers.  The conditioning set carries the
-    earlier treatments as columns, so one model answers for every regimen and is simply
-    evaluated at each one's arms.  Under a dynamic rule those arms differ by row, which
-    changes where the model is *evaluated* and nothing about how it is fitted.
+    Each node's model is fitted on the units still in the study *before* that node's
+    decision -- not on the regimen's followers.  The conditioning set carries the earlier
+    treatments as columns, so one model answers for every regimen and is simply evaluated
+    at each one's arms.  Under a dynamic rule those arms differ by row, which changes
+    where the model is *evaluated* and nothing about how it is fitted.
+
+    On a survival fit "still in the study" excludes the units that have already had the
+    event, and that exclusion is not cosmetic: such a unit has no treatment at this node,
+    so its ``A_t`` is missing, and the design fills a missing arm with zero.  Left in the
+    fit mask it would be trained on as an untreated observation and bias ``g_t`` -- and
+    with it every clever covariate downstream of it.
     """
     treatment: list[dict[str, FloatArray]] = []
     censoring: list[dict[str, FloatArray]] = []
     for time in range(1, data.n_times + 1):
-        at_risk = data.uncensored_through(time - 1)
+        at_risk = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
         designs = {plan.label: data.history_design(time, treatment=plan.values) for plan in plans}
         predictions, _ = cross_fit_predictions(
@@ -278,6 +319,7 @@ def fit_regimen(
     folds: Folds,
     scaler: OutcomeScaler,
     g_bounds: tuple[float, float],
+    horizon: int | None = None,
     alpha: float = 0.9995,
     max_iter: int = 20,
     tol: float = 1e-10,
@@ -290,28 +332,63 @@ def fit_regimen(
     separate arguments because the two regressions have different *types*: a binary
     outcome is a classification problem, and the pseudo-outcome that replaces it one node
     earlier never is, whatever the outcome's family.
+
+    ``horizon`` says which node the parameter is indexed by.  On an end-of-study fit it
+    is ``T`` and the recursion is the one Bang & Robins wrote down.  On a survival fit it
+    is the horizon of a cumulative risk, the recursion starts there rather than at ``T``,
+    and the pseudo-outcome carried back is composed with that node's event indicator:
+    a unit that had the event contributes a one and a unit that did not contributes the
+    later node's targeted prediction.  Seeding :math:`\\bar{Q}_{k+1} = 0` makes the two
+    statements one, since at ``k`` the composition is exactly :math:`Y_k`.
     """
+    horizon = data.n_times if horizon is None else horizon
+    if not 1 <= horizon <= data.n_times:
+        raise LongitudinalError(f"horizon {horizon} is outside 1..{data.n_times}")
     cumulative = mechanism.cumulative(data, plan, g_bounds)
-    observed_outcome = data.uncensored_through(data.n_times)
-    scaled = np.where(observed_outcome, scaler.scale(np.nan_to_num(data.outcome, nan=0.0)), _FILLER)
-    next_outcome = np.clip(scaled, 0.0, 1.0)
+    if data.is_survival:
+        # Q̄_{k+1} = 0, so the composition below returns Y_k at the first node visited.
+        carried = np.zeros(data.n)
+    else:
+        observed_outcome = data.uncensored_through(data.n_times)
+        scaled = np.where(
+            observed_outcome, scaler.scale(np.nan_to_num(data.outcome, nan=0.0)), _FILLER
+        )
+        carried = np.clip(scaled, 0.0, 1.0)
 
     steps: list[SequentialStep] = []
-    for time in range(data.n_times, 0, -1):
+    for time in range(horizon, 0, -1):
         at_risk = data.at_risk(plan.values, time)
         trained_on = data.following(plan.values, time)
         if not trained_on.any():
             raise LongitudinalError(
                 f"no unit followed regimen {plan.label!r} through time {time} while "
-                "remaining under observation, so the sequential regression there has "
-                "nothing to fit. The regimen is not supported by this sample."
+                "remaining in the study, so the sequential regression there has nothing "
+                "to fit. The regimen is not supported by this sample."
+                + _risk_set_hint(data, plan, time)
                 + _rule_hint(plan, at_risk, time)
             )
+        if data.is_survival:
+            failed = data.event_by(time)
+            next_outcome = failed + (1.0 - failed) * carried
+        else:
+            next_outcome = carried
         design = data.covariate_history(time)
-        learner = outcome_learner if time == data.n_times else pseudo_learner
-        task = (
-            "classification" if time == data.n_times and data.family == "binomial" else "regression"
-        )
+        learner = outcome_learner if time == horizon else pseudo_learner
+        task = "classification" if time == horizon and data.family == "binomial" else "regression"
+        if task == "classification":
+            seen = np.unique(next_outcome[trained_on])
+            if seen.size < 2:
+                raise LongitudinalError(
+                    f"every unit following regimen {plan.label!r} through time {time} has "
+                    f"the same outcome ({seen.tolist()}), so the regression there has "
+                    "nothing to separate. "
+                    + (
+                        f"The risk at horizon {horizon} is not estimable from this sample: "
+                        "no event was observed among the regimen's followers."
+                        if data.is_survival
+                        else "The outcome does not vary among the regimen's followers."
+                    )
+                )
         predictions, _ = cross_fit_predictions(
             learner,
             design,
@@ -352,28 +429,54 @@ def fit_regimen(
                 time=time,
                 trained_on=trained_on,
                 at_risk=at_risk,
+                pseudo_outcome=next_outcome,
                 initial=initial,
                 targeted=targeted,
                 clever=clever,
                 fluctuation=fluctuation,
             )
         )
-        next_outcome = np.where(at_risk, targeted, _FILLER)
+        carried = np.where(at_risk, targeted, _FILLER)
 
     steps.reverse()
     psi = float(np.mean(steps[0].targeted))
     influence = steps[0].targeted - psi
-    final = np.clip(scaled, 0.0, 1.0)
-    for index, step in enumerate(steps):
-        later = steps[index + 1].targeted if index + 1 < len(steps) else final
-        influence = influence + step.clever * (later - step.targeted)
+    for step in steps:
+        # The ``t``-th term of the efficient influence function reads the very array the
+        # ``t``-th regression was fitted to -- the later node's targeted prediction, or,
+        # on a survival fit, that prediction composed with this node's event indicator.
+        influence = influence + step.clever * (step.pseudo_outcome - step.targeted)
     return RegimenFit(
         regimen=plan.regimen,
         psi_scaled=psi,
         influence_curve_scaled=influence,
+        horizon=horizon,
         steps=tuple(steps),
         cumulative=cumulative,
         assignment=np.asarray(plan.values),
+    )
+
+
+def _risk_set_hint(data: LongitudinalData, plan: Plan, time: int) -> str:
+    """On a survival fit, whether the risk set emptied because everybody had the event.
+
+    "Nobody followed the regimen this far" and "everybody who did had already had the
+    event" are different diagnoses -- the first is a positivity failure and the second is
+    the study running out of people to observe -- and a single message covering both
+    would send a reader to the wrong place.
+    """
+    if not data.is_survival:
+        return ""
+    reached = data.uncensored_through(time - 1) & data.followed_through(plan.values, time - 1)
+    if not reached.any():
+        return ""
+    failed = int(np.sum(reached & ~data.event_free_through(time - 1)))
+    if failed < int(reached.sum()):
+        return ""
+    return (
+        f" All {failed} unit(s) that reached time {time} on this regimen had already had "
+        "the event, so the risk set is empty rather than unsupported: the curve is "
+        f"estimable only up to a horizon before {time}."
     )
 
 

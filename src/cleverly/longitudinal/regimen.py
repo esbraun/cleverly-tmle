@@ -155,8 +155,10 @@ class DynamicRegimen:
         disagree with the designs the mechanism was evaluated at, and the fit would be
         answering for no single regimen at all.
 
-        A rule is asked for an arm on every row whose history is *recorded* --
-        ``uncensored_through(t - 1)``.  Off that set the history is the zero fill
+        A rule is asked for an arm on every row that is still *in the study* before the
+        node -- uncensored through ``t - 1``, and on a survival fit event-free through
+        ``t - 1`` as well, since a unit that has had the event has no treatment decision
+        at ``t`` for a rule to make.  Off that set the history is the zero fill
         :meth:`~cleverly.longitudinal.data.LongitudinalData.covariate_history` puts there,
         so whatever the rule returns is meaningless; it is replaced by zero rather than
         validated, because such a row is masked out of every regression and every
@@ -165,7 +167,7 @@ class DynamicRegimen:
         """
         columns = []
         for time, node in enumerate(self.plan, start=1):
-            reachable = data.uncensored_through(time - 1)
+            reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
             if callable(node):
                 arms = self._evaluate(node, data, time, reachable)
             else:

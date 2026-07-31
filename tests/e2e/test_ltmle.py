@@ -692,7 +692,10 @@ class TestItRefusesByName:
             ("interventions", "Declare it in regimens="),
             ("shifts", "continuous dose"),
             ("incremental", "tilted mechanisms"),
-            ("event", "node at every time point"),
+            # Not a refusal any more but a redirect: a survival outcome is declared by
+            # the outcome columns, and the keyword stays a key so that passing it says
+            # so rather than falling through to "unexpected keyword argument".
+            ("event", r"outcome=\['Y1', 'Y2', \.\.\.\]"),
             ("competing", "cumulative incidences"),
             ("n_bootstrap", "whole backward recursion"),
             ("cross_fit", "n_folds=1"),

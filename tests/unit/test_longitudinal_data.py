@@ -251,7 +251,7 @@ def test_refuses_a_node_recorded_after_censoring() -> None:
     frame = panel()
     censored = frame.index[frame["C1"] == 0][0]
     frame.loc[censored, "L2"] = 0.3
-    with pytest.raises(DataError, match="had already been censored"):
+    with pytest.raises(DataError, match="had already left the study"):
         build(frame)
 
 
@@ -259,7 +259,7 @@ def test_refuses_a_node_missing_before_censoring() -> None:
     frame = panel()
     present = frame.index[frame["C1"] == 1][0]
     frame.loc[present, "A2"] = np.nan
-    with pytest.raises(DataError, match="still under observation"):
+    with pytest.raises(DataError, match="still in the study"):
         build(frame)
 
 
