@@ -323,6 +323,13 @@ class MSM:
     terms: tuple[str, ...]
     weights: Callable[[Any, Any], Any] | None = None
     link: MSMLink = "identity"
+    #: Set by :meth:`linear` and by nothing else.  That shorthand reads the label it is
+    #: handed as a *dose*, which a treatment arm can be and a regimen cannot, so a
+    #: working model over regimens refuses it (:mod:`cleverly.longitudinal.msm`).
+    #: ``_numeric_level`` already refuses a string label, but a regimen legitimately
+    #: called ``"0"`` would be read as a dose of zero and reported without complaint --
+    #: a flag on the declaration is what makes that structural rather than lucky.
+    from_linear: bool = False
 
     def __post_init__(self) -> None:
         link_for(str(self.link))
@@ -378,7 +385,7 @@ class MSM:
                 columns.extend(dose * values for values in modifier_values)
             return np.column_stack(columns)
 
-        return cls(design=build, terms=terms, weights=weights, link=link)
+        return cls(design=build, terms=terms, weights=weights, link=link, from_linear=True)
 
 
 def _frame_len(frame: Any) -> int:
