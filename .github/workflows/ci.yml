@@ -17,7 +17,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       # Pinned, not `@latest`: a formatter release can turn this job red with no commit
-      # to blame, and it has -- 0.16 began formatting the Python blocks inside README.md.
+      # to blame, and it has -- 0.16 began formatting the Python blocks inside Markdown,
+      # which here means README.md, CLAUDE.md and everything under docs/.
       # Bump it deliberately, in step with the `ruff==` pin in pyproject's `dev` extra, so
       # that `ruff format --check .` run locally is the same check that runs here.
       - run: uv tool run ruff@0.16.1 check .

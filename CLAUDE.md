@@ -455,5 +455,10 @@ pytest -m "not slow" -q
 which meant a formatter release could turn the lint job red with no commit to blame — and
 did: 0.16 began formatting the Python blocks inside Markdown, so `README.md` failed there
 while a local 0.15 said everything was clean. When bumping the pin, run `ruff format .`
-over the *whole* tree rather than `src` and `tests`, because the README is now formatted
-code too, and expect hand-aligned trailing comments in its examples to be collapsed.
+over the *whole* tree rather than `src` and `tests`, because `README.md` and every file
+under `docs/` are now formatted code too, and expect hand-aligned trailing comments in
+their examples to be collapsed.
+
+`noxfile.py` is a *third* place the toolchain is named, and it currently drifts: it installs
+`ruff>=0.6` and `mypy>=1.11`, so `nox -s lint` can pass against a formatter CI rejects. Move
+all three together, or fix the noxfile to install the pins.

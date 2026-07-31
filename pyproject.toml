@@ -51,7 +51,8 @@ dev = [
     "pytest-xdist>=3.5",
     # Pinned exactly, and kept in step with .github/workflows/ci.yml. A range would let a
     # local `ruff format --check .` pass against a formatter CI does not run: 0.16 began
-    # formatting the Python blocks inside Markdown, so the two disagreed about README.md.
+    # formatting the Python blocks inside Markdown, so the two disagreed about README.md
+    # and now about docs/*.md as well.
     "ruff==0.16.1",
     "mypy==1.19.1",
     "nox>=2024.3",

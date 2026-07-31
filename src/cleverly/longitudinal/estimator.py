@@ -43,7 +43,8 @@ score equation is weighted, and the reported curve is :math:`(w/E[w])\,D^*(P_w)`
 :mod:`cleverly.longitudinal.sequential` for what a weight is *not* -- a factor in the
 clever covariate.
 
-What is refused rather than approximated is listed in the README; the short version is
+What is refused rather than approximated is listed in ``docs/methodology.md``, under
+*Treatment given over time: the sequential regression*; the short version is
 that this estimator answers for a regimen -- static or dynamic -- over a binary treatment
 at every node, for one end-of-study outcome or one absorbing event per cause, with
 monotone censoring.  Every point-treatment keyword it does not take is accepted and
@@ -86,7 +87,8 @@ __all__ = ["LTMLE", "LongitudinalConfig", "LongitudinalResult", "ltmle"]
 
 
 #: What each point-treatment keyword would need before this estimator could take it.
-#: The module docstring and the README both say these are refused *by name*; without
+#: The module docstring and ``docs/methodology.md`` both say these are refused *by name*;
+#: without
 #: this table they were refused by absence, which is a ``TypeError`` naming no reason.
 _REFUSED: dict[str, str] = {
     # Kept as a key rather than deleted now that observation weights are supported, for the
@@ -213,7 +215,8 @@ def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> No
         if reason is None:
             raise TypeError(
                 f"{where} got an unexpected keyword argument {name!r}; see the "
-                "longitudinal section of the README for what a longitudinal fit supports"
+                "'Treatment given over time' section of docs/user-guide.md for what a "
+                "longitudinal fit supports"
             )
         raise TypeError(f"{name}= is not supported by a longitudinal fit: {reason}")
 
