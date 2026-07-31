@@ -62,14 +62,18 @@ actually received.  They agree only in conditional expectation given :math:`W`. 
 :func:`~cleverly.inference.influence.shift_means` for the variance identity this implies
 and for why the two paths must not share an implementation.
 
-**Why this is implementable when an IPSI is not.**  Both have a :math:`g^\star` involving
-:math:`g`, which is exactly why the resemblance is dangerous.  An incremental
-propensity-score intervention *defines its intervention through* :math:`g`, so
-:math:`g^\star` is a functional of :math:`P` and the efficient influence function carries a
-further term for the pathwise derivative through it (Kennedy 2019).  A shift's
-:math:`d(a, w) = a + \delta` is a known function, and :math:`\Psi_\delta` above mentions no
-mechanism at all; the induced density moving with :math:`P` is precisely what the
-plug-in-at-the-observed-row term already accounts for.
+**Why this needs no second fluctuation and an incremental intervention does.**  Both have
+a :math:`g^\star` involving :math:`g`, which is exactly why the resemblance is dangerous,
+and the distinction got *more* useful once both were implemented rather than less.  An
+:class:`~cleverly.interventions.Incremental` intervention *defines its intervention
+through* :math:`g`: its :math:`q_\delta` is a functional of :math:`P`, so
+:math:`\Psi(\delta)` mentions the mechanism, the efficient influence function carries a
+further term for the pathwise derivative through it (Kennedy 2019), and the estimator has
+to fluctuate :math:`g` as well as :math:`\bar Q`.  A shift's :math:`d(a, w) = a + \delta`
+is a known function and :math:`\Psi_\delta` above mentions no mechanism at all; the
+induced density moving with :math:`P` is precisely what the plug-in-at-the-observed-row
+term already accounts for.  So: a shift's :math:`g` is a nuisance, an incremental
+intervention's is half of the estimand.
 """
 
 from __future__ import annotations

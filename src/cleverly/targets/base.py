@@ -161,22 +161,28 @@ class Target:
     parameter_axis:
         What this target's parameters are indexed by: ``"arm"`` for a treatment level,
         ``"regime"`` for a regime declared with ``interventions=``, ``"shift"`` for a
-        modified treatment policy declared with ``shifts=``, ``"msm"`` for a coefficient
-        of a working model declared with ``msm=``.
+        modified treatment policy declared with ``shifts=``, ``"ipsi"`` for a tilt of the
+        mechanism declared with ``incremental=``, ``"msm"`` for a coefficient of a working
+        model declared with ``msm=``.
 
-        The four **partition** the registry rather than accumulating: a target is
+        The five **partition** the registry rather than accumulating: a target is
         unavailable unless the fit's own axis matches, and declaring one axis makes the
         others unavailable in turn.  They are not alternative spellings of one report.
         A single fit reporting ``E[Y(1)]``, ``E[Y^{g*}]``, ``E[Y^{d}]`` and a working
         model's slope from one fluctuation would be reporting four different score
         equations under one heading.
 
-        The first three also declare what "counterfactual" means for the fit.  ``"msm"``
+        The first four also declare what "counterfactual" means for the fit.  ``"msm"``
         is the one that does not: its counterfactuals are still the arms, and the
         fluctuation still updates ``Qbar`` at every one of them.  What changes is the
         *summary* -- ``p`` score equations, one per term, in place of ``K``, one per arm.
         That is enough to make it an axis: the coefficients of a summary are not indexed
-        by anything the other three name.
+        by anything the other four name.
+
+        ``"ipsi"`` is the one whose intervention is a functional of the observed-data law
+        rather than a declaration about it, which is why it is not a kind of ``"regime"``:
+        its ``q_delta`` is built out of the estimated mechanism, so its influence curve
+        carries a further term and its targeting has a second score equation.
 
         The axis is also not the same question as ``group``.  A group is a score
         equation and several targets share one; an axis is what the resulting
@@ -245,7 +251,7 @@ class TargetContext:
     #: code to the level the user supplied, and is what :func:`parameter_name` is given.
     #:
     #: On a **regime** or **shift** fit these carry regime (or shift) codes and labels
-    #: instead.  The three axes are interchangeable here on purpose: a target that loops
+    #: instead.  The axes are interchangeable here on purpose: a target that loops
     #: the keys of :attr:`means` and names each one is estimating a mean per arm, per
     #: regime or per shift with the same code, which is what lets the regime and shift
     #: targets reuse the arm builders.

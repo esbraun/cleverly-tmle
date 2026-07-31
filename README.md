@@ -176,12 +176,12 @@ A rule's positivity question is not "is `g` bounded away from zero" but "is it b
 away from zero at the arm this rule assigns". Two fits with identical marginal overlap can
 differ completely on that, and no arm-level table shows it.
 
-One intervention is **refused rather than approximated**, because of the influence
+One intervention is **not a regime, and has its own keyword**, because of the influence
 function and not for want of effort:
 
-| refused | what it would need |
+| not here | where it went |
 | --- | --- |
-| incremental propensity-score interventions (`g*_δ = δg / (δg + 1 - g)`) | `g*` is a functional of `P`, so the EIF carries a further term for the pathwise derivative through `g` (Kennedy 2019). Estimating one as a `Stochastic` regime would report a standard error for a different functional |
+| incremental propensity-score interventions (`g*_δ = δg / (δg + 1 - g)`) | `g*` is a functional of `P`, so the EIF carries a further term for the pathwise derivative through `g` (Kennedy 2019) and the estimator must fluctuate the mechanism too. That is a parameter axis of its own: `incremental=`, see [Tilting the odds of treatment](#tilting-the-odds-of-treatment). Building one by hand as a `Stochastic` regime reports a standard error for a different functional, and a *smaller* one |
 
 A modified treatment policy — shifting a *continuous* dose — is **not** an intervention in
 this sense and does not go in `interventions=`. It reads the treatment a unit actually
@@ -298,6 +298,151 @@ itself held back, so `h` carries the further indicator `1{a ≤ u}` — which is
 whenever the cap sits at or above the largest dose, the common case. The tight cap is what
 caught that term missing.
 
+### Tilting the odds of treatment
+
+Every intervention above replaces the treatment decision. An **incremental
+propensity-score intervention** leaves it where it was and multiplies its *odds* by `δ`
+(Kennedy 2019):
+
+```
+q_δ(1 | W) = δ g(W) / (δ g(W) + 1 - g(W)),     D_δ = δ g + 1 - g
+```
+
+"Make everyone `δ` times as likely to be treated as they already were." `δ = 1` changes
+nothing — `q₁ = g` identically — so it is the natural course and the usual reference, the
+way `Shift(0.0, cap=None)` is on the dose axis.
+
+```python
+from cleverly import TMLE
+from cleverly.datasets import make_nonlinear_ate
+from cleverly.interventions import Incremental
+
+frame, truth = make_nonlinear_ate(n=2000, seed=0)
+res = (
+    TMLE(
+        incremental=[Incremental(1.0), Incremental(2.0), Incremental(0.5)],
+        random_state=0,
+    )
+    .fit(frame, outcome="Y", treatment="A")
+    .single()
+)
+print(res.summary())
+```
+
+```
+estimand                               psi       std_err   95% CI
+-------------------------------------  --------  --------  --------------------
+ey_ipsi[natural course]                2.8069    0.04286   [2.7229, 2.8909]
+ey_ipsi[odds x2]                       3.0877    0.04352   [3.0024, 3.173]
+ey_ipsi[odds x0.5]                     2.5217    0.04182   [2.4397, 2.6037]
+ate_ipsi[odds x2 vs natural course]    0.28082   0.009157  [0.26287, 0.29877]
+ate_ipsi[odds x0.5 vs natural course]  -0.28521  0.008459  [-0.30179, -0.26863]
+```
+
+`ey_ipsi[natural course]` is `mean(Y)` — not approximately, and not because the estimator
+converged. At `δ = 1` the influence curve collapses to `Y - Ψ` row by row for *any*
+nuisances, so the identity holds whatever the learners did. It is the sharpest diagnostic
+in the package: it fails if the extra term below is dropped, mis-signed, or left
+unsolved, and it costs nothing to check.
+
+**No positivity assumption.** This is the reason the axis is worth having. Every other
+estimand here divides by `g` somewhere and degrades as overlap fails; this one does not.
+Its clever covariate is `δ/D` at `A=1` and `1/D` at `A=0`, and since `D` lies between
+`min(1, δ)` and `max(1, δ)`, both stay inside
+
+```
+[min(δ, 1/δ),  max(δ, 1/δ)]
+```
+
+**whatever the mechanism does** — a bound the analyst chose, not one the data granted.
+The `g` in numerator and denominator cancels algebraically, so the code never forms the
+ratio and never divides by a small propensity. `g_bounds=` is refused rather than ignored,
+because `g` is *inside* the estimand here and truncating it would move `Ψ(δ)` rather than
+regularise a denominator; `truncation_curve()` is refused for the same reason.
+
+```python
+for report in res.sensitivity.incremental_support().values():
+    print(report.summary())
+```
+
+```
+natural course: min g(1|W)=0.0457, covariate in [1, 1] by construction, max=1, ESS=2000 (100.0% of n)
+odds x2: min g(1|W)=0.0457, covariate in [0.5, 2] by construction, max=1.79, ESS=1806 (90.3% of n)
+odds x0.5: min g(1|W)=0.0457, covariate in [0.5, 2] by construction, max=1.62, ESS=1818 (90.9% of n)
+```
+
+A propensity of 0.046 costs this fit 10% of its effective sample size. An `ey1` on the
+same data divides by it.
+
+**Two score equations, and the mechanism is targeted.** Because `q_δ` is built out of `g`,
+the efficient influence function carries a term for the pathwise derivative through it:
+
+```
+φ = (δA + 1 - A)/D · {Y - Q̄(A,W)}            ← the Q̄ score
+  + δ{Q̄(1,W) - Q̄(0,W)}/D² · (A - g)          ← ∂m/∂g
+  + m(W) - Ψ(δ)
+```
+
+The second term lives in the tangent space of the *treatment* mechanism, so no
+fluctuation of `Q̄` can reach it. This is the first estimator here that targets the
+mechanism: `g` gets a logistic submodel of its own whose score is exactly that term, and
+because each covariate reads the other's fitted value the two alternate. The alternation
+is coordinate ascent on one joint likelihood — the outcome and treatment quasi-likelihoods
+are separate factors — so the joint value never decreases and the loop has an actual
+convergence argument. `score_check()` therefore reports two rows per fit rather than one:
+
+```
+target             kind          |score|    threshold  ok
+-----------------  ------------  ---------  ---------  ---
+ipsi               fluctuation   6.9e-17    2.4e-06    yes
+ipsi (mechanism)   fluctuation   8.7e-10    2.4e-06    yes
+```
+
+The per-estimand rows below them already check the two equations *jointly* — the influence
+curve holds both terms, so its mean cannot be zero unless both are solved — but they
+cannot say which one stalled. These can.
+
+**It is not the stochastic regime at the same density**, and the temptation is real: a
+`Stochastic` regime evaluated at `q_δ` has the same mean and, entry for entry, the same
+clever covariate. Its influence curve is the one above without the middle term. The gap is
+not a wash — the extra term is mean zero given `W` and orthogonal to both halves of the
+regime curve, so
+
+```
+Var(D_ipsi) = Var(D_regime) + Var( δ{Q̄(1,W) - Q̄(0,W)}/D² · (A - g) )
+```
+
+exactly. Treating an incremental intervention as the regime that induces it does not
+merely report a different quantity: it reports a standard error that is too **small**,
+always. `tests/unit/test_influence_gateaux_ipsi.py` keeps that identity as a negative
+control, on the terms the shift axis already set.
+
+**It is not doubly robust, and it is the only estimand here that is not.** `g` appears in
+the estimand itself, so every term of the second-order remainder carries `(ĝ - g₀)` as a
+factor:
+
+```
+R₂ = (δ-1)δ · E[(g₀-ĝ)² (Q̄₀(1,W) - Q̄₀(0,W)) / (D₀ D̂²)]     ← survives a perfect Q̄
+   + (δ-1)  · E[(g₀-ĝ)/D̂ · {q̂(Q̄₀(1,·) - Q̄(1,·)) + (1-q̂)(Q̄₀(0,·) - Q̄(0,·))}]
+```
+
+A consistent mechanism kills the remainder whatever `Q̄` does; a consistent `Q̄` does not,
+and no accuracy in it can. Read the interval as conditional on `g` being right — which is
+why `sensitivity.positivity()` still reports on this axis and matters *more* here than
+elsewhere, there being no doubly-robust fallback. `tests/unit/test_remainder_ipsi.py`
+asserts both directions as equalities rather than as an absence.
+
+What is refused rather than approximated: `delta=` and `intermediate=` (each puts a
+further mechanism inside the covariate and needs its own derivation, with no oracle law
+here to check it against), a multi-valued treatment (an odds multiplier names two arms),
+and `CTMLE` (it cross-validates the *choice* of `ĝ`, and each candidate `ĝ` defines a
+different `Ψ(δ)` — the search would be selecting between estimands).
+
+The influence curve is checked on the same footing as the rest: against the complex-step
+Gateaux derivative of an independently written functional at `1e-12`, for a tilt above
+one, a tilt below, and the natural course, with deliberate-mutation controls that fail if
+the `∂m/∂g` term is dropped, mis-scaled or mis-signed.
+
 ### Summarising the arms: a marginal structural model
 
 Five dose levels and two effect modifiers report ten counterfactual means, which is a
@@ -373,7 +518,7 @@ Two things are **refused rather than approximated**, both because of the derivat
 | refused | what it would need |
 | --- | --- |
 | a non-identity link (`log`, `logit`) | `∂m/∂β` then depends on `β`, so the clever covariate does too, and solving the score needs an outer `(β, ε)` iteration this fluctuation does not run. A one-shot version would report a standard error for an equation that was not solved. For a binary outcome an identity-link MSM is a linear-risk model, and its coefficients are risk differences |
-| weights derived from the estimated mechanism (a "stabilised" MSM) | `h` would be a functional of `P`, so the EIF carries a further term for the pathwise derivative through `ĝ` — the same argument that refuses incremental propensity-score interventions |
+| weights derived from the estimated mechanism (a "stabilised" MSM) | `h` would be a functional of `P`, so the EIF carries a further term for the pathwise derivative through `ĝ` — the same argument that gives an incremental intervention its own axis |
 
 The influence curve is checked on the same footing as the rest: against the complex-step
 Gateaux derivative of an independently written functional at `1e-12`
@@ -751,7 +896,13 @@ written in so a helper equating arm code with arm position fails rather than pas
 regime estimands get the same treatment (`..._regime.py`), over a static regime, a rule
 that depends on `W` and a stochastic one that is degenerate nowhere — three kinds because
 two static regimes could not distinguish code that mixes over the arms from code that
-picks a column. The shift estimands get it too (`..._shift.py`, against
+picks a column. The incremental estimands get it on the *same* law as the arm-indexed ones
+(`..._ipsi.py`): `q_δ` is built from `g`, and `g` is a ratio of linear forms in the cell
+probabilities, so the functional stays analytic and the complex step differentiates
+through the mechanism as well as through `Q̄` — which is exactly the term at issue, and
+one no regime can exercise. Three tilts, one above one and one below, because a sign
+error in `∂m/∂g` survives on one side; and `δ = 1`, where the curve is `Y - Ψ` row by row
+whatever the nuisances are. The shift estimands get it too (`..._shift.py`, against
 `tests/discrete_law_shift.py`), on a law with four ordered doses and two caps — the tight
 one because a cap above the largest dose never exercises the `1{a ≤ u}` factor, and that
 law found the factor missing. The second-order remainder is checked against its closed form in the four
@@ -792,8 +943,9 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | --- | --- |
 | Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one; `ey_regime` / `ate_regime` when the fit declares `interventions=`; `ey_shift` / `ate_shift` when it declares `shifts=`; `msm[...]`, one per term, when it declares `msm=`. The four sets are exclusive, not cumulative: `interventions=` and `shifts=` declare what "counterfactual" means for the fit and `msm=` declares how the counterfactuals are summarised, and one fluctuation cannot report parameters from two score equations under one heading |
 | Multi-valued treatment | any number of arms up to 20. The mechanism becomes a distribution over the arms and the `mean` fluctuation gets one clever-covariate column per arm, so the fit reports `K` counterfactual means with a joint influence-curve matrix and `K-1` contrasts against `reference=`. Every other contrast — a dose-response comparison, a pairwise difference the reference skipped — comes from `result.contrast()` with no refit. Parameters are named with your own labels: `ey[high]`, `ate[high vs low]`. A two-armed fit is unchanged, bit for bit, and keeps the short names. What is refused rather than guessed at: `ATT`/`ATC` (they reweight one arm by the propensity odds), `CTMLE` (both searches order candidates by one propensity margin), the omitted-variable bound and the MNAR tilt |
-| Interventions | `interventions=` declares what "counterfactual" means for the fit: a constant arm (`Static`), a deterministic rule `d(W)` (`Rule`), or a known stochastic assignment `g*(a \| W)` (`Stochastic`). All three are one `(n, K)` density over the arms, so one clever covariate `g*(A \| W) / g(A \| W)` covers them and collapses to the familiar indicator form exactly when the regime is static — where the numbers are bit for bit an ordinary fit's. The report becomes `ey_regime[...]` per regime and `ate_regime[... vs ...]` per non-reference regime, and `sensitivity.support()` reports the positivity a regime actually needs. What is refused rather than approximated: incremental propensity-score interventions (their `g*` depends on `P`, so the EIF carries a further term) |
+| Interventions | `interventions=` declares what "counterfactual" means for the fit: a constant arm (`Static`), a deterministic rule `d(W)` (`Rule`), or a known stochastic assignment `g*(a \| W)` (`Stochastic`). All three are one `(n, K)` density over the arms, so one clever covariate `g*(A \| W) / g(A \| W)` covers them and collapses to the familiar indicator form exactly when the regime is static — where the numbers are bit for bit an ordinary fit's. The report becomes `ey_regime[...]` per regime and `ate_regime[... vs ...]` per non-reference regime, and `sensitivity.support()` reports the positivity a regime actually needs. An intervention whose `g*` depends on `P` is not one of these and has its own row below |
 | Continuous treatment | `shifts=` declares a modified treatment policy `d(a, w) = min(a + δ, u)` and with it that the treatment is a dose: no arms, a conditional density `g(a \| W)` in place of the propensity, and a clever covariate that is a density ratio. The density is a discrete hazard fitted by the ordinary `treatment_learner=` on a long `(unit, bin)` expansion, so every preset, screener and thread limit works untouched. The report becomes `ey_shift[...]` and `ate_shift[... vs ...]`, and `sensitivity.shift_support()` reports the ratio's tail and the effective sample size it leaves. `cap=` is required rather than estimated, since a fitted support boundary would make the parameter itself data-dependent. What is refused rather than guessed at: `delta=`, `intermediate=` and estimated weights, each of which puts a further conditional density beside `g` and needs its own derivation |
+| Incremental interventions | `incremental=` multiplies everyone's *odds* of treatment by `δ` rather than assigning an arm (Kennedy 2019), reporting `ey_ipsi[...]` and `ate_ipsi[... vs ...]`. Two things make it unlike every other axis. **No positivity assumption**: the clever covariate is `δ/D` at `A=1` and `1/D` at `A=0` with `D = δg + 1 - g`, so it lies in `[min(δ,1/δ), max(δ,1/δ)]` however small `g` is — the leverage is bounded by a number the analyst chose. `g_bounds=` is therefore refused, since `g` is inside the estimand and truncating it would move `Ψ(δ)`. And it is **not doubly robust** — the only estimand here that is not: every term of the remainder carries `(ĝ - g₀)`, so a consistent mechanism is required and a consistent `Q̄` cannot substitute. Because `q_δ` is a functional of `P`, the EIF carries a `∂m/∂g` term and the estimator fluctuates the *mechanism* as well as `Q̄`, alternating to convergence; `score_check()` reports both equations. `ey_ipsi` at `δ=1` is `mean(Y)` row by row, whatever the nuisances. What is refused rather than approximated: a multi-valued treatment, `delta=`, `intermediate=` and `CTMLE` |
 | Marginal structural model | `msm=` declares a working model `m(a, V; beta)` for `E[Y(a) \| V]` and makes the fit's parameters its coefficients, reported as `msm[a:W1]` under the term names you gave. `beta` is a **projection** under a known weight `h(a, V)`, not the truth of an assumed regression, so the estimand and its interval are well defined whether or not the model is correct (Neugebauer & van der Laan 2007). The clever covariate is `h(a,V) phi(a,V) / g(a \| W)`, one column per term, and the projection is solved by weighted least squares against the *targeted* `Qbar` — which zeroes the second half of the influence curve by construction, so no outer iteration is needed. A saturated working model reproduces the per-arm report exactly. What is refused rather than approximated: a non-identity link (its `dm/dbeta` depends on `beta`) and weights derived from the estimated mechanism (they would make `h` a functional of `P`) |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
@@ -977,8 +1129,6 @@ infrastructure; the following variants plug into them:
 
 - longitudinal TMLE (`ltmle`) for time-varying treatments and censoring
 - survival TMLE (`survtmle`) and competing risks
-- incremental propensity-score interventions, whose `g*` depends on the estimated
-  mechanism and so needs a further influence-function term (Kennedy 2019)
 - doubly-robust TMLE with nonparametric inference (`drtmle`)
 
 ### On native acceleration

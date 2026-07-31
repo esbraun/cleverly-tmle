@@ -26,15 +26,19 @@ what lets a single clever covariate
 cover the three, and collapse to :math:`\mathbb 1\{A = a\}/g_a(W)` exactly when the
 regime is :class:`Static`.
 
-**What is deliberately not here.**  Both refusals are about the *influence function*, not
-about effort:
+**What is deliberately not here.**  Both are about the *influence function*, not about
+effort -- and both are implemented, elsewhere, under keywords of their own:
 
 - An **incremental propensity-score intervention** tilts the estimated mechanism,
   :math:`g^\star_\delta(1 \mid W) = \delta g_1 / (\delta g_1 + 1 - g_1)`.  Its
   :math:`g^\star` is a functional of :math:`P`, so the efficient influence function
   carries a further term for the pathwise derivative through :math:`g` (Kennedy, 2019)
-  that none of the regimes here need.  Estimating one with the influence curve below
-  would report a standard error that is simply the wrong functional's.
+  that none of the regimes here need, and the estimator has to fluctuate the mechanism
+  as well as :math:`\bar Q`.  Neither this Protocol -- whose ``density`` sees only the
+  data -- nor the influence curve below can express that, which is why it is a parameter
+  axis of its own: :mod:`cleverly.interventions.incremental` and ``TMLE(incremental=)``.
+  The paragraph stays here rather than being deleted, because the thing to stop a reader
+  doing is writing one as a :class:`Stochastic`.
 - A **modified treatment policy** shifting a continuous treatment needs
   :math:`g^\star` and :math:`g` as conditional *densities* on a continuum, which the
   learner layer does not estimate -- there is no ``predict_density``.
@@ -249,20 +253,24 @@ class Stochastic:
 
 
 def refuse_unsupported(kind: str) -> None:
-    """Raise for an intervention this package will not fake.
+    """Raise for an intervention that is not a regime, and say where it went.
 
-    Called from the constructors a user would reach for.  Each message says what the
-    estimator would need, because "not implemented" invites the reader to assume the gap
-    is effort rather than a missing derivation.
+    Called from the constructors a user would reach for.  Both kinds here are implemented
+    under keywords of their own, so both messages name that keyword; the ``ValueError``
+    rather than ``NotImplementedError`` says the difference is one of API rather than of
+    derivation.
     """
     if kind == "ipsi":
-        raise NotImplementedError(
-            "incremental propensity-score interventions are not implemented. Their "
-            "g*(a | W) = delta*g / (delta*g + 1 - g) is a functional of P, so the "
-            "efficient influence function carries an extra term for the dependence on "
-            "g-hat (Kennedy 2019) that the regime influence curve here does not have. "
-            "Estimating one with cleverly.interventions.Stochastic would report a "
-            "standard error for a different functional."
+        raise ValueError(
+            "incremental propensity-score interventions are implemented, but not as an "
+            "intervention. Their g*(a | W) = delta*g / (delta*g + 1 - g) is a functional "
+            "of P, so the efficient influence function carries a further term for the "
+            "dependence on g-hat (Kennedy 2019) and the estimator fluctuates the "
+            "mechanism as well as the outcome regression -- neither of which the regime "
+            "path can express. Declare one with cleverly.interventions.Incremental and "
+            "pass it to TMLE(incremental=...). Building one by hand as a Stochastic "
+            "regime would report a standard error for a different functional, and would "
+            "be too small: the term it omits is orthogonal to the rest of the curve."
         )
     if kind in {"mtp", "shift"}:
         raise ValueError(

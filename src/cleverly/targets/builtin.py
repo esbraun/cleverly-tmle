@@ -62,7 +62,9 @@ _REGIME_ID = Identification(
         "with positive probability -- a weaker requirement than positivity for every "
         "arm when the regime is deterministic, and a different one",
         "the regime is a known function of W: g* does not depend on the observed-data "
-        "law, so the influence function carries no term for estimating it",
+        "law, so the influence function carries no term for estimating it. An "
+        "intervention defined *through* the estimated mechanism is a different "
+        "parameter with a further term, and is ey_ipsi",
     ),
     required_nuisances=("outcome_regression", "treatment_mechanism"),
     dr_condition=(
