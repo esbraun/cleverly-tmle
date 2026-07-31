@@ -203,7 +203,18 @@ load-balancing the tail, not contending for cores.
   prediction forward, not the initial one. `tests/discrete_law_longitudinal.py` catches all
   three: on a law the sample realises exactly, a saturated learner makes every score zero,
   so `epsilon` must come back zero and the reported curve must equal the complex-step
-  Gateaux derivative to `1e-15`.
+  Gateaux derivative to `1e-14` **absolute, with `rtol=0`** — pass it explicitly as every
+  sibling module does, since these curves reach order 20 and numpy's default relative
+  tolerance would loosen the check to ~`1e-6` while still reading as exact.
+  Two further things it does *not* reuse, and both are refusals rather than gaps.
+  `res.sensitivity` and the targeted bootstrap need a refit against re-truncated or
+  resampled nuisances, and `g_bounds` enters the *pseudo-outcome* of every earlier node
+  through the recursion — so there is no `retarget` that re-solves the fluctuation alone,
+  and `LongitudinalData` has no `subset`. Both say so by name; do not "fix" either by
+  wiring the point-treatment path to a longitudinal result. And `LTMLE`'s `alpha` /
+  `alpha_sig` mean exactly what they mean on `TMLE` (shrink, then significance level) —
+  they were once the other way round here, which made `LTMLE(alpha=0.9995)` a silent
+  0.05 %-level interval.
 - **Which truncation bound a group gets is a statement about its covariate.**
   `utils.bounds.CONDITIONAL_GROUPS` names the groups whose clever covariate is a propensity
   *odds* (`att`, `atc`) and so needs the tighter bound; everything else divides by `g` once
@@ -222,6 +233,15 @@ load-balancing the tail, not contending for cores.
   `CTMLE` (`estimators/ctmle.py`) is the worked example: because it swaps one array,
   every influence curve, sensitivity analysis and validation diagnostic keeps working
   untouched, and the bootstrap repeats the selection for free.
+  `LTMLE` is the counter-example, and the contrast is the point: it answers a parameter
+  the point-treatment pipeline cannot express, so it needs its own container and result
+  object — and then every subsystem keyed to `TMLEResult` has to be either reused
+  deliberately (`make_estimate`, `delta_method`, `influence_covariance`,
+  `simultaneous_bands`, `CoverageStudy`) or refused by name. An `AttributeError` from a
+  subsystem that was never taught about a new result type is not a refusal; nor is a
+  replicate loop's blanket `except Exception` turning a missing method into "the fit is
+  too unstable to bootstrap". Prefer overriding `_nuisances` wherever the parameter
+  allows it, precisely so this does not arise.
 - **Thread limits**: nuisance fits run single-threaded by default
   (`cleverly.learners.set_thread_limit`) so parallelism happens across folds and
   candidates. Do not add native threading inside a fit.

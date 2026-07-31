@@ -120,11 +120,23 @@ def _plan(label: str, plan: Any, n_times: int) -> tuple[float, ...]:
         return (float(plan),) * n_times
     if isinstance(plan, bool):
         return (float(plan),) * n_times
-    if isinstance(plan, str) or not isinstance(plan, Sequence):
+    if callable(plan):
+        raise DataError(
+            f"regimen {label!r} is a callable, so it reads the history to decide. A "
+            "dynamic rule d_t(H_t) is not supported yet: its followers are a different, "
+            "covariate-dependent set at every node, which changes the rows each "
+            "sequential regression is fitted on -- see the longitudinal section of the "
+            "README. Pass an arm (0 or 1) or a sequence of "
+            f"{n_times} arms instead"
+        )
+    # A numpy array and a pandas Series are plans by every reading except
+    # ``isinstance(..., Sequence)``, which neither registers for.  Testing for the
+    # iteration protocol instead keeps the message above about rules, where it belongs,
+    # rather than aiming it at an array whose diagnosis it gets wrong.
+    if isinstance(plan, str) or not hasattr(plan, "__iter__"):
         raise DataError(
             f"regimen {label!r} must be an arm (0 or 1) or a sequence of {n_times} arms; "
-            f"got {plan!r}. A rule that reads the history is not supported yet -- see "
-            "the longitudinal section of the README"
+            f"got {plan!r}"
         )
     values = tuple(float(value) for value in plan)
     if len(values) != n_times:

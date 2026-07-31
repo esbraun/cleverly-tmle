@@ -425,8 +425,10 @@ def refuse_scheme(kind: str) -> None:
             "perfectly expressible as a fold assignment -- what is missing is the "
             "ordering it would need. CausalData declares an outcome, a treatment, "
             "baseline covariates and a cluster, and no node carries a time index; id= "
-            "is the independent sampling unit, not a row or time key. The scheme arrives "
-            "with the longitudinal data layer, not before it."
+            "is the independent sampling unit, not a row or time key. LongitudinalData "
+            "does order its nodes, but along a within-unit axis: its rows are still "
+            "exchangeable units, and a fold there splits units rather than time, so it "
+            "supplies the ordering a *panel* would need and not the one this scheme does."
         )
     if kind == "rolling_origin":
         raise NotImplementedError(

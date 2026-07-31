@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import numpy as np
@@ -91,6 +92,52 @@ def test_the_fill_for_censored_rows_carries_no_information() -> None:
     np.testing.assert_array_equal(design[reachable, 1], data.time_varying[1][reachable, 0])
 
 
+def test_the_fill_cannot_reach_the_estimate() -> None:
+    """The claim the module docstring makes: replace the filled entries, get the same fit.
+
+    ``data.py`` said this test existed; it did not. What was checked was *where* the fill
+    lands, which is a statement about the container. This is the statement about the
+    estimator, and it is the one that would fail if a mask slipped: the filled rows flow
+    into ``covariate_history`` and hence into every mechanism model's training matrix, and
+    only ``fit_mask=at_risk`` keeps them inert. Fill with something wild rather than
+    something plausible, so a leak is a visible move rather than a rounding difference.
+    """
+    from cleverly.longitudinal import LTMLE
+
+    frame = panel(n=400, seed=3)
+    settings: dict[str, Any] = {
+        "outcome_learner": "glm",
+        "pseudo_learner": "glm",
+        "treatment_learner": "glm",
+        "n_folds": 2,
+        "learner_folds": 2,
+        "random_state": 0,
+    }
+    columns: dict[str, Any] = {
+        "outcome": "Y",
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1"],
+        "time_varying": [[], ["L2"]],
+        "censoring": ["C1", "C2"],
+    }
+    plain = LTMLE({"always": 1, "never": 0}, **settings).fit(frame, **columns)
+
+    # Every node after a unit's censoring time is nan and stays nan -- the container
+    # refuses a recorded value there.  What the fill replaces those nans with is what is
+    # under test, so it is reached through the built container rather than the frame.
+    data = LongitudinalData.from_frame(frame, **columns)
+    perturbed = [block.copy() for block in data.time_varying]
+    censored = ~data.uncensored_through(1)
+    assert censored.any()
+    perturbed[1][censored, 0] = 1e6
+    moved = LTMLE({"always": 1, "never": 0}, **settings).fit(
+        dataclasses.replace(data, time_varying=tuple(perturbed))
+    )
+    for name in plain:
+        assert plain.psi(name) == moved.psi(name)
+        np.testing.assert_array_equal(plain.influence_curves[name], moved.influence_curves[name])
+
+
 def test_refuses_a_unit_that_returns_after_censoring() -> None:
     frame = panel()
     frame.loc[frame.index[0], ["C1", "C2"]] = [0.0, 1.0]
@@ -166,5 +213,116 @@ class TestRegimens:
             Regimen("dose", (0.5, 1.0))
 
     def test_refuses_a_rule_that_reads_the_history(self) -> None:
-        with pytest.raises(DataError, match="reads the history is not supported"):
+        with pytest.raises(DataError, match="dynamic rule"):
             resolve_regimens({"dynamic": lambda history: history}, 2)
+
+    def test_an_array_plan_is_read_as_a_plan(self) -> None:
+        """A numpy plan is a plan, and must not be diagnosed as a dynamic rule.
+
+        ``np.ndarray`` does not register as a ``collections.abc.Sequence``, so a type
+        test on that alone sends an ordinary plan to the message about rules -- the right
+        refusal for the wrong input, which is worse than no message at all.
+        """
+        resolved = resolve_regimens({"early": np.array([1.0, 0.0])}, 2)
+        assert resolved[0].values == (1.0, 0.0)
+
+    def test_refuses_a_plan_that_is_neither_arm_nor_sequence(self) -> None:
+        with pytest.raises(DataError, match="must be an arm"):
+            resolve_regimens({"odd": object()}, 2)
+
+    def test_refuses_no_regimens_at_all(self) -> None:
+        with pytest.raises(DataError, match="needs regimens="):
+            resolve_regimens(None, 2)
+
+    def test_refuses_an_empty_mapping(self) -> None:
+        with pytest.raises(DataError, match="no regimen reports no parameter"):
+            resolve_regimens({}, 2)
+
+    def test_refuses_a_duplicate_label(self) -> None:
+        with pytest.raises(DataError, match="appears twice"):
+            resolve_regimens([Regimen("a", (1.0, 1.0)), Regimen("a", (0.0, 0.0))], 2)
+
+    def test_refuses_a_sequence_of_non_regimens(self) -> None:
+        with pytest.raises(DataError, match="must hold Regimen objects"):
+            resolve_regimens([(1.0, 1.0)], 2)
+
+    def test_refuses_a_spec_that_is_neither_mapping_nor_sequence(self) -> None:
+        with pytest.raises(DataError, match="must be a mapping or a sequence"):
+            resolve_regimens(1.0, 2)
+
+    def test_refuses_a_plan_with_no_nodes(self) -> None:
+        with pytest.raises(DataError, match="assigns no treatment at any time point"):
+            Regimen("empty", ())
+
+    def test_a_single_regimen_object_is_accepted(self) -> None:
+        assert resolve_regimens(Regimen("a", (1.0, 0.0)), 2)[0].label == "a"
+
+
+class TestTheContainerRefusesByName:
+    """The branches of ``LongitudinalData`` with no test, one per message."""
+
+    def test_refuses_something_that_is_not_a_dataframe(self) -> None:
+        with pytest.raises(DataError, match="pandas or polars DataFrame"):
+            build(np.zeros((10, 3)))  # type: ignore[arg-type]
+
+    def test_refuses_an_empty_treatment_list(self) -> None:
+        with pytest.raises(DataError, match="at least one node"):
+            build(panel(), treatment=[], time_varying=[], censoring=[])
+
+    def test_names_the_columns_it_could_not_find(self) -> None:
+        with pytest.raises(DataError, match="columns not found"):
+            build(panel(), baseline=["nope"])
+
+    def test_refuses_too_few_observations(self) -> None:
+        with pytest.raises(DataError, match="at least 10 observations"):
+            build(panel(n=9))
+
+    def test_refuses_an_empty_baseline(self) -> None:
+        with pytest.raises(DataError, match="baseline= is empty"):
+            build(panel(), baseline=[])
+
+    def test_refuses_a_time_varying_block_per_node_mismatch(self) -> None:
+        with pytest.raises(DataError, match="one \\(possibly empty\\) list per time point"):
+            build(panel(), time_varying=[["L2"]])
+
+    def test_refuses_an_unknown_family(self) -> None:
+        with pytest.raises(DataError, match="family must be"):
+            build(panel(), family="poisson")
+
+    def test_refuses_a_non_binary_binomial_outcome(self) -> None:
+        frame = panel()
+        complete = frame.index[frame["Y"].notna()][0]
+        frame.loc[complete, "Y"] = 4.0
+        with pytest.raises(DataError, match="requires a 0/1 outcome"):
+            build(frame, family="binomial")
+
+    def test_refuses_a_non_binary_censoring_column(self) -> None:
+        frame = panel()
+        frame.loc[frame.index[0], "C1"] = 2.0
+        with pytest.raises(DataError, match="still under observation after that time"):
+            build(frame)
+
+    def test_refuses_a_censoring_value_missing_while_under_observation(self) -> None:
+        frame = panel()
+        frame.loc[frame.index[0], "C1"] = np.nan
+        with pytest.raises(DataError, match="were still under observation"):
+            build(frame)
+
+    def test_refuses_a_history_outside_the_node_range(self) -> None:
+        data = build(panel())
+        with pytest.raises(DataError, match="outside 1\\.\\.2"):
+            data.covariate_history(3)
+
+    def test_drops_a_constant_time_varying_covariate(self) -> None:
+        """Screened on the same terms as a baseline covariate, and for a sharper reason.
+
+        ``covariate_history`` stacks every block into one design, so a constant ``L_t``
+        makes the history matrix singular at that node and at every node after it.  The
+        screen runs on the rows still under observation: a censored unit's block is
+        ``nan``, which is not missing data to be refused but a node that does not exist.
+        """
+        frame = panel()
+        frame["const"] = np.where(frame["C1"] == 1, 1.0, np.nan)
+        data = build(frame, time_varying=[[], ["L2", "const"]])
+        assert data.time_varying_names == ((), ("L2",))
+        assert "const" in data.dropped_covariates

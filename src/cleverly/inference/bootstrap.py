@@ -147,6 +147,17 @@ def run_bootstrap(
     """
     if n_replicates < 2:
         raise ValueError(f"n_replicates must be at least 2; got {n_replicates}")
+    # Checked here rather than left to the replicate loop, which catches every exception
+    # so that weak overlap does not abort a run.  A container with no ``subset`` fails
+    # that way in all n_replicates draws and comes out as "the fit is too unstable to
+    # bootstrap" -- a diagnosis about positivity for what is a missing method.
+    if not hasattr(data, "subset"):
+        raise TypeError(
+            f"the bootstrap resamples rows and refits, which needs a subset() on the "
+            f"data container; {type(data).__name__} has none. A longitudinal fit is not "
+            "bootstrappable for that reason: subsetting has to carry every node and the "
+            "whole backward recursion has to run again per replicate"
+        )
     use_clusters = data.cluster is not None if resampling == "auto" else resampling == "cluster"
     if use_clusters and data.cluster is None:
         raise ValueError("resampling='cluster' requires the data to carry cluster ids")

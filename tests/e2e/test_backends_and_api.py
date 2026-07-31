@@ -248,6 +248,7 @@ class TestPackageSurface:
             "cleverly.fluctuation",
             "cleverly.inference",
             "cleverly.learners",
+            "cleverly.longitudinal",
             "cleverly.sensitivity",
             "cleverly.utils",
             "cleverly.validation",

@@ -20,11 +20,11 @@ the parameter under.
 
 from __future__ import annotations
 
+from ..exceptions import LongitudinalError
 from .data import LongitudinalData
 from .estimator import LTMLE, LongitudinalConfig, LongitudinalResult, ltmle
 from .regimen import Regimen, resolve_regimens
 from .sequential import (
-    LongitudinalError,
     Mechanism,
     RegimenFit,
     SequentialStep,

@@ -234,22 +234,43 @@ class LongitudinalData:
                 raise DataError(
                     f"the time-{time} covariate block has {values.shape[0]} rows, expected {n}"
                 )
+            present = at_risk[:, time - 1]
             for column, name in enumerate(block_names):
-                _check_presence(values[:, column], at_risk[:, time - 1], str(name))
+                _check_presence(values[:, column], present, str(name))
+            # Screened on the same terms as the baseline block.  A constant or duplicated
+            # L_t is not harmless here: ``covariate_history`` stacks every block into one
+            # design, so it makes the history matrix singular at that node and at every
+            # node after it.
+            #
+            # The screen runs on the rows still under observation, not on the whole
+            # column.  A censored unit's later nodes are ``nan`` by construction, which
+            # ``check_covariates`` would refuse as missing data; and the rows that decide
+            # whether a covariate varies are the rows any model at this node is fitted on.
+            block = [str(name) for name in block_names]
+            if block and present.any():
+                _, kept_names, block_dropped = check_covariates(values[present], block)
+                if block_dropped:
+                    keep = [block.index(name) for name in kept_names]
+                    values = values[:, keep]
+                    block = list(kept_names)
+                    dropped = [*dropped, *block_dropped]
             blocks.append(values)
-            names.append(tuple(str(name) for name in block_names))
+            names.append(tuple(block))
 
         a = np.asarray(treatment, dtype=float)
         if a.shape[0] != n:
             raise DataError(f"treatment has {a.shape[0]} rows, expected {n}")
         for time, name in enumerate(treatment_names, start=1):
-            column = a[:, time - 1]
-            _check_presence(column, at_risk[:, time - 1], str(name))
-            present = at_risk[:, time - 1]
-            values = np.unique(column[present])
-            if not np.all(np.isin(values, (0.0, 1.0))):
+            # Named apart from the ``column`` index and ``values`` matrix of the block
+            # loop above: mypy unifies a name's type across the whole function body, so
+            # reusing either here is an error rather than a shadow.
+            arms = a[:, time - 1]
+            at_this_node = at_risk[:, time - 1]
+            _check_presence(arms, at_this_node, str(name))
+            seen_arms = np.unique(arms[at_this_node])
+            if not np.all(np.isin(seen_arms, (0.0, 1.0))):
                 raise DataError(
-                    f"treatment column {name!r} takes values {values[:6].tolist()}; a "
+                    f"treatment column {name!r} takes values {seen_arms[:6].tolist()}; a "
                     "longitudinal fit takes a binary treatment at every node. A "
                     "multi-valued treatment over time is refused rather than coded, "
                     "since the clever covariate needs one factor per arm per node"
@@ -370,9 +391,10 @@ class LongitudinalData:
         Rows that were censored before ``time`` have no history to speak of; their
         entries are filled with zeros so that a learner can be *called* on the whole
         matrix in one pass.  Nothing reads the predictions at those rows: every use is
-        masked by :meth:`at_risk` first, and ``tests/unit/test_longitudinal_data.py``
-        pins that the fill cannot leak by checking a fit is unchanged when the filled
-        entries are replaced with different numbers.
+        masked by :meth:`at_risk` first, and
+        ``test_longitudinal_data.test_the_fill_cannot_reach_the_estimate`` pins that the
+        fill cannot leak by replacing the filled entries with ``1e6`` and checking the
+        estimate and every influence curve come back bit-for-bit identical.
         """
         if not 1 <= time <= self.n_times:
             raise DataError(f"time {time} is outside 1..{self.n_times}")

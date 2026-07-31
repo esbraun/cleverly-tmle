@@ -1179,11 +1179,15 @@ def make_shift_dose(
 
 #: Every generator, for parametrised tests and the simulation harness.
 #:
-#: Multi-arm and continuous-dose processes are deliberately absent: every consumer here
-#: -- the parametrised structural tests, the coverage study, the simulation harness --
-#: reads a truth keyed ``ate``/``ey1``/``ey0`` and a binary ``A`` column, and a
-#: three-armed or dose-valued entry would report neither.  Reach for
-#: :func:`make_multi_arm` and :func:`make_shift_dose` directly.
+#: Multi-arm, continuous-dose and longitudinal processes are deliberately absent: every
+#: consumer here -- the parametrised structural tests, the coverage study, the simulation
+#: harness -- reads a truth keyed ``ate``/``ey1``/``ey0`` and a binary ``A`` column, and a
+#: three-armed, dose-valued or node-indexed entry would report neither.  Reach for
+#: :func:`make_multi_arm`, :func:`make_shift_dose` and
+#: :func:`~cleverly.datasets.longitudinal.make_longitudinal` directly.  The longitudinal
+#: process does follow the ``(n, seed) -> (frame, truth)`` convention and its truth is
+#: keyed by the names a fit reports, so :class:`~cleverly.validation.CoverageStudy` takes
+#: it; it is only this dict's ``ate``-keyed readers that it cannot serve.
 GENERATORS: dict[str, Callable[..., tuple[Any, dict[str, float]]]] = {
     "linear_ate": make_linear_ate,
     "nonlinear_ate": make_nonlinear_ate,

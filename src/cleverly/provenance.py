@@ -34,7 +34,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .data.causal_data import CausalData
     from .learners.crossfit import Folds
 
-__all__ = ["Provenance", "fingerprint_array", "record"]
+__all__ = ["Provenance", "build", "fingerprint_array", "record"]
 
 #: Length of the hex digests.  Eight bytes is far past what is needed to tell two
 #: datasets apart in a workflow, and short enough to read out loud.
@@ -120,6 +120,45 @@ class Provenance:
         return lines
 
 
+def build(
+    *,
+    n: int,
+    n_covariates: int,
+    n_clusters: int | None,
+    data_fingerprint: str,
+    fold_fingerprint: str,
+    random_state: int | None = None,
+    run_id: str | None = None,
+) -> Provenance:
+    """Stamp the environment onto a record whose data fields the caller has computed.
+
+    :func:`record` reads a :class:`~cleverly.data.causal_data.CausalData`, and a
+    longitudinal fit has no such thing -- its fingerprint has to cover every node rather
+    than three arrays.  That is the *only* part that differs, so it is the only part
+    passed in: the versions, the platform and the timestamp are the same question
+    whatever the container, and are answered in one place so a second estimator cannot
+    quietly ship a record with the package versions missing.
+    """
+    from ._version import __version__
+
+    return Provenance(
+        cleverly_version=__version__,
+        python_version=sys.version.split()[0],
+        platform=platform.platform(terse=True),
+        created_utc=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        n=n,
+        n_covariates=n_covariates,
+        n_clusters=n_clusters,
+        data_fingerprint=data_fingerprint,
+        fold_fingerprint=fold_fingerprint,
+        random_state=random_state,
+        run_id=run_id,
+        package_versions={
+            name: _version(name) for name in ("numpy", "scipy", "sklearn", "narwhals")
+        },
+    )
+
+
 def record(
     data: CausalData,
     folds: Folds | Sequence[Folds],
@@ -132,16 +171,11 @@ def record(
     ``folds`` may be a single split or, under repeated cross-fitting, every draw in fit
     order -- all of which go into the one ``fold_fingerprint``.
     """
-    from ._version import __version__
     from .learners.crossfit import Folds as _Folds
 
     draws = [folds] if isinstance(folds, _Folds) else list(folds)
 
-    return Provenance(
-        cleverly_version=__version__,
-        python_version=sys.version.split()[0],
-        platform=platform.platform(terse=True),
-        created_utc=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    return build(
         n=data.n,
         n_covariates=len(data.covariate_names),
         n_clusters=None if data.cluster is None else int(np.unique(data.cluster).size),
@@ -149,7 +183,4 @@ def record(
         fold_fingerprint=fingerprint_array(*(draw.assignment for draw in draws)),
         random_state=random_state,
         run_id=run_id,
-        package_versions={
-            name: _version(name) for name in ("numpy", "scipy", "sklearn", "narwhals")
-        },
     )

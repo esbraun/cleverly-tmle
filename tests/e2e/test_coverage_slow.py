@@ -40,7 +40,7 @@ while the outcome half does) was measured rather than assumed.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -52,11 +52,13 @@ from cleverly.datasets import (
     cde_dgp,
     instrument_dgp,
     linear_dgp,
+    make_longitudinal,
     missing_outcome_dgp,
     nonlinear_dgp,
     weak_overlap_dgp,
 )
 from cleverly.interventions import Incremental
+from cleverly.longitudinal import LTMLE
 from cleverly.utils.bounds import expit
 from cleverly.validation import CoverageStudy
 
@@ -891,3 +893,79 @@ class TestAnIncrementalIntervention:
         """``delta = 1`` is ``E[Y]``, so a bias here would be a bug and not a rate."""
         study = self._run(linear_dgp(), n=1000, reps=200)["ey_ipsi[natural course]"]
         assert abs(study.bias) < max(3.0 * study.bias_se, 0.01), study
+
+
+class TestLongitudinalInference:
+    """The statistical-validation tier for ``LTMLE``, which had none.
+
+    The harness took no adapting beyond one line in ``CoverageStudy._select``:
+    ``make_longitudinal`` already follows the ``(n, seed) -> (frame, truth)`` convention
+    and already keys its truth by the names a fit reports.  What blocked it was the study
+    keying into the result for an ``intermediate=`` level, which a longitudinal result
+    answers with a ``KeyError`` -- swallowed by the replicate loop, so every replication
+    "failed" and the study blamed the estimator configuration.
+    """
+
+    COLUMNS: ClassVar[dict[str, Any]] = {
+        "outcome": "Y",
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+        "censoring": ["C1", "C2"],
+    }
+
+    def _run(self, *, n: int, reps: int = REPLICATES) -> Any:
+        return CoverageStudy(
+            dgp=make_longitudinal,
+            estimator=lambda: LTMLE(
+                {"always": 1, "never": 0},
+                reference="never",
+                outcome_learner="glm",
+                pseudo_learner="glm",
+                treatment_learner="glm",
+                n_folds=5,
+                learner_folds=3,
+                simultaneous=False,
+                random_state=0,
+            ),
+            n=n,
+            n_replicates=reps,
+            estimands=("ey_regimen[always]", "ey_regimen[never]", "ate_regimen[always vs never]"),
+            fit_kwargs=self.COLUMNS,
+            seed=2024,
+            n_jobs=2,
+        ).run()
+
+    def test_the_intervals_cover_at_the_nominal_rate(self) -> None:
+        """The mechanism is logistic-linear in the recorded history, so ``glm`` gets it
+        right and a shortfall here is the inference machinery rather than the nuisances.
+        """
+        study = self._run(n=2000)
+        for name in study.summaries:
+            summary = study[name]
+            assert summary.coverage > 0.90, summary
+            assert abs(summary.coverage - 0.95) < 3.0 * summary.coverage_se + 0.02, summary
+
+    def test_the_reported_standard_error_is_honest(self) -> None:
+        """The influence-curve variance against the actual spread of the estimates.
+
+        A sequential fit divides by a product of ``2T`` probabilities, so this is where an
+        optimistic variance would show first -- and an optimistic variance is how a
+        coverage shortfall usually arises.
+        """
+        study = self._run(n=2000)
+        for name in study.summaries:
+            assert 0.85 < study[name].se_ratio < 1.15, study[name]
+
+    def test_the_bias_shrinks_faster_than_root_n(self) -> None:
+        """Root-n consistency: ``sqrt(n) * bias`` stays bounded as ``n`` grows.
+
+        The outcome regression carries a ``tanh`` term that ``glm`` cannot represent, so
+        this is the double-robustness claim under repeated sampling -- a correct mechanism
+        carrying a misspecified regression.
+        """
+        name = "ate_regimen[always vs never]"
+        small = self._run(n=500)[name]
+        large = self._run(n=4000)[name]
+        assert abs(large.root_n_bias) < max(2.0 * abs(small.root_n_bias), 0.5), (small, large)
+        assert abs(large.bias) < abs(small.bias) + 3.0 * large.bias_se, (small, large)

@@ -7,6 +7,7 @@ __all__ = [
     "ConvergenceWarning",
     "DataError",
     "DataWarning",
+    "LongitudinalError",
     "NotFittedError",
     "PositivityWarning",
     "WeightingWarning",
@@ -15,6 +16,15 @@ __all__ = [
 
 class CleverlyError(Exception):
     """Base class for every error raised by cleverly."""
+
+
+class LongitudinalError(CleverlyError):
+    """A longitudinal fit cannot proceed on the data or regimen it was given.
+
+    Lives here rather than beside the recursion that raises it, because it is the one
+    error a caller has to catch by name -- a regimen no unit in the sample followed --
+    and every other error type in the library is looked up in this module.
+    """
 
 
 class DataError(CleverlyError, ValueError):

@@ -85,6 +85,7 @@ def make_longitudinal(
     *,
     seed: int | np.random.Generator | None = None,
     censoring: bool = True,
+    cluster_size: int | None = None,
     backend: str = "pandas",
 ) -> tuple[Any, dict[str, float]]:
     """Two time points, a binary outcome and (optionally) monotone censoring.
@@ -97,23 +98,46 @@ def make_longitudinal(
     ``truth`` holds ``ey_regimen[...]`` for the four static regimens and
     ``ate_regimen[always vs never]``, under the labels a fit reports them by, so a test
     can look up the truth with the name it read off the result.
+
+    ``cluster_size`` adds an ``id`` column and, with it, an *unobserved* effect shared
+    within each cluster that moves both treatment decisions and the outcome -- so the
+    influence curves are correlated within a cluster and ignoring ``id=`` understates the
+    standard error.  The same construction as
+    :func:`~cleverly.datasets.make_clustered`, and for the same reason: an ``id`` column
+    over independent rows makes a cluster-robust variance *equal* the plain one, which
+    tests nothing.  The counterfactual means are unchanged -- the shared effect is
+    marginalised over and enters neither ``L2`` nor the outcome regression's form -- so
+    ``truth`` still holds.
     """
     rng = np.random.default_rng(seed)
     w1 = rng.standard_normal(n)
     w2 = rng.standard_normal(n)
 
-    a1 = rng.binomial(1, expit(0.3 * w1 - 0.4 * w2)).astype(float)
+    if cluster_size is None:
+        ids = None
+        shared = np.zeros(n)
+    else:
+        ids = np.arange(n) // cluster_size
+        # Drawn per cluster and repeated, and deliberately not among the covariates.
+        shared = rng.standard_normal(int(ids.max()) + 1)[ids]
+
+    a1 = rng.binomial(1, expit(0.3 * w1 - 0.4 * w2 + 0.8 * shared)).astype(float)
     c1 = (
         rng.binomial(1, expit(2.2 + 0.3 * w1 - 0.3 * a1)).astype(float) if censoring else np.ones(n)
     )
     alive1 = c1 == 1.0
 
     l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + rng.standard_normal(n)
-    a2 = rng.binomial(1, expit(0.5 * l2 + 0.6 * a1 - 0.2 * w2)).astype(float)
+    a2 = rng.binomial(1, expit(0.5 * l2 + 0.6 * a1 - 0.2 * w2 + 0.8 * shared)).astype(float)
     c2 = rng.binomial(1, expit(2.4 + 0.2 * l2)).astype(float) if censoring else np.ones(n)
     alive2 = alive1 & (c2 == 1.0)
 
-    y = rng.binomial(1, _outcome_probability(w1, w2, l2, a1, a2)).astype(float)
+    probability = _outcome_probability(w1, w2, l2, a1, a2)
+    if cluster_size is not None:
+        # Tilt the outcome by the same shared effect, so the residual -- and with it the
+        # influence curve -- carries the within-cluster correlation.
+        probability = expit(np.log(probability / (1.0 - probability)) + 0.8 * shared)
+    y = rng.binomial(1, probability).astype(float)
 
     payload = {
         "W1": w1,
@@ -128,6 +152,8 @@ def make_longitudinal(
     if not censoring:
         del payload["C1"]
         del payload["C2"]
+    if ids is not None:
+        payload["id"] = ids.astype(float)
 
     truth = {
         f"ey_regimen[{label}]": longitudinal_truth(plan[0], plan[1])
