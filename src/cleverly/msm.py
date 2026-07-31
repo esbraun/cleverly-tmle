@@ -97,6 +97,7 @@ __all__ = [
     "MSMLink",
     "MSMSet",
     "ProjectionFit",
+    "check_projection_rank",
     "link_for",
     "refuse_unsupported",
     "register_link",
@@ -114,6 +115,33 @@ MSMLink = Literal["identity", "log", "logit"]
 #: and the projection they define is not one vector -- so it is refused where the design
 #: is built rather than left to surface as an implausible coefficient.
 _MIN_RCOND = 1e-10
+
+
+def check_projection_rank(gram: FloatArray, terms: Sequence[str], *, axis: str = "arms") -> None:
+    """Refuse a working model's design whose projection is not one vector.
+
+    Checked where the design is built rather than left to the solve, because a
+    rank-deficient design does not fail loudly downstream: ``lstsq`` would return the
+    minimum-norm solution and the fit would report coefficients for a parameter that is
+    not identified.
+
+    ``axis`` names what the terms would be collinear *across*.  A working model at one
+    time point sums over the treatment arms; one over regimens
+    (:mod:`cleverly.longitudinal.msm`) sums over the declared plans.  The rule is the same
+    -- a reciprocal condition number below :data:`_MIN_RCOND` -- and lives here once so
+    that the two cannot drift apart on the threshold or on what they say about it.
+    """
+    if gram.shape[0] == 0:
+        return
+    rcond = float(1.0 / np.linalg.cond(gram)) if np.all(np.isfinite(gram)) else 0.0
+    if not np.isfinite(rcond) or rcond < _MIN_RCOND:
+        raise DataError(
+            f"the working model's terms {list(terms)} are collinear across the "
+            f"{axis} (reciprocal condition number {rcond:.3g}), so the projection they "
+            "define is not a single coefficient vector. Drop a term, or check that a "
+            "modifier is not constant and that an interaction is not a copy of its "
+            "main effect."
+        )
 
 
 # ---------------------------------------------------------------------- the links
@@ -459,24 +487,8 @@ class MSMSet:
         self._check_rank()
 
     def _check_rank(self) -> None:
-        """Refuse a design whose projection is not one vector.
-
-        Checked here rather than left to the solve, because a rank-deficient design does
-        not fail loudly downstream: ``lstsq`` would return the minimum-norm solution and
-        the fit would report coefficients for a parameter that is not identified.
-        """
-        gram = self.gram
-        if gram.shape[0] == 0:
-            return
-        rcond = float(1.0 / np.linalg.cond(gram)) if np.all(np.isfinite(gram)) else 0.0
-        if not np.isfinite(rcond) or rcond < _MIN_RCOND:
-            raise DataError(
-                f"the working model's terms {list(self.terms)} are collinear across the "
-                f"arms (reciprocal condition number {rcond:.3g}), so the projection they "
-                "define is not a single coefficient vector. Drop a term, or check that a "
-                "modifier is not constant and that an interaction is not a copy of its "
-                "main effect."
-            )
+        """Refuse a design whose projection is not one vector."""
+        check_projection_rank(self.gram, self.terms, axis="arms")
 
     # ------------------------------------------------------------------ build
 
