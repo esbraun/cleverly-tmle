@@ -54,6 +54,7 @@ from cleverly.datasets import (
     instrument_dgp,
     linear_dgp,
     make_longitudinal,
+    make_longitudinal_competing,
     make_longitudinal_survival,
     missing_outcome_dgp,
     nonlinear_dgp,
@@ -1134,3 +1135,87 @@ class TestASurvivalOutcomeUnderRepeatedSampling:
                 large,
             )
             assert abs(large.bias) < abs(small.bias) + 3.0 * large.bias_se, (name, small, large)
+
+
+class TestCompetingRisksUnderRepeatedSampling:
+    """The statistical tier for the cumulative incidence curves.
+
+    ``tests/discrete_law_competing.py`` proves the influence curve *is* the efficient one,
+    on a law the sample realises exactly.  That is a statement at one distribution with
+    exact nuisances; this asks the different question the exact law cannot -- whether the
+    interval built from that curve covers under repeated sampling, with estimated
+    nuisances and a misspecified outcome regression.
+
+    Both causes are checked at both horizons.  They are not interchangeable in either
+    direction: the survival factor the recursion multiplies by is all-cause, so an error
+    in it shows only from ``t = 2`` on, and the two causes have different shares and
+    different contrast signs, so a fit that answered for the wrong one would look
+    plausible at one and not the other.
+
+    **This class has not run at these settings**, on the same footing as its survival
+    sibling above and recorded the same way rather than implied to have passed.  The slow
+    tier does not run in the sandbox it was written in (``CLAUDE.md``).  What *was* run is
+    a reduced check at ``n=2500`` over 6 replicates in ``tests/e2e/test_ltmle.py``, which
+    found the bias within Monte Carlo error at every cause and horizon -- that says the
+    estimator is pointed at the right parameter and says nothing about coverage, since 6
+    replicates cannot resolve a rate.  To check it before the next nightly, dispatch the
+    workflow with ``selection`` set to this class's node id.
+    """
+
+    COLUMNS: ClassVar[dict[str, Any]] = {
+        "outcome": {"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+        "censoring": ["C1", "C2"],
+    }
+
+    ESTIMANDS: ClassVar[tuple[str, ...]] = (
+        "cif_regimen[always, relapse @ t=1]",
+        "cif_regimen[always, relapse @ t=2]",
+        "cif_regimen[always, death @ t=1]",
+        "cif_regimen[always, death @ t=2]",
+        "cif_regimen[never, relapse @ t=2]",
+        "cif_regimen[never, death @ t=2]",
+        "ate_regimen[always vs never, relapse @ t=2]",
+        "ate_regimen[always vs never, death @ t=2]",
+    )
+
+    def _run(self, *, n: int, reps: int = REPLICATES) -> Any:
+        return CoverageStudy(
+            dgp=make_longitudinal_competing,
+            estimator=lambda: LTMLE(
+                {"always": 1, "never": 0},
+                reference="never",
+                outcome_learner="glm",
+                pseudo_learner="glm",
+                treatment_learner="glm",
+                n_folds=5,
+                learner_folds=3,
+                simultaneous=False,
+                random_state=0,
+            ),
+            n=n,
+            n_replicates=reps,
+            estimands=self.ESTIMANDS,
+            fit_kwargs=self.COLUMNS,
+            seed=2026,
+            n_jobs=2,
+        ).run()
+
+    @pytest.fixture(scope="class")
+    def study(self) -> Any:
+        """One ``n=2000`` study, shared by the tests that read it."""
+        return self._run(n=2000)
+
+    def test_the_intervals_cover_at_the_nominal_rate(self, study: Any) -> None:
+        for name in study.summaries:
+            summary = study[name]
+            assert summary.coverage > 0.90, summary
+            assert abs(summary.coverage - 0.95) < 3.0 * summary.coverage_se + 0.02, summary
+
+    def test_the_reported_standard_error_is_honest(self, study: Any) -> None:
+        """The influence-curve variance against the actual spread of the estimates."""
+        for name in study.summaries:
+            summary = study[name]
+            assert summary.se_ratio == pytest.approx(1.0, abs=0.15), summary

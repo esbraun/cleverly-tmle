@@ -22,14 +22,22 @@ from scipy.special import expit
 
 from cleverly.datasets import (
     RULE_LABEL,
+    competing_truth,
     longitudinal_rule_truth,
     longitudinal_truth,
     make_longitudinal,
+    make_longitudinal_competing,
     make_longitudinal_survival,
     rule_arm_at_node_two,
     survival_truth,
 )
-from cleverly.datasets.longitudinal import _L2, _hazard_one, _hazard_two
+from cleverly.datasets.longitudinal import (
+    _L2,
+    _hazard_one,
+    _hazard_two,
+    _relapse_share_one,
+    _relapse_share_two,
+)
 from cleverly.longitudinal import LongitudinalData
 
 #: The four static plans over two nodes.  Written out rather than read off the generator,
@@ -339,3 +347,128 @@ class TestTheSurvivalProcess:
         frame, _ = make_longitudinal_survival(n=100, seed=0, backend=backend)
         assert type(frame).__name__ == expected
         assert backend in type(frame).__module__
+
+
+class TestTheCompetingProcess:
+    """``make_longitudinal_competing``: the quadrature, and the exclusivity it produces."""
+
+    PLANS: ClassVar = [(1.0, 1.0), (0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
+    COLUMNS: ClassVar[dict[str, Any]] = {
+        "outcome": {"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+        "censoring": ["C1", "C2"],
+    }
+
+    @pytest.mark.parametrize("a1,a2", PLANS)
+    @pytest.mark.parametrize("cause", ["relapse", "death"])
+    @pytest.mark.parametrize("horizon", [1, 2])
+    def test_the_quadrature_agrees_with_plain_monte_carlo(
+        self, a1: float, a2: float, cause: str, horizon: int
+    ) -> None:
+        """Two independent routes to the same number, as both siblings have.
+
+        The Monte Carlo draws the *intervened* process directly -- no mechanism, no
+        censoring, both hazards and both shares evaluated at the regimen's arms -- so it
+        shares nothing with the Gauss--Hermite rule but those four functions.
+        """
+        rng = np.random.default_rng(11)
+        m = 400_000
+        w1, w2, noise = (rng.standard_normal(m) for _ in range(3))
+        event1 = rng.binomial(1, _hazard_one(w1, w2, a1))
+        relapse1 = event1 * (rng.random(m) < _relapse_share_one(w1, w2, a1))
+        l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + noise
+        event2 = rng.binomial(1, _hazard_two(w1, w2, l2, a1, a2))
+        relapse2 = event2 * (rng.random(m) < _relapse_share_two(w1, l2, a1, a2))
+
+        first = relapse1 if cause == "relapse" else event1 - relapse1
+        second = relapse2 if cause == "relapse" else event2 - relapse2
+        observed = first.mean() if horizon == 1 else (first + (1 - event1) * second).mean()
+        assert competing_truth(a1, a2, cause, horizon) == pytest.approx(float(observed), abs=5e-3)
+
+    def test_the_quadrature_has_converged(self) -> None:
+        """Refining the rule must not move the answer, or the tolerance above is fiction."""
+        for a1, a2 in self.PLANS:
+            for cause in ("relapse", "death"):
+                for horizon in (1, 2):
+                    coarse = competing_truth(a1, a2, cause, horizon, 48)
+                    fine = competing_truth(a1, a2, cause, horizon, 64)
+                    assert coarse == pytest.approx(fine, abs=1e-12)
+
+    def test_the_causes_and_survival_exhaust_the_mass(self) -> None:
+        """The two incidences plus the all-cause survival come to one, by construction.
+
+        Modelling a cause as an all-cause hazard times a share is what buys this: the
+        shares sum to one, so nothing has to be imposed on two separately drawn hazards.
+        It is checked against :func:`survival_truth`, which is the all-cause risk of the
+        very same process -- the two share their hazards and nothing else.
+        """
+        for a1, a2 in self.PLANS:
+            for horizon in (1, 2):
+                total = sum(
+                    competing_truth(a1, a2, cause, horizon) for cause in ("relapse", "death")
+                )
+                assert total == pytest.approx(survival_truth(a1, a2, horizon), abs=1e-12)
+
+    def test_the_incidence_is_monotone_in_the_horizon(self) -> None:
+        _, truth = make_longitudinal_competing(n=50, seed=0)
+        for label in ("always", "never", "early", "late"):
+            for cause in ("relapse", "death"):
+                assert (
+                    truth[f"cif_regimen[{label}, {cause} @ t=1]"]
+                    <= truth[f"cif_regimen[{label}, {cause} @ t=2]"]
+                )
+
+    def test_the_causes_move_in_opposite_directions(self) -> None:
+        """Treatment trades one cause for the other, which is what the report is for.
+
+        A process whose causes moved together would be answered just as well by a
+        single-event fit, and would leave the whole point of the parameter unexercised.
+        """
+        _, truth = make_longitudinal_competing(n=50, seed=0)
+        assert truth["ate_regimen[always vs never, death @ t=2]"] < -0.05
+        assert (
+            truth["ate_regimen[always vs never, relapse @ t=1]"]
+            > truth["ate_regimen[always vs never, death @ t=1]"]
+        )
+
+    def test_the_frame_is_absorbing_and_exclusive(self) -> None:
+        """What the container requires, produced rather than merely accepted."""
+        frame, _ = make_longitudinal_competing(n=3000, seed=4)
+        assert list(frame.columns) == [
+            "W1",
+            "W2",
+            "A1",
+            "C1",
+            "R1",
+            "D1",
+            "L2",
+            "A2",
+            "C2",
+            "R2",
+            "D2",
+        ]
+        for node in ("1", "2"):
+            both = (frame[f"R{node}"] == 1.0) & (frame[f"D{node}"] == 1.0)
+            assert not bool(both.any()), f"both causes fired at node {node}"
+        left = (frame["R1"] == 1.0) | (frame["D1"] == 1.0)
+        assert bool(left.any())
+        assert frame.loc[left, ["L2", "A2", "C2"]].isna().all().all()
+        # The cause that fired carries its 1 forward; the other carries a 0.  Both say the
+        # same absorbing thing, and together they keep the columns exclusive.
+        assert (frame.loc[frame["R1"] == 1.0, "R2"] == 1.0).all()
+        assert (frame.loc[frame["R1"] == 1.0, "D2"] == 0.0).all()
+
+    def test_the_container_takes_it(self) -> None:
+        frame, _ = make_longitudinal_competing(n=500, seed=6)
+        data = LongitudinalData.from_frame(frame, **self.COLUMNS)
+        assert data.is_competing and data.is_survival
+        assert data.cause_labels == ("relapse", "death")
+        for time in (1, 2):
+            per_cause = sum(data.event_by(time, cause) for cause in data.cause_labels)
+            np.testing.assert_array_equal(per_cause, data.event_by(time))
+
+    def test_without_censoring_there_are_no_censoring_columns(self) -> None:
+        frame, _ = make_longitudinal_competing(n=200, seed=8, censoring=False)
+        assert "C1" not in frame.columns and "C2" not in frame.columns

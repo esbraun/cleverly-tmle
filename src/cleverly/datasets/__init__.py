@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from .longitudinal import (
     RULE_LABEL,
+    competing_truth,
     longitudinal_rule_truth,
     longitudinal_truth,
     make_longitudinal,
+    make_longitudinal_competing,
     make_longitudinal_survival,
     rule_arm_at_node_two,
     survival_truth,
@@ -57,6 +59,7 @@ __all__ = [
     "binary_outcome_dgp",
     "cde_dgp",
     "clustered_dgp",
+    "competing_truth",
     "heterogeneous_dgp",
     "instrument_dgp",
     "linear_dgp",
@@ -70,6 +73,7 @@ __all__ = [
     "make_instrument",
     "make_linear_ate",
     "make_longitudinal",
+    "make_longitudinal_competing",
     "make_longitudinal_survival",
     "make_missing_outcome",
     "make_missing_outcome_binary",

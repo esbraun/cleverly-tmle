@@ -661,7 +661,7 @@ keyword is accepted and rejected with the row below, rather than arriving as an
 
 | refused | what it would need |
 | --- | --- |
-| competing risks | more than one absorbing state at each node, and the parameter a set of cumulative incidences rather than one curve. A **single** absorbing event is supported — see [A survival outcome](#a-survival-outcome) |
+| eliminating the competing events | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions. **Competing risks themselves are supported** — see [Competing risks](#competing-risks) |
 | a multi-valued treatment at a node | the cumulative product needs one factor per arm per node, and the report one parameter per *sequence* of arms |
 | a marginal structural model over time | `msm=` summarises arms at one node; summarising `2^T` regimens is a different projection with its own weight function |
 | observation weights, and `intermediate=` | each puts a further per-node factor in the clever covariate's denominator, which has to be derived rather than re-indexed |
@@ -895,10 +895,116 @@ getting it right. `to_frame()` is unchanged and still carries the column names a
 point-treatment fit reports — the horizon lives inside `estimand` there, and gets a column
 of its own only in `curve()`.
 
-Refused, still: **competing risks**, which need more than one absorbing state per node and
-a set of cumulative incidences. And a horizon at which no event was observed among a
-regimen's followers is refused by name rather than handed to a classifier with one class
-in it — reachable on real data at a late node with a thin risk set.
+A horizon at which no event was observed among a regimen's followers is refused by name
+rather than handed to a classifier with one class in it — reachable on real data at a late
+node with a thin risk set.
+
+#### Competing risks
+
+An event that ends follow-up need not be the only one that can. Pass a **mapping of cause
+to its indicator column per node** and each absorbing state gets its own curve — the
+cause-specific cumulative incidence `F_j(t) = P(leave through cause j by t)`:
+
+```python
+from cleverly import LTMLE
+from cleverly.datasets import make_longitudinal_competing
+
+frame, truth = make_longitudinal_competing(n=4000, seed=0)  # W1 W2 | A1 C1 R1 D1 | L2 A2 C2 R2 D2
+
+res = LTMLE(
+    {"always": 1, "never": 0},
+    reference="never",
+    outcome_learner="glm",
+    pseudo_learner="glm",
+    treatment_learner="glm",
+    n_folds=5,
+    random_state=0,
+).fit(
+    frame,
+    # A mapping, not a list: that is what declares competing risks.
+    outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+print(res.summary())
+```
+
+```
+parameter                                    estimate  std. error  95% CI              p-value
+-------------------------------------------  --------  ----------  ------------------  -------
+cif_regimen[always, relapse @ t=1]           0.1227    0.0076      [0.1078, 0.1377]    <1e-4
+cif_regimen[always, relapse @ t=2]           0.2526    0.0118      [0.2294, 0.2757]    <1e-4
+cif_regimen[always, death @ t=1]             0.0315    0.0042      [0.0233, 0.0398]    <1e-4
+cif_regimen[always, death @ t=2]             0.0667    0.0064      [0.0541, 0.0793]    <1e-4
+cif_regimen[never, relapse @ t=1]            0.1484    0.0090      [0.1307, 0.1662]    <1e-4
+...
+ate_regimen[always vs never, relapse @ t=2]  -0.0103   0.0185      [-0.0465, 0.0259]   0.5760
+ate_regimen[always vs never, death @ t=2]    -0.1096   0.0141      [-0.1373, -0.0819]  <1e-4
+
+  outcome: competing risks, absorbing causes relapse, death at R1, R2, D1, D2
+  horizons reported: t = 1, 2
+  causes reported: relapse, death
+```
+
+The truths are `0.2467` and `0.0705` for `always`, `0.2443` and `0.2109` for `never`, at
+`t = 2`. Treatment barely moves the incidence of relapse and roughly thirds the incidence
+of death — which is the shape a competing-risks report exists to show, and the one a
+single-event fit cannot: pooled into one absorbing event, these two would report a
+substantial benefit without saying that all of it is on one cause.
+
+**Which competing-risks question this answers.** The competing causes are **left alone**.
+`cif_regimen[always, relapse @ t=2]` is the incidence of relapse in a world where everyone
+took the regimen and death went on happening as it does — a total effect. The other
+estimand, the incidence of relapse if death were *eliminated*, intervenes on the competing
+event: it needs a further factor per node in the clever covariate's denominator, and its
+own no-unmeasured-confounding and positivity assumptions for the competing event itself.
+That is a different parameter rather than a setting, and `eliminate=` is refused by name
+saying so. Neither is a cause-specific hazard ratio, and neither is a Fine–Gray
+subdistribution hazard; nothing here reports either.
+
+**What changes in the recursion is one factor.** The pseudo-outcome carried back is
+
+```
+Z_t = 1{cause j at t} + 1{no event at t} · Q̄*_{t+1}
+```
+
+— a **cause-specific numerator** against an **all-cause survival factor**. A unit that left
+through the competing cause contributes a zero and carries nothing forward, because it is
+no more available to have this cause's event than one that already had it. Writing
+`1 − 1{cause j at t}` there is the cause's own survival, is wrong by exactly the mass that
+left through the other causes, and is the mutation
+`tests/unit/test_influence_gateaux_competing.py` exists to catch — it takes 21 of that
+module's 130 tests, every one of them at `t = 2`, since at the first horizon there is no
+survival factor to get wrong.
+
+Everything else is what it was. A competing event is part of the *history* rather than an
+intervened node, so it enters the clever covariate's **indicator** and never its
+denominator: positivity is still a statement about the same `2T` treatment and censoring
+factors, `g_bounds` means what it meant, and `at_risk`, `following` and the mechanism's fit
+mask are all-cause — leaving the risk set is leaving it, whichever cause did it. The causes
+therefore share every nuisance fit and differ only in what is regressed, so `J` causes cost
+`J` backward passes and one mechanism. A fit declaring a single cause reproduces a
+single-event survival fit **bit for bit**, which is what makes this a generalisation rather
+than a second estimator: end-of-study, then survival, then this.
+
+**The causes are reported, not renormalised.** A unit leaves through exactly one cause or
+none, so `Σ_j F_j(t) + S(t) = 1` — of the *parameters*. It does not hold of the estimates,
+and that is not a bug to fix: each cause is its own backward pass with its own regressions
+and its own fluctuation, so nothing constrains the sum and a total above one is possible.
+`res.incidence_total()` reports the sum with its standard error and the excess over one,
+on the same reasoning that keeps a multi-arm mechanism off the simplex rather than
+rescaling it back on. Renormalising would buy a coherent-looking table by moving every
+cause's estimate away from the one its own score equation solved, and would hide the thing
+worth seeing — a total far from one says the causes disagree about how much risk there was,
+which is a statement about the nuisance fits and not about the parameter.
+
+The container checks what the declaration implies rather than assuming it: two causes may
+not fire at one node, a unit that has left through one may not later be marked as having
+had another, and each cause is absorbing in its own right. `res.curve()` gains a `cause`
+column, and a cause with no observed events among a regimen's followers at some horizon is
+refused by name — much more reachable for a rare cause than for a pooled event.
 
 ### Collaborative TMLE
 
@@ -1288,7 +1394,17 @@ against `tests/discrete_law_survival.py`) rather than a wider version of that on
 has to go on proving the end-of-study derivation unchanged: an absorbing `Y₁` puts a fourth
 structural-missingness pattern into the support — a unit that had the event has no `L₂`,
 `A₂`, `C₂` or `Y₂`, which is a different exit from being censored — and the parameter is a
-curve, so the two horizons are checked as two parameters of one distribution. The second-order remainder is checked against its closed form in the four
+curve, so the two horizons are checked as two parameters of one distribution. **Competing
+risks** get a third law on the same footing (`..._competing.py`, against
+`tests/discrete_law_competing.py`), for the same reason again: the event node is
+three-valued, the support carries a missingness pattern per cause, and the cause-specific
+incidence is a numerator over one cause against a survival factor over *all* of them —
+which is the one thing neither sibling can check, since with a single cause the two
+readings coincide. That law also answers for itself before any estimator reads it: every
+influence curve it produces has mean zero under the law it is taken at, the causes and the
+event-free probability exhaust the mass, and collapsing the causes reproduces the
+single-event recursion — none of which can be arranged by agreeing with a buggy fit,
+because no fit is involved. The second-order remainder is checked against its closed form in the four
 matching `test_remainder*.py` modules, which is what double robustness actually consists of.
 Every one of these modules carries deliberate-mutation controls: each plausible way of
 building the thing wrong is shown to move the answer by more than `1e-2`, four orders past
@@ -1330,7 +1446,7 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | Continuous treatment | `shifts=` declares a modified treatment policy `d(a, w) = min(a + δ, u)` and with it that the treatment is a dose: no arms, a conditional density `g(a \| W)` in place of the propensity, and a clever covariate that is a density ratio. The density is a discrete hazard fitted by the ordinary `treatment_learner=` on a long `(unit, bin)` expansion, so every preset, screener and thread limit works untouched. The report becomes `ey_shift[...]` and `ate_shift[... vs ...]`, and `sensitivity.shift_support()` reports the ratio's tail and the effective sample size it leaves. `cap=` is required rather than estimated, since a fitted support boundary would make the parameter itself data-dependent. What is refused rather than guessed at: `delta=`, `intermediate=` and estimated weights, each of which puts a further conditional density beside `g` and needs its own derivation |
 | Incremental interventions | `incremental=` multiplies everyone's *odds* of treatment by `δ` rather than assigning an arm (Kennedy 2019), reporting `ey_ipsi[...]` and `ate_ipsi[... vs ...]`. Two things make it unlike every other axis. **No positivity assumption**: the clever covariate is `δ/D` at `A=1` and `1/D` at `A=0` with `D = δg + 1 - g`, so it lies in `[min(δ,1/δ), max(δ,1/δ)]` however small `g` is — the leverage is bounded by a number the analyst chose. `g_bounds=` is therefore refused, since `g` is inside the estimand and truncating it would move `Ψ(δ)`. And it is **not doubly robust** — the only estimand here that is not: every term of the remainder carries `(ĝ - g₀)`, so a consistent mechanism is required and a consistent `Q̄` cannot substitute. Because `q_δ` is a functional of `P`, the EIF carries a `∂m/∂g` term and the estimator fluctuates the *mechanism* as well as `Q̄`, alternating to convergence; `score_check()` reports both equations. `ey_ipsi` at `δ=1` is `mean(Y)` row by row, whatever the nuisances. What is refused rather than approximated: a multi-valued treatment, `delta=`, `intermediate=` and `CTMLE` |
 | Marginal structural model | `msm=` declares a working model `m(a, V; beta)` for `E[Y(a) \| V]` and makes the fit's parameters its coefficients, reported as `msm[a:W1]` under the term names you gave. `beta` is a **projection** under a known weight `h(a, V)`, not the truth of an assumed regression, so the estimand and its interval are well defined whether or not the model is correct (Neugebauer & van der Laan 2007). The clever covariate is `h(a,V) phi(a,V) / g(a \| W)`, one column per term, and the projection is solved by weighted least squares against the *targeted* `Qbar` — which zeroes the second half of the influence curve by construction, so no outer iteration is needed. A saturated working model reproduces the per-arm report exactly. What is refused rather than approximated: a non-identity link (its `dm/dbeta` depends on `beta`) and weights derived from the estimated mechanism (they would make `h` a functional of `P`) |
-| Treatment over time | `LTMLE` estimates `E[Y_ā]` under a regimen across `T` nodes — static, or **dynamic**, where any node's arm may be a rule `d_t(H_t)` handed `[W, L_1, ..., L_t]` and nothing else — with time-varying confounding and monotone censoring, reporting `ey_regimen[...]` and `ate_regimen[... vs ...]`. The estimator is the sequential regression (Bang & Robins 2005) targeted node by node (van der Laan & Gruber 2012): `T` regressions run backwards, each fitted on the regimen's followers and each fluctuated by the reciprocal of the *cumulative* product of the treatment and censoring probabilities. Positivity is therefore a statement about a product of `2T` factors, and each is truncated before multiplying rather than the product afterwards; `res.diagnostics()` reports the weight and effective `n` per regimen per node, plus `share_assigned_1` — what a rule assigned the units at risk there, which is a property of the sample rather than of the declaration. A rule's followers are a covariate-dependent set at every node, so the rows each regression is fitted on move with the data; a rule that ignores the history reproduces the constant plan it equals bit for bit, which is what pins the dynamic path as a generalisation of the static one rather than a second estimator beside it. This is a separate estimator with its own result object rather than a `Target`: a regimen is not an arm, a regime, a shift, a tilt or an MSM coefficient. Its result object carries the same inference surface as a point-treatment one — `contrast()`, `covariance()`, `to_frame()` under the same column names, `id=`, and simultaneous bands across the reported regimens — and refuses the rest by name. A **survival outcome** is declared by passing one absorbing event indicator per node as `outcome=[...]`: the outcome joins the time ordering, the parameter becomes the cumulative risk curve `risk_regimen[... @ t=k]` at every horizon, and the joint influence-curve matrix across regimens *and* horizons makes a simultaneous band over the curve the natural object. Each horizon is its own backward pass — `T(T+1)/2` regressions per regimen, with the mechanism fitted once and shared, and `horizons=` to name the ones you report — and each is fitted on the units at risk *entering* the node, one event node earlier than the censoring factor runs to, since a unit that has the event at `t` is the observation that it happened. Being event-free is part of the history rather than an intervened node, so it enters the clever covariate's indicator and never its denominator: positivity is what it was. A fit whose event can only happen at the last node reproduces the end-of-study fit bit for bit. What is refused rather than approximated: competing risks, a multi-valued treatment at a node, an MSM over regimens, observation weights, `intermediate=`, the targeted bootstrap and `res.sensitivity` — the last two because `g_bounds` enters the pseudo-outcome of every earlier node, so there is no retarget that re-solves the fluctuation alone |
+| Treatment over time | `LTMLE` estimates `E[Y_ā]` under a regimen across `T` nodes — static, or **dynamic**, where any node's arm may be a rule `d_t(H_t)` handed `[W, L_1, ..., L_t]` and nothing else — with time-varying confounding and monotone censoring, reporting `ey_regimen[...]` and `ate_regimen[... vs ...]`. The estimator is the sequential regression (Bang & Robins 2005) targeted node by node (van der Laan & Gruber 2012): `T` regressions run backwards, each fitted on the regimen's followers and each fluctuated by the reciprocal of the *cumulative* product of the treatment and censoring probabilities. Positivity is therefore a statement about a product of `2T` factors, and each is truncated before multiplying rather than the product afterwards; `res.diagnostics()` reports the weight and effective `n` per regimen per node, plus `share_assigned_1` — what a rule assigned the units at risk there, which is a property of the sample rather than of the declaration. A rule's followers are a covariate-dependent set at every node, so the rows each regression is fitted on move with the data; a rule that ignores the history reproduces the constant plan it equals bit for bit, which is what pins the dynamic path as a generalisation of the static one rather than a second estimator beside it. This is a separate estimator with its own result object rather than a `Target`: a regimen is not an arm, a regime, a shift, a tilt or an MSM coefficient. Its result object carries the same inference surface as a point-treatment one — `contrast()`, `covariance()`, `to_frame()` under the same column names, `id=`, and simultaneous bands across the reported regimens — and refuses the rest by name. A **survival outcome** is declared by passing one absorbing event indicator per node as `outcome=[...]`: the outcome joins the time ordering, the parameter becomes the cumulative risk curve `risk_regimen[... @ t=k]` at every horizon, and the joint influence-curve matrix across regimens *and* horizons makes a simultaneous band over the curve the natural object. Each horizon is its own backward pass — `T(T+1)/2` regressions per regimen, with the mechanism fitted once and shared, and `horizons=` to name the ones you report — and each is fitted on the units at risk *entering* the node, one event node earlier than the censoring factor runs to, since a unit that has the event at `t` is the observation that it happened. Being event-free is part of the history rather than an intervened node, so it enters the clever covariate's indicator and never its denominator: positivity is what it was. A fit whose event can only happen at the last node reproduces the end-of-study fit bit for bit. **Competing risks** are declared by passing a *mapping* of cause to its indicator column per node, and report `cif_regimen[..., cause @ t=k]` — a cause-specific numerator against an all-cause survival factor, with the competing causes left alone, so a competing event enters the clever covariate's indicator and never its denominator and positivity is what it was; the causes share every nuisance fit, a single-cause fit reproduces a single-event one bit for bit, and `incidence_total()` reports how far the causes sum from one rather than renormalising them onto it. What is refused rather than approximated: *eliminating* the competing events (a different estimand, which would make them intervened nodes), a multi-valued treatment at a node, an MSM over regimens, observation weights, `intermediate=`, the targeted bootstrap and `res.sensitivity` — the last two because `g_bounds` enters the pseudo-outcome of every earlier node, so there is no retarget that re-solves the fluctuation alone |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
 | Cross-fitting | out-of-fold nuisance fits; V-fold, stratified, grouped and cluster-level splits, with stratification handling a multi-valued treatment natively and `stratify_folds="treatment+outcome"` crossing the outcome in when events are rare enough that an arm-balanced fold can still contain none. The prohibitions are **checked, not assumed**: a fold index outside the declared range and an empty fold are refused by `Folds` itself, and a cluster with rows in more than one fold by a post-condition on every split the library builds — outer, Super Learner's inner, C-TMLE's selection. Every result carries the `CrossFitPlan` it *declared* beside the fold count it *ran*, which come apart whenever a cap fired. `repeats=R` averages over `R` independent draws of the split — `mean_r psi_r` with influence curve `mean_r IC_r`, so the variance, the delta method and the bands stay coherent without a second rule, and every analysis that produces a number follows all `R` draws while the ones describing a fitted mechanism name the draw they describe. A draw redraws every stage of the split, Super Learner's inner CV and C-TMLE's selection folds included, and `repeat_spread()` reports how far the draws moved as a diagnostic rather than a standard error. Median-of-estimates aggregation is refused, since the median of the estimates is not the estimator whose curve is the median of the curves. The inner CV that scores Super Learner candidates is nested inside one outer training fold and gets the same cluster codes. What is refused rather than approximated: blocked-temporal splits (no node carries a time index), rolling-origin splits (their nested training sets cannot give every row the one out-of-fold prediction the storage contract rests on — a different contract, not a different splitter) and splitting a cluster across folds to buy more of them |
@@ -1515,13 +1631,15 @@ infrastructure; the following variants plug into them:
 
 - **longitudinal TMLE (`cleverly.longitudinal.LTMLE`) — landed**, for static regimens and
   for **dynamic rules** `d_t(H_t)`, with time-varying confounding and monotone censoring,
-  and for a **survival outcome** — one absorbing event indicator per node, reporting the
-  cumulative risk curve with joint bands over it; see
-  [Treatment given over time](#treatment-given-over-time) and
-  [A survival outcome](#a-survival-outcome). What it still refuses is listed there, and
-  the next step is the first of those: **competing risks**, where more than one absorbing
-  state at each node turns the curve into a set of cumulative incidences and the
-  sub-distribution each is about has to be said rather than assumed
+  for a **survival outcome** — one absorbing event indicator per node, reporting the
+  cumulative risk curve with joint bands over it — and for **competing risks**, where more
+  than one absorbing state per node makes the report a cause-specific cumulative incidence
+  per cause; see [Treatment given over time](#treatment-given-over-time),
+  [A survival outcome](#a-survival-outcome) and [Competing risks](#competing-risks). What
+  it still refuses is listed there, and the largest of those is the *other*
+  competing-risks estimand: the incidence under **elimination** of the competing events,
+  which intervenes on them rather than conditioning on the history and so needs a further
+  factor per node in the denominator and its own identification
 - doubly-robust TMLE with nonparametric inference (`drtmle`)
 
 ### On native acceleration

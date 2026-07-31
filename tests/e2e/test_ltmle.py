@@ -9,7 +9,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.datasets import make_longitudinal, make_longitudinal_survival
+from cleverly.datasets import (
+    make_longitudinal,
+    make_longitudinal_competing,
+    make_longitudinal_survival,
+)
 from cleverly.exceptions import DataError
 from cleverly.longitudinal import LTMLE, LongitudinalError, LongitudinalResult
 
@@ -1208,3 +1212,34 @@ class TestCompetingRisks:
                 outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
                 **self.COMPETING_COLUMNS,
             )
+
+    def test_recovers_the_truth_on_average(self) -> None:
+        """Averaged over independent samples, every incidence lands on its quadrature truth.
+
+        Six replicates against the Monte Carlo standard error of the average, as the
+        end-of-study test does -- enough to say the estimator is pointed at the right
+        parameter, and not enough to say anything about coverage, which is the nightly
+        tier's job.  Every cause and every horizon is checked: they are not
+        interchangeable, and a survival factor read cause-specifically would show at
+        ``t = 2`` alone.
+        """
+        replicates = 6
+        estimates: list[dict[str, float]] = []
+        truth: dict[str, float] = {}
+        for seed in range(replicates):
+            frame, truth = make_longitudinal_competing(n=2500, seed=200 + seed)
+            result = LTMLE(
+                {"always": 1, "never": 0},
+                reference="never",
+                **{**FAST, "random_state": seed, "simultaneous": False},
+            ).fit(
+                frame,
+                outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+                **self.COMPETING_COLUMNS,
+            )
+            estimates.append({name: result.psi(name) for name in result})
+
+        for name in estimates[0]:
+            values = np.array([estimate[name] for estimate in estimates])
+            mc_error = float(np.std(values, ddof=1) / np.sqrt(replicates))
+            assert abs(float(values.mean()) - truth[name]) < 3.0 * mc_error + 0.01, name
