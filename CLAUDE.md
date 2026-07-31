@@ -128,9 +128,9 @@ load-balancing the tail, not contending for cores.
   regimes without the caller's rules being callable again.
 - **A shift moves the dose the unit received.** `shifts=` is a third parameter axis, not a
   kind of regime: a regime assigns an arm from `W` alone, an MTP reads `A`. `Target`
-  declares which of `arm` / `regime` / `shift` / `msm` it belongs to via `parameter_axis`,
-  and the four partition the registry — a fit reporting parameters from two of them would be
-  putting two score equations under one heading. `shifts=` also declares the treatment
+  declares which of `arm` / `regime` / `shift` / `ipsi` / `msm` it belongs to via
+  `parameter_axis`, and the five partition the registry — a fit reporting parameters from two
+  of them would be putting two score equations under one heading. `shifts=` also declares the treatment
   continuous, since a dose has no arms to index by. The mechanism is a `ConditionalDensity`
   rather than a `Propensity`, and it lives on `NuisanceEstimates` beside `regimes` for the
   same reason; the `ShiftSet` is built *inside* `fit_nuisances`, because `g(A|W)` and
@@ -139,6 +139,24 @@ load-balancing the tail, not contending for cores.
   stochastic regime at the induced density; its influence curve does not, and
   `tests/unit/test_influence_gateaux_shift.py` keeps the negative control that fails if
   someone delegates one to the other.
+- **An incremental intervention tilts the mechanism, so the estimator targets it.**
+  `incremental=` multiplies the odds of treatment by `δ` (Kennedy 2019). Because `q_δ` is built
+  out of `g`, three things differ from every other axis and each is easy to get wrong.
+  *No positivity assumption*: the covariate is `δ/D` and `1/D` with `D = δg + 1 − g`, bounded by
+  `max(δ, 1/δ)` however small `g` is — so `g_bounds=` is **refused**, since `g` is inside the
+  estimand and truncating it would move `Ψ(δ)` rather than regularise a denominator, and the
+  `ipsi` builder ignores its `propensity` argument outright to keep that structural.
+  *Not doubly robust* — the only estimand here that is not: every term of the remainder carries
+  `(ĝ − g₀)`, so a consistent mechanism is required and a consistent `Q̄` cannot substitute.
+  *Two score equations*: the `∂m/∂g` term lives in the mechanism's tangent space, so `g` gets a
+  logistic submodel of its own and the two alternate (`fluctuation/mechanism.py`,
+  `targeting.solve_with_mechanism`). The alternation is coordinate ascent on one joint
+  likelihood, so it converges — but *linearly*, at rates measured between 0.15 and 0.52 per
+  round, which is why the stall threshold sits at 0.95 and the outer cap at 50. The targeted `g`
+  lives on `Fluctuation.mechanism`, never on `NuisanceEstimates.propensity`, which stays the
+  initial cross-fitted mechanism exactly as `outcome` stays the initial regression. `ψ(δ=1)`
+  equals `mean(Y)` row by row whatever the nuisances are; keep that test, it is the canary that
+  catches an alternation exiting with one equation open.
 - **A working model summarises the arms; it does not replace them.** `msm=` is a fourth
   parameter axis and the one that is *not* about what "counterfactual" means: the
   counterfactuals are still the arms and the fluctuation still updates `Qbar` at every one

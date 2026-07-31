@@ -138,9 +138,18 @@ def test_stochastic_refuses_the_wrong_number_of_arms() -> None:
 # ------------------------------------------------------------------- refusals
 
 
-def test_an_ipsi_says_what_its_influence_function_would_need() -> None:
-    with pytest.raises(NotImplementedError, match="functional of P"):
+def test_an_ipsi_is_redirected_to_its_own_keyword_rather_than_refused() -> None:
+    """It used to be a refusal; it is now a signpost, and the type says which.
+
+    The message still explains *why* the regime path cannot express it -- g* is a
+    functional of P, so the influence function carries a further term -- because that is
+    what stops a reader building one out of ``Stochastic`` and believing the standard
+    error.  What changed is that there is now somewhere to send them.
+    """
+    with pytest.raises(ValueError, match=r"TMLE\(incremental=") as raised:
         refuse_unsupported("ipsi")
+    assert not isinstance(raised.value, NotImplementedError)
+    assert "functional of P" in str(raised.value)
 
 
 @pytest.mark.parametrize("kind", ["mtp", "shift"])

@@ -33,7 +33,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import Fluctuation, InitialFit
-from ..interventions import RegimeSet, Shift, ShiftSet
+from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
 from ..learners._fitting import (
     Task,
     as_target,
@@ -197,12 +197,36 @@ class NuisanceEstimates:
     #: exists, and evaluating it here is what makes "g(A | W) and g(A - delta | W) come
     #: from the same out-of-fold model" structural rather than an invariant to maintain.
     shifts: ShiftSet | None = None
+    #: The incremental interventions this fit targets, evaluated against ``propensity``,
+    #: or ``None`` for a fit that declared none.  Built *inside* :func:`fit_nuisances`
+    #: for the reason ``shifts`` is, and a sharper one: the tilt is a functional of the
+    #: mechanism, so evaluating it where the mechanism is made is what keeps "the tilt
+    #: and the g it tilts came from one out-of-fold model" structural rather than an
+    #: invariant to maintain.  A regime, by contrast, is attached *outside* -- and could
+    #: not be built here, since it needs no mechanism at all.
+    #:
+    #: After targeting this is replaced by :meth:`retilted` with the *fluctuated*
+    #: mechanism, so that the influence curve's ``(A - g)`` and the plug-in agree.  The
+    #: copy on ``result.nuisance`` is the initial one, exactly as ``outcome`` is.
+    incremental: IPSISet | None = None
     #: The working model this fit projects the counterfactual means onto, evaluated at
     #: every row and every arm, or ``None`` for a fit that declared none.  Carried for the
     #: reason ``regimes`` is, and built *beside* :func:`fit_nuisances` rather than inside
     #: it -- unlike a shift, a working model's design is a function of the covariates
     #: alone and needs no mechanism to evaluate.
     msm: MSMSet | None = None
+
+    def retilted(self, mechanism: FloatArray) -> NuisanceEstimates:
+        """The same nuisances with every tilt re-evaluated at ``mechanism``.
+
+        Named for the invariant rather than for its one caller: nothing derived from
+        ``g`` may be left stale when ``g`` moves.  The mechanism fluctuation calls this
+        after each update, and the object it returns is what the influence curve and the
+        next clever covariate are built from.
+        """
+        if self.incremental is None:
+            raise ValueError("this fit declared no incremental interventions to re-tilt")
+        return replace(self, incremental=self.incremental.at(mechanism))
 
     @property
     def n(self) -> int:
@@ -481,6 +505,8 @@ def fit_nuisances(
     screen_threshold: float = 0.1,
     min_retain: int | None = None,
     shifts: Sequence[Shift] = (),
+    incremental: Sequence[Incremental] = (),
+    incremental_reference: str | None = None,
     shift_reference: str | None = None,
     density_bins: int = 20,
     n_jobs: int = 1,
@@ -512,6 +538,7 @@ def fit_nuisances(
     arms = data.arm_codes
     density: ConditionalDensity | None = None
     shift_set: ShiftSet | None = None
+    ipsi_set: IPSISet | None = None
     if data.is_continuous_treatment:
         # A dose has no arms, so there is no P(A = a | W) to classify: the mechanism is a
         # density. The learner is the same one either way -- fit_conditional_density
@@ -548,6 +575,15 @@ def fit_nuisances(
         propensity = Propensity(propensity_out["g"], arms)
         if propensity_diagnostics:
             diagnostics["propensity"] = propensity_diagnostics
+        if incremental:
+            # Evaluated *here*, against the mechanism fitted three lines above, for the
+            # reason the shifts are: q_delta is a functional of g, so building it beside
+            # g makes "both came from one out-of-fold model" structural. Untruncated, and
+            # deliberately: g is inside the estimand on this axis, so a bound would move
+            # the parameter -- see IPSISet.evaluate.
+            ipsi_set = IPSISet.evaluate(
+                tuple(incremental), data, propensity.values, reference=incremental_reference
+            )
 
     retained = data.covariate_names
     if screen_treatment:
@@ -676,6 +712,7 @@ def fit_nuisances(
         outcome_task=outcome_task,
         density=density,
         shifts=shift_set,
+        incremental=ipsi_set,
     )
 
 

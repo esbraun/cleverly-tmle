@@ -24,7 +24,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -268,6 +268,13 @@ class Fluctuation:
     hessian_condition: float = float("nan")
     epsilon_std_error: FloatArray | None = None
     loglik: float = float("nan")
+    #: The treatment-mechanism half of the targeting, for a group whose parameter is
+    #: defined through the mechanism (today only ``ipsi``); ``None`` for every other
+    #: group, whose targeting is finished when this fluctuation converges.  Carried
+    #: here rather than on the nuisances so that ``result.nuisance.propensity`` stays
+    #: the initial cross-fitted mechanism, exactly as ``outcome`` stays the initial
+    #: regression -- see :mod:`cleverly.fluctuation.mechanism`.
+    mechanism: Any | None = None
 
     @property
     def score_norm(self) -> float:

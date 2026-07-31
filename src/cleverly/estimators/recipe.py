@@ -70,7 +70,7 @@ SETTING_NAMES: tuple[str, ...] = (
 
 #: Constructor arguments handled by hand rather than by :func:`_jsonable`, so that
 #: :func:`_subclass_settings` does not pick them up and try.
-_HANDLED_ELSEWHERE: frozenset[str] = frozenset({"interventions", "shifts", "msm"})
+_HANDLED_ELSEWHERE: frozenset[str] = frozenset({"interventions", "shifts", "incremental", "msm"})
 
 
 def _is_specification(value: Any) -> bool:
@@ -112,6 +112,10 @@ class TMLERecipe:
     #: policy in any session, which is the same property that makes ``cap`` a declaration
     #: rather than something estimated.
     shifts: list[dict[str, Any]] = field(default_factory=list)
+    #: The declared incremental interventions, as ``{"delta": ..., "name": ...}``.  Always
+    #: reconstructible, on the same terms the shifts are: a tilt is one number and a name,
+    #: with no callable anywhere -- unlike a ``Rule`` or a ``Stochastic`` regime.
+    incremental: list[dict[str, Any]] = field(default_factory=list)
     learners_reconstructible: bool = True
     unreconstructible_slots: tuple[str, ...] = ()
     class_name: str = "TMLE"
@@ -149,6 +153,7 @@ class TMLERecipe:
             learners=learners,
             interventions=interventions or [],
             shifts=_shifts_to(getattr(estimator, "shifts", ())),
+            incremental=_incremental_to(getattr(estimator, "incremental", ())),
             learners_reconstructible=not unreconstructible,
             unreconstructible_slots=tuple(unreconstructible),
             class_name=type(estimator).__name__,
@@ -191,6 +196,8 @@ class TMLERecipe:
             kwargs["interventions"] = _interventions_from(self.interventions)
         if self.shifts:
             kwargs["shifts"] = _shifts_from(self.shifts)
+        if self.incremental:
+            kwargs["incremental"] = _incremental_from(self.incremental)
         return klass(**kwargs)
 
     def to_dict(self) -> dict[str, Any]:
@@ -199,6 +206,7 @@ class TMLERecipe:
             "learners": self.learners,
             "interventions": self.interventions,
             "shifts": self.shifts,
+            "incremental": self.incremental,
             "learners_reconstructible": self.learners_reconstructible,
             "unreconstructible_slots": list(self.unreconstructible_slots),
             "class_name": self.class_name,
@@ -213,6 +221,7 @@ class TMLERecipe:
             learners=payload["learners"],
             interventions=payload.get("interventions", []),
             shifts=payload.get("shifts", []),
+            incremental=payload.get("incremental", []),
             learners_reconstructible=payload["learners_reconstructible"],
             unreconstructible_slots=tuple(payload.get("unreconstructible_slots", ())),
             class_name=payload.get("class_name", "TMLE"),
@@ -269,6 +278,17 @@ def _shifts_to(shifts: Any) -> list[dict[str, Any]]:
         }
         for shift in shifts or ()
     ]
+
+
+def _incremental_to(incremental: Any) -> list[dict[str, Any]]:
+    """The declared tilts as JSON: an odds multiplier and a name, nothing callable."""
+    return [{"delta": float(item.delta), "name": str(item.name)} for item in incremental or ()]
+
+
+def _incremental_from(recorded: list[dict[str, Any]]) -> tuple[Any, ...]:
+    from ..interventions import Incremental
+
+    return tuple(Incremental(item["delta"], name=item["name"]) for item in recorded)
 
 
 def _shifts_from(recorded: list[dict[str, Any]]) -> tuple[Any, ...]:

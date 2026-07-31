@@ -11,7 +11,14 @@ import contextlib
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from ..interventions import ShiftSupport, SupportReport, check_shift_support, check_support
+from ..interventions import (
+    IncrementalSupport,
+    ShiftSupport,
+    SupportReport,
+    check_incremental_support,
+    check_shift_support,
+    check_support,
+)
 from .evalue import EValue, evalue
 from .missingness import missingness_tilt, tipping_gamma
 from .omitted_variable import (
@@ -67,6 +74,13 @@ class SensitivityAnalysis:
         """
         regimes = self._result.nuisance.regimes
         if regimes is None:
+            if self._result.nuisance.incremental is not None:
+                raise ValueError(
+                    "support() reports overlap for declared regimes; this fit declared "
+                    "incremental interventions, whose overlap question is a different "
+                    "one -- the clever covariate is bounded by max(delta, 1/delta) "
+                    "whatever the mechanism does. Use incremental_support()."
+                )
             raise ValueError(
                 "support() reports overlap for the regimes a fit declared, and this fit "
                 "declared none. Pass interventions= to TMLE, or use positivity() for the "
@@ -99,6 +113,35 @@ class SensitivityAnalysis:
             )
         return check_shift_support(shifts, density, self._result.data.treatment)
 
+    def incremental_support(self) -> dict[str, IncrementalSupport]:
+        """Overlap *for the declared tilts*, which is a question with a known answer.
+
+        Every other report on this class answers "how bad is the overlap"; this one
+        answers "and why does it not matter here".  An incremental intervention's clever
+        covariate is ``delta / D`` at ``A = 1`` and ``1 / D`` at ``A = 0``, so it lies
+        between ``min(delta, 1/delta)`` and ``max(delta, 1/delta)`` however small the
+        mechanism gets -- a bound the *analyst* chose rather than one the data granted.
+        The report gives that bound beside the realised maximum, the smallest fitted
+        propensity for contrast, and the effective sample size, which stays near ``n``
+        where an arm-indexed fit's would have collapsed.
+
+        What poor overlap threatens here is not the weights but the *consistency* of
+        ``ghat``, on which this estimand depends with no doubly-robust fallback -- so
+        :meth:`positivity` remains the diagnostic that matters, not this one.
+
+        Raises on any other axis, where :meth:`positivity`, :meth:`support` and
+        :meth:`shift_support` are the diagnostics.
+        """
+        tilts = self._result.nuisance.incremental
+        if tilts is None:
+            raise ValueError(
+                "incremental_support() reports overlap for the tilts a fit declared, and "
+                "this fit declared none. Pass incremental= to TMLE, or use positivity() "
+                "for the arm-level report, support() for a regime fit and "
+                "shift_support() for a shift fit."
+            )
+        return check_incremental_support(tilts, self._result.data.treatment)
+
     def truncation_curve(
         self,
         bounds: Sequence[float] | None = None,
@@ -111,7 +154,24 @@ class SensitivityAnalysis:
         Sweeps the propensity bound by default, or -- with ``mechanism=True`` -- the
         bound on ``P(Delta = 1 | A, W)`` and the intermediate density, which divide the
         clever covariate for the same reason and deserve the same scrutiny.
+
+        The sweep rests on a claim that holds for every axis but one: truncating a
+        mechanism trades variance for second-order bias and cannot move the *estimand*,
+        because the plug-in contains no mechanism at all.  On an incremental fit it does
+        move the estimand -- ``q_delta`` is built out of ``g`` -- so the sweep is refused
+        rather than reported as a bias-variance trade it is not.
         """
+        if self._result.nuisance.incremental is not None:
+            raise ValueError(
+                "truncation_curve() sweeps the propensity bound, which on every other "
+                "axis trades variance for second-order bias and leaves the estimand "
+                "alone. On an incremental fit g is *inside* the estimand -- q_delta = "
+                "delta*g / (delta*g + 1 - g) -- so each bound would target a different "
+                "parameter and the curve would not be a sensitivity analysis. No bound "
+                "is applied to this fit and none is needed: the clever covariate is "
+                "bounded by max(delta, 1/delta) by construction. See "
+                "incremental_support()."
+            )
         return truncation_curve(self._result, bounds, estimands=estimands, mechanism=mechanism)
 
     # ------------------------------------------------------ omitted variables

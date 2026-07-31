@@ -148,6 +148,7 @@ _AXIS_DECLARED_BY = {
     "arm": "a fit without interventions=, shifts= or msm=",
     "regime": "a fit that declares interventions=",
     "shift": "a fit that declares shifts=",
+    "ipsi": "a fit that declares incremental=",
     "msm": "a fit that declares msm=",
 }
 
@@ -156,6 +157,7 @@ _AXIS_INDEXES_BY = {
     "arm": "treatment arm",
     "regime": "declared regime",
     "shift": "declared shift",
+    "ipsi": "declared tilt of the treatment mechanism",
     "msm": "working-model coefficient",
 }
 
@@ -199,7 +201,8 @@ def resolve_estimands(
             f"estimand(s) {mismatched} do not belong to {_AXIS_DECLARED_BY[axis]}; they are "
             f"indexed by {' and '.join(_AXIS_INDEXES_BY[other] for other in other_axes)}, and this "
             f"fit's parameters are indexed by {_AXIS_INDEXES_BY[axis]}. Declaring "
-            "interventions= or shifts= says what the fit's counterfactuals are, and msm= "
+            "interventions=, shifts= or incremental= says what the fit's counterfactuals "
+            "are, and msm= "
             "says how they are summarised, so reporting across two of them from a single "
             "fluctuation would put two score equations under one heading. Available here: "
             f"{available}."

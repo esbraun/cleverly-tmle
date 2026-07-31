@@ -127,6 +127,40 @@ class DGP:
         q0 = np.asarray(self.outcome_mean(latent, 0.0, intermediate_value), dtype=float)
         return _estimands_from(q1, q0, g, self.family)
 
+    def incremental_truth(self, deltas: Sequence[float]) -> dict[str, float]:
+        r"""``E[Y^{q_delta}]`` per tilt, and the contrast against the first.
+
+        No new class and no new integration scheme: an incremental intervention's mean is
+        a closed-form function of the three pieces :meth:`_integrate` already builds, so
+        it is a method rather than a ``DGP`` of its own -- unlike a dose, where the
+        mechanism itself changes shape.
+
+        .. math::
+
+            \Psi(\delta) = E_W\!\left[\frac{\delta g \bar Q_1 + (1 - g)\bar Q_0}
+                                             {\delta g + 1 - g}\right]
+
+        The integrand is bounded by :math:`\max(\bar Q_1, \bar Q_0)` whatever the
+        mechanism does, which is worth noting because every other truth here has to worry
+        about ``1 / g``: this one needs no clipping and its quadrature error does not blow
+        up as overlap fails.  The first delta is the reference, matching the estimator's
+        rule that contrasts are taken against the first declared.
+        """
+        latent = _sobol_normal(self.n_latent, _TRUTH_POINTS)
+        g = np.clip(np.asarray(self.propensity(latent), dtype=float), 0.0, 1.0)
+        q1 = np.asarray(self.outcome_mean(latent, 1.0, None), dtype=float)
+        q0 = np.asarray(self.outcome_mean(latent, 0.0, None), dtype=float)
+        names = ["natural course" if delta == 1.0 else f"odds x{delta:g}" for delta in deltas]
+        means = {
+            name: float(np.mean((delta * g * q1 + (1.0 - g) * q0) / (delta * g + 1.0 - g)))
+            for name, delta in zip(names, deltas, strict=True)
+        }
+        out = {f"ey_ipsi[{name}]": value for name, value in means.items()}
+        reference = names[0]
+        for name in names[1:]:
+            out[f"ate_ipsi[{name} vs {reference}]"] = means[name] - means[reference]
+        return out
+
     def sample_truth(
         self, latent: FloatArray, intermediate_value: float | None = None
     ) -> dict[str, float]:

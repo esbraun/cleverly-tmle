@@ -108,6 +108,22 @@ REGIMES: dict[str, np.ndarray] = {
 REGIME_REFERENCE = "never"
 
 
+#: The incremental interventions the ``ipsi`` estimands are checked against, as odds
+#: multipliers.  Unlike :data:`REGIMES` these are *not* densities: the density
+#: ``q_delta = delta g / (delta g + 1 - g)`` is a function of the law, so it has to be
+#: computed inside :func:`functional` from the cell probabilities.  That is exactly what
+#: is under test -- the complex step then differentiates through ``g`` and produces the
+#: extra influence-curve term for free, which no ``REGIMES`` entry can exercise.
+#:
+#: One above one, one below, and one *at* one.  A sign error in ``dm/dg`` survives only
+#: one side of one, and ``delta = 1`` is the natural course, where ``q_1 = g`` exactly and
+#: the influence curve collapses to ``Y - E[Y]`` row by row whatever the nuisances are.
+IPSI_DELTAS: dict[str, float] = {"natural course": 1.0, "odds x2": 2.0, "odds x0.5": 0.5}
+
+#: The tilt contrasts are taken against; the first supplied, as the estimator defaults.
+IPSI_REFERENCE = "natural course"
+
+
 #: The working model the ``msm`` estimand is checked against: ``m(a, W) = b0 + b1 a + b2 W``,
 #: with ``W`` read as a number.  Its term names are part of what is checked, because they
 #: are what the reported parameter names carry.
@@ -190,6 +206,19 @@ def functional(probs: Any, estimand: str) -> Any:
     # M depends on the law only through P(W), which is where its own contribution to the
     # influence curve comes from -- an implementation that treated M as a constant would
     # pass every check that fixes P(W) and fail this one.
+    if estimand.startswith("ey_ipsi["):
+        # Psi(delta) = sum_w P(W = w) sum_a q_delta(a | w) E[Y | A = a, W = w], with
+        # q_delta the odds of g multiplied by delta. `g` is a ratio of linear forms in the
+        # cell probabilities, so this stays analytic and the complex step differentiates
+        # through the mechanism as well as through Qbar -- which is the whole point.
+        delta = IPSI_DELTAS[estimand[len("ey_ipsi[") : -1]]
+        g = p_wa[:, 1] / p_w
+        d = delta * g + (1.0 - g)
+        return (p_w * (delta * g * q[:, 1] + (1.0 - g) * q[:, 0]) / d).sum()
+    if estimand.startswith("ate_ipsi["):
+        left, right = estimand[len("ate_ipsi[") : -1].split(" vs ")
+        return functional(p, f"ey_ipsi[{left}]") - functional(p, f"ey_ipsi[{right}]")
+
     if estimand.startswith("msm["):
         gram = np.einsum("wap,waq,wa,w->pq", MSM_DESIGN, MSM_DESIGN, MSM_WEIGHTS, p_w)
         moment = np.einsum("wap,wa,wa,w->p", MSM_DESIGN, MSM_WEIGHTS, q, p_w)
@@ -206,6 +235,10 @@ def functional(probs: Any, estimand: str) -> Any:
 PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
     "ey": ("ey[0]", "ey[1]"),
     "ey_regime": tuple(f"ey_regime[{label}]" for label in REGIMES),
+    "ey_ipsi": tuple(f"ey_ipsi[{label}]" for label in IPSI_DELTAS),
+    "ate_ipsi": tuple(
+        f"ate_ipsi[{label} vs {IPSI_REFERENCE}]" for label in IPSI_DELTAS if label != IPSI_REFERENCE
+    ),
     "ate_regime": tuple(
         f"ate_regime[{label} vs {REGIME_REFERENCE}]"
         for label in REGIMES
@@ -250,6 +283,8 @@ TRUTH = {
         "atc",
         *PER_ARM_NAMES["ey_regime"],
         *PER_ARM_NAMES["ate_regime"],
+        *PER_ARM_NAMES["ey_ipsi"],
+        *PER_ARM_NAMES["ate_ipsi"],
         *PER_ARM_NAMES["msm"],
     )
 }

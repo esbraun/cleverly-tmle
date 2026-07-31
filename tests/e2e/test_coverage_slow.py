@@ -56,6 +56,7 @@ from cleverly.datasets import (
     nonlinear_dgp,
     weak_overlap_dgp,
 )
+from cleverly.interventions import Incremental
 from cleverly.utils.bounds import expit
 from cleverly.validation import CoverageStudy
 
@@ -820,3 +821,73 @@ class TestControlledDirectEffectInference:
         assert high.truth - low.truth == pytest.approx(0.6, abs=1e-9)
         gap = (high.truth + high.bias) - (low.truth + low.bias)
         assert gap == pytest.approx(0.6, abs=0.1), (low, high)
+
+
+class TestAnIncrementalIntervention:
+    """Coverage for the one estimand here that is not doubly robust.
+
+    Two things need a repeated-sampling check that no single fit can give.  That the
+    interval covers at all -- the estimator solves *two* score equations and the second
+    one moves the mechanism, so an alternation that stopped a round early would show up
+    as under-coverage and nowhere else.  And that it keeps covering under weak overlap,
+    which is the claim the axis exists for: the clever covariate is bounded by
+    ``max(delta, 1/delta)`` there, so nothing about the interval should degrade.
+
+    The mechanism is estimated with a ``glm`` throughout and both processes have a
+    propensity a ``glm`` can represent -- which is not a shortcut but a requirement.
+    ``ey_ipsi`` has no doubly-robust fallback, so a misspecified mechanism would bias it
+    and this study would be measuring that rather than coverage.
+    """
+
+    DELTAS = (1.0, 2.0)
+    ESTIMANDS = ("ey_ipsi", "ate_ipsi")
+    REPORTED = "ate_ipsi[odds x2 vs natural course]"
+
+    @staticmethod
+    def _process(dgp: DGP) -> Callable[..., tuple[Any, dict[str, float]]]:
+        """Adapt a ``DGP`` to the ``(n, seed) -> (frame, truth)`` convention.
+
+        The truth comes from :meth:`DGP.incremental_truth` rather than :meth:`DGP.truth`,
+        because the tilts are not among the arm-indexed estimands that method reports.
+        """
+
+        def draw(n: int, seed: int) -> tuple[Any, dict[str, float]]:
+            frame, _ = dgp.sample(n=n, seed=seed)
+            return frame, dgp.incremental_truth(TestAnIncrementalIntervention.DELTAS)
+
+        return draw
+
+    def _run(self, dgp: DGP, *, n: int, reps: int) -> object:
+        return CoverageStudy(
+            dgp=self._process(dgp),
+            estimator=lambda: TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=5,
+                learner_folds=3,
+                incremental=[Incremental(delta) for delta in self.DELTAS],
+                estimands=self.ESTIMANDS,
+                simultaneous=False,
+                random_state=0,
+            ),
+            n=n,
+            n_replicates=reps,
+            fit_kwargs={"outcome": "Y", "treatment": "A"},
+            seed=2024,
+            n_jobs=2,
+        ).run()
+
+    def test_the_interval_covers_under_ordinary_overlap(self) -> None:
+        study = self._run(linear_dgp(), n=1000, reps=REPLICATES)[self.REPORTED]
+        assert study.coverage > 0.90, study
+
+    def test_it_still_covers_where_the_arm_estimands_are_in_trouble(self) -> None:
+        """The claim, under repeated sampling: no positivity assumption, no degradation."""
+        study = self._run(weak_overlap_dgp(), n=1000, reps=REPLICATES)[self.REPORTED]
+        assert study.coverage > 0.90, study
+        assert abs(study.bias) < max(3.0 * study.bias_se, 0.02), study
+
+    def test_the_natural_course_is_unbiased_by_construction(self) -> None:
+        """``delta = 1`` is ``E[Y]``, so a bias here would be a bug and not a rate."""
+        study = self._run(linear_dgp(), n=1000, reps=200)["ey_ipsi[natural course]"]
+        assert abs(study.bias) < max(3.0 * study.bias_se, 0.01), study

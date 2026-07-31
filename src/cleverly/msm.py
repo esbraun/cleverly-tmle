@@ -56,8 +56,9 @@ effort -- see :func:`refuse_unsupported`:
 - **weights derived from the estimated mechanism** (the "stabilised" MSM).  Then
   :math:`h` is a functional of :math:`P` and the efficient influence function carries a
   further term for the pathwise derivative through :math:`\hat g` -- the same argument
-  that refuses incremental propensity-score interventions in
-  :func:`cleverly.interventions.refuse_unsupported`.
+  that makes an incremental intervention need a second fluctuation and an axis of its
+  own (:mod:`cleverly.interventions.incremental`).  A stabilised working model would
+  need the same treatment, and until someone derives it the weights must stay known.
 
 References
 ----------

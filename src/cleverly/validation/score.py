@@ -267,6 +267,38 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
                     ),
                 )
             )
+            # A group whose parameter is defined through the mechanism solves *two*
+            # equations, and the per-estimand rows below check only their sum -- the
+            # influence curve contains both terms, so its mean cannot be zero unless
+            # both are solved, but a failure there does not say which. This row does.
+            if fluctuation.mechanism is not None:
+                mechanism = fluctuation.mechanism
+                score = float(np.max(np.abs(mechanism.score))) if mechanism.score.size else 0.0
+                stem = f"{group} (mechanism)"
+                rows.append(
+                    ScoreCheckRow(
+                        name=stem if result.n_repeats == 1 else f"{stem}[draw {index}]",
+                        kind="fluctuation",
+                        score=score,
+                        threshold=float(threshold),
+                        std_error=float(reference_se),
+                        passed=bool(score <= threshold),
+                        converged=mechanism.converged,
+                        n_iter=len(mechanism.trace),
+                        method=fluctuation.method,
+                        score_initial=(
+                            float(np.max(np.abs(mechanism.score_initial)))
+                            if mechanism.score_initial.size
+                            else float("nan")
+                        ),
+                        failure=mechanism.failure or "",
+                        hessian_condition=(
+                            float("nan")
+                            if mechanism.hessian_condition is None
+                            else mechanism.hessian_condition
+                        ),
+                    )
+                )
 
     for name, estimate in result.estimates.items():
         threshold = tolerance * estimate.std_error / np.sqrt(n)

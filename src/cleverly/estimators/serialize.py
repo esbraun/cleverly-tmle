@@ -45,7 +45,7 @@ from ..data.causal_data import CategoricalEncoding, CausalData
 from ..data.weighting import WeightSpec
 from ..fluctuation.iterative import Fluctuation, FoldFluctuation, InitialFit
 from ..inference.influence import ParameterEstimate
-from ..interventions import RegimeSet, ShiftSet
+from ..interventions import IPSISet, RegimeSet, ShiftSet
 from ..learners.crossfit import CrossFitPlan, Folds
 from ..learners.density import ConditionalDensity
 from ..msm import MSMSet
@@ -357,6 +357,29 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
                 "reference": float(nuisance.shifts.reference),
             }
         ),
+        # The tilts, as arrays for the reason the shifts are -- and one more. An IPSISet
+        # is a function of the mechanism, so rebuilding it on load would re-derive it
+        # from the reloaded propensity; that agrees to fifteen digits, not exactly, and
+        # this format promises exactly.
+        "incremental": (
+            None
+            if nuisance.incremental is None
+            else {
+                "names": list(nuisance.incremental.names),
+                "deltas": [float(delta) for delta in nuisance.incremental.deltas],
+                "values": arrays.put(f"{prefix}.incremental.values", nuisance.incremental.values),
+                "weights": arrays.put(
+                    f"{prefix}.incremental.weights", nuisance.incremental.weights
+                ),
+                "derivative": arrays.put(
+                    f"{prefix}.incremental.derivative", nuisance.incremental.derivative
+                ),
+                "propensity": arrays.put(
+                    f"{prefix}.incremental.propensity", nuisance.incremental.propensity
+                ),
+                "reference": float(nuisance.incremental.reference),
+            }
+        ),
         # The working model, likewise as arrays: its design is a callable and cannot be
         # written, its output can, and the output is what every reuse needs. This is the
         # whole of why a loaded result can still be retargeted against the model the fit
@@ -396,6 +419,7 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
         regimes=_regimes_from(arrays, payload.get("regimes")),
         density=_density_from(arrays, payload.get("density")),
         shifts=_shifts_from(arrays, payload.get("shifts")),
+        incremental=_incremental_from(arrays, payload.get("incremental")),
         msm=_msm_from(arrays, payload.get("msm")),
     )
 
@@ -440,6 +464,20 @@ def _shifts_from(arrays: _Arrays, payload: dict[str, Any] | None) -> ShiftSet | 
         arrays.get(payload["ratio"]),
         arrays.get(payload["ratio_at"]),
         arrays.get(payload["capped"]).astype(bool),
+        float(payload["reference"]),
+    )
+
+
+def _incremental_from(arrays: _Arrays, payload: dict[str, Any] | None) -> IPSISet | None:
+    if payload is None:
+        return None
+    return IPSISet(
+        tuple(payload["names"]),
+        tuple(float(delta) for delta in payload["deltas"]),
+        arrays.get(payload["values"]),
+        arrays.get(payload["weights"]),
+        arrays.get(payload["derivative"]),
+        arrays.get(payload["propensity"]),
         float(payload["reference"]),
     )
 

@@ -104,6 +104,7 @@ from ..fluctuation.iterative import (
     InitialFit,
     TargetingFailure,
 )
+from ..fluctuation.mechanism import needs_mechanism
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict
 from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cross_validated_variance
@@ -112,7 +113,7 @@ from ..inference.influence import (
     average_estimates,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
-from ..interventions import RegimeSet, Shift, ShiftSet, as_interventions
+from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
 from ..learners._fitting import Task
 from ..learners.crossfit import CrossFitPlan, Folds, make_folds
 from ..learners.super_learner import resolve_learner
@@ -130,7 +131,7 @@ from .base import (
     attach_bootstrap,
     resolve_estimands,
 )
-from .targeting import TargetingSpec, build_submodel, solve_submodel
+from .targeting import TargetingSpec, build_submodel, solve_submodel, solve_with_mechanism
 
 __all__ = ["TMLE", "tmle"]
 
@@ -395,6 +396,7 @@ class TMLE:
         estimands: Sequence[Estimand] | str | None = None,
         interventions: Sequence[Any] | None = None,
         shifts: Sequence[Shift] | None = None,
+        incremental: Sequence[Incremental] | None = None,
         msm: MSM | None = None,
         density_bins: int = 20,
         reference: Any = None,
@@ -437,6 +439,7 @@ class TMLE:
         self.estimands = estimands
         self.interventions = as_interventions(interventions)
         self.shifts = tuple(shifts or ())
+        self.incremental = tuple(incremental or ())
         self.msm = msm
         self.density_bins = density_bins
         self.reference = reference
@@ -488,15 +491,41 @@ class TMLE:
             raise ValueError(f"nuisance_bound must lie in (0, 0.5); got {self.nuisance_bound}")
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
-        if self.interventions and self.shifts:
-            raise ValueError(
-                "interventions= and shifts= each declare what this fit's counterfactuals "
-                "are -- a regime assigns an arm from W alone, a shift moves the dose the "
-                "unit actually received -- and one fluctuation cannot solve both score "
-                "equations. Fit them separately."
+        declared = [
+            name
+            for name, value in (
+                ("interventions=", self.interventions),
+                ("shifts=", self.shifts),
+                ("incremental=", self.incremental),
             )
-        if self.msm is not None and (self.interventions or self.shifts):
-            other = "interventions=" if self.interventions else "shifts="
+            if value
+        ]
+        if len(declared) > 1:
+            raise ValueError(
+                f"{' and '.join(declared)} each declare what this fit's counterfactuals "
+                "are -- a regime assigns an arm from W alone, a shift moves the dose the "
+                "unit actually received, and an incremental intervention tilts the odds "
+                "of the mechanism that was already there -- and one fluctuation cannot "
+                "solve their score equations at once. Fit them separately."
+            )
+        if self.incremental and self.g_bounds != "auto":
+            raise ValueError(
+                "g_bounds= truncates the treatment mechanism, and on an incremental fit "
+                "the mechanism is part of the *estimand*: q_delta = delta*g / "
+                "(delta*g + 1 - g), so truncating g moves Psi(delta) itself rather than "
+                "regularising a denominator. It is also unnecessary -- the clever "
+                "covariate is delta/D at A=1 and 1/D at A=0, both between "
+                "min(delta, 1/delta) and max(delta, 1/delta) whatever g is, which is the "
+                "point of an incremental intervention. Leave g_bounds at its default."
+            )
+        if self.msm is not None and (self.interventions or self.shifts or self.incremental):
+            other = (
+                "interventions="
+                if self.interventions
+                else "shifts="
+                if self.shifts
+                else "incremental="
+            )
             raise ValueError(
                 f"msm= and {other} cannot be combined. A working model summarises the "
                 "counterfactual means with p score equations, one per term, and "
@@ -766,6 +795,7 @@ class TMLE:
         :func:`_with_cross_validated_variance` and :meth:`_cv_detail`.
         """
         self._check_shifts(data)
+        self._check_incremental(data)
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
 
         extra: dict[str, Any] = {}
@@ -930,9 +960,47 @@ class TMLE:
             return "msm"
         if self.shifts:
             return "shift"
+        if self.incremental:
+            return "ipsi"
         if self.interventions:
             return "regime"
         return "arm"
+
+    def _check_incremental(self, data: CausalData) -> None:
+        """Refuse the nuisances an incremental fit has no derivation for.
+
+        Both put a further mechanism inside the outcome half of the clever covariate,
+        which is a *different* derivation rather than the same one with an extra factor
+        -- and neither has an oracle law here, so the influence curve would go unchecked.
+        Refusing by name is the house rule (see CLAUDE.md); the arm-indexed estimands
+        support both and are the thing to reach for.
+        """
+        if not self.incremental:
+            return
+        if data.n_arms != 2:
+            raise DataError(
+                f"an incremental propensity-score intervention tilts the *odds* of "
+                f"treatment, which names two arms; {data.treatment_name} has "
+                f"{data.n_arms} ({list(data.treatment_levels)}). Kennedy's tilt has no "
+                "single-parameter generalisation to a multinomial mechanism -- one odds "
+                "per contrast would be a different intervention with a different "
+                "influence function."
+            )
+        if data.has_missing_outcome:
+            raise ValueError(
+                "incremental= and delta= are not combined. Missingness puts "
+                "P(Delta = 1 | A, W) in the denominator of the outcome half of the "
+                "clever covariate; the derivation is not the one implemented here and "
+                "no oracle law covers it, so the influence curve would be unchecked. "
+                "Fit the complete cases, or use an arm-indexed estimand."
+            )
+        if data.has_intermediate:
+            raise ValueError(
+                "incremental= and intermediate= are not combined. A controlled direct "
+                "effect under a tilt of the treatment mechanism is a parameter this "
+                "package has not written down, and reporting one would mean guessing at "
+                "its influence function."
+            )
 
     def _check_shifts(self, data: CausalData) -> None:
         """Refuse a shift the treatment cannot carry, and a dose with no policy declared.
@@ -989,6 +1057,9 @@ class TMLE:
         if self.shifts:
             # Resolved from the shift *names*, for the reason the regime branch gives.
             return self._reference_shift()
+        if self.incremental:
+            # Resolved from the tilt *names*, for the reason the regime branch gives.
+            return self._reference_incremental()
         if self.interventions:
             # Resolved from the regime *names* rather than from an evaluated RegimeSet,
             # so the config -- built before any nuisance is fitted -- can record it, and
@@ -1094,6 +1165,8 @@ class TMLE:
             min_retain=self.min_retain,
             shifts=self.shifts,
             shift_reference=None if self.reference is None else str(self.reference),
+            incremental=self.incremental,
+            incremental_reference=None if self.reference is None else str(self.reference),
             density_bins=self.density_bins,
             n_jobs=self.n_jobs,
         )
@@ -1121,6 +1194,22 @@ class TMLE:
             return 0.0
         if str(self.reference) not in names:
             raise DataError(f"reference={self.reference!r} is not one of the regimes {names}")
+        return float(names.index(str(self.reference)))
+
+    def _reference_incremental(self) -> float:
+        """The tilt code contrasts are taken against, from ``reference=`` and the names.
+
+        Defaults to the first declared, which is the rule the arms, regimes and shifts
+        follow.  Declaring ``Incremental(1.0)`` first is the usual way to make
+        ``ate_ipsi`` read as *the effect of tilting*, since q_1 is the mechanism itself.
+        """
+        names = [item.name for item in self.incremental]
+        if self.reference is None:
+            return 0.0
+        if str(self.reference) not in names:
+            raise DataError(
+                f"reference={self.reference!r} is not one of the incremental interventions {names}"
+            )
         return float(names.index(str(self.reference)))
 
     def _reference_shift(self) -> float:
@@ -1375,14 +1464,34 @@ class TMLE:
 
         for group in self._groups(requested):
             bounds = g_bounds_for(group, mean_bounds, conditional_bounds)
-            submodel = self._submodel(
-                data, nuisance, group, bounds, intermediate_value, missingness, nuisance_bound
-            )
-            fluctuation = self._solve(data, nuisance, submodel)
+            # A group whose parameter is defined *through* the mechanism has a second
+            # score equation, so its targeting alternates and returns the nuisances
+            # re-tilted at the targeted g. `targeted` is what the estimates are read
+            # from; `nuisance` stays the initial fit and is what the result reports.
+            targeted = nuisance
+            if needs_mechanism(group):
+                submodel, fluctuation, targeted = solve_with_mechanism(
+                    data,
+                    nuisance,
+                    group,
+                    self.targeting_spec(),
+                    bounds=bounds,
+                    nuisance_bound=self.nuisance_bound
+                    if nuisance_bound is None
+                    else nuisance_bound,
+                    scaled=nuisance.scaler.scale(data.outcome),
+                    weights=data.weights,
+                    observed=data.observed,
+                )
+            else:
+                submodel = self._submodel(
+                    data, nuisance, group, bounds, intermediate_value, missingness, nuisance_bound
+                )
+                fluctuation = self._solve(data, nuisance, submodel)
             fluctuations[group] = fluctuation
 
             pooled = self._estimates_for(
-                data, nuisance, group, submodel, fluctuation, requested, level, reference
+                data, targeted, group, submodel, fluctuation, requested, level, reference
             )
             pooled_report.update(pooled)
             if not fluctuation.folds:
@@ -1399,7 +1508,7 @@ class TMLE:
             # `drop_undefined`, which is what `_average_over_folds` then reconciles.
             per_fold = [
                 self._fold_estimates(
-                    data, nuisance, group, submodel, fluctuation, requested, level, index
+                    data, targeted, group, submodel, fluctuation, requested, level, index
                 )
                 for index in indices
             ]  # regimes ride along on `nuisance`, and are sliced per fold below
@@ -1757,6 +1866,7 @@ class TMLE:
         data: CausalData,
         regimes: RegimeSet | None,
         shifts: ShiftSet | None,
+        incremental: IPSISet | None,
         msm: MSMSet | None,
     ) -> tuple[tuple[float, ...], dict[float, Any]]:
         """The codes this fit's parameters are keyed by, and what to report them as.
@@ -1772,6 +1882,8 @@ class TMLE:
             return msm.codes, dict(msm.labels)
         if shifts is not None:
             return shifts.codes, dict(shifts.labels)
+        if incremental is not None:
+            return incremental.codes, dict(incremental.labels)
         if regimes is not None:
             return regimes.codes, dict(regimes.labels)
         return data.arm_codes, {arm: data.arm_label(arm) for arm in data.arm_codes}
@@ -1805,6 +1917,9 @@ class TMLE:
         treatment, cluster, n = data.treatment, data.cluster, data.n
         regimes = nuisance.regimes
         shifts = nuisance.shifts
+        # Already the *targeted* tilt: `solve_with_mechanism` returns a NuisanceEstimates
+        # carrying the fluctuated mechanism, and it is that one which reaches here.
+        incremental = nuisance.incremental
         msm = nuisance.msm
         if index is not None:
             scaled = scaled[index]
@@ -1817,15 +1932,16 @@ class TMLE:
             cluster = None if cluster is None else cluster[index]
             regimes = None if regimes is None else regimes.subset(index)
             shifts = None if shifts is None else shifts.subset(index)
+            incremental = None if incremental is None else incremental.subset(index)
             msm = None if msm is None else msm.subset(index)
             n = int(index.size)
 
-        # On a regime, shift or working-model fit the parameter axis is the regime (or
-        # shift, or coefficient) rather than the arm, so the context is keyed by that code
-        # and labelled with those names. The four cases are the same shape on purpose --
+        # On a regime, shift, tilt or working-model fit the parameter axis is that rather
+        # than the arm, so the context is keyed by that code and labelled with those names.
+        # The five cases are the same shape on purpose --
         # see TargetContext.arms. `data.arm_label` is not reached on a continuous fit,
         # where it would raise.
-        codes, labels = self._parameter_axis(data, regimes, shifts, msm)
+        codes, labels = self._parameter_axis(data, regimes, shifts, incremental, msm)
         context = TargetContext(
             scaled=scaled,
             targeted=targeted,
@@ -1842,9 +1958,15 @@ class TMLE:
             reference=reference,
             regimes=None if regimes is None else regimes.values,
             shifts=None if shifts is None else shifts.design,
+            incremental=incremental,
             msm_design=None if msm is None else msm.design,
             msm_weights=None if msm is None else msm.weights,
-            always_label=regimes is not None or shifts is not None or msm is not None,
+            always_label=(
+                regimes is not None
+                or shifts is not None
+                or incremental is not None
+                or msm is not None
+            ),
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted

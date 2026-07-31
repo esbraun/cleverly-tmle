@@ -119,12 +119,24 @@ class TestWhichBoundAGroupGets:
     ) -> None:
         assert g_bounds_for(group, self.MEAN, self.CONDITIONAL) == self.MEAN
 
-    def test_the_conditional_groups_are_exactly_the_binary_only_ones(self) -> None:
-        """The two coincide by derivation: an odds needs two arms to be an odds."""
+    def test_every_conditional_group_is_binary_only(self) -> None:
+        """One direction holds by derivation: an odds needs two arms to be an odds.
+
+        The converse does **not** hold, and it is worth saying why rather than leaving
+        the set difference to be rediscovered.  ``mean`` is binary-only only through the
+        targets that name particular arms (``rr``, ``or``), and its covariate is an
+        inverse probability rather than an odds.  ``ipsi`` is binary-only because an
+        *odds multiplier* needs two arms -- but its covariate divides by no mechanism at
+        all, so it takes neither bound, and the truncation it does not need is the point
+        of the estimand.  "Binary-only" and "needs the tighter bound" are two questions
+        that happened to have the same answer while ``att`` and ``atc`` were the only
+        binary-only groups with a mechanism in the denominator.
+        """
         from cleverly.targets import TARGETS
 
         binary_only = {t.group for t in TARGETS.values() if t.requires_binary_treatment}
-        assert binary_only - {"mean"} == CONDITIONAL_GROUPS
+        assert binary_only >= CONDITIONAL_GROUPS
+        assert binary_only - CONDITIONAL_GROUPS == {"mean", "ipsi"}
 
 
 class TestOutcomeScaler:
