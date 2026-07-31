@@ -55,7 +55,7 @@ results are returned in it.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 
@@ -139,6 +139,15 @@ class LongitudinalData:
     #: caller has to remember to guard.
     event: BoolArray | None = None
     event_names: tuple[str, ...] = ()
+    #: ``(n, T, J)`` "had *this* cause's event at or before ``t``", and ``None`` unless the
+    #: fit declared competing risks.  :attr:`event` stays the **all-cause** matrix beside
+    #: it, which is what every mask reads: leaving the risk set is leaving it, whichever
+    #: cause did it, so :meth:`at_risk`, :meth:`following` and the mechanism's fit mask are
+    #: the same expressions they were for one event.  Only the pseudo-outcome of the
+    #: sequential regression is cause-specific, and it is the one thing that reads this.
+    cause_event: BoolArray | None = None
+    #: The absorbing causes, in report order; empty unless the fit declared them.
+    cause_labels: tuple[str, ...] = ()
     censoring_names: tuple[str, ...] = ()
     cluster: IntArray | None = None
     cluster_name: str | None = None
@@ -152,7 +161,7 @@ class LongitudinalData:
         cls,
         data: Any,
         *,
-        outcome: str | Sequence[str],
+        outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
         treatment: Sequence[str],
         baseline: Sequence[str],
         time_varying: Sequence[Sequence[str]] | None = None,
@@ -165,11 +174,15 @@ class LongitudinalData:
         Parameters
         ----------
         outcome:
-            One column name for an end-of-study outcome, or **one per time point** for a
-            survival outcome, in the same order as ``treatment``.  Which of the two is
+            One column name for an end-of-study outcome; **one per time point** for a
+            survival outcome, in the same order as ``treatment``; or a **mapping of cause
+            to one column per time point** for competing risks,
+            ``{"relapse": ["R1", "R2"], "death": ["D1", "D2"]}``.  Which of the three is
             passed declares which parameter the fit answers, so it is read off the shape
-            rather than from a further keyword: a curve and a number are not the same
-            report, and a flag saying which would be a second place for them to disagree.
+            rather than from a further keyword: a number, a curve and a set of curves are
+            not the same report, and a flag saying which would be a second place for them
+            to disagree.  A mapping with one cause is still competing risks by
+            declaration, and reports a cumulative incidence.
         treatment:
             Treatment column per time point, in time order.  Its length declares ``T``.
         baseline:
@@ -211,11 +224,36 @@ class LongitudinalData:
                     "treatment node(s); pass one (possibly empty) list per time point"
                 )
 
+        # Three shapes, and which one is passed declares which parameter the fit answers:
+        # a name is a number, a sequence is a curve, a mapping is one curve per cause.
+        # Read off the shape rather than from a further keyword, since a flag saying which
+        # would be a second place for the declaration and the columns to disagree.
+        cause_labels: tuple[str, ...] = ()
         if isinstance(outcome, str):
+            event_blocks: list[list[str]] = []
             outcome_names = [outcome]
             survival = False
+        elif isinstance(outcome, Mapping):
+            if not outcome:
+                raise DataError(
+                    "outcome= is an empty mapping; competing risks are declared by naming "
+                    "each absorbing cause and its indicator column per time point, for "
+                    "example outcome={'relapse': ['R1', 'R2'], 'death': ['D1', 'D2']}"
+                )
+            cause_labels = tuple(str(label) for label in outcome)
+            event_blocks = [[str(name) for name in block] for block in outcome.values()]
+            for label, block in zip(cause_labels, event_blocks, strict=True):
+                if len(block) != n_times:
+                    raise DataError(
+                        f"cause {label!r} names {len(block)} column(s) but there are "
+                        f"{n_times} treatment node(s); every cause needs one event "
+                        "indicator per time point, in the same order as treatment="
+                    )
+            outcome_names = [name for block in event_blocks for name in block]
+            survival = True
         else:
             outcome_names = [str(name) for name in outcome]
+            event_blocks = [outcome_names]
             survival = True
             if len(outcome_names) != n_times:
                 raise DataError(
@@ -237,14 +275,24 @@ class LongitudinalData:
 
         return cls._build(
             outcome=None if survival else frame[outcome_names[0]].to_numpy(),
+            # ``(n, T, J)``: a node axis and a cause axis, with ``J = 1`` for a single
+            # absorbing event.  One shape rather than two keeps the validating sweep and
+            # every mask below written once.
             event=(
-                np.column_stack(
-                    [np.asarray(frame[name].to_numpy(), dtype=float) for name in outcome_names]
+                np.stack(
+                    [
+                        np.column_stack(
+                            [np.asarray(frame[name].to_numpy(), dtype=float) for name in block]
+                        )
+                        for block in event_blocks
+                    ],
+                    axis=2,
                 )
                 if survival
                 else None
             ),
-            event_names=outcome_names if survival else [],
+            event_names=event_blocks if survival else [],
+            cause_labels=cause_labels,
             baseline=matrix_from_columns(frame, baseline_names) if baseline_names else None,
             baseline_names=baseline_names,
             treatment=np.column_stack(
@@ -274,7 +322,8 @@ class LongitudinalData:
         *,
         outcome: Any,
         event: FloatArray | None = None,
-        event_names: Sequence[str] = (),
+        event_names: Sequence[Sequence[str]] = (),
+        cause_labels: Sequence[str] = (),
         baseline: FloatArray | None,
         baseline_names: Sequence[str],
         treatment: FloatArray,
@@ -309,11 +358,12 @@ class LongitudinalData:
             np.asarray(baseline, dtype=float), list(baseline_names)
         )
 
-        uncensored, failed = _read_followup(
+        uncensored, failed, failed_by_cause = _read_followup(
             censoring,
             censoring_names,
             event_values if survival else None,
             event_names,
+            cause_labels,
             n,
             n_times,
         )
@@ -435,7 +485,12 @@ class LongitudinalData:
             family=resolved,
             outcome_name=outcome_name,
             event=failed,
-            event_names=tuple(str(name) for name in event_names),
+            event_names=tuple(str(name) for block in event_names for name in block),
+            # Only when the mapping form was passed, so a one-cause mapping reports a
+            # cumulative incidence *by declaration* rather than a fit being classified by
+            # how many causes its data happened to contain.
+            cause_event=failed_by_cause if cause_labels else None,
+            cause_labels=tuple(str(label) for label in cause_labels),
             censoring_names=tuple(str(name) for name in censoring_names),
             cluster=codes,
             cluster_name=cluster_name,
@@ -472,6 +527,17 @@ class LongitudinalData:
         caller that branches on it is branching on the parameter, not on a storage detail.
         """
         return self.event is not None
+
+    @property
+    def is_competing(self) -> bool:
+        """Whether the fit declared more than one absorbing state per node.
+
+        True when ``outcome=`` was passed as a **mapping** of cause to columns, including
+        a mapping with a single cause: what a fit reports is a statement it made, not one
+        inferred from how many causes its sample happened to contain.  A competing-risks
+        fit is a survival fit, so :attr:`is_survival` is true of it too.
+        """
+        return bool(self.cause_labels)
 
     @property
     def backend(self) -> str | None:
@@ -557,12 +623,20 @@ class LongitudinalData:
             return np.ones(self.n, dtype=bool)
         return np.asarray(free, dtype=bool)
 
-    def event_by(self, time: int) -> FloatArray:
-        """``1.0`` where the event had happened at or before ``time``, else ``0.0``.
+    def event_by(self, time: int, cause: str | None = None) -> FloatArray:
+        """``1.0`` where an event had happened at or before ``time``, else ``0.0``.
 
         The target of the sequential regression at ``time`` on a survival fit, read on
         :meth:`following` -- where "at or before" and "at" coincide, since every row there
         was event-free entering the node.
+
+        ``cause=None`` answers for **any** cause, which is what the recursion's survival
+        factor needs and what every mask is built on.  Naming a cause answers for that one
+        alone, which is what its pseudo-outcome's *numerator* needs.  The two come apart
+        exactly when there is more than one cause, and keeping them one call with one
+        argument is deliberate: the composition
+        ``event_by(t, cause) + (1 - event_by(t)) * carried`` then reads as the asymmetry it
+        is, rather than as two similarly-named quantities a reader must tell apart.
         """
         if self.event is None:
             raise DataError(
@@ -572,7 +646,17 @@ class LongitudinalData:
             )
         if not 1 <= time <= self.n_times:
             raise DataError(f"time {time} is outside 1..{self.n_times}")
-        return self.event[:, time - 1].astype(float)
+        if cause is None:
+            return self.event[:, time - 1].astype(float)
+        if self.cause_event is None:
+            raise DataError(
+                f"this fit has one absorbing event ({self.outcome_name!r}), so there is no "
+                f"cause {cause!r} to ask about. Declare competing risks by passing a "
+                "mapping of cause to its indicator column per time point"
+            )
+        if cause not in self.cause_labels:
+            raise DataError(f"unknown cause {cause!r}; this fit declared {list(self.cause_labels)}")
+        return self.cause_event[:, time - 1, self.cause_labels.index(cause)].astype(float)
 
     # ----------------------------------------------------------------- design
 
@@ -730,10 +814,11 @@ def _read_followup(
     censoring: FloatArray | None,
     censoring_names: Sequence[str],
     event: FloatArray | None,
-    event_names: Sequence[str],
+    event_names: Sequence[Sequence[str]],
+    cause_labels: Sequence[str],
     n: int,
     n_times: int,
-) -> tuple[BoolArray, BoolArray | None]:
+) -> tuple[BoolArray, BoolArray | None, BoolArray | None]:
     """Validate the censoring and event columns, returning both cumulative indicators.
 
     One left-to-right sweep rather than two, because the two processes interleave and
@@ -747,20 +832,38 @@ def _read_followup(
     With no event columns declared, ``failed`` is ``None`` and every line below reduces
     to the censoring-only sweep this replaced, so a fit with one end-of-study outcome is
     validated by exactly the arithmetic it always was.
+
+    The event array carries a **cause** axis, of length one for a single absorbing event.
+    Leaving the risk set is leaving it whichever cause did it, so ``happened`` -- the thing
+    every other node's presence rule is asked against -- is all-cause, and a second cause
+    adds two refusals rather than a second sweep: two causes may not fire at one node, and
+    a unit that has left may not later be marked as having a *different* cause's event.
     """
     if censoring is not None:
         censor_values = np.asarray(censoring, dtype=float)
         if censor_values.shape != (n, n_times):
             raise DataError(f"censoring has shape {censor_values.shape}, expected {(n, n_times)}")
+    n_causes = 1
     if event is not None:
         event_values = np.asarray(event, dtype=float)
-        if event_values.shape != (n, n_times):
-            raise DataError(f"outcome has shape {event_values.shape}, expected {(n, n_times)}")
+        n_causes = event_values.shape[2] if event_values.ndim == 3 else 1
+        event_values = event_values.reshape(n, n_times, n_causes)
+        if event_values.shape[:2] != (n, n_times):
+            raise DataError(f"outcome has shape {event_values.shape[:2]}, expected {(n, n_times)}")
+
+    def _column_name(cause: int, time: int) -> str:
+        block = event_names[cause] if cause < len(event_names) else ()
+        return str(block[time]) if time < len(block) else f"Y{time + 1}"
+
+    def _cause_name(cause: int) -> str:
+        return str(cause_labels[cause]) if cause < len(cause_labels) else "the event"
 
     uncensored = np.ones((n, n_times), dtype=bool)
     failed = None if event is None else np.zeros((n, n_times), dtype=bool)
+    by_cause = None if event is None else np.zeros((n, n_times, n_causes), dtype=bool)
     alive = np.ones(n, dtype=bool)
     happened = np.zeros(n, dtype=bool)
+    happened_by_cause = np.zeros((n, n_causes), dtype=bool)
     for time in range(n_times):
         at_risk = alive & ~happened
         if censoring is None:
@@ -796,45 +899,75 @@ def _read_followup(
             uncensored[:, time] = at_risk & (column == 1.0)
         alive = uncensored[:, time]
 
-        if failed is None:
+        if failed is None or by_cause is None:
             continue
-        column = event_values[:, time]
-        name = str(event_names[time]) if time < len(event_names) else f"Y{time + 1}"
         # Asked of the units still under observation *after* this node's censoring and
         # not already out of the risk set: those are the ones for whom "did the event
         # happen at time t" is a question the data answers.
         required = alive & ~happened
-        present = np.isfinite(column)
-        bad = required & ~present
-        if np.any(bad):
-            raise DataError(
-                f"outcome column {name!r} is missing for {int(bad.sum())} unit(s) that were "
-                "still at risk; a unit at risk either had the event (1) or did not (0). A "
-                "unit whose outcome is missing for some other reason is censored, and its "
-                "censoring column is where that belongs"
-            )
-        seen = np.unique(column[required])
-        if not np.all(np.isin(seen, (0.0, 1.0))):
-            raise DataError(
-                f"outcome column {name!r} takes values {seen[:6].tolist()}; a survival "
-                "outcome is an event indicator at every node, 1 where the event happened "
-                "at that time point and 0 where it had not yet"
-            )
-        # Exactly the licence the censoring sweep gives above, and for the same reason: a
-        # unit that has already had the event may carry the 1 forward or carry nothing,
-        # since either says the same absorbing thing.  A 0 does not.
-        recovered = happened & present & (column == 0.0)
-        if np.any(recovered):
-            raise DataError(
-                f"outcome column {name!r} marks {int(recovered.sum())} unit(s) as event-free "
-                "after they had already had the event. The event is assumed absorbing -- a "
-                "unit that has it leaves the risk set and does not return to it -- and a "
-                "recurrent event identifies a different parameter, so this is refused "
-                "rather than read as a recovery."
-            )
-        failed[:, time] = happened | (required & (column == 1.0))
+        fired = np.zeros((n, n_causes), dtype=bool)
+        for cause in range(n_causes):
+            column = event_values[:, time, cause]
+            name = _column_name(cause, time)
+            present = np.isfinite(column)
+            bad = required & ~present
+            if np.any(bad):
+                raise DataError(
+                    f"outcome column {name!r} is missing for {int(bad.sum())} unit(s) that were "
+                    "still at risk; a unit at risk either had the event (1) or did not (0). A "
+                    "unit whose outcome is missing for some other reason is censored, and its "
+                    "censoring column is where that belongs"
+                )
+            seen = np.unique(column[required])
+            if not np.all(np.isin(seen, (0.0, 1.0))):
+                raise DataError(
+                    f"outcome column {name!r} takes values {seen[:6].tolist()}; a survival "
+                    "outcome is an event indicator at every node, 1 where the event happened "
+                    "at that time point and 0 where it had not yet"
+                )
+            # Exactly the licence the censoring sweep gives above, and for the same
+            # reason: a unit that has already had the event may carry the 1 forward or
+            # carry nothing, since either says the same absorbing thing.  A 0 does not.
+            recovered = happened_by_cause[:, cause] & present & (column == 0.0)
+            if np.any(recovered):
+                raise DataError(
+                    f"outcome column {name!r} marks {int(recovered.sum())} unit(s) as event-free "
+                    "after they had already had the event. The event is assumed absorbing -- a "
+                    "unit that has it leaves the risk set and does not return to it -- and a "
+                    "recurrent event identifies a different parameter, so this is refused "
+                    "rather than read as a recovery."
+                )
+            # A unit that has left through one cause cannot later be marked as having had
+            # another: it is out of the risk set, and a second absorbing event is not an
+            # observation this parameter has a place for.
+            struck = happened & ~happened_by_cause[:, cause] & present & (column == 1.0)
+            if np.any(struck):
+                raise DataError(
+                    f"outcome column {name!r} marks {int(struck.sum())} unit(s) as having had "
+                    f"{_cause_name(cause)} after they had already left the risk set through "
+                    "another cause. The causes are competing and each is absorbing, so a unit "
+                    "has at most one of them"
+                )
+            fired[:, cause] = required & (column == 1.0)
+
+        if n_causes > 1:
+            clash = fired.sum(axis=1) > 1
+            if np.any(clash):
+                row = int(np.flatnonzero(clash)[0])
+                both = [_cause_name(int(c)) for c in np.flatnonzero(fired[row])]
+                raise DataError(
+                    f"{int(clash.sum())} unit(s) have more than one cause marked at time "
+                    f"{time + 1} -- the first has {both}. Competing causes are mutually "
+                    "exclusive: a unit leaves the risk set through exactly one of them, so "
+                    "at most one indicator is 1 at any node"
+                )
+
+        for cause in range(n_causes):
+            by_cause[:, time, cause] = happened_by_cause[:, cause] | fired[:, cause]
+        happened_by_cause = by_cause[:, time, :]
+        failed[:, time] = happened | fired.any(axis=1)
         happened = failed[:, time]
-    return uncensored, failed
+    return uncensored, failed, by_cause
 
 
 def _check_presence(

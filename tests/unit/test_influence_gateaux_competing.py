@@ -29,8 +29,19 @@ support; it is simply the influence function of a different parameter.  Mean-zer
 validates the machinery, never the estimand -- which is why the identities in
 :class:`TestTheParameterIsACumulativeIncidence` are here and are not decoration.
 
-The tests that compare the reported curve against :func:`~tests.discrete_law_competing.eif`
-belong to the estimator and arrive with it.
+A second mutation was run against the **library**, and it is the one all of this is aimed
+at: ``fit_regimen`` composing the pseudo-outcome with the cause's own survival,
+``failed + (1 - failed) * carried``, in place of the all-cause
+``failed + (1 - event_by(time)) * carried``.  It takes **21 of the 130** tests, and again
+the pattern is the informative part -- every failure is at ``t = 2``.  At the first horizon
+there is no survival factor to get wrong, so the mutation is invisible there and the ten
+horizon-1 parameters stay green.
+
+Unlike the survival module's mechanism mutation, this one is *not* silent in the point
+estimate: it changes what the earlier regression is fitted to, so the plug-in moves and the
+``psi`` tests fail beside the Gateaux ones.  That is worth knowing in the other direction --
+it means a competing-risks fit that is wrong this way cannot be mistaken for one that is
+merely inefficient.
 """
 
 from __future__ import annotations
@@ -39,6 +50,8 @@ import itertools
 
 import numpy as np
 import pytest
+
+from cleverly.longitudinal import LTMLE
 
 from .. import discrete_law_competing as law
 
@@ -331,3 +344,212 @@ class TestTheNameTable:
         assert law._split_horizon("always vs never, death @ t=2") == ("always vs never, death", 2)
         assert law._split_cause("always vs never, death") == ("always vs never", "death")
         assert law._split_cause("always, relapse") == ("always", "relapse")
+
+
+# --------------------------------------------------------------------------- the fit
+
+#: Truncation wide enough never to bind: the law's conditionals all lie in [0.25, 0.75].
+NO_TRUNCATION = (1e-8, 1.0 - 1e-8)
+
+COLUMNS = {
+    "treatment": ["A1", "A2"],
+    "baseline": ["W"],
+    "time_varying": [[], ["L2"]],
+    "censoring": ["C1", "C2"],
+}
+
+
+def _oracle_fit(frame: object, **overrides: object) -> object:
+    """A fit of ``frame`` with the saturated learner at every node."""
+    settings: dict[str, object] = {
+        "reference": law.REGIMEN_REFERENCE,
+        "outcome_learner": law.CellMeans(),
+        "pseudo_learner": law.CellMeans(),
+        "treatment_learner": law.CellMeans(),
+        "censoring_learner": law.CellMeans(),
+        "n_folds": 1,
+        "g_bounds": NO_TRUNCATION,
+        # Nothing here reads the bands, and three regimens over two causes and two
+        # horizons make twenty parameters -- a multiplier bootstrap over a matrix nobody
+        # looks at.
+        "simultaneous": False,
+    }
+    columns = dict(COLUMNS)
+    outcome = overrides.pop("outcome", law.outcome_columns())
+    for key in ("censoring",):
+        if key in overrides:
+            columns[key] = overrides.pop(key)  # type: ignore[assignment]
+    settings.update(overrides)
+    regimens = settings.pop("regimens", law.REGIMEN_SPEC)
+    return LTMLE(regimens, **settings).fit(frame, outcome=outcome, **columns)  # type: ignore[arg-type]
+
+
+@pytest.fixture(scope="module")
+def fit() -> object:
+    """One fit of the exact law, shared by every test below."""
+    return _oracle_fit(law.frame())
+
+
+class TestTheFitAnswersTheLaw:
+    """The central claim: the estimator and the oracle agree, to machine precision."""
+
+    def test_every_reported_parameter_has_an_oracle_and_no_more(self, fit: object) -> None:
+        """The bidirectional gate, now over three indexes rather than two.
+
+        A competing-risks fit reports a parameter per regimen per cause per horizon, so
+        the count moves with three things and the reverse direction earns its keep:
+        adding a cause or a horizon to what ``_estimates`` reports fails here until a
+        longhand functional exists for it.
+        """
+        assert set(fit) == set(law.NAMES)
+
+    @pytest.mark.parametrize("name", law.NAMES)
+    def test_point_estimate_is_the_g_formula(self, fit: object, name: str) -> None:
+        """With exact nuisances the estimate is the truth, to the last bit."""
+        assert fit.psi(name) == pytest.approx(law.TRUTH[name], abs=1e-12)
+
+    @pytest.mark.parametrize("name", law.NAMES)
+    def test_influence_curve_is_the_gateaux_derivative(self, fit: object, name: str) -> None:
+        """The reported curve is the complex-step derivative of the longhand functional.
+
+        ``rtol=0`` as in every sibling module: these curves reach order 20, so a default
+        relative tolerance would quietly loosen this to ~1e-6 -- six orders short of what
+        the comparison actually holds to, on the module's central claim.
+        """
+        reported = fit.influence_curves[name][law.first_row_of()]
+        np.testing.assert_allclose(reported, law.eif(name), atol=1e-14, rtol=0)
+
+    def test_targeting_had_nothing_to_do(self, fit: object) -> None:
+        """An exact initial fit already solves every score equation, so ``epsilon`` is zero.
+
+        There are ``R * J * T(T+1)/2`` of them here -- eighteen -- because every cause is
+        its own backward pass over every horizon, sharing the mechanism and nothing else.
+        """
+        steps = [step for regimen_fit in fit.fits.values() for step in regimen_fit.steps]
+        assert len(steps) == len(law.REGIMEN_ARMS) * len(law.CAUSES) * 3
+        for step in steps:
+            assert step.fluctuation.converged
+            assert abs(float(step.fluctuation.epsilon[0])) < 1e-8
+            np.testing.assert_allclose(step.targeted, step.initial, atol=1e-9, rtol=0)
+
+    def test_the_curve_is_a_function_of_the_support_point_alone(self, fit: object) -> None:
+        """Two rows with the same history carry the same influence-curve value."""
+        starts = law.first_row_of()
+        for name in law.NAMES[:4]:
+            curve = fit.influence_curves[name]
+            for start, count in zip(starts, law.COUNTS, strict=True):
+                block = curve[start : start + count]
+                np.testing.assert_allclose(block, block[0], atol=1e-12, rtol=0)
+
+    def test_the_rule_matches_the_constant_it_equals_at_the_first_horizon(
+        self, fit: object
+    ) -> None:
+        """``continue_if_l2`` treats at the first node, so at ``t = 1`` it *is* ``always``.
+
+        Bit for bit, and at every cause: the horizon-1 pass sees the same arms, so the
+        same masks, the same design and the same fluctuation.  It fails if the cause or
+        the horizon ever leaks into a mask or a design it has no business in.
+        """
+        for cause in law.CAUSES:
+            rule = fit.fits[f"continue_if_l2, {cause} @ t=1"]
+            constant = fit.fits[f"always, {cause} @ t=1"]
+            assert rule.psi_scaled == constant.psi_scaled
+            np.testing.assert_array_equal(
+                rule.influence_curve_scaled, constant.influence_curve_scaled
+            )
+
+    def test_the_report_carries_the_cause_as_a_column(self, fit: object) -> None:
+        """``curve()`` reads the composed index rather than splitting the name."""
+        curve = fit.curve()
+        assert "cause" in curve.columns
+        assert set(curve["cause"]) == set(law.CAUSES)
+        # The ``regimen`` column carries a regimen for a level and the contrast string for
+        # a difference, exactly as it does on a survival fit; what is pinned here is that
+        # a regimen label comes back whole rather than cut at the cause's separator.
+        assert set(law.REGIMEN_ARMS) <= set(curve["regimen"])
+        assert {"always vs never", "continue_if_l2 vs never"} <= set(curve["regimen"])
+        assert "cause" in fit.diagnostics().columns
+
+    def test_the_incidences_sum_to_the_truth_here(self, fit: object) -> None:
+        """With exact nuisances the causes *do* exhaust the mass, so the excess is zero.
+
+        The identity is not enforced anywhere, which is why this is worth asserting: it
+        comes out right because every cause's regression is right, and
+        ``incidence_total()`` is there for the fits where they are not.
+        """
+        total = fit.incidence_total()
+        assert list(total["excess"]) == [0.0] * len(total["excess"])
+        for label, horizon, value in zip(
+            total["regimen"], total["time"], total["total"], strict=True
+        ):
+            expected = sum(_cif(label, cause, int(horizon)) for cause in law.CAUSES)
+            assert float(value) == pytest.approx(expected, abs=1e-12)
+
+
+class TestTheControlsBite:
+    """Ways of getting competing risks wrong, each shown to move the answer.
+
+    Both leave the fit convergent with every score at machine zero, so neither is caught
+    by anything else here.  They are checked at four orders of magnitude past the window
+    the real assertions use.
+    """
+
+    def test_censoring_at_the_competing_event_would_be_wrong(self) -> None:
+        """Recoding death as censoring answers the *other* competing-risks question.
+
+        Censoring a unit at its competing event is the estimator for the incidence of
+        relapse in a world where death has been eliminated -- a controlled direct effect
+        with its own identification, needing no-unmeasured-confounding and positivity for
+        the competing event itself.  It is a different parameter, and it is refused by
+        name rather than offered as a setting.  Here it is shown to be a different
+        *number*, which is what makes the refusal worth having: the two would otherwise
+        differ only in what the docstring claimed.
+        """
+        frame = law.frame()
+        recoded = frame.copy()
+        # Leaving at the competing event, rather than passing through it.
+        recoded["C1"] = np.where(frame["D1"] == 1.0, 0.0, frame["C1"])
+        for column in ("L2", "A2", "C2", "R2", "D2"):
+            recoded[column] = np.where(frame["D1"] == 1.0, np.nan, frame[column])
+
+        eliminated = _oracle_fit(
+            recoded,
+            outcome=["R1", "R2"],
+            regimens={"always": 1},
+            reference="always",
+        )
+        for horizon in law.HORIZONS:
+            reported = eliminated.psi(f"risk_regimen[always @ t={horizon}]")
+            truth = _cif("always", "relapse", horizon)
+            assert abs(reported - truth) > 1e-2, (
+                f"censoring at the competing event reproduced the incidence at t={horizon}, "
+                "so this law cannot tell the two estimands apart"
+            )
+
+    def test_dropping_the_censoring_factor_would_be_wrong(self) -> None:
+        """Treating the uncensored as the whole sample misses the truth.
+
+        The law's censoring depends on the history, so the complete cases are not a
+        random subsample.  Censoring now interleaves with two event nodes rather than
+        one, which is why it is checked here as well as in the survival module.
+        """
+        frame = law.frame()
+        complete = frame[
+            (frame["C1"] == 1.0)
+            & ((frame["R1"] == 1.0) | (frame["D1"] == 1.0) | (frame["C2"] == 1.0))
+        ]
+        naive = _oracle_fit(
+            complete.reset_index(drop=True),
+            censoring=None,
+            regimens={"always": 1},
+            reference="always",
+        )
+        gaps = [
+            abs(
+                naive.psi(f"cif_regimen[always, {cause} @ t={horizon}]")
+                - _cif("always", cause, horizon)
+            )
+            for cause in law.CAUSES
+            for horizon in law.HORIZONS
+        ]
+        assert max(gaps) > 1e-2, "dropping the censoring factors left every incidence intact"
