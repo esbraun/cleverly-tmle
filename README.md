@@ -565,12 +565,19 @@ print(res.summary())
 ```
 
 ```
+Longitudinal TMLE (2 time points, n = 4000)
+
 parameter                     estimate  std. error  95% CI            p-value
 ----------------------------  --------  ----------  ----------------  -------
 ey_regimen[always]            0.7685    0.0131      [0.7429, 0.7941]  0.0000
 ey_regimen[never]             0.3954    0.0198      [0.3565, 0.4342]  0.0000
 ate_regimen[always vs never]  0.3731    0.0236      [0.3268, 0.4193]  0.0000
 
+  time points: 2
+  regimens: always=(1/1), never=(0/0)
+  reference: never
+  cross-fitting: 5 fold(s)
+  g_bounds: [0.009532, 0.9905] at every node
   always: 1263 of 4000 units followed it throughout; max weight 12.0, effective n 1096
   never: 822 of 4000 units followed it throughout; max weight 34.6, effective n 630
 ```
@@ -1346,6 +1353,13 @@ Python 3.10–3.13 in CI.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), *Scalable
   collaborative targeted learning for high-dimensional data*.
 - van der Laan & Gruber (2016), *One-step targeted minimum loss-based estimation*.
+- Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*.
+- van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
+  multiple time point interventions*.
+- Neugebauer & van der Laan (2007), *Nonparametric causal effects based on marginal structural
+  models*.
+- Kennedy (2019), *Nonparametric causal effects based on incremental propensity score
+  interventions*.
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2022), *Long story short: omitted variable bias
   in causal machine learning*.
 - VanderWeele & Ding (2017), *Sensitivity analysis in observational research: introducing the
