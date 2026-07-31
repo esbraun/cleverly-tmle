@@ -203,6 +203,11 @@ class RegimenFit:
     #: rather than parsed back out of a report name, so ``diagnostics()`` and
     #: ``summary()`` read the regimen and the horizon rather than reconstructing them.
     horizon: int
+    #: Which absorbing cause this fit's parameter is the incidence of, or ``None`` on a
+    #: fit with a single event or an end-of-study outcome.  Carried as a field for the
+    #: reason :attr:`horizon` is: ``diagnostics()`` and ``summary()`` read it rather than
+    #: parsing it back out of a report name, so the two cannot drift.
+    cause: str | None
     steps: tuple[SequentialStep, ...]
     cumulative: FloatArray
     #: The ``(n, T)`` arms this regimen assigned *this* sample.  Constant down each
@@ -320,6 +325,7 @@ def fit_regimen(
     scaler: OutcomeScaler,
     g_bounds: tuple[float, float],
     horizon: int | None = None,
+    cause: str | None = None,
     alpha: float = 0.9995,
     max_iter: int = 20,
     tol: float = 1e-10,
@@ -340,6 +346,14 @@ def fit_regimen(
     a unit that had the event contributes a one and a unit that did not contributes the
     later node's targeted prediction.  Seeding :math:`\\bar{Q}_{k+1} = 0` makes the two
     statements one, since at ``k`` the composition is exactly :math:`Y_k`.
+
+    ``cause`` names which absorbing state the parameter is the incidence *of*, on a fit
+    that declared competing risks, and is ``None`` when there is one.  It changes the
+    pseudo-outcome and nothing else: the masks, the mechanism and the clever covariate are
+    all-cause, because a competing event is part of the history rather than a node anyone
+    intervenes on.  So the causes share every nuisance fit and differ only in what is
+    regressed, which is also why a curve per cause costs ``J`` backward passes and one
+    mechanism rather than ``J`` of each.
     """
     horizon = data.n_times if horizon is None else horizon
     if not 1 <= horizon <= data.n_times:
@@ -368,8 +382,15 @@ def fit_regimen(
                 + _rule_hint(plan, at_risk, time)
             )
         if data.is_survival:
-            failed = data.event_by(time)
-            next_outcome = failed + (1.0 - failed) * carried
+            # The numerator is *this* cause's event and the survival factor is
+            # **all-cause**: a unit that left through a competing cause contributes a zero
+            # here and carries nothing forward, because it is not going to have this
+            # cause's event either.  Writing ``1 - event_by(time, cause)`` instead -- the
+            # cause's own survival -- is the mistake competing risks invite, and it is
+            # wrong by exactly the mass that left through the other causes.  With one
+            # cause the two calls return the same array and this is the line it was.
+            failed = data.event_by(time, cause)
+            next_outcome = failed + (1.0 - data.event_by(time)) * carried
         else:
             next_outcome = carried
         design = data.covariate_history(time)
@@ -383,8 +404,18 @@ def fit_regimen(
                     f"the same outcome ({seen.tolist()}), so the regression there has "
                     "nothing to separate. "
                     + (
-                        f"The risk at horizon {horizon} is not estimable from this sample: "
-                        "no event was observed among the regimen's followers."
+                        (
+                            f"The incidence of {cause!r} at horizon {horizon} is not "
+                            "estimable from this sample: no unit following the regimen was "
+                            f"observed to leave through {cause!r}. A rare cause reaches "
+                            "this well before a common one does, so it is refused per "
+                            "cause rather than for the fit as a whole."
+                        )
+                        if cause is not None
+                        else (
+                            f"The risk at horizon {horizon} is not estimable from this "
+                            "sample: no event was observed among the regimen's followers."
+                        )
                         if data.is_survival
                         else "The outcome does not vary among the regimen's followers."
                     )
@@ -451,6 +482,7 @@ def fit_regimen(
         psi_scaled=psi,
         influence_curve_scaled=influence,
         horizon=horizon,
+        cause=cause,
         steps=tuple(steps),
         cumulative=cumulative,
         assignment=np.asarray(plan.values),

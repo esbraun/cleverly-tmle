@@ -116,11 +116,22 @@ _REFUSED: dict[str, str] = {
         "the same order as treatment= -- and the fit reports a cumulative risk at every "
         "horizon rather than one number"
     ),
+    # Kept as a key now that competing risks are supported, for the reason ``event`` is:
+    # dropping it would fall through to "unexpected keyword argument", which reads as a
+    # misspelling rather than as a pointer to the keyword that does this.
     "competing": (
-        "competing risks make the outcome a node at every time point with more than one "
-        "absorbing state, and the parameter a set of cumulative incidences. A single "
-        "absorbing event is supported: pass one event indicator per time point as "
-        "outcome=[...]"
+        "competing risks are declared by the outcome columns themselves, not beside them. "
+        "Pass a mapping of cause to its indicator column per time point -- "
+        "outcome={'relapse': ['R1', 'R2'], 'death': ['D1', 'D2']} -- and the fit reports "
+        "a cumulative incidence per cause at every horizon"
+    ),
+    "eliminate": (
+        "eliminating the competing events is a different estimand, not a setting on this "
+        "one. What is reported here is the cause-specific cumulative incidence with the "
+        "competing causes left alone, so a competing event is part of the history and "
+        "enters the clever covariate's indicator. Removing it would make it an intervened "
+        "node: a further factor per node in the denominator, and its own no-unmeasured-"
+        "confounding and positivity assumptions to state"
     ),
     "n_bootstrap": (
         "the targeted bootstrap resamples rows and refits, which needs a subset() on the "
@@ -140,20 +151,29 @@ _REFUSED: dict[str, str] = {
 #: rather than producing a name nobody can read either way.
 HORIZON_INFIX = " @ t="
 
+#: What separates a regimen from the cause whose incidence is reported, on a fit that
+#: declared competing risks.  Beside :data:`HORIZON_INFIX` and used the same way: composed
+#: into a name, never parsed back out of one, and refused inside a label so that two
+#: parameters cannot end up sharing a name.
+CAUSE_INFIX = ", "
 
-def _index(label: str, horizon: int, survival: bool) -> str:
+
+def _index(label: str, cause: str | None, horizon: int, survival: bool) -> str:
     """What goes inside the brackets of a parameter name."""
-    return f"{label}{HORIZON_INFIX}{horizon}" if survival else label
+    if not survival:
+        return label
+    stem = label if cause is None else f"{label}{CAUSE_INFIX}{cause}"
+    return f"{stem}{HORIZON_INFIX}{horizon}"
 
 
-def _fit_key(label: str, horizon: int, survival: bool) -> str:
-    """The key one regimen's fit at one horizon is filed under.
+def _fit_key(label: str, cause: str | None, horizon: int, survival: bool) -> str:
+    """The key one regimen's fit at one cause and horizon is filed under.
 
     The same string :func:`_index` builds, and deliberately so: a terminal fit is keyed
-    by its regimen label exactly as it always was, and a survival fit by the pair that
+    by its regimen label exactly as it always was, and a survival fit by the tuple that
     indexes its parameter.
     """
-    return _index(label, horizon, survival)
+    return _index(label, cause, horizon, survival)
 
 
 def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> None:
@@ -180,6 +200,10 @@ class LongitudinalConfig:
     outcome_names: tuple[str, ...]
     #: The horizons reported, ``(T,)`` on an end-of-study fit.
     horizons: tuple[int, ...]
+    #: The absorbing causes reported, empty unless the fit declared competing risks.
+    #: Beside :attr:`outcome_names` for the same reason: which of the three parameters a
+    #: fit answers is a statement it made, and belongs in the record of what it did.
+    causes: tuple[str, ...]
     regimens: tuple[RegimenSpec, ...]
     reference: str
     n_folds: int
@@ -211,6 +235,12 @@ class LongitudinalConfig:
             )
             reported = ", ".join(str(horizon) for horizon in self.horizons)
             lines.insert(2, f"horizons reported: t = {reported}")
+            if self.causes:
+                lines[1] = (
+                    "outcome: competing risks, absorbing causes "
+                    f"{', '.join(self.causes)} at {', '.join(self.outcome_names)}"
+                )
+                lines.insert(3, f"causes reported: {', '.join(self.causes)}")
         dynamic = {
             regimen.label for regimen in self.regimens if isinstance(regimen, DynamicRegimen)
         }
@@ -267,6 +297,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     mechanism: Mechanism
     provenance: Provenance
     simultaneous: SimultaneousBands | None = None
+    #: ``name -> (regimen, cause, horizon)`` for every reported parameter, composed when
+    #: the name was built.  Empty on an end-of-study fit, which has neither index.
+    parameter_index: dict[str, tuple[str, str | None, int]] | None = None
 
     # ------------------------------------------------------------- mapping API
 
@@ -362,8 +395,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         rather than of the declaration and appears nowhere in the settings report.
         """
         survival = self.data.is_survival
+        competing = self.data.is_competing
         rows: dict[str, list[Any]] = {
             "regimen": [],
+            **({"cause": []} if competing else {}),
             **({"horizon": []} if survival else {}),
             "time": [],
             "n_followed": [],
@@ -382,6 +417,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 total = float(np.sum(weights))
                 assigned = fit.assignment[step.at_risk, step.time - 1]
                 rows["regimen"].append(fit.regimen.label)
+                if competing:
+                    rows["cause"].append(fit.cause)
                 if survival:
                     rows["horizon"].append(fit.horizon)
                 rows["time"].append(step.time)
@@ -395,6 +432,59 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 )
                 rows["epsilon"].append(float(step.fluctuation.epsilon[0]))
                 rows["converged"].append(bool(step.fluctuation.converged))
+        return self.data.frame_like(rows)
+
+    def incidence_total(self) -> Any:
+        """Per regimen and horizon, the incidences summed over the causes.
+
+        A unit leaves the risk set through exactly one cause or not at all, so the
+        cumulative incidences and the event-free probability exhaust the mass:
+        :math:`\\sum_j F_j(k) + S(k) = 1`.  That identity holds of the *parameters*.  It
+        does **not** hold of these estimates, and the difference is not a bug to fix.
+        Each cause is a separate backward pass -- its own regressions, its own
+        fluctuation -- so nothing constrains the sum, and a total above one is possible.
+
+        It is reported rather than removed, on the same reasoning as
+        :attr:`~cleverly.sensitivity.positivity.PositivityReport.simplex_deviation`, where
+        a multi-arm mechanism's row is deliberately not rescaled back onto the simplex.
+        Renormalising would buy a coherent-looking table by moving every cause's estimate
+        away from the one its own score equation solved, and would hide the thing worth
+        seeing: a total far from one says the causes disagree about how much risk there
+        was, which is a statement about the nuisance fits and not about the parameter.
+
+        The ``total`` column carries a standard error because the sum is itself a
+        parameter with an influence curve -- the sum of the causes' curves -- so
+        ``excess`` can be read against it rather than eyeballed.
+        """
+        if not self.data.is_competing:
+            raise ValueError(
+                "this fit reports one parameter per regimen per horizon, so there is "
+                "nothing to sum over. Declare competing risks -- outcome={cause: [...]} "
+                "-- to estimate a cumulative incidence per cause"
+            )
+        rows: dict[str, list[Any]] = {
+            "regimen": [],
+            "time": [],
+            "total": [],
+            "std_err": [],
+            "excess": [],
+        }
+        for regimen in self.config.regimens:
+            for horizon in self.config.horizons:
+                names = [
+                    f"cif_regimen[{_index(regimen.label, cause, horizon, True)}]"
+                    for cause in self.config.causes
+                ]
+                total = float(sum(self[name].psi for name in names))
+                curve = np.sum(
+                    np.column_stack([self[name].influence_curve for name in names]), axis=1
+                )
+                variance = influence_covariance(curve.reshape(-1, 1), cluster=self.data.cluster)
+                rows["regimen"].append(regimen.label)
+                rows["time"].append(int(horizon))
+                rows["total"].append(total)
+                rows["std_err"].append(float(np.sqrt(variance[0, 0] / self.data.n)))
+                rows["excess"].append(max(0.0, total - 1.0))
         return self.data.frame_like(rows)
 
     # ------------------------------------------------- what this fit cannot do
@@ -460,9 +550,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 "time point -- outcome=[...] -- to estimate a cumulative risk at every "
                 "horizon; result.to_frame() is the report for this fit"
             )
+        competing = self.data.is_competing
         rows: dict[str, list[Any]] = {
             "estimand": [],
             "regimen": [],
+            **({"cause": []} if competing else {}),
             "time": [],
             "psi": [],
             "std_err": [],
@@ -470,9 +562,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "ci_upper": [],
             "scale": [],
         }
+        # Read from the index composed when the name was built, never split back out of
+        # it.  With a cause beside the horizon inside one pair of brackets there is no
+        # split that is right in general: a regimen legitimately called ``"a, b"`` would
+        # send ``rpartition`` to the wrong comma, and the row would be filed under a
+        # regimen that does not exist rather than failing.
+        index_of = self.parameter_index or {}
         for name, estimate in self.estimates.items():
-            index = name[name.index("[") + 1 : -1]
-            label, _, horizon = index.rpartition(HORIZON_INFIX)
+            label, cause, horizon = index_of[name]
             low, high = estimate.ci
             if scale == "risk":
                 psi, low, high = estimate.psi, low, high
@@ -482,6 +579,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 psi, low, high = -estimate.psi, -high, -low
             rows["estimand"].append(name)
             rows["regimen"].append(label)
+            if competing:
+                rows["cause"].append(cause)
             rows["time"].append(int(horizon))
             rows["psi"].append(float(psi))
             rows["std_err"].append(estimate.std_error)
@@ -692,7 +791,7 @@ class LTMLE:
         self,
         data: Any,
         *,
-        outcome: str | Sequence[str] | None = None,
+        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | None = None,
         treatment: Sequence[str] | None = None,
         baseline: Sequence[str] | None = None,
         time_varying: Sequence[Sequence[str]] | None = None,
@@ -715,13 +814,22 @@ class LTMLE:
         )
         regimens = resolve_regimens(self.regimens, prepared.n_times)
         if prepared.is_survival:
-            clashing = sorted(r.label for r in regimens if HORIZON_INFIX in r.label)
-            if clashing:
-                raise ValueError(
-                    f"regimen label(s) {clashing} contain {HORIZON_INFIX!r}, which is what "
-                    "separates a regimen from the horizon it is reported at on a survival "
-                    "fit. Two parameters would then share a name; rename the regimen"
-                )
+            infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
+            for infix in infixes:
+                clashing = sorted(r.label for r in regimens if infix in r.label)
+                if clashing:
+                    raise ValueError(
+                        f"regimen label(s) {clashing} contain {infix!r}, which is what "
+                        "separates a regimen from the cause and horizon it is reported at. "
+                        "Two parameters would then share a name; rename the regimen"
+                    )
+                bad_causes = sorted(c for c in prepared.cause_labels if infix in c)
+                if bad_causes:
+                    raise ValueError(
+                        f"cause label(s) {bad_causes} contain {infix!r}, which is what "
+                        "separates a cause from the regimen and horizon it is reported at. "
+                        "Two parameters would then share a name; rename the cause"
+                    )
         reference = self._reference(regimens)
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
@@ -753,12 +861,16 @@ class LTMLE:
 
         outcome_task = "classification" if prepared.family == "binomial" else "regression"
         horizons = self._horizons(prepared)
+        # ``None`` on a single-event or end-of-study fit, so the comprehension below is
+        # one loop deeper for every fit and a second code path for none.
+        causes: tuple[str | None, ...] = prepared.cause_labels or (None,)
         fits = {
-            _fit_key(plan.label, horizon, prepared.is_survival): fit_regimen(
+            _fit_key(plan.label, cause, horizon, prepared.is_survival): fit_regimen(
                 prepared,
                 plan,
                 mechanism,
                 horizon=horizon,
+                cause=cause,
                 outcome_learner=resolve_learner(
                     self.outcome_learner,
                     task=outcome_task,  # type: ignore[arg-type]
@@ -780,9 +892,10 @@ class LTMLE:
                 tol=self.tol,
                 n_jobs=self.n_jobs,
             )
-            # Regimen-outer, horizon-inner, so the report reads down a regimen's curve
-            # rather than across the regimens at each time.
+            # Regimen-outer, then cause, then horizon, so the report reads down one
+            # curve at a time rather than across the regimens at each time.
             for plan in plans
+            for cause in causes
             for horizon in horizons
         }
 
@@ -791,6 +904,7 @@ class LTMLE:
             n_times=prepared.n_times,
             outcome_names=(prepared.event_names or (prepared.outcome_name,)),
             horizons=horizons,
+            causes=prepared.cause_labels,
             regimens=regimens,
             reference=reference.label,
             n_folds=folds.n_folds,
@@ -802,7 +916,7 @@ class LTMLE:
             # the fit ran on rather than a second evaluation of the rules.
             plan_fingerprints=tuple((plan.label, fingerprint_array(plan.values)) for plan in plans),
         )
-        estimates = self._estimates(prepared, fits, scaler, reference)
+        estimates, parameter_index = self._estimates(prepared, fits, scaler, reference)
         return LongitudinalResult(
             estimates=estimates,
             fits=fits,
@@ -812,6 +926,7 @@ class LTMLE:
             mechanism=mechanism,
             provenance=self._provenance(prepared, folds),
             simultaneous=self._bands(estimates, prepared),
+            parameter_index=parameter_index,
         )
 
     # ------------------------------------------------------------- internals
@@ -820,7 +935,7 @@ class LTMLE:
         self,
         data: Any,
         *,
-        outcome: str | Sequence[str] | None,
+        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | None,
         treatment: Sequence[str] | None,
         baseline: Sequence[str] | None,
         time_varying: Sequence[Sequence[str]] | None,
@@ -993,17 +1108,27 @@ class LTMLE:
         fits: Mapping[str, RegimenFit],
         scaler: OutcomeScaler,
         reference: RegimenSpec,
-    ) -> dict[str, ParameterEstimate]:
+    ) -> tuple[dict[str, ParameterEstimate], dict[str, tuple[str, str | None, int]]]:
         survival = data.is_survival
-        # ``ey_regimen`` is a mean of the outcome and ``risk_regimen`` a probability of
-        # an event by a horizon.  E[Y_k] *is* that probability, so a single name would
-        # not be wrong -- but the two come from different derivations, and a saved frame
-        # or a coverage study's truth dict keyed by name is where that would stop being
-        # a distinction without a difference.
-        head = "risk_regimen" if survival else "ey_regimen"
+        # ``ey_regimen`` is a mean of the outcome, ``risk_regimen`` a probability of an
+        # event by a horizon, and ``cif_regimen`` the probability of leaving through one
+        # particular cause by then.  E[Y_k] *is* the second, and with a single cause the
+        # second *is* the third -- so one name would not be wrong anywhere.  But the three
+        # come from different derivations, and a saved frame or a coverage study's truth
+        # dict keyed by name is where that would stop being a distinction without a
+        # difference.
+        head = (
+            ("cif_regimen" if data.is_competing else "risk_regimen") if survival else "ey_regimen"
+        )
         estimates: dict[str, ParameterEstimate] = {}
+        # ``name -> (regimen, cause, horizon)``, composed forward here and never parsed
+        # back out of the name.  ``curve()`` reads it: with a cause beside the horizon
+        # inside one pair of brackets, recovering either by splitting the string would be
+        # guessing where a label ends, and a regimen called "a, b" would decide it wrongly.
+        index: dict[str, tuple[str, str | None, int]] = {}
         for fit in fits.values():
-            name = f"{head}[{_index(fit.regimen.label, fit.horizon, survival)}]"
+            name = f"{head}[{_index(fit.regimen.label, fit.cause, fit.horizon, survival)}]"
+            index[name] = (fit.regimen.label, fit.cause, fit.horizon)
             estimates[name] = make_estimate(
                 name,
                 scaler.unscale_level(fit.psi_scaled),
@@ -1016,11 +1141,13 @@ class LTMLE:
         for fit in fits.values():
             if fit.regimen.label == reference.label:
                 continue
-            # The contrast is between the same two regimens at the *same* horizon; a
-            # difference of risks at different horizons is not a treatment effect.
-            base = fits[_fit_key(reference.label, fit.horizon, survival)]
+            # The contrast is between the same two regimens at the same cause *and* the
+            # same horizon; a difference of incidences across either is not a treatment
+            # effect, and with two indexes there are now two ways to pair the wrong ones.
+            base = fits[_fit_key(reference.label, fit.cause, fit.horizon, survival)]
             contrast = f"{fit.regimen.label} vs {reference.label}"
-            name = f"ate_regimen[{_index(contrast, fit.horizon, survival)}]"
+            name = f"ate_regimen[{_index(contrast, fit.cause, fit.horizon, survival)}]"
+            index[name] = (contrast, fit.cause, fit.horizon)
             estimates[name] = make_estimate(
                 name,
                 scaler.unscale_difference(fit.psi_scaled - base.psi_scaled),
@@ -1030,14 +1157,14 @@ class LTMLE:
                 scale="difference",
                 alpha=self.alpha_sig,
             )
-        return estimates
+        return estimates, index
 
 
 def ltmle(
     data: Any,
     *,
     regimens: Any,
-    outcome: str | Sequence[str],
+    outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
     treatment: Sequence[str],
     baseline: Sequence[str],
     time_varying: Sequence[Sequence[str]] | None = None,

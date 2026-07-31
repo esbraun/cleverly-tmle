@@ -285,6 +285,35 @@ load-balancing the tail, not contending for cores.
   that says this is a generalisation and not a second estimator. The oracle is
   `tests/discrete_law_survival.py`, a **new** law rather than a wider `discrete_law_longitudinal`,
   because that one has to go on proving the end-of-study derivation unchanged.
+- **A competing cause is a population, not a denominator.** `outcome={cause: [...]}` — a
+  *mapping* rather than a list — declares more than one absorbing state per node and makes the
+  report the cause-specific cumulative incidence, `cif_regimen[always, relapse @ t=2]`. A
+  mapping with one cause is competing risks **by declaration**; a fit reports what it said it
+  would, not what its sample happened to contain. The estimand is the incidence with the
+  competing causes *left alone*, and that choice is what makes almost all of this a
+  generalisation: a competing event is `H_t`-measurable, so it enters the clever covariate's
+  indicator and never its denominator, and positivity is still about the same `2T` factors.
+  `eliminate=` — intervening on the competing events — is refused by name, because it is a
+  different parameter needing a further factor per node and its own identification, not a
+  setting on this one.
+  One line differs from the single-event recursion and it is the only thing that does:
+  `Z_t = 1{cause j at t} + 1{no event at t}·Q̄*_{t+1}`, a **cause-specific numerator against an
+  all-cause survival factor**. Write `1 - failed` there — the cause's own survival — and you
+  are wrong by exactly the mass that left through the other causes; it was applied and takes 21
+  of `tests/unit/test_influence_gateaux_competing.py`'s 130 tests, every one at `t = 2`, since
+  the first horizon has no survival factor to get wrong. So `event` stays the **all-cause**
+  matrix that `at_risk`, `following` and `fit_mechanism`'s mask read, `cause_event` sits beside
+  it, and only the pseudo-outcome is cause-specific — which is also why the causes share every
+  nuisance fit and `J` causes cost `J` backward passes and one mechanism.
+  Two consequences to leave alone. `Σ_j F_j(k) + S(k) = 1` holds of the *parameters* and not of
+  the estimates, since each cause is its own backward pass; `incidence_total()` reports the sum
+  and its excess over one, exactly as `simplex_deviation` reports a multi-arm row's departure
+  rather than rescaling it — do not renormalise. And `curve()` reads a `name -> (regimen, cause,
+  horizon)` index **composed forward** in `_estimates`; with two indexes inside one pair of
+  brackets there is no split that is right in general, and a regimen called `"a, b"` would be
+  filed under one that does not exist rather than failing. The oracle is
+  `tests/discrete_law_competing.py`, a **third** law rather than a wider survival one, since
+  that has to go on proving the single-event derivation unchanged.
 - **Which truncation bound a group gets is a statement about its covariate.**
   `utils.bounds.CONDITIONAL_GROUPS` names the groups whose clever covariate is a propensity
   *odds* (`att`, `atc`) and so needs the tighter bound; everything else divides by `g` once

@@ -9,7 +9,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.datasets import make_longitudinal, make_longitudinal_survival
+from cleverly.datasets import (
+    make_longitudinal,
+    make_longitudinal_competing,
+    make_longitudinal_survival,
+)
+from cleverly.exceptions import DataError
 from cleverly.longitudinal import LTMLE, LongitudinalError, LongitudinalResult
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
@@ -696,7 +701,13 @@ class TestItRefusesByName:
             # the outcome columns, and the keyword stays a key so that passing it says
             # so rather than falling through to "unexpected keyword argument".
             ("event", r"outcome=\['Y1', 'Y2', \.\.\.\]"),
-            ("competing", "cumulative incidences"),
+            # As with ``event``: no longer a refusal but a redirect to the keyword that
+            # does this, since competing risks are declared by the outcome columns.
+            ("competing", "mapping of cause"),
+            # This one *is* still a refusal, and of a different estimand rather than of a
+            # missing feature: eliminating the competing events makes them intervened
+            # nodes with their own identification.
+            ("eliminate", "different estimand"),
             ("n_bootstrap", "whole backward recursion"),
             ("cross_fit", "n_folds=1"),
         ],
@@ -1036,3 +1047,199 @@ class TestASurvivalOutcome:
         # "throughout" means through the study, so it is said once per regimen and from
         # the fit that runs to the last node -- not once per horizon.
         assert summary.count("units followed it throughout") == 2
+
+
+class TestCompetingRisks:
+    """More than one absorbing state per node: the report becomes a curve per cause.
+
+    The heavy claims -- that the reported curve is the efficient influence function, and
+    that the survival factor is all-cause -- are proved against the exact law in
+    ``tests/unit/test_influence_gateaux_competing.py``.  What is checked here is the
+    report a caller sees and the pin that says this is a generalisation of the single-event
+    fit rather than a second estimator beside it.
+    """
+
+    COMPETING_COLUMNS: ClassVar[dict[str, Any]] = {
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+        "censoring": ["C1", "C2"],
+    }
+
+    @staticmethod
+    def _two_cause_frame(n: int = 1200, seed: int = 7) -> Any:
+        """A survival frame split into two causes by a coin the fit cannot see.
+
+        The coin is tossed **per unit**, not per node, and that is not a detail: the
+        event is absorbing and carried forward, so a per-node toss would let a unit
+        relapse at the first node and die at the second -- two absorbing events on one
+        unit, which the container refuses and should.  One cause per unit makes both
+        indicators absorbing and mutually exclusive by construction.
+
+        Enough to exercise the report and the container; the *numbers* are answered for
+        by the exact law, not by a simulation whose truth would have to be derived again
+        here to say anything.
+        """
+        frame, _ = make_longitudinal_survival(n=n, seed=seed)
+        rng = np.random.default_rng(seed)
+        out = frame.copy()
+        is_relapse = rng.integers(0, 2, size=len(frame)) == 0
+        for node in ("1", "2"):
+            event = frame[f"Y{node}"].to_numpy()
+            out[f"R{node}"] = np.where(np.isnan(event), np.nan, event * is_relapse)
+            out[f"D{node}"] = np.where(np.isnan(event), np.nan, event * ~is_relapse)
+            out = out.drop(columns=[f"Y{node}"])
+        return out
+
+    @pytest.fixture(scope="class")
+    def fitted(self) -> LongitudinalResult:
+        return LTMLE({"always": 1, "never": 0}, reference="never", **FAST).fit(
+            self._two_cause_frame(),
+            outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+            **self.COMPETING_COLUMNS,
+        )
+
+    def test_reports_an_incidence_per_regimen_per_cause_per_horizon(
+        self, fitted: LongitudinalResult
+    ) -> None:
+        expected = {
+            f"cif_regimen[{label}, {cause} @ t={horizon}]"
+            for label in ("always", "never")
+            for cause in ("relapse", "death")
+            for horizon in (1, 2)
+        } | {
+            f"ate_regimen[always vs never, {cause} @ t={horizon}]"
+            for cause in ("relapse", "death")
+            for horizon in (1, 2)
+        }
+        assert set(fitted) == expected
+        assert fitted.config.causes == ("relapse", "death")
+        assert "causes reported: relapse, death" in fitted.summary()
+
+    def test_the_curve_carries_a_cause_column(self, fitted: LongitudinalResult) -> None:
+        curve = fitted.curve()
+        assert set(curve["cause"]) == {"relapse", "death"}
+        # A regimen label comes back whole: ``curve()`` reads the index composed when the
+        # name was built rather than splitting the name on the cause's separator.
+        assert {"always", "never", "always vs never"} <= set(curve["regimen"])
+
+    def test_the_incidences_are_reported_not_renormalised(self, fitted: LongitudinalResult) -> None:
+        """The causes sum to something near one, and the deviation is reported as such.
+
+        Nothing constrains the sum -- each cause is its own backward pass -- so this
+        checks that ``incidence_total`` reports it rather than that it is exactly one.
+        """
+        total = fitted.incidence_total()
+        assert set(total.columns) >= {"regimen", "time", "total", "std_err", "excess"}
+        for value in total["total"]:
+            assert 0.0 < float(value) < 1.2
+        for value in total["excess"]:
+            assert float(value) >= 0.0
+
+    def test_incidence_total_is_refused_on_a_single_event_fit(self) -> None:
+        frame, _ = make_longitudinal_survival(n=400, seed=2)
+        result = LTMLE({"always": 1}, reference="always", **FAST).fit(
+            frame, outcome=["Y1", "Y2"], **self.COMPETING_COLUMNS
+        )
+        with pytest.raises(ValueError, match="nothing to sum over"):
+            result.incidence_total()
+
+    def test_one_cause_reproduces_the_single_event_fit(self) -> None:
+        """Bit for bit: ``psi``, the whole influence curve, and every ``epsilon``.
+
+        This is what says competing risks are a *generalisation* of a single absorbing
+        event rather than a second estimator beside it -- the same claim, and the same
+        kind of claim, as an event only at the last node reproducing the end-of-study fit.
+        With one cause the all-cause survival factor **is** that cause's own, so the
+        composition is the line it was and every regression sees the same pseudo-outcome.
+
+        The reported *names* differ by design, ``cif_regimen`` against ``risk_regimen``,
+        so this compares the fits rather than the report: a one-cause mapping is still a
+        cumulative incidence by declaration.
+        """
+        frame, _ = make_longitudinal_survival(n=1200, seed=5)
+        settings = {**FAST, "simultaneous": False}
+        single = LTMLE({"always": 1, "never": 0}, reference="never", **settings).fit(
+            frame, outcome=["Y1", "Y2"], **self.COMPETING_COLUMNS
+        )
+        one_cause = LTMLE({"always": 1, "never": 0}, reference="never", **settings).fit(
+            frame, outcome={"event": ["Y1", "Y2"]}, **self.COMPETING_COLUMNS
+        )
+
+        for label in ("always", "never"):
+            for horizon in (1, 2):
+                left = single.fits[f"{label} @ t={horizon}"]
+                right = one_cause.fits[f"{label}, event @ t={horizon}"]
+                assert right.cause == "event"
+                assert left.psi_scaled == right.psi_scaled
+                np.testing.assert_array_equal(
+                    left.influence_curve_scaled, right.influence_curve_scaled
+                )
+                for before, after in zip(left.steps, right.steps, strict=True):
+                    np.testing.assert_array_equal(
+                        before.fluctuation.epsilon, after.fluctuation.epsilon
+                    )
+
+    def test_the_container_refuses_two_causes_at_one_node(self) -> None:
+        frame = self._two_cause_frame(n=400, seed=1)
+        both = frame.copy()
+        fired = both["R1"] == 1.0
+        both.loc[fired, "D1"] = 1.0
+        assert bool(fired.any())
+        with pytest.raises(DataError, match="mutually exclusive"):
+            LTMLE({"always": 1}, reference="always", **FAST).fit(
+                both,
+                outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+                **self.COMPETING_COLUMNS,
+            )
+
+    def test_a_cause_with_no_events_is_refused_by_name(self) -> None:
+        frame = self._two_cause_frame(n=400, seed=1)
+        empty = frame.copy()
+        empty["D1"] = np.where(np.isnan(frame["D1"]), np.nan, 0.0)
+        empty["D2"] = np.where(np.isnan(frame["D2"]), np.nan, 0.0)
+        # The relapse columns must absorb what death gave up, or the two stop partitioning
+        # the event and the frame says a unit left the risk set through no cause at all.
+        for node in ("1", "2"):
+            empty[f"R{node}"] = np.where(
+                np.isnan(frame[f"R{node}"]),
+                np.nan,
+                np.maximum(frame[f"R{node}"], np.nan_to_num(frame[f"D{node}"])),
+            )
+        with pytest.raises(LongitudinalError, match="not estimable from this sample"):
+            LTMLE({"always": 1}, reference="always", **FAST).fit(
+                empty,
+                outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+                **self.COMPETING_COLUMNS,
+            )
+
+    def test_recovers_the_truth_on_average(self) -> None:
+        """Averaged over independent samples, every incidence lands on its quadrature truth.
+
+        Six replicates against the Monte Carlo standard error of the average, as the
+        end-of-study test does -- enough to say the estimator is pointed at the right
+        parameter, and not enough to say anything about coverage, which is the nightly
+        tier's job.  Every cause and every horizon is checked: they are not
+        interchangeable, and a survival factor read cause-specifically would show at
+        ``t = 2`` alone.
+        """
+        replicates = 6
+        estimates: list[dict[str, float]] = []
+        truth: dict[str, float] = {}
+        for seed in range(replicates):
+            frame, truth = make_longitudinal_competing(n=2500, seed=200 + seed)
+            result = LTMLE(
+                {"always": 1, "never": 0},
+                reference="never",
+                **{**FAST, "random_state": seed, "simultaneous": False},
+            ).fit(
+                frame,
+                outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+                **self.COMPETING_COLUMNS,
+            )
+            estimates.append({name: result.psi(name) for name in result})
+
+        for name in estimates[0]:
+            values = np.array([estimate[name] for estimate in estimates])
+            mc_error = float(np.std(values, ddof=1) / np.sqrt(replicates))
+            assert abs(float(values.mean()) - truth[name]) < 3.0 * mc_error + 0.01, name

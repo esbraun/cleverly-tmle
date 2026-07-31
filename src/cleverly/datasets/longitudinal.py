@@ -29,9 +29,11 @@ from ..utils.frames import frame_from_dict
 
 __all__ = [
     "RULE_LABEL",
+    "competing_truth",
     "longitudinal_rule_truth",
     "longitudinal_truth",
     "make_longitudinal",
+    "make_longitudinal_competing",
     "make_longitudinal_survival",
     "rule_arm_at_node_two",
     "survival_truth",
@@ -520,4 +522,198 @@ def make_longitudinal_survival(
             truth[f"risk_regimen[always{_HORIZON_INFIX}{horizon}]"]
             - truth[f"risk_regimen[never{_HORIZON_INFIX}{horizon}]"]
         )
+    return frame_from_dict(payload, backend=backend), truth
+
+
+#: Log-odds that an event at the first node is a *relapse* rather than a death, given the
+#: history.  Treatment pushes the split towards relapse while ``_H1`` lowers the all-cause
+#: hazard, so the two causes' contrasts come out with opposite signs -- which is the shape
+#: a competing-risks report exists to show, and the one a single-event fit cannot.
+_SPLIT1 = {"intercept": 0.15, "a1": 1.1, "w1": 0.3, "w2": -0.2}
+
+#: The same at the second node, among the units still at risk there.
+_SPLIT2 = {"intercept": 0.1, "a1": 0.5, "a2": 0.9, "l2": -0.25, "w1": 0.2}
+
+
+def _relapse_share_one(w1: FloatArray, w2: FloatArray, a1: FloatArray | float) -> FloatArray:
+    """``P(cause = relapse | an event happened at the first node, history)``."""
+    return expit(
+        _SPLIT1["intercept"] + _SPLIT1["a1"] * a1 + _SPLIT1["w1"] * w1 + _SPLIT1["w2"] * w2
+    )
+
+
+def _relapse_share_two(
+    w1: FloatArray,
+    l2: FloatArray,
+    a1: FloatArray | float,
+    a2: FloatArray | float,
+) -> FloatArray:
+    """``P(cause = relapse | an event happened at the second node, history)``."""
+    return expit(
+        _SPLIT2["intercept"]
+        + _SPLIT2["a1"] * a1
+        + _SPLIT2["a2"] * a2
+        + _SPLIT2["l2"] * l2
+        + _SPLIT2["w1"] * w1
+    )
+
+
+@cache
+def competing_truth(a1: float, a2: float, cause: str, horizon: int, nodes: int = 48) -> float:
+    r"""``P(leave through ``cause`` by ``horizon``)`` under the static regimen ``(a1, a2)``.
+
+    The cause-specific cumulative incidence.  Under the intervention the treatment and
+    censoring mechanisms drop out, leaving
+
+    .. math::
+
+        F_j(1) &= E\bigl[h_1\, s_{1j}\bigr] \\
+        F_j(2) &= E\bigl[h_1 s_{1j} + (1 - h_1)\, h_2\, s_{2j}\bigr]
+
+    with :math:`h` the **all-cause** hazard and :math:`s_j` the share of events that are
+    of cause :math:`j`.  Note which factor is which: the numerator is cause-specific and
+    the survival factor :math:`1 - h_1` is all-cause, because a unit that left through the
+    *other* cause is no more available to have this one than a unit that left through this
+    one.  Writing :math:`1 - h_1 s_{1j}` there would be the cause's own survival, and is
+    the mistake ``tests/discrete_law_competing.py`` exists to catch.
+
+    Modelling the causes as an all-cause hazard times a share is what keeps this a
+    quadrature rather than a simulation: the shares sum to one by construction, so the
+    incidences and the event-free probability exhaust the mass exactly and no constraint
+    has to be imposed on separately drawn hazards.
+
+    **The same caveat as :func:`survival_truth`, and for the same reason.**  ``L2`` is
+    drawn from :math:`(W, A_1)` and not from the event at the first node, so the law of
+    ``L2`` among those still at risk is its marginal law, which is what lets one
+    three-dimensional rule integrate both terms.  Let ``L2`` depend on the first node's
+    event and the second line quietly returns the wrong number.
+    """
+    if cause not in ("relapse", "death"):
+        raise ValueError(f"cause must be 'relapse' or 'death'; got {cause!r}")
+    if horizon not in (1, 2):
+        raise ValueError(f"horizon must be 1 or 2; got {horizon}")
+
+    points, weights = np.polynomial.hermite_e.hermegauss(nodes)
+    weights = weights / np.sqrt(2.0 * np.pi)
+    w1 = points.reshape(-1, 1, 1)
+    w2 = points.reshape(1, -1, 1)
+    noise = points.reshape(1, 1, -1)
+    mass = weights.reshape(-1, 1, 1) * weights.reshape(1, -1, 1) * weights.reshape(1, 1, -1)
+
+    hazard1 = _hazard_one(w1, w2, a1)
+    share1 = _relapse_share_one(w1, w2, a1)
+    if cause == "death":
+        share1 = 1.0 - share1
+    if horizon == 1:
+        return float(np.sum(mass * hazard1 * share1))
+
+    l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + noise
+    hazard2 = _hazard_two(w1, w2, l2, a1, a2)
+    share2 = _relapse_share_two(w1, l2, a1, a2)
+    if cause == "death":
+        share2 = 1.0 - share2
+    return float(np.sum(mass * (hazard1 * share1 + (1.0 - hazard1) * hazard2 * share2)))
+
+
+def make_longitudinal_competing(
+    n: int = 2000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    censoring: bool = True,
+    backend: str = "pandas",
+) -> tuple[Any, dict[str, float]]:
+    """Two time points, **two competing absorbing causes** at each, monotone censoring.
+
+    The competing-risks counterpart of :func:`make_longitudinal_survival`, sharing its
+    hazards and its time-varying confounding: an event happens with the same all-cause
+    probability, and a second draw decides which cause it was.  Returns ``(frame, truth)``.
+
+    The frame is wide, with columns ``W1``, ``W2``, ``A1``, ``C1``, ``R1``, ``D1``, ``L2``,
+    ``A2``, ``C2``, ``R2``, ``D2`` in time order -- one indicator per cause per node, which
+    is the declaration :class:`~cleverly.longitudinal.LongitudinalData` takes.  A unit that
+    is censored or that has **either** event has ``nan`` at every node after.
+
+    ``truth`` holds ``cif_regimen[..., cause @ t=k]`` for the four static regimens at both
+    causes and both horizons, and the contrast of ``always`` against ``never`` at each,
+    under the names a fit reports them by -- so a coverage study looks each up by the name
+    it read off the result.
+    """
+    rng = np.random.default_rng(seed)
+    w1 = rng.standard_normal(n)
+    w2 = rng.standard_normal(n)
+
+    a1 = rng.binomial(1, expit(0.3 * w1 - 0.4 * w2)).astype(float)
+    c1 = (
+        rng.binomial(1, expit(2.2 + 0.3 * w1 - 0.3 * a1)).astype(float) if censoring else np.ones(n)
+    )
+    observed1 = c1 == 1.0
+
+    event1 = rng.binomial(1, _hazard_one(w1, w2, a1)).astype(float)
+    # One draw decides *whether*, a second *which*: the shares sum to one, so the causes
+    # are exclusive by construction rather than by a rejection step.
+    relapse1 = event1 * (rng.random(n) < _relapse_share_one(w1, w2, a1))
+    death1 = event1 * (1.0 - relapse1)
+    at_risk2 = observed1 & (event1 == 0.0)
+
+    # Drawn from (W, A1) and *not* from the event -- see ``competing_truth``.
+    l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + rng.standard_normal(n)
+    a2 = rng.binomial(1, expit(0.5 * l2 + 0.6 * a1 - 0.2 * w2)).astype(float)
+    c2 = rng.binomial(1, expit(2.4 + 0.2 * l2)).astype(float) if censoring else np.ones(n)
+    observed2 = at_risk2 & (c2 == 1.0)
+
+    event2 = rng.binomial(1, _hazard_two(w1, w2, l2, a1, a2)).astype(float)
+    relapse2 = event2 * (rng.random(n) < _relapse_share_two(w1, l2, a1, a2))
+    death2 = event2 * (1.0 - relapse2)
+
+    def _carry(first: FloatArray, second: FloatArray) -> FloatArray:
+        """A cause's column at the second node, absorbing.
+
+        A unit that left through this cause at the first node carries its ``1`` forward;
+        one that left through the *other* carries a ``0``, since it did not have this one
+        and is not going to.  Both are what the container's absorbing rule accepts, and
+        together they keep the two columns exclusive at every node.
+        """
+        return np.where(
+            observed1 & (event1 == 1.0),
+            first,
+            np.where(observed2, second, np.nan),
+        )
+
+    payload = {
+        "W1": w1,
+        "W2": w2,
+        "A1": a1,
+        "C1": c1,
+        "R1": np.where(observed1, relapse1, np.nan),
+        "D1": np.where(observed1, death1, np.nan),
+        "L2": np.where(at_risk2, l2, np.nan),
+        "A2": np.where(at_risk2, a2, np.nan),
+        "C2": np.where(at_risk2, c2, np.nan),
+        "R2": _carry(relapse1, relapse2),
+        "D2": _carry(death1, death2),
+    }
+    if not censoring:
+        del payload["C1"]
+        del payload["C2"]
+
+    plans = (
+        ("always", (1.0, 1.0)),
+        ("never", (0.0, 0.0)),
+        ("early", (1.0, 0.0)),
+        ("late", (0.0, 1.0)),
+    )
+    truth = {
+        f"cif_regimen[{label}, {cause}{_HORIZON_INFIX}{horizon}]": competing_truth(
+            plan[0], plan[1], cause, horizon
+        )
+        for label, plan in plans
+        for cause in ("relapse", "death")
+        for horizon in (1, 2)
+    }
+    for cause in ("relapse", "death"):
+        for horizon in (1, 2):
+            truth[f"ate_regimen[always vs never, {cause}{_HORIZON_INFIX}{horizon}]"] = (
+                truth[f"cif_regimen[always, {cause}{_HORIZON_INFIX}{horizon}]"]
+                - truth[f"cif_regimen[never, {cause}{_HORIZON_INFIX}{horizon}]"]
+            )
     return frame_from_dict(payload, backend=backend), truth
