@@ -489,10 +489,16 @@ def fit_regimens_msm(
                     "sequential",
                 ),
                 np.tile(data.weights, len(live)),
-                # ``trained_on`` and never ``at_risk``: the score is taken against the
-                # units that actually followed, and the update applied at everyone at
-                # risk. Swapping them leaves ``epsilon`` non-zero on a law the sample
-                # realises exactly, which is the one thing that mistake is loud about.
+                # ``trained_on``: the set the score is taken over, and the same mask
+                # ``fit_regimen`` passes.  Note what this is *not* -- a guard on which
+                # rows reach the estimating equation.  The covariate above is
+                # ``prepared[k].clever``, which ``prepare_node`` has already zeroed off
+                # ``trained_on``, so a deviator contributes nothing whichever mask is
+                # given.  Substituting ``at_risk`` was applied here and moved no reported
+                # number at all; what it moves is ``score_scale``, and so what the
+                # relative-score convergence test means.  Keep it ``trained_on`` so that a
+                # pooled fit's threshold is the per-regimen one -- not because the
+                # arithmetic would otherwise be wrong.
                 np.concatenate([prepared[k].trained_on for k in live]),
                 alpha=alpha,
                 max_iter=max_iter,

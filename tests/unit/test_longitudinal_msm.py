@@ -29,6 +29,7 @@ def panel(n: int = 60, *, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     w1 = rng.standard_normal(n)
     w2 = rng.integers(0, 2, n).astype(float)
+    l1 = rng.standard_normal(n)
     a1 = rng.integers(0, 2, n).astype(float)
     c1 = (rng.random(n) < 0.9).astype(float)
     l2 = np.where(c1 == 1, rng.standard_normal(n), np.nan)
@@ -37,17 +38,22 @@ def panel(n: int = 60, *, seed: int = 0) -> pd.DataFrame:
     observed = (c1 == 1) & (c2 == 1)
     y = np.where(observed, rng.integers(0, 2, n).astype(float), np.nan)
     return pd.DataFrame(
-        {"W1": w1, "W2": w2, "A1": a1, "C1": c1, "L2": l2, "A2": a2, "C2": c2, "Y": y}
+        {"W1": w1, "W2": w2, "L1": l1, "A1": a1, "C1": c1, "L2": l2, "A2": a2, "C2": c2, "Y": y}
     )
 
 
 def build(frame: pd.DataFrame) -> LongitudinalData:
+    # ``L1`` is time-varying at the *first* node, and it is here on purpose. With an empty
+    # ``time_varying[0]`` -- which is what every other longitudinal fixture in this
+    # repository has -- ``history_frame(1)`` and ``baseline_frame()`` are the same frame,
+    # so the call-site pin below would pass under the very substitution it exists to
+    # catch. Mutation-tested: swapping the two turns it red only because of this column.
     return LongitudinalData.from_frame(
         frame,
         outcome="Y",
         treatment=["A1", "A2"],
         baseline=["W1", "W2"],
-        time_varying=[[], ["L2"]],
+        time_varying=[["L1"], ["L2"]],
         censoring=["C1", "C2"],
     )
 
@@ -118,10 +124,14 @@ class TestTheDesignSeesTheBaselineAndNothingElse:
     def test_the_frame_handed_to_a_design_is_the_baseline(self) -> None:
         """Structural, and load-bearing: V has to be pre-treatment.
 
-        A design reading ``L2`` would not be a model for ``E[Y^a-bar | V]`` -- it would
-        be conditioning on a consequence of the first node's arm, which is a different
-        parameter. Pinned at the call site because a design handed the richer frame
-        returns a design matrix that looks perfectly ordinary.
+        A design reading a time-varying covariate would not be a model for
+        ``E[Y^a-bar | V]`` -- it would be conditioning on a consequence of an earlier
+        node's arm, which is a different parameter. Pinned at the call site because a
+        design handed the richer frame returns a design matrix that looks perfectly
+        ordinary, and no number downstream can tell you.
+
+        ``L1`` is measured *before* the first node, so ``history_frame(1)`` carries it and
+        ``baseline_frame()`` does not. That is what gives this assertion teeth.
         """
         data = build(panel())
         seen: list[tuple[Any, int, tuple[str, ...]]] = []
@@ -137,7 +147,10 @@ class TestTheDesignSeesTheBaselineAndNothingElse:
         assert {entry[1] for entry in seen} == {2}
         for _, _, columns in seen:
             assert columns == data.baseline_names == ("W1", "W2")
-            assert "L2" not in columns and "A1" not in columns and "Y" not in columns
+            assert "L1" not in columns and "L2" not in columns
+            assert "A1" not in columns and "Y" not in columns
+        # And the substitution this is here to catch is a visible one on this fixture.
+        assert "L1" in data.history_names(1)
 
 
 class TestItRefusesByName:

@@ -118,6 +118,33 @@ class TestItReportsTheProjection:
         epsilons = [step.fluctuation.epsilon for fit in result.fits.values() for step in fit.steps]
         assert max(float(np.max(np.abs(eps))) for eps in epsilons) > 1e-8
 
+    def test_the_pooled_score_is_solved_at_every_node(self, fitted: Any) -> None:
+        """The estimating equation the pooled fluctuation exists to zero.
+
+        At each node, ``sum_i sum_c w_i h(c,V_i) phi(c,V_i) h^c_t(i) (Z - Qbar*) = 0``,
+        summed over the units that *followed* -- one equation per term, shared across the
+        cells. Checked on ordinary data rather than on the exact law, and deliberately:
+        there the initial fit is exact, so the score is zero before targeting and this
+        would pass however the fluctuation were written. It is what catches an ``at_risk``
+        mask where ``trained_on`` belongs, which the exact law cannot see.
+        """
+        result, _ = fitted
+        model = result.msm
+        covariate = model.weighted_design_at(result.msm_fits[0].beta)
+        weights = result.data.weights
+        cells = list(model.cells)
+        for time in (1, 2):
+            score = np.zeros(model.n_terms)
+            for index, cell in enumerate(cells):
+                key = cell.label
+                step = next(s for s in result.fits[key].steps if s.time == time)
+                residual = step.pseudo_outcome - step.targeted
+                score += np.einsum(
+                    "i,ip,i->p", weights * step.clever, covariate[:, index, :], residual
+                )
+            scale = float(np.sum(weights * np.abs(covariate).max(axis=(1, 2))))
+            np.testing.assert_allclose(score / scale, np.zeros(model.n_terms), atol=1e-9)
+
     def test_the_report_carries_no_contrast(self, fitted: Any) -> None:
         """A working model reports coefficients; a difference of two is ``contrast()``."""
         result, _ = fitted
