@@ -215,6 +215,39 @@ load-balancing the tail, not contending for cores.
   `alpha_sig` mean exactly what they mean on `TMLE` (shrink, then significance level) —
   they were once the other way round here, which made `LTMLE(alpha=0.9995)` a silent
   0.05 %-level interval.
+- **A dynamic rule is a regimen, not a fifth axis, and three invariants keep it that way.**
+  Any node of a plan may be a rule `d_t(H_t)` instead of an arm. Everything downstream reads
+  one `(n, T)` **assignment matrix**, which a static regimen fills by `np.broadcast_to` — a
+  view, producing the same float64 the old scalar path did, which is why a static fit is
+  bit-for-bit unchanged and why there is one code path rather than two. Do not reintroduce a
+  scalar `regimen.at(time)` read anywhere in `sequential.py`.
+  *One*: the matrix is built **once**, in `LTMLE.fit` via `resolve_plans`, and `fit_mechanism`
+  and `fit_regimen` see `Plan` objects that hold arms, never callables. Evaluating lazily
+  would call each user rule a further `T` times per regimen and — if a rule is not
+  deterministic — let the follower masks disagree with the designs the mechanism was
+  evaluated at, so the fit would answer for no single regimen at all.
+  *Two*: a rule sees `history_frame(t)` — `[W, L_1, ..., L_t]` — and nothing else, enforced by
+  what the frame contains rather than by a check, exactly as `interventions/base._covariate_frame`
+  does at one node. Passing the earlier `A_s` would let a rule read the treatment of a
+  *deviator*, which is a different object from the one it assigns. Off the recorded set the
+  arm is coerced to zero rather than validated, because such a row is masked out of
+  everything and the only way it could still matter is a `nan` reaching a learner.
+  *Three*: the outcome regression's design stays `covariate_history(t)` with **no** treatment
+  columns. The old justification — "a follower's past treatment is constant" — is false under
+  a rule; the true one is that among the followers `A_s = d_s(W, L_1, ..., L_s)` is a
+  deterministic function of columns the design already carries, since that is the frame the
+  rule was handed. **No test in this repository would catch this being changed**, and that was
+  measured, not assumed: on the exact law the saturated learner partitions by distinct design
+  row, so a column that is a function of the others is invisible; and under `glm` the natural
+  comparison — a rule that ignores the history against the constant plan it equals — adds a
+  *constant* column, which `StandardScaler` zeroes, to both sides at once. Change it only with
+  an argument, and do not add a test claiming to guard it without checking the test fails.
+  The oracle for all of this is `tests/discrete_law_longitudinal.py`, where `W` and `L2` are
+  binary so a rule is a lookup over cells: `REGIMEN_ARMS` states the plans for the oracle and
+  `REGIMEN_SPEC` states the same plans as callables for the estimator, deliberately in two
+  representations so a slip is a wrong number rather than one that cancels on both sides. Keep
+  `functional` selecting arms by **cell index** — a rule written as an indicator *of the
+  probabilities* makes the complex step come back real, silently.
 - **Which truncation bound a group gets is a statement about its covariate.**
   `utils.bounds.CONDITIONAL_GROUPS` names the groups whose clever covariate is a propensity
   *odds* (`att`, `atc`) and so needs the tighter bound; everything else divides by `g` once

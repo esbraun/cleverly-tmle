@@ -48,6 +48,7 @@ import pytest
 from cleverly import CTMLE, TMLE
 from cleverly.datasets import (
     DGP,
+    RULE_LABEL,
     binary_outcome_dgp,
     cde_dgp,
     instrument_dgp,
@@ -55,6 +56,7 @@ from cleverly.datasets import (
     make_longitudinal,
     missing_outcome_dgp,
     nonlinear_dgp,
+    rule_arm_at_node_two,
     weak_overlap_dgp,
 )
 from cleverly.interventions import Incremental
@@ -914,11 +916,24 @@ class TestLongitudinalInference:
         "censoring": ["C1", "C2"],
     }
 
+    #: The dynamic regimen ``make_longitudinal`` ships a quadrature truth for, written on
+    #: the fit's side of the split: ``rule_arm_at_node_two`` fixes the threshold and this
+    #: pulls the column, so the two cannot drift apart on the arithmetic while the
+    #: plumbing stays written twice.  Its followers are a covariate-dependent set, which
+    #: is the whole reason it earns a place in the statistical tier -- the exact law
+    #: proves the influence curve, and this asks whether the interval built from it
+    #: covers under repeated sampling.
+    REGIMENS: ClassVar[dict[str, Any]] = {
+        "always": 1,
+        "never": 0,
+        RULE_LABEL: (1, lambda history: rule_arm_at_node_two(history["L2"])),
+    }
+
     def _run(self, *, n: int, reps: int = REPLICATES) -> Any:
         return CoverageStudy(
             dgp=make_longitudinal,
             estimator=lambda: LTMLE(
-                {"always": 1, "never": 0},
+                self.REGIMENS,
                 reference="never",
                 outcome_learner="glm",
                 pseudo_learner="glm",
@@ -930,7 +945,13 @@ class TestLongitudinalInference:
             ),
             n=n,
             n_replicates=reps,
-            estimands=("ey_regimen[always]", "ey_regimen[never]", "ate_regimen[always vs never]"),
+            estimands=(
+                "ey_regimen[always]",
+                "ey_regimen[never]",
+                "ate_regimen[always vs never]",
+                f"ey_regimen[{RULE_LABEL}]",
+                f"ate_regimen[{RULE_LABEL} vs never]",
+            ),
             fit_kwargs=self.COLUMNS,
             seed=2024,
             n_jobs=2,

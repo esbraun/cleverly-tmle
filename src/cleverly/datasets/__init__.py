@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from .longitudinal import longitudinal_truth, make_longitudinal
+from .longitudinal import (
+    RULE_LABEL,
+    longitudinal_rule_truth,
+    longitudinal_truth,
+    make_longitudinal,
+    rule_arm_at_node_two,
+)
 from .synthetic import (
     DGP,
     GENERATORS,
@@ -41,6 +47,7 @@ from .synthetic import (
 __all__ = [
     "DGP",
     "GENERATORS",
+    "RULE_LABEL",
     "MultiArmDGP",
     "ShiftDGP",
     "available",
@@ -51,6 +58,7 @@ __all__ = [
     "heterogeneous_dgp",
     "instrument_dgp",
     "linear_dgp",
+    "longitudinal_rule_truth",
     "longitudinal_truth",
     "make_biased_sample",
     "make_binary_outcome",
@@ -70,6 +78,7 @@ __all__ = [
     "missing_outcome_dgp",
     "multi_arm_dgp",
     "nonlinear_dgp",
+    "rule_arm_at_node_two",
     "sampling_probability",
     "shift_dgp",
     "weak_overlap_dgp",

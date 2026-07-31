@@ -20,10 +20,16 @@ import numpy as np
 import pytest
 from scipy.special import expit
 
-from cleverly.datasets import longitudinal_truth, make_longitudinal
+from cleverly.datasets import (
+    RULE_LABEL,
+    longitudinal_rule_truth,
+    longitudinal_truth,
+    make_longitudinal,
+    rule_arm_at_node_two,
+)
 
-#: The four static plans over two nodes, which is every regimen this process has a truth
-#: for.  Written out rather than read off the generator, so a change there shows up here.
+#: The four static plans over two nodes.  Written out rather than read off the generator,
+#: so a change there shows up here.
 PLANS = ((1.0, 1.0), (0.0, 0.0), (1.0, 0.0), (0.0, 1.0))
 
 
@@ -62,6 +68,60 @@ class TestTheQuadratureIsRight:
 
     def test_the_truth_is_deterministic(self) -> None:
         assert longitudinal_truth(1.0, 1.0) == longitudinal_truth(1.0, 1.0)
+
+    def test_the_rule_agrees_with_plain_monte_carlo(self) -> None:
+        """The same independent check for the dynamic regimen ``make_longitudinal`` ships.
+
+        ``A2`` is a function of the *intervened* ``L2``, which is where a quadrature that
+        built ``L2`` from the observed treatment instead would come apart.  Reimplemented
+        longhand, sharing nothing with the generator but the threshold -- and in
+        particular not sharing the split-panel rule, which is the thing under test.
+        """
+        rng = np.random.default_rng(0)
+        n = 500_000
+        a1 = 1.0
+        w1 = rng.standard_normal(n)
+        w2 = rng.standard_normal(n)
+        l2 = 0.6 * w1 + 0.9 * a1 + rng.standard_normal(n)
+        a2 = (l2 > 0.0).astype(float)
+        index = -0.4 + 0.5 * a1 + 0.8 * a2 + 0.4 * l2 + 0.3 * w1 - 0.2 * w2 + 0.5 * np.tanh(l2)
+        _, truth = make_longitudinal(n=50, seed=0)
+        assert truth[f"ey_regimen[{RULE_LABEL}]"] == pytest.approx(
+            float(np.mean(expit(index))), abs=5e-3
+        )
+
+    def test_the_rule_has_converged_in_both_rules_it_is_built_from(self) -> None:
+        """The check that caught this being wrong, kept because it caught it.
+
+        A rule puts a step function into the integrand, and a Gauss--Hermite rule
+        converges *algebraically* rather than spectrally on one.  Substituting an
+        indicator into the plain three-dimensional rule -- the obvious implementation --
+        moved the answer by ``1.7e-3`` between 48 and 64 nodes: worse than the Monte Carlo
+        above, and useless as a truth for a coverage study whose standard errors are near
+        ``0.02``.  Splitting the ``L2`` axis at the jump fixed it, and this refines *both*
+        the outer Gauss--Hermite count and the panel count, since only refining the one
+        the bug was not in would have looked converged either way.
+        """
+        base = longitudinal_rule_truth(1.0, rule_arm_at_node_two, nodes=48, panel=160)
+        for nodes, panel in ((64, 160), (48, 240), (64, 320)):
+            refined = longitudinal_rule_truth(1.0, rule_arm_at_node_two, nodes=nodes, panel=panel)
+            assert base == pytest.approx(refined, abs=1e-10), (nodes, panel)
+
+    def test_the_rule_is_a_parameter_of_its_own(self) -> None:
+        """Distinct from every static plan, and from the filler the recursion uses.
+
+        Both coincidences are ways a broken fit passes: ``0.5`` is ``_FILLER``, so a
+        prediction leaking from a censored row would land there, and a rule whose mean
+        equalled a static regimen's would leave the dynamic path unfalsifiable against the
+        constant plan beside it.  The threshold was chosen to avoid both -- the first
+        draft, ``d_1 = 0`` with the same rule, came to *exactly* ``0.5`` -- so a change
+        that reintroduces either should fail here rather than quietly weaken the tier.
+        """
+        _, truth = make_longitudinal(n=50, seed=0)
+        rule = truth[f"ey_regimen[{RULE_LABEL}]"]
+        assert abs(rule - 0.5) > 0.05
+        for label in ("always", "never", "early", "late"):
+            assert abs(rule - truth[f"ey_regimen[{label}]"]) > 0.01, label
 
     def test_the_reported_contrast_is_the_difference_of_the_reported_means(self) -> None:
         _, truth = make_longitudinal(n=50, seed=0)
