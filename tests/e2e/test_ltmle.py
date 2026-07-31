@@ -524,6 +524,13 @@ class TestADynamicRule:
     #: ``d_2 = 1{L2 > 0}``: treat at the second node only if the biomarker rose.  No
     #: static plan reaches this, since it is defined by a covariate measured between the
     #: two decisions -- the node that makes the problem longitudinal.
+    #:
+    #: ``d_1 = 0`` here, unlike :data:`~cleverly.datasets.RULE_LABEL`, which uses ``1``:
+    #: it puts the rule furthest from *both* constants, which is what
+    #: ``test_the_rule_is_a_different_parameter_from_either_constant`` needs.  The cost is
+    #: that this plan's mean is ``0.500`` to twelve decimals -- exactly ``_FILLER`` -- so
+    #: **do not add a truth comparison to this class**; a leak from a censored row would
+    #: pass it.  The tier that compares against a truth uses ``RULE_LABEL`` instead.
     RULE: ClassVar[dict[str, Any]] = {
         "always": 1,
         "never": 0,
@@ -595,14 +602,78 @@ class TestADynamicRule:
         ignores the history assigns a *constant*, so that mutation adds a constant column
         here -- which ``StandardScaler`` maps to zeros and the fit then ignores -- and it
         adds the same column to ``always``.  Both sides move together and the comparison
-        cannot see it.  See ``history_design`` for what does hold that decision up, which
-        is an argument rather than a test.
+        cannot see it.  Two things hold that decision up now, and they hold up different
+        halves of it: the *statistical* claim is an argument, written out in
+        ``history_design``, and the *call site* is pinned structurally by
+        ``tests/unit/test_sequential_design.py``, which fails if the design ever becomes
+        the mechanism's.  No test compares the two designs' estimates, because both are
+        consistent and there is no second answer to compare against.
         """
         assert fitted.psi("ey_regimen[always_rule]") == fitted.psi("ey_regimen[always]")
         np.testing.assert_array_equal(
             fitted.influence_curves["ey_regimen[always_rule]"],
             fitted.influence_curves["ey_regimen[always]"],
         )
+
+
+class TestTheReportSaysWhichRuleWasRun:
+    """Two rules are two parameters, so the report has to be able to tell them apart.
+
+    A static plan is stated in full by its ``1/0``, and a rule is not: a lambda has no
+    name to print and the plan string can only say that *a* rule was declared.  So the
+    settings carry a digest of the ``(n, T)`` arms the rule actually assigned -- which is
+    the thing the fit used, and the only representation a closure has.
+    """
+
+    THRESHOLDS: ClassVar[tuple[float, float]] = (0.0, 1.0)
+
+    @staticmethod
+    def _fit(frame: pd.DataFrame, threshold: float) -> LongitudinalResult:
+        regimens = {"never": 0, "rule": (1, lambda h: h["L2"] > threshold)}
+        return run(frame, regimens=regimens, reference="never", simultaneous=False)
+
+    def test_two_rules_that_print_alike_carry_different_fingerprints(self) -> None:
+        frame, _ = make_longitudinal(n=800, seed=13)
+        low, high = (self._fit(frame, threshold) for threshold in self.THRESHOLDS)
+
+        # The plan strings are identical, which is the problem the digest exists for.
+        assert low.config.describe()[2] == high.config.describe()[2]
+        assert "rule=(1/d)" in low.config.describe()[2]
+
+        digests = [dict(result.config.plan_fingerprints)["rule"] for result in (low, high)]
+        assert digests[0] != digests[1]
+        assert digests[0] in low.summary() and digests[1] in high.summary()
+        # And the estimates really do differ, so the two digests are not a distinction
+        # without a parameter behind it.
+        assert low.psi("ey_regimen[rule]") != high.psi("ey_regimen[rule]")
+
+    def test_the_same_rule_on_the_same_data_fingerprints_the_same(self) -> None:
+        """Otherwise the digest is a run id and not a statement about the regimen."""
+        frame, _ = make_longitudinal(n=800, seed=13)
+        first, second = (self._fit(frame, 0.0) for _ in range(2))
+        assert first.config.plan_fingerprints == second.config.plan_fingerprints
+
+    def test_a_named_rule_is_named_in_the_settings(self) -> None:
+        """A ``def`` carries the analyst's own word for the plan; print it."""
+
+        def responders(history: Any) -> Any:
+            return history["L2"] > 0.0
+
+        frame, _ = make_longitudinal(n=600, seed=13)
+        result = run(
+            frame,
+            regimens={"never": 0, "rule": (1, responders)},
+            reference="never",
+            simultaneous=False,
+        )
+        assert "rule=(1/d:responders)" in result.config.describe()[2]
+
+    def test_a_static_fit_reports_no_digest(self) -> None:
+        """The line would say nothing a ``1/0`` has not already said in full."""
+        frame, _ = make_longitudinal(n=600, seed=13)
+        result = run(frame, simultaneous=False)
+        assert not any("assigned arms" in line for line in result.config.describe())
+        assert result.config.plan_fingerprints  # recorded, just not printed
 
 
 class TestItRefusesByName:

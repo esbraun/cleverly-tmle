@@ -17,9 +17,13 @@ estimate of it.  The assertions can then be exact rather than statistical.
 is worth saying so before someone drops one as duplication.  Because ``epsilon`` is zero,
 the reported ``psi`` is the plug-in, and *no error in the mechanism can move it*: a fit
 that evaluated ``g`` at a constant arm instead of the arm a rule assigned would land on
-the truth to the last bit and be caught only by the Gateaux comparison.  Evaluating the
-mechanism per unit is the riskiest new code the dynamic path introduced, so the check
-that sees it is the one that matters most.
+the truth to the last bit.  Evaluating the mechanism per unit is the riskiest new code the
+dynamic path introduced, and every test in this module that sees it at all is one of the
+two that do not read ``psi``: the Gateaux comparison, which sees it through the curve, and
+``TestARuleAgainstTheConstantItGeneralises.test_the_cumulative_product_reads_the_arm_the_rule_assigned``,
+which reads the product directly.  Deliberately both, and by different routes -- the
+second says *where* such a fit went wrong and the first says that the answer it reports is
+wrong, and a mutation that survived one of them would still be caught.
 """
 
 from __future__ import annotations

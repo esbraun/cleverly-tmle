@@ -219,7 +219,21 @@ def describe_plan(regimen: RegimenSpec) -> str:
     """A plan as ``1/0`` for constants and ``d`` for a rule, for the settings report."""
     if isinstance(regimen, Regimen):
         return "/".join(str(int(value)) for value in regimen.values)
-    return "/".join("d" if callable(node) else str(int(node)) for node in regimen.plan)
+    return "/".join(_describe_node(node) for node in regimen.plan)
+
+
+def _describe_node(node: RuleNode) -> str:
+    """One node of a plan: its arm, or the rule's own name when it has one.
+
+    A ``def``\\ -ed rule carries the name the analyst gave it, and reporting ``d:responds``
+    rather than a bare ``d`` costs nothing and says which of two rules was run.  A lambda
+    has no such name -- ``__name__`` is ``"<lambda>"``, which names nothing -- so it falls
+    back to ``d`` and the plan fingerprint on the config is what tells two of them apart.
+    """
+    if not callable(node):
+        return str(int(node))
+    name = getattr(node, "__name__", "<lambda>")
+    return "d" if name == "<lambda>" else f"d:{name}"
 
 
 @dataclass(frozen=True)
