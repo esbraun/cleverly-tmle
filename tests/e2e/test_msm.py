@@ -19,7 +19,7 @@ import pytest
 from scipy.special import expit
 
 from cleverly import TMLE, load
-from cleverly.datasets import make_multi_arm
+from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.datasets.synthetic import MultiArmDGP
 from cleverly.interventions import Shift, Static
 from cleverly.msm import MSM
@@ -286,6 +286,27 @@ class TestALinkChangesTheParameterAndNotTheMachinery:
         """The covariate is free of ``beta`` there, so there is nothing to alternate."""
         result, _ = fitted
         assert result.fluctuations["msm"].projection is None
+
+    def test_a_two_armed_logit_msm_is_the_odds_ratio(self) -> None:
+        """The saturated case in the form a reader can check by eye, and the README's.
+
+        Two arms and two terms is saturated, so ``exp(beta_a)`` is not an approximation of
+        the marginal odds ratio -- it *is* it, interval and all. A link that was subtly
+        wrong in its Jacobian, its covariate or its scale would still produce a plausible
+        number here and would not produce this one.
+        """
+        frame, _ = make_binary_outcome(n=N, seed=SEED)
+        model = (
+            TMLE(msm=MSM.linear(link="logit"), **SETTINGS)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        plain = TMLE(estimands=("or",), **SETTINGS).fit(frame, outcome="Y", treatment="A").single()
+        ratios = model.coefficients(scale="ratio")
+        assert float(ratios["psi"][1]) == pytest.approx(plain.estimates["or"].psi, rel=1e-9)
+        low, high = plain.estimates["or"].ci
+        assert float(ratios["ci_lower"][1]) == pytest.approx(low, rel=1e-9)
+        assert float(ratios["ci_upper"][1]) == pytest.approx(high, rel=1e-9)
 
 
 class TestFoldWiseTargetingGivesEachFoldItsOwnBeta:
