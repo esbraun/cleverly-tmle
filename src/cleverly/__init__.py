@@ -40,6 +40,7 @@ from .exceptions import (
 )
 from .inference import ParameterEstimate
 from .learners import SuperLearner
+from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult, ltmle
 from .provenance import Provenance
 from .targets import TARGETS, Identification, Target, register
 
@@ -47,6 +48,7 @@ __all__ = [
     "ALL_ESTIMANDS",
     "CTMLE",
     "DEFAULT_ESTIMANDS",
+    "LTMLE",
     "TARGETS",
     "TMLE",
     "CTMLESelection",
@@ -56,6 +58,8 @@ __all__ = [
     "ConvergenceWarning",
     "DataError",
     "Identification",
+    "LongitudinalData",
+    "LongitudinalResult",
     "NotFittedError",
     "ParameterEstimate",
     "PositivityWarning",
@@ -67,6 +71,7 @@ __all__ = [
     "WeightingWarning",
     "__version__",
     "load",
+    "ltmle",
     "register",
     "tmle",
 ]
