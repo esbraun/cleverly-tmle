@@ -106,6 +106,18 @@ def missingness_tilt(
             "Extending it means deciding whether gamma is shared across arms or per arm, "
             "which is a modelling choice this function should not make silently."
         )
+    if result.nuisance.incremental is not None:
+        raise ValueError(
+            "missingness_tilt is written for the arm-indexed estimands; this fit declared "
+            "incremental interventions and reports ey_ipsi/ate_ipsi. The tilt reweights a "
+            "targeted Qbar under a moved missingness mechanism, and on this axis the "
+            "targeting is two alternating score equations rather than one -- the second "
+            "lives in the tangent space of g, which the tilt does not move but which the "
+            "alternation re-solves against a Qbar that has. Whether the tilted parameter "
+            "is that alternation's fixed point has not been derived, so reporting a curve "
+            "would be guessing. Use incremental_support() for the overlap question, or "
+            "truncation_curve(mechanism=True) for sensitivity to the missingness bound."
+        )
     if result.nuisance.missingness is None:  # pragma: no cover - guarded above
         raise ValueError("missingness_tilt requires a fitted missingness mechanism")
 

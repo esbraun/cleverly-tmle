@@ -157,20 +157,28 @@ class SensitivityAnalysis:
 
         The sweep rests on a claim that holds for every axis but one: truncating a
         mechanism trades variance for second-order bias and cannot move the *estimand*,
-        because the plug-in contains no mechanism at all.  On an incremental fit it does
-        move the estimand -- ``q_delta`` is built out of ``g`` -- so the sweep is refused
-        rather than reported as a bias-variance trade it is not.
+        because the plug-in contains no mechanism at all.  On an incremental fit the
+        *propensity* sweep does move the estimand -- ``q_delta`` is built out of ``g`` --
+        so that one is refused rather than reported as a bias-variance trade it is not.
+
+        The ``mechanism=True`` sweep is a different question and is allowed there.
+        ``P(Delta = 1 | A, W)`` is not in ``q_delta`` and not in the plug-in; it divides
+        the outcome half of the clever covariate and nothing else, so bounding it
+        regularises the estimator on exactly the terms every other axis enjoys.  Refusing
+        it along with the propensity sweep would have been refusing a valid analysis for a
+        reason that does not apply to it.
         """
-        if self._result.nuisance.incremental is not None:
+        if self._result.nuisance.incremental is not None and not mechanism:
             raise ValueError(
                 "truncation_curve() sweeps the propensity bound, which on every other "
                 "axis trades variance for second-order bias and leaves the estimand "
                 "alone. On an incremental fit g is *inside* the estimand -- q_delta = "
                 "delta*g / (delta*g + 1 - g) -- so each bound would target a different "
                 "parameter and the curve would not be a sensitivity analysis. No bound "
-                "is applied to this fit and none is needed: the clever covariate is "
+                "is applied to g on this fit and none is needed: the clever covariate is "
                 "bounded by max(delta, 1/delta) by construction. See "
-                "incremental_support()."
+                "incremental_support(). With delta= the missingness mechanism *is* an "
+                "ordinary denominator and mechanism=True sweeps it."
             )
         return truncation_curve(self._result, bounds, estimands=estimands, mechanism=mechanism)
 

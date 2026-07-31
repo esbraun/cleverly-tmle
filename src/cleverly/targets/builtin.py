@@ -96,7 +96,9 @@ _IPSI_ID = Identification(
         "is consistent whatever Qbar does, and no accuracy in Qbar rescues an "
         "inconsistent mechanism -- there the remainder is "
         "(delta - 1) delta E[(g0 - ghat)^2 (Qbar(1,W) - Qbar(0,W)) / (D0 Dhat^2)], "
-        "second order but not zero. Read the interval as conditional on g being right"
+        "second order but not zero. Read the interval as conditional on g being right. "
+        "With delta= even that is not sufficient: the remainder gains a cross term in the "
+        "error of the product g*pi, so it needs g right AND one of pi, Qbar right"
     ),
     references=("Kennedy (2019)",),
 )

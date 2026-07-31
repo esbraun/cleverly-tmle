@@ -131,6 +131,24 @@ def first_row_of() -> np.ndarray:
     return np.concatenate([[0], np.cumsum(counts)[:-1]])
 
 
+#: The incremental interventions the ``ipsi`` estimands are checked against, as odds
+#: multipliers.  Restated rather than imported from :mod:`tests.discrete_law`, on the same
+#: terms :data:`P_W` and :data:`G` are: an oracle that reached into another module for the
+#: estimand it states would make the two laws agree by construction.  That the two lists
+#: are in fact the same is asserted from the outside, in
+#: ``tests/unit/test_influence_gateaux_ipsi_mar.py``.
+#:
+#: What the missingness changes is *not* the tilt.  ``q_delta = delta g / (delta g + 1 - g)``
+#: is a functional of ``P(A | W)``, and ``A`` and ``W`` are recorded for every row, so the
+#: intervention is defined on a fully observed sub-law however much of ``Y`` is missing.
+#: Only :math:`\bar Q` is reached by :data:`PI`, which is why the influence curve picks up
+#: :math:`\pi` in the outcome term and nowhere else -- the claim under test.
+IPSI_DELTAS: dict[str, float] = {"natural course": 1.0, "odds x2": 2.0, "odds x0.5": 0.5}
+
+#: The tilt contrasts are taken against; the first supplied, as the estimator defaults.
+IPSI_REFERENCE = "natural course"
+
+
 def functional(probs: Any, estimand: str) -> Any:
     r"""The target parameter as a closed-form function of the cell probabilities.
 
@@ -174,6 +192,24 @@ def functional(probs: Any, estimand: str) -> Any:
         arm = 1 if estimand == "att" else 0
         share = p_wa[:, arm] / p_wa[:, arm].sum()  # P(W = w | A = arm)
         return (share * (q[:, 1] - q[:, 0])).sum()
+
+    # The incremental estimands, written exactly as tests/discrete_law.py writes them bar
+    # the definition of `q` above.  That is the point: the missingness enters this law's
+    # `Qbar` and nothing else, so if the estimator needs more than a `pi` in the outcome
+    # half of the clever covariate, the derivative below will say so.
+    #
+    # `g` is taken from the *whole* sample, not from the complete cases -- `A` is recorded
+    # for everyone, so `P(A = 1 | W)` is not a missing-data problem and estimating it off
+    # the observed rows would be an error this branch must not share with the estimator.
+    if estimand.startswith("ey_ipsi["):
+        delta = IPSI_DELTAS[estimand[len("ey_ipsi[") : -1]]
+        g = p_wa[:, 1] / p_w
+        d = delta * g + (1.0 - g)
+        return (p_w * (delta * g * q[:, 1] + (1.0 - g) * q[:, 0]) / d).sum()
+    if estimand.startswith("ate_ipsi["):
+        left, right = estimand[len("ate_ipsi[") : -1].split(" vs ")
+        return functional(p, f"ey_ipsi[{left}]") - functional(p, f"ey_ipsi[{right}]")
+
     raise ValueError(f"unknown estimand {estimand!r}")
 
 
@@ -189,16 +225,42 @@ def observed_only_functional(probs: Any, estimand: str) -> Any:
     p = np.asarray(probs)
     # Re-normalise onto the complete cases, then apply the same formula.  The conditional
     # means are unchanged -- they were already taken among observed rows -- so the only
-    # thing that moves is the marginal of ``W`` they are averaged against.
+    # thing that moves is the marginal of ``W`` they are averaged against.  On an ``ipsi``
+    # estimand ``g`` moves too, since it is a ratio of cell probabilities and those have
+    # been re-normalised; that is still the right negative control, because a complete-case
+    # analysis really would fit the mechanism on the complete cases as well.
     complete = np.zeros_like(p)
     complete[:, :, OBSERVED_ZERO] = p[:, :, OBSERVED_ZERO]
     complete[:, :, OBSERVED_ONE] = p[:, :, OBSERVED_ONE]
     return functional(complete / complete.sum(), estimand)
 
 
+#: The parameter names the ``ipsi`` targets report on this law, in the order the estimator
+#: reports them.  This law is deliberately *not* one of the two the registry coverage gate
+#: in ``tests/unit/test_registry.py`` walks -- its estimand names are the parent law's, and
+#: two laws claiming one name would make ``truth_for`` depend on law order -- so these are
+#: for the modules that check the ``delta=`` path to read, not for that gate.
+PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
+    "ey_ipsi": tuple(f"ey_ipsi[{label}]" for label in IPSI_DELTAS),
+    "ate_ipsi": tuple(
+        f"ate_ipsi[{label} vs {IPSI_REFERENCE}]" for label in IPSI_DELTAS if label != IPSI_REFERENCE
+    ),
+}
+
 #: Population values of every estimand, on the scale :func:`functional` returns.
 TRUTH = {
-    name: float(functional(PROBS, name)) for name in ("ey1", "ey0", "ate", "rr", "or", "att", "atc")
+    name: float(functional(PROBS, name))
+    for name in (
+        "ey1",
+        "ey0",
+        "ate",
+        "rr",
+        "or",
+        "att",
+        "atc",
+        *PER_ARM_NAMES["ey_ipsi"],
+        *PER_ARM_NAMES["ate_ipsi"],
+    )
 }
 
 

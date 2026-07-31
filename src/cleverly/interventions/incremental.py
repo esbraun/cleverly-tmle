@@ -63,6 +63,18 @@ It vanishes identically when the mechanism is consistent, whatever the outcome r
 does -- but no accuracy in :math:`\bar Q` rescues an inconsistent :math:`\hat g`.  This
 estimand is **not doubly robust**, and it is the only one here that is not; see
 ``tests/unit/test_remainder_ipsi.py``, which asserts the asymmetry in both directions.
+
+**With ``delta=``, a consistent mechanism stops being enough.**  Missingness adds
+:math:`\pi(A, W)` to the outcome half of the clever covariate and leaves the tilt alone --
+:math:`q_\delta` is a functional of :math:`P(A \mid W)`, and :math:`A` and :math:`W` are
+recorded however much of :math:`Y` is not.  The remainder keeps its squared
+:math:`(\hat g - g_0)` term untouched and gains a cross term carrying the error in the
+*product* :math:`\hat g\hat\pi` against the :math:`\bar Q` error, so it vanishes exactly
+when :math:`\hat g` is consistent **and** one of :math:`\hat\pi`, :math:`\bar Q` is -- the
+strictest condition on any axis here, and the one place where the guarantee above is
+necessary rather than sufficient.  ``tests/unit/test_remainder_ipsi_mar.py`` states it as
+an equality; note in particular that the two mechanisms cannot trade off against each
+other the way they can on the arm-indexed path, because :math:`\hat g` is in the estimand.
 """
 
 from __future__ import annotations

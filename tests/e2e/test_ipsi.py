@@ -27,8 +27,8 @@ import numpy as np
 import pytest
 
 from cleverly import TMLE
-from cleverly.datasets import make_nonlinear_ate, make_weak_overlap
-from cleverly.datasets.synthetic import nonlinear_dgp
+from cleverly.datasets import make_missing_outcome, make_nonlinear_ate, make_weak_overlap
+from cleverly.datasets.synthetic import missing_outcome_dgp, nonlinear_dgp
 from cleverly.interventions import Incremental
 from tests.conftest import FAST_KWARGS
 
@@ -241,3 +241,80 @@ class TestWhatTheTiltBuysUnderWeakOverlap:
         # What an arm-indexed fit would divide by on the same mechanism, for contrast.
         assert (1.0 / g).max() > 50.0
         assert (1.0 / g).max() > 10.0 * tilt.max_ratio
+
+
+class TestAMissingOutcomeIsCarriedByTheMissingnessModel:
+    """The ``delta=`` path end to end, on the process it was refused for.
+
+    ``incremental=`` used to refuse ``delta=``; ``tests/unit/test_influence_gateaux_ipsi_mar.py``
+    shows the composition is the efficient influence function and
+    ``tests/unit/test_remainder_ipsi_mar.py`` shows what the guarantee becomes.  This is
+    the population check neither of those can make, and it is aimed squarely at the branch
+    of that guarantee which is *new*: with ``g`` right, a consistent ``pi`` rescues an
+    inconsistent ``Qbar``.  Without missingness there is nothing to rescue, since ``Qbar``
+    plays no part in the incremental guarantee at all.
+
+    ``strength=2`` is what makes that a real claim.  The outcome mean picks up curvature
+    and an ``A``-by-``W1`` interaction that a main-effects GLM cannot reach, while the
+    propensity and the missingness mechanism both stay linear -- so every learner here is
+    ``"glm"`` and exactly one of the three is misspecified, which is the configuration the
+    remainder says must still work.  A complete-case fit on the same data is the control:
+    the observed rows carry a shifted ``W1``, so the same wrong outcome model extrapolated
+    over them lands somewhere else.
+    """
+
+    @pytest.fixture(scope="class")
+    def missing(self):
+        return make_missing_outcome(n=N, seed=13, strength=2.0)[0]
+
+    @pytest.fixture(scope="class")
+    def missing_truth(self):
+        return missing_outcome_dgp(2.0).incremental_truth(DELTAS)
+
+    @pytest.fixture(scope="class")
+    def missing_fit(self, missing):
+        return (
+            TMLE(**FAST_KWARGS, incremental=TILTS)
+            .fit(missing, outcome="Y", treatment="A", delta="Delta")
+            .single()
+        )
+
+    @pytest.fixture(scope="class")
+    def complete_case(self, missing):
+        """The same estimator on the recorded rows only, with no missingness model."""
+        rows = missing[missing["Delta"] == 1].drop(columns=["Delta"])
+        return TMLE(**FAST_KWARGS, incremental=TILTS).fit(rows, outcome="Y", treatment="A").single()
+
+    def test_the_process_is_hard_enough_to_be_testing_something(self, missing) -> None:
+        observed = float((missing["Delta"] == 1).mean())
+        assert 0.5 < observed < 0.9, "roughly a third of the outcomes must be missing"
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "ey_ipsi[natural course]",
+            "ey_ipsi[odds x2]",
+            "ey_ipsi[odds x0.5]",
+            "ate_ipsi[odds x2 vs natural course]",
+            "ate_ipsi[odds x0.5 vs natural course]",
+        ],
+    )
+    def test_within_sampling_error_of_the_truth(self, missing_fit, missing_truth, name) -> None:
+        estimate = missing_fit.estimates[name]
+        deviation = abs(estimate.psi - missing_truth[name])
+        assert deviation < 4.0 * estimate.std_error, (
+            f"{name}: {estimate.psi:.5g} vs truth {missing_truth[name]:.5g}, "
+            f"{deviation / estimate.std_error:.2f} standard errors away"
+        )
+
+    def test_a_complete_case_fit_is_visibly_worse(
+        self, missing_fit, complete_case, missing_truth
+    ) -> None:
+        """The control. If this passed for both, the missingness model would be idle."""
+        name = "ey_ipsi[odds x2]"
+        corrected = abs(missing_fit.estimates[name].psi - missing_truth[name])
+        dropped = abs(complete_case.estimates[name].psi - missing_truth[name])
+        assert dropped > 2.0 * corrected, (
+            f"complete-case is {dropped:.4g} from the truth against {corrected:.4g} "
+            "corrected -- the mechanism has to be doing work here"
+        )
