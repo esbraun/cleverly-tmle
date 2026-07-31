@@ -37,13 +37,14 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._typing import FloatArray
-from ..estimators.base import TMLEResult, TMLEResultSet, format_table
+from ..estimators.base import TMLEResultSet, format_table
 from ..estimators.direct_effect import check_level
 from ..utils.parallel import map_parallel
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..datasets.synthetic import DGP
     from ..estimators.tmle import TMLE
+    from ..longitudinal import LTMLE
 
 __all__ = ["CoverageStudy", "EstimandSummary", "StudyResult"]
 
@@ -283,7 +284,7 @@ class CoverageStudy:
     def __init__(
         self,
         dgp: DGP | Callable[..., tuple[Any, dict[str, float]]],
-        estimator: Callable[[], TMLE],
+        estimator: Callable[[], TMLE | LTMLE],
         *,
         n: int = 1000,
         n_replicates: int = 100,
@@ -341,16 +342,31 @@ class CoverageStudy:
             return self.dgp(self.n, seed=seed)
         return self.dgp(self.n, seed=seed, intermediate_value=self.intermediate_value)
 
-    def _select(self, result: TMLEResultSet) -> TMLEResult:
+    def _select(self, result: Any) -> Any:
         """Pick the single result a replication is summarising.
 
         A fit with ``intermediate=`` returns one result per level, and the levels are
         different parameters rather than two views of one, so the study has to be told
-        which it is measuring coverage for rather than guessing.  That is now the set's
-        own key lookup: ``intermediate_value`` is ``None`` for an ordinary fit, which is
+        which it is measuring coverage for rather than guessing.  That is the set's own
+        key lookup: ``intermediate_value`` is ``None`` for an ordinary fit, which is
         exactly the key such a fit uses, so a mismatch in either direction surfaces as a
         ``KeyError`` naming the levels that are available.
+
+        An estimator that does not return a *set* -- :class:`~cleverly.LTMLE` returns one
+        :class:`~cleverly.LongitudinalResult` -- is already the single result, and is
+        passed through.  Keying into it would ask for the parameter named ``None`` and
+        get a ``KeyError`` that the replication loop swallows, so the whole study would
+        fail with "every replication failed; check the estimator configuration" while the
+        estimator was configured correctly.
         """
+        if not isinstance(result, TMLEResultSet):
+            if self.intermediate_value is not None:
+                raise TypeError(
+                    f"intermediate_value={self.intermediate_value!r} was given, but the "
+                    f"estimator returned a {type(result).__name__} rather than a result "
+                    "set with one entry per level"
+                )
+            return result
         return result[self.intermediate_value]
 
     def run(self) -> StudyResult:
