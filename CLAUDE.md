@@ -199,3 +199,11 @@ ruff check . && ruff format --check .
 mypy src/cleverly
 pytest -m "not slow" -q
 ```
+
+**The ruff version is pinned exactly**, in `pyproject.toml`'s `dev` extra and in
+`.github/workflows/ci.yml`, and the two must move together. CI used to run `ruff@latest`,
+which meant a formatter release could turn the lint job red with no commit to blame — and
+did: 0.16 began formatting the Python blocks inside Markdown, so `README.md` failed there
+while a local 0.15 said everything was clean. When bumping the pin, run `ruff format .`
+over the *whole* tree rather than `src` and `tests`, because the README is now formatted
+code too, and expect hand-aligned trailing comments in its examples to be collapsed.

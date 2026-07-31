@@ -49,7 +49,10 @@ dev = [
     "pyarrow>=15",
     "pytest>=7.4",
     "pytest-xdist>=3.5",
-    "ruff>=0.6",
+    # Pinned exactly, and kept in step with .github/workflows/ci.yml. A range would let a
+    # local `ruff format --check .` pass against a formatter CI does not run: 0.16 began
+    # formatting the Python blocks inside Markdown, so the two disagreed about README.md.
+    "ruff==0.16.1",
     "mypy>=1.11",
     "nox>=2024.3",
 ]

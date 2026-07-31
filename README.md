@@ -647,9 +647,9 @@ representation.
 The fold *policy* is recorded too, and separately from the split it produced:
 
 ```python
-res.config.crossfit          # CrossFitPlan(n_folds=10, learner_folds=5, scheme=...)
+res.config.crossfit  # CrossFitPlan(n_folds=10, learner_folds=5, scheme=...)
 res.config.crossfit.n_folds  # 10 -- what was asked for
-res.config.n_folds           # 3  -- what ran, after the cluster count capped it
+res.config.n_folds  # 3  -- what ran, after the cluster count capped it
 ```
 
 The two agree in the ordinary case. They come apart whenever `resolve_n_folds` capped the
@@ -678,7 +678,7 @@ appreciable fraction of its standard error. `repeats=` draws the split several t
 averages:
 
 ```python
-TMLE(n_folds=10, repeats=5)   # psi_bar = mean_r psi_r, at five times the cost
+TMLE(n_folds=10, repeats=5)  # psi_bar = mean_r psi_r, at five times the cost
 ```
 
 Every row is out of fold in every draw, so `mean_r psi_r` is the same functional of the

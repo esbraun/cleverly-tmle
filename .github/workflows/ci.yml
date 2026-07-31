@@ -16,8 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv tool run ruff@latest check .
-      - run: uv tool run ruff@latest format --check .
+      # Pinned, not `@latest`: a formatter release can turn this job red with no commit
+      # to blame, and it has -- 0.16 began formatting the Python blocks inside README.md.
+      # Bump it deliberately, in step with the `ruff==` pin in pyproject's `dev` extra, so
+      # that `ruff format --check .` run locally is the same check that runs here.
+      - run: uv tool run ruff@0.16.1 check .
+      - run: uv tool run ruff@0.16.1 format --check .
 
   typecheck:
     runs-on: ubuntu-latest
