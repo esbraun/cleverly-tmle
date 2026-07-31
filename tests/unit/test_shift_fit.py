@@ -147,7 +147,7 @@ class TestDeclaringTheAxis:
 
 class TestTheRefusals:
     def test_shifts_and_interventions_together_are_refused(self) -> None:
-        with pytest.raises(ValueError, match="cannot solve both score equations"):
+        with pytest.raises(ValueError, match="cannot solve their score equations at once"):
             estimator(shifts=SHIFTS, interventions=[Static(0), Static(1)])
 
     def test_a_shift_of_an_arm_coded_treatment_is_refused(self) -> None:

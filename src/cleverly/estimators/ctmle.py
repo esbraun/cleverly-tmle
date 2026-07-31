@@ -478,6 +478,15 @@ class CTMLE(TMLE):
         one fixed would leave every draw choosing its stopping point against the same
         partition, which is the noise ``repeats=`` exists to average away.
         """
+        if self.incremental:
+            raise ValueError(
+                "CTMLE and incremental= are not combined. C-TMLE cross-validates the "
+                "*choice* of g against a loss for the targeted Qbar, and under an "
+                "incremental intervention each candidate g defines a different "
+                "parameter: Psi(delta) is built out of g. The search would be selecting "
+                "between estimands rather than between estimators of one, and the risk "
+                "it minimises would have no fixed target. Use a plain TMLE."
+            )
         self._check_estimands(data)
         base = self._fit_nuisances(data, folds, scaler, intermediate_value, seed=seed)
         selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)

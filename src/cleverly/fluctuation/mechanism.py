@@ -80,6 +80,7 @@ __all__ = [
     "MECHANISM_BUILDERS",
     "MechanismFluctuation",
     "mechanism_covariate",
+    "mechanism_score",
     "needs_mechanism",
     "register_mechanism",
     "solve_mechanism",
@@ -195,6 +196,27 @@ def mechanism_covariate(group: str, targeted: InitialFit, carrier: IPSISet) -> F
             f"{sorted(MECHANISM_BUILDERS)}. Use register_mechanism() to add one."
         ) from None
     return builder(targeted, carrier)
+
+
+def mechanism_score(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    covariate: FloatArray,
+    weights: FloatArray,
+) -> tuple[FloatArray, FloatArray]:
+    """``(score, scale)`` for the mechanism equation, without solving it.
+
+    The alternation needs this: after the outcome fluctuation moves, the mechanism
+    covariate moves with it, so the score that was solved a moment ago is stale.  Testing
+    convergence against a stale score is how a two-equation loop exits having solved one
+    of them, which is exactly the failure the ``delta = 1`` identity catches.
+    """
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    g = np.asarray(propensity, dtype=float).reshape(-1)
+    h = np.asarray(covariate, dtype=float)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    everywhere = np.ones(a.size, dtype=bool)
+    return score_columns(a, g, h, w, everywhere), score_scale(h, w, everywhere)
 
 
 def solve_mechanism(
