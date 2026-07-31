@@ -469,11 +469,18 @@ class CTMLE(TMLE):
         scaler: OutcomeScaler,
         config: TMLEConfig,
         intermediate_value: float | None,
+        seed: int | None = None,
     ) -> tuple[NuisanceEstimates, dict[str, Any]]:
-        """Fit the outcome model once, then *select* the propensity model against it."""
+        """Fit the outcome model once, then *select* the propensity model against it.
+
+        The draw's ``seed`` reaches the selection folds as well as the nuisance fits, so
+        a repeat redraws the split the *selection* was scored against too.  Holding that
+        one fixed would leave every draw choosing its stopping point against the same
+        partition, which is the noise ``repeats=`` exists to average away.
+        """
         self._check_estimands(data)
-        base = self._fit_nuisances(data, folds, scaler, intermediate_value)
-        selector = _Selector(self, data, base, config.g_bounds, intermediate_value)
+        base = self._fit_nuisances(data, folds, scaler, intermediate_value, seed=seed)
+        selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)
 
         path = selector.build_path(train=None, tag="full")
         cv_risk = selector.cross_validate(path)
@@ -541,12 +548,17 @@ class _Selector:
         base: NuisanceEstimates,
         bounds: tuple[float, float],
         intermediate_value: float | None,
+        seed: int | None = None,
     ) -> None:
         self.est = estimator
         self.data = data
         self.base = base
         self.bounds = bounds
         self.intermediate_value = intermediate_value
+        #: The cross-fitting draw this selector belongs to, under the same convention
+        #: ``TMLE._folds`` uses: ``None`` means the estimator's own ``random_state``.
+        #: Every split made below is drawn from it, so a repeat redraws the selection.
+        self.seed = estimator.random_state if seed is None else seed
         self.scaled = base.scaler.scale(data.outcome)
         self.all_rows: IntArray = np.arange(data.n)
         self.loss_kind = (
@@ -558,7 +570,7 @@ class _Selector:
             estimator.treatment_learner,
             task="classification",
             n_folds=estimator.learner_folds,
-            random_state=estimator.random_state,
+            random_state=self.seed,
         )
         self.spec = estimator.targeting_spec()
         self._cache: dict[tuple[Any, ...], FloatArray] = {}
@@ -886,7 +898,7 @@ class _Selector:
             # and not the other.
             stratify=self.est._fold_strata(data),
             cluster=data.cluster,
-            random_state=self.est.random_state,
+            random_state=self.seed,
         )
         loss = np.zeros(len(path))
         influence = np.zeros((len(path), data.n))

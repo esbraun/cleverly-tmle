@@ -532,6 +532,10 @@ def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatA
                     for group, fl in repeat.fluctuations.items()
                 },
                 "nuisance": _nuisance_to(arrays, f"nuisance.{index}", repeat.nuisance),
+                # Plain floats in the manifest rather than an array: this is what
+                # `repeat_spread` reads, and it must survive the round trip or a reloaded
+                # repeated fit could not say how much the split moved it.
+                "psi": {name: float(value) for name, value in repeat.psi.items()},
             }
             for index, repeat in enumerate(result.repeats)
         ],
@@ -585,6 +589,9 @@ def result_from_dict(manifest: dict[str, Any], store: dict[str, FloatArray]) -> 
                     group: _fluctuation_from(arrays, fluctuation)
                     for group, fluctuation in payload["fluctuations"].items()
                 },
+                # `.get` rather than `[...]`: a file written before the field existed is
+                # readable, and reloads with an empty mapping that `repeat_spread` skips.
+                psi=payload.get("psi", {}),
             )
             for payload in manifest["repeats"]
         ),

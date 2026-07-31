@@ -6,10 +6,12 @@ be checked *exactly*, which is nearly all of it:
 
 * ``repeats=1`` is bit-for-bit an ordinary fit -- the regression guard;
 * the averaging rule itself, on hand-built estimates, including the log scale for ratios;
-* the draws differ, and are reproducible given a seed;
+* the draws differ at *every* stage of the split, and are reproducible given a seed;
 * the reported variance is the variance of the reported curve, so the delta method and
   the score diagnostic still hold after averaging;
-* the two refused combinations, and why.
+* under ``cv_evaluation`` it is instead the mean of the draws' cross-validated variances,
+  together with the identity that makes the alternative rule vacuous;
+* the refused combinations, and why.
 
 The one claim that is *not* here is that repeats reduce the across-seed spread of ``psi``.
 That is a statement about repeated sampling, so it belongs in the slow tier beside the
@@ -19,6 +21,7 @@ coverage studies, not in a fast test that would be a coin flip on a lucky seed.
 from __future__ import annotations
 
 import warnings
+from importlib import import_module
 from typing import Any
 
 import numpy as np
@@ -26,9 +29,11 @@ import pytest
 
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
 from cleverly.estimators.serialize import result_from_dict, result_to_dict
+from cleverly.inference.cluster import cross_validated_variance, influence_variance
 from cleverly.inference.influence import ParameterEstimate, average_estimates, make_estimate
 from cleverly.provenance import fingerprint_array
 from cleverly.sensitivity import missingness_tilt, positivity_report, truncation_curve
+from cleverly.targets import parameter_stem
 from cleverly.validation import score_check
 from tests.conftest import FAST_KWARGS, fast_tmle
 
@@ -40,10 +45,30 @@ COLUMNS: dict[str, Any] = {"outcome": "Y", "treatment": "A", "covariates": ["W1"
 N = 400
 REPEATS = 3
 
+#: The canonical construction, on a binary outcome so that the report includes a ratio --
+#: which is where fold-wise evaluation actually differs from pooled, and where the log
+#: scale in both averaging rules has to line up.
+CANONICAL: dict[str, Any] = {
+    "targeting_scheme": "fold",
+    "cv_evaluation": True,
+    "estimands": ["ate", "rr", "att"],
+}
+
 
 @pytest.fixture(scope="module")
 def frame() -> Any:
     return make_linear_ate(n=N, seed=11)[0]
+
+
+@pytest.fixture(scope="module")
+def binary_frame() -> Any:
+    return make_binary_outcome(n=N, seed=17)[0]
+
+
+@pytest.fixture(scope="module")
+def canonical(binary_frame: Any) -> Any:
+    """One repeated canonical CV-TMLE, shared by everything that only reads one."""
+    return fast_tmle(repeats=REPEATS, **CANONICAL).fit(binary_frame, **COLUMNS).single()
 
 
 @pytest.fixture(scope="module")
@@ -248,6 +273,228 @@ class TestTheAveragedReportStaysCoherent:
         assert not any("[draw" in name for name in plain)
 
 
+def _per_draw_detail(result: Any) -> list[Any]:
+    """Each draw's own ``CVTargeting``, re-solved from its cached nuisance fits.
+
+    Cheap -- ``_retarget_detailed`` re-runs the targeting step only -- and it is the only
+    way to get at what the averaged report is supposed to be the average *of*, since the
+    result keeps the fold-level detail of the first draw alone.
+    """
+    estimands = tuple(dict.fromkeys(parameter_stem(name) for name in result.estimates))
+    details = []
+    for repeat in result.repeats:
+        _, _, detail = result.estimator._retarget_detailed(
+            result.data,
+            repeat.nuisance,
+            estimands=estimands,
+            g_bounds=result.config.g_bounds,
+            g_bounds_conditional=result.config.g_bounds_conditional,
+        )
+        details.append(detail)
+    return details
+
+
+class TestRepeatedCanonicalCVTMLE:
+    """``repeats=R`` with ``cv_evaluation=True``: the average of ``R`` canonical fits.
+
+    The combination used to be refused, on the ground that the cross-validated variance is
+    defined by a fold partition and an across-draw average curve belongs to none of them.
+    That is true, and it rules out one construction rather than the combination: what is
+    reported is the mean of the ``R`` cross-validated variances, each computed on its own
+    draw's partition.  These pin both halves of that -- the point estimate is the mean of
+    the draws' *canonical* estimates, and the variance is the mean of their *canonical*
+    variances rather than anything rebuilt from the averaged curve.
+    """
+
+    def test_one_repeat_is_bit_for_bit_an_ordinary_canonical_fit(self, binary_frame: Any) -> None:
+        # The regression guard, as for the pooled path: repeats=1 must not merely agree
+        # with the old code path, it must be it.
+        plain = fast_tmle(**CANONICAL).fit(binary_frame, **COLUMNS).single()
+        explicit = fast_tmle(repeats=1, **CANONICAL).fit(binary_frame, **COLUMNS).single()
+        for name in plain.estimates:
+            assert explicit[name].psi == plain[name].psi
+            assert explicit[name].variance == plain[name].variance
+            np.testing.assert_array_equal(
+                explicit[name].influence_curve, plain[name].influence_curve
+            )
+
+    def test_the_estimate_is_the_mean_of_the_draws_canonical_estimates(
+        self, canonical: Any
+    ) -> None:
+        details = _per_draw_detail(canonical)
+        for name, estimate in canonical.estimates.items():
+            parts = [detail.canonical[name] for detail in details]
+            expected = (
+                float(np.exp(np.mean([part.log_psi for part in parts])))
+                if estimate.scale == "ratio"
+                else float(np.mean([part.psi for part in parts]))
+            )
+            assert estimate.psi == pytest.approx(expected, rel=1e-12)
+
+    def test_the_variance_is_the_mean_of_the_draws_cross_validated_ones(
+        self, canonical: Any
+    ) -> None:
+        details = _per_draw_detail(canonical)
+        for name, estimate in canonical.estimates.items():
+            expected = float(np.mean([detail.variance[name] for detail in details]))
+            # Exact rather than approximate: the reported number *is* that mean, not a
+            # quantity that happens to agree with it.
+            assert estimate.variance == expected
+
+    def test_it_is_not_the_variance_of_the_averaged_curve(self, canonical: Any) -> None:
+        # The two rules give different numbers, so "the mean of the R cross-validated
+        # variances" is a claim with content rather than a description of the default.
+        # The sign is not an accident either: a variance is a convex function of the
+        # curve, so averaging the curves cannot raise it above the mean of the parts.
+        for name, estimate in canonical.estimates.items():
+            from_curve = influence_variance(estimate.influence_curve)
+            assert estimate.variance > from_curve, name
+
+    def test_the_canonical_report_is_the_one_the_fit_headlines(self, canonical: Any) -> None:
+        detail = canonical.cv_targeting
+        assert detail.repeats == REPEATS
+        for name, estimate in canonical.estimates.items():
+            assert detail.canonical[name].psi == estimate.psi
+            assert detail.canonical[name].variance == estimate.variance
+
+    def test_the_pooled_report_is_what_cv_evaluation_false_would_have_said(
+        self, binary_frame: Any, canonical: Any
+    ) -> None:
+        settings = {**CANONICAL, "cv_evaluation": False}
+        pooled = fast_tmle(repeats=REPEATS, **settings).fit(binary_frame, **COLUMNS).single()
+        for name, estimate in pooled.estimates.items():
+            assert canonical.cv_targeting.pooled[name].psi == pytest.approx(estimate.psi, rel=1e-12)
+            assert canonical.cv_targeting.pooled[name].variance == pytest.approx(
+                estimate.variance, rel=1e-12
+            )
+
+    def test_the_two_reports_still_diverge_on_a_ratio(self, canonical: Any) -> None:
+        # The reason cv_evaluation exists at all, and it has to survive averaging: a
+        # ratio of means is not a mean of ratios, while the ATE is linear either way.
+        detail = canonical.cv_targeting
+        assert detail.canonical["ate"].psi == pytest.approx(detail.pooled["ate"].psi, rel=1e-9)
+        assert detail.canonical["rr"].psi != pytest.approx(detail.pooled["rr"].psi, rel=1e-9)
+
+    def test_the_fold_level_detail_describes_the_first_draw(self, canonical: Any) -> None:
+        # Fold 3 of one draw is not fold 3 of another, so these are the only fields with
+        # nothing to average along -- and a reader has to be able to tell which they are.
+        first = _per_draw_detail(canonical)[0]
+        assert canonical.cv_targeting.fold_epsilon == first.fold_epsilon
+        assert canonical.cv_targeting.fold_estimates == first.fold_estimates
+        assert "the fold columns describe the first" in canonical.cv_targeting.summary()
+
+    def test_the_score_equation_is_still_solved(self, canonical: Any) -> None:
+        check = score_check(canonical)
+        assert check.passed, check.summary()
+
+    def test_the_summary_names_the_estimator_and_the_variance_rule(self, canonical: Any) -> None:
+        summary = canonical.summary()
+        assert "canonical CV-TMLE" in summary
+        assert "independent draws" in summary
+        assert "mean of the draws' cross-validated variances" in summary
+
+
+class TestTheRejectedVarianceRule:
+    """Why the averaged curve gets no cross-validated variance of its own.
+
+    Not merely that the partition would be an arbitrary pick among the ``R``: with equal
+    fold sizes the partition makes no difference at all, so the number would be the pooled
+    uncentred second moment wearing a cross-validated name.  On arrays, where it is
+    arithmetic.
+    """
+
+    def test_equal_folds_make_the_partition_carry_no_information(self) -> None:
+        curve = np.random.default_rng(0).normal(size=60)
+        pooled = float(np.mean(curve**2)) / curve.size
+        for seed in range(4):
+            order = np.random.default_rng(seed).permutation(curve.size)
+            partition = [order[start::4] for start in range(4)]
+            assert {index.size for index in partition} == {15}
+            assert cross_validated_variance(curve, partition) == pytest.approx(pooled, rel=1e-12)
+
+
+class TestEveryStageOfTheSplitIsRedrawn:
+    """A draw redraws the nested cross-validation too, not only the outer folds.
+
+    Averaging over one stage of a randomised procedure while pinning the rest would leave
+    every draw scoring its Super Learner candidates -- and, for C-TMLE, choosing where to
+    stop -- against one fixed partition.
+    """
+
+    @staticmethod
+    def _seeds_seen(where: str, name: str, monkeypatch: Any, key: str) -> list[Any]:
+        # import_module rather than ``from cleverly.estimators import tmle``: the package
+        # re-exports the *function* of that name, which shadows the module.
+        module = import_module(where)
+        seen: list[Any] = []
+        original = getattr(module, name)
+
+        def spy(*args: Any, **kwargs: Any) -> Any:
+            seen.append(kwargs.get(key))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(module, name, spy)
+        return seen
+
+    def test_every_draw_resolves_its_learners_at_its_own_seed(
+        self, frame: Any, monkeypatch: Any
+    ) -> None:
+        seen = self._seeds_seen(
+            "cleverly.estimators.tmle", "resolve_learner", monkeypatch, "random_state"
+        )
+        estimator = fast_tmle(repeats=REPEATS, estimands=["ate"])
+        result = estimator.fit(frame, **COLUMNS).single()
+        assert set(seen) == set(estimator.crossfit_plan(result.data).seeds())
+        assert len(set(seen)) == REPEATS
+
+    def test_an_ordinary_fit_still_uses_the_estimators_own_random_state(
+        self, frame: Any, monkeypatch: Any
+    ) -> None:
+        seen = self._seeds_seen(
+            "cleverly.estimators.tmle", "resolve_learner", monkeypatch, "random_state"
+        )
+        fast_tmle(estimands=["ate"]).fit(frame, **COLUMNS)
+        assert set(seen) == {FAST_KWARGS["random_state"]}
+
+    def test_the_ctmle_selection_folds_follow_the_draw(self, frame: Any, monkeypatch: Any) -> None:
+        from cleverly import CTMLE
+
+        seen = self._seeds_seen(
+            "cleverly.estimators.ctmle", "make_folds", monkeypatch, "random_state"
+        )
+        estimator = CTMLE(**{**FAST_KWARGS, "repeats": 2, "estimands": ["ate"]})
+        result = estimator.fit(frame, **COLUMNS).single()
+        assert set(seen) == set(estimator.crossfit_plan(result.data).seeds())
+
+
+class TestTheSpreadAcrossDraws:
+    """``repeat_spread`` -- how far the fold assignment moved the answer."""
+
+    def test_it_is_the_standard_deviation_of_the_draws(self, repeated: Any) -> None:
+        spread = repeated.repeat_spread()
+        assert set(spread) == set(repeated.estimates)
+        for name, value in spread.items():
+            per_draw = [repeat.psi[name] for repeat in repeated.repeats]
+            assert value == pytest.approx(float(np.std(per_draw, ddof=1)))
+        # And the draws it is the spread of are the ones the report is the mean of.
+        assert repeated.psi("ate") == pytest.approx(
+            float(np.mean([repeat.psi["ate"] for repeat in repeated.repeats]))
+        )
+
+    def test_one_draw_has_no_spread_to_report(self, once: Any) -> None:
+        with pytest.raises(ValueError, match="moved between draws"):
+            once.repeat_spread()
+
+    def test_the_summary_shows_it_beside_the_standard_error(self, repeated: Any, once: Any) -> None:
+        assert "split noise" in repeated.summary()
+        assert "of std_err" in repeated.summary()
+        assert "split noise" not in once.summary()
+
+    def test_it_survives_the_round_trip(self, repeated: Any) -> None:
+        reloaded = result_from_dict(*result_to_dict(repeated))
+        assert reloaded.repeat_spread() == repeated.repeat_spread()
+
+
 class TestWhatTheResultExposes:
     def test_nuisance_and_fluctuations_read_through_to_the_first_draw(self, repeated: Any) -> None:
         assert repeated.nuisance is repeated.repeats[0].nuisance
@@ -274,16 +521,16 @@ class TestRefusedCombinations:
         with pytest.raises(ValueError, match="no split to draw"):
             fast_tmle(repeats=3, cross_fit=False)
 
-    def test_repeats_and_cv_evaluation_name_the_fold_partition(self) -> None:
-        with pytest.raises(ValueError, match="defined by a fold partition"):
-            fast_tmle(repeats=3, targeting_scheme="fold", cv_evaluation=True)
-
     def test_fold_targeting_without_cv_evaluation_is_allowed(self, frame: Any) -> None:
-        # Only the cross-validated *variance* is incompatible; fold-wise targeting is
-        # just a different fluctuation and repeats fine.
         result = fast_tmle(repeats=2, targeting_scheme="fold").fit(frame, **COLUMNS).single()
         assert result.n_repeats == 2
         assert np.isfinite(result["ate"].std_error)
+
+    def test_cv_evaluation_still_needs_a_fold_fit_to_evaluate(self) -> None:
+        # Unchanged by repeats: fold-wise evaluation needs fold-wise targeting whether
+        # there is one draw or twenty.
+        with pytest.raises(ValueError, match="needs a fold-specific fit"):
+            fast_tmle(repeats=3, cv_evaluation=True)
 
 
 class TestTheSensitivityLayerFollowsTheDraws:
