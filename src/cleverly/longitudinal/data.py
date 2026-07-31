@@ -804,6 +804,26 @@ class LongitudinalData:
         names = self.history_names(time)
         return self.frame_like({name: matrix[:, index] for index, name in enumerate(names)})
 
+    def baseline_frame(self) -> Any:
+        """``[W]`` and nothing else, in the backend the data came from.
+
+        What a working model's design is handed
+        (:mod:`cleverly.longitudinal.msm`).  :math:`V` is a subset of the *baseline*
+        covariates by the estimand's own statement: :math:`m(\\bar a, V; \\beta)`
+        summarises :math:`E[Y^{\\bar a} \\mid V]`, and a design reading :math:`L_t` would
+        not be a model for that -- it would be conditioning on a consequence of
+        :math:`\\bar a_1`, which is a different parameter with a different
+        identification.  Enforced by what the frame contains rather than by a check,
+        exactly as :meth:`history_frame` enforces what a rule may read.
+
+        The columns are :attr:`baseline_names` and not the ``baseline=`` list the caller
+        passed: validation may have dropped a column, and a design written against the
+        names a fit *reports* is the one that keeps working.
+        """
+        return self.frame_like(
+            {name: self.baseline[:, index] for index, name in enumerate(self.baseline_names)}
+        )
+
     def history_design(
         self,
         time: int,

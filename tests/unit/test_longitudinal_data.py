@@ -100,6 +100,21 @@ class TestWhatARuleIsHandedAndWhatItMayReturn:
         assert data.history_names(1) == ("W1",)
         assert data.history_names(2) == ("W1", "L2")
 
+    def test_the_baseline_frame_is_the_baseline_and_nothing_else(self) -> None:
+        """What a working model's design is handed, and why it stops at ``W``.
+
+        ``m(a-bar, V; beta)`` summarises ``E[Y^a-bar | V]``, so ``V`` has to be
+        pre-treatment: a design reading ``L2`` would be conditioning on a consequence of
+        the first node's arm, which is a different parameter. Kept out by omission rather
+        than by a check, exactly as ``history_frame`` keeps the treatment out.
+        """
+        data = build(panel())
+        frame = data.baseline_frame()
+        assert tuple(frame.columns) == data.baseline_names == ("W1",)
+        assert "L2" not in frame.columns
+        assert "A1" not in frame.columns and "Y" not in frame.columns
+        np.testing.assert_array_equal(np.asarray(frame["W1"]), data.baseline[:, 0])
+
     def test_a_rule_sees_the_history_and_nothing_else(self) -> None:
         """No outcome and no observed treatment, enforced by what the frame contains.
 
