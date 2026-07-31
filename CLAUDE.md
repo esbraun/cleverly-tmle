@@ -185,6 +185,27 @@ load-balancing the tail, not contending for cores.
   `TargetContext.finish_unscaled`, not `finish`. And a *saturated* working model must
   reproduce the per-arm report exactly; `tests/unit/test_msm_submodel.py` and
   `tests/e2e/test_msm.py` are what enforce that, at the covariate and at the estimate.
+  **A link is a third thing to get wrong, three times over.** `link="log"` and `"logit"` put
+  the linear predictor inside a mean function, and `msm.solve_projection` is the *one* solver
+  for the resulting normal equations — its identity branch is the closed form written out with
+  the same two einsums, so that path stays bit for bit what it was. Three claims each have a
+  test that fails when broken, and **none of them can be seen on a saturated model**, which is
+  right under every mistake here. `M = −∂U/∂β` carries a **curvature term** `−(Q̄ − m)·d²m/dη²`
+  that vanishes only where the working model *fits* — which is what a projection does not
+  promise; the oracle's model is three coefficients against six cells for exactly this reason.
+  The alternation (`solve_with_projection`) is **not** `solve_with_mechanism`: there is no
+  joint likelihood here, so each round restarts from `Q̄⁰` rather than continuing — which makes
+  the fixed point "`Q̄*` is the fluctuation of `Q̄⁰` along `H_β̂`, and `β̂` is the projection of
+  that `Q̄*`", keeps `epsilon` one vector, and makes the identity link the case that exits after
+  one round. And a correct mechanism no longer drives the remainder to **exactly** zero: that
+  exactness was the linearity of `U` in `β` and not a stronger double robustness, so
+  `tests/unit/test_remainder_msm.py` measures a rate under a link and keeps the equality only
+  for the identity. Under `targeting_scheme="fold"` each fold solves its own `β` and the
+  covariates are stitched back by index (`fluctuation.stitch`, `restrict`'s inverse) — a pooled
+  `β` would put every row's outcome back into every other row's fluctuation, which is the one
+  coupling fold-wise targeting exists to remove. The oracle solves its own Newton in
+  `tests/discrete_law.py`, at a **fixed step count with no convergence test**, because a
+  comparison is not analytic and `gateaux` differentiates straight through the solve.
 - **A regimen is a plan over nodes, and it is not a `Target`.** `cleverly.longitudinal` is a
   separate estimator with its own container and result object, not a fifth parameter axis:
   a `Target` is indexed by an arm, a regime, a shift, a tilt or an MSM coefficient, and the
