@@ -829,7 +829,6 @@ class TestItRefusesByName:
             # through to "unexpected keyword argument".
             ("weights", "column of the data"),
             ("intermediate", "different identification"),
-            ("msm", "own weight function"),
             ("interventions", "Declare it in regimens="),
             ("shifts", "continuous dose"),
             ("incremental", "tilted mechanisms"),
@@ -853,6 +852,14 @@ class TestItRefusesByName:
     ) -> None:
         with pytest.raises(TypeError, match=expected):
             LTMLE({"always": 1}, **{keyword: 1})
+
+    def test_a_working_model_passed_to_fit_points_at_the_constructor(self) -> None:
+        """``msm`` stays a ``_REFUSED`` key now that it is supported, for the reason
+        ``weights`` and ``event`` do: it is declared somewhere, and falling through to
+        "unexpected keyword argument" would read as a misspelling."""
+        frame, _ = make_longitudinal(n=200, seed=0)
+        with pytest.raises(TypeError, match="declared where the regimens are"):
+            LTMLE({"always": 1}, **FAST).fit(frame, msm=1, **COLUMNS)
 
     def test_a_genuine_typo_still_says_so(self) -> None:
         with pytest.raises(TypeError, match="unexpected keyword argument 'oucome_learner'"):

@@ -46,16 +46,21 @@ clever covariate.
 What is refused rather than approximated is listed in the README; the short version is
 that this estimator answers for a regimen -- static or dynamic -- over a binary treatment
 at every node, for one end-of-study outcome or one absorbing event per cause, with
-monotone censoring.  A marginal structural model over regimens needs its own derivation
-and is refused by name -- the keyword is accepted and rejected with what the derivation
-would need, rather than arriving as an ``unexpected keyword argument``.  :data:`_REFUSED`
-is that table.
+monotone censoring.  Every point-treatment keyword it does not take is accepted and
+rejected with what the derivation would need, rather than arriving as an ``unexpected
+keyword argument``; :data:`_REFUSED` is that table.
+
+``msm=`` declares a **working model over the regimens** and makes the report its
+coefficients rather than a mean per plan -- the answer to the :math:`2^T` problem, and
+what the applied literature reports for a grid of dynamic rules.  It is a projection and
+not an assumption; :mod:`cleverly.longitudinal.msm` states it, and says why its
+fluctuation is pooled across the regimens where the point-treatment one is not.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -68,10 +73,12 @@ from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..learners.crossfit import Folds, make_folds, resolve_n_folds
 from ..learners.super_learner import resolve_learner
+from ..msm import MSM
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from .data import LongitudinalData
+from .msm import MSMRegimenFit, RegimenMSM, evaluate_regimen_msm, fit_regimens_msm
 from .regimen import DynamicRegimen, RegimenSpec, describe_plan, resolve_plans, resolve_regimens
 from .sequential import Mechanism, RegimenFit, fit_mechanism, fit_regimen
 
@@ -101,9 +108,15 @@ _REFUSED: dict[str, str] = {
         "of nodes that is a different parameter with a different identification, not a "
         "further column"
     ),
+    # Kept as a key rather than deleted now that a working model over regimens is
+    # supported, for the reason ``weights``, ``event`` and ``competing`` are: it is
+    # declared on the *estimator* and not where the columns are read, so falling through
+    # to "unexpected keyword argument" at ``.fit()`` would read as a misspelling rather
+    # than as a pointer to the call that takes it.
     "msm": (
-        "a working model over regimens summarises 2^T plans rather than K arms, so it "
-        "needs its own weight function h(a-bar, V) and its own projection"
+        "a working model is a setting on the estimator rather than a column of the data, "
+        "so it is declared where the regimens are: LTMLE(regimens, msm=MSM(...)). Its "
+        "design is handed (regimen_label, horizon, baseline_frame)"
     ),
     "interventions": (
         "a regime is a density over the arms at one node, and a regimen is a plan "
@@ -239,6 +252,13 @@ class LongitudinalConfig:
     #: Digesting the resolved matrix rather than the callable is what makes this possible
     #: at all: a closure has no stable fingerprint, and the arms are what the fit used.
     plan_fingerprints: tuple[tuple[str, str], ...] = ()
+    #: The working model's terms and link, ``None`` on a fit that declared none.
+    msm_terms: tuple[str, ...] | None = None
+    msm_link: str | None = None
+    #: A digest of the *evaluated* design and weights.  A design is a closure and has no
+    #: stable fingerprint; the arrays are what the fit was handed, which is the same
+    #: reasoning :attr:`plan_fingerprints` rests on.
+    msm_fingerprint: str | None = None
 
     def describe(self) -> list[str]:
         plans = ", ".join(
@@ -281,7 +301,13 @@ class LongitudinalConfig:
                 if label in dynamic:
                     lines.append(f"  assigned arms, {label}: {digest}")
         lines += [
-            f"reference: {self.reference}",
+            # A working model has no reference regimen -- what the intercept is against is
+            # whatever the design makes it -- so the working model stands where that line
+            # would, rather than beside a field that names nothing.
+            f"working model: {len(self.msm_terms)} term(s) "
+            f"{', '.join(self.msm_terms)}, link={self.msm_link}"
+            if self.msm_terms is not None
+            else f"reference: {self.reference}",
             # A single fold is not cross-fitting, and printing "1 fold(s)" reads as
             # though it were: the nuisances are then fitted on the rows they predict
             # for, which the reported variance does not account for.
@@ -327,7 +353,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     simultaneous: SimultaneousBands | None = None
     #: ``name -> (regimen, cause, horizon)`` for every reported parameter, composed when
     #: the name was built.  Empty on an end-of-study fit, which has neither index.
+    #: ``None`` on a working-model fit, whose parameters are indexed by *term*.
     parameter_index: dict[str, tuple[str, str | None, int]] | None = None
+    #: The working model this fit projected onto, ``None`` if it declared none.
+    msm: RegimenMSM | None = None
+    #: One per cause, in the order the causes are reported.
+    msm_fits: tuple[MSMRegimenFit, ...] = ()
+
+    @property
+    def has_msm(self) -> bool:
+        return self.msm is not None
 
     # ------------------------------------------------------------- mapping API
 
@@ -429,6 +464,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """
         survival = self.data.is_survival
         competing = self.data.is_competing
+        # A working model's fluctuation is pooled across the cells, so ``epsilon`` is one
+        # vector of ``p`` shared by every regimen at a node rather than a number belonging
+        # to one of them.  A single ``epsilon`` column would print the first coefficient
+        # on every regimen's row and read as though each had its own -- silently wrong
+        # rather than absent -- so the column becomes one per term, identical down the
+        # regimens at a given time by construction.
+        terms = () if self.msm is None else self.msm.terms
+        epsilon_columns = ["epsilon"] if self.msm is None else [f"epsilon[{t}]" for t in terms]
         rows: dict[str, list[Any]] = {
             "regimen": [],
             **({"cause": []} if competing else {}),
@@ -438,7 +481,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "share_assigned_1": [],
             "max_weight": [],
             "effective_n": [],
-            "epsilon": [],
+            **{column: [] for column in epsilon_columns},
             "converged": [],
         }
         # Read off the fit's own fields rather than the key it is filed under: on a
@@ -463,7 +506,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 rows["effective_n"].append(
                     float(total**2 / np.sum(weights**2)) if total > 0 else 0.0
                 )
-                rows["epsilon"].append(float(step.fluctuation.epsilon[0]))
+                for column, name in enumerate(epsilon_columns):
+                    rows[name].append(float(step.fluctuation.epsilon[column]))
                 rows["converged"].append(bool(step.fluctuation.converged))
         return self.data.frame_like(rows)
 
@@ -576,6 +620,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """
         if scale not in ("risk", "survival"):
             raise ValueError(f"scale must be 'risk' or 'survival'; got {scale!r}")
+        if self.msm is not None:
+            raise ValueError(
+                "this fit reports the coefficients of a working model, and a coefficient "
+                "has no horizon to index a curve by: the horizon is inside the design, "
+                "which is what lets a coefficient be a trend across horizons rather than "
+                "one number per horizon. S = 1 - F is not a map on a coefficient either. "
+                "result.to_frame() is the report for this fit, and "
+                "result.coefficients() the view that names what each one is"
+            )
         if not self.data.is_survival:
             raise ValueError(
                 f"this fit has one end-of-study outcome ({self.data.outcome_name!r}), so "
@@ -621,6 +674,56 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             rows["ci_upper"].append(float(high))
             rows["scale"].append(estimate.scale)
         return self.data.frame_like(rows)
+
+    def coefficients(self, scale: str = "link") -> Any:
+        """A working model's coefficients, on the link scale or exponentiated.
+
+        The same view :meth:`cleverly.estimators.base.TMLEResult.coefficients` is at one
+        time point, and it means the same things.  ``scale="link"`` reports
+        :math:`\\hat\\beta` with a Wald interval on the scale the model is linear on;
+        ``scale="ratio"`` reports :math:`e^{\\hat\\beta}` with the interval exponentiated
+        from that scale.  **What the exponential is depends on the link** -- a risk ratio
+        under ``"log"`` and an *odds* ratio under ``"logit"`` -- and the intercept is a
+        third thing again, a baseline mean or a baseline odds rather than a ratio of
+        anything, so the ``scale`` column names which each row is.  An intercept is found
+        by its column being constant one, not by its name.
+
+        Refused on an identity-link fit, where :math:`e^\\beta` of a risk difference is
+        not a quantity, and on a fit with no working model.  Nothing is re-estimated.
+        """
+        if scale not in ("link", "ratio"):
+            raise ValueError(f"scale must be 'link' or 'ratio'; got {scale!r}")
+        if self.msm is None:
+            raise ValueError(
+                "this fit has no working model, so it reports a mean per regimen rather "
+                "than coefficients; result.to_frame() is its report. Declare msm= to "
+                "project those means onto a model whose coefficients are the parameters."
+            )
+        if scale == "ratio" and self.msm.link == "identity":
+            raise ValueError(
+                "an identity-link working model's coefficients are risk differences, and "
+                "exp() of a difference is not a quantity anybody reports. Declare "
+                "link='log' for coefficients that are log risk ratios, or link='logit' "
+                "for log odds ratios, and this view exponentiates those."
+            )
+        ratio = "risk ratio" if self.msm.link == "log" else "odds ratio"
+        rows: list[dict[str, Any]] = []
+        for msm_fit in self.msm_fits:
+            for column, term in enumerate(self.msm.terms):
+                inside = term if msm_fit.cause is None else f"{term}{CAUSE_INFIX}{msm_fit.cause}"
+                estimate = self.estimates[f"msm_regimen[{inside}]"]
+                if scale == "link":
+                    rows.append(estimate.to_dict())
+                    continue
+                exponentiated = replace(
+                    estimate, psi=float(np.exp(estimate.psi)), log_psi=estimate.psi, scale="ratio"
+                )
+                row = exponentiated.to_dict()
+                row["scale"] = (
+                    "baseline" if bool(np.all(self.msm.design[:, :, column] == 1.0)) else ratio
+                )
+                rows.append(row)
+        return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
 
     def to_frame(self) -> Any:
         """One row per reported parameter, in the backend the data came from.
@@ -760,6 +863,7 @@ class LTMLE:
         *,
         reference: str | None = None,
         horizons: Sequence[int] | None = None,
+        msm: MSM | None = None,
         outcome_learner: Learner | str | Sequence[Any] | None = None,
         pseudo_learner: Learner | str | Sequence[Any] | None = None,
         treatment_learner: Learner | str | Sequence[Any] | None = None,
@@ -783,6 +887,7 @@ class LTMLE:
         self.regimens = regimens
         self.reference = reference
         self.horizons = horizons
+        self.msm = msm
         self.outcome_learner = outcome_learner
         self.pseudo_learner = pseudo_learner
         self.treatment_learner = treatment_learner
@@ -831,6 +936,22 @@ class LTMLE:
             raise ValueError(f"n_folds must be at least 1; got {self.n_folds}")
         if self.max_iter < 1:
             raise ValueError(f"max_iter must be at least 1; got {self.max_iter}")
+        if self.msm is not None and not isinstance(self.msm, MSM):
+            raise TypeError(
+                f"msm= must be a cleverly.msm.MSM; got {type(self.msm).__name__}. A "
+                "working model over regimens is declared with the same class a working "
+                "model over arms is, and its design is handed "
+                "(regimen_label, horizon, baseline_frame)"
+            )
+        if self.msm is not None and self.reference is not None:
+            raise ValueError(
+                "msm= and reference= cannot be combined. reference= names the regimen "
+                "every contrast is taken against, and a working model reports "
+                "coefficients rather than contrasts -- which regimen is the baseline is "
+                "decided by the design you gave msm=, and an intercept is whatever that "
+                "design makes it. A difference of two coefficients comes from "
+                "result.contrast()."
+            )
 
     def fit(
         self,
@@ -927,40 +1048,57 @@ class LTMLE:
         # ``None`` on a single-event or end-of-study fit, so the comprehension below is
         # one loop deeper for every fit and a second code path for none.
         causes: tuple[str | None, ...] = prepared.cause_labels or (None,)
-        fits = {
-            _fit_key(plan.label, cause, horizon, prepared.is_survival): fit_regimen(
-                prepared,
-                plan,
-                mechanism,
-                horizon=horizon,
-                cause=cause,
-                outcome_learner=resolve_learner(
-                    self.outcome_learner,
-                    task=outcome_task,  # type: ignore[arg-type]
-                    n_folds=self.learner_folds,
-                    random_state=self.random_state,
-                ),
-                pseudo_learner=resolve_learner(
-                    self.pseudo_learner,
-                    task="regression",
-                    n_folds=self.learner_folds,
-                    random_state=self.random_state,
-                    fallback=self.outcome_learner,
-                ),
-                folds=folds,
-                scaler=scaler,
-                g_bounds=bounds,
-                alpha=self.alpha,
-                max_iter=self.max_iter,
-                tol=self.tol,
-                n_jobs=self.n_jobs,
-            )
-            # Regimen-outer, then cause, then horizon, so the report reads down one
-            # curve at a time rather than across the regimens at each time.
-            for plan in plans
-            for cause in causes
-            for horizon in horizons
+        recursion = {
+            "outcome_learner": resolve_learner(
+                self.outcome_learner,
+                task=outcome_task,  # type: ignore[arg-type]
+                n_folds=self.learner_folds,
+                random_state=self.random_state,
+            ),
+            "pseudo_learner": resolve_learner(
+                self.pseudo_learner,
+                task="regression",
+                n_folds=self.learner_folds,
+                random_state=self.random_state,
+                fallback=self.outcome_learner,
+            ),
+            "folds": folds,
+            "scaler": scaler,
+            "g_bounds": bounds,
+            "alpha": self.alpha,
+            "max_iter": self.max_iter,
+            "tol": self.tol,
+            "n_jobs": self.n_jobs,
         }
+        model: RegimenMSM | None = None
+        msm_fits: tuple[MSMRegimenFit, ...] = ()
+        if self.msm is None:
+            fits = {
+                _fit_key(plan.label, cause, horizon, prepared.is_survival): fit_regimen(
+                    prepared, plan, mechanism, horizon=horizon, cause=cause, **recursion
+                )
+                # Regimen-outer, then cause, then horizon, so the report reads down one
+                # curve at a time rather than across the regimens at each time.
+                for plan in plans
+                for cause in causes
+                for horizon in horizons
+            }
+        else:
+            # One projection per cause -- a cause is a different estimand, not a further
+            # column of the design -- over a grid whose cells cross the regimens with the
+            # horizons.  The per-cell fits come back so that ``diagnostics()`` can report
+            # the leverage and risk sets, which are questions about a regimen and are the
+            # same questions whether or not a working model summarises it.
+            model = evaluate_regimen_msm(self.msm, prepared, plans, horizons)
+            msm_fits = tuple(
+                fit_regimens_msm(prepared, plans, mechanism, model, cause=cause, **recursion)
+                for cause in causes
+            )
+            fits = {
+                _fit_key(fit.regimen.label, fit.cause, fit.horizon, prepared.is_survival): fit
+                for msm_fit in msm_fits
+                for fit in msm_fit.fits
+            }
 
         config = LongitudinalConfig(
             family=prepared.family,
@@ -981,8 +1119,19 @@ class LTMLE:
             # From the matrix ``resolve_plans`` already built, so this is the assignment
             # the fit ran on rather than a second evaluation of the rules.
             plan_fingerprints=tuple((plan.label, fingerprint_array(plan.values)) for plan in plans),
+            msm_terms=None if model is None else model.terms,
+            msm_link=None if model is None else str(model.link),
+            # The evaluated arrays rather than the design, for the reason the plans are
+            # fingerprinted from their resolved matrix: a closure has no stable digest,
+            # and what the fit used is what it was handed.
+            msm_fingerprint=(
+                None if model is None else fingerprint_array(model.design, model.weights)
+            ),
         )
-        estimates, parameter_index = self._estimates(prepared, fits, scaler, reference)
+        if model is None:
+            estimates, parameter_index = self._estimates(prepared, fits, scaler, reference)
+        else:
+            estimates, parameter_index = self._msm_estimates(prepared, msm_fits), None
         return LongitudinalResult(
             estimates=estimates,
             fits=fits,
@@ -993,6 +1142,8 @@ class LTMLE:
             provenance=self._provenance(prepared, folds),
             simultaneous=self._bands(estimates, prepared),
             parameter_index=parameter_index,
+            msm=model,
+            msm_fits=msm_fits,
         )
 
     # ------------------------------------------------------------- internals
@@ -1239,6 +1390,40 @@ class LTMLE:
                 alpha=self.alpha_sig,
             )
         return estimates, index
+
+    def _msm_estimates(
+        self, data: LongitudinalData, msm_fits: Sequence[MSMRegimenFit]
+    ) -> dict[str, ParameterEstimate]:
+        """One estimate per working-model term per cause, and no contrasts.
+
+        **Not** unscaled.  ``beta`` and its curve come off the projection already on the
+        outcome's own scale, because a coefficient vector has no single
+        :class:`~cleverly.inference.Scale` to map back with -- the reason
+        :meth:`cleverly.targets.TargetContext.finish_unscaled` exists at one time point.
+        Putting them through :meth:`OutcomeScaler.unscale_level` here would apply the map
+        twice, and on a binary outcome, where the scaler is the identity, would look
+        perfectly fine while doing it.
+
+        No contrasts: a working model reports coefficients, and a difference of two of
+        them is ``result.contrast()`` rather than a row nobody asked for.
+        """
+        estimates: dict[str, ParameterEstimate] = {}
+        for msm_fit in msm_fits:
+            for column, term in enumerate(msm_fit.model.terms):
+                # Composed forward, as every other name here is: a term may contain a
+                # bracket, and a cause may contain the separator.
+                inside = term if msm_fit.cause is None else f"{term}{CAUSE_INFIX}{msm_fit.cause}"
+                name = f"msm_regimen[{inside}]"
+                estimates[name] = make_estimate(
+                    name,
+                    float(msm_fit.beta[column]),
+                    msm_fit.influence_curves[:, column],
+                    n=data.n,
+                    cluster=data.cluster,
+                    scale="level",
+                    alpha=self.alpha_sig,
+                )
+        return estimates
 
 
 def ltmle(
