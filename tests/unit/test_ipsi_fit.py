@@ -150,16 +150,6 @@ class TestTheRefusals:
                 data, outcome="Y", treatment="A"
             )
 
-    def test_a_missing_outcome_is_refused_with_what_it_would_need(self, frame) -> None:
-        rng = np.random.default_rng(1)
-        with_missing = frame.copy()
-        with_missing["D"] = rng.binomial(1, 0.9, len(frame))
-        with_missing.loc[with_missing["D"] == 0, "Y"] = np.nan
-        with pytest.raises(ValueError, match="delta= are not combined"):
-            TMLE(**FAST_KWARGS, incremental=TILTS).fit(
-                with_missing, outcome="Y", treatment="A", delta="D", covariates=["W1", "W2"]
-            )
-
     def test_ctmle_is_refused_because_each_candidate_is_a_different_parameter(self, frame) -> None:
         with pytest.raises(ValueError, match=r"different\s+parameter"):
             CTMLE(**FAST_KWARGS, incremental=TILTS).fit(frame, outcome="Y", treatment="A")
@@ -179,6 +169,84 @@ class TestTheRefusals:
     def test_the_truncation_sweep_refuses_because_it_would_move_the_estimand(self, fit) -> None:
         with pytest.raises(ValueError, match=r"\*inside\* the estimand"):
             fit.sensitivity.truncation_curve()
+
+
+class TestAMissingOutcomeIsAccepted:
+    """``delta=`` used to be refused here; what replaced the refusal is the wiring.
+
+    That the composition is *right* is ``test_influence_gateaux_ipsi_mar.py``'s business
+    and that the guarantee changes is ``test_remainder_ipsi_mar.py``'s.  What this class
+    covers is the estimator plumbing around them, and the two sensitivity reports whose
+    answers the missingness mechanism changes.
+    """
+
+    @pytest.fixture(scope="class")
+    def with_missing(self, frame):
+        rng = np.random.default_rng(1)
+        out = frame.copy()
+        # Missingness that depends on the arm, so a model fitted without `A` would differ
+        # -- the same reason tests/discrete_law_mar.py builds PI that way.
+        probability = np.where(out["A"] > 0.5, 0.75, 0.9)
+        out["D"] = rng.binomial(1, probability)
+        out.loc[out["D"] == 0, "Y"] = np.nan
+        return out
+
+    @pytest.fixture(scope="class")
+    def missing_fit(self, with_missing):
+        return (
+            TMLE(**FAST_KWARGS, incremental=TILTS)
+            .fit(with_missing, outcome="Y", treatment="A", delta="D", covariates=["W1", "W2"])
+            .single()
+        )
+
+    def test_it_reports_the_same_five_parameters(self, missing_fit) -> None:
+        assert set(missing_fit.estimates) == {
+            "ey_ipsi[natural course]",
+            "ey_ipsi[odds x2]",
+            "ey_ipsi[odds x0.5]",
+            "ate_ipsi[odds x2 vs natural course]",
+            "ate_ipsi[odds x0.5 vs natural course]",
+        }
+
+    def test_the_missingness_mechanism_is_fitted(self, missing_fit) -> None:
+        assert missing_fit.nuisance.missingness is not None
+
+    def test_both_score_equations_are_still_solved(self, missing_fit) -> None:
+        for fluctuation in missing_fit.fluctuations.values():
+            assert fluctuation.mechanism is not None
+            assert fluctuation.mechanism.relative_score < 1.0
+
+    def test_the_natural_course_is_no_longer_the_complete_case_mean(self, missing_fit) -> None:
+        """The identity that holds without ``delta=`` becomes a different one with it.
+
+        ``psi(1)`` is the MAR-identified ``E[Y]``, so averaging the recorded outcomes is
+        exactly the mistake it must not make; the exact statement of what it *is* lives in
+        ``test_influence_gateaux_ipsi_mar.py``, on a law where both sides are known.
+        """
+        outcome = np.asarray(missing_fit.data.outcome, dtype=float)
+        recorded = np.asarray(missing_fit.data.observed, dtype=bool)
+        complete_case = float(outcome[recorded].mean())
+        assert missing_fit.estimates["ey_ipsi[natural course]"].psi != pytest.approx(
+            complete_case, abs=1e-8
+        )
+
+    def test_nuisance_bound_is_accepted_where_g_bounds_is_not(self, with_missing) -> None:
+        """``pi`` is a denominator and not part of the estimand, so bounding it is allowed."""
+        TMLE(**FAST_KWARGS, incremental=TILTS, nuisance_bound=0.05).fit(
+            with_missing, outcome="Y", treatment="A", delta="D", covariates=["W1", "W2"]
+        )
+
+    def test_the_mechanism_sweep_is_allowed_but_the_propensity_sweep_is_not(
+        self, missing_fit
+    ) -> None:
+        with pytest.raises(ValueError, match=r"\*inside\* the estimand"):
+            missing_fit.sensitivity.truncation_curve()
+        curve = missing_fit.sensitivity.truncation_curve([0.01, 0.05], mechanism=True)
+        assert len(curve["bound"]) == 2 * len(missing_fit.estimates)
+
+    def test_the_mnar_tilt_refuses_and_says_which_report_to_use(self, missing_fit) -> None:
+        with pytest.raises(ValueError, match="incremental_support"):
+            missing_fit.sensitivity.missingness_tilt()
 
 
 class TestTheReferenceCanBeMoved:

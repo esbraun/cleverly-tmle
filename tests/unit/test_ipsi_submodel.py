@@ -123,6 +123,57 @@ def test_the_natural_course_covariate_is_identically_one() -> None:
     np.testing.assert_allclose(submodel.observed[:, 0], 1.0, atol=1e-15, rtol=0)
 
 
+def test_the_missingness_mechanism_divides_every_column() -> None:
+    r"""With ``delta=`` the covariate is ``q_delta(a | W) / (g(a | W) pi(a, W))``.
+
+    Unlike ``propensity`` above, this argument *is* read, and the asymmetry is the content
+    of the whole ``delta=`` path: ``g`` is inside the estimand and must not be touched,
+    while ``pi`` is an ordinary denominator that divides the outcome half exactly as it
+    does on the arm-indexed axis.
+    """
+    data = make_data()
+    tilts = make_tilts(data)
+    rng = np.random.default_rng(7)
+    # Varying with the arm, or an implementation reading pi off W alone would pass.
+    pi = rng.uniform(0.2, 0.95, (data.n, 2))
+    submodel = submodel_for(
+        "ipsi",
+        data.treatment,
+        np.full((data.n, 2), 0.5),
+        arms=data.arm_codes,
+        incremental=tilts.weights,
+        missingness=pi,
+    )
+    a = data.treatment
+    for index, item in enumerate(DELTAS):
+        d = item.delta * tilts.propensity + (1.0 - tilts.propensity)
+        at_arm = np.where(a == 1.0, pi[:, 1], pi[:, 0])
+        expected = (item.delta * a + (1.0 - a)) / (d * at_arm)
+        np.testing.assert_allclose(submodel.observed[:, index], expected, atol=1e-14, rtol=0)
+        np.testing.assert_allclose(
+            submodel.arms[1.0][:, index], item.delta / (d * pi[:, 1]), atol=1e-14, rtol=0
+        )
+        np.testing.assert_allclose(
+            submodel.arms[0.0][:, index], 1.0 / (d * pi[:, 0]), atol=1e-14, rtol=0
+        )
+
+
+def test_a_mechanism_of_ones_leaves_the_covariate_bit_for_bit_unchanged() -> None:
+    """The no-missingness path is a regression surface; ``pi = 1`` must not perturb it."""
+    data = make_data()
+    tilts = make_tilts(data)
+    with_ones = submodel_for(
+        "ipsi",
+        data.treatment,
+        np.full((data.n, 2), 0.5),
+        arms=data.arm_codes,
+        incremental=tilts.weights,
+        missingness=np.ones((data.n, 2)),
+    )
+    np.testing.assert_array_equal(with_ones.observed, build(data, tilts).observed)
+    np.testing.assert_array_equal(with_ones.arms[1.0], build(data, tilts).arms[1.0])
+
+
 def test_a_missing_covariate_names_the_builder_that_needs_it() -> None:
     data = make_data()
     with pytest.raises(ValueError, match="needs incremental="):

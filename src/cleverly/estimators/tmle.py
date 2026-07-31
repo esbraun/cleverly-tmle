@@ -516,7 +516,10 @@ class TMLE:
                 "regularising a denominator. It is also unnecessary -- the clever "
                 "covariate is delta/D at A=1 and 1/D at A=0, both between "
                 "min(delta, 1/delta) and max(delta, 1/delta) whatever g is, which is the "
-                "point of an incremental intervention. Leave g_bounds at its default."
+                "point of an incremental intervention. Leave g_bounds at its default. "
+                "(nuisance_bound= is a different matter and is accepted: with delta= the "
+                "missingness mechanism divides the covariate and is not in the estimand, "
+                "so bounding it regularises rather than retargets.)"
             )
         if self.msm is not None and (self.interventions or self.shifts or self.incremental):
             other = (
@@ -967,13 +970,19 @@ class TMLE:
         return "arm"
 
     def _check_incremental(self, data: CausalData) -> None:
-        """Refuse the nuisances an incremental fit has no derivation for.
+        """Refuse what an incremental fit has no derivation for.
 
-        Both put a further mechanism inside the outcome half of the clever covariate,
-        which is a *different* derivation rather than the same one with an extra factor
-        -- and neither has an oracle law here, so the influence curve would go unchecked.
         Refusing by name is the house rule (see CLAUDE.md); the arm-indexed estimands
-        support both and are the thing to reach for.
+        support both of these and are the thing to reach for.
+
+        ``delta=`` used to be refused here too, on the grounds that a further mechanism in
+        the outcome half of the covariate would be a different derivation and no oracle law
+        covered it.  Both halves of that were wrong.  ``tests/discrete_law_mar.py`` is such
+        a law, and taken to it the derivation *is* the same one with an extra factor:
+        :math:`\\pi(A, W)` divides the outcome-side covariate and Kennedy's mechanism term
+        is untouched, because :math:`q_\\delta` is a functional of :math:`P(A \\mid W)` and
+        both :math:`A` and :math:`W` are recorded whatever happens to :math:`Y`.  What does
+        change is the *guarantee*: see ``tests/unit/test_remainder_ipsi_mar.py``.
         """
         if not self.incremental:
             return
@@ -985,14 +994,6 @@ class TMLE:
                 "single-parameter generalisation to a multinomial mechanism -- one odds "
                 "per contrast would be a different intervention with a different "
                 "influence function."
-            )
-        if data.has_missing_outcome:
-            raise ValueError(
-                "incremental= and delta= are not combined. Missingness puts "
-                "P(Delta = 1 | A, W) in the denominator of the outcome half of the "
-                "clever covariate; the derivation is not the one implemented here and "
-                "no oracle law covers it, so the influence curve would be unchecked. "
-                "Fit the complete cases, or use an arm-indexed estimand."
             )
         if data.has_intermediate:
             raise ValueError(

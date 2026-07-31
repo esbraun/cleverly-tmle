@@ -16,8 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv tool run ruff@latest check .
-      - run: uv tool run ruff@latest format --check .
+      # Pinned, not `@latest`: a formatter release can turn this job red with no commit
+      # to blame, and it has -- 0.16 began formatting the Python blocks inside README.md.
+      # Bump it deliberately, in step with the `ruff==` pin in pyproject's `dev` extra, so
+      # that `ruff format --check .` run locally is the same check that runs here.
+      - run: uv tool run ruff@0.16.1 check .
+      - run: uv tool run ruff@0.16.1 format --check .
 
   typecheck:
     runs-on: ubuntu-latest
@@ -25,7 +29,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv python install 3.11
-      - run: uv pip install --system -e ".[all]" "mypy>=1.11"
+      # Pinned for the reason the ruff version above is: `mypy>=1.11` resolved to whatever
+      # was current, and a release that tightens a check -- or a dependency that ships
+      # better stubs -- turns this job red with no commit to blame. Bump it deliberately.
+      - run: uv pip install --system -e ".[all]" "mypy==1.19.1"
       - run: mypy src/cleverly
 
   tests:

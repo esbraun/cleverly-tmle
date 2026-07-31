@@ -45,7 +45,7 @@ where :math:`h` is the *clever covariate*.  Its form depends on the target:
 
 ``ipsi``
     One column per *tilt of the mechanism*,
-    :math:`h_r(A, W) = q_{\delta_r}(A \mid W) / g(A \mid W)`, where
+    :math:`h_r(A, W) = q_{\delta_r}(A \mid W) / (g(A \mid W)\,\pi(A, W))`, where
     :math:`q_\delta` multiplies the odds of treatment by :math:`\delta`.  Entry for entry
     this is what ``regime`` builds at the density :math:`q_\delta`, and the two are
     nonetheless separate groups: :math:`q_\delta` is a functional of :math:`P`, so the
@@ -85,6 +85,16 @@ exactly.  ``tests/unit/test_remainder_mar.py`` checks both statements at machine
 precision, and ``tests/unit/test_influence_gateaux_mar.py`` checks that the influence
 curve above is the efficient one for the observed-data model.
 
+``ipsi`` is the exception to the paragraph above, and in the strict direction.  There
+:math:`g` is inside the *estimand* rather than only in the estimating equation, so the
+remainder keeps a term in :math:`(\hat g - g_0)^2` that no :math:`\bar Q` and no
+:math:`\hat\pi` can reach, and the guarantee becomes: consistent if :math:`\hat g` is
+right **and** one of :math:`\hat\pi`, :math:`\bar Q` is.  In particular the two mechanisms
+cannot trade off against each other the way they do above -- nuisances wrong everywhere
+whose product :math:`\hat g\hat\pi` is right drive the remainder to zero for ``mean`` and
+not for ``ipsi``.  ``tests/unit/test_remainder_ipsi_mar.py`` states that as an equality and
+keeps the failed cancellation as a negative control.
+
 A controlled direct effect puts a third factor, :math:`q_z(a, W) = P(Z = z \mid A = a,
 W)`, in the same denominator, and the statement generalises the same way rather than
 gaining a third independent half: consistent if :math:`\bar Q` is right, **or** if the
@@ -93,7 +103,10 @@ by :math:`q_z\,\pi` throughout; :mod:`cleverly.estimators.direct_effect` derives
 along with the parameter and the assumptions that identify it.
 
 **Truncation.**  ``g``, :math:`\pi` and the intermediate density are all bounded away
-from zero before they enter :math:`h`.  This regularises estimation; it does not
+from zero before they enter :math:`h` -- except that on ``ipsi`` the bound on ``g`` is
+withheld, because there truncating it would move :math:`\Psi(\delta)` rather than
+regularise a denominator, and none is needed: see :func:`ipsi_submodel`.  :math:`\pi` is
+bounded there on the ordinary terms.  This regularises estimation; it does not
 redefine the target.  The plug-in is an average of targeted predictions and contains no
 mechanism at all, so no bound can move :math:`\Psi` -- what a binding bound moves is
 :math:`R_2`, by exactly the formula above evaluated at the truncated value.  The trade
@@ -548,8 +561,10 @@ def ipsi_submodel(
 
     .. math::
 
-        h_r(A, W) = \frac{q_{\delta_r}(A \mid W)}{g(A \mid W)}
-                  = \frac{\delta_r A + 1 - A}{\delta_r g(W) + 1 - g(W)}
+        h_r(A, W) = \frac{q_{\delta_r}(A \mid W)}{g(A \mid W)\,\pi(A, W)}
+                  = \frac{\delta_r A + 1 - A}{\bigl(\delta_r g(W) + 1 - g(W)\bigr)\,\pi(A, W)}
+
+    with :math:`\pi(A, W) = P(\Delta = 1 \mid A, W)`, one where no outcome is missing.
 
     Column-for-column this is what :func:`regime_submodel` would build at the density
     :math:`q_{\delta_r}`, and that is deliberate: the two estimands genuinely share a
@@ -580,19 +595,36 @@ def ipsi_submodel(
         move the estimand rather than the estimator -- :math:`g` appears in
         :math:`\Psi(\delta)` itself.  Nothing here divides by :math:`g`, so there is
         nothing for a bound to protect.
-    treated_fraction, missingness, intermediate_density, selection:
-        Accepted and ignored.  A fit that declares ``incremental=`` refuses ``delta=`` and
-        ``intermediate=`` in :meth:`~cleverly.estimators.TMLE._validate_settings`, each
-        because it would put a further mechanism inside the covariate and needs its own
-        derivation -- so these are never anything but trivial by the time they arrive.
+    missingness:
+        ``(n, K)`` of :math:`P(\Delta = 1 \mid A = \text{arms}[j], W_i)`, dividing the
+        covariate exactly as it does in :func:`mean_submodel` and :func:`regime_submodel`.
+        Unlike ``propensity`` above this one *is* a denominator to protect, and
+        ``nuisance_bound=`` protects it in the ordinary way: :math:`\pi` is not inside
+        :math:`\Psi(\delta)`, so bounding it regularises the estimator rather than moving
+        the estimand -- the exact thing bounding :math:`g` here would do.
+
+        That the composition is this and no more was not assumed.  The efficient influence
+        function of :math:`\Psi(\delta)` under missingness at random is this covariate's
+        residual term plus Kennedy's mechanism term *unchanged*, because :math:`q_\delta`
+        is a functional of :math:`P(A \mid W)` and both :math:`A` and :math:`W` are
+        recorded for every row.  ``tests/unit/test_influence_gateaux_ipsi_mar.py`` checks
+        that against a complex-step Gateaux derivative on ``tests/discrete_law_mar.py``.
+    treated_fraction, intermediate_density, selection:
+        Accepted and ignored.  A fit that declares ``incremental=`` still refuses
+        ``intermediate=`` in :meth:`~cleverly.estimators.TMLE._validate_settings`, for
+        want of a written-down parameter rather than for want of a factor -- so the last
+        two are never anything but trivial by the time they arrive.
     """
-    del propensity, treated_fraction, missingness, intermediate_density, selection
+    del propensity, treated_fraction, intermediate_density, selection
     del regimes, shifts, msm  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
 
-    weights = _tilt_weights(n, k, incremental)
+    weights = (
+        _tilt_weights(n, k, incremental)
+        / _arm_matrix(n, k, missingness, "missingness probabilities")[:, :, None]
+    )
     counterfactual = {float(arm): weights[:, j, :] for j, arm in enumerate(arms)}
     indicator = np.column_stack([(a == arm) for arm in arms]).astype(float)
     observed = np.einsum("ij,ijr->ir", indicator, weights)

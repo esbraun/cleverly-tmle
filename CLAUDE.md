@@ -157,6 +157,20 @@ load-balancing the tail, not contending for cores.
   initial cross-fitted mechanism exactly as `outcome` stays the initial regression. `ψ(δ=1)`
   equals `mean(Y)` row by row whatever the nuisances are; keep that test, it is the canary that
   catches an alternation exiting with one equation open.
+  **`delta=` is supported and `intermediate=`, multi-arm and C-TMLE are not**, and the
+  asymmetry is not caution — it is that only the first has an oracle law. `π(A,W)` divides the
+  *outcome* half of the covariate and Kennedy's `∂m/∂g` term is untouched, because `q_δ` is a
+  functional of `P(A|W)` and both `A` and `W` are recorded whatever happens to `Y`;
+  `tests/discrete_law_mar.py` carries the `ey_ipsi`/`ate_ipsi` branches and
+  `tests/unit/test_influence_gateaux_ipsi_mar.py` checks the composition against a complex-step
+  Gateaux derivative rather than arguing it. Two things change with it and both are easy to get
+  backwards. The guarantee *tightens* to "`ĝ` right **and** one of `π̂`, `Q̄` right" — the
+  `(ĝ − g₀)²` term is π-free and survives everything else — and the two mechanisms cannot trade
+  off the way they do on the arm path, since `ĝ` is in the estimand. And the `ψ(δ=1)` canary
+  above holds **absent `delta=`** only: with it, `ψ(1)` is the MAR-identified `E[Y]`, the curve
+  is `Δ/π·(Y − Q̄(A,W)) + Q̄(A,W) − ψ`, and the complete-case mean is the wrong answer.
+  Before refusing a further combination here, check whether a law in `tests/` already covers
+  it — this refusal was written on the belief that none did.
 - **A working model summarises the arms; it does not replace them.** `msm=` is a fourth
   parameter axis and the one that is *not* about what "counterfactual" means: the
   counterfactuals are still the arms and the fluctuation still updates `Qbar` at every one
@@ -199,3 +213,11 @@ ruff check . && ruff format --check .
 mypy src/cleverly
 pytest -m "not slow" -q
 ```
+
+**The ruff version is pinned exactly**, in `pyproject.toml`'s `dev` extra and in
+`.github/workflows/ci.yml`, and the two must move together. CI used to run `ruff@latest`,
+which meant a formatter release could turn the lint job red with no commit to blame — and
+did: 0.16 began formatting the Python blocks inside Markdown, so `README.md` failed there
+while a local 0.15 said everything was clean. When bumping the pin, run `ruff format .`
+over the *whole* tree rather than `src` and `tests`, because the README is now formatted
+code too, and expect hand-aligned trailing comments in its examples to be collapsed.
