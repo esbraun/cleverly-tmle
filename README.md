@@ -930,6 +930,7 @@ def treated_only(
     regimes=None,
     shifts=None,
     msm=None,
+    incremental=None,
 ):
     """One column, 1{A = 1} / g₁(W) — the Riesz representer of E[Y(1)]."""
     a = np.asarray(treatment, dtype=float).reshape(-1)

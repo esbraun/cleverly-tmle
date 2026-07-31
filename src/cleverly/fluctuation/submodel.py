@@ -43,6 +43,16 @@ where :math:`h` is the *clever covariate*.  Its form depends on the target:
     apart because the *parameters* move from the arms to the regimes -- see
     :func:`regime_submodel` for why that separation cannot be expressed by re-keying.
 
+``ipsi``
+    One column per *tilt of the mechanism*,
+    :math:`h_r(A, W) = q_{\delta_r}(A \mid W) / g(A \mid W)`, where
+    :math:`q_\delta` multiplies the odds of treatment by :math:`\delta`.  Entry for entry
+    this is what ``regime`` builds at the density :math:`q_\delta`, and the two are
+    nonetheless separate groups: :math:`q_\delta` is a functional of :math:`P`, so the
+    influence curve carries a further term and the estimator must fluctuate the mechanism
+    as well as :math:`\bar Q`.  A group is a score equation, and this one has two --
+    see :func:`ipsi_submodel` and :mod:`cleverly.fluctuation.mechanism`.
+
 Here :math:`\pi_a(W) = P(\Delta = 1 \mid A = a, W)` is the probability that the
 outcome is observed; with no missingness it is one and drops out.  Note the
 :math:`\Delta` indicator itself does *not* appear in :math:`h`: it enters by
@@ -108,6 +118,7 @@ __all__ = [
     "atc_submodel",
     "att_submodel",
     "check_arms",
+    "ipsi_submodel",
     "mean_submodel",
     "msm_submodel",
     "mtp_submodel",
@@ -324,6 +335,7 @@ def mean_submodel(
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
     msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per arm, targeting every counterfactual mean at once.
 
@@ -365,7 +377,7 @@ def mean_submodel(
         indicator multiplies only the *observed* covariate -- the counterfactual
         columns are already evaluated at ``Z = z`` by construction.
     """
-    del treated_fraction, regimes, shifts, msm  # see the parameters' docstrings
+    del treated_fraction, regimes, shifts, msm, incremental  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -430,6 +442,7 @@ def regime_submodel(
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
     msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per *regime*, targeting :math:`E[Y^{g^\star_r}]` for each.
 
@@ -462,7 +475,7 @@ def regime_submodel(
     treated_fraction:
         Accepted and ignored; see :func:`mean_submodel`.
     """
-    del treated_fraction, shifts, msm  # see the parameter's docstring
+    del treated_fraction, shifts, msm, incremental  # see the parameter's docstring
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -488,6 +501,109 @@ def regime_submodel(
         "regime",
         # No arm_columns: a column targets a regime, which is a distribution over the
         # arms rather than one of them.
+    )
+
+
+def _tilt_weights(n: int, k: int, incremental: FloatArray | None) -> FloatArray:
+    """Validate the ``(n, K, R)`` clever covariates the ``ipsi`` submodel needs.
+
+    Shape and finiteness only, on the same terms as :func:`_regime_densities`: that the
+    tilted density is normalised and that the covariate is bounded by ``delta`` are
+    properties of the *intervention*, established where it is built
+    (:meth:`cleverly.interventions.IPSISet.evaluate`).
+    """
+    if incremental is None:
+        raise ValueError(
+            "the 'ipsi' submodel needs incremental=: an (n, K, R) array of "
+            "q_delta(a | W) / g(a | W) per tilt. Build one with "
+            "cleverly.interventions.IPSISet.evaluate."
+        )
+    values = np.asarray(incremental, dtype=float)
+    if values.ndim != 3 or values.shape[:2] != (n, k):
+        raise ValueError(
+            f"incremental must have shape ({n}, {k}, R) -- rows, arms, tilts -- got {values.shape}"
+        )
+    if values.shape[2] == 0:
+        raise ValueError("incremental must contain at least one tilt")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("incremental clever covariates must be finite")
+    return values
+
+
+def ipsi_submodel(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    *,
+    arms: tuple[float, ...] = (0.0, 1.0),
+    treated_fraction: float | None = None,
+    missingness: FloatArray | None = None,
+    intermediate_density: FloatArray | None = None,
+    selection: FloatArray | None = None,
+    regimes: FloatArray | None = None,
+    shifts: FloatArray | None = None,
+    msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
+) -> Submodel:
+    r"""One column per *tilt*, targeting :math:`E[Y^{q_{\delta_r}}]` for each.
+
+    .. math::
+
+        h_r(A, W) = \frac{q_{\delta_r}(A \mid W)}{g(A \mid W)}
+                  = \frac{\delta_r A + 1 - A}{\delta_r g(W) + 1 - g(W)}
+
+    Column-for-column this is what :func:`regime_submodel` would build at the density
+    :math:`q_{\delta_r}`, and that is deliberate: the two estimands genuinely share a
+    score equation for :math:`\bar Q`.  What they do **not** share is the influence
+    curve, because :math:`q_\delta` depends on :math:`P` and a regime's does not.  The
+    group is therefore separate, which is what makes
+    :func:`~cleverly.inference.influence.ipsi_means` rather than
+    :func:`~cleverly.inference.influence.regime_means` the curve this submodel's estimates
+    are read with -- :func:`submodel_for` checks the label for exactly that reason.
+
+    **This is only half of the targeting.** Fluctuating :math:`\bar Q` along these columns
+    solves the first of two score equations; the second lives in the tangent space of the
+    treatment mechanism and is solved by
+    :func:`~cleverly.fluctuation.mechanism.fit_mechanism`, whose covariate is the blip
+    weighted by :attr:`~cleverly.interventions.IPSISet.derivative`.  See
+    :func:`~cleverly.fluctuation.mechanism.solve_ipsi` for the alternation between them.
+
+    Parameters
+    ----------
+    incremental:
+        ``(n, K, R)``: ``incremental[i, j, r]`` is
+        :math:`q_{\delta_r}(\text{arms}[j] \mid W_i) / g(\text{arms}[j] \mid W_i)`,
+        precomputed by :class:`~cleverly.interventions.IPSISet` in the form where the
+        mechanism has cancelled.
+    propensity:
+        Accepted and **ignored**, unlike in every other builder here.  ``build_submodel``
+        hands over a *truncated* mechanism, and truncating :math:`g` on this axis would
+        move the estimand rather than the estimator -- :math:`g` appears in
+        :math:`\Psi(\delta)` itself.  Nothing here divides by :math:`g`, so there is
+        nothing for a bound to protect.
+    treated_fraction, missingness, intermediate_density, selection:
+        Accepted and ignored.  A fit that declares ``incremental=`` refuses ``delta=`` and
+        ``intermediate=`` in :meth:`~cleverly.estimators.TMLE._validate_settings`, each
+        because it would put a further mechanism inside the covariate and needs its own
+        derivation -- so these are never anything but trivial by the time they arrive.
+    """
+    del propensity, treated_fraction, missingness, intermediate_density, selection
+    del regimes, shifts, msm  # see the parameters' docstrings
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    n = a.shape[0]
+    k = len(arms)
+
+    weights = _tilt_weights(n, k, incremental)
+    counterfactual = {float(arm): weights[:, j, :] for j, arm in enumerate(arms)}
+    indicator = np.column_stack([(a == arm) for arm in arms]).astype(float)
+    observed = np.einsum("ij,ijr->ir", indicator, weights)
+
+    return Submodel(
+        observed,
+        counterfactual,
+        tuple(f"h_ipsi{r}" for r in range(weights.shape[2])),
+        "ipsi",
+        # No arm_columns: a column targets a tilt, which spreads over the arms rather
+        # than naming one -- the same reason regime_submodel leaves it empty.
     )
 
 
@@ -528,6 +644,7 @@ def msm_submodel(
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
     msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per *coefficient* of a working model, targeting its projection.
 
@@ -575,7 +692,7 @@ def msm_submodel(
     treated_fraction:
         Accepted and ignored; see :func:`mean_submodel`.
     """
-    del treated_fraction, regimes, shifts  # see the parameters' docstrings
+    del treated_fraction, regimes, shifts, incremental  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -617,6 +734,7 @@ def mtp_submodel(
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
     msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
 ) -> Submodel:
     r"""One column per *shift*, targeting :math:`E[\bar Q(d_\delta(A, W), W)]` for each.
 
@@ -641,6 +759,7 @@ def mtp_submodel(
     :func:`~cleverly.inference.influence.shift_means` reads it.
     """
     del propensity, arms, treated_fraction, missingness, intermediate_density, regimes, msm
+    del incremental
     if shifts is None:
         raise ValueError(
             "the 'mtp' submodel needs shifts=: the clever covariate evaluated at the "
@@ -708,6 +827,7 @@ def att_submodel(
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
     msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
 ) -> Submodel:
     r"""One-column submodel targeting the ATT.
 
@@ -725,7 +845,7 @@ def att_submodel(
     ``g_0(W)``; it is also why ``g_bounds="auto"`` uses a more conservative bound
     for this estimand.
     """
-    del regimes, shifts, msm  # accepted and ignored; the ATT conditions on an arm
+    del regimes, shifts, msm, incremental  # accepted and ignored; the ATT conditions on an arm
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     share = _required_treated_fraction(treated_fraction, "att")
@@ -761,9 +881,10 @@ def atc_submodel(
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
     msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
 ) -> Submodel:
     """One-column submodel targeting the ATC -- the mirror image of the ATT."""
-    del regimes, shifts, msm  # accepted and ignored, as in att_submodel
+    del regimes, shifts, msm, incremental  # accepted and ignored, as in att_submodel
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     # In (0, 1) because the treated share is, which the helper has already enforced --
@@ -844,6 +965,7 @@ register_submodel("mean", mean_submodel)
 register_submodel("att", att_submodel)
 register_submodel("atc", atc_submodel)
 register_submodel("regime", regime_submodel)
+register_submodel("ipsi", ipsi_submodel)
 register_submodel("mtp", mtp_submodel)
 register_submodel("msm", msm_submodel)
 
@@ -878,6 +1000,13 @@ _SIGNATURE_ADDITIONS: dict[str, str] = {
         "A builder that targets arms, regimes or shifts should accept and ignore it, as "
         "mean_submodel does."
     ),
+    "incremental": (
+        "Every submodel builder now takes the incremental interventions' clever "
+        "covariates, because a fit's intervention may be a tilt of the estimated "
+        "mechanism rather than anything known in advance; add 'incremental=None' to its "
+        "keyword-only parameters. A builder that targets arms, regimes, shifts or a "
+        "working model should accept and ignore it, as mean_submodel does."
+    ),
 }
 
 
@@ -894,6 +1023,7 @@ def submodel_for(
     regimes: FloatArray | None = None,
     shifts: FloatArray | None = None,
     msm: FloatArray | None = None,
+    incremental: FloatArray | None = None,
 ) -> Submodel:
     """Build the clever covariate for an estimand family, by registry lookup.
 
@@ -921,6 +1051,7 @@ def submodel_for(
             regimes=regimes,
             shifts=shifts,
             msm=msm,
+            incremental=incremental,
         )
     except TypeError as error:
         # Some keywords are newer than the extension point, so a builder written against
