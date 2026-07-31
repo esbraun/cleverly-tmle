@@ -32,6 +32,7 @@ from .submodel import (
     regime_submodel,
     register_submodel,
     restrict,
+    stitch,
     submodel_for,
     weighted_form,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "solve_fluctuation",
     "solve_mechanism",
     "solve_one_step",
+    "stitch",
     "submodel_for",
     "weighted_form",
 ]

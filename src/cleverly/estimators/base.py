@@ -625,6 +625,77 @@ class TMLEResult:
             payload["intermediate"] = [self.intermediate_value] * len(rows)
         return self.data.frame_like(payload)
 
+    def coefficients(self, scale: str = "link") -> Any:
+        """A working model's coefficients, on the link scale or exponentiated.
+
+        ``scale="link"`` reports what the fit estimated: :math:`\\hat\\beta`, with a Wald
+        interval on the scale the model is linear on.  ``scale="ratio"`` reports
+        :math:`e^{\\hat\\beta}` with the interval exponentiated from that same scale, which
+        is how the applied literature reports a log- or logit-link marginal structural
+        model and the reason those links exist here.
+
+        **What the exponential means depends on the link, and the two are not
+        interchangeable.**  Under ``link="log"`` a coefficient exponentiates to a risk (or
+        rate) ratio; under ``link="logit"`` to an *odds* ratio.  Reporting one as the other
+        is a real error rather than a wording preference, so the ``scale`` column of the
+        returned frame names which it is, row by row.  The **intercept** is a third thing
+        again: :math:`e^{\\beta_0}` is a baseline mean (log) or a baseline odds (logit),
+        not a ratio of anything, and its p-value tests :math:`\\beta_0 = 0` rather than any
+        absence of effect.  It is reported rather than dropped -- it is a coefficient of
+        the declared model like the others -- and labelled ``"baseline"``.
+
+        Refused on an identity-link fit, where :math:`\\beta` is a risk difference and
+        :math:`e^\\beta` is not a quantity; and on a fit with no working model at all,
+        whose parameters are counterfactual means rather than coefficients.
+
+        Nothing is re-estimated: the interval and the p-value come from the influence
+        curve the fit already reported, read on the scale ``scale`` names.  This is a
+        *view*, in the sense :meth:`cleverly.longitudinal.LTMLEResult.curve` is one.
+        """
+        if scale not in ("link", "ratio"):
+            raise ValueError(f"scale must be 'link' or 'ratio'; got {scale!r}")
+        msm = self.nuisance.msm
+        if msm is None:
+            raise ValueError(
+                "this fit has no working model, so it reports counterfactual means rather "
+                "than coefficients; result.to_frame() is its report. Declare msm= to "
+                "project those means onto a model whose coefficients are the parameters."
+            )
+        if scale == "ratio" and msm.link == "identity":
+            raise ValueError(
+                "an identity-link working model's coefficients are risk differences, and "
+                "exp() of a difference is not a quantity anybody reports. Declare "
+                "link='log' for coefficients that are log risk ratios, or link='logit' "
+                "for log odds ratios, and this view exponentiates those."
+            )
+        # Term to reported name, composed *forward* through the same rule that named the
+        # parameters, never split back out of one: a term may legitimately contain a
+        # bracket, and a name parsed back would then be filed under a term that does not
+        # exist rather than failing.
+        from ..targets import parameter_name
+
+        ratio = "risk ratio" if msm.link == "log" else "odds ratio"
+        rows: list[dict[str, Any]] = []
+        for column, term in enumerate(msm.terms):
+            estimate = self.estimates[parameter_name("msm", arm=term)]
+            if scale == "link":
+                rows.append(estimate.to_dict())
+                continue
+            # scale="ratio" with log_psi=beta *is* the exponentiated view: psi becomes
+            # exp(beta), the interval is built on the log scale and exponentiated, and the
+            # null moves from zero to one. No arithmetic of its own -- see
+            # cleverly.inference.ParameterEstimate.ci.
+            exponentiated = replace(
+                estimate, psi=float(np.exp(estimate.psi)), log_psi=estimate.psi, scale="ratio"
+            )
+            row = exponentiated.to_dict()
+            # An intercept is found by its column being constant one at every arm, not by
+            # its name: the term names are the user's own, and "(intercept)" is a
+            # convention rather than a promise.
+            row["scale"] = "baseline" if _is_intercept(msm.design[:, :, column]) else ratio
+            rows.append(row)
+        return self.data.frame_like({key: [row[key] for row in rows] for key in rows[0]})
+
     def influence_frame(self) -> Any:
         """One column per estimand of per-observation influence-curve values."""
         return self.data.frame_like(
@@ -844,6 +915,11 @@ def _level_order(value: float | None) -> tuple[int, float]:
     nowhere.
     """
     return (0, 0.0) if value is None else (1, float(value))
+
+
+def _is_intercept(column: FloatArray) -> bool:
+    """Whether a design column is the constant one at every arm and every row."""
+    return bool(np.all(np.asarray(column, dtype=float) == 1.0))
 
 
 def _arm_shares(data: CausalData) -> str:

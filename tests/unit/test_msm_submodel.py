@@ -67,6 +67,33 @@ def test_a_saturated_working_model_is_the_mean_submodel_on_three_arms() -> None:
         assert np.array_equal(msm.arms[arm], mean.arms[arm])
 
 
+def test_a_link_scales_each_arm_s_column_by_dm_deta(setup) -> None:
+    """The whole of what a link does to the covariate, at the one place it enters.
+
+    ``msm_submodel`` is not told about links at all: it divides the ``(n, K, p)`` array it
+    is handed by the mechanism, and a link changes that array from ``h * phi`` to
+    ``h * (dm/deta) * phi``. So the saturated case above generalises exactly -- one
+    indicator per arm under a logit is ``mean``'s covariate with arm ``a``'s column scaled
+    by ``m_a (1 - m_a)`` -- and the covariate builder needs no branch to make it true.
+    """
+    from cleverly.msm import MSMSet
+
+    a, g = setup
+    n = a.shape[0]
+    beta = np.array([-0.3, 0.8])
+    model = MSMSet(("arm0", "arm1"), saturated(n, 2), np.ones((n, 2)), (0.0, 1.0), "logit")
+    fitted = model.fitted(beta)
+
+    slope = fitted * (1.0 - fitted)  # dm/deta for the logit, at the fitted mean
+
+    mean = mean_submodel(a, g)
+    msm = msm_submodel(a, g, msm=model.weighted_design_at(beta))
+    for column, arm in enumerate((0.0, 1.0)):
+        np.testing.assert_allclose(
+            msm.arms[arm][:, column], mean.arms[arm][:, column] * slope[:, column]
+        )
+
+
 # --------------------------------------------------------------- the covariate
 
 

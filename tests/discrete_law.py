@@ -151,6 +151,34 @@ MSM_TERMS: tuple[str, ...] = ("(intercept)", "a", "W")
 MSM_DESIGN = np.array([[[1.0, float(a), float(w)] for a in range(2)] for w in range(3)])
 MSM_WEIGHTS = np.array([[1.0 + 0.5 * a + 0.25 * w for a in range(2)] for w in range(3)])
 
+#: The links the ``msm`` estimand is checked under, and their mean functions written out
+#: *here* rather than imported.  The whole point of an oracle is that it shares no code
+#: with what it checks, and ``dm/deta`` is the factor a linked clever covariate carries --
+#: so taking it from :mod:`cleverly.msm` would be checking that module against itself.
+#:
+#: ``expit`` is spelled ``1 / (1 + exp(-eta))`` because :func:`gateaux` evaluates this at a
+#: *complex* argument, and ``scipy.special.expit`` is real-only.  Everything below is
+#: arithmetic and :func:`numpy.exp`, which is what keeps the whole functional analytic.
+MSM_LINKS: dict[str, Any] = {
+    "identity": (lambda eta: eta, lambda m: np.ones_like(m), lambda m: np.zeros_like(m)),
+    "log": (np.exp, lambda m: m, lambda m: m),
+    "logit": (
+        lambda eta: 1.0 / (1.0 + np.exp(-eta)),
+        lambda m: m * (1.0 - m),
+        lambda m: m * (1.0 - m) * (1.0 - 2.0 * m),
+    ),
+}
+
+#: Newton steps taken to solve a linked working model's normal equations, run **without a
+#: convergence test** -- a comparison against a tolerance is not analytic, and a functional
+#: that branched on one could not be differentiated by a complex step.
+#:
+#: A fixed count is not a compromise here.  Newton converges quadratically in the value and
+#: the derivative alike, so past the point where the real part stops moving the imaginary
+#: part is exact too; ``TestTheNewtonSolveHasConverged`` doubles this and checks nothing
+#: moves, which is the statement that matters rather than the number itself.
+MSM_NEWTON_STEPS = 40
+
 
 def functional(probs: Any, estimand: str) -> Any:
     r"""The target parameter as a closed-form function of the cell probabilities.
@@ -225,6 +253,33 @@ def functional(probs: Any, estimand: str) -> Any:
         beta = np.linalg.solve(gram, moment)
         return beta[MSM_TERMS.index(estimand[len("msm[") : -1])]
 
+    # The same projection through a link, where the normal equations are no longer linear
+    # in beta:
+    #
+    #   U(beta) = sum_w P(w) sum_a h phi (dm/deta) (E[Y | a, w] - m(a, w; beta)) = 0
+    #
+    # solved by Newton with the exact Jacobian. The Jacobian carries the curvature term
+    # -(Qbar - m) d2m/deta2, which vanishes only where the model fits -- and this one is
+    # three coefficients against six cells, so it does not.
+    for name, (inverse, slope, curvature) in MSM_LINKS.items():
+        if name == "identity" or not estimand.startswith(f"msm_{name}["):
+            continue
+        beta = np.zeros(len(MSM_TERMS), dtype=p.dtype)
+        for _ in range(MSM_NEWTON_STEPS):
+            m = inverse(np.einsum("wap,p->wa", MSM_DESIGN, beta))
+            residual = q - m
+            first, second = slope(m), curvature(m)
+            score = np.einsum("wap,wa,w->p", MSM_DESIGN, MSM_WEIGHTS * first * residual, p_w)
+            jacobian = np.einsum(
+                "wap,waq,wa,w->pq",
+                MSM_DESIGN,
+                MSM_DESIGN,
+                MSM_WEIGHTS * (first**2 - residual * second),
+                p_w,
+            )
+            beta = beta + np.linalg.solve(jacobian, score)
+        return beta[MSM_TERMS.index(estimand[len(f"msm_{name}[") : -1])]
+
     raise ValueError(f"unknown estimand {estimand!r}")
 
 
@@ -244,8 +299,23 @@ PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
         for label in REGIMES
         if label != REGIME_REFERENCE
     ),
-    "msm": tuple(f"msm[{term}]" for term in MSM_TERMS),
+    # One family per link.  The *estimator* reports every one of them as ``msm[term]`` --
+    # a fit declares one link and its coefficients are its coefficients -- so the oracle
+    # names them apart, since a law's truths are one dict and three families of three
+    # would collide under one name. ``tests/unit/test_influence_gateaux_msm.py`` maps
+    # between the two, and the coverage gate in ``test_registry.py`` walks these.
+    "msm": tuple(
+        f"msm[{term}]" if link == "identity" else f"msm_{link}[{term}]"
+        for link in MSM_LINKS
+        for term in MSM_TERMS
+    ),
 }
+
+
+def msm_names(link: str) -> tuple[str, ...]:
+    """This law's names for a working model's coefficients under ``link``."""
+    stem = "msm" if link == "identity" else f"msm_{link}"
+    return tuple(f"{stem}[{term}]" for term in MSM_TERMS)
 
 
 def oracle_names(target: str) -> tuple[str, ...]:
