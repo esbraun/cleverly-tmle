@@ -45,7 +45,14 @@ __all__ = ["TargetingSpec", "build_submodel", "solve_submodel", "solve_with_mech
 
 #: A round that leaves the mechanism score above this share of the previous round's has
 #: reached the fixed point of the alternation; further rounds move nothing.
-_STALL_FACTOR = 0.5
+#:
+#: Deliberately close to one.  The alternation converges *linearly*, at a rate set by how
+#: strongly the two nuisances are coupled, and that rate is not always fast: measured here
+#: at 0.15 per round on a well-conditioned fit and 0.52 on one whose tilts are collinear
+#: enough to make the mechanism solve ill-conditioned. A threshold that treated 0.52 as a
+#: stall would stop a loop that was halving its score every round and had another twelve
+#: rounds of progress in it -- which it did, and which the score check caught.
+_STALL_FACTOR = 0.95
 
 #: A relative mechanism score above this is genuinely unsolved and is reported as a
 #: failure.  Well clear of the fixed point the alternation settles at in practice
@@ -177,7 +184,7 @@ def solve_with_mechanism(
     scaled: FloatArray,
     weights: FloatArray,
     observed: BoolArray,
-    max_outer: int = 20,
+    max_outer: int = 50,
     warn: bool = True,
 ) -> tuple[Submodel, Fluctuation, NuisanceEstimates]:
     r"""Target ``Qbar`` and the treatment mechanism together, alternating until both settle.

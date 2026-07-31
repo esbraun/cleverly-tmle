@@ -977,6 +977,15 @@ class TMLE:
         """
         if not self.incremental:
             return
+        if data.n_arms != 2:
+            raise DataError(
+                f"an incremental propensity-score intervention tilts the *odds* of "
+                f"treatment, which names two arms; {data.treatment_name} has "
+                f"{data.n_arms} ({list(data.treatment_levels)}). Kennedy's tilt has no "
+                "single-parameter generalisation to a multinomial mechanism -- one odds "
+                "per contrast would be a different intervention with a different "
+                "influence function."
+            )
         if data.has_missing_outcome:
             raise ValueError(
                 "incremental= and delta= are not combined. Missingness puts "
@@ -1048,6 +1057,9 @@ class TMLE:
         if self.shifts:
             # Resolved from the shift *names*, for the reason the regime branch gives.
             return self._reference_shift()
+        if self.incremental:
+            # Resolved from the tilt *names*, for the reason the regime branch gives.
+            return self._reference_incremental()
         if self.interventions:
             # Resolved from the regime *names* rather than from an evaluated RegimeSet,
             # so the config -- built before any nuisance is fitted -- can record it, and
