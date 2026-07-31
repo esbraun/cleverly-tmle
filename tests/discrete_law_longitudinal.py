@@ -208,6 +208,163 @@ def _mass(probs: Any, **pattern: int) -> Any:
     return sum(probs[position] for position in _index(**pattern))
 
 
+#: How long each regimen treats for, as a constant of the *plan*.
+#:
+#: Declared here rather than computed from anything, for the reason :func:`_arm` selects
+#: an arm by cell index: the design has to be fixed before the complex perturbation
+#: reaches ``probs``, or :func:`functional` stops being analytic.  Two of the six share a
+#: value, which is deliberate -- a design that separated every regimen would be saturated
+#: however few its terms.
+REGIMEN_INTENSITY: dict[str, float] = {
+    "never": 0.0,
+    "always": 2.0,
+    "early": 1.0,
+    "always_rule": 2.0,
+    "treat_if_l2": 0.5,
+    "respond": 1.0,
+}
+
+#: Terms of the working model the coefficients below belong to.
+MSM_REGIMEN_TERMS = ("(intercept)", "intensity", "W")
+
+#: :math:`\varphi(c, W = w)` as ``(2, R, 3)`` and :math:`h(c, w)` as ``(2, R)``, built
+#: outside :func:`functional` so that no integer index or comparison sits inside a
+#: function that must stay analytic.
+#:
+#: **Deliberately not saturated**: three coefficients against twelve ``(w, regimen)``
+#: cells, so :math:`\beta` really is a projection and code that dropped :math:`M^{-1}`,
+#: or that reported some regimen's mean under a coefficient's name, cannot pass.  A
+#: saturated design agrees with the means whatever the projection code does.
+#:
+#: **Deliberately non-uniform** ``h``: with :math:`h \equiv 1` the design can go
+#: orthogonal across the cells and a coefficient collapse into something the per-regimen
+#: report already gives.  ``test_influence_gateaux_longitudinal_msm`` asserts on this
+#: law that the two weightings give different answers, so the choice is shown to be
+#: load-bearing rather than asserted to be.
+MSM_REGIMEN_DESIGN = np.array(
+    [[[1.0, REGIMEN_INTENSITY[label], float(w)] for label in REGIMEN_ARMS] for w in range(2)]
+)
+MSM_REGIMEN_WEIGHTS = np.array(
+    [[1.0 + 0.5 * REGIMEN_INTENSITY[label] + 0.25 * w for label in REGIMEN_ARMS] for w in range(2)]
+)
+
+#: A second, **saturated** design: one indicator per regimen, uniform weights.  Its
+#: coefficients must be the six ``ey_regimen`` truths exactly, which is what says a
+#: working model summarises the regimens rather than replacing them.
+MSM_SATURATED_TERMS = tuple(REGIMEN_ARMS)
+MSM_SATURATED_DESIGN = np.array(
+    [[list(row) for row in np.eye(len(REGIMEN_ARMS))] for _ in range(2)]
+)
+MSM_SATURATED_WEIGHTS = np.ones((2, len(REGIMEN_ARMS)))
+
+#: ``(inverse, dm/deta, d2m/deta2)`` per link, as functions of the *mean*.  Written
+#: longhand rather than imported, as ``tests/discrete_law.py`` writes them: ``expit`` is
+#: spelled out because the argument here is complex and ``scipy.special.expit`` is not.
+MSM_LINKS: dict[str, tuple[Any, Any, Any]] = {
+    "identity": (lambda eta: eta, lambda m: np.ones_like(m), lambda m: np.zeros_like(m)),
+    "log": (np.exp, lambda m: m, lambda m: m),
+    "logit": (
+        lambda eta: 1.0 / (1.0 + np.exp(-eta)),
+        lambda m: m * (1.0 - m),
+        lambda m: m * (1.0 - m) * (1.0 - 2.0 * m),
+    ),
+}
+
+#: Newton steps taken to solve a linked working model's normal equations, run **without a
+#: convergence test** -- a comparison against a tolerance is not analytic, and a functional
+#: that branched on one could not be differentiated by a complex step at all.  Newton
+#: converges quadratically in the value and in the derivative alike, so past the point
+#: where the real part stops moving the imaginary part is exact too; a test doubles this
+#: and checks that neither moves.  The same constant, and the same reasoning, as
+#: ``tests/discrete_law.MSM_NEWTON_STEPS``.
+MSM_NEWTON_STEPS = 40
+
+
+def _conditional_mean(probs: Any, label: str, w: int) -> Any:
+    r""":math:`E[Y^{\bar a} \mid W = w]` for one regimen.
+
+    Written out separately rather than factored out of :func:`functional`'s
+    ``ey_regimen`` branch, and deliberately: two representations of one formula is the
+    house style here -- :data:`REGIMEN_ARMS` against :data:`REGIMEN_SPEC` -- because a
+    shared inner loop lets a slip cancel against itself on both sides of a comparison.
+    """
+    node1, node2 = REGIMEN_ARMS[label]
+    a1 = _arm(node1, w)
+    reached = _mass(probs, w=w, a1=a1, c1=1)
+    mean = 0.0
+    for l2 in (0, 1):
+        a2 = _arm(node2, w, l2)
+        density = _mass(probs, w=w, a1=a1, c1=1, l2=l2) / reached
+        uncensored = _mass(probs, w=w, a1=a1, c1=1, l2=l2, a2=a2, c2=1)
+        events = _mass(probs, w=w, a1=a1, c1=1, l2=l2, a2=a2, c2=1, y=1)
+        mean = mean + density * (events / uncensored)
+    return mean
+
+
+def msm_coefficients(
+    probs: Any,
+    *,
+    design: Any = MSM_REGIMEN_DESIGN,
+    weights: Any = MSM_REGIMEN_WEIGHTS,
+    link: str = "identity",
+    steps: int | None = None,
+) -> Any:
+    r"""The working model's coefficient vector: the :math:`h`-weighted projection.
+
+    :math:`\beta` minimises
+    :math:`\sum_w P(w) \sum_c h(c, w)\,(E[Y^c \mid w] - m(c, w; \beta))^2`, which under
+    the identity link is two einsums and a solve and under a link is Newton's method on
+    the same normal equations.
+
+    ``np.linalg.solve`` on complex input is what lets the complex step differentiate
+    *through* the solve -- including through ``p_w``, which is where :math:`M`'s own
+    contribution to the influence curve comes from.  Code treating :math:`M` as a
+    constant fails on exactly that term.
+    """
+    p = probs
+    total = _mass(p)
+    p_w = np.array([_mass(p, w=0) / total, _mass(p, w=1) / total])
+    q = np.array(
+        [[_conditional_mean(p, label, w) for label in REGIMEN_ARMS] for w in range(2)],
+        dtype=p_w.dtype,
+    )
+    inverse, slope, curvature = MSM_LINKS[link]
+    if link == "identity":
+        gram = np.einsum("wcp,wcq,wc,w->pq", design, design, weights, p_w)
+        moment = np.einsum("wcp,wc,wc,w->p", design, weights, q, p_w)
+        return np.linalg.solve(gram, moment)
+    beta = np.zeros(design.shape[2], dtype=p_w.dtype)
+    for _ in range(MSM_NEWTON_STEPS if steps is None else steps):
+        m = inverse(np.einsum("wcp,p->wc", design, beta))
+        residual = q - m
+        first, second = slope(m), curvature(m)
+        score = np.einsum("wcp,wc,w->p", design, weights * first * residual, p_w)
+        jacobian = np.einsum(
+            "wcp,wcq,wc,w->pq", design, design, weights * (first**2 - residual * second), p_w
+        )
+        beta = beta + np.linalg.solve(jacobian, score)
+    return beta
+
+
+#: ``family -> (design, weights, terms)``.  The families are named apart in the *oracle*
+#: only: a fit reports every one of them as ``msm_regimen[<term>]``, since which design
+#: and which link it declared is a statement it made rather than part of the name.  The
+#: estimator side of each is built in the test module, from these very arrays.
+_MSM_FAMILIES: dict[str, tuple[Any, Any, tuple[str, ...]]] = {
+    "identity": (MSM_REGIMEN_DESIGN, MSM_REGIMEN_WEIGHTS, MSM_REGIMEN_TERMS),
+    "log": (MSM_REGIMEN_DESIGN, MSM_REGIMEN_WEIGHTS, MSM_REGIMEN_TERMS),
+    "logit": (MSM_REGIMEN_DESIGN, MSM_REGIMEN_WEIGHTS, MSM_REGIMEN_TERMS),
+    "saturated": (MSM_SATURATED_DESIGN, MSM_SATURATED_WEIGHTS, MSM_SATURATED_TERMS),
+}
+
+
+def msm_names(family: str) -> tuple[str, ...]:
+    """The oracle's names for one working-model family, in report order."""
+    terms = _MSM_FAMILIES[family][2]
+    head = "msm_regimen[" if family == "identity" else f"msm_regimen_{family}["
+    return tuple(f"{head}{term}]" for term in terms)
+
+
 def functional(probs: Any, estimand: str) -> Any:
     r"""The target parameter as a closed-form function of the cell probabilities.
 
@@ -234,6 +391,12 @@ def functional(probs: Any, estimand: str) -> Any:
     if estimand.startswith("ate_regimen["):
         left, right = estimand[len("ate_regimen[") : -1].split(" vs ")
         return functional(p, f"ey_regimen[{left}]") - functional(p, f"ey_regimen[{right}]")
+    for name, (design, weights, terms) in _MSM_FAMILIES.items():
+        head = "msm_regimen[" if name == "identity" else f"msm_regimen_{name}["
+        if estimand.startswith(head):
+            column = terms.index(estimand[len(head) : -1])
+            link = "identity" if name in ("identity", "saturated") else name
+            return msm_coefficients(p, design=design, weights=weights, link=link)[column]
     if not estimand.startswith("ey_regimen["):
         raise ValueError(f"unknown estimand {estimand!r}")
 
@@ -262,6 +425,17 @@ NAMES: tuple[str, ...] = tuple(f"ey_regimen[{label}]" for label in REGIMEN_ARMS)
 
 #: Population values of every reported parameter.
 TRUTH = {name: float(functional(PROBS, name)) for name in NAMES}
+
+#: The working-model parameter names, per family.  Kept **apart** from :data:`NAMES`:
+#: the gate in ``test_influence_gateaux_longitudinal`` asserts that a fit with no ``msm=``
+#: reports exactly ``NAMES``, and a working model replaces that report rather than adding
+#: to it.
+MSM_NAMES: dict[str, tuple[str, ...]] = {family: msm_names(family) for family in _MSM_FAMILIES}
+
+#: Population values of every working-model coefficient, per family.
+MSM_TRUTH: dict[str, float] = {
+    name: float(functional(PROBS, name)) for names in MSM_NAMES.values() for name in names
+}
 
 
 def gateaux(estimand: str, point: int, *, step: float = 1e-30) -> float:

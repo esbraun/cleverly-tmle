@@ -339,3 +339,130 @@ class TestConventions:
         tilted = float(law.weighted_functional(law.PROBS, name, cells))
         assert keep.sum() < law.N
         assert abs(tilted - law.TRUTH[name]) > 1e-3
+
+
+#: Window on the tilted projection, set from measurement.
+#:
+#: Looser than the ``1e-12`` this module uses on a regimen mean, and for an arithmetic
+#: reason rather than a statistical one: the projection's Gram matrix is a sum over all
+#: ``N = 8192`` rows carrying non-uniform weights, while the oracle evaluates the same
+#: quantity in closed form over two ``W`` cells. The two agree to about ``1.5e-12`` on the
+#: coefficient, and the curve inherits exactly that shift -- its mean under ``P`` equals
+#: the point estimate's gap, which is what says the discrepancy is the summation and not
+#: the derivation. An unweighted fit has no such gap at all, since every row weight is
+#: exactly one and the two sums land on the same floats. Measured ``1.4e-11``; the tilt
+#: itself moves these coefficients by more than ``1e-3``.
+TILTED_TOLERANCE = 1e-10
+
+
+class TestAWorkingModelUnderTheSameTilt:
+    """``h(a-bar, V)`` and the observation weights multiply different things.
+
+    ``h`` says how the *cells* are traded off inside the projection; ``w`` tilts the
+    population the projection is taken over. Both appear in the coefficient's influence
+    curve and they are not interchangeable -- folding ``w`` into ``h`` would reweight the
+    least-squares problem instead of the law, which is a different parameter. The oracle
+    settles it: ``functional`` applied to the *tilted* cell probabilities is the projection
+    under ``P_w``, and nothing in that derivation knows what a clever covariate is.
+    """
+
+    @staticmethod
+    def _declared() -> Any:
+        design, weights, terms = law._MSM_FAMILIES["identity"]
+        labels = tuple(law.REGIMEN_ARMS)
+
+        def build(label: Any, horizon: int, frame: Any) -> np.ndarray:
+            del horizon
+            return design[np.asarray(frame["W"], dtype=int), labels.index(label), :]
+
+        def weight(label: Any, horizon: int, frame: Any) -> np.ndarray:
+            del horizon
+            return weights[np.asarray(frame["W"], dtype=int), labels.index(label)]
+
+        from cleverly.msm import MSM
+
+        return MSM(design=build, terms=terms, weights=weight)
+
+    #: Every regimen, because a projection is over all of them: a subset is a different
+    #: design and so a different coefficient vector.
+    ALL = law.REGIMEN_SPEC
+
+    def _fit(self, weights: np.ndarray) -> Any:
+        return LTMLE(
+            self.ALL,
+            msm=self._declared(),
+            outcome_learner=law.CellMeans(),
+            pseudo_learner=law.CellMeans(),
+            treatment_learner=law.CellMeans(),
+            censoring_learner=law.CellMeans(),
+            n_folds=1,
+            g_bounds=NO_TRUNCATION,
+            simultaneous=False,
+        ).fit(law.frame().assign(w=weights), weights="w", **COLUMNS)
+
+    @pytest.mark.parametrize("label", sorted(WEIGHT_FUNCTIONS))
+    def test_the_coefficients_are_the_projection_under_the_tilted_law(self, label: str) -> None:
+        cells = law.cell_weights(WEIGHT_FUNCTIONS[label])
+        fit = self._fit(law.row_weights(cells))
+        for name in law.MSM_NAMES["identity"]:
+            expected = float(law.weighted_functional(law.PROBS, name, cells))
+            assert fit[name].psi == pytest.approx(expected, abs=TILTED_TOLERANCE)
+
+    @pytest.mark.parametrize("label", sorted(WEIGHT_FUNCTIONS))
+    def test_the_curve_is_the_weighted_gateaux_derivative(self, label: str) -> None:
+        cells = law.cell_weights(WEIGHT_FUNCTIONS[label])
+        fit = self._fit(law.row_weights(cells))
+        rows = law.first_row_of()
+        for name in law.MSM_NAMES["identity"]:
+            np.testing.assert_allclose(
+                fit.influence_curves[name][rows],
+                law.weighted_eif(name, cells),
+                atol=TILTED_TOLERANCE,
+                rtol=0,
+            )
+
+    @pytest.mark.parametrize("label", sorted(WEIGHT_FUNCTIONS))
+    def test_the_tilt_moves_the_coefficients(self, label: str) -> None:
+        """Otherwise the two tests above would pass for a fit that ignored ``weights=``."""
+        cells = law.cell_weights(WEIGHT_FUNCTIONS[label])
+        gaps = [
+            abs(float(law.weighted_functional(law.PROBS, name, cells)) - law.MSM_TRUTH[name])
+            for name in law.MSM_NAMES["identity"]
+        ]
+        assert max(gaps) > 1e-3
+
+    def test_h_and_the_observation_weights_are_not_the_same_object(self) -> None:
+        """Directly: fold ``w`` into ``h`` and the answer moves, so the two cannot be
+        merged even though both are weights and both reach the curve."""
+        cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
+        rows = law.row_weights(cells)
+        proper = self._fit(rows)
+
+        design, model_weights, terms = law._MSM_FAMILIES["identity"]
+        labels = tuple(law.REGIMEN_ARMS)
+        from cleverly.msm import MSM
+
+        merged = MSM(
+            design=lambda label, horizon, frame: design[
+                np.asarray(frame["W"], dtype=int), labels.index(label), :
+            ],
+            terms=terms,
+            # h * w, the merge the module docstring forbids.
+            weights=lambda label, horizon, frame: (
+                model_weights[np.asarray(frame["W"], dtype=int), labels.index(label)]
+                * (1.0 + 0.6 * np.asarray(frame["W"], dtype=float))
+            ),
+        )
+        wrong = LTMLE(
+            self.ALL,
+            msm=merged,
+            outcome_learner=law.CellMeans(),
+            pseudo_learner=law.CellMeans(),
+            treatment_learner=law.CellMeans(),
+            censoring_learner=law.CellMeans(),
+            n_folds=1,
+            g_bounds=NO_TRUNCATION,
+            simultaneous=False,
+        ).fit(law.frame().assign(w=rows), weights="w", **COLUMNS)
+        gaps = [abs(proper[name].psi - wrong[name].psi) for name in law.MSM_NAMES["identity"]]
+        assert max(gaps) > 1e-3

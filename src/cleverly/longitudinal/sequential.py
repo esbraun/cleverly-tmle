@@ -99,10 +99,13 @@ from .regimen import Plan, Regimen, RegimenSpec
 
 __all__ = [
     "Mechanism",
+    "NodeInputs",
     "RegimenFit",
     "SequentialStep",
     "fit_mechanism",
     "fit_regimen",
+    "prepare_node",
+    "seed_carried",
 ]
 
 
@@ -168,6 +171,34 @@ class Mechanism:
                 running = running * bound(self.censoring[time - 1][plan.label], lower, upper)
             columns.append(running.copy())
         return np.column_stack(columns)
+
+
+@dataclass(frozen=True)
+class NodeInputs:
+    """Everything one node of the backward recursion needs before it is fluctuated.
+
+    The split exists because *what* is fluctuated at a node is not always one regimen.
+    A plain fit solves one score equation per node per regimen and can do the regression
+    and the fluctuation in one breath; a working model over regimens
+    (:mod:`cleverly.longitudinal.msm`) solves ``p`` equations per node **pooled across
+    the declared plans**, so it needs every plan's regression at a node in hand before
+    any of them is updated.  Both read the same regressions, from here.
+
+    ``counterfactual`` is :math:`1/\\prod g` on the at-risk set and zero elsewhere -- the
+    covariate the *update* is applied at.  ``clever`` is that masked down to the units
+    that actually followed, which is the covariate the *score* is taken against.  The
+    two differ exactly as ``submodel.arms[a]`` differs from ``submodel.observed`` at one
+    time point, and reading the wrong one is the mistake that stops every node after the
+    first from being updated at all.
+    """
+
+    time: int
+    at_risk: BoolArray
+    trained_on: BoolArray
+    pseudo_outcome: FloatArray
+    initial: FloatArray
+    counterfactual: FloatArray
+    clever: FloatArray
 
 
 @dataclass(frozen=True)
@@ -346,6 +377,120 @@ def fit_mechanism(
     return Mechanism(tuple(treatment), tuple(censoring))
 
 
+def seed_carried(data: LongitudinalData, scaler: OutcomeScaler) -> FloatArray:
+    r""":math:`\bar Q_{k+1}`, what the backward recursion starts from.
+
+    On a survival fit it is zero, so that the composition at the first node visited
+    returns :math:`Y_k` exactly and the two statements of the recursion are one.  On an
+    end-of-study fit it is the scaled outcome, filled at the rows no node reads.
+    """
+    if data.is_survival:
+        return np.zeros(data.n)
+    observed_outcome = data.uncensored_through(data.n_times)
+    scaled = np.where(observed_outcome, scaler.scale(np.nan_to_num(data.outcome, nan=0.0)), _FILLER)
+    return np.clip(scaled, 0.0, 1.0)
+
+
+def prepare_node(
+    data: LongitudinalData,
+    plan: Plan,
+    cumulative: FloatArray,
+    carried: FloatArray,
+    time: int,
+    horizon: int,
+    *,
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    folds: Folds,
+    cause: str | None = None,
+    n_jobs: int = 1,
+) -> NodeInputs:
+    """One node's masks, pseudo-outcome, regression and clever covariate.
+
+    Everything the recursion does at a node *except* the fluctuation, which is split out
+    because a working model over regimens pools that step across the declared plans and
+    so has to hold every plan's regression at a node before any of them is updated.
+    :func:`fit_regimen` calls this and fluctuates immediately, which is the recursion it
+    always was.
+    """
+    at_risk = data.at_risk(plan.values, time)
+    trained_on = data.following(plan.values, time)
+    if not trained_on.any():
+        raise LongitudinalError(
+            f"no unit followed regimen {plan.label!r} through time {time} while "
+            "remaining in the study, so the sequential regression there has nothing "
+            "to fit. The regimen is not supported by this sample."
+            + _risk_set_hint(data, plan, time)
+            + _rule_hint(plan, at_risk, time)
+        )
+    if data.is_survival:
+        # The numerator is *this* cause's event and the survival factor is
+        # **all-cause**: a unit that left through a competing cause contributes a zero
+        # here and carries nothing forward, because it is not going to have this
+        # cause's event either.  Writing ``1 - event_by(time, cause)`` instead -- the
+        # cause's own survival -- is the mistake competing risks invite, and it is
+        # wrong by exactly the mass that left through the other causes.  With one
+        # cause the two calls return the same array and this is the line it was.
+        failed = data.event_by(time, cause)
+        next_outcome = failed + (1.0 - data.event_by(time)) * carried
+    else:
+        next_outcome = carried
+    design = data.covariate_history(time)
+    learner = outcome_learner if time == horizon else pseudo_learner
+    task = "classification" if time == horizon and data.family == "binomial" else "regression"
+    if task == "classification":
+        seen = np.unique(next_outcome[trained_on])
+        if seen.size < 2:
+            raise LongitudinalError(
+                f"every unit following regimen {plan.label!r} through time {time} has "
+                f"the same outcome ({seen.tolist()}), so the regression there has "
+                "nothing to separate. "
+                + (
+                    (
+                        f"The incidence of {cause!r} at horizon {horizon} is not "
+                        "estimable from this sample: no unit following the regimen was "
+                        f"observed to leave through {cause!r}. A rare cause reaches "
+                        "this well before a common one does, so it is refused per "
+                        "cause rather than for the fit as a whole."
+                    )
+                    if cause is not None
+                    else (
+                        f"The risk at horizon {horizon} is not estimable from this "
+                        "sample: no event was observed among the regimen's followers."
+                    )
+                    if data.is_survival
+                    else "The outcome does not vary among the regimen's followers."
+                )
+            )
+    predictions, _ = cross_fit_predictions(
+        learner,
+        design,
+        next_outcome,
+        data.weights,
+        folds,
+        task=task,  # type: ignore[arg-type]
+        predict_designs={"history": design},
+        fit_mask=trained_on,
+        groups=data.cluster,
+        clip=(0.0, 1.0),
+        n_jobs=n_jobs,
+    )
+    initial = np.where(at_risk, predictions["history"], _FILLER)
+
+    denominator = np.where(at_risk, cumulative[:, time - 1], 1.0)
+    counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
+    clever = np.where(trained_on, counterfactual, 0.0)
+    return NodeInputs(
+        time=time,
+        at_risk=at_risk,
+        trained_on=trained_on,
+        pseudo_outcome=next_outcome,
+        initial=initial,
+        counterfactual=counterfactual,
+        clever=clever,
+    )
+
+
 def fit_regimen(
     data: LongitudinalData,
     plan: Plan,
@@ -395,97 +540,34 @@ def fit_regimen(
     if not 1 <= horizon <= data.n_times:
         raise LongitudinalError(f"horizon {horizon} is outside 1..{data.n_times}")
     cumulative = mechanism.cumulative(data, plan, g_bounds)
-    if data.is_survival:
-        # Q̄_{k+1} = 0, so the composition below returns Y_k at the first node visited.
-        carried = np.zeros(data.n)
-    else:
-        observed_outcome = data.uncensored_through(data.n_times)
-        scaled = np.where(
-            observed_outcome, scaler.scale(np.nan_to_num(data.outcome, nan=0.0)), _FILLER
-        )
-        carried = np.clip(scaled, 0.0, 1.0)
+    carried = seed_carried(data, scaler)
 
     steps: list[SequentialStep] = []
     for time in range(horizon, 0, -1):
-        at_risk = data.at_risk(plan.values, time)
-        trained_on = data.following(plan.values, time)
-        if not trained_on.any():
-            raise LongitudinalError(
-                f"no unit followed regimen {plan.label!r} through time {time} while "
-                "remaining in the study, so the sequential regression there has nothing "
-                "to fit. The regimen is not supported by this sample."
-                + _risk_set_hint(data, plan, time)
-                + _rule_hint(plan, at_risk, time)
-            )
-        if data.is_survival:
-            # The numerator is *this* cause's event and the survival factor is
-            # **all-cause**: a unit that left through a competing cause contributes a zero
-            # here and carries nothing forward, because it is not going to have this
-            # cause's event either.  Writing ``1 - event_by(time, cause)`` instead -- the
-            # cause's own survival -- is the mistake competing risks invite, and it is
-            # wrong by exactly the mass that left through the other causes.  With one
-            # cause the two calls return the same array and this is the line it was.
-            failed = data.event_by(time, cause)
-            next_outcome = failed + (1.0 - data.event_by(time)) * carried
-        else:
-            next_outcome = carried
-        design = data.covariate_history(time)
-        learner = outcome_learner if time == horizon else pseudo_learner
-        task = "classification" if time == horizon and data.family == "binomial" else "regression"
-        if task == "classification":
-            seen = np.unique(next_outcome[trained_on])
-            if seen.size < 2:
-                raise LongitudinalError(
-                    f"every unit following regimen {plan.label!r} through time {time} has "
-                    f"the same outcome ({seen.tolist()}), so the regression there has "
-                    "nothing to separate. "
-                    + (
-                        (
-                            f"The incidence of {cause!r} at horizon {horizon} is not "
-                            "estimable from this sample: no unit following the regimen was "
-                            f"observed to leave through {cause!r}. A rare cause reaches "
-                            "this well before a common one does, so it is refused per "
-                            "cause rather than for the fit as a whole."
-                        )
-                        if cause is not None
-                        else (
-                            f"The risk at horizon {horizon} is not estimable from this "
-                            "sample: no event was observed among the regimen's followers."
-                        )
-                        if data.is_survival
-                        else "The outcome does not vary among the regimen's followers."
-                    )
-                )
-        predictions, _ = cross_fit_predictions(
-            learner,
-            design,
-            next_outcome,
-            data.weights,
-            folds,
-            task=task,  # type: ignore[arg-type]
-            predict_designs={"history": design},
-            fit_mask=trained_on,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
+        node = prepare_node(
+            data,
+            plan,
+            cumulative,
+            carried,
+            time,
+            horizon,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            folds=folds,
+            cause=cause,
             n_jobs=n_jobs,
         )
-        initial = np.where(at_risk, predictions["history"], _FILLER)
-
-        denominator = np.where(at_risk, cumulative[:, time - 1], 1.0)
-        counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
-        clever = np.where(trained_on, counterfactual, 0.0)
-
         fluctuation = solve_fluctuation(
-            next_outcome,
-            InitialFit(initial, {_REGIMEN_ARM: initial}),
+            node.pseudo_outcome,
+            InitialFit(node.initial, {_REGIMEN_ARM: node.initial}),
             Submodel(
-                clever.reshape(-1, 1),
-                {_REGIMEN_ARM: counterfactual.reshape(-1, 1)},
+                node.clever.reshape(-1, 1),
+                {_REGIMEN_ARM: node.counterfactual.reshape(-1, 1)},
                 (f"h[{plan.label}, t={time}]",),
                 "sequential",
             ),
             data.weights,
-            trained_on,
+            node.trained_on,
             alpha=alpha,
             max_iter=max_iter,
             tol=tol,
@@ -494,16 +576,16 @@ def fit_regimen(
         steps.append(
             SequentialStep(
                 time=time,
-                trained_on=trained_on,
-                at_risk=at_risk,
-                pseudo_outcome=next_outcome,
-                initial=initial,
+                trained_on=node.trained_on,
+                at_risk=node.at_risk,
+                pseudo_outcome=node.pseudo_outcome,
+                initial=node.initial,
                 targeted=targeted,
-                clever=clever,
+                clever=node.clever,
                 fluctuation=fluctuation,
             )
         )
-        carried = np.where(at_risk, targeted, _FILLER)
+        carried = np.where(node.at_risk, targeted, _FILLER)
 
     steps.reverse()
     # Every unit is at risk at the first node, so this averages predictions rather than

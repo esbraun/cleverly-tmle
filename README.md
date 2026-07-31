@@ -800,8 +800,7 @@ analysis rather than about this package's coverage.
 | --- | --- | --- |
 | eliminating the competing events | a different question | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions. **Competing risks themselves are supported** — see [Competing risks](#competing-risks) |
 | `intermediate=` | a different question | a controlled direct effect fixes a mediator at one time point; over a sequence of nodes, with mediators that are themselves time-varying, that is a different identification rather than a further column |
-| a marginal structural model over time | not written yet | `msm=` summarises arms at one node; summarising `2^T` regimens is a different projection with its own weight function `h(ā, V)`. On the [roadmap](#roadmap) — it is the standard answer to reporting a grid of dynamic rules, and the derivation is settled |
-| a multi-valued treatment at a node | not written yet | the cumulative product needs one factor per arm per node, and the report one parameter per *sequence* of arms — which is only readable through an MSM over regimens, so that is the row to want |
+| a multi-valued treatment at a node | not written yet | the cumulative product needs one factor per arm per node, and the report one parameter per *sequence* of arms — which is readable through [a working model over the regimens](#summarising-the-regimens-a-marginal-structural-model), so that is the machinery it would report through |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | the targeted bootstrap, and `res.sensitivity` | not written yet | both refit against resampled or re-truncated nuisances. `g_bounds` enters the *pseudo-outcome* of every earlier node through the recursion, so changing it changes what the earlier regressions were fitted to: there is no `retarget` here that re-solves the fluctuation alone, and the whole backward pass has to run again. For positivity — the assumption that bites hardest here — `res.diagnostics()` already answers the question |
 
@@ -917,6 +916,143 @@ algebraically rather than spectrally, and the naive version moved by `1.7e-3` be
 and 64 nodes — worse than the Monte Carlo it exists to avoid. The `L₂` axis is therefore
 integrated as two Gauss–Legendre panels meeting at the jump, which makes the arm constant
 *within* a panel and the answer stable to `1e-13` under refinement.
+
+#### Summarising the regimens: a marginal structural model
+
+Four plans over two nodes is a table; `2^T` plans over `T` nodes is not a report at all.
+`msm=` declares a **working model** `m(ā, V; β)` summarising the regimens and makes the
+fit's parameters its coefficients — the same move [`msm=` makes at one
+node](#summarising-the-arms-a-marginal-structural-model), and the standard way the applied
+literature reports a grid of dynamic rules: a coefficient on the rule's threshold rather
+than a mean per plan.
+
+```python
+import numpy as np
+
+from cleverly import LTMLE
+from cleverly.datasets import make_longitudinal
+from cleverly.msm import MSM
+
+frame, truth = make_longitudinal(n=4000, seed=0)
+
+# How long each plan treats for -- the summary the coefficient is per unit of.
+months = {"never": 0.0, "late": 1.0, "early": 1.0, "always": 2.0}
+
+res = LTMLE(
+    {"never": 0, "late": (0, 1), "early": (1, 0), "always": 1},
+    msm=MSM(
+        # A design is handed the regimen's label, the horizon, and the baseline
+        # covariates -- never a time-varying one, which would condition on a
+        # consequence of the first node's arm.
+        design=lambda plan, horizon, w: np.column_stack(
+            [np.ones(len(w)), np.full(len(w), months[plan])]
+        ),
+        terms=("(intercept)", "months treated"),
+    ),
+    outcome_learner="glm",  # so the numbers below are quick to reproduce
+    pseudo_learner="glm",
+    treatment_learner="glm",
+    n_folds=5,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+print(res.summary())
+```
+
+```
+parameter                    estimate  std. error  95% CI            p-value
+---------------------------  --------  ----------  ----------------  -------
+msm_regimen[(intercept)]     0.4088    0.0170      [0.3755, 0.4421]  <1e-4
+msm_regimen[months treated]  0.1865    0.0118      [0.1634, 0.2097]  <1e-4
+```
+
+The population values are `β₀ = 0.4253` and `β₁ = 0.1808`: the least-squares fit of this
+process's true regimen means `(0.4189, 0.5811, 0.6441, 0.7804)` on months treated, which is
+what `β` is *defined* to be.
+
+**The working model does not have to be correct**, and for this process it is not — `late`
+and `early` treat for the same length of time and do not have the same mean. `β` is a
+**projection**, the minimiser of
+
+```
+E[ Σ_c h(c, V) ( E[Y^c | V] − m(c, V; β) )² ]
+```
+
+over a **known** weight function `h`, so it is well defined whatever the true response to
+duration looks like (Neugebauer & van der Laan 2007; Orellana, Rotnitzky & Robins 2010).
+Where the model happens to be right, `β` is the truth. Where it is wrong, the interval is
+still an honest interval — for the projection, which is the thing that was estimated, and
+not for a misspecified regression's coefficient.
+
+`V` is a subset of the **baseline** covariates, and that is the estimand's own statement
+rather than a convenience: `m(ā, V; β)` summarises `E[Y^ā | V]`, so a design reading `L₂`
+would be conditioning on a consequence of `A₁` — a different parameter with a different
+identification. The design is simply handed `[W]` and nothing else, the way a dynamic rule
+is handed the history and nothing else.
+
+On a **survival** fit the horizon is *inside* the design — `design(label, horizon, W)` —
+rather than beside it, so one coefficient vector spans the whole `(regimen, horizon)` grid
+and a term in `t` is a trend across horizons. A design saturated in the horizon reproduces
+the per-horizon coefficients exactly and adds their joint covariance, so this contains the
+per-horizon report rather than replacing it. A **cause** is not a further column: each
+cause is its own estimand with its own projection, sharing every nuisance fit exactly as the
+per-regimen recursion already shares them.
+
+`link="log"` and `link="logit"` mean what they mean at one node, and
+`res.coefficients(scale="ratio")` exponentiates them. Three things differ inside, and each
+is a place the obvious generalisation is wrong:
+
+- **The node fluctuation is pooled across the regimens.** At one node the covariate's `p`
+  columns get their rank by summing over the arms *within a row*: a unit contributes
+  `φ(a, V)` at the arm it received. A regimen is a plan and not a value some unit took, so
+  there is nothing to sum over within a row — a per-regimen covariate is `φ(ā, V)` times
+  the scalar `h_t`, and whenever the working model has no effect modifier `φ(ā, V)` is
+  *constant down the rows*, making that covariate rank one and collapsing its `p` score
+  equations into one. So each node solves a **single** fluctuation over the regimens
+  stacked, with one shared `epsilon`. The backward recursion is therefore *lockstep*:
+  outer over the nodes, inner over the regimens, one update, all carried forward together.
+- **A saturated working model reproduces the per-regimen report** — one indicator per
+  regimen makes the stacked covariate exactly block-diagonal, and each block is the array
+  the plain recursion would have used, entry for entry. Not *bit for bit* on the estimate,
+  though, and that is worth knowing: the pooled Newton's convergence test and line search
+  are taken over all the stacked rows, so the two can stop on different iterates. On a law
+  the sample realises exactly no step is taken at all and the agreement is exact; elsewhere
+  it is `1e-11`.
+- **Under a link, one round of the alternation is a whole backward pass.** `β` enters the
+  covariate through `dm/dη`, so `Q̄*_t` moves with it — and `Q̄*_t` is node `t−1`'s
+  *regression target*, so every earlier node's learner is refit. There is no fixed `Q̄⁰` to
+  restart from; the fixed point is stated over the whole pass. It costs four or five passes
+  in practice, since `β` reaches the covariate only through that smooth factor. The
+  mechanism is free of `β` and is fitted once.
+
+`h(ā, V)` and `weights=` are different objects and must stay so: the first says how the
+regimens are traded off inside the projection and sits in the covariate, the second tilts
+the *population* the projection is taken over. Merging them would divide the estimating
+equation by the very tilt it applies. The projection is solved on the **raw** outcome
+scale, as it is at one node and for the same reason — a coefficient vector has no single
+scale to map back with.
+
+`reference=` is refused with `msm=`: a working model reports coefficients rather than
+contrasts, what an intercept is taken against is whatever the design makes it, and a
+difference of two coefficients is `res.contrast()`. `MSM.linear` is refused too — it reads
+the label it is handed as a dose to interpolate between, which a treatment arm can be and a
+plan cannot.
+
+The influence curve is checked against the complex-step Gateaux derivative of an
+independently written projection on the same exact law
+(`tests/unit/test_influence_gateaux_longitudinal_msm.py`), under every link. The oracle's
+working model is deliberately **not** saturated — three coefficients against twelve
+`(W, regimen)` cells — and its weights deliberately **not** uniform, for the reasons [the
+point-treatment oracle](#summarising-the-arms-a-marginal-structural-model) gives; both
+choices are asserted on the law itself, so they are shown to be load-bearing rather than
+claimed to be. Seven mutations were applied and the tests watched; three of them passed on
+the first try and each was a real gap, which is recorded in the roadmap item below.
 
 #### A survival outcome
 
@@ -1612,13 +1748,14 @@ so rather than implying the request was ill-posed.
 | `CTMLE`, the omitted-variable bound and the MNAR tilt on a multi-valued treatment | [multi-valued treatment](#multi-valued-treatment) |
 | `delta=`, `intermediate=` and estimated weights with `shifts=` | [shifting a continuous dose](#shifting-a-continuous-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](#tilting-the-odds-of-treatment) |
-| an MSM over regimens, a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](#treatment-given-over-time) |
+| a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](#treatment-given-over-time) |
 | blocked-temporal and rolling-origin splits | [cross-fitting](#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](#observation-weights-and-which-population-they-define) |
 
-Three of these are on the [roadmap](#refusals-worth-lifting), and two have left the list
-entirely: `ATT` / `ATC` on a multi-valued treatment is item 1 and has landed, and
-observation weights for `LTMLE` is item 3 and has landed. The rest are there because nobody
+Two of these are on the [roadmap](#refusals-worth-lifting), and three have left the list
+entirely: `ATT` / `ATC` on a multi-valued treatment is item 1 and has landed, observation
+weights for `LTMLE` is item 3 and has landed, and a working model over regimens is item 4
+and has landed. The rest are there because nobody
 has asked, not because anything stands in the way — with one exception worth naming:
 `CTMLE` on a multi-valued treatment is the only row here whose *derivation* is unsettled,
 since both searches order candidates by one propensity margin and with `K` arms there is no
@@ -1913,8 +2050,8 @@ shippable, but taken in sequence some of them hand work to the next: the first w
 self-contained and unblocks two sensitivity analyses; the second builds the projection
 machinery the fourth copies; the third and fourth both change `fit_regimen` and
 `fit_mechanism`, so doing them adjacent is one round of churn in those signatures rather than
-two — the third has landed, and left those two functions taking the data's weights, which is
-the change the fourth would otherwise have had to make.
+two — and taking them adjacent paid: the third left the recursion carrying the data's
+weights, which the fourth inherited rather than adding.
 The fifth is last because its cost is dominated by test infrastructure rather than by
 derivation — it is the only one needing a *new* oracle law rather than a branch on an
 existing one.
@@ -1978,24 +2115,43 @@ existing one.
    so the truth is the unweighted one unchanged; ignoring the weights there costs about
    fourteen Monte Carlo standard errors of bias on each counterfactual mean — and almost
    nothing on their contrast, which is why that control is taken on a level
-4. **A marginal structural model over regimens, for `LTMLE`.** The largest lift on this
-   list, and the largest thing `LTMLE` is missing as against refusing. Worth it anyway: it
-   is the standard answer to the `2^T` problem, and the way the applied literature reports
-   a grid of dynamic rules — a coefficient on the rule's threshold rather than a mean per
-   plan. Without it, a fit over many regimens reports a table rather than an answer, which
-   is the same complaint `msm=` exists to answer at one node. The theory is settled
-   (Robins; Orellana, Rotnitzky & Robins; van der Laan & Petersen) and R's `ltmle` supports
-   it. It needs its own weight function `h(ā, V)`, its own projection, and its own branch
-   in `tests/discrete_law_longitudinal.py` — the projection is solved on the raw outcome
-   scale for the reason the point-treatment MSM is, and a saturated working model over the
-   regimens must reproduce the per-regimen report exactly. It wanted items 2 and 3 landed
-   first — the projection machinery from one and the signature churn in `fit_regimen` and
-   `fit_mechanism` from the other — and both now are, so it is the next thing on this list.
-   One thing item 3 settled for it: those two functions now take the data's weights rather
-   than a vector of ones, so an MSM over regimens inherits observation weights instead of
-   having to add them, and its `h(ā, V)` is the *working model's* weight and a different
-   object — the point-treatment MSM already keeps the two apart, and
-   `inference/influence.py` names them `model_weights` and `weights` for that reason
+4. **A marginal structural model over regimens, for `LTMLE` — landed.**
+   `LTMLE(regimens, msm=MSM(...))` reports `msm_regimen[<term>]` in place of a mean per
+   plan: `β` is the `h`-weighted projection of `E[Y^ā | V]` onto `m(ā, V; β)`, under every
+   link, with `V` a subset of the baseline covariates and the horizon *inside* the design
+   on a survival fit — see [summarising the
+   regimens](#summarising-the-regimens-a-marginal-structural-model). Four things are worth
+   recording, and the sizing above got two of them wrong.
+   The structural difference from the point-treatment working model is that **the node
+   fluctuation must be pooled across the regimens**, and the reason is a rank argument
+   nobody had made: there the `p` columns are separated by summing over the arms *within a
+   row*, and a regimen is a plan rather than a value some unit took, so a per-regimen
+   covariate is `φ(ā, V)` scaled by the scalar `h_t` — rank one whenever the model has no
+   effect modifier, collapsing its `p` score equations into one. Each node therefore solves
+   one fluctuation over the regimens stacked, with a single shared `epsilon`, and the real
+   churn was control flow rather than mathematics: `fit_regimen`'s one-plan-at-a-time
+   backward pass had to become lockstep.
+   **A link costs a whole backward pass per round**, not a re-solved fluctuation, which the
+   sizing had not seen: `β` enters every *earlier* node's regression target through the
+   recursion, so there is no fixed `Q̄⁰` to restart from and the fixed point is stated over
+   the whole pass. Measured at four or five rounds, contracting by `1e-4` each — the
+   point-treatment rate, and for the same reason.
+   `solve_projection` was reused **verbatim** with its arm axis read as the regimen axis,
+   which is what item 2 bought; `MSMSet` deliberately was not, since its second axis is
+   arms in its field name, its docstring and its accessors, and its constructor reads a
+   `CausalData` throughout. Only the rank rule is shared. `h(ā, V)` and the observation
+   weights stayed apart exactly as item 3 predicted.
+   Two claims turned out weaker than expected and both are now stated as they are. The
+   saturated reduction is **not** bit-for-bit and cannot be — the pooled Newton's
+   convergence test and line search are taken over all the stacked rows — so it is exact on
+   the exact law, where no step is taken, and `1e-11` elsewhere. And of seven deliberate
+   mutations, **three passed on the first try**: the baseline-frame pin was blind because
+   every longitudinal fixture here has an empty `time_varying[0]`, making
+   `history_frame(1)` the same object; dropping the observation weight from the curve was
+   invisible because nothing exercised a working model on a weighted fit; and the source's
+   claim that an `at_risk` mask "leaves `epsilon` non-zero" was simply false, since the
+   covariate is already zeroed off `trained_on` and the substitution moves no reported
+   number at all. The first two are now covered and the third is now stated correctly
 5. **`shifts=` with `delta=`.** Last for what it costs rather than for what it is worth: it
    is the only one of the five needing a *new* oracle law, so most of the work is test
    infrastructure. The audit also changed what this item is. The refusal's stated reason
@@ -2107,6 +2263,8 @@ Python 3.10–3.13 in CI.
   multiple time point interventions*.
 - Neugebauer & van der Laan (2007), *Nonparametric causal effects based on marginal structural
   models*.
+- Orellana, Rotnitzky & Robins (2010), *Dynamic regime marginal structural mean models for
+  estimation of optimal dynamic treatment regimes*.
 - Kennedy (2019), *Nonparametric causal effects based on incremental propensity score
   interventions*.
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2022), *Long story short: omitted variable bias

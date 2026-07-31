@@ -287,6 +287,49 @@ load-balancing the tail, not contending for cores.
   representations so a slip is a wrong number rather than one that cancels on both sides. Keep
   `functional` selecting arms by **cell index** — a rule written as an indicator *of the
   probabilities* makes the complex step come back real, silently.
+- **A working model over regimens is a projection, and its fluctuation is pooled.**
+  `LTMLE(regimens, msm=MSM(...))` reports `msm_regimen[<term>]` in place of
+  `ey_regimen`/`ate_regimen`: `beta` is the `h`-weighted least-squares projection of
+  `E[Y^a-bar | V]` onto `m(a-bar, V; beta)`, well defined whether or not the working model is
+  right — say so wherever a reader could assume otherwise, as the point-treatment `msm=`
+  requires. `V` is a subset of the **baseline** covariates and `data.baseline_frame()` is
+  what a design is handed, enforced by what the frame contains rather than by a check: a
+  design reading `L_t` would be conditioning on a consequence of `a-bar_1`. Four things
+  differ from `msm=` at one node and each has a test.
+  *The node fluctuation is pooled across the cells*, one solve over `C*n` stacked rows with a
+  single `epsilon`. This is not an optimisation, it is what gives the covariate its rank: at
+  one node the `p` columns are separated by summing over the arms *within a row*, and a
+  regimen is a plan rather than a value some unit took, so a per-cell covariate is
+  `phi(c, V)` times the scalar `h_t` — **rank one** whenever the model has no effect
+  modifier. `tests/unit/test_longitudinal_msm_submodel.py` asserts exactly that, and it is
+  the test that says why pooling exists. So the recursion is **lockstep** — outer over the
+  nodes, inner over the cells — and `sequential.prepare_node` exists to make that possible;
+  do not reintroduce a per-cell backward pass in `longitudinal/msm.py`.
+  *A cell is a `(regimen, horizon)` pair, and a cause is not a cell.* The horizon lives
+  **inside** the design (`design(label, horizon, baseline_frame)`), so a coefficient can be a
+  trend across horizons and the grid shares one covariance; a design saturated in the horizon
+  reproduces the per-horizon coefficients, so this contains that report rather than replacing
+  it. Each cause gets its own projection, sharing every nuisance fit.
+  *The projection is `msm.solve_projection` with its arm axis read as the cell axis,
+  unchanged*, solved on the **raw** outcome scale — so the curve carries `scaler.range` on
+  its residual half and `lower + range * Qbar*` on its plug-in half, and `_msm_estimates`
+  must not unscale a second time. That last is **invisible on the exact law**, whose binary
+  outcome makes the scaler the identity; `tests/e2e/test_ltmle_msm.py` pins it under an
+  affine relabelling of a continuous outcome instead, and it is the only thing that does.
+  *A link costs a whole backward pass per round.* `beta` enters every earlier node's
+  *regression target* through the recursion, so there is no fixed `Qbar^0` to restart from
+  and the fixed point is stated over the whole pass; four or five rounds in practice.
+  `h(a-bar, V)` is the working model's weight and `data.weights` the population tilt — they
+  multiply different things, and merging them divides the estimating equation by the tilt it
+  applies. `MSMSet` is deliberately **not** reused (its second axis is arms, in its field
+  name and its accessors, and its constructor reads a `CausalData`); only
+  `msm.check_projection_rank` is shared. `reference=`, `MSM.linear` and a non-`MSM` object
+  are refused **by name**. The saturated reduction to the per-regimen report is exact on the
+  exact law and `1e-11` elsewhere, and is **not** bit-for-bit — the pooled Newton's
+  convergence test and line search are taken over all `C*n` rows — so do not tighten that
+  assertion. The oracle is a branch on `tests/discrete_law_longitudinal.py`, deliberately
+  non-saturated with non-uniform `h`, both asserted to be load-bearing on the law itself.
+
 - **A survival outcome is a population, not a parameter axis.** `outcome=[...]` — a sequence
   rather than a name — puts an absorbing `Y_t` into the ordering and makes the report the
   cumulative risk at every horizon. It is *not* a fifth axis beside `arm`/`regime`/`shift`/
