@@ -42,6 +42,7 @@ from ..inference.influence import (
     ParameterEstimate,
     Scale,
     counterfactual_means,
+    ipsi_means,
     make_estimate,
     msm_coefficients,
     regime_means,
@@ -265,6 +266,12 @@ class TargetContext:
     #: values are ``phi' beta``, so neither can be recovered from ``h * phi`` alone.
     msm_design: FloatArray | None = None
     msm_weights: FloatArray | None = None
+    #: The :class:`~cleverly.interventions.IPSISet` **as targeted**, for the ``ipsi``
+    #: fluctuation; ``None`` otherwise.  The whole object rather than an array, because
+    #: the influence curve needs the tilted density, the derivative and the mechanism the
+    #: two were built from, and reading them off one object is what stops the middle term
+    #: being evaluated at a different ``g`` than the plug-in used.
+    incremental: Any | None = None
     #: Report every parameter with its label even when there are exactly two of them.
     #: The two-arm short names (``"ate"``, ``"ey1"``) exist because they are historical
     #: and unambiguous; two *regimes* have neither property, and "the ATE" of a rule
@@ -302,6 +309,16 @@ class TargetContext:
                 self.msm_weights,
                 self.weights,
                 self.scaler,
+                self.observed,
+            )
+        if self.incremental is not None:
+            return ipsi_means(
+                self.scaled,
+                self.targeted,
+                self.submodel,
+                self.incremental,
+                self.treatment,
+                self.weights,
                 self.observed,
             )
         if self.shifts is not None:

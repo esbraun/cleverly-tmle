@@ -60,6 +60,7 @@ __all__ = [
     "average_estimates",
     "counterfactual_mean_parts",
     "counterfactual_means",
+    "ipsi_means",
     "make_estimate",
     "msm_coefficients",
     "ratio_estimates",
@@ -499,6 +500,97 @@ def regime_means(
         out[float(index)] = ArmMean(
             psi, w * (submodel.observed[:, index] * residual + mixture - psi)
         )
+    return out
+
+
+def ipsi_means(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    submodel: Submodel,
+    incremental: Any,
+    treatment: FloatArray,
+    weights: FloatArray,
+    observed: BoolArray | None = None,
+) -> dict[float, ArmMean]:
+    r"""Every tilt's counterfactual mean and influence curve, keyed by tilt code.
+
+    .. math::
+
+        \hat\Psi_r = \frac1n \sum_i m_r(W_i),
+        \qquad
+        m_r(W) = \sum_a q_{\delta_r}(a \mid W)\, \bar Q^*(a, W)
+
+        D_r^*(O) = h_r(A, W)\,\{Y - \bar Q^*(A, W)\}
+                 + \frac{\delta_r\{\bar Q^*(1,W) - \bar Q^*(0,W)\}}{D_{\delta_r}^2}\,(A - g^*)
+                 + m_r(W) - \Psi_r
+
+    **The middle term is the whole reason this is not** :func:`regime_means`.  A
+    :class:`~cleverly.interventions.Stochastic` regime evaluated at the very same density
+    :math:`q_{\delta_r}` has the same mean and, entry for entry, the same clever
+    covariate; its influence curve is this one without the middle term.  Because
+    :math:`q_\delta` is built out of :math:`g`, the parameter moves when the mechanism
+    does, and that dependence is a pathwise derivative the regime curve has no term for.
+
+    The gap is not a wash.  The extra term is mean zero given :math:`W` and orthogonal to
+    both halves of the regime curve -- the residual half is centred given :math:`(A, W)`,
+    the plug-in half is :math:`W`-measurable -- so
+
+    .. math::
+
+        \operatorname{Var}(D^*_{\text{ipsi}})
+            = \operatorname{Var}(D^*_{\text{regime}})
+            + \operatorname{Var}\!\left(
+                \frac{\delta(\bar Q(1,W) - \bar Q(0,W))}{D_\delta^2}(A - g)\right),
+
+    an exact decomposition.  Treating an incremental intervention as the regime that
+    induces it therefore does not merely report a different quantity: it reports a
+    standard error that is too *small*, always.
+    ``tests/unit/test_influence_gateaux_ipsi.py`` keeps that identity as a negative
+    control, on the same terms ``tests/unit/test_influence_gateaux_shift.py`` does for
+    the shift axis.
+
+    ``incremental`` is the :class:`~cleverly.interventions.IPSISet` **as targeted** -- its
+    :attr:`~cleverly.interventions.IPSISet.propensity` must be the fluctuated mechanism,
+    not the initial one, or the middle term would be evaluated at a :math:`g` the plug-in
+    did not use.  Carrying the mechanism on the same object as the density is what makes
+    that impossible to get wrong rather than merely documented.
+    """
+    if submodel.group != "ipsi":
+        raise ValueError(f"expected the 'ipsi' submodel; got {submodel.group!r}")
+    density = np.asarray(incremental.values, dtype=float)
+    derivative = np.asarray(incremental.derivative, dtype=float)
+    mechanism = np.asarray(incremental.propensity, dtype=float).reshape(-1)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    residual = _residual(outcome, targeted, observed)
+    levels = targeted.levels
+    if density.shape[1] != len(levels):
+        raise ValueError(
+            f"the tilted density has {density.shape[1]} arm column(s) but the targeted fit "
+            f"has {len(levels)} arm(s) {list(levels)}"
+        )
+    if density.shape[2] != submodel.dim:
+        raise ValueError(
+            f"the tilt describes {density.shape[2]} intervention(s) but the submodel has "
+            f"{submodel.dim} column(s)"
+        )
+    # (n, K) of the targeted predictions, columns in the same order the densities use.
+    predictions = np.column_stack([targeted.arms[level] for level in levels])
+    # The blip is a contrast of arms, so it needs the two-arm layout the tilt declares;
+    # IPSISet.evaluate has already refused anything else.
+    blip = np.asarray(targeted.arms[1.0], dtype=float) - np.asarray(targeted.arms[0.0], dtype=float)
+    treated_residual = np.asarray(treatment, dtype=float).reshape(-1) - mechanism
+
+    out: dict[float, ArmMean] = {}
+    for index in range(density.shape[2]):
+        mixture = np.einsum("ij,ij->i", density[:, :, index], predictions)
+        psi = float(np.average(mixture, weights=w))
+        curve = (
+            submodel.observed[:, index] * residual
+            + derivative[:, index] * blip * treated_residual
+            + mixture
+            - psi
+        )
+        out[float(index)] = ArmMean(psi, w * curve)
     return out
 
 

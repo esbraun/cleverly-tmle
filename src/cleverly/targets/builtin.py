@@ -74,6 +74,32 @@ _REGIME_ID = Identification(
 )
 
 
+_IPSI_ID = Identification(
+    assumptions=(
+        "consistency: Y = Y^a when A = a",
+        "no unmeasured confounding: Y^a is independent of A given W",
+        "*no positivity assumption*: the clever covariate is delta/D at A=1 and 1/D at "
+        "A=0 with D = delta*g + 1 - g, so it lies between min(delta, 1/delta) and "
+        "max(delta, 1/delta) however small g is. This is the estimand's reason for "
+        "existing, not an oversight in the list",
+        "the intervention is a functional of the observed-data law: q_delta is built "
+        "out of g, so the influence function carries a term for the pathwise derivative "
+        "through it and the estimator fluctuates the mechanism as well as Qbar",
+    ),
+    required_nuisances=("outcome_regression", "treatment_mechanism"),
+    dr_condition=(
+        "NOT doubly robust, and the only target here that is not: g appears in the "
+        "estimand itself, so every term of the second-order remainder carries "
+        "(ghat - g0) as a factor. The remainder vanishes identically when the mechanism "
+        "is consistent whatever Qbar does, and no accuracy in Qbar rescues an "
+        "inconsistent mechanism -- there the remainder is "
+        "(delta - 1) delta E[(g0 - ghat)^2 (Qbar(1,W) - Qbar(0,W)) / (D0 Dhat^2)], "
+        "second order but not zero. Read the interval as conditional on g being right"
+    ),
+    references=("Kennedy (2019)",),
+)
+
+
 _SHIFT_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
@@ -192,6 +218,24 @@ def _ey_regime(ctx: TargetContext) -> list[ParameterEstimate]:
 def _ate_regime(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y^{g*}] - E[Y^{g*_ref}]``, once per non-reference regime."""
     return _difference_against_reference(ctx, "ate_regime")
+
+
+def _ey_ipsi(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{q_delta}]`` for every declared tilt of the treatment mechanism."""
+    return [
+        ctx.finish(
+            parameter_name("ey_ipsi", arm=ctx.label(code)),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+        )
+        for code, mean in sorted(ctx.means.items())
+    ]
+
+
+def _ate_ipsi(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{q_delta}] - E[Y^{q_ref}]``, once per non-reference tilt."""
+    return _difference_against_reference(ctx, "ate_ipsi")
 
 
 def _ey_shift(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -405,6 +449,31 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         parameter_axis="regime",
         in_default_set=True,
         description="contrast of each regime against the reference regime",
+    ),
+    Target(
+        name="ey_ipsi",
+        group="ipsi",
+        scale="level",
+        build=_ey_ipsi,
+        identification=_IPSI_ID,
+        parameter_axis="ipsi",
+        requires_binary_treatment=True,
+        in_default_set=True,
+        description=(
+            "counterfactual mean under each declared tilt of the treatment mechanism, "
+            "E[Y^{q_delta}] with q_delta the odds of g multiplied by delta"
+        ),
+    ),
+    Target(
+        name="ate_ipsi",
+        group="ipsi",
+        scale="difference",
+        build=_ate_ipsi,
+        identification=_IPSI_ID,
+        parameter_axis="ipsi",
+        requires_binary_treatment=True,
+        in_default_set=True,
+        description="contrast of each tilt against the reference tilt",
     ),
     Target(
         name="ey_shift",

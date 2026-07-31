@@ -52,15 +52,20 @@ FoldStrata = Literal["treatment", "treatment+outcome"]
 Estimand = Literal["ey1", "ey0", "ate", "att", "atc", "rr", "or"]
 
 #: What a fit's parameters are indexed *by*: a treatment arm, a declared regime, a
-#: declared shift, or a coefficient of a declared working model.  The four partition the
-#: target registry -- see :attr:`cleverly.Target.parameter_axis` for why they are
-#: exclusive rather than cumulative.
+#: declared shift, a declared tilt of the mechanism, or a coefficient of a declared
+#: working model.  The five partition the target registry -- see
+#: :attr:`cleverly.Target.parameter_axis` for why they are exclusive rather than
+#: cumulative.
 #:
-#: The first three also declare what "counterfactual" means for the fit.  ``"msm"`` does
+#: The first four also declare what "counterfactual" means for the fit.  ``"msm"`` does
 #: not: its counterfactuals are still the arms, and what moves is the *summary* the fit
 #: reports of them.  It is an axis all the same, because a summary's coefficients are not
-#: indexed by anything the other three name.
-ParameterAxis = Literal["arm", "regime", "shift", "msm"]
+#: indexed by anything the other four name.
+#:
+#: ``"ipsi"`` is the one whose intervention is a functional of the observed-data law: its
+#: ``q_delta`` is built out of the estimated mechanism, so it carries an extra influence
+#: curve term and a second score equation.  That is why it is not a kind of ``"regime"``.
+ParameterAxis = Literal["arm", "regime", "shift", "ipsi", "msm"]
 
 #: Propensity-score truncation: ``"auto"`` for the sample-size dependent
 #: default, a single float ``lo`` meaning ``[lo, 1 - lo]``, or an explicit pair.
