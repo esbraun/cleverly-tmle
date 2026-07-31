@@ -144,6 +144,13 @@ class LongitudinalConfig:
     q_bounds: tuple[float, float] | None
     alpha_sig: float
     random_state: int | None = None
+    #: ``(label, digest)`` per regimen, digesting the ``(n, T)`` arms it assigned *this*
+    #: sample.  A static plan is already stated in full by its ``1/0``; a rule is not, and
+    #: two different rules would otherwise report identically and carry an identical
+    #: provenance record -- ``1{L2 > 0}`` and ``1{L2 > 5}`` are different parameters.
+    #: Digesting the resolved matrix rather than the callable is what makes this possible
+    #: at all: a closure has no stable fingerprint, and the arms are what the fit used.
+    plan_fingerprints: tuple[tuple[str, str], ...] = ()
 
     def describe(self) -> list[str]:
         plans = ", ".join(
@@ -154,7 +161,10 @@ class LongitudinalConfig:
             f"outcome family: {self.family}",
             f"regimens: {plans}",
         ]
-        if any(isinstance(regimen, DynamicRegimen) for regimen in self.regimens):
+        dynamic = {
+            regimen.label for regimen in self.regimens if isinstance(regimen, DynamicRegimen)
+        }
+        if dynamic:
             # Worth a line rather than leaving "d" to be guessed at, because it changes
             # how the follower counts below should be read: a static regimen's followers
             # are whoever happened to receive that sequence, and a rule's are whoever the
@@ -163,6 +173,12 @@ class LongitudinalConfig:
                 "  a 'd' is a rule d_t(H_t) read off [W, L_1, ..., L_t]; its followers "
                 "are a covariate-dependent set, so the counts below describe this sample"
             )
+            # Only for the regimens that have a rule in them, and only when one does:
+            # printing a digest of a plan the line above already spells out in full would
+            # add noise to every static report to say nothing.
+            for label, digest in self.plan_fingerprints:
+                if label in dynamic:
+                    lines.append(f"  assigned arms, {label}: {digest}")
         lines += [
             f"reference: {self.reference}",
             # A single fold is not cross-fitting, and printing "1 fold(s)" reads as
@@ -634,6 +650,9 @@ class LTMLE:
             q_bounds=self.q_bounds,
             alpha_sig=self.alpha_sig,
             random_state=self.random_state,
+            # From the matrix ``resolve_plans`` already built, so this is the assignment
+            # the fit ran on rather than a second evaluation of the rules.
+            plan_fingerprints=tuple((plan.label, fingerprint_array(plan.values)) for plan in plans),
         )
         estimates = self._estimates(prepared, fits, scaler, reference)
         return LongitudinalResult(
@@ -744,6 +763,12 @@ class LTMLE:
         the whole of the difference from :func:`cleverly.provenance.record`; the
         environment half is built by :func:`cleverly.provenance.build` so that the
         package versions and ``run_id`` this record is *for* cannot go missing here.
+
+        What the *regimens* were is not in here but on
+        :attr:`LongitudinalConfig.plan_fingerprints`, deliberately:
+        :func:`cleverly.provenance.build` is shared with the point-treatment path, and a
+        field only one estimator can fill would make the shared record answer a question
+        half its callers have no answer to.
         """
         return provenance_build(
             n=data.n,

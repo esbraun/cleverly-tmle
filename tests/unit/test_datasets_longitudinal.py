@@ -107,14 +107,55 @@ class TestTheQuadratureIsRight:
             refined = longitudinal_rule_truth(1.0, rule_arm_at_node_two, nodes=nodes, panel=panel)
             assert base == pytest.approx(refined, abs=1e-10), (nodes, panel)
 
+    @pytest.mark.parametrize(
+        ("rule", "why"),
+        [
+            (lambda l2: (np.asarray(l2) > 1.0).astype(float), "jump away from split"),
+            (lambda l2: (np.abs(np.asarray(l2)) < 2.0).astype(float), "two jumps"),
+            (lambda l2: np.full(np.asarray(l2).shape, 0.5), "not an arm"),
+        ],
+    )
+    def test_a_rule_off_the_contract_is_refused_rather_than_integrated(
+        self, rule: Any, why: str
+    ) -> None:
+        """The failure mode this routine has that a plain quadrature does not.
+
+        The arm is read once per panel, so a rule whose jump is not at ``split`` is
+        integrated as though it were: the answer does not blow up or fail to converge, it
+        comes back a plausible number for a *different* regimen. Since every accuracy
+        claim in the longitudinal section is checked against this function, that number
+        would move the reference rather than the estimate, and both sides would agree.
+        """
+        with pytest.raises(ValueError, match=r"split|binary treatment"):
+            longitudinal_rule_truth(1.0, rule)
+
+    def test_the_check_does_not_move_the_answer(self) -> None:
+        """The contract case is what it was before the check existed."""
+        assert longitudinal_rule_truth(1.0, rule_arm_at_node_two) == pytest.approx(
+            0.7400375306197754, abs=1e-13
+        )
+
+    def test_a_rule_jumping_elsewhere_is_usable_once_split_says_so(self) -> None:
+        """The refusal names a fix, so the fix has to work.
+
+        Otherwise ``split=`` reads as a knob for the caller to guess at rather than the
+        statement about the integrand that it is.
+        """
+        rule = lambda l2: (np.asarray(l2) > 1.0).astype(float)  # noqa: E731
+        value = longitudinal_rule_truth(1.0, rule, split=1.0)
+        # Between the two constants it interpolates, and not equal to either of them.
+        low, high = longitudinal_truth(1.0, 0.0), longitudinal_truth(1.0, 1.0)
+        assert low < value < high
+
     def test_the_rule_is_a_parameter_of_its_own(self) -> None:
         """Distinct from every static plan, and from the filler the recursion uses.
 
         Both coincidences are ways a broken fit passes: ``0.5`` is ``_FILLER``, so a
         prediction leaking from a censored row would land there, and a rule whose mean
         equalled a static regimen's would leave the dynamic path unfalsifiable against the
-        constant plan beside it.  The threshold was chosen to avoid both -- the first
-        draft, ``d_1 = 0`` with the same rule, came to *exactly* ``0.5`` -- so a change
+        constant plan beside it.  The **first node's arm** was chosen to avoid both -- the
+        first draft, ``d_1 = 0`` with the same ``d_2``, came to *exactly* ``0.5``, and
+        ``longitudinal_rule_truth(0.0, rule_arm_at_node_two)`` still does -- so a change
         that reintroduces either should fail here rather than quietly weaken the tier.
         """
         _, truth = make_longitudinal(n=50, seed=0)

@@ -236,12 +236,17 @@ load-balancing the tail, not contending for cores.
   columns. The old justification — "a follower's past treatment is constant" — is false under
   a rule; the true one is that among the followers `A_s = d_s(W, L_1, ..., L_s)` is a
   deterministic function of columns the design already carries, since that is the frame the
-  rule was handed. **No test in this repository would catch this being changed**, and that was
+  rule was handed. **No fit here comes out differently if this is changed**, and that was
   measured, not assumed: on the exact law the saturated learner partitions by distinct design
   row, so a column that is a function of the others is invisible; and under `glm` the natural
   comparison — a rule that ignores the history against the constant plan it equals — adds a
-  *constant* column, which `StandardScaler` zeroes, to both sides at once. Change it only with
-  an argument, and do not add a test claiming to guard it without checking the test fails.
+  *constant* column, which `StandardScaler` zeroes, to both sides at once. So the statistical
+  claim is still an argument and not a test: change it only with an argument, and do not add a
+  test claiming to guard *that* without checking the test fails. What is pinned is the **call
+  site** — `tests/unit/test_sequential_design.py` asserts the matrix `fit_regimen` passes is
+  `covariate_history(t)` bit for bit, and was mutated to `history_design(...)` and seen to
+  fail. A structural pin is the right instrument here precisely because both designs are
+  consistent: it catches the silent edit without pretending to adjudicate the statistics.
   The oracle for all of this is `tests/discrete_law_longitudinal.py`, where `W` and `L2` are
   binary so a rule is a lookup over cells: `REGIMEN_ARMS` states the plans for the oracle and
   `REGIMEN_SPEC` states the same plans as callables for the estimator, deliberately in two

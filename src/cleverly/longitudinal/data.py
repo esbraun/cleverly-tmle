@@ -503,15 +503,22 @@ class LongitudinalData:
         buy no information, only a redundant column for a penalised learner to spread a
         coefficient across.
 
-        **No test in this repository would catch that being changed**, which is why the
-        reasoning is written here rather than left to a fixture.  Two independent things
-        hide it.  On the exact law the learner is saturated, and it partitions by distinct
-        design row: a column that is a function of the others leaves the partition, and so
-        every prediction, untouched.  Under ``glm`` the natural comparison is a rule that
-        ignores the history against the constant plan it equals -- but such a rule assigns
-        a *constant*, and a constant column is standardised to zeros and then ignored, on
-        both sides of the comparison.  A genuinely dynamic rule would see a difference and
-        has no second answer to be checked against.  Change this only with an argument.
+        **No fit in this repository would come out differently if that were changed**,
+        which is why the reasoning is written here rather than left to a fixture.  Two
+        independent things hide it.  On the exact law the learner is saturated, and it
+        partitions by distinct design row: a column that is a function of the others
+        leaves the partition, and so every prediction, untouched.  Under ``glm`` the
+        natural comparison is a rule that ignores the history against the constant plan it
+        equals -- but such a rule assigns a *constant*, and a constant column is
+        standardised to zeros and then ignored, on both sides of the comparison.  A
+        genuinely dynamic rule would see a difference and has no second answer to be
+        checked against.  Change this only with an argument.
+
+        What ``tests/unit/test_sequential_design.py`` adds is the *call site*, not the
+        argument: it pins that ``fit_regimen`` is handed
+        :meth:`covariate_history` bit for bit, so the decision cannot be reversed by an
+        edit that reads as a tidy-up.  It says nothing about which design is right, and a
+        test claiming to say that should be mutated and seen to fail before it is trusted.
         """
         columns = [self.covariate_history(time)]
         last = time if include_current else time - 1

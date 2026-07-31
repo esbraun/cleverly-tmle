@@ -906,6 +906,15 @@ class TestLongitudinalInference:
     keying into the result for an ``intermediate=`` level, which a longitudinal result
     answers with a ``KeyError`` -- swallowed by the replicate loop, so every replication
     "failed" and the study blamed the estimator configuration.
+
+    **The dynamic-rule case in this class has not run at these settings**, and is recorded
+    that way rather than implied to have passed.  The slow tier does not run in the
+    sandbox this was written in (``CLAUDE.md``), and it was added between two scheduled
+    nightlies.  What *was* run is a reduced check at ``n=800`` over 12 replicates: the
+    rule's bias there was ``-0.002`` against ``longitudinal_rule_truth``, which says the
+    estimator is pointed at the right parameter and says nothing about coverage, since 12
+    replicates cannot resolve a rate.  To check it before the next nightly, dispatch that
+    workflow with ``selection`` set to this class's node id.
     """
 
     COLUMNS: ClassVar[dict[str, Any]] = {
@@ -957,36 +966,67 @@ class TestLongitudinalInference:
             n_jobs=2,
         ).run()
 
-    def test_the_intervals_cover_at_the_nominal_rate(self) -> None:
+    @pytest.fixture(scope="class")
+    def study(self) -> Any:
+        """One ``n=2000`` study, shared by the two tests that read it.
+
+        The coverage and the standard-error tests ask two questions of the *same* 400
+        replications -- did the intervals cover, and was the reported variance the actual
+        one -- and building the study twice answered them from two independent draws for
+        no reason.  Under ``pytest -n auto`` the saving is not guaranteed: xdist
+        distributes by test, so the two can still land on two workers and build it once
+        each.  That is the cost the class had before, never more, and a serial run halves
+        it -- which is the run a developer checking one case does.
+        """
+        return self._run(n=2000)
+
+    @pytest.fixture(scope="class")
+    def rates(self) -> tuple[Any, Any]:
+        """The ``n=500`` and ``n=4000`` studies the consistency check compares."""
+        return self._run(n=500), self._run(n=4000)
+
+    def test_the_intervals_cover_at_the_nominal_rate(self, study: Any) -> None:
         """The mechanism is logistic-linear in the recorded history, so ``glm`` gets it
         right and a shortfall here is the inference machinery rather than the nuisances.
         """
-        study = self._run(n=2000)
         for name in study.summaries:
             summary = study[name]
             assert summary.coverage > 0.90, summary
             assert abs(summary.coverage - 0.95) < 3.0 * summary.coverage_se + 0.02, summary
 
-    def test_the_reported_standard_error_is_honest(self) -> None:
+    def test_the_reported_standard_error_is_honest(self, study: Any) -> None:
         """The influence-curve variance against the actual spread of the estimates.
 
         A sequential fit divides by a product of ``2T`` probabilities, so this is where an
         optimistic variance would show first -- and an optimistic variance is how a
         coverage shortfall usually arises.
         """
-        study = self._run(n=2000)
         for name in study.summaries:
             assert 0.85 < study[name].se_ratio < 1.15, study[name]
 
-    def test_the_bias_shrinks_faster_than_root_n(self) -> None:
+    def test_the_bias_shrinks_faster_than_root_n(self, rates: tuple[Any, Any]) -> None:
         """Root-n consistency: ``sqrt(n) * bias`` stays bounded as ``n`` grows.
 
         The outcome regression carries a ``tanh`` term that ``glm`` cannot represent, so
         this is the double-robustness claim under repeated sampling -- a correct mechanism
         carrying a misspecified regression.
+
+        The rule is checked here as well as the constant pair, and costs no extra fits:
+        every replicate already estimates all five parameters, so this reads two more
+        columns off studies that were run anyway.  It is the half of the claim the
+        coverage tests do not make -- a rule's followers are a covariate-dependent set at
+        every node, and consistency of *that* recursion is a different statement from
+        whether the interval built on it covers at one ``n``.
+
+        A loop rather than ``parametrize`` deliberately.  ``pytest -n auto`` distributes
+        by test, so two parametrised cases can land on two workers and rebuild both
+        studies -- which would turn a free second assertion into a second pair of studies.
         """
-        name = "ate_regimen[always vs never]"
-        small = self._run(n=500)[name]
-        large = self._run(n=4000)[name]
-        assert abs(large.root_n_bias) < max(2.0 * abs(small.root_n_bias), 0.5), (small, large)
-        assert abs(large.bias) < abs(small.bias) + 3.0 * large.bias_se, (small, large)
+        for name in ("ate_regimen[always vs never]", f"ate_regimen[{RULE_LABEL} vs never]"):
+            small, large = (study[name] for study in rates)
+            assert abs(large.root_n_bias) < max(2.0 * abs(small.root_n_bias), 0.5), (
+                name,
+                small,
+                large,
+            )
+            assert abs(large.bias) < abs(small.bias) + 3.0 * large.bias_se, (name, small, large)

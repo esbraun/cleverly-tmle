@@ -697,8 +697,9 @@ res = LTMLE(
     {
         "always": 1,
         "never": 0,
-        # An entry is an arm or a rule; mixing them is the ordinary case.
-        "continue if L2 > 0": (1, lambda h: (h["L2"] > 0).astype(float)),
+        # An entry is an arm or a rule; mixing them is the ordinary case. A rule gets the
+        # history in the backend you passed in and may return that backend's booleans.
+        "continue if L2 > 0": (1, lambda h: h["L2"] > 0),
     },
     reference="never",
     outcome_learner="glm",
@@ -727,7 +728,15 @@ ate_regimen[continue if L2 > 0 vs never]  0.3247    0.0245      [0.2768, 0.3726]
   regimens: always=(1/1), never=(0/0), continue if L2 > 0=(1/d)
     a 'd' is a rule d_t(H_t) read off [W, L_1, ..., L_t]; its followers are a
     covariate-dependent set, so the counts below describe this sample
+    assigned arms, continue if L2 > 0: 4e3adffa150fba33
 ```
+
+A `d` says a rule was declared and not *which* rule, and two rules are two parameters —
+so the line under it digests the `(n, T)` arms the rule actually assigned this sample.
+That is the only stable fingerprint a closure has, and it is what makes `1{L2 > 0}` and
+`1{L2 > 5}` distinguishable in a saved report; a rule written as a `def` is additionally
+named, as `d:responders`. A static plan gets no such line, because `1/1` already says
+everything there is to say about it.
 
 **A rule is handed `[W, L₁, …, L_t]` and nothing else**, in the backend you passed in.
 Not the outcome — reading it is not an intervention — and not the earlier treatments,

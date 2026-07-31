@@ -44,9 +44,14 @@ __all__ = [
 #: its truth up by the name a fit reports, so the process and the study have to mean the
 #: same regimen by it.
 #:
-#: Its truth is ``0.738``, and the threshold was chosen with one coincidence deliberately
-#: avoided: ``0.5`` is ``sequential._FILLER``, the value a prediction leaking from a
-#: censored row would carry, so a parameter whose truth sat there would let that bug pass.
+#: Its truth is ``0.740``, and one coincidence was deliberately avoided in getting there.
+#: ``0.5`` is ``sequential._FILLER``, the value a prediction leaking from a censored row
+#: carries, so a parameter whose truth sat there would let that bug pass -- and the first
+#: draft's did, to twelve decimal places.  What was changed to move it was the **first
+#: node's arm**, from ``0`` to ``1``, not the threshold: ``d_2`` still splits at ``0``,
+#: and ``longitudinal_rule_truth(0.0, rule_arm_at_node_two)`` still comes to ``0.5``.
+#: So a rule with ``d_1 = 0`` is not unusable -- ``tests/e2e/test_ltmle.py`` uses one,
+#: because it puts the rule furthest from both constants -- it is unusable as a *truth*.
 RULE_LABEL = "treat then continue if l2 positive"
 
 
@@ -118,7 +123,12 @@ def longitudinal_rule_truth(
     r"""``E[Y_d]`` where the second node is a **rule** :math:`d_2(L_2)`, not a constant.
 
     ``rule2`` must be a step function of :math:`L_2` with its single jump at ``split``;
-    it is handed an array and must return one arm per entry.
+    it is handed an array and must return one arm per entry.  That precondition is
+    **checked, not trusted** -- see :func:`_check_step_rule`.  This routine's whole job is
+    to be a *truth*, and a truth that is quietly wrong for an off-contract input is worse
+    than no truth at all: the arm is read once per panel, so a rule jumping anywhere else
+    would be integrated as though its jump were at ``split`` and would come back a
+    perfectly plausible number.
 
     **Why this is not** :func:`longitudinal_truth` **with a rule passed in.**  A product
     Gauss--Hermite rule converges spectrally on a smooth integrand and *algebraically* on
@@ -160,10 +170,54 @@ def longitudinal_rule_truth(
         # Constant across the panel by construction, which is the whole point: the arm is
         # read once at an interior point rather than resolved node by node.
         arm = float(np.asarray(rule2(np.array([0.5 * (lower + upper)]))).reshape(-1)[0])
+        _check_step_rule(rule2, grid.reshape(-1), arm, (lower, upper), split)
         integrand = density * _outcome_probability(w1, w2, grid, a1, arm)
         over_l2 = half * np.sum(integrand * quadrature.reshape(1, 1, -1), axis=2)
         total += float(np.sum(gauss[:, :, 0] * over_l2))
     return total
+
+
+def _check_step_rule(
+    rule2: Callable[[Any], Any],
+    grid: Any,
+    arm: float,
+    panel: tuple[float, float],
+    split: float,
+) -> None:
+    """Refuse a rule that is not the step function the panel decomposition assumes.
+
+    The rule is evaluated on the quadrature nodes this panel is about to sum over -- the
+    same points, so the check costs one extra call per panel and asks exactly the question
+    the integral needs answered: is the arm the constant that was read at the midpoint?
+
+    Refusing by name rather than returning a number, because every accuracy claim in the
+    longitudinal section rests on this function.  A rule whose jump is elsewhere does not
+    make the quadrature fail; it makes it answer for a different regimen.
+    """
+    lower, upper = panel
+    if arm not in (0.0, 1.0):
+        raise ValueError(
+            f"the rule returned {arm!r} at l2={0.5 * (lower + upper)!r}; a longitudinal "
+            "fit takes a binary treatment at every node, so d_2 must return 0 or 1"
+        )
+    arms = np.asarray(rule2(np.asarray(grid)), dtype=float).reshape(-1)
+    if arms.shape[0] != np.asarray(grid).shape[0]:
+        raise ValueError(
+            f"the rule returned {arms.shape[0]} arm(s) for {np.asarray(grid).shape[0]} "
+            "values of l2; it must return one arm per entry"
+        )
+    disagree = arms != arm
+    if disagree.any():
+        witness = float(np.asarray(grid).reshape(-1)[np.argmax(disagree)])
+        raise ValueError(
+            f"the rule is not constant on ({lower:g}, {upper:g}): it returns {arm:g} at "
+            f"l2={0.5 * (lower + upper):g} and {arms[np.argmax(disagree)]:g} at "
+            f"l2={witness:g}. This routine integrates l2 as two Gauss-Legendre panels "
+            f"meeting at split={split:g} and reads the arm once per panel, so it can only "
+            "take a step function whose single jump is at split. A rule with its jump "
+            "elsewhere needs split= set to it; a rule with two jumps needs a third panel, "
+            "which is a change to this function rather than an argument to it"
+        )
 
 
 def _quadrature(a1: float, a2: float, nodes: int) -> float:
