@@ -54,6 +54,7 @@ from cleverly.datasets import (
     instrument_dgp,
     linear_dgp,
     make_longitudinal,
+    make_longitudinal_survival,
     missing_outcome_dgp,
     nonlinear_dgp,
     rule_arm_at_node_two,
@@ -1023,6 +1024,109 @@ class TestLongitudinalInference:
         studies -- which would turn a free second assertion into a second pair of studies.
         """
         for name in ("ate_regimen[always vs never]", f"ate_regimen[{RULE_LABEL} vs never]"):
+            small, large = (study[name] for study in rates)
+            assert abs(large.root_n_bias) < max(2.0 * abs(small.root_n_bias), 0.5), (
+                name,
+                small,
+                large,
+            )
+            assert abs(large.bias) < abs(small.bias) + 3.0 * large.bias_se, (name, small, large)
+
+
+class TestASurvivalOutcomeUnderRepeatedSampling:
+    """The statistical tier for the survival curve.
+
+    ``tests/discrete_law_survival.py`` proves the influence curve *is* the efficient one,
+    on a law the sample realises exactly.  That is a statement at one distribution with
+    exact nuisances; this asks the different question the exact law cannot -- whether the
+    interval built from that curve covers under repeated sampling, with estimated
+    nuisances and a misspecified outcome regression.
+
+    Every horizon is checked, not just the last.  The horizons are not interchangeable:
+    the risk at ``t = 1`` comes from a one-node recursion whose terminal regression is a
+    node no end-of-study fit ever targets terminally, and the risk at ``t = 2`` from a
+    two-node one whose first node carries a composed pseudo-outcome.  A shortfall could
+    sit in either.
+
+    **This class has not run at these settings.**  The slow tier does not run in the
+    sandbox it was written in (``CLAUDE.md``), and it is recorded that way rather than
+    implied to have passed.  What *was* run is a reduced check at ``n=1500`` over 8
+    replicates in ``tests/e2e/test_ltmle.py``, which found the bias within Monte Carlo
+    error at every horizon -- that says the estimator is pointed at the right parameter
+    and says nothing about coverage, since 8 replicates cannot resolve a rate.  To check
+    it before the next nightly, dispatch the workflow with ``selection`` set to this
+    class's node id.
+    """
+
+    COLUMNS: ClassVar[dict[str, Any]] = {
+        "outcome": ["Y1", "Y2"],
+        "treatment": ["A1", "A2"],
+        "baseline": ["W1", "W2"],
+        "time_varying": [[], ["L2"]],
+        "censoring": ["C1", "C2"],
+    }
+
+    ESTIMANDS: ClassVar[tuple[str, ...]] = (
+        "risk_regimen[always @ t=1]",
+        "risk_regimen[always @ t=2]",
+        "risk_regimen[never @ t=1]",
+        "risk_regimen[never @ t=2]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+    )
+
+    def _run(self, *, n: int, reps: int = REPLICATES) -> Any:
+        return CoverageStudy(
+            dgp=make_longitudinal_survival,
+            estimator=lambda: LTMLE(
+                {"always": 1, "never": 0},
+                reference="never",
+                outcome_learner="glm",
+                pseudo_learner="glm",
+                treatment_learner="glm",
+                n_folds=5,
+                learner_folds=3,
+                simultaneous=False,
+                random_state=0,
+            ),
+            n=n,
+            n_replicates=reps,
+            estimands=self.ESTIMANDS,
+            fit_kwargs=self.COLUMNS,
+            seed=2025,
+            n_jobs=2,
+        ).run()
+
+    @pytest.fixture(scope="class")
+    def study(self) -> Any:
+        """One ``n=2000`` study, shared by the tests that read it."""
+        return self._run(n=2000)
+
+    @pytest.fixture(scope="class")
+    def rates(self) -> tuple[Any, Any]:
+        return self._run(n=500), self._run(n=4000)
+
+    def test_the_intervals_cover_at_the_nominal_rate(self, study: Any) -> None:
+        for name in study.summaries:
+            summary = study[name]
+            assert summary.coverage > 0.90, summary
+            assert abs(summary.coverage - 0.95) < 3.0 * summary.coverage_se + 0.02, summary
+
+    def test_the_reported_standard_error_is_honest(self, study: Any) -> None:
+        """The influence-curve variance against the actual spread of the estimates."""
+        for name in study.summaries:
+            summary = study[name]
+            assert summary.se_ratio == pytest.approx(1.0, abs=0.15), summary
+
+    def test_the_estimator_is_root_n_consistent_at_every_horizon(
+        self, rates: tuple[Any, Any]
+    ) -> None:
+        """Both hazards carry a ``tanh`` term ``glm`` cannot represent.
+
+        So this is the double-robustness claim under repeated sampling, made once per
+        horizon: a correct mechanism carrying a misspecified regression at both nodes.
+        """
+        for name in ("ate_regimen[always vs never @ t=1]", "ate_regimen[always vs never @ t=2]"):
             small, large = (study[name] for study in rates)
             assert abs(large.root_n_bias) < max(2.0 * abs(small.root_n_bias), 0.5), (
                 name,

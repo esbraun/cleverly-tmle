@@ -28,13 +28,20 @@ they are strictly stronger than at one time point:
   cumulative weight it produced;
 * **consistency**, and no interference.
 
+With a **survival** outcome -- one absorbing event indicator per node, declared by passing
+``outcome=[...]`` rather than a single name -- the parameter is instead the cumulative
+risk curve :math:`F_{\bar a}(t) = P(\text{event by } t)` at every horizon, reported with
+the joint influence-curve matrix that makes a simultaneous band over the curve the natural
+object.  It is the same recursion and the same clever covariate; what moves is which rows
+each node's regression is fitted on.
+
 What is refused rather than approximated is listed in the README; the short version is
 that this estimator answers for a regimen -- static or dynamic -- over a binary treatment
-at every node, with a single end-of-study outcome and monotone censoring.  A survival
-outcome with a time-varying event indicator, competing risks and a marginal structural
-model over time each need their own derivation, and each is refused by name -- the
-keyword is accepted and rejected with what the derivation would need, rather than
-arriving as an ``unexpected keyword argument``.  :data:`_REFUSED` is that table.
+at every node, for one end-of-study outcome or one absorbing event, with monotone
+censoring.  Competing risks and a marginal structural model over time each need their own
+derivation, and each is refused by name -- the keyword is accepted and rejected with what
+the derivation would need, rather than arriving as an ``unexpected keyword argument``.
+:data:`_REFUSED` is that table.
 """
 
 from __future__ import annotations
@@ -100,13 +107,20 @@ _REFUSED: dict[str, str] = {
         "likelihood: encode it as a final censoring column, so that its probability is "
         "estimated and enters the cumulative product rather than being assumed one"
     ),
+    # Kept as a key rather than deleted now that a survival outcome is supported:
+    # dropping it would fall through to "unexpected keyword argument", which reads as a
+    # misspelling rather than as a pointer to the keyword that does this.
     "event": (
-        "a survival outcome makes Y a node at every time point rather than one at the "
-        "end, and the parameter a curve rather than a number"
+        "a survival outcome is declared by the outcome columns themselves, not beside "
+        "them. Pass one event indicator per time point -- outcome=['Y1', 'Y2', ...], in "
+        "the same order as treatment= -- and the fit reports a cumulative risk at every "
+        "horizon rather than one number"
     ),
     "competing": (
         "competing risks make the outcome a node at every time point with more than one "
-        "absorbing state, and the parameter a set of cumulative incidences"
+        "absorbing state, and the parameter a set of cumulative incidences. A single "
+        "absorbing event is supported: pass one event indicator per time point as "
+        "outcome=[...]"
     ),
     "n_bootstrap": (
         "the targeted bootstrap resamples rows and refits, which needs a subset() on the "
@@ -117,6 +131,29 @@ _REFUSED: dict[str, str] = {
         "here, and the config says which of the two a fit used"
     ),
 }
+
+
+#: What separates a regimen from the horizon it is reported at, inside the brackets of a
+#: parameter name and in the key of :attr:`LongitudinalResult.fits`.  Both are *composed*
+#: from ``(label, horizon)`` rather than parsed back out of each other, so the two can
+#: never drift; this constant exists so that a regimen label containing it can be refused
+#: rather than producing a name nobody can read either way.
+HORIZON_INFIX = " @ t="
+
+
+def _index(label: str, horizon: int, survival: bool) -> str:
+    """What goes inside the brackets of a parameter name."""
+    return f"{label}{HORIZON_INFIX}{horizon}" if survival else label
+
+
+def _fit_key(label: str, horizon: int, survival: bool) -> str:
+    """The key one regimen's fit at one horizon is filed under.
+
+    The same string :func:`_index` builds, and deliberately so: a terminal fit is keyed
+    by its regimen label exactly as it always was, and a survival fit by the pair that
+    indexes its parameter.
+    """
+    return _index(label, horizon, survival)
 
 
 def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> None:
@@ -137,6 +174,12 @@ class LongitudinalConfig:
 
     family: str
     n_times: int
+    #: The outcome column(s): one name for an end-of-study outcome, one per node for a
+    #: survival one.  Which it is decides what the fit reports, so it belongs in the
+    #: record of what the fit did rather than being recoverable only from the names.
+    outcome_names: tuple[str, ...]
+    #: The horizons reported, ``(T,)`` on an end-of-study fit.
+    horizons: tuple[int, ...]
     regimens: tuple[RegimenSpec, ...]
     reference: str
     n_folds: int
@@ -161,6 +204,13 @@ class LongitudinalConfig:
             f"outcome family: {self.family}",
             f"regimens: {plans}",
         ]
+        if len(self.outcome_names) > 1:
+            lines.insert(
+                1,
+                f"outcome: survival, event indicator at {', '.join(self.outcome_names)}",
+            )
+            reported = ", ".join(str(horizon) for horizon in self.horizons)
+            lines.insert(2, f"horizons reported: t = {reported}")
         dynamic = {
             regimen.label for regimen in self.regimens if isinstance(regimen, DynamicRegimen)
         }
@@ -311,8 +361,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         is the number a reader needs, since what a rule assigns is a property of the data
         rather than of the declaration and appears nowhere in the settings report.
         """
+        survival = self.data.is_survival
         rows: dict[str, list[Any]] = {
             "regimen": [],
+            **({"horizon": []} if survival else {}),
             "time": [],
             "n_followed": [],
             "share_assigned_1": [],
@@ -321,12 +373,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "epsilon": [],
             "converged": [],
         }
-        for label, fit in self.fits.items():
+        # Read off the fit's own fields rather than the key it is filed under: on a
+        # survival fit that key is the regimen *and* the horizon, and a ``regimen``
+        # column carrying both would be the one column here nobody could group by.
+        for fit in self.fits.values():
             for step in fit.steps:
                 weights = step.clever[step.trained_on]
                 total = float(np.sum(weights))
                 assigned = fit.assignment[step.at_risk, step.time - 1]
-                rows["regimen"].append(label)
+                rows["regimen"].append(fit.regimen.label)
+                if survival:
+                    rows["horizon"].append(fit.horizon)
                 rows["time"].append(step.time)
                 rows["n_followed"].append(step.n_trained)
                 rows["share_assigned_1"].append(
@@ -374,6 +431,65 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     # ---------------------------------------------------------------- reports
 
+    def curve(self, scale: str = "risk") -> Any:
+        """The survival report as a curve: a row per parameter per horizon.
+
+        ``scale="risk"`` reports what the fit estimated, the cumulative risk
+        :math:`F(t)` and the risk difference between regimens at each horizon.
+        ``scale="survival"`` reports :math:`S(t) = 1 - F(t)` instead.
+
+        The map from one to the other is **not** one rule.  For a level,
+        :math:`S = 1 - F`: the estimate is mirrored about a half and so is its interval.
+        For a *contrast* it is :math:`S_a - S_b = -(F_a - F_b)`: the estimate is negated
+        and the interval negated and swapped.  Applying ``1 - x`` to a risk difference
+        would report ``1 - RD``, which is not a quantity, with an interval that would
+        look perfectly reasonable -- so this branches on
+        :attr:`~cleverly.inference.ParameterEstimate.scale` rather than on the caller
+        getting it right.  The standard error is the same either way, both maps being
+        linear with slope of modulus one.
+
+        The ``time`` column lives here rather than on :meth:`to_frame`, which keeps the
+        column names a point-treatment fit reports.
+        """
+        if scale not in ("risk", "survival"):
+            raise ValueError(f"scale must be 'risk' or 'survival'; got {scale!r}")
+        if not self.data.is_survival:
+            raise ValueError(
+                f"this fit has one end-of-study outcome ({self.data.outcome_name!r}), so "
+                "its report is a number and not a curve. Pass one outcome column per "
+                "time point -- outcome=[...] -- to estimate a cumulative risk at every "
+                "horizon; result.to_frame() is the report for this fit"
+            )
+        rows: dict[str, list[Any]] = {
+            "estimand": [],
+            "regimen": [],
+            "time": [],
+            "psi": [],
+            "std_err": [],
+            "ci_lower": [],
+            "ci_upper": [],
+            "scale": [],
+        }
+        for name, estimate in self.estimates.items():
+            index = name[name.index("[") + 1 : -1]
+            label, _, horizon = index.rpartition(HORIZON_INFIX)
+            low, high = estimate.ci
+            if scale == "risk":
+                psi, low, high = estimate.psi, low, high
+            elif estimate.scale == "level":
+                psi, low, high = 1.0 - estimate.psi, 1.0 - high, 1.0 - low
+            else:
+                psi, low, high = -estimate.psi, -high, -low
+            rows["estimand"].append(name)
+            rows["regimen"].append(label)
+            rows["time"].append(int(horizon))
+            rows["psi"].append(float(psi))
+            rows["std_err"].append(estimate.std_error)
+            rows["ci_lower"].append(float(low))
+            rows["ci_upper"].append(float(high))
+            rows["scale"].append(estimate.scale)
+        return self.data.frame_like(rows)
+
     def to_frame(self) -> Any:
         """One row per reported parameter, in the backend the data came from.
 
@@ -418,10 +534,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "",
             *(f"  {line}" for line in facts),
         ]
-        for label, fit in self.fits.items():
+        # One line per regimen, from the fit that runs to the last node: "throughout"
+        # means through the study, and a horizon-k fit stops at k, where the same
+        # sentence would be false.  Per-horizon leverage is what diagnostics() is for.
+        deepest = max(fit.horizon for fit in self.fits.values())
+        for fit in self.fits.values():
+            if fit.horizon != deepest:
+                continue
             lines.append(
-                f"  {label}: {fit.steps[-1].n_trained} of {self.n} units followed it "
-                f"throughout; max weight {fit.max_weight:.1f}, "
+                f"  {fit.regimen.label}: {fit.steps[-1].n_trained} of {self.n} units "
+                f"followed it throughout; max weight {fit.max_weight:.1f}, "
                 f"effective n {fit.effective_n:.0f}"
             )
         if self.simultaneous is not None:
@@ -466,6 +588,15 @@ class LTMLE:
     alpha:
         Predicted probabilities are bounded into ``[1 - alpha, alpha]`` before the logit
         is taken, as for :class:`~cleverly.TMLE`.
+    horizons:
+        Which time points a **survival** fit reports the cumulative risk at.  ``None``
+        reports all of them, which is the curve.  Each horizon is its own backward pass
+        -- the pseudo-outcome carried back differs at every node, so nothing is shared
+        between them but the mechanism -- and the cost is therefore ``T(T+1)/2``
+        regressions per regimen rather than ``T``.  At two or three nodes that is not
+        worth a keyword; over a monthly panel it is the difference between a fit and an
+        afternoon, so name the horizons you will report.  Refused on a fit with one
+        end-of-study outcome, where the only horizon is the end of the study.
     alpha_sig:
         Significance level for confidence intervals, as for :class:`~cleverly.TMLE`.
         The two ``alpha``\\ s mean what they mean there and not the other way round: this
@@ -484,6 +615,7 @@ class LTMLE:
         regimens: Any,
         *,
         reference: str | None = None,
+        horizons: Sequence[int] | None = None,
         outcome_learner: Learner | str | Sequence[Any] | None = None,
         pseudo_learner: Learner | str | Sequence[Any] | None = None,
         treatment_learner: Learner | str | Sequence[Any] | None = None,
@@ -506,6 +638,7 @@ class LTMLE:
     ) -> None:
         self.regimens = regimens
         self.reference = reference
+        self.horizons = horizons
         self.outcome_learner = outcome_learner
         self.pseudo_learner = pseudo_learner
         self.treatment_learner = treatment_learner
@@ -559,7 +692,7 @@ class LTMLE:
         self,
         data: Any,
         *,
-        outcome: str | None = None,
+        outcome: str | Sequence[str] | None = None,
         treatment: Sequence[str] | None = None,
         baseline: Sequence[str] | None = None,
         time_varying: Sequence[Sequence[str]] | None = None,
@@ -581,6 +714,14 @@ class LTMLE:
             family=family,
         )
         regimens = resolve_regimens(self.regimens, prepared.n_times)
+        if prepared.is_survival:
+            clashing = sorted(r.label for r in regimens if HORIZON_INFIX in r.label)
+            if clashing:
+                raise ValueError(
+                    f"regimen label(s) {clashing} contain {HORIZON_INFIX!r}, which is what "
+                    "separates a regimen from the horizon it is reported at on a survival "
+                    "fit. Two parameters would then share a name; rename the regimen"
+                )
         reference = self._reference(regimens)
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
@@ -611,11 +752,13 @@ class LTMLE:
         )
 
         outcome_task = "classification" if prepared.family == "binomial" else "regression"
+        horizons = self._horizons(prepared)
         fits = {
-            plan.label: fit_regimen(
+            _fit_key(plan.label, horizon, prepared.is_survival): fit_regimen(
                 prepared,
                 plan,
                 mechanism,
+                horizon=horizon,
                 outcome_learner=resolve_learner(
                     self.outcome_learner,
                     task=outcome_task,  # type: ignore[arg-type]
@@ -637,12 +780,17 @@ class LTMLE:
                 tol=self.tol,
                 n_jobs=self.n_jobs,
             )
+            # Regimen-outer, horizon-inner, so the report reads down a regimen's curve
+            # rather than across the regimens at each time.
             for plan in plans
+            for horizon in horizons
         }
 
         config = LongitudinalConfig(
             family=prepared.family,
             n_times=prepared.n_times,
+            outcome_names=(prepared.event_names or (prepared.outcome_name,)),
+            horizons=horizons,
             regimens=regimens,
             reference=reference.label,
             n_folds=folds.n_folds,
@@ -672,7 +820,7 @@ class LTMLE:
         self,
         data: Any,
         *,
-        outcome: str | None,
+        outcome: str | Sequence[str] | None,
         treatment: Sequence[str] | None,
         baseline: Sequence[str] | None,
         time_varying: Sequence[Sequence[str]] | None,
@@ -715,6 +863,32 @@ class LTMLE:
             id=id,
             family=family,
         )
+
+    def _horizons(self, data: LongitudinalData) -> tuple[int, ...]:
+        """Which nodes the fit reports a parameter at."""
+        if not data.is_survival:
+            if self.horizons is not None:
+                raise ValueError(
+                    "horizons= applies to a survival outcome, and this fit has one "
+                    f"end-of-study outcome ({data.outcome_name!r}), whose only horizon is "
+                    "the end of the study. Pass one outcome column per time point -- "
+                    "outcome=[...] -- to report a curve"
+                )
+            return (data.n_times,)
+        if self.horizons is None:
+            return tuple(range(1, data.n_times + 1))
+        wanted = tuple(int(horizon) for horizon in self.horizons)
+        if not wanted:
+            raise ValueError("horizons= is empty; a fit reporting no parameter is not one")
+        outside = sorted({h for h in wanted if not 1 <= h <= data.n_times})
+        if outside:
+            raise ValueError(
+                f"horizons= names {outside}, which is outside 1..{data.n_times}; a "
+                "horizon is one of the fit's own time points"
+            )
+        if len(set(wanted)) != len(wanted):
+            raise ValueError(f"horizons= repeats a time point: {list(wanted)}")
+        return tuple(sorted(wanted))
 
     def _bands(
         self, estimates: Mapping[str, ParameterEstimate], data: LongitudinalData
@@ -820,10 +994,18 @@ class LTMLE:
         scaler: OutcomeScaler,
         reference: RegimenSpec,
     ) -> dict[str, ParameterEstimate]:
+        survival = data.is_survival
+        # ``ey_regimen`` is a mean of the outcome and ``risk_regimen`` a probability of
+        # an event by a horizon.  E[Y_k] *is* that probability, so a single name would
+        # not be wrong -- but the two come from different derivations, and a saved frame
+        # or a coverage study's truth dict keyed by name is where that would stop being
+        # a distinction without a difference.
+        head = "risk_regimen" if survival else "ey_regimen"
         estimates: dict[str, ParameterEstimate] = {}
-        for label, fit in fits.items():
-            estimates[f"ey_regimen[{label}]"] = make_estimate(
-                f"ey_regimen[{label}]",
+        for fit in fits.values():
+            name = f"{head}[{_index(fit.regimen.label, fit.horizon, survival)}]"
+            estimates[name] = make_estimate(
+                name,
                 scaler.unscale_level(fit.psi_scaled),
                 scaler.unscale_influence(fit.influence_curve_scaled),
                 n=data.n,
@@ -831,11 +1013,14 @@ class LTMLE:
                 scale="level",
                 alpha=self.alpha_sig,
             )
-        base = fits[reference.label]
-        for label, fit in fits.items():
-            if label == reference.label:
+        for fit in fits.values():
+            if fit.regimen.label == reference.label:
                 continue
-            name = f"ate_regimen[{label} vs {reference.label}]"
+            # The contrast is between the same two regimens at the *same* horizon; a
+            # difference of risks at different horizons is not a treatment effect.
+            base = fits[_fit_key(reference.label, fit.horizon, survival)]
+            contrast = f"{fit.regimen.label} vs {reference.label}"
+            name = f"ate_regimen[{_index(contrast, fit.horizon, survival)}]"
             estimates[name] = make_estimate(
                 name,
                 scaler.unscale_difference(fit.psi_scaled - base.psi_scaled),
@@ -852,7 +1037,7 @@ def ltmle(
     data: Any,
     *,
     regimens: Any,
-    outcome: str,
+    outcome: str | Sequence[str],
     treatment: Sequence[str],
     baseline: Sequence[str],
     time_varying: Sequence[Sequence[str]] | None = None,

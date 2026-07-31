@@ -32,8 +32,16 @@ __all__ = [
     "longitudinal_rule_truth",
     "longitudinal_truth",
     "make_longitudinal",
+    "make_longitudinal_survival",
     "rule_arm_at_node_two",
+    "survival_truth",
 ]
+
+#: What separates a regimen from the horizon it is reported at, mirrored from
+#: :data:`cleverly.longitudinal.estimator.HORIZON_INFIX` rather than imported, so a
+#: dataset does not depend on an estimator: the two agreeing is exactly what a coverage
+#: study needs, and ``test_datasets_longitudinal`` checks it against a real fit.
+_HORIZON_INFIX = " @ t="
 
 #: The dynamic regimen :func:`make_longitudinal` ships a truth for: treat everybody at
 #: the first node, then keep treating only those whose biomarker rose --
@@ -328,4 +336,188 @@ def make_longitudinal(
     truth[f"ate_regimen[{RULE_LABEL} vs never]"] = (
         truth[f"ey_regimen[{RULE_LABEL}]"] - truth["ey_regimen[never]"]
     )
+    return frame_from_dict(payload, backend=backend), truth
+
+
+#: Coefficients of the hazard at the first time point,
+#: ``logit P(Y1 = 1 | W1, W2, A1, C1 = 1)``.
+_H1 = {"intercept": -1.1, "a1": -0.7, "w1": 0.35, "w2": -0.25}
+
+#: Coefficients of the hazard at the second, among the units still at risk there.  The
+#: ``tanh`` term keeps the regression off a linear index, as ``_Y`` does, so a ``glm``
+#: nuisance learner is misspecified here rather than accidentally exact.
+_H2 = {
+    "intercept": -1.15,
+    "a1": -0.25,
+    "a2": -0.8,
+    "l2": 0.4,
+    "w1": 0.3,
+    "w2": -0.2,
+    "kink": 0.5,
+}
+
+
+def _hazard_one(w1: FloatArray, w2: FloatArray, a1: FloatArray | float) -> FloatArray:
+    """``P(Y1 = 1 | W1, W2, A1, C1 = 1)``, at a regimen's arm or at each unit's own."""
+    return expit(_H1["intercept"] + _H1["a1"] * a1 + _H1["w1"] * w1 + _H1["w2"] * w2)
+
+
+def _hazard_two(
+    w1: FloatArray,
+    w2: FloatArray,
+    l2: FloatArray,
+    a1: FloatArray | float,
+    a2: FloatArray | float,
+) -> FloatArray:
+    """``P(Y2 = 1 | ...)`` among the units at risk entering the second node."""
+    index = (
+        _H2["intercept"]
+        + _H2["a1"] * a1
+        + _H2["a2"] * a2
+        + _H2["l2"] * l2
+        + _H2["w1"] * w1
+        + _H2["w2"] * w2
+        + _H2["kink"] * np.tanh(l2)
+    )
+    return expit(index)
+
+
+@cache
+def survival_truth(a1: float, a2: float, horizon: int, nodes: int = 48) -> float:
+    r"""``P(Y_{k} = 1)`` under the static regimen ``(a1, a2)`` -- the cumulative risk.
+
+    Under the intervention the treatment and censoring mechanisms drop out, so
+
+    .. math::
+
+        F(1) &= E\bigl[h_1(W, a_1)\bigr] \\
+        F(2) &= E\bigl[h_1(W, a_1) + (1 - h_1(W, a_1))\, h_2(W, L_2, a_1, a_2)\bigr]
+
+    over :math:`W_1`, :math:`W_2` and :math:`L_2`'s own noise, all standard normal and
+    all independent, which a product Gauss--Hermite rule evaluates to well under
+    ``1e-10``.
+
+    **The second line rests on one property of the process, and it is worth naming
+    because a plausible change to the process would silently break it.**  ``L2`` is drawn
+    from :math:`(W, A_1)` alone and *not* from ``Y1``, so the law of ``L2`` among the
+    units who survived the first node is the marginal law of ``L2``.  That is what lets
+    the same three-dimensional rule integrate both terms.  Let ``L2`` depend on the event
+    at the first node -- an entirely reasonable thing for a biomarker to do -- and
+    :math:`E[h_2 \mid Y_1 = 0]` stops being :math:`E[h_2]`, the rule above quietly
+    returns the wrong number, and every coverage assertion built on it inherits the
+    error.
+    """
+    points, weights = np.polynomial.hermite_e.hermegauss(nodes)
+    weights = weights / np.sqrt(2.0 * np.pi)
+    w1 = points.reshape(-1, 1, 1)
+    w2 = points.reshape(1, -1, 1)
+    noise = points.reshape(1, 1, -1)
+    mass = weights.reshape(-1, 1, 1) * weights.reshape(1, -1, 1) * weights.reshape(1, 1, -1)
+    hazard1 = _hazard_one(w1, w2, a1)
+    if horizon == 1:
+        return float(np.sum(mass * hazard1))
+    if horizon != 2:
+        raise ValueError(f"horizon must be 1 or 2; got {horizon}")
+    l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + noise
+    return float(np.sum(mass * (hazard1 + (1.0 - hazard1) * _hazard_two(w1, w2, l2, a1, a2))))
+
+
+def make_longitudinal_survival(
+    n: int = 2000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    censoring: bool = True,
+    cluster_size: int | None = None,
+    backend: str = "pandas",
+) -> tuple[Any, dict[str, float]]:
+    """Two time points, an **absorbing event at each**, and monotone censoring.
+
+    The survival counterpart of :func:`make_longitudinal`, with the same time-varying
+    confounding in it: ``L2`` is caused by ``A1`` and causes both ``A2`` and the hazard
+    at the second node.  Returns ``(frame, truth)``.
+
+    The frame is wide, with columns ``W1``, ``W2``, ``A1``, ``C1``, ``Y1``, ``L2``,
+    ``A2``, ``C2``, ``Y2`` in time order.  A unit that is censored or that **has the
+    event** has ``nan`` at every node after, which is what an absorbing outcome means and
+    what :class:`~cleverly.longitudinal.LongitudinalData` requires -- so the missingness
+    here has two causes rather than one, and a fit that conflated them would answer for a
+    different population.
+
+    ``truth`` holds ``risk_regimen[... @ t=k]`` for the four static regimens at both
+    horizons, and the contrast of ``always`` against ``never`` at each -- under the names
+    a fit reports them by, so a coverage study can look each up by the name it read off
+    the result.  **Static plans only**: a rule's truth needs the two-panel treatment
+    :func:`longitudinal_rule_truth` gives it, twice over, and a rule under a survival
+    outcome is already checked exactly in ``tests/discrete_law_survival.py``.
+    """
+    rng = np.random.default_rng(seed)
+    w1 = rng.standard_normal(n)
+    w2 = rng.standard_normal(n)
+
+    if cluster_size is None:
+        ids = None
+        shared = np.zeros(n)
+    else:
+        ids = np.arange(n) // cluster_size
+        shared = rng.standard_normal(int(ids.max()) + 1)[ids]
+
+    a1 = rng.binomial(1, expit(0.3 * w1 - 0.4 * w2 + 0.8 * shared)).astype(float)
+    c1 = (
+        rng.binomial(1, expit(2.2 + 0.3 * w1 - 0.3 * a1)).astype(float) if censoring else np.ones(n)
+    )
+    observed1 = c1 == 1.0
+
+    hazard1 = _hazard_one(w1, w2, a1)
+    if cluster_size is not None:
+        hazard1 = expit(np.log(hazard1 / (1.0 - hazard1)) + 0.8 * shared)
+    y1 = rng.binomial(1, hazard1).astype(float)
+    at_risk2 = observed1 & (y1 == 0.0)
+
+    # Drawn from (W, A1) and *not* from Y1 -- see ``survival_truth``, whose second line
+    # is only right because the survivors' L2 law is the marginal one.
+    l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + rng.standard_normal(n)
+    a2 = rng.binomial(1, expit(0.5 * l2 + 0.6 * a1 - 0.2 * w2 + 0.8 * shared)).astype(float)
+    c2 = rng.binomial(1, expit(2.4 + 0.2 * l2)).astype(float) if censoring else np.ones(n)
+    observed2 = at_risk2 & (c2 == 1.0)
+
+    hazard2 = _hazard_two(w1, w2, l2, a1, a2)
+    if cluster_size is not None:
+        hazard2 = expit(np.log(hazard2 / (1.0 - hazard2)) + 0.8 * shared)
+    y2 = rng.binomial(1, hazard2).astype(float)
+
+    payload = {
+        "W1": w1,
+        "W2": w2,
+        "A1": a1,
+        "C1": c1,
+        "Y1": np.where(observed1, y1, np.nan),
+        "L2": np.where(at_risk2, l2, np.nan),
+        "A2": np.where(at_risk2, a2, np.nan),
+        "C2": np.where(at_risk2, c2, np.nan),
+        # Carried forward for a unit that already had the event, which is what a wide
+        # survival frame looks like in practice and what the container accepts.
+        "Y2": np.where(observed1 & (y1 == 1.0), 1.0, np.where(observed2, y2, np.nan)),
+    }
+    if not censoring:
+        del payload["C1"]
+        del payload["C2"]
+    if ids is not None:
+        payload["id"] = ids.astype(float)
+
+    plans = (
+        ("always", (1.0, 1.0)),
+        ("never", (0.0, 0.0)),
+        ("early", (1.0, 0.0)),
+        ("late", (0.0, 1.0)),
+    )
+    truth = {
+        f"risk_regimen[{label}{_HORIZON_INFIX}{horizon}]": survival_truth(plan[0], plan[1], horizon)
+        for label, plan in plans
+        for horizon in (1, 2)
+    }
+    for horizon in (1, 2):
+        truth[f"ate_regimen[always vs never{_HORIZON_INFIX}{horizon}]"] = (
+            truth[f"risk_regimen[always{_HORIZON_INFIX}{horizon}]"]
+            - truth[f"risk_regimen[never{_HORIZON_INFIX}{horizon}]"]
+        )
     return frame_from_dict(payload, backend=backend), truth

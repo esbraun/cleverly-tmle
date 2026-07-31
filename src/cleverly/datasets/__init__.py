@@ -7,7 +7,9 @@ from .longitudinal import (
     longitudinal_rule_truth,
     longitudinal_truth,
     make_longitudinal,
+    make_longitudinal_survival,
     rule_arm_at_node_two,
+    survival_truth,
 )
 from .synthetic import (
     DGP,
@@ -68,6 +70,7 @@ __all__ = [
     "make_instrument",
     "make_linear_ate",
     "make_longitudinal",
+    "make_longitudinal_survival",
     "make_missing_outcome",
     "make_missing_outcome_binary",
     "make_multi_arm",
@@ -81,5 +84,6 @@ __all__ = [
     "rule_arm_at_node_two",
     "sampling_probability",
     "shift_dgp",
+    "survival_truth",
     "weak_overlap_dgp",
 ]

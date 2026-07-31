@@ -16,7 +16,19 @@ measured at time ``t`` *before* the treatment decision, ``A_t`` that decision, a
 outcome ``Y`` sits at the end, and is observed exactly for the units that were never
 censored.
 
-Three conventions are declared rather than inferred, because each one changes the
+A **survival** outcome moves ``Y`` into the ordering rather than leaving it at the end:
+
+.. math::
+
+    W,\; L_1,\, A_1,\, C_1,\, Y_1,\; L_2,\, A_2,\, C_2,\, Y_2,\; \ldots
+
+where ``Y_t`` says the event happened at time ``t``, and is *absorbing* -- the unit is
+out of the study from then on, so it has no ``L_{t+1}``, no ``A_{t+1}`` and no
+``C_{t+1}``.  Declare it by passing one outcome column per node instead of one column:
+``outcome=["Y1", "Y2"]``.  The parameter is then a curve, one cumulative risk per
+horizon, rather than a number.
+
+Four conventions are declared rather than inferred, because each one changes the
 estimand if it is read the other way:
 
 * **Censoring is monotone.**  ``C_t = 0`` means the unit left for good; a unit that
@@ -30,6 +42,11 @@ estimand if it is read the other way:
   and is refused with instructions to encode it as a final censoring node, so that the
   factor it contributes to the clever covariate is estimated rather than assumed to be
   one.
+* **The event is absorbing.**  ``Y_t = 1`` means the unit had the event and left the
+  risk set; a later ``Y_s = 0`` would say it un-happened, which is a recurrent-event
+  process with its own identification.  Checked, not assumed -- and, exactly as for
+  censoring, a unit that has already had the event may carry ``1`` at the later nodes or
+  nothing at all, since either way it says the same absorbing thing.
 
 The container holds numpy arrays and never branches on the dataframe backend; like
 :class:`~cleverly.data.causal_data.CausalData` it records the backend it came from so
@@ -114,6 +131,14 @@ class LongitudinalData:
     time_varying_names: tuple[tuple[str, ...], ...]
     family: str
     outcome_name: str = "Y"
+    #: ``(n, T)`` "had the event at or before ``t``" on a survival fit, and ``None`` on a
+    #: fit with one end-of-study outcome.  Cumulative, so it is monotone by construction
+    #: and :meth:`event_free_through` is a column read rather than a scan.  A unit
+    #: censored before the event carries ``False``: it is masked out of everything by
+    #: :meth:`uncensored_through` first, and a matrix with no missing entries is one no
+    #: caller has to remember to guard.
+    event: BoolArray | None = None
+    event_names: tuple[str, ...] = ()
     censoring_names: tuple[str, ...] = ()
     cluster: IntArray | None = None
     cluster_name: str | None = None
@@ -127,7 +152,7 @@ class LongitudinalData:
         cls,
         data: Any,
         *,
-        outcome: str,
+        outcome: str | Sequence[str],
         treatment: Sequence[str],
         baseline: Sequence[str],
         time_varying: Sequence[Sequence[str]] | None = None,
@@ -139,6 +164,12 @@ class LongitudinalData:
 
         Parameters
         ----------
+        outcome:
+            One column name for an end-of-study outcome, or **one per time point** for a
+            survival outcome, in the same order as ``treatment``.  Which of the two is
+            passed declares which parameter the fit answers, so it is read off the shape
+            rather than from a further keyword: a curve and a number are not the same
+            report, and a flag saying which would be a second place for them to disagree.
         treatment:
             Treatment column per time point, in time order.  Its length declares ``T``.
         baseline:
@@ -180,8 +211,21 @@ class LongitudinalData:
                     "treatment node(s); pass one (possibly empty) list per time point"
                 )
 
+        if isinstance(outcome, str):
+            outcome_names = [outcome]
+            survival = False
+        else:
+            outcome_names = [str(name) for name in outcome]
+            survival = True
+            if len(outcome_names) != n_times:
+                raise DataError(
+                    f"outcome= names {len(outcome_names)} column(s) but there are "
+                    f"{n_times} treatment node(s); a survival outcome is one event "
+                    "indicator per time point, and one column is an end-of-study outcome"
+                )
+
         baseline_names = [str(name) for name in baseline]
-        wanted = [outcome, *treatment_names, *censor_names, *baseline_names]
+        wanted = [*outcome_names, *treatment_names, *censor_names, *baseline_names]
         for block in blocks:
             wanted.extend(block)
         if id is not None:
@@ -192,7 +236,15 @@ class LongitudinalData:
         _refuse_duplicates(wanted)
 
         return cls._build(
-            outcome=frame[outcome].to_numpy(),
+            outcome=None if survival else frame[outcome_names[0]].to_numpy(),
+            event=(
+                np.column_stack(
+                    [np.asarray(frame[name].to_numpy(), dtype=float) for name in outcome_names]
+                )
+                if survival
+                else None
+            ),
+            event_names=outcome_names if survival else [],
             baseline=matrix_from_columns(frame, baseline_names) if baseline_names else None,
             baseline_names=baseline_names,
             treatment=np.column_stack(
@@ -211,7 +263,7 @@ class LongitudinalData:
             time_varying_names=blocks,
             cluster=None if id is None else frame[id].to_numpy(),
             cluster_name=id,
-            outcome_name=outcome,
+            outcome_name=outcome_names[-1],
             family=family,
             template=frame,
         )
@@ -221,6 +273,8 @@ class LongitudinalData:
         cls,
         *,
         outcome: Any,
+        event: FloatArray | None = None,
+        event_names: Sequence[str] = (),
         baseline: FloatArray | None,
         baseline_names: Sequence[str],
         treatment: FloatArray,
@@ -235,8 +289,13 @@ class LongitudinalData:
         family: str,
         template: Any,
     ) -> LongitudinalData:
-        y = np.asarray(outcome, dtype=float).reshape(-1)
-        n = y.shape[0]
+        survival = event is not None
+        if survival:
+            event_values = np.asarray(event, dtype=float)
+            n = event_values.shape[0]
+        else:
+            y = np.asarray(outcome, dtype=float).reshape(-1)
+            n = y.shape[0]
         if n < _MIN_OBSERVATIONS:
             raise DataError(f"need at least {_MIN_OBSERVATIONS} observations; got {n}")
         n_times = treatment.shape[1]
@@ -250,10 +309,21 @@ class LongitudinalData:
             np.asarray(baseline, dtype=float), list(baseline_names)
         )
 
-        uncensored = _read_censoring(censoring, censoring_names, n, n_times)
-        # "Still under observation *before* the treatment decision at t", which is what
-        # every node at time t is required to be present for.
-        at_risk = np.column_stack([_through(uncensored, t) for t in range(n_times)])
+        uncensored, failed = _read_followup(
+            censoring,
+            censoring_names,
+            event_values if survival else None,
+            event_names,
+            n,
+            n_times,
+        )
+        # "Still in the study *before* the treatment decision at t", which is what every
+        # node at time t is required to be present for.  Two ways out of the study, and
+        # both close it: a unit that was censored earlier has no node here, and so does
+        # one that had the event earlier.
+        at_risk = np.column_stack(
+            [_through(uncensored, t) & _event_free(failed, t) for t in range(n_times)]
+        )
 
         blocks: list[FloatArray] = []
         names: list[tuple[str, ...]] = []
@@ -311,28 +381,45 @@ class LongitudinalData:
                     "since the clever covariate needs one factor per arm per node"
                 )
 
-        observed_outcome = _through(uncensored, n_times)
-        _check_presence(
-            y,
-            observed_outcome,
-            outcome_name,
-            absent=(
-                f"unit(s) were never censored but have no {outcome_name}. An outcome "
-                "missing for any other reason is a further node in the likelihood, not an "
-                "absence: encode it as a final censoring column, so that its probability "
-                "is estimated and enters the clever covariate rather than being assumed one."
-            ),
-        )
-
-        resolved = infer_family(y, observed_outcome) if family == "auto" else family
-        if resolved not in ("binomial", "gaussian"):
-            raise DataError(f"family must be 'binomial', 'gaussian' or 'auto'; got {family!r}")
-        if resolved == "binomial":
-            values = np.unique(y[observed_outcome])
-            if not np.all(np.isin(values, (0.0, 1.0))):
+        if survival:
+            # ``_read_event`` has already checked every event column on the rows that
+            # were still at risk for it, which is the survival analogue of the presence
+            # rule below -- and a stricter one, since being at risk is being uncensored
+            # *and* event-free.  What is left is the outcome array the container reports:
+            # the cumulative indicator at the last node, which is what "the event had
+            # happened by the end" means for a unit that left the risk set at any node.
+            assert failed is not None  # survival implies the sweep built one
+            y = failed[:, -1].astype(float)
+            if family not in ("auto", "binomial"):
                 raise DataError(
-                    f"family='binomial' requires a 0/1 outcome; observed {values[:6].tolist()}"
+                    f"family={family!r} cannot apply to a survival outcome: an event "
+                    "indicator is binary at every node, and the parameter is a "
+                    "probability rather than a mean on some other scale"
                 )
+            resolved = "binomial"
+        else:
+            observed_outcome = _through(uncensored, n_times)
+            _check_presence(
+                y,
+                observed_outcome,
+                outcome_name,
+                absent=(
+                    f"unit(s) were never censored but have no {outcome_name}. An outcome "
+                    "missing for any other reason is a further node in the likelihood, not an "
+                    "absence: encode it as a final censoring column, so that its probability "
+                    "is estimated and enters the clever covariate rather than being assumed one."
+                ),
+            )
+
+            resolved = infer_family(y, observed_outcome) if family == "auto" else family
+            if resolved not in ("binomial", "gaussian"):
+                raise DataError(f"family must be 'binomial', 'gaussian' or 'auto'; got {family!r}")
+            if resolved == "binomial":
+                values = np.unique(y[observed_outcome])
+                if not np.all(np.isin(values, (0.0, 1.0))):
+                    raise DataError(
+                        f"family='binomial' requires a 0/1 outcome; observed {values[:6].tolist()}"
+                    )
 
         codes = None if cluster is None else encode_clusters(cluster, cluster_name or "id")
 
@@ -347,6 +434,8 @@ class LongitudinalData:
             time_varying_names=tuple(names),
             family=resolved,
             outcome_name=outcome_name,
+            event=failed,
+            event_names=tuple(str(name) for name in event_names),
             censoring_names=tuple(str(name) for name in censoring_names),
             cluster=codes,
             cluster_name=cluster_name,
@@ -374,6 +463,15 @@ class LongitudinalData:
     @property
     def has_censoring(self) -> bool:
         return bool(self.censoring_names) and bool(not self.uncensored.all())
+
+    @property
+    def is_survival(self) -> bool:
+        """Whether the outcome is an event indicator at every node rather than one at the end.
+
+        Which it is decides what the fit *reports* -- a curve or a number -- so every
+        caller that branches on it is branching on the parameter, not on a storage detail.
+        """
+        return self.event is not None
 
     @property
     def backend(self) -> str | None:
@@ -410,21 +508,71 @@ class LongitudinalData:
         return mask
 
     def at_risk(self, assignment: Assignment, time: int) -> BoolArray:
-        """Rows whose history :math:`H_t` is observed and regimen-consistent.
+        """Rows whose history :math:`H_t` is observed, regimen-consistent and event-free.
 
-        The sequential regression at ``time`` predicts for exactly these rows, and the
-        one at ``time - 1`` is *fitted* on exactly these rows -- the two sets are the
-        same object, which is what makes the recursion close.  A dynamic rule does not
-        weaken that: it changes *which* rows, not the identity between the two masks.
+        The sequential regression at ``time`` predicts for exactly these rows.  Without a
+        survival outcome the regression at ``time - 1`` is *fitted* on exactly these rows
+        too -- the two sets are the same object, which is what makes the recursion close.
+        With one the identity generalises rather than holds:
+
+        .. code-block:: text
+
+            at_risk(t + 1) == following(t) & event-free at t
+
+        because a unit that has the event at ``t`` **is** in node ``t``'s regression, with
+        a pseudo-outcome of one, and is not in node ``t + 1``'s.  That is the one place
+        here a reader is likely to get the populations backwards, so
+        :func:`tests.unit.test_longitudinal_data.test_masks_line_up_with_the_recursion`
+        pins the general form and not the special case.  A dynamic rule does not weaken
+        it either: it changes *which* rows, not the relation between the two masks.
         """
-        return self.uncensored_through(time - 1) & self.followed_through(assignment, time - 1)
+        return (
+            self.uncensored_through(time - 1)
+            & self.followed_through(assignment, time - 1)
+            & _event_free(self.event, time - 1)
+        )
 
     def following(self, assignment: Assignment, time: int) -> BoolArray:
         """Rows still on the regimen and under observation *after* ``time``.
 
         The clever covariate at ``time`` is supported on these rows and zero elsewhere.
+        Note which event node this reads: ``time - 1``, not ``time``.  These are the rows
+        the node's regression is fitted on, and a unit that had the event *at* ``time`` is
+        one of them -- it is the observation that the event happened.
         """
-        return self.uncensored_through(time) & self.followed_through(assignment, time)
+        return (
+            self.uncensored_through(time)
+            & self.followed_through(assignment, time)
+            & _event_free(self.event, time - 1)
+        )
+
+    def event_free_through(self, time: int) -> BoolArray:
+        """Had not yet had the event after every node up to and including ``time``.
+
+        ``time=0`` is everybody, and so is every ``time`` on a fit with one end-of-study
+        outcome: there is no event node for a unit to have passed.
+        """
+        free = _event_free(self.event, time)
+        if free is True:
+            return np.ones(self.n, dtype=bool)
+        return np.asarray(free, dtype=bool)
+
+    def event_by(self, time: int) -> FloatArray:
+        """``1.0`` where the event had happened at or before ``time``, else ``0.0``.
+
+        The target of the sequential regression at ``time`` on a survival fit, read on
+        :meth:`following` -- where "at or before" and "at" coincide, since every row there
+        was event-free entering the node.
+        """
+        if self.event is None:
+            raise DataError(
+                f"{self.outcome_name!r} is an end-of-study outcome, so there is no event "
+                f"node at time {time}. Pass one outcome column per time point to fit a "
+                "survival outcome"
+            )
+        if not 1 <= time <= self.n_times:
+            raise DataError(f"time {time} is outside 1..{self.n_times}")
+        return self.event[:, time - 1].astype(float)
 
     # ----------------------------------------------------------------- design
 
@@ -546,6 +694,8 @@ class LongitudinalData:
         ]
         widths = [block.shape[1] for block in self.time_varying]
         parts.append(f"time_varying={widths}")
+        if self.event is not None:
+            parts.append(f"events={int(self.event[:, -1].sum())}")
         if self.censoring_names:
             share = float(self.uncensored_through(self.n_times).mean())
             parts.append(f"uncensored={share:.3f}")
@@ -561,52 +711,130 @@ def _through(uncensored: BoolArray, time: int) -> BoolArray:
     return np.asarray(uncensored[:, :time].all(axis=1), dtype=bool)
 
 
-def _read_censoring(
+def _event_free(failed: BoolArray | None, time: int) -> BoolArray | bool:
+    """Rows that had not had the event at any node up to and including ``time``.
+
+    Returns ``True`` -- the identity for ``&`` -- rather than an all-true array when the
+    fit declares no event nodes, so that a mask written ``a & b & _event_free(...)`` is
+    the same expression it was before there were event nodes at all.  One code path with
+    a degenerate factor, on the same argument as :func:`assignment_matrix`'s broadcast.
+    """
+    if failed is None:
+        return True
+    if time <= 0:
+        return np.ones(failed.shape[0], dtype=bool)
+    return np.asarray(~failed[:, time - 1], dtype=bool)
+
+
+def _read_followup(
     censoring: FloatArray | None,
-    names: Sequence[str],
+    censoring_names: Sequence[str],
+    event: FloatArray | None,
+    event_names: Sequence[str],
     n: int,
     n_times: int,
-) -> BoolArray:
-    """Validate the censoring columns and return the monotone indicator matrix."""
-    if censoring is None:
-        return np.ones((n, n_times), dtype=bool)
-    values = np.asarray(censoring, dtype=float)
-    if values.shape != (n, n_times):
-        raise DataError(f"censoring has shape {values.shape}, expected {(n, n_times)}")
+) -> tuple[BoolArray, BoolArray | None]:
+    """Validate the censoring and event columns, returning both cumulative indicators.
+
+    One left-to-right sweep rather than two, because the two processes interleave and
+    each decides what the other is required to hold.  At time ``t`` the ordering is
+    ``A_t, C_t, Y_t``: ``C_t`` is asked of the units still in the study *before* that
+    node, which means uncensored through ``t - 1`` **and** event-free through ``t - 1``;
+    ``Y_t`` is asked of the units still uncensored *after* it, so through ``t``, and
+    event-free through ``t - 1``.  Reading the censoring columns first and the event
+    columns after would demand ``C_2`` of a unit that had the event at time 1.
+
+    With no event columns declared, ``failed`` is ``None`` and every line below reduces
+    to the censoring-only sweep this replaced, so a fit with one end-of-study outcome is
+    validated by exactly the arithmetic it always was.
+    """
+    if censoring is not None:
+        censor_values = np.asarray(censoring, dtype=float)
+        if censor_values.shape != (n, n_times):
+            raise DataError(f"censoring has shape {censor_values.shape}, expected {(n, n_times)}")
+    if event is not None:
+        event_values = np.asarray(event, dtype=float)
+        if event_values.shape != (n, n_times):
+            raise DataError(f"outcome has shape {event_values.shape}, expected {(n, n_times)}")
 
     uncensored = np.ones((n, n_times), dtype=bool)
+    failed = None if event is None else np.zeros((n, n_times), dtype=bool)
     alive = np.ones(n, dtype=bool)
+    happened = np.zeros(n, dtype=bool)
     for time in range(n_times):
-        column = values[:, time]
-        name = str(names[time]) if time < len(names) else f"C{time + 1}"
+        at_risk = alive & ~happened
+        if censoring is None:
+            uncensored[:, time] = alive
+        else:
+            column = censor_values[:, time]
+            name = str(censoring_names[time]) if time < len(censoring_names) else f"C{time + 1}"
+            present = np.isfinite(column)
+            bad = at_risk & ~present
+            if np.any(bad):
+                raise DataError(
+                    f"censoring column {name!r} is missing for {int(bad.sum())} unit(s) that "
+                    "were still under observation; a unit either remained (1) or left (0)"
+                )
+            seen = np.unique(column[at_risk])
+            if not np.all(np.isin(seen, (0.0, 1.0))):
+                raise DataError(
+                    f"censoring column {name!r} takes values {seen[:6].tolist()}; it must be "
+                    "1 where the unit is still under observation after that time point and 0 "
+                    "where it left"
+                )
+            # A unit that has already left may carry 0 or nothing at all; anything else
+            # would say it came back, which is a different observation process.
+            returned = ~alive & present & (column == 1.0)
+            if np.any(returned):
+                raise DataError(
+                    f"censoring column {name!r} marks {int(returned.sum())} unit(s) as under "
+                    "observation after they had already been censored. Censoring is assumed "
+                    "monotone -- a unit that leaves does not return -- and intermittent "
+                    "observation identifies a different parameter, so this is refused rather "
+                    "than read as a return to follow-up."
+                )
+            uncensored[:, time] = at_risk & (column == 1.0)
+        alive = uncensored[:, time]
+
+        if failed is None:
+            continue
+        column = event_values[:, time]
+        name = str(event_names[time]) if time < len(event_names) else f"Y{time + 1}"
+        # Asked of the units still under observation *after* this node's censoring and
+        # not already out of the risk set: those are the ones for whom "did the event
+        # happen at time t" is a question the data answers.
+        required = alive & ~happened
         present = np.isfinite(column)
-        bad = alive & ~present
+        bad = required & ~present
         if np.any(bad):
             raise DataError(
-                f"censoring column {name!r} is missing for {int(bad.sum())} unit(s) that "
-                "were still under observation; a unit either remained (1) or left (0)"
+                f"outcome column {name!r} is missing for {int(bad.sum())} unit(s) that were "
+                "still at risk; a unit at risk either had the event (1) or did not (0). A "
+                "unit whose outcome is missing for some other reason is censored, and its "
+                "censoring column is where that belongs"
             )
-        seen = np.unique(column[alive])
+        seen = np.unique(column[required])
         if not np.all(np.isin(seen, (0.0, 1.0))):
             raise DataError(
-                f"censoring column {name!r} takes values {seen[:6].tolist()}; it must be "
-                "1 where the unit is still under observation after that time point and 0 "
-                "where it left"
+                f"outcome column {name!r} takes values {seen[:6].tolist()}; a survival "
+                "outcome is an event indicator at every node, 1 where the event happened "
+                "at that time point and 0 where it had not yet"
             )
-        # A unit that has already left may carry 0 or nothing at all; anything else
-        # would say it came back, which is a different observation process.
-        returned = ~alive & present & (column == 1.0)
-        if np.any(returned):
+        # Exactly the licence the censoring sweep gives above, and for the same reason: a
+        # unit that has already had the event may carry the 1 forward or carry nothing,
+        # since either says the same absorbing thing.  A 0 does not.
+        recovered = happened & present & (column == 0.0)
+        if np.any(recovered):
             raise DataError(
-                f"censoring column {name!r} marks {int(returned.sum())} unit(s) as under "
-                "observation after they had already been censored. Censoring is assumed "
-                "monotone -- a unit that leaves does not return -- and intermittent "
-                "observation identifies a different parameter, so this is refused rather "
-                "than read as a return to follow-up."
+                f"outcome column {name!r} marks {int(recovered.sum())} unit(s) as event-free "
+                "after they had already had the event. The event is assumed absorbing -- a "
+                "unit that has it leaves the risk set and does not return to it -- and a "
+                "recurrent event identifies a different parameter, so this is refused "
+                "rather than read as a recovery."
             )
-        uncensored[:, time] = alive & (column == 1.0)
-        alive = uncensored[:, time]
-    return uncensored
+        failed[:, time] = happened | (required & (column == 1.0))
+        happened = failed[:, time]
+    return uncensored, failed
 
 
 def _check_presence(
@@ -620,17 +848,18 @@ def _check_presence(
         if absent is not None:
             raise DataError(f"{int(missing.sum())} {absent}")
         raise DataError(
-            f"{name!r} is missing for {int(missing.sum())} unit(s) that were still under "
-            "observation at that time. Every node before censoring has to be recorded; a "
+            f"{name!r} is missing for {int(missing.sum())} unit(s) that were still in the "
+            "study at that time. Every node before a unit leaves has to be recorded; a "
             "value missing for some other reason is a further node in the likelihood."
         )
     stray = ~required & finite
     if np.any(stray):
         raise DataError(
-            f"{name!r} is recorded for {int(stray.sum())} unit(s) that had already been "
-            "censored. The estimator conditions on the observed history and would ignore "
-            "those values, so they are refused rather than silently dropped: set the "
-            "nodes after a unit's censoring time to missing."
+            f"{name!r} is recorded for {int(stray.sum())} unit(s) that had already left the "
+            "study -- censored, or, on a survival fit, having had the event. The estimator "
+            "conditions on the observed history and would ignore those values, so they are "
+            "refused rather than silently dropped: set the nodes after a unit leaves to "
+            "missing."
         )
 
 
