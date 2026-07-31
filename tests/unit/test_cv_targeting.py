@@ -21,8 +21,8 @@ import pytest
 from cleverly import TMLE
 from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.estimators.tmle import _average_over_folds
-from cleverly.fluctuation import restrict
-from cleverly.fluctuation.submodel import mean_submodel
+from cleverly.fluctuation import restrict, stitch
+from cleverly.fluctuation.submodel import att_submodel, mean_submodel
 from cleverly.inference import cross_validated_variance, influence_variance
 from cleverly.learners.crossfit import Folds, make_folds
 from tests.conftest import FAST_KWARGS
@@ -519,6 +519,59 @@ class TestRestrict:
         for _, test in folds:
             rebuilt[test] = restrict(submodel, test).observed
         assert np.array_equal(rebuilt, submodel.observed)
+
+
+class TestStitch:
+    """``restrict``'s inverse, which the fold loop needs once a covariate is fold-specific.
+
+    Every fold builds its own clever covariate under a linked working model, and the
+    *pooled* score has to be taken against the covariate each row was actually fluctuated
+    by. Where the covariate is the same on every fold -- which is every other group --
+    this has to give back exactly what it was handed, or fold targeting would move fits
+    that have nothing to do with a working model.
+    """
+
+    @staticmethod
+    def _submodel(n: int = 30, seed: int = 11):
+        rng = np.random.default_rng(seed)
+        treatment = rng.binomial(1, 0.5, n).astype(float)
+        return mean_submodel(treatment, rng.uniform(0.2, 0.8, n))
+
+    def test_round_tripping_through_the_folds_changes_nothing(self) -> None:
+        submodel = self._submodel()
+        folds = Folds(np.repeat(np.arange(3), 10), 3)
+        pieces = [(test, restrict(submodel, test)) for _, test in folds]
+        rebuilt = stitch(pieces, 30)
+        np.testing.assert_array_equal(rebuilt.observed, submodel.observed)
+        for level, values in submodel.arms.items():
+            np.testing.assert_array_equal(rebuilt.arms[level], values)
+        assert rebuilt.group == submodel.group
+        assert rebuilt.names == submodel.names
+        assert rebuilt.arm_columns == submodel.arm_columns
+
+    def test_each_fold_keeps_its_own_values(self) -> None:
+        """The case that matters: the pieces disagree, and every row keeps its own."""
+        first, second = self._submodel(seed=1), self._submodel(seed=2)
+        left, right = np.arange(0, 15), np.arange(15, 30)
+        rebuilt = stitch([(left, restrict(first, left)), (right, restrict(second, right))], 30)
+        np.testing.assert_array_equal(rebuilt.observed[left], first.observed[left])
+        np.testing.assert_array_equal(rebuilt.observed[right], second.observed[right])
+
+    def test_pieces_that_do_not_cover_the_sample_are_refused(self) -> None:
+        submodel = self._submodel()
+        index = np.arange(0, 20)
+        with pytest.raises(ValueError, match="20 of 30 rows"):
+            stitch([(index, restrict(submodel, index))], 30)
+
+    def test_pieces_describing_different_fluctuations_are_refused(self) -> None:
+        rng = np.random.default_rng(3)
+        treatment = rng.binomial(1, 0.5, 30).astype(float)
+        propensity = rng.uniform(0.2, 0.8, 30)
+        left, right = np.arange(0, 15), np.arange(15, 30)
+        mean = restrict(mean_submodel(treatment, propensity), left)
+        other = restrict(att_submodel(treatment, propensity, arm_fractions=0.5), right)
+        with pytest.raises(ValueError, match="different fluctuations"):
+            stitch([(left, mean), (right, other)], 30)
 
 
 def test_influence_variance_is_unchanged_by_the_new_helper() -> None:

@@ -27,7 +27,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from .._typing import BoolArray, FloatArray, FluctuationKind, TargetingMethod
+from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray, TargetingMethod
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import Fluctuation, InitialFit, solve_fluctuation
 from ..fluctuation.mechanism import (
@@ -37,11 +37,22 @@ from ..fluctuation.mechanism import (
     solve_mechanism,
 )
 from ..fluctuation.one_step import solve_one_step
-from ..fluctuation.submodel import Submodel, TargetGroup, submodel_for
+from ..fluctuation.submodel import Submodel, TargetGroup, restrict, submodel_for
+from ..msm import solve_projection
+from ..utils.bounds import OutcomeScaler
 from ._nuisance import NuisanceEstimates
 from .direct_effect import clever_covariate_inputs
 
-__all__ = ["TargetingSpec", "build_submodel", "solve_submodel", "solve_with_mechanism"]
+__all__ = [
+    "ProjectionFluctuation",
+    "TargetingSpec",
+    "build_submodel",
+    "needs_projection",
+    "reported_beta",
+    "solve_submodel",
+    "solve_with_mechanism",
+    "solve_with_projection",
+]
 
 #: A round that leaves the mechanism score above this share of the previous round's has
 #: reached the fixed point of the alternation; further rounds move nothing.
@@ -185,6 +196,230 @@ def solve_submodel(
         tol=spec.tol,
         warn=warn,
     )
+
+
+@dataclass(frozen=True)
+class ProjectionFluctuation:
+    """The working model's coefficients, and how the alternation that found them went.
+
+    A sibling of :class:`~cleverly.fluctuation.mechanism.MechanismFluctuation` in the same
+    sense: the other half of a targeting step that has two halves, carried on the outcome
+    fluctuation that was solved beside it.  It is a different *kind* of thing, though, and
+    the difference is the whole reason this is a separate class rather than a reuse.  A
+    mechanism fluctuation is a nuisance that was tilted, and its half of the alternation is
+    a likelihood maximisation.  This is the **reported parameter**, solved for by weighted
+    least squares -- so the two steps here maximise nothing in common and the coordinate
+    ascent argument that makes ``solve_with_mechanism`` terminate does not carry over.  See
+    :func:`solve_with_projection` for what does.
+
+    Attributes
+    ----------
+    beta:
+        The coefficients the **report** is taken at: the projection of the targeted fit,
+        which is the same solve on the same predictions that
+        :func:`~cleverly.inference.influence.msm_coefficients` runs.  On a pooled fit it
+        is also the ``beta`` the returned covariate was built at, to within ``tol`` -- that
+        is what the alternation converges to.  Under fold-wise targeting each fold had its
+        own, recorded in :attr:`folds`, and this is still the one the coefficients are
+        reported at.  Kept so that a caller rebuilding the covariate --
+        ``res.sensitivity.positivity()`` does -- does not have to guess at it.
+    trace:
+        One ``(outer, relative outcome score, relative shift in beta)`` row per round.
+        Kept for the reason the mechanism's trace is: a loop that stalls should be visible
+        rather than inferred.
+    converged, failure:
+        Whether the shift in ``beta`` reached ``tol``, and why it stopped if not.
+        Reported, never raised, on the terms every other targeting failure is.
+    """
+
+    beta: FloatArray
+    trace: tuple[tuple[int, float, float], ...] = ()
+    converged: bool = True
+    failure: str | None = None
+    #: Per-fold detail under ``targeting_scheme="fold"``, where each fold ran its own
+    #: alternation and so had its own covariate.  Empty for a pooled fit.
+    folds: tuple[ProjectionFluctuation, ...] = ()
+
+    @property
+    def n_outer(self) -> int:
+        return len(self.trace)
+
+
+def needs_projection(nuisance: NuisanceEstimates, group: TargetGroup) -> bool:
+    """Whether this fit's targeting has a projection half to alternate with.
+
+    A property of the declared *link* rather than of the group: an identity-link working
+    model has a clever covariate free of ``beta``, so its targeting is one fluctuation and
+    goes down exactly the path it went down before links existed.
+    """
+    return group == "msm" and nuisance.msm is not None and nuisance.msm.link != "identity"
+
+
+def reported_beta(
+    nuisance: NuisanceEstimates, targeted: InitialFit, weights: FloatArray
+) -> FloatArray | None:
+    """The coefficients a targeted fit reports, or ``None`` if it has no working model.
+
+    The projection of ``targeted``, which is what
+    :func:`~cleverly.inference.influence.msm_coefficients` reports and therefore the only
+    ``beta`` a diagnostic should rebuild the covariate at.  One function rather than the
+    two callers each writing the solve, for the reason there is one
+    :func:`~cleverly.msm.solve_projection`.
+    """
+    msm = nuisance.msm
+    if msm is None:
+        return None
+    predictions = _raw_arms(targeted, msm.arms, nuisance.scaler)
+    return solve_projection(msm.design, msm.weights, predictions, weights, msm.link).beta
+
+
+def solve_with_projection(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    group: TargetGroup,
+    spec: TargetingSpec,
+    *,
+    bounds: tuple[float, float],
+    nuisance_bound: float,
+    scaled: FloatArray,
+    weights: FloatArray,
+    observed: BoolArray,
+    rows: IntArray | None = None,
+    max_outer: int = 50,
+    warn: bool = True,
+) -> tuple[Submodel, Fluctuation]:
+    r"""Target ``Qbar`` and solve the working model's projection, alternating until both settle.
+
+    Under a non-identity link the clever covariate is
+    :math:`h\,(dm/d\eta)\,\varphi / g`, which reads :math:`\beta`; and :math:`\beta` is
+    the projection of the *targeted* :math:`\bar Q^*`, which reads the covariate.  Neither
+    can be solved once and left, so this alternates:
+
+    .. code-block:: text
+
+        beta <- projection of Qbar^0
+        repeat:  covariate at beta  ->  fluctuate Qbar^0  ->  beta <- projection of Qbar*
+
+    **Each round restarts from** :math:`\bar Q^0` rather than continuing from the current
+    :math:`\bar Q^*`, which is the opposite of what :func:`solve_with_mechanism` does, and
+    deliberately.  That loop must continue, because its argument for terminating is that
+    each step maximises its own factor of one joint likelihood and so cannot decrease it.
+    Here there is no joint criterion to preserve -- the projection is a least-squares
+    solve, not a likelihood -- so the useful thing to have instead is a clean fixed point:
+    at exit, :math:`\bar Q^*` is *the* fluctuation of :math:`\bar Q^0` along
+    :math:`H_{\hat\beta}` and :math:`\hat\beta` is *the* projection of that
+    :math:`\bar Q^*`.  ``epsilon`` stays one interpretable coefficient vector rather than a
+    running sum along a path of submodels, and the identity link is exactly the case that
+    exits after one round -- which is why it is short-circuited before this is ever called
+    rather than handled inside it.
+
+    Convergence is judged on the shift in :math:`\beta`, relative to its size, and it is
+    fast: measured on a three-armed binomial process the shift falls by a factor of
+    ``1e-3`` per round under the log link and ``1e-4`` under the logit, so the loop exits
+    in four rounds.  That is not luck, and it is the contrast with
+    :func:`solve_with_mechanism` again -- there the two nuisances enter each other's
+    covariates directly, while here :math:`\beta` reaches the covariate only through the
+    smooth factor :math:`dm/d\eta`, which barely moves once the fluctuation is small.  The
+    stall rule inherited from :data:`_STALL_FACTOR` is therefore slack here rather than
+    load-bearing, and is kept so that a badly conditioned fit stops rather than spins.
+
+    ``rows`` restricts the whole alternation to a subset -- one validation fold, for
+    ``targeting_scheme="fold"``.  Each fold then gets its *own* :math:`\beta`, which is
+    what makes fold-wise targeting mean here what it means everywhere else: no row
+    contributes to any coefficient that fluctuates it.  The covariate is built on the full
+    sample at that fold's :math:`\beta` and then restricted, rather than rebuilt from
+    sliced nuisances, because the covariate is row-wise and the two agree -- and because
+    the sliced version would have to re-derive arm fractions and bounds from a subsample
+    that is not the population they describe.
+    """
+    if nuisance.msm is None:  # pragma: no cover - guarded by needs_projection
+        raise ValueError(
+            f"group {group!r} targets a working model's coefficients, so the fit must "
+            "carry the model that defines them; this NuisanceEstimates has none"
+        )
+    index = None if rows is None else np.asarray(rows)
+    msm = nuisance.msm if index is None else nuisance.msm.subset(index)
+    initial = nuisance.outcome if index is None else _slice(nuisance.outcome, index)
+    y = scaled if index is None else scaled[index]
+    w = weights if index is None else weights[index]
+    seen = observed if index is None else observed[index]
+    scaler = nuisance.scaler
+
+    beta = solve_projection(
+        msm.design, msm.weights, _raw_arms(initial, msm.arms, scaler), w, msm.link
+    ).beta
+    trace: list[tuple[int, float, float]] = []
+    previous: float | None = None
+    submodel = _projection_submodel(data, nuisance, group, bounds, nuisance_bound, beta, index)
+    fluctuation = solve_submodel(y, initial, submodel, w, seen, spec, warn=warn)
+
+    for outer in range(1, max_outer + 1):
+        solved = solve_projection(
+            msm.design,
+            msm.weights,
+            _raw_arms(fluctuation.targeted, msm.arms, scaler),
+            w,
+            msm.link,
+        )
+        shift = float(np.max(np.abs(solved.beta - beta))) / (1.0 + float(np.max(np.abs(beta))))
+        trace.append((outer, fluctuation.relative_score_norm, shift))
+        if shift <= spec.tol:
+            break
+        # The alternation contracts linearly, so the shift falls by a roughly constant
+        # factor each round until it reaches the fixed point and stops moving. Stop when a
+        # round no longer improves it materially, and let the *size* of what is left decide
+        # whether that counts as a failure.
+        if previous is not None and shift > _STALL_FACTOR * previous:
+            break
+        previous = shift
+        beta = solved.beta
+        submodel = _projection_submodel(data, nuisance, group, bounds, nuisance_bound, beta, index)
+        # From Qbar^0 again, not from the current Qbar*: see above.
+        fluctuation = solve_submodel(y, initial, submodel, w, seen, spec, warn=False)
+
+    last = trace[-1][2] if trace else 0.0
+    failure = None if last <= _UNSOLVED else "max_iter_reached"
+    projection = ProjectionFluctuation(
+        beta=beta, trace=tuple(trace), converged=bool(last <= spec.tol), failure=failure
+    )
+    return submodel, replace(fluctuation, projection=projection)
+
+
+def _projection_submodel(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    group: TargetGroup,
+    bounds: tuple[float, float],
+    nuisance_bound: float,
+    beta: FloatArray,
+    index: IntArray | None,
+) -> Submodel:
+    """The clever covariate at ``beta``, on the whole sample or on one fold's rows."""
+    submodel = build_submodel(
+        data, nuisance, group, bounds=bounds, nuisance_bound=nuisance_bound, msm_beta=beta
+    )
+    return submodel if index is None else restrict(submodel, index)
+
+
+def _slice(fit: InitialFit, index: IntArray) -> InitialFit:
+    """One fold's rows of an initial fit."""
+    return fit.map_arms(lambda values: values[index])
+
+
+def _raw_arms(fit: InitialFit, arms: tuple[float, ...], scaler: OutcomeScaler) -> FloatArray:
+    """``(n, K)`` predictions on the *outcome's own* scale, arms in the model's order.
+
+    The projection is solved where its coefficients are reported, which for this estimand
+    is the raw scale -- :func:`~cleverly.inference.influence.msm_coefficients` sets out
+    why a coefficient vector has no single scale to map back with.  The score equation is
+    indifferent to which of the two is used, since the residual rescales by the same
+    factor, but ``m`` under a link is not: ``expit`` of a linear predictor is a
+    probability, and a probability is not a scaled outcome.
+    """
+    stacked = np.column_stack([fit.arms[level] for level in arms])
+    if scaler.is_identity:
+        return stacked
+    return np.asarray(scaler.lower + scaler.range * stacked, dtype=float)
 
 
 def solve_with_mechanism(

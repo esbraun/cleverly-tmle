@@ -119,8 +119,8 @@ is variance for second-order bias, and ``res.sensitivity.truncation_curve()`` (w
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -141,6 +141,7 @@ __all__ = [
     "regime_submodel",
     "register_submodel",
     "restrict",
+    "stitch",
     "submodel_for",
 ]
 
@@ -1284,3 +1285,43 @@ def restrict(submodel: Submodel, mask: BoolArray | IntArray) -> Submodel:
     """
     index = np.asarray(mask)
     return submodel.map_arms(lambda values: values[index])
+
+
+def stitch(pieces: Sequence[tuple[IntArray, Submodel]], n: int) -> Submodel:
+    """Reassemble one submodel from per-fold ones, each covering its own rows.
+
+    :func:`restrict`'s inverse, and needed for the same reason the targeted predictions
+    are stitched back together: under fold-wise targeting each fold gets its own
+    covariate, and the *pooled* score has to be taken against the covariate each row was
+    actually fluctuated by.  Where the covariate does not depend on anything fold-specific
+    -- every group but a linked ``msm`` -- restricting and stitching returns the array it
+    started with, value for value, which is why this can sit on the common path.
+
+    Every piece must agree about the group, the column names and which column belongs to
+    which arm; only the rows differ.  The folds partition the sample, so each row is
+    written exactly once and no row is left unwritten.
+    """
+    if not pieces:
+        raise ValueError("stitching needs at least one submodel")
+    first = pieces[0][1]
+    written = np.zeros(n, dtype=bool)
+    observed = np.empty((n, first.dim))
+    arms = {level: np.empty((n, first.dim)) for level in first.arms}
+    for index, piece in pieces:
+        if piece.group != first.group or piece.names != first.names:
+            raise ValueError(
+                f"stitching submodels that describe different fluctuations: "
+                f"{first.group!r} {list(first.names)} against {piece.group!r} "
+                f"{list(piece.names)}"
+            )
+        rows = np.asarray(index)
+        observed[rows] = piece.observed
+        for level, values in piece.arms.items():
+            arms[level][rows] = values
+        written[rows] = True
+    if not bool(np.all(written)):
+        raise ValueError(
+            f"the pieces cover {int(written.sum())} of {n} rows; a stitched submodel "
+            "needs a partition of the sample, which is what the validation folds are"
+        )
+    return replace(first, observed=observed, arms=arms)

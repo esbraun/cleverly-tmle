@@ -552,8 +552,20 @@ def _max_abs_covariate(result: TMLEResult, group: str) -> float:
         # The fit's own reference, so a conditional-effect covariate is rebuilt with the
         # contrasts it was targeted with rather than with the lowest arm's.
         reference=result.config.reference_arm,
+        # A working model with a non-identity link has a covariate that reads its own
+        # coefficients, so "the covariate" is only defined once they are named. The ones
+        # the fit *reports* at are the right choice and the only defensible one: they are
+        # the equation this fit solved, and under fold-wise targeting they are the single
+        # beta a per-fold covariate has no other summary of.
+        msm_beta=_reported_beta(result, group),
     )
     return submodel.max_abs
+
+
+def _reported_beta(result: TMLEResult, group: str) -> Any:
+    """The working model's coefficients, or ``None`` where the covariate does not read them."""
+    projection = getattr(result.fluctuations.get(group), "projection", None)
+    return None if projection is None else projection.beta
 
 
 def truncation_curve(

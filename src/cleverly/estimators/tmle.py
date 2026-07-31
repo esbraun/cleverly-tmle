@@ -70,8 +70,9 @@ Example
 from __future__ import annotations
 
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
+from functools import partial
 from typing import Any, cast
 
 import numpy as np
@@ -105,7 +106,7 @@ from ..fluctuation.iterative import (
     TargetingFailure,
 )
 from ..fluctuation.mechanism import needs_mechanism
-from ..fluctuation.submodel import Submodel, TargetGroup, restrict
+from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
 from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
@@ -131,7 +132,16 @@ from .base import (
     attach_bootstrap,
     resolve_estimands,
 )
-from .targeting import TargetingSpec, build_submodel, solve_submodel, solve_with_mechanism
+from .targeting import (
+    ProjectionFluctuation,
+    TargetingSpec,
+    build_submodel,
+    needs_projection,
+    reported_beta,
+    solve_submodel,
+    solve_with_mechanism,
+    solve_with_projection,
+)
 
 __all__ = ["TMLE", "tmle"]
 
@@ -1484,6 +1494,14 @@ class TMLE:
                     weights=data.weights,
                     observed=data.observed,
                 )
+            elif needs_projection(nuisance, group):
+                # A working model with a non-identity link has a clever covariate that
+                # reads its own coefficients, so the covariate and the projection are
+                # solved for together. Nothing about the nuisances moves, which is why
+                # this returns two values where the mechanism alternation returns three.
+                submodel, fluctuation = self._solve_projection(
+                    data, nuisance, group, bounds, nuisance_bound
+                )
             else:
                 submodel = self._submodel(
                     data,
@@ -1499,7 +1517,7 @@ class TMLE:
                     # again inside the builder.
                     reference,
                 )
-                fluctuation = self._solve(data, nuisance, submodel)
+                submodel, fluctuation = self._solve(data, nuisance, submodel)
             fluctuations[group] = fluctuation
 
             pooled = self._estimates_for(
@@ -1728,12 +1746,34 @@ class TMLE:
 
     def _solve(
         self, data: CausalData, nuisance: NuisanceEstimates, submodel: Submodel
-    ) -> Fluctuation:
-        """Solve the fluctuation, pooled over folds or one fluctuation per fold."""
+    ) -> tuple[Submodel, Fluctuation]:
+        """Solve the fluctuation, pooled over folds or one fluctuation per fold.
+
+        Returns the submodel beside the fluctuation because under fold-wise targeting the
+        two are no longer independent: a covariate that reads a fold-specific quantity --
+        a linked working model's ``beta`` -- differs between folds, and the score has to be
+        taken against the covariate each row was actually fluctuated by.  For every other
+        group the returned submodel is the one that went in, value for value.
+        """
         scaled = nuisance.scaler.scale(data.outcome)
         if self.targeting_scheme == "fold" and self.cross_fit:
             if not nuisance.folds.is_single:
-                return self._solve_by_fold(data, nuisance, submodel, scaled)
+                return self._solve_by_fold(
+                    data,
+                    nuisance,
+                    lambda test: (
+                        restrict(submodel, test),
+                        self._solve_rows(
+                            scaled[test],
+                            _slice_fit(nuisance.outcome, test),
+                            restrict(submodel, test),
+                            data.weights[test],
+                            data.observed[test],
+                            warn=False,
+                        ),
+                    ),
+                    submodel.group,
+                )
             # Only reachable when resolve_n_folds collapsed the split -- too few units
             # in the rarer treatment arm to stratify. The constructor already warned
             # about the cross_fit=False route, so this is the remaining silent one.
@@ -1744,7 +1784,75 @@ class TMLE:
                 UserWarning,
                 stacklevel=3,
             )
-        return self._solve_rows(scaled, nuisance.outcome, submodel, data.weights, data.observed)
+        return submodel, self._solve_rows(
+            scaled, nuisance.outcome, submodel, data.weights, data.observed
+        )
+
+    def _solve_projection(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: TargetGroup,
+        bounds: tuple[float, float],
+        nuisance_bound: float | None,
+    ) -> tuple[Submodel, Fluctuation]:
+        """Alternate the projection and the fluctuation, pooled or fold by fold.
+
+        Under fold-wise targeting each fold runs its own alternation and so gets its own
+        ``beta``.  That is what keeps the CV-TMLE statement true of *every* coefficient
+        the covariate reads: with one pooled ``beta`` a row's fluctuation would depend on
+        every other row's outcome through it, which is the coupling fold-wise targeting
+        exists to remove.  Exactness survives too -- each fold's score is zero at the beta
+        its own rows were fluctuated at, so the stitched score is zero as well.
+        """
+        spec = self.targeting_spec()
+        lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
+        scaled = nuisance.scaler.scale(data.outcome)
+        alternate = partial(
+            solve_with_projection,
+            data,
+            nuisance,
+            group,
+            spec,
+            bounds=bounds,
+            nuisance_bound=lower,
+            scaled=scaled,
+            weights=data.weights,
+            observed=data.observed,
+        )
+        if self.targeting_scheme == "fold" and self.cross_fit and not nuisance.folds.is_single:
+            per_fold: list[ProjectionFluctuation] = []
+
+            def one_fold(test: IntArray) -> tuple[Submodel, Fluctuation]:
+                fold_submodel, fold_fluctuation = alternate(rows=test, warn=False)
+                record = fold_fluctuation.projection
+                assert isinstance(record, ProjectionFluctuation)
+                per_fold.append(record)
+                return fold_submodel, fold_fluctuation
+
+            submodel, fluctuation = self._solve_by_fold(data, nuisance, one_fold, group)
+            # There is no single beta the covariate was built at here -- each fold had its
+            # own, which is the point -- but there is a single beta the coefficients are
+            # *reported* at: the projection of the stitched targeted fit, which is the
+            # solve `msm_coefficients` runs. That is what a diagnostic rebuilding the
+            # covariate wants, so it is what the record carries, with the folds beside it.
+            beta = reported_beta(nuisance, fluctuation.targeted, data.weights)
+            assert beta is not None
+            return submodel, replace(
+                fluctuation,
+                projection=ProjectionFluctuation(
+                    beta=beta,
+                    trace=tuple(
+                        (i, *record.trace[-1][1:]) for i, record in enumerate(per_fold) if record
+                    ),
+                    converged=all(record.converged for record in per_fold),
+                    failure=next(
+                        (record.failure for record in per_fold if record.failure is not None), None
+                    ),
+                    folds=tuple(per_fold),
+                ),
+            )
+        return alternate()
 
     def _solve_rows(
         self,
@@ -1764,9 +1872,9 @@ class TMLE:
         self,
         data: CausalData,
         nuisance: NuisanceEstimates,
-        submodel: Submodel,
-        scaled: FloatArray,
-    ) -> Fluctuation:
+        per_fold: Callable[[IntArray], tuple[Submodel, Fluctuation]],
+        group: TargetGroup,
+    ) -> tuple[Submodel, Fluctuation]:
         """The targeting step of CV-TMLE: a separate fluctuation on each fold.
 
         Each fold's ``epsilon`` is fit only against rows whose nuisance predictions came
@@ -1791,6 +1899,14 @@ class TMLE:
         parameter fold by fold rather than once over the reassembled fit.  The two agree
         for estimands linear in the targeted predictions and diverge for the rest; see
         ``cv_evaluation``, which reports the canonical construction instead.
+
+        ``per_fold`` returns that fold's *covariate* as well as its fluctuation, because
+        the two come apart when the covariate reads something fold-specific -- a linked
+        working model's ``beta``, which is solved for on the fold's own rows so that no row
+        contributes to any coefficient that fluctuates it.  The pieces are stitched back by
+        index, so the pooled score is taken against the covariate each row was actually
+        fluctuated by and stays exactly zero.  Where the covariate is the same on every
+        fold, restricting and stitching returns the array that went in, value for value.
         """
         n = data.n
         observed = np.empty(n)
@@ -1798,20 +1914,15 @@ class TMLE:
         # from a hardcoded pair, so a fold-targeted fit needs no change per arm count.
         arms = {level: np.empty(n) for level in nuisance.outcome.arms}
         fold_records: list[FoldFluctuation] = []
+        pieces: list[tuple[IntArray, Submodel]] = []
         masses = []
         traces = []
         reasons: list[str] = []
         iterations = 0
 
         for _, test in nuisance.folds:
-            fold_fluctuation = self._solve_rows(
-                scaled[test],
-                _slice_fit(nuisance.outcome, test),
-                restrict(submodel, test),
-                data.weights[test],
-                data.observed[test],
-                warn=False,
-            )
+            fold_submodel, fold_fluctuation = per_fold(test)
+            pieces.append((test, fold_submodel))
             observed[test] = fold_fluctuation.targeted.observed
             for level, values in fold_fluctuation.targeted.arms.items():
                 arms[level][test] = values
@@ -1834,6 +1945,8 @@ class TMLE:
         epsilon = np.average(
             np.vstack([record.epsilon for record in fold_records]), axis=0, weights=weights_array
         )
+        scaled = nuisance.scaler.scale(data.outcome)
+        submodel = stitch(pieces, n)
         score = score_columns(
             scaled, targeted.observed, submodel.observed, data.weights, data.observed
         )
@@ -1852,14 +1965,14 @@ class TMLE:
         if failed:
             warnings.warn(
                 f"{len(failed)} of {len(fold_records)} fold(s) did not converge in the "
-                f"{submodel.group!r} targeting step ({', '.join(modes)}). The pooled score "
+                f"{group!r} targeting step ({', '.join(modes)}). The pooled score "
                 "can still look solved because each fold's score is near zero on its own "
                 "rows; inspect res.fluctuations[group].folds for the per-fold detail.",
                 ConvergenceWarning,
                 stacklevel=3,
             )
 
-        return Fluctuation(
+        return submodel, Fluctuation(
             epsilon=epsilon,
             targeted=targeted,
             score=score,
@@ -1873,6 +1986,10 @@ class TMLE:
             score_initial=score_before,
             n_solver_calls=len(fold_records),
             failure=_dominant_failure(reasons, failed),
+            # Each fold solved its own projection, so there is no single beta the pooled
+            # covariate was built at; the per-fold ones live on the pieces that were
+            # stitched, and the *reported* coefficients come from the stitched fit.
+            projection=None,
         )
 
     @staticmethod

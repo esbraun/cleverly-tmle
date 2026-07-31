@@ -90,7 +90,13 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: over all ``R`` draws, so a file holding only the first would reload as a result whose
 #: own numbers none of its analyses could reproduce.  An ordinary fit writes a one-element
 #: list and reads back byte-identically.
-FORMAT_VERSION = 7
+#:
+#: ``8`` records the working model's **link**.  Reading an older file as an identity-link
+#: fit would be right for every file that exists -- nothing else could have written one --
+#: and the bump is here rather than a default because the field decides which *estimand*
+#: the coefficients belong to: a log-link file read back without it would report log risk
+#: ratios under a linear model's arithmetic, with intervals to match.
+FORMAT_VERSION = 8
 
 _ARRAY_MARK = "__array__"
 
@@ -392,6 +398,7 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
                 "design": arrays.put(f"{prefix}.msm.design", nuisance.msm.design),
                 "weights": arrays.put(f"{prefix}.msm.weights", nuisance.msm.weights),
                 "arms": [float(arm) for arm in nuisance.msm.arms],
+                "link": str(nuisance.msm.link),
             }
         ),
     }
@@ -442,6 +449,7 @@ def _msm_from(arrays: _Arrays, payload: dict[str, Any] | None) -> MSMSet | None:
         arrays.get(payload["design"]),
         arrays.get(payload["weights"]),
         tuple(float(arm) for arm in payload["arms"]),
+        payload["link"],
     )
 
 

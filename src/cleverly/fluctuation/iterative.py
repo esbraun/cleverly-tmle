@@ -275,6 +275,14 @@ class Fluctuation:
     #: the initial cross-fitted mechanism, exactly as ``outcome`` stays the initial
     #: regression -- see :mod:`cleverly.fluctuation.mechanism`.
     mechanism: Any | None = None
+    #: The working model's coefficients and how the alternation that found them went, for
+    #: an ``msm`` group whose link makes the clever covariate depend on them; ``None`` for
+    #: the identity link and for every other group.  A sibling of ``mechanism`` above and
+    #: carried for the same reason -- it is the other half of a targeting step that has
+    #: two -- but *not* the same kind of object: the mechanism is a nuisance that was
+    #: tilted, while this is the reported parameter, solved for rather than fluctuated.
+    #: See :func:`~cleverly.estimators.targeting.solve_with_projection`.
+    projection: Any | None = None
 
     @property
     def score_norm(self) -> float:
