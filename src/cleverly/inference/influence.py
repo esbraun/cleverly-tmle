@@ -15,12 +15,16 @@ The influence curves, on the ``[0, 1]`` outcome scale, with
     \mathrm{IC}^{EY_1}_i &= h_1(A_i, W_i)\, r_i + \bar Q^*(1, W_i) - \psi_1 \\
     \mathrm{IC}^{EY_0}_i &= h_0(A_i, W_i)\, r_i + \bar Q^*(0, W_i) - \psi_0 \\
     \mathrm{IC}^{ATE}_i  &= \mathrm{IC}^{EY_1}_i - \mathrm{IC}^{EY_0}_i \\
-    \mathrm{IC}^{ATT}_i  &= h_{\mathrm{att}}(A_i, W_i)\, r_i
-        + \frac{A_i}{P(A=1)}\bigl(\bar Q^*(1, W_i) - \bar Q^*(0, W_i) - \psi_{\mathrm{att}}\bigr)
+    \mathrm{IC}^{ATT[a]}_i  &= h_a(A_i, W_i)\, r_i
+        + \frac{\mathbb 1\{A_i = a\}}{P(A = a)}
+          \bigl(\bar Q^*(a, W_i) - \bar Q^*(r, W_i) - \psi_{a}\bigr)
 
-and the ATC mirrors the ATT.  Note that the ATT and ATC influence curves carry an
-extra term beyond "clever covariate times residual": the estimand conditions on a
-*random* event (``A = 1``), so the uncertainty in ``P(A = 1)`` contributes.  Omitting
+with :math:`r` the reference arm, one such curve per non-reference arm, and the ATC
+mirrors it with :math:`\mathbb 1\{A_i = r\} / P(A = r)` in place of the arm's own
+indicator -- every one of its parameters conditioning on the same population.  With two
+arms this is the classic ATT, :math:`a = 1` and :math:`r = 0`.  Note that these curves
+carry an extra term beyond "clever covariate times residual": the estimand conditions on a
+*random* event (``A = a``), so the uncertainty in ``P(A = a)`` contributes.  Omitting
 it -- a common bug -- understates the standard error.
 
 Observation weights enter as :math:`\mathrm{IC}_i \mapsto \tilde w_i \mathrm{IC}_i` with
@@ -323,6 +327,11 @@ class ArmMean(NamedTuple):
 
     Both on the *scaled* outcome scale; :meth:`~cleverly.targets.TargetContext.finish`
     maps back.
+
+    Also the carrier for the other things a fluctuation produces one of per parameter: a
+    working model's coefficients (:func:`msm_coefficients`) and the conditional effects
+    (:func:`att_estimate`).  What is shared is the shape -- an estimate and the curve it
+    is entitled to -- which is all anything downstream reads.
     """
 
     psi: float
@@ -783,11 +792,19 @@ def att_estimate(
     treatment: FloatArray,
     weights: FloatArray,
     observed: BoolArray | None = None,
-) -> tuple[float, FloatArray]:
-    """ATT point estimate and influence curve, on the scaled outcome scale."""
+    *,
+    reference: float = 0.0,
+) -> dict[float, ArmMean]:
+    """The effect among each non-reference arm's own units, on the scaled outcome scale.
+
+    One entry per non-reference arm, keyed by that arm -- a single entry, the classic
+    ATT, when the treatment is binary.
+    """
     if submodel.group != "att":
         raise ValueError(f"expected the 'att' submodel; got {submodel.group!r}")
-    return _conditional_effect(outcome, targeted, submodel, treatment, weights, observed, arm=1.0)
+    return _conditional_effects(
+        outcome, targeted, submodel, treatment, weights, observed, reference, conditions_on_arm=True
+    )
 
 
 def atc_estimate(
@@ -797,38 +814,60 @@ def atc_estimate(
     treatment: FloatArray,
     weights: FloatArray,
     observed: BoolArray | None = None,
-) -> tuple[float, FloatArray]:
-    """ATC point estimate and influence curve, on the scaled outcome scale."""
+    *,
+    reference: float = 0.0,
+) -> dict[float, ArmMean]:
+    """The mirror image: each contrast among the *reference* arm's units."""
     if submodel.group != "atc":
         raise ValueError(f"expected the 'atc' submodel; got {submodel.group!r}")
-    return _conditional_effect(outcome, targeted, submodel, treatment, weights, observed, arm=0.0)
+    return _conditional_effects(
+        outcome,
+        targeted,
+        submodel,
+        treatment,
+        weights,
+        observed,
+        reference,
+        conditions_on_arm=False,
+    )
 
 
-def _conditional_effect(
+def _conditional_effects(
     outcome: FloatArray,
     targeted: InitialFit,
     submodel: Submodel,
     treatment: FloatArray,
     weights: FloatArray,
     observed: BoolArray | None,
+    reference: float,
     *,
-    arm: float,
-) -> tuple[float, FloatArray]:
-    """Effect conditional on being in ``arm``, i.e. the ATT (1) or ATC (0)."""
+    conditions_on_arm: bool,
+) -> dict[float, ArmMean]:
+    """``E[Y^a - Y^r | A = c]`` per non-reference arm, with ``c`` the group's population.
+
+    ``conditions_on_arm`` picks which: the contrast arm itself for the ATT, the reference
+    arm for the ATC, where every parameter conditions on the same population.
+
+    The columns are read by :meth:`~cleverly.fluctuation.submodel.Submodel.contrast_column_for`
+    rather than positionally, so an implementation that lined the arms up by order would
+    fail on the three-armed law rather than pass on a coincidence.
+    """
     a = np.asarray(treatment, dtype=float).reshape(-1)
     w = np.asarray(weights, dtype=float).reshape(-1)
-    indicator = a if arm == 1.0 else 1.0 - a
-    share = float(np.average(indicator, weights=w))
-    if share <= 0:
-        raise ValueError(f"no observations in arm {arm:.0f}: the estimand is undefined")
-
-    contrast = targeted.arms[1.0] - targeted.arms[0.0]
-    psi = float(np.average(contrast, weights=w * indicator))
     residual = _residual(outcome, targeted, observed)
-    # The sole column, not an arm's: a contrast submodel has no per-arm column, which is
-    # why ``arm_columns`` is empty for this group.
-    ic = w * (submodel.observed[:, 0] * residual + (indicator / share) * (contrast - psi))
-    return psi, ic
+    out: dict[float, ArmMean] = {}
+    for arm in sorted(submodel.contrast_columns):
+        conditioning = arm if conditions_on_arm else reference
+        indicator = np.asarray(a == conditioning, dtype=float)
+        share = float(np.average(indicator, weights=w))
+        if share <= 0:
+            raise ValueError(f"no observations in arm {conditioning:g}: the estimand is undefined")
+
+        contrast = targeted.arms[arm] - targeted.arms[reference]
+        psi = float(np.average(contrast, weights=w * indicator))
+        column = submodel.contrast_column_for(arm)
+        out[arm] = ArmMean(psi, w * (column * residual + (indicator / share) * (contrast - psi)))
+    return out
 
 
 def ratio_estimates(

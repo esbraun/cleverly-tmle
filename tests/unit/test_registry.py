@@ -173,9 +173,20 @@ class TestResolution:
         assert "ey" in three and "ey" not in two
         assert "ate" in two and "ate" in three
 
+    def test_the_conditional_effects_are_available_but_not_defaulted_at_three_arms(self) -> None:
+        """The two questions ``default_arms`` keeps apart.
+
+        ``att`` and ``atc`` are *defined* at every arm count -- one parameter per
+        non-reference arm -- and stay out of a multi-arm default report, so that adding
+        them moved no existing fit's parameters or its simultaneous bands.
+        """
+        assert {"att", "atc"} <= set(all_names("gaussian", 3))
+        assert {"att", "atc"}.isdisjoint(default_names("gaussian", 3))
+        assert resolve_estimands(["att", "atc"], "gaussian", 3) == ("att", "atc")
+
     def test_a_binary_only_estimand_is_refused_on_a_multi_arm_fit(self) -> None:
         with pytest.raises(ValueError, match="binary treatment only"):
-            resolve_estimands(["ate", "att"], "gaussian", 3)
+            resolve_estimands(["ate", "ey1"], "gaussian", 3)
 
     def test_ratios_are_refused_for_a_continuous_outcome(self) -> None:
         with pytest.raises(ValueError, match="binomial"):
@@ -331,7 +342,8 @@ class TestACustomFluctuation:
         propensity,
         *,
         arms=(0.0, 1.0),
-        treated_fraction=None,
+        arm_fractions=None,
+        reference=None,
         missingness=None,
         intermediate_density=None,
         selection=None,

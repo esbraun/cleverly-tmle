@@ -11,11 +11,14 @@ standard error, and pretending otherwise with one seed would be a coin flip.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
 from cleverly import TMLE, load
-from cleverly.datasets import make_multi_arm, multi_arm_dgp
+from cleverly._typing import FloatArray
+from cleverly.datasets import MultiArmDGP, make_multi_arm, multi_arm_dgp
 
 #: Every parameter a default three-armed fit reports, and its population value.
 TRUTH = multi_arm_dgp().truth()
@@ -146,6 +149,86 @@ class TestTheRestOfTheStackStillWorks:
         result = _fit(targeting_scheme=scheme)
         assert set(result.estimates) == set(TRUTH)
         assert result.fluctuations["mean"].epsilon.shape == (3,)
+
+
+class TestTheConditionalEffects:
+    """``att`` / ``atc`` on a process where the two are genuinely different numbers.
+
+    :func:`~cleverly.datasets.multi_arm_dgp` cannot serve here: its contrast is a constant,
+    so the ATE, the ATT and the ATC coincide and every arrangement of the conditioning
+    population would pass.  Adding an arm-covariate interaction to the *same* confounded
+    mechanism separates them -- the units that select into an arm are the ones the
+    interaction favours -- which is what gives the comparison teeth.
+
+    The outcome regression is then misspecified by the indicator design, deliberately: the
+    mechanism is a softmax linear in ``W`` and ``glm`` fits exactly that, so the estimate
+    is consistent through the mechanism half of the double-robustness statement.  This is
+    a smoke test at three standard errors either way, not a bias claim.
+    """
+
+    @staticmethod
+    def _process() -> MultiArmDGP:
+        step = np.array([0.0, 1.0, 2.4])
+
+        def outcome_mean(w: FloatArray, arm: int) -> FloatArray:
+            return 0.6 * step[arm] * (1.0 + 0.8 * w[:, 0]) + w[:, 0] - 0.5 * w[:, 1]
+
+        return replace(multi_arm_dgp(), name="multi_arm_modified", outcome_mean=outcome_mean)
+
+    @pytest.fixture(scope="class")
+    def conditional_fit(self):  # type: ignore[no-untyped-def]
+        process = self._process()
+        frame, _ = process.sample(2000, seed=3)
+        result = (
+            TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=5,
+                learner_folds=3,
+                random_state=0,
+                simultaneous=False,
+                estimands=("ate", "att", "atc"),
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        return result, process.truth(conditional=True)
+
+    def test_one_effect_per_non_reference_arm_and_group(self, conditional_fit) -> None:
+        result, _ = conditional_fit
+        assert set(result.estimates) == {
+            "ate[low vs high]",
+            "ate[medium vs high]",
+            "att[low vs high]",
+            "att[medium vs high]",
+            "atc[low vs high]",
+            "atc[medium vs high]",
+        }
+
+    def test_every_conditional_estimate_lands_near_its_own_truth(self, conditional_fit) -> None:
+        result, truth = conditional_fit
+        for name in result.estimates:
+            estimate = result.estimates[name]
+            assert abs(estimate.psi - truth[name]) < 3.0 * estimate.std_error, name
+
+    def test_the_three_populations_are_distinguishable_on_this_process(
+        self, conditional_fit
+    ) -> None:
+        """The premise of the test above, asserted rather than assumed.
+
+        If the ATE, ATT and ATC coincided in the truth, agreeing with all three would say
+        nothing about which population the estimator conditioned on.
+        """
+        _, truth = conditional_fit
+        for arm in ("low", "medium"):
+            values = [truth[f"{stem}[{arm} vs high]"] for stem in ("ate", "att", "atc")]
+            assert max(values) - min(values) > 0.1
+
+    def test_the_score_check_passes_for_every_group(self, conditional_fit) -> None:
+        result, _ = conditional_fit
+        assert result.validation.score_check().passed
+        for group in ("mean", "att", "atc"):
+            assert result.fluctuations[group].converged
 
 
 class TestTheReferenceIsPartOfTheEstimand:

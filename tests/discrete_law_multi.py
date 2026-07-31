@@ -157,6 +157,19 @@ def functional(probs: Any, estimand: str) -> Any:
     if estimand.startswith("or["):
         arm, reference = (int(part) for part in estimand[3:-1].split(" vs "))
         return np.log(psi[arm] / (1.0 - psi[arm])) - np.log(psi[reference] / (1.0 - psi[reference]))
+
+    # The conditional effects. ``E[Y(a) - Y(r) | A = c]`` is the contrast averaged over
+    # ``P(W = w | A = c)`` rather than over ``P(W = w)``, with the conditioning arm ``c``
+    # the contrast arm itself for the ATT and the reference for the ATC. Written from the
+    # identification formula, not from the clever covariate: nothing here divides by a
+    # propensity, which is exactly what makes the comparison a check on the covariate.
+    if estimand.startswith("att[") or estimand.startswith("atc["):
+        stem, _, rest = estimand.partition("[")
+        arm, reference = (int(part) for part in rest[:-1].split(" vs "))
+        conditioning = arm if stem == "att" else reference
+        share = p_wa[:, conditioning] / p_wa[:, conditioning].sum()  # P(W = w | A = c)
+        return (share * (q[:, arm] - q[:, reference])).sum()
+
     raise ValueError(f"unknown estimand {estimand!r}")
 
 

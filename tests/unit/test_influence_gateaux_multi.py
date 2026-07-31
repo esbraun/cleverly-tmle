@@ -25,7 +25,21 @@ from tests import discrete_law_multi as law
 
 #: Oracle names, on the law's own arm indices.  ``law.reported_name`` maps each to the
 #: name the library reports, which is in the analyst's labels.
-ORACLE_NAMES = ("ey[0]", "ey[1]", "ey[2]", "ate[1 vs 0]", "ate[2 vs 0]")
+ORACLE_NAMES = (
+    "ey[0]",
+    "ey[1]",
+    "ey[2]",
+    "ate[1 vs 0]",
+    "ate[2 vs 0]",
+    "att[1 vs 0]",
+    "att[2 vs 0]",
+    "atc[1 vs 0]",
+    "atc[2 vs 0]",
+)
+
+#: The conditional effects alone, for the checks that are about *them* rather than about
+#: every estimand: they are the ones with a second fluctuation and their own population.
+CONDITIONAL_NAMES = ("att[1 vs 0]", "att[2 vs 0]", "atc[1 vs 0]", "atc[2 vs 0]")
 
 
 @pytest.fixture(scope="module")
@@ -35,12 +49,17 @@ def exact_fit():
     ``cross_fit=False`` because there is nothing to cross-fit: the oracle does not learn
     from the data.  ``reference="low"`` so the contrasts are against arm 0 of the law's
     own indexing, which is what :func:`law.functional` writes ``ate[a vs 0]`` for.
+
+    The conditional effects are asked for explicitly: they are defined at every arm count
+    but stay out of a multi-arm default report, so that adding them moved no existing
+    fit's report.  Three fluctuations come out of this one fit -- ``mean``, ``att``,
+    ``atc`` -- which is the point: they are three score equations, not one.
     """
     estimator = TMLE(
         outcome_learner=law.OracleMultiOutcome(),
         treatment_learner=law.OracleMultiTreatment(),
         cross_fit=False,
-        estimands=("ey", "ate"),
+        estimands=("ey", "ate", "att", "atc"),
         reference="low",
         simultaneous=False,
         random_state=0,
@@ -69,12 +88,19 @@ class TestTheSampleRealisesTheLaw:
                 0.0, abs=1e-12
             )
 
-    def test_targeting_has_nothing_left_to_do(self, exact_fit) -> None:
-        # The initial fit is exactly correct in the sample, so the fluctuation's score is
-        # already zero at epsilon = 0 across all three columns.  This is what makes the
+    @pytest.mark.parametrize(
+        ("group", "dimension"),
+        [("mean", law.K), ("att", law.K - 1), ("atc", law.K - 1)],
+    )
+    def test_targeting_has_nothing_left_to_do(self, exact_fit, group: str, dimension: int) -> None:
+        # The initial fit is exactly correct in the sample, so each fluctuation's score is
+        # already zero at epsilon = 0 across all its columns.  This is what makes the
         # reported influence curve the EIF at P_0 rather than an estimate of it.
-        fluctuation = exact_fit.fluctuations["mean"]
-        assert fluctuation.epsilon.shape == (law.K,)
+        #
+        # The dimensions say what each group is: one column per *arm* for the means, one
+        # per non-reference arm for the conditional effects, which is a contrast each.
+        fluctuation = exact_fit.fluctuations[group]
+        assert fluctuation.epsilon.shape == (dimension,)
         assert np.max(np.abs(fluctuation.epsilon)) == pytest.approx(0.0, abs=1e-12)
 
     def test_no_bound_binds(self, exact_fit) -> None:
@@ -141,6 +167,59 @@ class TestTheInfluenceCurveIsTheEIF:
         for wrong in (0, 2):
             assert np.max(np.abs(hand_written(wrong) - law.eif("ey[1]"))) > 1e-2
 
+    def test_an_inverted_odds_or_a_shared_population_would_be_caught(self) -> None:
+        """The negative controls for the conditional effects, at three arms.
+
+        Written out at the support points, the EIF of ``E[Y(a) - Y(r) | A = a]`` is
+
+            h_a(A, w) (y - Qbar(A, w)) + 1{A = a}/P(A = a) (Qbar(a, w) - Qbar(r, w) - psi)
+
+        with ``h_a = 1{A=a}/P(A=a) - 1{A=r} (g_a/g_r)/P(A=a)``.  Two ways to build that
+        wrong survive a two-armed law and not this one: inverting the odds to ``g_r/g_a``
+        -- which at ``K = 2`` merely rescales a single column, and here mixes the arms --
+        and giving every contrast the *reference* arm's conditioning share, which is the
+        ATC's population rather than the ATT's and is identical when there is one of each.
+        """
+        arm, reference = 1, 0
+        truth = float(law.functional(law.PROBS, "att[1 vs 0]"))
+        p_wa = law.PROBS.sum(axis=2)
+        share = p_wa[:, arm].sum()
+        share_reference = p_wa[:, reference].sum()
+
+        def hand_written(*, invert_odds: bool = False, wrong_share: bool = False) -> np.ndarray:
+            values = []
+            for w, a, y in law.SUPPORT:
+                odds = (
+                    law.G[w, reference] / law.G[w, arm]
+                    if invert_odds
+                    else law.G[w, arm] / law.G[w, reference]
+                )
+                denominator = share_reference if wrong_share else share
+                clever = ((a == arm) - (a == reference) * odds) / denominator
+                contrast = law.Q[w, arm] - law.Q[w, reference]
+                values.append(
+                    clever * (y - law.Q[w, a]) + (a == arm) / denominator * (contrast - truth)
+                )
+            return np.array(values)
+
+        np.testing.assert_allclose(hand_written(), law.eif("att[1 vs 0]"), atol=1e-12, rtol=0)
+        for broken in (
+            hand_written(invert_odds=True),
+            hand_written(wrong_share=True),
+        ):
+            assert np.max(np.abs(broken - law.eif("att[1 vs 0]"))) > 1e-2
+
+    def test_the_att_and_atc_are_different_parameters_here(self) -> None:
+        """A premise of the two tests above: the law separates the populations.
+
+        On a law where the effect happened to be constant every conditional effect would
+        equal the ATE and equal each other, and the comparisons would pass on that
+        coincidence rather than on the arithmetic.
+        """
+        values = [float(law.functional(law.PROBS, name)) for name in CONDITIONAL_NAMES]
+        ate = [float(law.functional(law.PROBS, f"ate[{a} vs 0]")) for a in (1, 2)]
+        assert len(set(np.round(values + ate, 6))) == len(values) + len(ate)
+
 
 class TestArmsAreKeyedNotCounted:
     """Checks that only fail if arms are addressed by *code* rather than by position."""
@@ -152,7 +231,30 @@ class TestArmsAreKeyedNotCounted:
             "ey[high]",
             "ate[mid vs low]",
             "ate[high vs low]",
+            "att[mid vs low]",
+            "att[high vs low]",
+            "atc[mid vs low]",
+            "atc[high vs low]",
         }
+
+    def test_a_conditional_effect_averages_over_its_own_arm(self, exact_fit) -> None:
+        """The plug-in, read off the targeted predictions rather than off the report.
+
+        Cheap, exact, and it fails if the conditioning population were the whole sample
+        (which would make it the ATE) or the reference arm's (which would make the ATT the
+        ATC).  The Gateaux comparison covers the curve; this covers the number.
+        """
+        targeted = exact_fit.fluctuations["att"].targeted
+        treatment = exact_fit.data.treatment
+        reference = exact_fit.config.reference_arm
+        for arm in exact_fit.data.arm_codes:
+            if arm == reference:
+                continue
+            contrast = targeted.arms[arm] - targeted.arms[reference]
+            label = exact_fit.data.arm_label(arm)
+            expected = float(np.mean(contrast[treatment == arm]))
+            reported = exact_fit.estimates[f"att[{label} vs {exact_fit.data.arm_label(reference)}]"]
+            assert reported.psi == pytest.approx(expected, abs=1e-12)
 
     def test_the_labels_sort_differently_from_how_they_were_written(self) -> None:
         # The property that gives this module its teeth: arm *code* 0 is "high", not

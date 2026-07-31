@@ -914,23 +914,48 @@ class MultiArmDGP:
         weights = np.exp(shifted)
         return np.asarray(weights / weights.sum(axis=1, keepdims=True), dtype=float)
 
-    def truth(self, reference: str | None = None) -> dict[str, float]:
+    def truth(self, reference: str | None = None, *, conditional: bool = False) -> dict[str, float]:
         """Population ``E[Y(a)]`` per arm and ``E[Y(a)] - E[Y(ref)]`` per contrast.
 
         Keyed by the names the estimator reports, so a test can compare without
         translating.  ``reference`` defaults to the arm the estimator would choose --
         the lowest *sorted* label, which is not generally the first one written down.
+
+        ``conditional=True`` adds the conditional effects, ``att[a vs ref]`` and
+        ``atc[a vs ref]``.  Off by default because they are off by default in the report
+        too: a caller looping this mapping against a fit's estimates would otherwise be
+        asking for parameters the fit was never told to produce.
+
+        A conditional effect weights the contrast by the arm's own mechanism --
+        ``E[g_c(W)(Q_a - Q_ref)] / E[g_c(W)]`` is ``E[Q_a - Q_ref | A = c]`` by Bayes,
+        with no positivity needed because the process supplies ``g`` exactly -- so it
+        integrates over the same quasi-Monte Carlo points as the means.
         """
         latent = _sobol_normal(self.n_latent, _TRUTH_POINTS)
-        means = {
-            label: float(np.mean(np.asarray(self.outcome_mean(latent, index), dtype=float)))
-            for index, label in enumerate(self.labels)
-        }
+        arms = [
+            np.asarray(self.outcome_mean(latent, index), dtype=float)
+            for index in range(self.n_arms)
+        ]
+        means = {label: float(np.mean(arms[index])) for index, label in enumerate(self.labels)}
         base = sorted(self.labels)[0] if reference is None else reference
         truth = {f"ey[{label}]": value for label, value in means.items()}
         for label, value in means.items():
             if label != base:
                 truth[f"ate[{label} vs {base}]"] = value - means[base]
+        if not conditional:
+            return truth
+
+        mechanism = self.probabilities(latent)
+        reference_index = self.labels.index(base)
+        for index, label in enumerate(self.labels):
+            if label == base:
+                continue
+            contrast = arms[index] - arms[reference_index]
+            for stem, conditioning in (("att", index), ("atc", reference_index)):
+                weight = mechanism[:, conditioning]
+                truth[f"{stem}[{label} vs {base}]"] = float(
+                    np.mean(weight * contrast) / np.mean(weight)
+                )
         return truth
 
     def sample(

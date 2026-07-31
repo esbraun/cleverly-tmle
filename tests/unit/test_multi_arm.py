@@ -17,7 +17,7 @@ from cleverly import TMLE
 from cleverly.data import CausalData
 from cleverly.estimators._nuisance import Propensity
 from cleverly.exceptions import DataError
-from cleverly.fluctuation.submodel import mean_submodel
+from cleverly.fluctuation.submodel import atc_submodel, att_submodel, mean_submodel
 from cleverly.learners.crossfit import make_folds
 from tests import discrete_law_multi as law
 
@@ -47,6 +47,71 @@ class TestTheCleverCovariate:
         for position, arm in enumerate((0.0, 1.0, 2.0)):
             expected = (treatment == arm) / propensity[:, position]
             np.testing.assert_allclose(submodel.observed[:, position], expected)
+
+    def test_the_conditional_covariate_is_one_odds_column_per_non_reference_arm(self) -> None:
+        """``att`` at three arms, written out against the formula rather than the code.
+
+        Two things here that two arms cannot show: the reference arm loads *every*
+        column -- it is the arm each contrast is taken against, so it belongs to none of
+        them and appears in all -- and each contrast carries its own conditioning share.
+        """
+        treatment = np.array([0.0, 1.0, 2.0, 2.0, 1.0, 0.0])
+        propensity = np.tile([0.5, 0.3, 0.2], (6, 1))
+        shares = np.array([1 / 3, 1 / 3, 1 / 3])
+        submodel = att_submodel(
+            treatment,
+            propensity,
+            arms=(0.0, 1.0, 2.0),
+            arm_fractions=shares,
+            reference=0.0,
+        )
+
+        assert submodel.dim == 2
+        assert submodel.names == ("h_att[1]", "h_att[2]")
+        assert submodel.arm_columns == {}
+        assert submodel.contrast_columns == {1.0: 0, 2.0: 1}
+        for column, arm in enumerate((1.0, 2.0)):
+            odds = propensity[:, int(arm)] / propensity[:, 0]
+            expected = (treatment == arm) / shares[int(arm)] - (treatment == 0.0) * odds / shares[
+                int(arm)
+            ]
+            np.testing.assert_allclose(submodel.observed[:, column], expected)
+            # The conditioning arm needs no reweighting; the reference is reweighted to
+            # resemble it, in that contrast's column and nowhere else.
+            np.testing.assert_allclose(submodel.arms[arm][:, column], 1.0 / shares[int(arm)])
+            assert np.count_nonzero(submodel.arms[arm][:, 1 - column]) == 0
+            np.testing.assert_allclose(submodel.arms[0.0][:, column], -odds / shares[int(arm)])
+
+    def test_the_atc_conditions_every_column_on_the_reference_arm(self) -> None:
+        """The mirror: one population, ``A = ref``, shared by every contrast."""
+        treatment = np.array([0.0, 1.0, 2.0, 2.0, 1.0, 0.0])
+        propensity = np.tile([0.5, 0.3, 0.2], (6, 1))
+        shares = np.array([0.5, 0.2, 0.3])
+        submodel = atc_submodel(
+            treatment, propensity, arms=(0.0, 1.0, 2.0), arm_fractions=shares, reference=0.0
+        )
+
+        assert submodel.contrast_columns == {1.0: 0, 2.0: 1}
+        for column, arm in enumerate((1.0, 2.0)):
+            odds = propensity[:, 0] / propensity[:, int(arm)]
+            expected = ((treatment == arm) * odds - (treatment == 0.0)) / shares[0]
+            np.testing.assert_allclose(submodel.observed[:, column], expected)
+            np.testing.assert_allclose(submodel.arms[0.0][:, column], -1.0 / shares[0])
+
+    def test_the_reference_is_the_one_the_fit_declared(self) -> None:
+        """Not the lowest arm when ``reference=`` says otherwise."""
+        treatment = np.array([0.0, 1.0, 2.0])
+        propensity = np.tile([0.5, 0.3, 0.2], (3, 1))
+        submodel = att_submodel(
+            treatment,
+            propensity,
+            arms=(0.0, 1.0, 2.0),
+            arm_fractions=np.array([1 / 3, 1 / 3, 1 / 3]),
+            reference=2.0,
+        )
+        assert submodel.contrast_columns == {0.0: 0, 1.0: 1}
+        # Arm 2 is now the one every column reweights, and it has no contrast of its own.
+        assert np.count_nonzero(submodel.arms[2.0]) == submodel.arms[2.0].size
 
     def test_an_arms_covariate_is_its_inverse_propensity_in_its_own_column(self) -> None:
         propensity = np.tile([0.5, 0.3, 0.2], (4, 1))
@@ -196,7 +261,7 @@ class TestTruncation:
 
 
 class TestWhatIsRefused:
-    @pytest.mark.parametrize("estimand", ["att", "atc", "ey1", "ey0"])
+    @pytest.mark.parametrize("estimand", ["ey1", "ey0"])
     def test_binary_only_estimands_are_refused(self, estimand: str) -> None:
         with pytest.raises(ValueError, match="binary treatment only"):
             TMLE(
@@ -276,3 +341,62 @@ class TestTheReference:
         estimator = TMLE(estimands=("ate",))
         assert estimator._reference_arm(data) == data.arm_codes[0]
         assert data.arm_label(estimator._reference_arm(data)) == "high"
+
+
+class TestTheConditionalEffects:
+    """What a multi-arm ``att`` / ``atc`` reports, and when.
+
+    The numbers are checked against the oracle in
+    :mod:`tests.unit.test_influence_gateaux_multi`; this is about the report.
+    """
+
+    @staticmethod
+    def _fit(**overrides):  # type: ignore[no-untyped-def]
+        return (
+            TMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=5,
+                learner_folds=3,
+                random_state=0,
+                simultaneous=False,
+                **overrides,
+            )
+            .fit(_three_arm_frame(), outcome="Y", treatment="A")
+            .single()
+        )
+
+    def test_they_are_not_in_the_default_report(self) -> None:
+        """Opt-in, so an existing multi-arm fit reports exactly what it always did.
+
+        They are ``2(K - 1)`` further parameters behind two further fluctuations, and a
+        default that grew to include them would move every multi-arm fit's simultaneous
+        bands -- which are computed across whatever is reported.
+        """
+        assert set(self._fit().estimates) == {
+            "ey[0.0]",
+            "ey[1.0]",
+            "ey[2.0]",
+            "ate[1.0 vs 0.0]",
+            "ate[2.0 vs 0.0]",
+        }
+
+    def test_asking_for_them_reports_one_per_non_reference_arm(self) -> None:
+        result = self._fit(estimands=("att", "atc"))
+        assert set(result.estimates) == {
+            "att[1.0 vs 0.0]",
+            "att[2.0 vs 0.0]",
+            "atc[1.0 vs 0.0]",
+            "atc[2.0 vs 0.0]",
+        }
+        # One fluctuation per group, each with a column per contrast rather than per arm.
+        for group in ("att", "atc"):
+            assert result.fluctuations[group].epsilon.shape == (2,)
+            assert result.fluctuations[group].converged
+
+    def test_they_follow_the_declared_reference(self) -> None:
+        result = self._fit(estimands=("att",), reference=2.0)
+        assert set(result.estimates) == {"att[0.0 vs 2.0]", "att[1.0 vs 2.0]"}
+
+    def test_all_includes_them_where_the_default_does_not(self) -> None:
+        assert set(self._fit(estimands="all").estimates) >= {"att[1.0 vs 0.0]", "atc[2.0 vs 0.0]"}

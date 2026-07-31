@@ -1486,7 +1486,18 @@ class TMLE:
                 )
             else:
                 submodel = self._submodel(
-                    data, nuisance, group, bounds, intermediate_value, missingness, nuisance_bound
+                    data,
+                    nuisance,
+                    group,
+                    bounds,
+                    intermediate_value,
+                    missingness,
+                    nuisance_bound,
+                    # The conditional-effect fluctuations contrast against this arm, and
+                    # so must contrast against the *same* one the estimand layer reports
+                    # against -- which is why it is read once, here, rather than resolved
+                    # again inside the builder.
+                    reference,
                 )
                 fluctuation = self._solve(data, nuisance, submodel)
             fluctuations[group] = fluctuation
@@ -1700,6 +1711,7 @@ class TMLE:
         intermediate_value: float | None,
         missingness_override: FloatArray | None,
         nuisance_bound: float | None = None,
+        reference: float | None = None,
     ) -> Submodel:
         return build_submodel(
             data,
@@ -1711,6 +1723,7 @@ class TMLE:
             ),
             intermediate_value=intermediate_value,
             missingness_override=missingness_override,
+            reference=reference,
         )
 
     def _solve(

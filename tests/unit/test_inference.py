@@ -85,7 +85,7 @@ def _targeted(
     if group == "mean":
         submodel = mean_submodel(a, g1)
     else:
-        submodel = att_submodel(a, g1, treated_fraction=float(np.average(a, weights=weights)))
+        submodel = att_submodel(a, g1, arm_fractions=float(np.average(a, weights=weights)))
     fluctuation = solve_fluctuation(y, initial, submodel, weights)
     return fluctuation.targeted, submodel
 
@@ -133,8 +133,8 @@ class TestInfluenceCurveIsTheGateauxDerivative:
             if estimand == "ey0":
                 return psi_zero
             return psi_one - psi_zero
-        psi, _ = att_estimate(setting["y"], targeted, submodel, setting["a"], weights)
-        return psi
+        # One entry per non-reference arm, which on a binary treatment is arm 1 alone.
+        return att_estimate(setting["y"], targeted, submodel, setting["a"], weights)[1.0].psi
 
     @staticmethod
     def _analytic_ic(setting: dict[str, np.ndarray], estimand: str) -> np.ndarray:
@@ -149,8 +149,8 @@ class TestInfluenceCurveIsTheGateauxDerivative:
             if estimand == "ey0":
                 return ic_zero
             return ic_one - ic_zero
-        _, ic = att_estimate(setting["y"], targeted, submodel, setting["a"], weights)
-        return ic
+        effects = att_estimate(setting["y"], targeted, submodel, setting["a"], weights)
+        return np.asarray(effects[1.0].influence_curve)
 
     @staticmethod
     def _numerical(

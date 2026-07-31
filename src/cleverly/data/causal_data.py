@@ -509,7 +509,7 @@ class CausalData:
 
     @property
     def treated_fraction(self) -> float:
-        """Weighted ``P(A = 1)``, the denominator of the ATT."""
+        """Weighted ``P(A = 1)``, the denominator of a binary fit's ATT."""
         if self.is_continuous_treatment:
             raise DataError(
                 f"{self.treatment_name} is continuous, so 'the treated fraction' names no "
@@ -517,6 +517,30 @@ class CausalData:
                 "are undefined here for the same reason."
             )
         return float(np.average(self.treatment, weights=self.weights))
+
+    @property
+    def arm_fractions(self) -> FloatArray:
+        """Weighted ``P(A = a)`` for every arm, in :attr:`arm_codes` order.
+
+        The denominator of a conditional effect, which on a multi-valued treatment is one
+        share per arm rather than one number: ``att[a vs r]`` averages over the units that
+        received ``a``, and that is a different population for each ``a``.
+
+        **Two arms take the complement of** :attr:`treated_fraction` rather than
+        recomputing the share, for the reason
+        :meth:`~cleverly.estimators._nuisance.Propensity.bounded` takes the complement of
+        ``g1``: it is what keeps a binary fit's ATC arithmetic bit for bit what it was,
+        since ``1 - E_w[A]`` and ``E_w[1 - A]`` need not agree in the last bit.
+        """
+        share = self.treated_fraction  # raises on a continuous treatment, as it should
+        if self.n_arms == 2:
+            return np.array([1.0 - share, share])
+        return np.array(
+            [
+                float(np.average(self.treatment == code, weights=self.weights))
+                for code in self.arm_codes
+            ]
+        )
 
     # ------------------------------------------------------------------- arms
 

@@ -42,8 +42,12 @@ _MEAN_ID = Identification(
 _CONDITIONAL_ID = Identification(
     assumptions=(
         *_POINT_TREATMENT,
-        "the conditioning event (being treated, or being untreated) has positive "
-        "probability, so the parameter is defined",
+        "the conditioning event (having received the arm the effect is reported among) "
+        "has positive probability, so the parameter is defined",
+        "positivity is only needed *at the reference arm* within that population: the "
+        "conditioning arm's own outcomes are already drawn from it and are not reweighted, "
+        "which is why g_ref(W) near zero is what these estimands are sensitive to and why "
+        "g_bounds='auto' truncates them harder",
     ),
     required_nuisances=("outcome_regression", "treatment_mechanism"),
     dr_condition=(
@@ -333,18 +337,46 @@ def _or(ctx: TargetContext) -> list[ParameterEstimate]:
     return out
 
 
-def _att(ctx: TargetContext) -> list[ParameterEstimate]:
-    psi, ic = att_estimate(
-        ctx.scaled, ctx.targeted, ctx.submodel, ctx.treatment, ctx.weights, ctx.observed
+def _conditional(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
+    """``E[Y^a - Y^r | A = c]``, once per non-reference arm.
+
+    Shared by ``att`` and ``atc``, which differ only in the population ``c`` they
+    condition on -- and that is a property of the *group*, so the estimate function is
+    chosen by the stem and the arithmetic stays in
+    :mod:`cleverly.inference.influence` beside its Gateaux test.
+
+    The names collapse to the bare ``"att"`` / ``"atc"`` on a binary treatment, where
+    there is one contrast and the historical short names are unambiguous.
+    """
+    estimate = att_estimate if stem == "att" else atc_estimate
+    effects = estimate(
+        ctx.scaled,
+        ctx.targeted,
+        ctx.submodel,
+        ctx.treatment,
+        ctx.weights,
+        ctx.observed,
+        reference=ctx.reference,
     )
-    return [ctx.finish("att", psi, ic, "difference")]
+    return [
+        ctx.finish(
+            ctx.name_for(stem, arm, versus=ctx.reference),
+            effect.psi,
+            effect.influence_curve,
+            "difference",
+        )
+        for arm, effect in sorted(effects.items())
+    ]
+
+
+def _att(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^a - Y^r | A = a]``: the effect among the units that received ``a``."""
+    return _conditional(ctx, "att")
 
 
 def _atc(ctx: TargetContext) -> list[ParameterEstimate]:
-    psi, ic = atc_estimate(
-        ctx.scaled, ctx.targeted, ctx.submodel, ctx.treatment, ctx.weights, ctx.observed
-    )
-    return [ctx.finish("atc", psi, ic, "difference")]
+    """``E[Y^a - Y^r | A = r]``: the same contrasts among the reference arm's units."""
+    return _conditional(ctx, "atc")
 
 
 #: In report order.
@@ -364,10 +396,13 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         scale="difference",
         build=_att,
         identification=_CONDITIONAL_ID,
-        requires_binary_treatment=True,
         in_default_set=True,
-        undefined_when="the sample contains no treated units",
-        description="average treatment effect on the treated, E[Y^1 - Y^0 | A = 1]",
+        default_arms="binary",
+        undefined_when="the sample contains no units in the conditioning arm",
+        description=(
+            "average treatment effect on the treated, E[Y^1 - Y^0 | A = 1] -- and with "
+            "more arms, E[Y^a - Y^ref | A = a] once per non-reference arm"
+        ),
     ),
     Target(
         name="atc",
@@ -375,10 +410,13 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         scale="difference",
         build=_atc,
         identification=_CONDITIONAL_ID,
-        requires_binary_treatment=True,
         in_default_set=True,
-        undefined_when="the sample contains no untreated units",
-        description="average treatment effect on the controls, E[Y^1 - Y^0 | A = 0]",
+        default_arms="binary",
+        undefined_when="the sample contains no units in the reference arm",
+        description=(
+            "average treatment effect on the controls, E[Y^1 - Y^0 | A = 0] -- and with "
+            "more arms, E[Y^a - Y^ref | A = ref] once per non-reference arm"
+        ),
     ),
     Target(
         name="ey",

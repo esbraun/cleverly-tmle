@@ -88,6 +88,7 @@ def build_submodel(
     nuisance_bound: float,
     intermediate_value: float | None = None,
     missingness_override: FloatArray | None = None,
+    reference: float | None = None,
 ) -> Submodel:
     """Clever covariates for one estimand family, at the given truncation bounds.
 
@@ -99,6 +100,10 @@ def build_submodel(
     ``missingness_override`` replaces the estimated ``P(Delta = 1 | A, W)`` with a
     supplied one, which is how the MNAR tilt moves the missingness mechanism
     without touching any other nuisance.
+
+    ``reference`` is the arm the conditional-effect fluctuations contrast against, and is
+    ignored by every other group.  ``None`` means the lowest arm, which is what a binary
+    fit has always used and what the arm-indexed estimands default to.
     """
     lower = float(nuisance_bound)
     propensity = nuisance.bounded_propensity(bounds)
@@ -115,10 +120,11 @@ def build_submodel(
         data.treatment,
         propensity,
         arms=nuisance.arms,
-        # Read lazily: `treated_fraction` names no quantity on a continuous treatment and
+        # Read lazily: `arm_fractions` names no quantity on a continuous treatment and
         # raises, and every builder is called through this one signature -- so evaluating
         # it eagerly would refuse a shift fit on behalf of a builder that discards it.
-        treated_fraction=None if data.is_continuous_treatment else data.treated_fraction,
+        arm_fractions=None if data.is_continuous_treatment else data.arm_fractions,
+        reference=reference,
         missingness=missingness,
         intermediate_density=intermediate_density,
         selection=selection,

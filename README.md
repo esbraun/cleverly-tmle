@@ -94,8 +94,32 @@ Without `reference=`, the reference is the lowest level in sort order — which 
 labels is alphabetical, so `{"low", "medium", "high"}` defaults to `"high"`. Pass
 `reference=` whenever the ordering matters, which for an ordered treatment is always.
 
-A two-armed fit is unchanged in every respect, including the familiar `ate` / `ey1` /
-`ey0` names.
+**The conditional effects generalise too, and are opt-in here.** "The effect among those
+who actually received arm `a`" is one parameter per non-reference arm rather than one
+number, so `estimands=("att", "atc")` reports `att[medium vs low]` — the effect among the
+units that received `medium` — and `atc[medium vs low]`, the same contrast among the
+reference arm's units. Every `atc` column conditions on the same population, which is what
+"the controls" becomes when there are more than two arms; every `att` column conditions on
+its own. The clever covariate is the binary one with `1{A = a}` and the odds `g_a / g_ref`
+in place of the treated/untreated pair, so the reference arm's overlap is what these rest
+on — `g_bounds="auto"` truncates them harder for that reason, as it always has.
+
+They are **not** in a multi-arm fit's default report, and that is a decision about not
+moving existing fits rather than a doubt about the parameter: they are `2(K-1)` further
+parameters behind two further score equations, and a default that grew to include them
+would change the simultaneous bands of every multi-arm fit that already ran. Ask for them,
+or ask for `estimands="all"`. `result.contrast()` is not the alternative — a conditional
+effect conditions on `A = a` and so is not a function of the marginal means at all.
+
+What is still refused rather than guessed at on a multi-valued treatment, both **not
+written yet** rather than unsound: `CTMLE` (both searches order candidates by one
+propensity margin, and with `K` arms there is no canonical single ordering — the one with
+no settled answer), and the omitted-variable bound and the MNAR tilt, which now have the
+contrast machinery they were waiting on and are on the [roadmap](#roadmap).
+
+A two-armed fit is unchanged in every respect, including the familiar `ate` / `att` /
+`atc` / `ey1` / `ey0` names — the same numbers to the last bit, and `reference=` selects
+which contrast a conditional effect reports exactly as it already selected which `ate`.
 
 ### Dynamic and stochastic regimes
 
@@ -1488,7 +1512,7 @@ so rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| `ATT` / `ATC`, `CTMLE`, the omitted-variable bound and the MNAR tilt on a multi-valued treatment | [multi-valued treatment](#multi-valued-treatment) |
+| `CTMLE`, the omitted-variable bound and the MNAR tilt on a multi-valued treatment | [multi-valued treatment](#multi-valued-treatment) |
 | a non-identity link (`log`, `logit`) for `msm=` | [marginal structural model](#summarising-the-arms-a-marginal-structural-model) |
 | `delta=`, `intermediate=` and estimated weights with `shifts=` | [shifting a continuous dose](#shifting-a-continuous-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](#tilting-the-odds-of-treatment) |
@@ -1496,8 +1520,10 @@ so rather than implying the request was ill-posed.
 | blocked-temporal and rolling-origin splits | [cross-fitting](#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](#observation-weights-and-which-population-they-define) |
 
-Five of these are on the [roadmap](#refusals-worth-lifting). The rest are there because
-nobody has asked, not because anything stands in the way — with one exception worth naming:
+Four of these are on the [roadmap](#refusals-worth-lifting), and one has left the list
+entirely: `ATT` / `ATC` on a multi-valued treatment is item 1 and has landed. The rest are
+there because nobody has asked, not because anything stands in the way — with one exception
+worth naming:
 `CTMLE` on a multi-valued treatment is the only row here whose *derivation* is unsettled,
 since both searches order candidates by one propensity margin and with `K` arms there is no
 canonical single ordering.
@@ -1536,7 +1562,7 @@ produces a number, and the number is wrong.
 | a one-shot non-identity-link MSM | `∂m/∂β` depends on `β`, so a single pass reports a standard error for an equation it did not solve |
 | frequency (count) weights | they assert a sample size the variance does not use. Expand the rows instead, which says the same thing where every part of the fit can see it |
 | an LTMLE outcome missing for a reason other than censoring | its probability of being observed is silently taken to be one. Encode it as a final censoring column so that it is estimated and enters the cumulative product |
-| a binary-only target on a multi-arm fit | it would report a contrast of arms `0` and `1` out of five under the name of a parameter about all of them. Targets declare `requires_binary_treatment` for this |
+| a binary-only target on a multi-arm fit | it would report a contrast of arms `0` and `1` out of five under the name of a parameter about all of them. Targets declare `requires_binary_treatment` for this: `EY1`/`EY0`, which name one of exactly two arms, and the incremental estimands, whose tilt multiplies an *odds*. Not `ATT`/`ATC`, which are one parameter per non-reference arm and say so in the name |
 | `MSM.linear` on non-numeric arm labels | a model linear in the arm reads it as a dose to interpolate between, and the fallback coding is the sort order — alphabetical, for strings — which is a dose scale nobody chose |
 
 Three of these share one mechanism, and it is worth naming because it generalises past this
@@ -1555,8 +1581,8 @@ sections above each row belongs to.
 
 | Capability | Notes |
 | --- | --- |
-| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one; `ey_regime` / `ate_regime` when the fit declares `interventions=`; `ey_shift` / `ate_shift` when it declares `shifts=`; `ey_ipsi` / `ate_ipsi` when it declares `incremental=`; `msm[...]`, one per term, when it declares `msm=`. The five sets are exclusive, not cumulative: `interventions=`, `shifts=` and `incremental=` each declare what "counterfactual" means for the fit and `msm=` declares how the counterfactuals are summarised, and one fluctuation cannot report parameters from two score equations under one heading |
-| Multi-valued treatment | any number of arms up to 20. The mechanism becomes a distribution over the arms and the `mean` fluctuation gets one clever-covariate column per arm, so the fit reports `K` counterfactual means with a joint influence-curve matrix and `K-1` contrasts against `reference=`. Every other contrast — a dose-response comparison, a pairwise difference the reference skipped — comes from `result.contrast()` with no refit. Parameters are named with your own labels: `ey[high]`, `ate[high vs low]`. A two-armed fit is unchanged, bit for bit, and keeps the short names. What is refused rather than guessed at, all four **not written yet** rather than unsound: `ATT`/`ATC` (they reweight one arm by the propensity odds, which is an odds only with two arms — note that `result.contrast()` is *not* the workaround, since a conditional effect conditions on `A = a` and so is not a function of the marginal means at all; it is on the [roadmap](#roadmap)), `CTMLE` (both searches order candidates by one propensity margin, and with `K` arms there is no canonical single ordering — the one of the four with no settled answer), the omitted-variable bound and the MNAR tilt |
+| Estimands | `EY1`, `EY0`, `ATE`, `ATT`, `ATC`, `RR`, `OR` for a binary treatment; `EY` (one mean per arm) and `ATE`/`RR`/`OR` against a reference arm for a multi-valued one, with `ATT`/`ATC` there too — one per non-reference arm, reported when asked for rather than by default; `ey_regime` / `ate_regime` when the fit declares `interventions=`; `ey_shift` / `ate_shift` when it declares `shifts=`; `ey_ipsi` / `ate_ipsi` when it declares `incremental=`; `msm[...]`, one per term, when it declares `msm=`. The five sets are exclusive, not cumulative: `interventions=`, `shifts=` and `incremental=` each declare what "counterfactual" means for the fit and `msm=` declares how the counterfactuals are summarised, and one fluctuation cannot report parameters from two score equations under one heading |
+| Multi-valued treatment | any number of arms up to 20. The mechanism becomes a distribution over the arms and the `mean` fluctuation gets one clever-covariate column per arm, so the fit reports `K` counterfactual means with a joint influence-curve matrix and `K-1` contrasts against `reference=`. Every other contrast — a dose-response comparison, a pairwise difference the reference skipped — comes from `result.contrast()` with no refit. Parameters are named with your own labels: `ey[high]`, `ate[high vs low]`. A two-armed fit is unchanged, bit for bit, and keeps the short names. The conditional effects come too, as `att[a vs ref]` and `atc[a vs ref]` — one per non-reference arm, since "the effect among those who received `a`" is a different population for each `a` — and are reported when `estimands=` asks for them rather than by default, so no fit that already existed changed its report or its bands. What is refused rather than guessed at, all three **not written yet** rather than unsound: `CTMLE` (both searches order candidates by one propensity margin, and with `K` arms there is no canonical single ordering — the one of the three with no settled answer), the omitted-variable bound and the MNAR tilt |
 | Interventions | `interventions=` declares what "counterfactual" means for the fit: a constant arm (`Static`), a deterministic rule `d(W)` (`Rule`), or a known stochastic assignment `g*(a \| W)` (`Stochastic`). All three are one `(n, K)` density over the arms, so one clever covariate `g*(A \| W) / g(A \| W)` covers them and collapses to the familiar indicator form exactly when the regime is static — where the numbers are bit for bit an ordinary fit's. The report becomes `ey_regime[...]` per regime and `ate_regime[... vs ...]` per non-reference regime, and `sensitivity.support()` reports the positivity a regime actually needs. An intervention whose `g*` depends on `P` is not one of these and has its own row below |
 | Continuous treatment | `shifts=` declares a modified treatment policy `d(a, w) = min(a + δ, u)` and with it that the treatment is a dose: no arms, a conditional density `g(a \| W)` in place of the propensity, and a clever covariate that is a density ratio. The density is a discrete hazard fitted by the ordinary `treatment_learner=` on a long `(unit, bin)` expansion, so every preset, screener and thread limit works untouched. The report becomes `ey_shift[...]` and `ate_shift[... vs ...]`, and `sensitivity.shift_support()` reports the ratio's tail and the effective sample size it leaves. `cap=` is required rather than estimated, since a fitted support boundary would make the parameter itself data-dependent. What is refused rather than guessed at: `delta=`, `intermediate=` and estimated weights, each of which puts a further conditional density beside `g` and needs its own derivation |
 | Incremental interventions | `incremental=` multiplies everyone's *odds* of treatment by `δ` rather than assigning an arm (Kennedy 2019), reporting `ey_ipsi[...]` and `ate_ipsi[... vs ...]`. Two things make it unlike every other axis. **No positivity assumption**: the clever covariate is `δ/D` at `A=1` and `1/D` at `A=0` with `D = δg + 1 - g`, so it lies in `[min(δ,1/δ), max(δ,1/δ)]` however small `g` is — the leverage is bounded by a number the analyst chose. `g_bounds=` is therefore refused, since `g` is inside the estimand and truncating it would move `Ψ(δ)`. And it is **not doubly robust** — the only estimand here that is not: every term of the remainder carries `(ĝ - g₀)`, so a consistent mechanism is required and a consistent `Q̄` cannot substitute. Because `q_δ` is a functional of `P`, the EIF carries a `∂m/∂g` term and the estimator fluctuates the *mechanism* as well as `Q̄`, alternating to convergence; `score_check()` reports both equations. `ey_ipsi` at `δ=1` is `mean(Y)` row by row, whatever the nuisances — absent `delta=`, with which `Ψ(1)` is the MAR-identified `E[Y]` instead. `delta=` **is** supported, and tightens the guarantee to "`ĝ` right **and** one of `π̂`, `Q̄` right". What is refused: a multi-valued treatment and `intermediate=` (not written yet), and `CTMLE` (wrong by construction — each candidate `ĝ` defines a different `Ψ(δ)`) |
@@ -1734,10 +1760,16 @@ Both `Submodel` and `InitialFit` key their counterfactual quantities by the trea
 the arm sets — `arms[1.0]`, `arms[0.0]` — rather than naming two fields, so shrinking,
 row-slicing, sign-taking and fluctuating are written once and do not count arms.
 `arm_columns` maps an arm to the column of the design whose coefficient targets it, and is
-**empty** for a contrast fluctuation like `att`, where the single column targets a
-difference and no column belongs to one arm. The estimand layer above keys by arm the same
-way: `counterfactual_means` returns a mapping of arm to `(psi, influence_curve)`, and
-`Target.build` returns one estimate per arm or per contrast.
+**empty** for a contrast fluctuation like `att`, where a column targets a difference and no
+column belongs to one arm — there `contrast_columns` maps the *non-reference* arm to the
+column carrying its contrast, and the reference arm loads every column because it is the
+arm each of them is taken against. Two mappings rather than one with a wider meaning: they
+answer different questions, "which column updates arm `a`" and "which column carries the
+parameter `a` is contrasted under", and the second is what lets the conditional effects
+index by arm code instead of by the literal `0` a two-armed submodel happens to have. The
+estimand layer above keys by arm the same way: `counterfactual_means` returns a mapping of
+arm to `(psi, influence_curve)`, and `Target.build` returns one estimate per arm or per
+contrast.
 
 ## Roadmap
 
@@ -1775,13 +1807,13 @@ yet](#not-written-yet), which is the full list of candidates rather than the cho
 
 ### Refusals worth lifting
 
-Everything under [Not written yet](#not-written-yet) is a candidate; these five are the ones
+Everything under [Not written yet](#not-written-yet) is a candidate; these are the ones
 that answer a question applied causal inference actually asks *and* rest on a derivation
 that is already settled, so the work is transcription and checking rather than research.
 Nothing here is blocked on a modelling question.
 
-**The order is a dependency order, not a preference order.** Each of the five is independently
-shippable, but taken in sequence three of them hand work to the next: the first is
+**The order is a dependency order, not a preference order.** Each item is independently
+shippable, but taken in sequence some of them hand work to the next: the first was
 self-contained and unblocks two sensitivity analyses; the second builds the projection
 machinery the fourth copies; the third and fourth both change `fit_regimen` and
 `fit_mechanism`, so doing them adjacent is one round of churn in those signatures rather than
@@ -1789,18 +1821,22 @@ two. The fifth is last because its cost is dominated by test infrastructure rath
 derivation — it is the only one needing a *new* oracle law rather than a branch on an
 existing one.
 
-1. **`ATT` / `ATC` for a multi-valued treatment.** The most-missed parameter of the set:
-   "the effect among those who actually received arm `a`" is a routine question the moment
-   a treatment has more than two levels, and there is currently no way to ask it — the
-   marginal means `result.contrast()` combines cannot express a parameter that conditions
-   on `A = a`. The derivation is the existing binary one with `1{A=1}` and `1{A=0}`
-   replaced by `1{A=a}` and `1{A=r}` and the odds by `g_a / g_r`, giving one conditional
-   effect per non-reference arm rather than one parameter. `_binary_margin` generalises to
-   a contrast margin, `CONDITIONAL_GROUPS` already routes the tighter truncation bound by
-   group name, and `tests/discrete_law_multi.py` needs `att[a vs r]` branches rather than a
-   new law. The omitted-variable bound and the MNAR tilt then follow from the same contrast
-   machinery, and are follow-on work rather than part of this item. Nothing else here waits
-   on it
+1. **`ATT` / `ATC` for a multi-valued treatment — landed.** "The effect among those who
+   actually received arm `a`" is now `att[a vs ref]`, one per non-reference arm, with
+   `atc[a vs ref]` the same contrasts among the reference arm's units; see [multi-valued
+   treatment](#multi-valued-treatment). The derivation was the binary one with `1{A=1}` and
+   `1{A=0}` replaced by `1{A=a}` and `1{A=r}` and the odds by `g_a / g_r`, so the
+   fluctuation gained a column per contrast rather than a group, and
+   `tests/discrete_law_multi.py` gained `att[a vs r]` branches rather than a new law. Two
+   things worth recording. The reference arm loads *every* column of that fluctuation —
+   it is the arm each contrast is taken against — so the Hessian is no longer diagonal as
+   the `mean` group's is, and `Submodel.contrast_columns` exists because a column is now
+   keyed by the contrast it carries rather than by an arm it updates. And they are **not**
+   in a multi-arm default report: `2(K-1)` further parameters would have moved the
+   simultaneous bands of every multi-arm fit that already ran, so `default_arms="binary"`
+   keeps them opt-in. What still follows from the same contrast machinery, and is now the
+   next thing this unblocks rather than part of it: the omitted-variable bound and the MNAR
+   tilt on a multi-valued treatment
 2. **A non-identity link for `msm=`.** For a binary outcome the identity link is a
    linear-risk model, frequently out of range and not the parameterisation the applied
    literature reports; log-link (risk ratios) and logit MSMs are. The obstacle named in

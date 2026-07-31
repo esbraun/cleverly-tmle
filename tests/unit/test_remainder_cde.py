@@ -141,7 +141,7 @@ def _fit(
         group,
         treatment,
         g_hat[covariate],
-        treated_fraction=float(treatment.mean()),
+        arm_fractions=float(treatment.mean()),
         missingness=np.column_stack([pi_hat[covariate, 0], pi_hat[covariate, 1]]),
         intermediate_density=np.column_stack([density[covariate, 0], density[covariate, 1]]),
         selection=(intermediate == level).astype(float),
@@ -150,7 +150,9 @@ def _fit(
     if group == "mean":
         return binary_means(outcome, initial, submodel, weights, observed)
     estimate = att_estimate if group == "att" else atc_estimate
-    return estimate(outcome, initial, submodel, treatment, weights, observed)
+    # One entry per non-reference arm, which on this binary law is arm 1 alone.
+    effect = estimate(outcome, initial, submodel, treatment, weights, observed)[1.0]
+    return effect.psi, effect.influence_curve
 
 
 def _expansion(
