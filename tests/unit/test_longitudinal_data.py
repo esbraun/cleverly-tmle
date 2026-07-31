@@ -451,3 +451,135 @@ class TestTheContainerRefusesByName:
         data = build(frame, time_varying=[[], ["L2", "const"]])
         assert data.time_varying_names == ((), ("L2",))
         assert "const" in data.dropped_covariates
+
+
+def survival_panel(n: int = 60, *, seed: int = 0) -> pd.DataFrame:
+    """A small, valid two-time-point panel with an absorbing event at each node.
+
+    Two exits rather than one, which is the whole of what the container gains: a unit
+    leaves by being censored *or* by having the event, and after either it has no further
+    nodes.  The event's ``1`` is carried forward, which is what a wide survival frame
+    looks like in practice.
+    """
+    rng = np.random.default_rng(seed)
+    w1 = rng.standard_normal(n)
+    a1 = rng.integers(0, 2, n).astype(float)
+    c1 = (rng.random(n) < 0.85).astype(float)
+    y1 = np.where(c1 == 1, (rng.random(n) < 0.3).astype(float), np.nan)
+    at_risk = (c1 == 1) & (y1 == 0)
+    l2 = np.where(at_risk, rng.standard_normal(n), np.nan)
+    a2 = np.where(at_risk, rng.integers(0, 2, n).astype(float), np.nan)
+    c2 = np.where(at_risk, (rng.random(n) < 0.9).astype(float), np.nan)
+    observed = at_risk & (c2 == 1)
+    y2 = np.where(observed, (rng.random(n) < 0.4).astype(float), np.nan)
+    y2 = np.where(y1 == 1, 1.0, y2)
+    return pd.DataFrame(
+        {"W1": w1, "A1": a1, "C1": c1, "Y1": y1, "L2": l2, "A2": a2, "C2": c2, "Y2": y2}
+    )
+
+
+SURVIVAL_COLUMNS: dict[str, Any] = {**COLUMNS, "outcome": ["Y1", "Y2"]}
+
+
+def build_survival(frame: pd.DataFrame, **overrides: Any) -> LongitudinalData:
+    return LongitudinalData.from_frame(frame, **{**SURVIVAL_COLUMNS, **overrides})
+
+
+class TestASurvivalOutcome:
+    """One event indicator per node, and the risk set it moves."""
+
+    def test_a_sequence_of_outcome_columns_declares_survival(self) -> None:
+        data = build_survival(survival_panel())
+        assert data.is_survival
+        assert data.event_names == ("Y1", "Y2")
+        assert data.family == "binomial"
+        # A single name is still an end-of-study outcome, and says so.
+        assert not build(panel()).is_survival
+
+    def test_the_masks_line_up_with_the_recursion(self) -> None:
+        """``at_risk(t + 1) == following(t) & event-free at t``.
+
+        The end-of-study identity is the special case where nobody leaves by the event,
+        and ``test_masks_line_up_with_the_recursion`` above pins that one unedited.  This
+        is the general statement, and the direction of the inclusion matters as much as
+        the equality: the failures at ``t`` are in ``following(t)`` and not in
+        ``at_risk(t + 1)``, because node ``t``'s regression is what observes them.
+        """
+        data = build_survival(survival_panel())
+        plan = [1.0, 1.0]
+        for time in range(1, data.n_times):
+            following = data.following(plan, time)
+            failed_here = following & ~data.event_free_through(time)
+            assert failed_here.any(), "the panel must contain a failure to check this"
+            np.testing.assert_array_equal(data.at_risk(plan, time + 1), following & ~failed_here)
+
+    def test_the_first_nodes_at_risk_set_is_everybody(self) -> None:
+        data = build_survival(survival_panel())
+        assert data.at_risk([1.0, 1.0], 1).all()
+
+    def test_a_carried_forward_event_is_accepted(self) -> None:
+        """``Y2 = 1`` after ``Y1 = 1`` says the same absorbing thing twice, not a second event.
+
+        The same licence the censoring sweep gives a unit that has already left, and it
+        has to be given: requiring ``nan`` instead would refuse the shape almost every
+        wide survival dataset arrives in.
+        """
+        frame = survival_panel()
+        assert ((frame["Y1"] == 1) & (frame["Y2"] == 1)).any()
+        data = build_survival(frame)
+        assert data.event is not None
+        np.testing.assert_array_equal(data.event[:, -1], np.asarray(frame["Y2"].fillna(0.0) == 1.0))
+
+    def test_refuses_an_event_that_un_happens(self) -> None:
+        frame = survival_panel()
+        failed = frame.index[frame["Y1"] == 1][0]
+        frame.loc[failed, "Y2"] = 0.0
+        with pytest.raises(DataError, match="event is assumed absorbing"):
+            build_survival(frame)
+
+    def test_refuses_a_node_recorded_after_the_event(self) -> None:
+        """A unit that has had the event has no treatment decision at the next node."""
+        frame = survival_panel()
+        failed = frame.index[frame["Y1"] == 1][0]
+        frame.loc[failed, "A2"] = 1.0
+        with pytest.raises(DataError, match="had already left the study"):
+            build_survival(frame)
+
+    def test_refuses_an_event_missing_while_at_risk(self) -> None:
+        frame = survival_panel()
+        present = frame.index[frame["C1"] == 1][0]
+        frame.loc[present, "Y1"] = np.nan
+        with pytest.raises(DataError, match="still at risk"):
+            build_survival(frame)
+
+    def test_refuses_a_non_binary_event(self) -> None:
+        frame = survival_panel()
+        present = frame.index[frame["C1"] == 1][0]
+        frame.loc[present, "Y1"] = 2.0
+        with pytest.raises(DataError, match="event indicator at every node"):
+            build_survival(frame)
+
+    def test_refuses_one_outcome_column_per_node_of_the_wrong_length(self) -> None:
+        with pytest.raises(DataError, match="one event indicator per time point"):
+            build_survival(survival_panel(), outcome=["Y1"])
+
+    def test_refuses_a_continuous_family(self) -> None:
+        """An event indicator is binary at every node; there is no other scale for it."""
+        with pytest.raises(DataError, match="cannot apply to a survival outcome"):
+            build_survival(survival_panel(), family="gaussian")
+
+    def test_a_censored_unit_is_not_counted_as_event_free_forever(self) -> None:
+        """It left before the event was observed, which is not the same as not having it.
+
+        Both exits close the risk set, so a censored unit is out of ``at_risk`` by the
+        censoring factor rather than by the event one -- and the event matrix carries
+        ``False`` for it, which is what makes the matrix free of missing entries without
+        that being a claim about what happened to it.
+        """
+        frame = survival_panel()
+        data = build_survival(frame)
+        censored = np.asarray(frame["C1"] == 0)
+        assert censored.any()
+        assert data.event is not None
+        assert not data.event[censored].any()
+        assert not data.at_risk([1.0, 1.0], 2)[censored].any()
