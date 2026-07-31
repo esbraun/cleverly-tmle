@@ -13,7 +13,15 @@ import pytest
 
 from cleverly.data import CausalData
 from cleverly.exceptions import DataError
-from cleverly.msm import MSM, MSMSet, refuse_unsupported
+from cleverly.msm import (
+    MSM,
+    Link,
+    MSMSet,
+    link_for,
+    refuse_unsupported,
+    register_link,
+    solve_projection,
+)
 
 
 def make_data(n: int = 40, *, levels: tuple = (0, 1), seed: int = 0) -> CausalData:
@@ -47,9 +55,18 @@ class TestDeclaration:
         with pytest.raises(DataError, match="at least one term"):
             MSM(design=lambda a, w: np.ones((len(w), 0)), terms=())
 
-    def test_a_non_identity_link_is_refused_with_the_reason(self) -> None:
-        with pytest.raises(NotImplementedError, match="outer \\(beta, epsilon\\) iteration"):
-            MSM(design=lambda a, w: np.ones((len(w), 1)), terms=("(intercept)",), link="logit")  # type: ignore[arg-type]
+    @pytest.mark.parametrize("link", ["identity", "log", "logit"])
+    def test_a_registered_link_is_accepted(self, link: str) -> None:
+        model = MSM(design=lambda a, w: np.ones((len(w), 1)), terms=("(intercept)",), link=link)  # type: ignore[arg-type]
+        assert model.link == link
+
+    def test_an_unknown_link_is_refused_with_the_ones_that_exist(self) -> None:
+        with pytest.raises(NotImplementedError, match="registered ones are"):
+            MSM(design=lambda a, w: np.ones((len(w), 1)), terms=("(intercept)",), link="probit")  # type: ignore[arg-type]
+
+    def test_a_link_cannot_be_registered_twice(self) -> None:
+        with pytest.raises(ValueError, match="already registered"):
+            register_link(Link("logit", inverse=np.exp, slope=np.exp, curvature=np.exp))
 
     def test_weights_that_are_not_a_known_function_are_refused(self) -> None:
         # An array is not a function of ``(a, V)``: it is one particular evaluation, and
@@ -218,6 +235,177 @@ class TestTheGramMatrix:
         assert np.allclose(
             evaluated.weighted_design, evaluated.design * evaluated.weights[:, :, None]
         )
+
+
+class TestTheLinkAlgebra:
+    """``dm/deta`` and ``d2m/deta2`` against a numerical derivative of ``m``.
+
+    Written as functions of the *mean* rather than of the linear predictor, which is
+    cheaper everywhere they are used and one substitution away from wrong -- so the check
+    is against ``m(eta)`` differentiated numerically, not against the formula restated.
+    """
+
+    @pytest.mark.parametrize("name", ["identity", "log", "logit"])
+    def test_the_derivatives_are_the_derivatives(self, name: str) -> None:
+        link = link_for(name)
+        eta = np.linspace(-2.0, 2.0, 41)
+        step = 1e-5
+        m = link.inverse(eta)
+        first = (link.inverse(eta + step) - link.inverse(eta - step)) / (2.0 * step)
+        second = (link.inverse(eta + step) - 2.0 * m + link.inverse(eta - step)) / step**2
+        np.testing.assert_allclose(link.slope(m), first, atol=1e-8)
+        np.testing.assert_allclose(link.curvature(m), second, atol=1e-5)
+
+    def test_only_the_identity_calls_itself_one(self) -> None:
+        assert link_for("identity").is_identity
+        assert not link_for("log").is_identity
+        assert not link_for("logit").is_identity
+
+
+class TestSolvingTheProjection:
+    """``solve_projection`` is the one solver, so it is checked one link at a time.
+
+    The oracle for the whole estimand is ``tests/discrete_law.py``; this is the algebra
+    underneath it, checked against a statement of the estimating equation written out
+    here so that a sign slip in ``U`` or ``M`` fails at the smallest scale it can.
+    """
+
+    @staticmethod
+    def _problem(seed: int = 0, n: int = 120, k: int = 3, p: int = 3):
+        rng = np.random.default_rng(seed)
+        phi = rng.normal(size=(n, k, p))
+        phi[:, :, 0] = 1.0
+        h = rng.uniform(0.5, 2.0, size=(n, k))
+        w = rng.uniform(0.5, 1.5, size=n)
+        q = rng.uniform(0.1, 0.9, size=(n, k))
+        return phi, h, q, w
+
+    @staticmethod
+    def _score(phi, h, q, w, link, beta):
+        """``U(beta)``, longhand."""
+        m = link.inverse(np.einsum("ijp,p->ij", phi, beta))
+        return np.einsum("ijp,ij,i->p", phi, h * link.slope(m) * (q - m), w) / w.sum()
+
+    @pytest.mark.parametrize("name", ["identity", "log", "logit"])
+    def test_it_solves_the_estimating_equation(self, name: str) -> None:
+        phi, h, q, w = self._problem()
+        fit = solve_projection(phi, h, q, w, name)
+        assert fit.converged
+        residual = self._score(phi, h, q, w, link_for(name), fit.beta)
+        assert np.max(np.abs(residual)) < 1e-11
+
+    def test_the_identity_link_is_the_closed_form_bit_for_bit(self) -> None:
+        """No iteration, and the same two einsums the projection has always used."""
+        phi, h, q, w = self._problem()
+        mass = w.sum()
+        gram = np.einsum("ijp,ijq,ij,i->pq", phi, phi, h, w) / mass
+        moment = np.einsum("ijp,ij,i->p", phi * h[:, :, None], q, w) / mass
+        fit = solve_projection(phi, h, q, w, "identity")
+        assert fit.n_iter == 0
+        np.testing.assert_array_equal(fit.beta, np.linalg.solve(gram, moment))
+        np.testing.assert_array_equal(fit.jacobian, gram)
+
+    @pytest.mark.parametrize("name", ["log", "logit"])
+    def test_the_jacobian_carries_the_curvature_term(self, name: str) -> None:
+        """``M`` is ``-dU/dbeta``, checked by differentiating ``U`` numerically.
+
+        The term that separates the two candidates is ``-(Qbar - m) d2m/deta2``, so it is
+        large only where the working model fits *badly*: the counterfactual means here are
+        ``0.95, 0.05, 0.95`` against a model linear in the dose, which cannot follow them
+        at all. A Gram-only ``M`` is then out by 0.04 (logit) and 0.39 (log), four to five
+        orders past the tolerance the numerical check uses.
+        """
+        n = 100
+        phi = np.tile(np.array([[1.0, 0.0], [1.0, 1.0], [1.0, 2.0]]), (n, 1, 1))
+        h, w = np.ones((n, 3)), np.ones(n)
+        q = np.tile(np.array([0.95, 0.05, 0.95]), (n, 1))
+        link = link_for(name)
+        fit = solve_projection(phi, h, q, w, name)
+        step = 1e-6
+        numerical = np.column_stack(
+            [
+                (
+                    self._score(phi, h, q, w, link, fit.beta - step * np.eye(2)[j])
+                    - self._score(phi, h, q, w, link, fit.beta + step * np.eye(2)[j])
+                )
+                / (2.0 * step)
+                for j in range(2)
+            ]
+        )
+        np.testing.assert_allclose(fit.jacobian, numerical, atol=1e-6)
+
+        m = link.inverse(np.einsum("ijp,p->ij", phi, fit.beta))
+        gram_only = np.einsum("ijp,ijq,ij,i->pq", phi, phi, h * link.slope(m) ** 2, w) / w.sum()
+        assert np.max(np.abs(gram_only - fit.jacobian)) > 1e-2, (
+            "the curvature term is too small here to tell the two matrices apart"
+        )
+
+    def test_a_saturated_design_recovers_the_means_through_the_link(self) -> None:
+        """One indicator per arm: ``m(a) = Qbar(a)`` exactly, so ``beta = link(mean)``."""
+        rng = np.random.default_rng(3)
+        n = 80
+        phi = np.tile(np.eye(3), (n, 1, 1))
+        h = np.ones((n, 3))
+        w = np.ones(n)
+        q = rng.uniform(0.2, 0.8, size=(n, 3))
+        fit = solve_projection(phi, h, q, w, "logit")
+        np.testing.assert_allclose(1.0 / (1.0 + np.exp(-fit.beta)), q.mean(axis=0), atol=1e-10)
+
+    def test_a_solve_that_cannot_converge_says_so_rather_than_raising(self) -> None:
+        """One Newton step is not enough here, and the answer comes back labelled."""
+        phi, h, q, w = self._problem()
+        fit = solve_projection(phi, h, q, w, "logit", max_iter=1)
+        assert not fit.converged
+        assert fit.score > 1e-12
+
+
+class TestTheLinkAndTheOutcomeMustAgree:
+    def test_a_logit_model_needs_an_outcome_in_the_unit_interval(self) -> None:
+        rng = np.random.default_rng(0)
+        frame = pd.DataFrame(
+            {"Y": rng.normal(size=60) * 5.0, "A": np.tile([0, 1], 30), "W1": rng.normal(size=60)}
+        )
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W1"])
+        with pytest.raises(DataError, match="needs an outcome in"):
+            MSMSet.evaluate(MSM.linear(link="logit"), data)
+
+    def test_a_log_model_needs_a_non_negative_outcome(self) -> None:
+        rng = np.random.default_rng(0)
+        frame = pd.DataFrame(
+            {"Y": rng.normal(size=60), "A": np.tile([0, 1], 30), "W1": rng.normal(size=60)}
+        )
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W1"])
+        with pytest.raises(DataError, match="non-negative outcome"):
+            MSMSet.evaluate(MSM.linear(link="log"), data)
+
+    def test_a_binary_outcome_satisfies_both(self) -> None:
+        data = make_data()
+        for link in ("identity", "log", "logit"):
+            assert MSMSet.evaluate(MSM.linear(link=link), data).link == link  # type: ignore[arg-type]
+
+
+class TestTheCovariateNumerator:
+    def test_the_identity_link_ignores_beta_entirely(self) -> None:
+        data = make_data(levels=(0, 1, 2))
+        evaluated = MSMSet.evaluate(MSM.linear(), data)
+        np.testing.assert_array_equal(evaluated.weighted_design_at(None), evaluated.weighted_design)
+        np.testing.assert_array_equal(
+            evaluated.weighted_design_at(np.array([3.0, -2.0])), evaluated.weighted_design
+        )
+
+    def test_another_link_carries_the_slope(self) -> None:
+        data = make_data(levels=(0, 1, 2))
+        evaluated = MSMSet.evaluate(MSM.linear(link="logit"), data)
+        beta = np.array([0.2, -0.5])
+        m = evaluated.fitted(beta)
+        expected = evaluated.design * (evaluated.weights * m * (1.0 - m))[:, :, None]
+        np.testing.assert_allclose(evaluated.weighted_design_at(beta), expected)
+
+    def test_a_covariate_without_a_beta_is_refused_under_a_link(self) -> None:
+        data = make_data()
+        evaluated = MSMSet.evaluate(MSM.linear(link="log"), data)
+        with pytest.raises(DataError, match="depends on beta"):
+            evaluated.weighted_design_at(None)
 
 
 class TestSubset:
