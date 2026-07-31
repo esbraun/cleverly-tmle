@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .longitudinal import longitudinal_truth, make_longitudinal
 from .synthetic import (
     DGP,
     GENERATORS,
@@ -50,6 +51,7 @@ __all__ = [
     "heterogeneous_dgp",
     "instrument_dgp",
     "linear_dgp",
+    "longitudinal_truth",
     "make_biased_sample",
     "make_binary_outcome",
     "make_cde",
@@ -57,6 +59,7 @@ __all__ = [
     "make_heterogeneous",
     "make_instrument",
     "make_linear_ate",
+    "make_longitudinal",
     "make_missing_outcome",
     "make_missing_outcome_binary",
     "make_multi_arm",
