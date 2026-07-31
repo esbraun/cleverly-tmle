@@ -53,7 +53,7 @@ dev = [
     # local `ruff format --check .` pass against a formatter CI does not run: 0.16 began
     # formatting the Python blocks inside Markdown, so the two disagreed about README.md.
     "ruff==0.16.1",
-    "mypy>=1.11",
+    "mypy==1.19.1",
     "nox>=2024.3",
 ]
 

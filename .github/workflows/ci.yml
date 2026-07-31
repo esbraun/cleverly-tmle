@@ -29,7 +29,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv python install 3.11
-      - run: uv pip install --system -e ".[all]" "mypy>=1.11"
+      # Pinned for the reason the ruff version above is: `mypy>=1.11` resolved to whatever
+      # was current, and a release that tightens a check -- or a dependency that ships
+      # better stubs -- turns this job red with no commit to blame. Bump it deliberately.
+      - run: uv pip install --system -e ".[all]" "mypy==1.19.1"
       - run: mypy src/cleverly
 
   tests:

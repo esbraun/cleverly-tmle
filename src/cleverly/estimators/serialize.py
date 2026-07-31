@@ -682,12 +682,15 @@ def save(result: TMLEResult, path: str | Path) -> Path:
 def _write_npz(handle: Any, payload: dict[str, FloatArray]) -> None:
     """``savez_compressed`` with the arrays named by the manifest.
 
-    Wrapped because numpy's stubs declare the second positional parameter of
+    Wrapped because numpy's stubs used to declare the second positional parameter of
     ``savez_compressed`` as ``compress: bool``, so splatting the payload as keywords --
     which is how the function is meant to be called, and what the runtime signature
-    ``(file, *args, **kwds)`` accepts -- does not type-check at the call site.
+    ``(file, *args, **kwds)`` accepts -- did not type-check at the call site.  Later stubs
+    describe it correctly and the ``type: ignore`` that used to sit here became an error in
+    its own right under ``warn_unused_ignores``; the wrapper stays because the one call
+    site is worth naming, not because it still needs suppressing.
     """
-    np.savez_compressed(handle, **payload)  # type: ignore[arg-type]
+    np.savez_compressed(handle, **payload)
 
 
 def load(path: str | Path) -> TMLEResult:
