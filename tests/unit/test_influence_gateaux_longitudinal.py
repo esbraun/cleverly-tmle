@@ -49,6 +49,25 @@ def fit() -> object:
     )
 
 
+def test_every_reported_parameter_has_an_oracle_and_no_more(fit: object) -> None:
+    """The bidirectional gate, in the shape ``tests/unit/test_registry.py`` uses.
+
+    That gate walks the *target registry*, and a regimen is deliberately not a ``Target``
+    -- so the longitudinal parameters sit outside it and need their own. Both directions
+    matter and only one was covered: parametrizing over ``law.NAMES`` below catches an
+    oracle branch the estimator never reports, but nothing caught the reverse, and the
+    reverse is the one that ships a number with no independent check behind it. Adding a
+    parameter to ``LTMLE._estimates`` now fails here until a longhand functional for it
+    exists in ``tests/discrete_law_longitudinal.py``.
+    """
+    assert set(fit) == set(law.NAMES)  # type: ignore[call-overload]
+    # And the law's own names really are backed by the functional rather than declared:
+    # ``functional`` raises on a name it has no branch for, so this is not a tautology.
+    assert set(law.TRUTH) == set(law.NAMES)
+    for name in law.NAMES:
+        assert law.functional(law.PROBS, name) == pytest.approx(law.TRUTH[name], abs=0)
+
+
 @pytest.mark.parametrize("name", law.NAMES)
 def test_point_estimate_is_the_g_formula(fit: object, name: str) -> None:
     """With exact nuisances the estimate is the truth, to the last bit."""
@@ -58,7 +77,10 @@ def test_point_estimate_is_the_g_formula(fit: object, name: str) -> None:
 @pytest.mark.parametrize("name", law.NAMES)
 def test_influence_curve_is_the_gateaux_derivative(fit: object, name: str) -> None:
     reported = fit.influence_curves[name][law.first_row_of()]  # type: ignore[attr-defined]
-    np.testing.assert_allclose(reported, law.eif(name), atol=1e-10)
+    # ``rtol=0`` as in every sibling module: the curve here reaches order 20, so a
+    # default relative tolerance would quietly loosen this to ~1e-6 -- six orders
+    # short of what the comparison actually holds to, on the module's central claim.
+    np.testing.assert_allclose(reported, law.eif(name), atol=1e-14, rtol=0)
 
 
 def test_the_curve_is_a_function_of_the_support_point_alone(fit: object) -> None:
@@ -72,7 +94,7 @@ def test_the_curve_is_a_function_of_the_support_point_alone(fit: object) -> None
     starts = law.first_row_of()
     for position, start in enumerate(starts):
         stop = start + law.COUNTS[position]
-        np.testing.assert_allclose(curve[start:stop], curve[start], atol=1e-12)
+        np.testing.assert_allclose(curve[start:stop], curve[start], atol=1e-12, rtol=0)
 
 
 def test_targeting_had_nothing_to_do(fit: object) -> None:
@@ -87,7 +109,7 @@ def test_targeting_had_nothing_to_do(fit: object) -> None:
         for step in regimen_fit.steps:
             assert step.fluctuation.converged
             assert abs(float(step.fluctuation.epsilon[0])) < 1e-8
-            np.testing.assert_allclose(step.targeted, step.initial, atol=1e-9)
+            np.testing.assert_allclose(step.targeted, step.initial, atol=1e-9, rtol=0)
 
 
 def test_the_contrast_curve_is_the_difference_of_the_two(fit: object) -> None:
@@ -95,7 +117,7 @@ def test_the_contrast_curve_is_the_difference_of_the_two(fit: object) -> None:
     left = fit.influence_curves["ey_regimen[always]"]  # type: ignore[attr-defined]
     right = fit.influence_curves["ey_regimen[never]"]  # type: ignore[attr-defined]
     difference = fit.influence_curves["ate_regimen[always vs never]"]  # type: ignore[attr-defined]
-    np.testing.assert_allclose(difference, left - right, atol=1e-14)
+    np.testing.assert_allclose(difference, left - right, atol=1e-14, rtol=0)
 
 
 def test_dropping_the_censoring_factor_would_be_wrong() -> None:
