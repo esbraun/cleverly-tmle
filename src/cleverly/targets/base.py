@@ -284,6 +284,9 @@ class TargetContext:
     #: values are ``phi' beta``, so neither can be recovered from ``h * phi`` alone.
     msm_design: FloatArray | None = None
     msm_weights: FloatArray | None = None
+    #: The working model's link, by name.  ``"identity"`` leaves the projection linear and
+    #: the clever covariate free of ``beta``; anything else puts ``dm/deta`` in both.
+    msm_link: str = "identity"
     #: The :class:`~cleverly.interventions.IPSISet` **as targeted**, for the ``ipsi``
     #: fluctuation; ``None`` otherwise.  The whole object rather than an array, because
     #: the influence curve needs the tilted density, the derivative and the mechanism the
@@ -328,6 +331,7 @@ class TargetContext:
                 self.weights,
                 self.scaler,
                 self.observed,
+                self.msm_link,
             )
         if self.incremental is not None:
             return ipsi_means(

@@ -1975,6 +1975,7 @@ class TMLE:
             incremental=incremental,
             msm_design=None if msm is None else msm.design,
             msm_weights=None if msm is None else msm.weights,
+            msm_link="identity" if msm is None else str(msm.link),
             always_label=(
                 regimes is not None
                 or shifts is not None

@@ -89,6 +89,7 @@ def build_submodel(
     intermediate_value: float | None = None,
     missingness_override: FloatArray | None = None,
     reference: float | None = None,
+    msm_beta: FloatArray | None = None,
 ) -> Submodel:
     """Clever covariates for one estimand family, at the given truncation bounds.
 
@@ -104,6 +105,12 @@ def build_submodel(
     ``reference`` is the arm the conditional-effect fluctuations contrast against, and is
     ignored by every other group.  ``None`` means the lowest arm, which is what a binary
     fit has always used and what the arm-indexed estimands default to.
+
+    ``msm_beta`` is the working model's current coefficients, which a **non-identity link**
+    puts inside the clever covariate through :math:`dm/d\\eta`.  It is ignored under the
+    identity link, where the covariate is free of :math:`\\beta`, and required under any
+    other -- which is why the ``msm`` group's targeting alternates
+    (:func:`solve_with_projection`) rather than building this once.
     """
     lower = float(nuisance_bound)
     propensity = nuisance.bounded_propensity(bounds)
@@ -130,9 +137,10 @@ def build_submodel(
         selection=selection,
         regimes=None if nuisance.regimes is None else nuisance.regimes.values,
         shifts=None if nuisance.shifts is None else nuisance.shifts.design,
-        # The covariate needs only h * phi; the two factors are wanted apart one layer up,
-        # in the projection itself. See cleverly.msm.MSMSet.weighted_design.
-        msm=None if nuisance.msm is None else nuisance.msm.weighted_design,
+        # The covariate needs only h * (dm/deta) * phi; the factors are wanted apart one
+        # layer up, in the projection itself. See cleverly.msm.MSMSet.weighted_design_at,
+        # which is the identity link's beta-free array whenever the link is the identity.
+        msm=None if nuisance.msm is None else nuisance.msm.weighted_design_at(msm_beta),
         # The tilt's covariate, precomputed from the *untruncated* mechanism. The
         # `propensity` above still arrives bounded and the ipsi builder discards it:
         # g is inside that estimand, so a bound there would move the parameter.
