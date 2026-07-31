@@ -661,7 +661,6 @@ keyword is accepted and rejected with the row below, rather than arriving as an
 
 | refused | what it would need |
 | --- | --- |
-| a dynamic rule `d_t(H_t)` | the followers of a rule are a different set at every node and depend on the covariates, so the regression's training set is data-dependent in a way a constant plan's is not. It is the natural next step and needs an oracle law of its own |
 | a survival outcome, or competing risks | a time-varying event indicator makes `Y` a node at every time point rather than one at the end, and the parameter becomes a curve |
 | a multi-valued treatment at a node | the cumulative product needs one factor per arm per node, and the report one parameter per *sequence* of arms |
 | a marginal structural model over time | `msm=` summarises arms at one node; summarising `2^T` regimens is a different projection with its own weight function |
@@ -686,6 +685,92 @@ product of `2T` factors actually produces.
 `cleverly.validation.CoverageStudy` does take an `LTMLE`: `make_longitudinal` follows the
 `(n, seed) -> (frame, truth)` convention and keys its truth by the names a fit reports, so
 a coverage study over regimens needs no adapting.
+
+#### A regimen that reads the history
+
+A plan may decide a node rather than declare it. Any entry of a plan may be a **rule**
+`d_t(H_t)` instead of an arm, so "start everyone, then keep treating only the responders"
+is one regimen rather than a special case:
+
+```python
+res = LTMLE(
+    {
+        "always": 1,
+        "never": 0,
+        # An entry is an arm or a rule; mixing them is the ordinary case.
+        "continue if L2 > 0": (1, lambda h: (h["L2"] > 0).astype(float)),
+    },
+    reference="never",
+    outcome_learner="glm",
+    treatment_learner="glm",
+    n_folds=5,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+```
+
+```
+parameter                                 estimate  std. error  95% CI            p-value
+----------------------------------------  --------  ----------  ----------------  -------
+ey_regimen[always]                        0.7685    0.0131      [0.7429, 0.7941]  <1e-4
+ey_regimen[never]                         0.3954    0.0198      [0.3565, 0.4342]  <1e-4
+ey_regimen[continue if L2 > 0]            0.7201    0.0146      [0.6914, 0.7488]  <1e-4
+ate_regimen[always vs never]              0.3731    0.0236      [0.3268, 0.4193]  <1e-4
+ate_regimen[continue if L2 > 0 vs never]  0.3247    0.0245      [0.2768, 0.3726]  <1e-4
+
+  regimens: always=(1/1), never=(0/0), continue if L2 > 0=(1/d)
+    a 'd' is a rule d_t(H_t) read off [W, L_1, ..., L_t]; its followers are a
+    covariate-dependent set, so the counts below describe this sample
+```
+
+**A rule is handed `[W, L₁, …, L_t]` and nothing else**, in the backend you passed in.
+Not the outcome — reading it is not an intervention — and not the earlier treatments,
+because under the regimen those are whatever the rule itself assigned, so a rule reading
+the *observed* `A₁` would be reading the treatment of a unit that deviated. It returns one
+arm per row and must be a deterministic function of that frame: every rule is called
+exactly once, before any nuisance is fitted, so that the follower masks and the designs the
+mechanism was evaluated at cannot disagree about what the regimen assigned.
+
+What actually changes is the follower set. A constant plan's followers are a fixed slice;
+a rule's are **a different, covariate-dependent set at every node**, so the rows each
+sequential regression is fitted on move with the data. That is why the settings report
+marks a rule with `d` rather than an arm, and why `res.diagnostics()` carries
+`share_assigned_1` — the fraction of the units at risk at that node the regimen would
+treat, which for a constant is exactly 0 or 1 and for a rule is the only place the report
+says what the rule did to *this* sample:
+
+```
+           regimen  time  n_followed  share_assigned_1  max_weight  effective_n
+            always     2        1263          1.000000       11.97      1096.17
+             never     2         822          0.000000       34.55       630.06
+continue if L2 > 0     2        1205          0.810355       14.52       970.26
+```
+
+The influence curve is checked on the same footing as the static case, on the same law
+(`tests/discrete_law_longitudinal.py`): `W` and `L₂` are binary there, so a rule is a
+lookup over four cells and the oracle can state one longhand while the estimator is handed
+the same plan as a callable. Three earn their place — one that ignores the history, which
+must reproduce the constant plan it equals *bit for bit*; one reading `L₂`, which no static
+plan can express; and one dynamic at the **first** node, the only case where the follower
+mask compares against a per-unit value at `t = 1`. Two deliberate mutations confirm the
+controls bite, and one of them is worth knowing about: evaluating the mechanism at a
+constant arm turns six influence-curve comparisons red and leaves *every point estimate
+green*, because with an exact initial fit `epsilon` is zero, `psi` is the plug-in, and no
+error in `g` can move it.
+
+`make_longitudinal` ships a quadrature truth for a rule too, so the nightly coverage tier
+covers one. Getting that right needed a different integration rule rather than a wider one:
+an indicator puts a step function into the integrand, where a Gauss–Hermite rule converges
+algebraically rather than spectrally, and the naive version moved by `1.7e-3` between 48
+and 64 nodes — worse than the Monte Carlo it exists to avoid. The `L₂` axis is therefore
+integrated as two Gauss–Legendre panels meeting at the jump, which makes the arm constant
+*within* a panel and the answer stable to `1e-13` under refinement.
 
 ### Collaborative TMLE
 
@@ -1112,7 +1197,7 @@ weighted fits; see below). What the estimates *are* checked against is set out u
 | Continuous treatment | `shifts=` declares a modified treatment policy `d(a, w) = min(a + δ, u)` and with it that the treatment is a dose: no arms, a conditional density `g(a \| W)` in place of the propensity, and a clever covariate that is a density ratio. The density is a discrete hazard fitted by the ordinary `treatment_learner=` on a long `(unit, bin)` expansion, so every preset, screener and thread limit works untouched. The report becomes `ey_shift[...]` and `ate_shift[... vs ...]`, and `sensitivity.shift_support()` reports the ratio's tail and the effective sample size it leaves. `cap=` is required rather than estimated, since a fitted support boundary would make the parameter itself data-dependent. What is refused rather than guessed at: `delta=`, `intermediate=` and estimated weights, each of which puts a further conditional density beside `g` and needs its own derivation |
 | Incremental interventions | `incremental=` multiplies everyone's *odds* of treatment by `δ` rather than assigning an arm (Kennedy 2019), reporting `ey_ipsi[...]` and `ate_ipsi[... vs ...]`. Two things make it unlike every other axis. **No positivity assumption**: the clever covariate is `δ/D` at `A=1` and `1/D` at `A=0` with `D = δg + 1 - g`, so it lies in `[min(δ,1/δ), max(δ,1/δ)]` however small `g` is — the leverage is bounded by a number the analyst chose. `g_bounds=` is therefore refused, since `g` is inside the estimand and truncating it would move `Ψ(δ)`. And it is **not doubly robust** — the only estimand here that is not: every term of the remainder carries `(ĝ - g₀)`, so a consistent mechanism is required and a consistent `Q̄` cannot substitute. Because `q_δ` is a functional of `P`, the EIF carries a `∂m/∂g` term and the estimator fluctuates the *mechanism* as well as `Q̄`, alternating to convergence; `score_check()` reports both equations. `ey_ipsi` at `δ=1` is `mean(Y)` row by row, whatever the nuisances. What is refused rather than approximated: a multi-valued treatment, `delta=`, `intermediate=` and `CTMLE` |
 | Marginal structural model | `msm=` declares a working model `m(a, V; beta)` for `E[Y(a) \| V]` and makes the fit's parameters its coefficients, reported as `msm[a:W1]` under the term names you gave. `beta` is a **projection** under a known weight `h(a, V)`, not the truth of an assumed regression, so the estimand and its interval are well defined whether or not the model is correct (Neugebauer & van der Laan 2007). The clever covariate is `h(a,V) phi(a,V) / g(a \| W)`, one column per term, and the projection is solved by weighted least squares against the *targeted* `Qbar` — which zeroes the second half of the influence curve by construction, so no outer iteration is needed. A saturated working model reproduces the per-arm report exactly. What is refused rather than approximated: a non-identity link (its `dm/dbeta` depends on `beta`) and weights derived from the estimated mechanism (they would make `h` a functional of `P`) |
-| Treatment over time | `LTMLE` estimates `E[Y_ā]` under a static regimen across `T` nodes, with time-varying confounding and monotone censoring, reporting `ey_regimen[...]` and `ate_regimen[... vs ...]`. The estimator is the sequential regression (Bang & Robins 2005) targeted node by node (van der Laan & Gruber 2012): `T` regressions run backwards, each fitted on the regimen's followers and each fluctuated by the reciprocal of the *cumulative* product of the treatment and censoring probabilities. Positivity is therefore a statement about a product of `2T` factors, and each is truncated before multiplying rather than the product afterwards; `res.diagnostics()` reports the weight and effective `n` per regimen per node. This is a separate estimator with its own result object rather than a `Target`: a regimen is not an arm, a regime, a shift, a tilt or an MSM coefficient. Its result object carries the same inference surface as a point-treatment one — `contrast()`, `covariance()`, `to_frame()` under the same column names, `id=`, and simultaneous bands across the reported regimens — and refuses the rest by name. What is refused rather than approximated: a dynamic rule `d_t(H_t)`, a survival outcome or competing risks, a multi-valued treatment at a node, an MSM over regimens, observation weights, `intermediate=`, the targeted bootstrap and `res.sensitivity` — the last two because `g_bounds` enters the pseudo-outcome of every earlier node, so there is no retarget that re-solves the fluctuation alone |
+| Treatment over time | `LTMLE` estimates `E[Y_ā]` under a regimen across `T` nodes — static, or **dynamic**, where any node's arm may be a rule `d_t(H_t)` handed `[W, L_1, ..., L_t]` and nothing else — with time-varying confounding and monotone censoring, reporting `ey_regimen[...]` and `ate_regimen[... vs ...]`. The estimator is the sequential regression (Bang & Robins 2005) targeted node by node (van der Laan & Gruber 2012): `T` regressions run backwards, each fitted on the regimen's followers and each fluctuated by the reciprocal of the *cumulative* product of the treatment and censoring probabilities. Positivity is therefore a statement about a product of `2T` factors, and each is truncated before multiplying rather than the product afterwards; `res.diagnostics()` reports the weight and effective `n` per regimen per node, plus `share_assigned_1` — what a rule assigned the units at risk there, which is a property of the sample rather than of the declaration. A rule's followers are a covariate-dependent set at every node, so the rows each regression is fitted on move with the data; a rule that ignores the history reproduces the constant plan it equals bit for bit, which is what pins the dynamic path as a generalisation of the static one rather than a second estimator beside it. This is a separate estimator with its own result object rather than a `Target`: a regimen is not an arm, a regime, a shift, a tilt or an MSM coefficient. Its result object carries the same inference surface as a point-treatment one — `contrast()`, `covariance()`, `to_frame()` under the same column names, `id=`, and simultaneous bands across the reported regimens — and refuses the rest by name. What is refused rather than approximated: a survival outcome or competing risks, a multi-valued treatment at a node, an MSM over regimens, observation weights, `intermediate=`, the targeted bootstrap and `res.sensitivity` — the last two because `g_bounds` enters the pseudo-outcome of every earlier node, so there is no retarget that re-solves the fluctuation alone |
 | Outcome types | binary, and bounded continuous via Gruber & van der Laan (2010) scaling |
 | Nuisance estimation | any scikit-learn estimator, or the built-in `SuperLearner` (ensemble + discrete). A treatment with more than two arms needs a conditional distribution over them: `SuperLearner` fits one binary ensemble per arm and normalises (one-vs-rest, documented as a modelling choice — nothing constrains `K` independently fit ensembles to sum to one), and any multiclass classifier is used directly |
 | Cross-fitting | out-of-fold nuisance fits; V-fold, stratified, grouped and cluster-level splits, with stratification handling a multi-valued treatment natively and `stratify_folds="treatment+outcome"` crossing the outcome in when events are rare enough that an arm-balanced fold can still contain none. The prohibitions are **checked, not assumed**: a fold index outside the declared range and an empty fold are refused by `Folds` itself, and a cluster with rows in more than one fold by a post-condition on every split the library builds — outer, Super Learner's inner, C-TMLE's selection. Every result carries the `CrossFitPlan` it *declared* beside the fold count it *ran*, which come apart whenever a cap fired. `repeats=R` averages over `R` independent draws of the split — `mean_r psi_r` with influence curve `mean_r IC_r`, so the variance, the delta method and the bands stay coherent without a second rule, and every analysis that produces a number follows all `R` draws while the ones describing a fitted mechanism name the draw they describe. A draw redraws every stage of the split, Super Learner's inner CV and C-TMLE's selection folds included, and `repeat_spread()` reports how far the draws moved as a diagnostic rather than a standard error. Median-of-estimates aggregation is refused, since the median of the estimates is not the estimator whose curve is the median of the curves. The inner CV that scores Super Learner candidates is nested inside one outer training fold and gets the same cluster codes. What is refused rather than approximated: blocked-temporal splits (no node carries a time index), rolling-origin splits (their nested training sets cannot give every row the one out-of-fold prediction the storage contract rests on — a different contract, not a different splitter) and splitting a cluster across folds to buy more of them |
@@ -1295,13 +1380,12 @@ way: `counterfactual_means` returns a mapping of arm to `(psi, influence_curve)`
 The base classes (`estimators/base.py`, `inference/`, `learners/`, `fluctuation/`) are shared
 infrastructure; the following variants plug into them:
 
-- **longitudinal TMLE (`cleverly.longitudinal.LTMLE`) — landed for a static regimen**, with
-  time-varying confounding and monotone censoring; see
-  [Treatment given over time](#treatment-given-over-time). What it still refuses is listed
-  there, and the first of those is the next step: a **dynamic rule** `d_t(H_t)`, whose
-  followers are a different, covariate-dependent set at every node
-- survival TMLE (`survtmle`) and competing risks — the outcome becomes a node at every time
-  point rather than one at the end, and the parameter a curve
+- **longitudinal TMLE (`cleverly.longitudinal.LTMLE`) — landed**, for static regimens and
+  for **dynamic rules** `d_t(H_t)`, with time-varying confounding and monotone censoring;
+  see [Treatment given over time](#treatment-given-over-time). What it still refuses is
+  listed there, and the next step is the first of those: a **survival outcome**, where a
+  time-varying event indicator makes `Y` a node at every time point rather than one at the
+  end, and the parameter a curve rather than a number
 - doubly-robust TMLE with nonparametric inference (`drtmle`)
 
 ### On native acceleration
