@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -510,6 +510,99 @@ def test_cluster_variance_is_reported_at_the_cluster() -> None:
         assert clustered.psi(name) == pytest.approx(independent.psi(name), abs=0.02)
         assert clustered[name].std_error > independent[name].std_error
     assert "cluster-robust variance" in clustered.summary()
+
+
+class TestADynamicRule:
+    """A regimen whose nodes are rules, on the process rather than on the exact law.
+
+    ``tests/unit/test_influence_gateaux_longitudinal.py`` proves the influence curve is
+    right, on a law a sample realises exactly and handed a saturated learner.  What that
+    cannot see is anything a *real* learner does differently, and one thing in this design
+    turns on exactly that -- which is what the last test here is for.
+    """
+
+    #: ``d_2 = 1{L2 > 0}``: treat at the second node only if the biomarker rose.  No
+    #: static plan reaches this, since it is defined by a covariate measured between the
+    #: two decisions -- the node that makes the problem longitudinal.
+    RULE: ClassVar[dict[str, Any]] = {
+        "always": 1,
+        "never": 0,
+        "always_rule": (lambda h: np.ones(len(h)), lambda h: np.ones(len(h))),
+        "treat if l2 rises": (0, lambda h: (h["L2"] > 0.0).astype(float)),
+    }
+
+    @pytest.fixture(scope="class")
+    def fitted(self) -> LongitudinalResult:
+        frame, _ = make_longitudinal(n=3000, seed=11)
+        return run(frame, regimens=self.RULE, reference="never", simultaneous=False)
+
+    def test_it_reports_and_converges_like_any_other_regimen(
+        self, fitted: LongitudinalResult
+    ) -> None:
+        assert set(fitted) == {
+            "ey_regimen[always]",
+            "ey_regimen[never]",
+            "ey_regimen[always_rule]",
+            "ey_regimen[treat if l2 rises]",
+            "ate_regimen[always vs never]",
+            "ate_regimen[always_rule vs never]",
+            "ate_regimen[treat if l2 rises vs never]",
+        }
+        assert fitted.converged
+        assert fitted["ey_regimen[treat if l2 rises]"].std_error > 0
+
+    def test_the_rule_is_a_different_parameter_from_either_constant(
+        self, fitted: LongitudinalResult
+    ) -> None:
+        """And by more than a standard error, so it is not a restatement of one of them."""
+        rule = fitted["ey_regimen[treat if l2 rises]"]
+        for label in ("always", "never"):
+            gap = abs(rule.psi - fitted[f"ey_regimen[{label}]"].psi)
+            assert gap > 3.0 * rule.std_error, (label, gap, rule.std_error)
+
+    def test_the_diagnostics_report_what_the_rule_assigned(
+        self, fitted: LongitudinalResult
+    ) -> None:
+        """``share_assigned_1`` is the column a static plan cannot make interesting.
+
+        For a constant it is exactly 0 or 1, which makes it a free check on the plan the
+        fit ran; for a rule it is the only place the report says what the rule actually
+        did to this sample, since the settings can only say that a rule was declared.
+        """
+        frame = fitted.diagnostics()
+        shares = {
+            (row["regimen"], row["time"]): row["share_assigned_1"] for _, row in frame.iterrows()
+        }
+        assert shares[("always", 1)] == 1.0
+        assert shares[("never", 2)] == 0.0
+        assert shares[("treat if l2 rises", 1)] == 0.0
+        assert 0.2 < shares[("treat if l2 rises", 2)] < 0.8
+
+    def test_a_rule_that_ignores_the_history_is_the_constant_plan_exactly(
+        self, fitted: LongitudinalResult
+    ) -> None:
+        """Under a real learner, not only the saturated one on the exact law.
+
+        The dynamic path has to be a generalisation of the static one rather than a
+        second estimator beside it, and this is the assertion that says so end to end:
+        it fails if the follower masks, the mechanism's arm selection, the censoring
+        model's current-arm column or the submodel's arm key treats a rule differently
+        from the constant it happens to equal.  Verified by mutation -- evaluating the
+        cumulative product at a single arm turns this red.
+
+        What it does **not** guard, despite the temptation to claim it, is the decision
+        not to put the assigned arms into the outcome regression's design.  A rule that
+        ignores the history assigns a *constant*, so that mutation adds a constant column
+        here -- which ``StandardScaler`` maps to zeros and the fit then ignores -- and it
+        adds the same column to ``always``.  Both sides move together and the comparison
+        cannot see it.  See ``history_design`` for what does hold that decision up, which
+        is an argument rather than a test.
+        """
+        assert fitted.psi("ey_regimen[always_rule]") == fitted.psi("ey_regimen[always]")
+        np.testing.assert_array_equal(
+            fitted.influence_curves["ey_regimen[always_rule]"],
+            fitted.influence_curves["ey_regimen[always]"],
+        )
 
 
 class TestItRefusesByName:

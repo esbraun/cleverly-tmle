@@ -500,10 +500,18 @@ class LongitudinalData:
         it is not -- but that among the followers :math:`A_s = d_s(W, L_1, \\ldots, L_s)`
         is a *deterministic function of columns this design already carries*, since that
         is precisely the frame :meth:`history_frame` handed the rule.  Adding it would
-        buy no information and cost the identity between a rule that returns a constant
-        and the constant plan itself, which no oracle can police: a saturated learner
-        partitions by distinct design row, and a column that is a function of the others
-        leaves that partition untouched.
+        buy no information, only a redundant column for a penalised learner to spread a
+        coefficient across.
+
+        **No test in this repository would catch that being changed**, which is why the
+        reasoning is written here rather than left to a fixture.  Two independent things
+        hide it.  On the exact law the learner is saturated, and it partitions by distinct
+        design row: a column that is a function of the others leaves the partition, and so
+        every prediction, untouched.  Under ``glm`` the natural comparison is a rule that
+        ignores the history against the constant plan it equals -- but such a rule assigns
+        a *constant*, and a constant column is standardised to zeros and then ignored, on
+        both sides of the comparison.  A genuinely dynamic rule would see a difference and
+        has no second answer to be checked against.  Change this only with an argument.
         """
         columns = [self.covariate_history(time)]
         last = time if include_current else time - 1

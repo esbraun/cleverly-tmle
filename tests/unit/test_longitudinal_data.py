@@ -32,16 +32,19 @@ def panel(n: int = 40, *, seed: int = 0) -> pd.DataFrame:
     return pd.DataFrame({"W1": w1, "A1": a1, "C1": c1, "L2": l2, "A2": a2, "C2": c2, "Y": y})
 
 
+#: The column declaration :func:`panel` answers to, shared by the container tests and by
+#: the fits that go through ``LTMLE`` rather than restated at each of them.
+COLUMNS: dict[str, Any] = {
+    "outcome": "Y",
+    "treatment": ["A1", "A2"],
+    "baseline": ["W1"],
+    "time_varying": [[], ["L2"]],
+    "censoring": ["C1", "C2"],
+}
+
+
 def build(frame: pd.DataFrame, **overrides: Any) -> LongitudinalData:
-    kwargs: dict[str, Any] = {
-        "outcome": "Y",
-        "treatment": ["A1", "A2"],
-        "baseline": ["W1"],
-        "time_varying": [[], ["L2"]],
-        "censoring": ["C1", "C2"],
-    }
-    kwargs.update(overrides)
-    return LongitudinalData.from_frame(frame, **kwargs)
+    return LongitudinalData.from_frame(frame, **{**COLUMNS, **overrides})
 
 
 def test_reads_the_panel() -> None:
@@ -79,6 +82,97 @@ def test_history_grows_one_block_at_a_time() -> None:
     np.testing.assert_array_equal(at_regimen[:, -1], np.zeros(data.n))
 
 
+class TestWhatARuleIsHandedAndWhatItMayReturn:
+    """The contract between a dynamic rule and the container, checked from both ends."""
+
+    def test_the_history_names_are_the_history_columns(self) -> None:
+        """Otherwise the frame a rule reads is silently mislabelled.
+
+        The correspondence is an accident of two independent loops -- the matrix skips a
+        zero-width block and a zero-width block's names are the empty tuple -- so it holds
+        until someone reorders one of them. A rule handed a mislabelled frame reads the
+        wrong covariate and returns a perfectly valid-looking arm, which is exactly the
+        kind of wrongness no downstream assertion can see.
+        """
+        data = build(panel())
+        for time in range(1, data.n_times + 1):
+            assert len(data.history_names(time)) == data.covariate_history(time).shape[1]
+        assert data.history_names(1) == ("W1",)
+        assert data.history_names(2) == ("W1", "L2")
+
+    def test_a_rule_sees_the_history_and_nothing_else(self) -> None:
+        """No outcome and no observed treatment, enforced by what the frame contains.
+
+        Reading ``Y`` is not an intervention, and reading ``A1`` is a different object:
+        under the regimen the earlier treatment is what the rule itself assigned, so a
+        rule reading the *observed* one would be reading the treatment of a unit that
+        deviated. Both are kept out by omission rather than by a check, which is what
+        this pins.
+        """
+        from cleverly.longitudinal import LTMLE
+
+        seen: list[list[str]] = []
+
+        def watcher(history: Any) -> Any:
+            seen.append(list(history.columns))
+            return np.zeros(len(history))
+
+        LTMLE(
+            {"watched": (watcher, watcher)},
+            outcome_learner="glm",
+            pseudo_learner="glm",
+            treatment_learner="glm",
+            n_folds=2,
+            learner_folds=2,
+            random_state=0,
+        ).fit(panel(n=200, seed=1), **COLUMNS)
+        assert seen == [["W1"], ["W1", "L2"]]
+
+    def test_refuses_a_rule_that_returns_the_wrong_number_of_rows(self) -> None:
+        data = build(panel())
+        regimen = DynamicRegimen("short", (lambda history: np.zeros(3), 0.0))
+        with pytest.raises(DataError, match="one arm per row"):
+            regimen.assignment(data)
+
+    def test_refuses_a_rule_that_returns_something_other_than_an_arm(self) -> None:
+        data = build(panel())
+        regimen = DynamicRegimen("dose", (lambda history: np.full(data.n, 0.5), 0.0))
+        with pytest.raises(DataError, match="must return 0 or 1"):
+            regimen.assignment(data)
+
+    def test_a_rule_that_raises_says_which_columns_it_had(self) -> None:
+        """The commonest trap: one rule broadcast to every node, reading a late covariate.
+
+        ``lambda h: h["L2"]`` is a perfectly good rule at the second node and a
+        ``KeyError`` at the first, so the message has to name the node and the columns
+        rather than let a bare ``KeyError`` surface.
+        """
+        data = build(panel())
+        regimen = DynamicRegimen("too early", (lambda history: history["L2"],) * 2)
+        with pytest.raises(DataError, match=r"time 1 .*raised KeyError"):
+            regimen.assignment(data)
+        with pytest.raises(DataError, match=r"\['W1'\]"):
+            regimen.assignment(data)
+
+    def test_a_rule_is_not_asked_to_answer_for_a_censored_unit(self) -> None:
+        """Off the recorded set the history is the zero fill, so the arm is coerced.
+
+        Not validated, coerced: such a row is masked out of every regression and every
+        influence curve, so the only way its arm could matter is by putting a ``nan`` into
+        a design matrix a learner is then called on. A rule that divides by a filled zero
+        is the realistic way that happens.  ``L2 / L2`` is exactly that rule and nothing
+        else: a valid arm of ``1`` wherever ``L2`` was recorded, and ``0 / 0`` -- ``nan``
+        -- on precisely the rows the fill created.
+        """
+        data = build(panel())
+        regimen = DynamicRegimen("reciprocal", (0.0, lambda history: history["L2"] / history["L2"]))
+        assigned = regimen.assignment(data)
+        censored = ~data.uncensored_through(1)
+        assert censored.any()
+        assert np.all(np.isfinite(assigned))
+        np.testing.assert_array_equal(assigned[censored, 1], 0.0)
+
+
 def test_the_fill_for_censored_rows_carries_no_information() -> None:
     """The zero-fill is confined to rows nothing reads, and cannot encode anything.
 
@@ -106,9 +200,19 @@ def test_the_fill_cannot_reach_the_estimate() -> None:
     into ``covariate_history`` and hence into every mechanism model's training matrix, and
     only ``fit_mask=at_risk`` keeps them inert. Fill with something wild rather than
     something plausible, so a leak is a visible move rather than a rounding difference.
+
+    A **dynamic rule** is in the regimen dict for the same reason, and it makes the test
+    sharper than it was: the rule reads ``L2``, so replacing the filled entries with
+    ``1e6`` flips the arm it assigns on every one of those rows. If a filled row could
+    reach the estimate, this is not a rounding difference but the opposite arm.
     """
     from cleverly.longitudinal import LTMLE
 
+    regimens: dict[str, Any] = {
+        "always": 1,
+        "never": 0,
+        "treat if l2 rises": (0, lambda history: (history["L2"] > 0.0).astype(float)),
+    }
     frame = panel(n=400, seed=3)
     settings: dict[str, Any] = {
         "outcome_learner": "glm",
@@ -118,24 +222,17 @@ def test_the_fill_cannot_reach_the_estimate() -> None:
         "learner_folds": 2,
         "random_state": 0,
     }
-    columns: dict[str, Any] = {
-        "outcome": "Y",
-        "treatment": ["A1", "A2"],
-        "baseline": ["W1"],
-        "time_varying": [[], ["L2"]],
-        "censoring": ["C1", "C2"],
-    }
-    plain = LTMLE({"always": 1, "never": 0}, **settings).fit(frame, **columns)
+    plain = LTMLE(regimens, **settings).fit(frame, **COLUMNS)
 
     # Every node after a unit's censoring time is nan and stays nan -- the container
     # refuses a recorded value there.  What the fill replaces those nans with is what is
     # under test, so it is reached through the built container rather than the frame.
-    data = LongitudinalData.from_frame(frame, **columns)
+    data = LongitudinalData.from_frame(frame, **COLUMNS)
     perturbed = [block.copy() for block in data.time_varying]
     censored = ~data.uncensored_through(1)
     assert censored.any()
     perturbed[1][censored, 0] = 1e6
-    moved = LTMLE({"always": 1, "never": 0}, **settings).fit(
+    moved = LTMLE(regimens, **settings).fit(
         dataclasses.replace(data, time_varying=tuple(perturbed))
     )
     for name in plain:
