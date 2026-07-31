@@ -56,7 +56,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, Learner
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import CleverlyError
+from ..exceptions import LongitudinalError
 from ..fluctuation.iterative import Fluctuation, InitialFit, solve_fluctuation
 from ..fluctuation.submodel import Submodel
 from ..learners.crossfit import Folds
@@ -65,17 +65,12 @@ from .data import LongitudinalData
 from .regimen import Regimen
 
 __all__ = [
-    "LongitudinalError",
     "Mechanism",
     "RegimenFit",
     "SequentialStep",
     "fit_mechanism",
     "fit_regimen",
 ]
-
-
-class LongitudinalError(CleverlyError):
-    """A longitudinal fit cannot proceed on the data or regimen it was given."""
 
 
 #: Filler for a prediction at a row the estimator never reads -- a unit censored before

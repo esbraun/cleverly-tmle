@@ -40,7 +40,14 @@ from .exceptions import (
 )
 from .inference import ParameterEstimate
 from .learners import SuperLearner
-from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult, ltmle
+from .longitudinal import (
+    LTMLE,
+    LongitudinalData,
+    LongitudinalError,
+    LongitudinalResult,
+    Regimen,
+    ltmle,
+)
 from .provenance import Provenance
 from .targets import TARGETS, Identification, Target, register
 
@@ -59,11 +66,13 @@ __all__ = [
     "DataError",
     "Identification",
     "LongitudinalData",
+    "LongitudinalError",
     "LongitudinalResult",
     "NotFittedError",
     "ParameterEstimate",
     "PositivityWarning",
     "Provenance",
+    "Regimen",
     "SuperLearner",
     "TMLEResult",
     "TMLEResultSet",
