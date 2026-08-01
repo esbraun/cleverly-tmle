@@ -433,6 +433,13 @@ def reduced_corrections(
     disagree the theorem wins and this function is wrong.  Read it before trusting the
     interval in anger.
 
+    And note what the fidelity claim rests on, because it is less than it sounds: **no number
+    this package produces has been compared against** ``drtmle``'s.  There is no
+    cross-language test here or in CI.  So "what that package computes" is a statement about
+    a formula read out of its source, not about agreement with anything it returns -- which
+    makes running one example through both the cheapest outstanding check on this whole
+    variant.  ``docs/roadmap.md`` lists it under *What is still open* beside the theorem.
+
     Parameters
     ----------
     targeted, propensity:

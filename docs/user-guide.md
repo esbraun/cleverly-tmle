@@ -1056,6 +1056,14 @@ Why this is the right number, and how it is checked:
 
 ## Doubly-robust inference
 
+> **In progress.** `DRTMLE` is written and tested, and it is not finished. Its influence
+> curve is transcribed from R's `drtmle` rather than derived, no number here has been
+> compared against that package's, and no study in this repository shows the interval it
+> reports is better than a plain TMLE's. The full list is in
+> [the roadmap](roadmap.md#what-is-still-open); the short version is at the end of this
+> section. Use it where you have a reason to think one nuisance is badly estimated, read
+> `res.validation.score_check()` on every fit, and do not treat the interval as settled.
+
 TMLE is **doubly robust for consistency and singly robust for inference**. The estimate stays
 consistent if either nuisance is right, because the remainder is a *product* of the two
 errors — but the interval needs that product to vanish faster than `1/sqrt(n)`, which takes
@@ -1119,14 +1127,17 @@ binary treatment and the `mean` group. A multi-valued treatment, `att`/`atc`, th
 parameter axes, `delta=`, `intermediate=`, fold-wise targeting,
 `reduction="bivariate"` and composition with `CTMLE` are all refused by name.
 
-**Three limitations, because they are not visible from the output.** The influence curve's
-form is read off `drtmle`'s implementation rather than derived — Theorem 1 of Benkeser et al.
-(2017) has not been read here, and if the two disagree the theorem wins. There is no
-cross-check against `drtmle`'s own numbers. And a coverage study on the off-diagonal of the
-misspecification grid found *no gap for this variant to close* at the sizes it could reach:
-the regime it is for needs an adaptive good nuisance converging more slowly than `n^(-1/4)`,
-which is beyond what a nightly budget can simulate. Use it where you have reason to think one
-nuisance is badly estimated; do not read it as a free improvement.
+**What is not visible from the output**, and is why this section opens with a warning. The
+influence curve's form is read off `drtmle`'s implementation rather than derived — Theorem 1
+of Benkeser et al. (2017) has not been read here, and if the two disagree the theorem wins.
+There is no cross-check against `drtmle`'s own numbers. A coverage study on the off-diagonal
+of the misspecification grid found *no gap for this variant to close* at the sizes it could
+reach: the regime it is for needs an adaptive good nuisance converging more slowly than
+`n^(-1/4)`, which is beyond what a nightly budget can simulate. And the alternation does not
+reliably converge — equation (10)'s covariate is near-singular on exactly the fits anybody
+wants, so some fold draws exit at the outer cap, which is what the score check is for.
+[The roadmap](roadmap.md#what-is-still-open) lists these and the rest. Do not read this as a
+free improvement over a plain TMLE.
 
 Why this is the right number, and how it is checked:
 [what the extra equations remove](methodology.md#doubly-robust-inference-what-the-extra-equations-remove).

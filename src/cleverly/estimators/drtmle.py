@@ -1,5 +1,27 @@
 r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one bad nuisance.
 
+.. warning::
+
+   **This variant is in progress.**  The code is written and its tests pass; that is not the
+   same as finished, and two of the outstanding items are the kind that decide whether the
+   thing is right at all.  The full list, with what each would change, is in
+   ``docs/roadmap.md`` under *What is still open*.  The four a caller's numbers depend on:
+
+   1. **Theorem 1 of Benkeser et al. (2017) has not been read.**  The influence curve --
+      which is the whole of what this variant buys -- is read off the R package ``drtmle``'s
+      implementation rather than derived.  See
+      :func:`~cleverly.inference.influence.reduced_corrections`.
+   2. **No number here has been compared against ``drtmle``'s output.**  The cheapest check
+      on item 1, and it has not been done.
+   3. **Nothing demonstrates that the interval is better.**  A coverage study over the
+      off-diagonal of the misspecification grid found no gap for this variant to close at
+      the sizes it could reach; the regime it is for is out of reach of a nightly budget.
+   4. **The alternation does not reliably converge.**  Equation (10)'s covariate is
+      near-singular on exactly the fits anybody wants -- see
+      :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so some draws exit at
+      the outer cap and report ``failure = "max_iter_reached"``.  Read
+      ``res.validation.score_check()`` on every fit rather than assuming.
+
 Every interval this package reports is valid when the second-order remainder is negligible,
 and for a plain TMLE that remainder is the product
 :math:`\|\hat g - g_0\| \cdot \|\hat{\bar Q} - \bar Q_0\|`.  A product goes to zero when one
@@ -94,12 +116,18 @@ class ReducedFit:
 
 
 class DRTMLE(TMLE):
-    """TMLE with doubly-robust inference, for a binary point treatment.
+    """TMLE with doubly-robust inference, for a binary point treatment.  **In progress.**
 
     Reports ``ey1``, ``ey0`` and ``ate`` under those names -- a different estimator behind
     the same parameters, exactly as :class:`~cleverly.CTMLE` is -- with an influence curve
     and therefore an interval that stays valid when only one of the two nuisances is
-    consistently estimated.  See the module docstring for what that does and does not buy.
+    consistently estimated.
+
+    **Read the module docstring's warning before using this in anger.**  The curve it
+    reports is transcribed from the R package rather than derived, nothing has been compared
+    against that package's numbers, and no study here demonstrates the interval is better
+    than a plain TMLE's.  What the module docstring says about what this does and does not
+    buy is not hedging: it is the current state of the evidence.
 
     Every :class:`~cleverly.TMLE` keyword is accepted and behaves identically except the
     ones listed under *Notes*, which are refused rather than approximated.

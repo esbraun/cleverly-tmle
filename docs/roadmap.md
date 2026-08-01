@@ -5,10 +5,11 @@ the shared base classes (`estimators/base.py`, `inference/`, `learners/`, `fluct
 [Refusals worth lifting](#refusals-worth-lifting) are parameters this package already has the
 machinery for and has simply not written down — drawn from [Not written
 yet](methodology.md#not-written-yet), which is the full list of candidates rather than the
-chosen ones. **All six have landed**, and so has the second variant, so both lists are now a
-record of what was done and what the sizing got wrong rather than a plan. What is left is
-named at the end of [What `drtmle` touched](#what-drtmle-touched): one prerequisite that has
-to happen outside this repository, and one claim nothing here has yet demonstrated.
+chosen ones. **All six have landed**, so that list is now a record of what was done and what
+the sizing got wrong rather than a plan. The second variant is **in progress**: its code is
+written and its tests pass, and it is not finished — what is outstanding is enumerated under
+[What is still open](#what-is-still-open), and the first two entries are the kind that decide
+whether the thing is correct at all.
 
 ## Variants
 
@@ -39,15 +40,16 @@ to happen outside this repository, and one claim nothing here has yet demonstrat
   predates the six below and was sized from the paper rather than from a read of what would
   have to change here; [What `drtmle` touched](#what-drtmle-touched) is that read,
   and now also a read of the source — the derivation that section left open is
-  [pinned](#what-the-source-settles) rather than conjectured. **Landed**, as
+  [pinned](#what-the-source-settles) rather than conjectured. **In progress**, as
   `cleverly.DRTMLE`: the remainder module, the reduced-dimension regressions, the
-  three-equation alternation, the estimator and the influence curve, in four commits. Two
-  things it does *not* come with, and both are stated where a reader meets them rather than
-  here alone: the curve's form is read off `drtmle`'s implementation and **Theorem 1 of
-  Benkeser et al. (2017) is still unread**, and a coverage study on the off-diagonal of the
-  misspecification grid found **no gap for the variant to close** at the sizes it could
-  reach. So what has landed is the estimator; what has not is evidence that it buys what it
-  is for
+  three-equation alternation, the estimator and the influence curve are written, in five
+  commits, and every test passes. That is not the same as finished, and calling it landed
+  would be claiming the part that is missing. **Theorem 1 of Benkeser et al. (2017) is
+  unread**, so the influence curve — which is the whole of what this variant is for — is
+  transcribed from `drtmle`'s implementation rather than derived; nothing here has been
+  compared against that implementation's numbers either; and a coverage study on the
+  off-diagonal of the misspecification grid found **no gap for the variant to close** at the
+  sizes it could reach. See [What is still open](#what-is-still-open) for the rest
 
 ## What `drtmle` touched
 
@@ -65,6 +67,80 @@ this section used to leave open under a heading called "three things to pin"; tw
 three are now answered and the third is still open, and saying which is which is the point of
 keeping the heading's shape. What the source changed about the **plan** — the scope, and two
 further seams — is folded into the sections below, each marked where it moved.
+
+### What is still open
+
+The variant is in progress, and this is the list. It is ordered by what would change a
+reported number, not by effort. Nothing below is a surprise waiting to be found — each was
+met while building the thing and is recorded where the code that has it lives.
+
+**1. Theorem 1 of Benkeser et al. (2017) has not been read.** The influence curve
+`D = D* − D*_Q − D*_g` is read off `drtmle`'s implementation, not derived. The whole variant
+is a variance estimate, so a curve transcribed from software and never checked against its
+derivation is the one part of this that could be wrong in a way nothing here would catch.
+Biometrika is paywalled and this environment's network policy denies the working-paper
+mirrors, so it is the only item that has to happen outside the repository.
+`inference/influence.py::reduced_corrections` says so in its own docstring.
+
+**2. No number here has been compared against `drtmle`'s output.** The package has no
+cross-language test anywhere, so this is not a new gap — but it is the cheapest check that
+would catch most of what item 1 is about, and it is a more costly omission here than
+elsewhere because the whole estimator is a transcription of that package.
+
+**3. There is no evidence the variant delivers what it is for.** A coverage pilot over the
+off-diagonal of the misspecification grid put `TMLE` and `DRTMLE` at 0.958 apiece in one cell
+and 1.000 in the other — no gap to close. The diagnosis is understood (a correctly specified
+*parametric* nuisance converges at `n^(−1/2)`, so the product condition never binds) and the
+regime that would show it — an adaptive nuisance slower than `n^(−1/4)` at large `n` — costs
+hours rather than minutes, because a `DRTMLE` study runs ~100× a plain one.
+`tests/e2e/test_coverage_slow.py`'s `TestDoublyRobustInference` guards what it can and says
+in its docstring that it is not a demonstration.
+
+**4. The alternation does not reliably converge, and the reason is structural.** Equation
+(10)'s covariate is `gr2/gr1`, and `gr2` vanishes exactly where the mechanism is right — so
+on the fits anybody actually wants that covariate is nearly zero and its Newton solve is
+near-singular: observed at `mean|h| = 1e-3`, `|epsilon|` reaching 280 and a singular Hessian
+in a third of the rounds on one unseeded draw. Such a fit runs to the outer cap and reports
+`failure = "max_iter_reached"`. Six seeded fits at `n = 800` converged in 15 to 45 rounds, so
+it is a minority behaviour rather than the norm — but "minority" is measured on four
+processes, and `drtmle` sidesteps it entirely by capping at three iterations and never
+claiming convergence. `ReductionFluctuation.ill_conditioned` reports it.
+
+**5. Equation (9) is never solved exactly.** Its covariate `Qr/g*` reads the very mechanism
+it tilts, so one solve zeroes the score at the pre-tilt covariate and leaves a residual at
+the post-tilt one. The closing pass iterates it — to `4e-12` on the exact law and about
+`1e-9` on a fitted one — and does not remove it. Equations (8) and (10) *are* exact, so this
+is the only term keeping the reported curve's mean off machine zero.
+
+**6. The closing pass's mechanism stage stops on its cap, not on its tolerance.** It ran its
+full twenty steps on every fit measured, settling around `1e-9` rather than reaching
+`spec.tol = 1e-10`. Harmless — the steps are arithmetic, and item 5 is why it cannot get
+there — but the cap is doing the stopping, and a cap that always binds is worth knowing
+about rather than reading as convergence.
+
+**7. The relative-score exit criterion is a poor instrument for equation (10).** The loop
+exits on `|score| / mean|h|`, and `mean|h| ≈ 1e-3` for that covariate, so an absolutely
+negligible score reads as a large relative one. That is *why* the loop looks unconvergent
+where it does. Changing it was drafted, and reverted — the failing case turned out to be a
+minority draw, and a threshold changed after seeing a failure needs the failure characterised
+first. It remains the right question and the wrong time to have answered it.
+
+**8. `retarget` is no longer arithmetic on cached arrays.** The reductions are refitted
+inside the alternation, so a truncation curve or an MNAR sweep costs about a fit per point
+rather than a fraction of one, and a result read back from disk cannot retarget at all — its
+estimator is gone and there are no learners to refit with. `ReductionFluctuation` is not
+serialised either, so a reloaded fit keeps its estimates and loses the record of what solved
+them.
+
+**9. `gr2`'s truncation is fixed at fit time**, so the part of a truncation curve that comes
+from equation (10) is flat by construction. `fit_reduced`'s docstring sets out why, and why
+flat-by-construction reads as insensitivity rather than as a limitation.
+
+**10. Scope is narrower than the source's software**, deliberately and by name:
+`reduction="bivariate"` (derived, not written), a multi-valued treatment (a gap in what has
+been *read* rather than in what exists), `att`/`atc`, the other four parameter axes,
+`delta=`, `intermediate=`, fold-wise targeting and composition with `CTMLE`. Only the first
+two are candidates; the rest are refusals with reasons.
 
 ### What the source settles
 
@@ -626,10 +702,9 @@ the fit rather than adding a parameter to it, which is why it needed no oracle b
 no registry entry, and why the [oracle-law gate](methodology.md#the-oracle-law-gate) has
 nothing to say about it.
 
-**All six have landed**, and so has the second variant above. What remains is not an item:
-Theorem 1, a cross-check against `drtmle`'s own numbers, and a coverage study that finds the
-gap the variant exists to close — all three set out under [What `drtmle`
-touched](#what-drtmle-touched) — plus a handful of refusals under [Not written
+**All six have landed.** What remains on this page is the second variant above, which is
+**in progress** rather than done — ten open items, listed at [What is still
+open](#what-is-still-open) — plus a handful of refusals under [Not written
 yet](methodology.md#not-written-yet) that are there because nobody has asked rather than
 because anything stands in the way.
 

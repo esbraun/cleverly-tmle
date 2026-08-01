@@ -427,6 +427,11 @@ not compared against here or in CI. `cleverly.estimators.ctmle` sets both out in
 
 ## Doubly-robust inference: what the extra equations remove
 
+**`DRTMLE` is in progress**, and this section describes what it computes rather than what has
+been established about it: the influence curve below is transcribed from R's `drtmle` rather
+than derived, and nothing here has been compared against that package's numbers. The
+roadmap's [What is still open](roadmap.md#what-is-still-open) is the full list.
+
 `TMLE` is **doubly robust for consistency and singly robust for inference**, and the
 distinction is the whole of what `DRTMLE` is for. The second-order remainder is a product,
 

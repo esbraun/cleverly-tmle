@@ -738,6 +738,33 @@ def solve_with_reduction(
     left another open -- the failure :func:`~cleverly.fluctuation.mechanism.mechanism_score`
     exists for, here three times over.
 
+    **The loop is followed by a closing pass, and it is not an optimisation.**  Every round
+    solves equation (10) at that round's *first* refit of the reductions and equation (9) at
+    the *previous* round's second, then refits again before the record is built --
+    ``drtmle``'s ordering, kept.  So neither extra equation is solved at the arrays the
+    reported curve is built from, and that curve's empirical mean is zero only insofar as
+    the loop converged.  Mean zero is what makes the estimator asymptotically linear with
+    the curve it reports: on a 800-row fit stopped after one round the largest reported
+    curve mean was ``3.7e-3`` against a standard error of ``0.105``.
+    :func:`_close_at_frozen_reductions` re-solves all three at the reductions the record
+    carries, which brings that to ``5.8e-7``, and moves a converged fit's ``psi`` and
+    standard error by nothing.
+
+    **This loop does not reliably converge, and the reason is structural rather than
+    numerical.**  Equation (10)'s covariate is :math:`g_{r,2}/g_{r,1}`, and :math:`g_{r,2}`
+    vanishes exactly where the mechanism is right -- so on a fit whose :math:`\hat g` is
+    nearly right, which is every fit anybody wants, that covariate is nearly zero and its
+    Newton solve is near-singular: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching
+    280 and a singular Hessian in a third of the rounds on one unseeded draw.  Such a fit
+    exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.  Six seeded fits at
+    ``n = 800`` converged in 15 to 45 rounds, so it is a minority behaviour of particular
+    draws rather than the norm -- but ``drtmle`` sidesteps it entirely by capping at three
+    iterations and never claiming to converge, and this loop's exit test is a *relative*
+    score, which divides by a ``mean|h|`` of order ``1e-3`` and so reads an absolutely
+    negligible score as a large one.  :attr:`ReductionFluctuation.ill_conditioned` reports
+    the conditioning; ``docs/roadmap.md`` lists both under *What is still open*, and
+    :class:`~cleverly.DRTMLE`'s module docstring says what turns on them.
+
     Returns the final outcome submodel and the equation-(8) fluctuation, carrying equation
     (9)'s tilt on :attr:`~cleverly.fluctuation.Fluctuation.mechanism` and equation (10)'s on
     ``.reduction``.  **Two values rather than** :func:`solve_with_mechanism`'s **three**:
