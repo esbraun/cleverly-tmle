@@ -476,6 +476,16 @@ adds equation (9), which fluctuates `g`; `guard="g"` guards against a misspecifi
 you are worried about, not the one the equation it adds moves. An empty guard fits no
 reduced regressions at all and is bit-for-bit a plain TMLE.
 
+**The three equations are solved at the arrays the curve is built from.** That is not
+automatic and it is what makes the reported curve mean-zero, which is in turn what makes the
+estimator asymptotically linear with the curve it reports. The alternation solves equation
+(10) at a round's first refit of the reductions and equation (9) at the previous round's
+second, and then refits once more, so the loop on its own leaves both solved somewhere the
+curve is not built from — harmless on a converged fit and worth percents of a standard error
+on one that stops early. A closing pass re-solves all three at the reductions the fit
+reports, refitting nothing; `cleverly.estimators.targeting` sets out why freezing them makes
+that two stages rather than another alternation.
+
 **The reduced regressions are refitted inside the alternation.** Equations (9) and (10) are
 stated at *starred* `Qr*`, `gr*`, and the source's algorithm maps initial estimates of the
 outcome regression, the mechanism **and the reduced regressions** into estimates satisfying

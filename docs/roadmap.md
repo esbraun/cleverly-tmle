@@ -225,6 +225,27 @@ inherited.
    which made `score_check`'s per-estimand row disagree with its per-equation rows by two
    orders of magnitude — a real defect, found by reading the diagnostic rather than by a
    test.
+   *Which fixed the reporting and left the deeper half.* Making the scores and the curve
+   agree does not make either of them **solved**: equation (10) is solved at the round's
+   first refit and equation (9) at the previous round's second one, so with `drtmle`'s
+   ordering neither is solved at the arrays the curve is built from, and the curve's mean is
+   zero only insofar as the loop converged — which is the property the whole estimator rests
+   on. Measured on an 800-row fit by stopping the rounds early:
+
+   | rounds | max\|mean of reported curve\| | after the closing pass |
+   | --- | --- | --- |
+   | 1 | 3.7e-3 (3.5% of `se`) | 5.8e-7 |
+   | 3 | 1.4e-3 | 5.7e-11 |
+   | 10 | 2.6e-5 | 1.2e-10 |
+   | 26 (converged) | 7.0e-10 | 3.4e-10 |
+
+   The fix keeps the source's ordering and adds a **closing pass** that re-solves all three
+   equations at the reductions the record carries, refitting nothing. Freezing the
+   reductions makes the system *triangular* — `D*_g` contains no `Q̄` at all, so equation
+   (9) settles first and nothing downstream disturbs it — and equations (8) and (10) are
+   then solved **jointly** in one Newton step over all four columns rather than backfitted,
+   which on the exact law is the difference between `3.9e-4` after twenty alternating steps
+   and `1.5e-12` after one. `drtmle` has the same gap and absorbs it into `tolIC = 1/n`.
 3. **`inference/influence.py` — landed**, where the reported curve gains terms the plain one
    has no analogue of. `counterfactual_means` takes an optional `corrections` mapping and is
    otherwise untouched *character for character*, because the comment already there records

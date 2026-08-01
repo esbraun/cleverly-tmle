@@ -629,6 +629,10 @@ class ReductionFluctuation:
     score_initial: FloatArray
     names: tuple[str, ...] = ()
     trace: tuple[tuple[int, float, float, float, float], ...] = field(default_factory=tuple)
+    #: How many rounds of the alternation ran -- the rounds that **refitted**.  The trace
+    #: carries one further row for the closing pass, which refits nothing, so this is what
+    #: "did the loop terminate on its own" means and what the outer cap is compared against.
+    rounds: int = 0
     converged: bool = True
     failure: str | None = None
     #: How many rounds' equation-(10) solves reported a failure of their own.  Not rare and
@@ -639,6 +643,10 @@ class ReductionFluctuation:
     #: stops on a statistical tolerance rather than a numerical one, and it is reported so
     #: that a reader can see the equation was hard rather than infer it from the round count.
     ill_conditioned: int = 0
+    #: How many solves the closing pass took.  It re-solves all three equations at the
+    #: reductions this record carries, which the alternation itself never does -- it solves
+    #: at one refit and reports at another.  Zero would mean the pass did not run.
+    closing: int = 0
 
     @property
     def relative_score(self) -> float:
@@ -647,7 +655,8 @@ class ReductionFluctuation:
 
     @property
     def n_outer(self) -> int:
-        return len(self.trace)
+        """The refitting rounds, not counting the closing pass's row in :attr:`trace`."""
+        return self.rounds
 
     def coefficients(self) -> dict[str, float]:
         return dict(zip(self.names, np.asarray(self.epsilon).tolist(), strict=True))
@@ -869,8 +878,43 @@ def solve_with_reduction(
         previous = worst if previous is None else min(previous, worst)
         previous_joint = joint
 
-    last = trace[-1] if trace else (0, 0.0, 0.0, 0.0, 0.0)
-    worst = max(last[1], last[2], last[3])
+    rounds = len(trace)
+    closing = _close_at_frozen_reductions(
+        data,
+        nuisance,
+        group,
+        spec,
+        reduced=reduced,
+        guard=guard,
+        bounds=bounds,
+        nuisance_bound=nuisance_bound,
+        scaled=scaled,
+        weights=weights,
+        observed=observed,
+        mask=mask,
+        indicator=indicator,
+        arms=arms,
+        targeted_g=targeted_g,
+        fluctuation=fluctuation,
+        mechanism=mechanism,
+        extra=extra,
+    )
+    submodel = closing.submodel
+    fluctuation = closing.fluctuation
+    mechanism = closing.mechanism
+    extra = closing.extra
+    extra_submodel = closing.extra_submodel
+    trace.append(
+        (
+            rounds + 1,
+            fluctuation.relative_score_norm,
+            closing.reduced_score,
+            closing.mechanism_score,
+            closing.joint,
+        )
+    )
+
+    worst = max(fluctuation.relative_score_norm, closing.reduced_score, closing.mechanism_score)
     unsolved: TargetingFailure | None = None if worst <= _UNSOLVED else "max_iter_reached"
     failure = unsolved
     if mechanism is not None:
@@ -889,11 +933,192 @@ def solve_with_reduction(
         score_initial=np.zeros(0) if first_initial is None else first_initial,
         names=() if extra_submodel is None else extra_submodel.names,
         trace=tuple(trace),
+        rounds=rounds,
         converged=bool(worst <= spec.tol),
         failure=failure,
         ill_conditioned=ill_conditioned,
+        closing=closing.steps,
     )
     return submodel, replace(fluctuation, mechanism=mechanism, reduction=record)
+
+
+@dataclass(frozen=True)
+class _Closing:
+    """What the closing pass left behind, so the caller assembles one record from one place."""
+
+    submodel: Submodel
+    fluctuation: Fluctuation
+    mechanism: MechanismFluctuation | None
+    extra: Fluctuation | None
+    extra_submodel: Submodel | None
+    reduced_score: float
+    mechanism_score: float
+    joint: float
+    steps: int
+
+
+def _close_at_frozen_reductions(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    group: TargetGroup,
+    spec: TargetingSpec,
+    *,
+    reduced: ReducedSet,
+    guard: tuple[str, ...],
+    bounds: tuple[float, float],
+    nuisance_bound: float,
+    scaled: FloatArray,
+    weights: FloatArray,
+    observed: BoolArray,
+    mask: BoolArray,
+    indicator: FloatArray,
+    arms: tuple[float, ...],
+    targeted_g: FloatArray,
+    fluctuation: Fluctuation,
+    mechanism: MechanismFluctuation | None,
+    extra: Fluctuation | None,
+    max_steps: int = 20,
+) -> _Closing:
+    r"""Re-solve the three equations at the reductions the influence curve will read.
+
+    The alternation solves equation (9) at the *previous* round's reductions and equation
+    (10) at the current round's *first* refit, and then refits once more before the record
+    is built -- ``drtmle``'s ordering, kept.  So neither extra equation is solved at the
+    arrays the reported curve is built from, and the curve's empirical mean is zero only
+    insofar as the loop converged.  Mean zero is the property the whole estimator rests on,
+    which is why "insofar as it converged" is not good enough: measured on a 800-row fit
+    stopped after one round, the largest reported curve mean was ``3.7e-3`` against a
+    standard error of ``0.105``, and nothing in the output said so.
+
+    **Freezing the reductions makes the system triangular, and that is why this is two
+    stages rather than another alternation.**  With :math:`Q_r`, :math:`g_{r,1}` and
+    :math:`g_{r,2}` held fixed:
+
+    .. code-block:: text
+
+        (9)   Qr(a,W)/g*(a|W) (1_a - g*(a|W))       reads g* only -- no Qbar anywhere
+        (10)  1_a gr2(a|W)/gr1(a|W) (Y - Qbar*)     reads Qbar* only -- no g
+        (8)   1_a/g*(a|W),  residual (Y - Qbar*)    reads both
+
+    So equation (9) is solved first and nothing downstream can disturb it -- moving
+    :math:`\bar Q^*` cannot change a term :math:`\bar Q` does not appear in -- and then (8)
+    and (10) are solved for :math:`\bar Q^*` at that fixed :math:`g^*`, **jointly**, in one
+    Newton solve over all four columns rather than by backfitting them.  Backfitting them
+    converges at a rate set by how collinear the two covariates are, and that rate is not
+    always usable: measured on the exact law, twenty backfitting steps left equation (10)
+    at ``3.9e-4`` where one joint solve lands at ``1.5e-12``.  The *returned* submodel is
+    still the two-column ``mean`` one -- ``sensitivity/omitted_variable.py`` reads
+    :meth:`~cleverly.fluctuation.submodel.Submodel.column_for`, and a four-column submodel
+    must not escape this function.
+
+    No learner is refitted here, so the pass costs arithmetic; the whole point is that the
+    reductions do *not* move.
+
+    **What it does not achieve, and the docstring says so rather than the reader
+    discovering it.**  Equation (9)'s covariate is :math:`Q_r/g^*`: it reads the very
+    mechanism it tilts, so one :func:`~cleverly.fluctuation.mechanism.solve_mechanism` call
+    zeroes the score at the covariate built from the *pre-tilt* :math:`g^*` and leaves a
+    residual at the post-tilt one.  Iterating shrinks that; it does not remove it.  The
+    honest claim is that all three equations are solved at the arrays the curve is built
+    from, to the loop's tolerance, not exactly.
+    """
+    steps = 0
+    if "Q" in guard:
+        for _ in range(max_steps):
+            steps += 1
+            solved = solve_mechanism(
+                indicator,
+                targeted_g,
+                reduced_mechanism_covariate(reduced, targeted_g, bounds=bounds),
+                weights,
+                tol=spec.tol,
+            )
+            targeted_g = solved.propensity
+            settled, scale = mechanism_score(
+                indicator,
+                targeted_g,
+                reduced_mechanism_covariate(reduced, targeted_g, bounds=bounds),
+                weights,
+            )
+            mechanism = replace(solved, score=settled, score_scale=scale)
+            if mechanism.relative_score <= spec.tol:
+                break
+
+    current = _retargeted_mechanism(nuisance, targeted_g, arms) if "Q" in guard else nuisance
+    submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
+    extra_submodel: Submodel | None = None
+    reduced_score = 0.0
+
+    if "g" not in guard:
+        steps += 1
+        fluctuation = solve_submodel(
+            scaled, fluctuation.targeted, submodel, weights, observed, spec, warn=False
+        )
+        return _Closing(
+            submodel=submodel,
+            fluctuation=fluctuation,
+            mechanism=mechanism,
+            extra=extra,
+            extra_submodel=None,
+            reduced_score=0.0,
+            mechanism_score=0.0 if mechanism is None else mechanism.relative_score,
+            joint=float(fluctuation.loglik)
+            + float(0.0 if mechanism is None else (mechanism.loglik or 0.0)),
+            steps=steps,
+        )
+
+    extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
+    # **Jointly**, not by backfitting them. Equations (8) and (10) fluctuate the same
+    # `Qbar` along two covariates, so one Newton solve over all four columns drives all
+    # four scores to machine precision at once, where alternating them converges at a rate
+    # set by how collinear the covariates are -- measured on the exact law at 3.9e-4 after
+    # twenty backfitting steps against 1.5e-12 from one joint solve. The *returned*
+    # submodel stays the two-column `mean` one either way: `column_for` is what
+    # `sensitivity/omitted_variable.py` reads, and a four-column submodel must not escape.
+    steps += 1
+    joint = solve_submodel(
+        scaled,
+        fluctuation.targeted,
+        _stacked(submodel, extra_submodel),
+        weights,
+        observed,
+        spec,
+        warn=False,
+    )
+    width = submodel.dim
+    settled = score_columns(scaled, joint.targeted.observed, submodel.observed, weights, mask)
+    settled_q = score_columns(
+        scaled, joint.targeted.observed, extra_submodel.observed, weights, mask
+    )
+    scale_q = score_scale(extra_submodel.observed, weights, mask)
+    fluctuation = replace(
+        joint,
+        epsilon=joint.epsilon[:width],
+        names=submodel.names,
+        score=settled,
+        score_scale=score_scale(submodel.observed, weights, mask),
+    )
+    extra = replace(
+        joint,
+        epsilon=joint.epsilon[width:],
+        names=extra_submodel.names,
+        score=settled_q,
+        score_scale=scale_q,
+    )
+    reduced_score = relative_score(settled_q, scale_q)
+
+    return _Closing(
+        submodel=submodel,
+        fluctuation=fluctuation,
+        mechanism=mechanism,
+        extra=extra,
+        extra_submodel=extra_submodel,
+        reduced_score=reduced_score,
+        mechanism_score=0.0 if mechanism is None else mechanism.relative_score,
+        joint=float(fluctuation.loglik)
+        + float(0.0 if mechanism is None else (mechanism.loglik or 0.0)),
+        steps=steps,
+    )
 
 
 def _retargeted_mechanism(
@@ -923,3 +1148,22 @@ def _reduction_inputs(
     """
     del mechanism  # already written onto `nuisance` by `_retargeted_mechanism`
     return replace(nuisance, outcome=targeted)
+
+
+def _stacked(first: Submodel, second: Submodel) -> Submodel:
+    """The two outcome covariates side by side, for one Newton solve over both equations.
+
+    Used only inside :func:`_close_at_frozen_reductions` and never returned: it has four
+    columns, and :attr:`~cleverly.fluctuation.submodel.Submodel.arm_columns` on a wider
+    submodel would say something ``sensitivity/omitted_variable.py``'s Riesz representer
+    does not expect.  The arm mapping is carried over from ``first`` so the object is
+    well formed; nothing reads it here.
+    """
+    return Submodel(
+        np.hstack([first.observed, second.observed]),
+        {arm: np.hstack([first.arms[arm], second.arms[arm]]) for arm in first.arms},
+        first.names + second.names,
+        first.group,
+        dict(first.arm_columns),
+        dict(first.contrast_columns),
+    )

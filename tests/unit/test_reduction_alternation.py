@@ -82,8 +82,13 @@ def alternate(
     *,
     guard: tuple[str, ...] = BOTH,
     counter: list[NuisanceEstimates] | None = None,
+    max_outer: int = 50,
 ) -> Fluctuation:
-    """Run the alternation at the given nuisance guesses and return its fluctuation."""
+    """Run the alternation at the given nuisance guesses and return its fluctuation.
+
+    ``max_outer`` is exposed so a test can stop the *refitting* rounds early and read what
+    the closing pass leaves behind; the closing pass runs whatever this is set to.
+    """
     data = causal_data()
     nuisance = replace(nuisances(g_hat, q_hat), reduced=fitted(g_hat, q_hat))
     _, fluctuation = solve_with_reduction(
@@ -97,6 +102,7 @@ def alternate(
         scaled=nuisance.scaler.scale(data.outcome),
         weights=data.weights,
         observed=data.observed,
+        max_outer=max_outer,
     )
     return fluctuation
 
@@ -223,6 +229,10 @@ class TestTheReductionsAreRefittedInsideTheLoop:
         )
 
         assert len(seen) >= 2, "both guards refit, so a round makes more than one call"
+        # And the closing pass refits nothing -- that is the whole of what makes it a
+        # *closing* pass rather than another round. Counted rather than assumed: a refit in
+        # there would move the arrays out from under the equations it exists to solve at.
+        assert len(seen) == 2 * fluctuation.reduction.n_outer
         for handed in seen:
             assert not np.allclose(handed.outcome.arms[1.0], initial.outcome.arms[1.0])
             assert not np.allclose(handed.propensity.arm(1.0), initial.propensity.arm(1.0))

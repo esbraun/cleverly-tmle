@@ -40,9 +40,9 @@ from tests.unit.test_reduction_alternation import alternate
 from tests.unit.test_remainder_drtmle import WRONG_G, WRONG_Q, _extra_curves
 
 
-def solved(g_hat: np.ndarray = WRONG_G, q_hat: np.ndarray = WRONG_Q):
+def solved(g_hat: np.ndarray = WRONG_G, q_hat: np.ndarray = WRONG_Q, *, max_outer: int = 50):
     """``(fluctuation, corrections)`` from a converged alternation at wrong nuisances."""
-    fluctuation = alternate(g_hat, q_hat)
+    fluctuation = alternate(g_hat, q_hat, max_outer=max_outer)
     data = causal_data()
     corrections = reduced_corrections(
         data.outcome,
@@ -98,6 +98,58 @@ class TestTheTermsAreTheOnesTheSourceComputes:
         _, corrections = solved()
         for arm in ARMS:
             assert abs(float(np.mean(corrections[arm]))) < 1e-8
+
+
+class TestTheCurveIsMeanZeroEvenWhenTheLoopStopsEarly:
+    r"""The property the estimator rests on, checked where it is not free.
+
+    A TMLE is asymptotically linear with the curve it reports *because* that curve's
+    empirical mean is zero.  For this variant the two extra terms are built from the
+    reduced-dimension regressions, and the alternation solves equation (9) at the previous
+    round's refit and equation (10) at the current round's *first* refit, then refits once
+    more before the record is built -- ``drtmle``'s ordering, kept.  So neither extra
+    equation is solved at the arrays the curve is built from, and without
+    ``_close_at_frozen_reductions`` the curve's mean is zero only insofar as the loop
+    converged.
+
+    **Every other mean-zero assertion in the package runs on a converged fit**, where the
+    gap is ``1e-10`` whether or not it is closed -- so none of them can see this.  Stopping
+    the refitting rounds after one is what makes the difference visible: measured on a
+    800-row fit, ``3.7e-3`` against a standard error of ``0.105`` before the closing pass
+    and ``5.8e-7`` after, and ``score_check`` went from FAIL to PASS.
+    """
+
+    @pytest.mark.parametrize("rounds", [1, 2, 5])
+    def test_it_holds_after_a_single_refitting_round(self, rounds: int) -> None:
+        fluctuation, corrections = solved(max_outer=rounds)
+
+        assert fluctuation.reduction.n_outer <= rounds, "the cap must actually bite"
+        assert fluctuation.reduction.closing > 0, "the closing pass must have run"
+        for arm in ARMS:
+            assert abs(float(np.mean(corrections[arm]))) < 1e-8
+
+    def test_the_reported_scores_are_the_curve_s_mean(self) -> None:
+        """Not merely both small -- the same number, which is what makes the check honest.
+
+        The curve's mean per arm *is* equation (8)'s score minus equations (10)'s and (9)'s,
+        so a diagnostic reporting one and a curve built from the other would agree only by
+        accident. This is the invariant the earlier defect broke.
+        """
+        fluctuation, corrections = solved(max_outer=1)
+        reduction = fluctuation.reduction
+
+        for j, arm in enumerate(ARMS):
+            combined = (
+                float(fluctuation.score[j])
+                - float(reduction.score[j])
+                - float(fluctuation.mechanism.score[j])
+            )
+            np.testing.assert_allclose(
+                float(np.mean(corrections[arm])),
+                float(reduction.score[j]) + float(fluctuation.mechanism.score[j]),
+                atol=1e-14,
+            )
+            assert abs(combined) < 1e-8
 
 
 class TestTheCombinationIsADifferenceNotASum:

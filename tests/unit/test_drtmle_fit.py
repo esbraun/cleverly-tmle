@@ -42,6 +42,9 @@ def frame():
     module's cost is round count times folds and barely depends on ``n``. Fewer rows makes
     the nuisances noisier, the coupling looser and the loop *longer*: 400 rows measured 28s
     against 600's 25s, and 3 folds instead of 5 measured 38s. Do not "optimise" either down.
+
+    The closing pass adds a bounded number of further solves and refits nothing, so it costs
+    arithmetic rather than folds and does not enter that arithmetic.
     """
     sample, _ = nonlinear_dgp().sample(600, seed=3)
     return sample
@@ -247,6 +250,12 @@ class TestTheAlternationCanBeIllConditioned:
 
     What is asserted below is therefore the invariant that holds either way, not either
     outcome: pinning ``ill_conditioned > 0`` would be pinning a seed.
+
+    **The closing pass changes what an exit at the cap costs, and not whether it happens.**
+    Equations (8) and (10) are re-solved jointly at the reductions the curve reads, so the
+    reported curve is mean-zero even on a draw the alternation could not settle -- which is
+    why ``failure`` and the score check are no longer two ways of asking the same question,
+    and why they are asserted apart below.
     """
 
     @pytest.fixture(scope="class")
@@ -261,11 +270,19 @@ class TestTheAlternationCanBeIllConditioned:
         )
 
     def test_the_conditioning_is_reported_either_way(self, hard) -> None:
-        """Whatever the loop did, it is on the record rather than inferred."""
+        """Whatever the loop did, it is on the record rather than inferred.
+
+        ``failure`` is no longer implied by the round count: the closing pass can settle the
+        equations a capped alternation left open, so a fit can report ``n_outer == 50`` and
+        no failure. That is the whole point of the pass, and asserting the old coupling
+        would forbid it.
+        """
         reduction = hard.repeats[0].fluctuations["mean"].reduction
         assert reduction.ill_conditioned >= 0
         assert 1 <= reduction.n_outer <= 50
-        assert (reduction.failure is None) == (reduction.n_outer < 50)
+        assert reduction.closing > 0, "the closing pass runs on every fit that has reductions"
+        if reduction.n_outer < 50:
+            assert reduction.failure is None
 
     def test_and_the_score_check_passes_regardless(self, hard) -> None:
         """Because the question is whether the score matters, not whether it is tiny."""
