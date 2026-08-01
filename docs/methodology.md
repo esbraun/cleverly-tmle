@@ -425,6 +425,94 @@ confounder in every seed and still leaves the instrument out, while a do-nothing
 is biased by 0.81 against 0.037. Second, there is no cross-language check: R's `ctmle` is
 not compared against here or in CI. `cleverly.estimators.ctmle` sets both out in full.
 
+## Doubly-robust inference: what the extra equations remove
+
+`TMLE` is **doubly robust for consistency and singly robust for inference**, and the
+distinction is the whole of what `DRTMLE` is for. The second-order remainder is a product,
+
+```text
+R_2 = || g-hat - g_0 || * || Qbar-hat - Qbar_0 ||
+```
+
+so one inconsistent nuisance still leaves `R_2 -> 0` and `psi-hat` consistent — which is
+what [the double-robustness grid](https://github.com/esbraun/cleverly-tmle/blob/main/tests/e2e/test_double_robustness.py)
+checks. The *interval* needs the strictly stronger `sqrt(n) * R_2 -> 0`. With both nuisances
+converging at `n^(-1/4)` the product delivers it; with only one, the bad factor stops
+shrinking, `R_2` becomes first order in the good one's error, and no nonparametric estimator
+drives that below `n^(-1/2)`. So the estimator stops being asymptotically linear: its bias
+does not grow but its coverage decays as `n` does. That is the sentence in [what the folds do
+and do not buy](#cross-fitting-what-the-folds-do-and-do-not-buy) about a *product rate*,
+read as a warning rather than as a condition.
+
+van der Laan (2014) and Benkeser, Carone, van der Laan & Gilbert (2017) close it by solving
+two further score equations, built from **reduced-dimension** regressions of each nuisance's
+residual on the *other* nuisance. Writing `1_a` for `1{A = a}`:
+
+```text
+Qr(a, w)    = E[ Y - Qbar-hat(a, W) | A = a, g-hat(a|W) = g-hat(a|w) ]
+gr1(a | w)  = P( A = a | Qbar-hat(a, W) = Qbar-hat(a, w) )
+gr2(a | w)  = E[ {1_a - g-hat(a|W)} / g-hat(a|W) | Qbar-hat(a, W) = Qbar-hat(a, w) ]
+```
+
+Each is **univariate however many covariates the fit adjusted for**, which is the point:
+they can be estimated fast enough whether or not the primary nuisances can. The equations,
+in the software paper's numbering, are
+
+| | equation | fluctuates |
+| --- | --- | --- |
+| (8) | `Pn[ 1_a / g*(a\|W) * (Y - Qbar*(a, W)) ] = 0` | `Qbar`, the ordinary covariate |
+| (9) | `Pn[ Qr(a, W) / g*(a\|W) * (1_a - g*(a\|W)) ] = 0` | **`g`** |
+| (10) | `Pn[ 1_a * gr2(a\|W) / gr1(a\|W) * (Y - Qbar*(a, W)) ] = 0` | `Qbar`, a second covariate |
+
+and the reported influence curve is `D = D* - D*_Q - D*_g` with `D*_g` and `D*_Q` the
+left-hand sides above, row by row. All three empirical means are zero after targeting, so
+the subtraction **cannot move the point estimate**; it moves only the variance.
+
+Four things about this are easy to get wrong, and each has an instrument.
+
+**`guard=` is crossed.** `guard="Q"` guards against a misspecified *outcome regression* and
+adds equation (9), which fluctuates `g`; `guard="g"` guards against a misspecified
+*mechanism* and adds equation (10), which fluctuates `Qbar`. The keyword names the nuisance
+you are worried about, not the one the equation it adds moves. An empty guard fits no
+reduced regressions at all and is bit-for-bit a plain TMLE.
+
+**The reduced regressions are refitted inside the alternation.** Equations (9) and (10) are
+stated at *starred* `Qr*`, `gr*`, and the source's algorithm maps initial estimates of the
+outcome regression, the mechanism **and the reduced regressions** into estimates satisfying
+them. Holding them at their initial fit would solve a different equation. The cost is that
+`retarget` is no longer arithmetic on cached arrays: a truncation curve on a `DRTMLE` fit
+costs about a fit per point, and a plain `TMLE` handed these nuisances refuses rather than
+re-solving against arrays it cannot refresh.
+
+**The exact-law instrument is blind here, and derivably so.** Under a law the sample
+realises exactly with a saturated learner — the setting of every `test_influence_gateaux*`
+module — both nuisances are exact, so `Qr` and `gr2` have identically zero targets and
+vanish *row by row*. Both extra coefficients are then zero and the estimator reproduces
+`TMLE`. Those modules therefore supply a degeneracy check and would pass against a wrong
+sign, an omitted term or a wrong `gr1` — which is a probability, does not vanish, and sits
+in a denominator whose numerator does. What can see it is the remainder idiom, at nuisances
+that are wrong on purpose: `tests/unit/test_remainder_drtmle.py` states what the guards
+remove and `tests/unit/test_influence_drtmle.py` carries the difference-not-a-sum as an
+explicit negative control.
+
+**One guard removes the whole first-order remainder; two over-correct.** Each extra equation
+subtracts a *projection* of `R_2` — equation (9) onto the sigma-algebra of `g-hat`, the other
+onto that of `Qbar-hat` — and where both are all of `sigma(W)` either projection recovers the
+whole of it, so the pair leaves exactly `-R_2`. That is arithmetic on a finite-support law
+rather than a defect: asymptotically at most one of the two errors fails to vanish, so at
+most one projection is non-negligible, which is why `drtmle` solves both by default.
+
+**The influence curve is a fidelity claim about `drtmle`, not a theoretical result.** The
+form above is what that package computes, read off its implementation. Theorem 1 of Benkeser
+et al. (2017) is where the influence function is derived, and **it has not been read here**;
+if the two disagree the theorem wins and `cleverly.inference.influence.reduced_corrections`
+is wrong. Scope is likewise set by what has been *derived* rather than by what `drtmle`
+accepts: a binary treatment, the `mean` group, and the univariate reduction. A multi-valued
+treatment is a candidate rather than a refusal on principle — the equations are written with
+a free `a` and nothing in them has a two-arm step — but van der Laan (2014) states its
+problem for a binary treatment, the per-arm mechanism tilts do not renormalise, and an
+implementation that accepts an argument is not a proof that the argument is licensed.
+
 ## Cross-fitting: what the folds do and do not buy
 
 Cross-fitting the nuisances is what removes the Donsker condition on the nuisance
@@ -439,7 +527,10 @@ That controls the empirical-process term and nothing else. Efficiency still need
 positivity bounding the clever covariate (the `g_bounds` truncation), the estimated
 influence curve converging in `L_2`, the score solved to `o_P(n^-1/2)`, and a second-order
 remainder that is `o_P(n^-1/2)` by a *product rate* on `ghat` and `Qbarhat` — a condition
-on the learners, which the finite-dimensional fluctuation does not supply. Note too that a
+on the learners, which the finite-dimensional fluctuation does not supply. That last one is
+the condition [doubly-robust inference](#doubly-robust-inference-what-the-extra-equations-remove)
+weakens, and the only one of the four that a *variant* of the estimator can do anything
+about. Note too that a
 single pooled `epsilon_hat` couples the folds: each row's nuisance prediction is out of
 fold, but its *targeted* prediction is not. The two schemes share a first-order limit under
 those conditions — but they are not the same estimator, and Zheng & van der Laan prove
@@ -543,7 +634,7 @@ readings coincide. That law also answers for itself before any estimator reads i
 influence curve it produces has mean zero under the law it is taken at, the causes and the
 event-free probability exhaust the mass, and collapsing the causes reproduces the
 single-event recursion — none of which can be arranged by agreeing with a buggy fit,
-because no fit is involved. The second-order remainder is checked against its closed form in the four
+because no fit is involved. The second-order remainder is checked against its closed form in the nine
 matching `test_remainder*.py` modules, which is what double robustness actually consists of.
 Every one of these modules carries deliberate-mutation controls: each plausible way of
 building the thing wrong is shown to move the answer by more than `1e-2`, four orders past
@@ -598,6 +689,7 @@ so rather than implying the request was ill-posed.
 | refused | where |
 | --- | --- |
 | `CTMLE` on a multi-valued treatment | [multi-valued treatment](user-guide.md#multi-valued-treatment) |
+| `DRTMLE` on a multi-valued treatment, with `delta=`/`intermediate=`, fold-wise, or composed with `CTMLE`; and `reduction="bivariate"` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
 | the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](user-guide.md#tilting-the-odds-of-treatment) |
 | a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |
@@ -722,9 +814,12 @@ and the registry must cover each other exactly.
 - Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
   nonresponse models*.
 
-The last three are for a variant that is planned rather than written, and are listed because
-the [roadmap](roadmap.md#what-drtmle-would-touch) cites them by name for the derivation it
-pins. Nothing above rests on them.
+The last three are for `DRTMLE`, and
+[doubly-robust inference](#doubly-robust-inference-what-the-extra-equations-remove) rests on
+them — on the first two for the estimating equations and on the third's implementation for
+the influence curve, which is a fidelity claim rather than a transcription of a theorem.
+**Theorem 1 of Benkeser et al. (2017) has not been read here**, and that section says what
+turns on it.
 
 - van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical
   inference*.

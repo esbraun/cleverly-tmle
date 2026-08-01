@@ -631,6 +631,14 @@ class ReductionFluctuation:
     trace: tuple[tuple[int, float, float, float, float], ...] = field(default_factory=tuple)
     converged: bool = True
     failure: str | None = None
+    #: How many rounds' equation-(10) solves reported a failure of their own.  Not rare and
+    #: not a defect in the solver: :math:`g_{r,2}` vanishes exactly where the mechanism is
+    #: right, so on any fit whose :math:`\hat g` is nearly right that covariate is nearly
+    #: zero and its Hessian near-singular -- measured at ``mean|h| = 1e-3`` with a singular
+    #: Hessian in a third of the rounds on a 2000-row ``glm`` fit.  It is why this loop
+    #: stops on a statistical tolerance rather than a numerical one, and it is reported so
+    #: that a reader can see the equation was hard rather than infer it from the round count.
+    ill_conditioned: int = 0
 
     @property
     def relative_score(self) -> float:
@@ -763,6 +771,7 @@ def solve_with_reduction(
     # wrong for a "before": at a converged fixed point the last round starts where it ends,
     # so the last round's `score_initial` is zero and says nothing about what was solved.
     first_initial: FloatArray | None = None
+    ill_conditioned = 0
     trace: list[tuple[int, float, float, float, float]] = []
     previous: float | None = None
     previous_joint: float | None = None
@@ -787,6 +796,8 @@ def solve_with_reduction(
             )
             if first_initial is None:
                 first_initial = np.asarray(extra.score_initial)
+            if extra.failure is not None:
+                ill_conditioned += 1
 
         submodel = build_submodel(
             data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
@@ -808,6 +819,12 @@ def solve_with_reduction(
 
         reduced_score = 0.0
         if extra_submodel is not None:
+            # At the *final* reductions, not the ones equation (10) was solved along. The
+            # influence curve reads `reduction.reduced`, so a score taken at any other set
+            # would report an equation the reported curve does not contain -- which is how
+            # the per-estimand row of `score_check` came to disagree with the per-equation
+            # rows by two orders of magnitude before this was written down.
+            extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
             settled = score_columns(
                 scaled, fluctuation.targeted.observed, extra_submodel.observed, weights, mask
             )
@@ -874,6 +891,7 @@ def solve_with_reduction(
         trace=tuple(trace),
         converged=bool(worst <= spec.tol),
         failure=failure,
+        ill_conditioned=ill_conditioned,
     )
     return submodel, replace(fluctuation, mechanism=mechanism, reduction=record)
 

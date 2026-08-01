@@ -45,7 +45,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 
-from cleverly import CTMLE, TMLE
+from cleverly import CTMLE, DRTMLE, TMLE
 from cleverly.datasets import (
     DGP,
     RULE_LABEL,
@@ -536,6 +536,127 @@ class TestCollaborativeTmle:
         """
         summary = self._pair(instrument_dgp(), reps=200)["ctmle"]
         assert abs(summary.bias) < 3.0 * summary.bias_se, summary
+
+
+def _off_diagonal_dgp() -> DGP:
+    """Linear outcome, nonlinear treatment: ``glm`` is correct for one nuisance and not the other.
+
+    The off-diagonal cell of
+    :mod:`tests.e2e.test_double_robustness`'s grid, with the "correct" nuisance
+    *estimated* rather than an oracle.  That distinction is the whole point: with an oracle
+    the good nuisance is exactly right, ``R_2`` is exactly zero, and a plain TMLE's interval
+    is already valid, so a study built that way would have nothing to show.
+    """
+    linear, hard = linear_dgp(), nonlinear_dgp()
+    return DGP(
+        name="linear outcome, nonlinear treatment",
+        n_latent=4,
+        covariate_names=("W1", "W2", "W3", "W4"),
+        propensity=hard.propensity,
+        outcome_mean=linear.outcome_mean,
+    )
+
+
+class TestDoublyRobustInference:
+    """``DRTMLE``: an interval that stays valid when only one nuisance is consistent.
+
+    ``TMLE`` is doubly robust for *consistency* and singly robust for *inference*: the
+    remainder is a product of the two nuisance errors, so one consistent nuisance keeps
+    ``psi-hat`` consistent while the interval needs the strictly stronger
+    ``sqrt(n) R_2 -> 0``.  Solving two further score equations against reduced-dimension
+    regressions is supposed to close that gap.
+
+    **What this class can show, and what it cannot.**  It prices what a nightly budget can
+    reach: that the point estimate is still doubly robust and that the doubly-robust
+    interval does not *cost* coverage where the plain one already has it.  It does **not**
+    demonstrate the headline claim, and the reason is a measurement rather than a hedge.
+
+    A pilot at ``n = 500`` over 24 replicates on the process below -- a correctly specified
+    *parametric* outcome model against a misspecified propensity -- put both estimators at
+    coverage 0.958, with biases of -0.013 and -0.008 against a Monte Carlo standard error of
+    0.018.  The mirror cell (nonlinear outcome, linear treatment) put both at 1.000.  There
+    was nothing to buy, and that is not a defect: a correctly specified parametric nuisance
+    converges at ``n^(-1/2)``, so the product condition is nowhere near binding and the
+    remainder is a small constant times ``n^(-1/2)`` rather than a first-order term.
+
+    The regime this variant is *for* is an **adaptive** good nuisance converging more slowly
+    than ``n^(-1/4)`` -- a Super Learner in enough dimensions -- at an ``n`` large enough for
+    the coverage decay to show.  That is out of reach here rather than uninteresting: the
+    pilot's two ``DRTMLE`` studies took 358s and 372s against the plain estimator's 5s and 3s,
+    because the alternation refits three reduced regressions per arm on every round.  Scaling
+    that to flexible learners at ``n = 2000`` over 200 replicates is hours, not minutes.
+
+    So: this class is a guard, not a demonstration, and it says so rather than letting a
+    passing nightly run read as evidence for something it did not test.
+    """
+
+    #: One cell rather than the pair the pilot ran. The mirror adds ten minutes to the
+    #: nightly tier for a claim this one already makes, and the finding above is the same
+    #: in both.
+    N = 500
+    REPLICATES = 40
+
+    @staticmethod
+    def _pair(dgp: DGP, *, n: int, reps: int) -> dict:
+        common = {
+            "outcome_learner": "glm",
+            "treatment_learner": "glm",
+            "n_folds": 4,
+            "learner_folds": 3,
+            "estimands": ("ate",),
+            "simultaneous": False,
+            "random_state": 0,
+        }
+        out = {}
+        for label, factory in (
+            ("tmle", lambda: TMLE(**common)),
+            ("drtmle", lambda: DRTMLE(**common)),
+        ):
+            out[label] = CoverageStudy(
+                dgp=dgp,
+                estimator=factory,
+                n=n,
+                n_replicates=reps,
+                estimands=("ate",),
+                seed=11,
+                n_jobs=2,
+            ).run()["ate"]
+        return out
+
+    @pytest.fixture(scope="class")
+    def studies(self) -> dict:
+        return self._pair(_off_diagonal_dgp(), n=self.N, reps=self.REPLICATES)
+
+    def test_the_point_estimate_is_still_doubly_robust(self, studies: dict) -> None:
+        """The unconditional claim, and the one a broken implementation fails.
+
+        Solving two more equations must not cost consistency: all three are solved at the
+        same ``Qbar*``, and the extra terms are mean-zero by construction. A variant that
+        bought its variance with bias fails here and could pass everything else.
+        """
+        summary = studies["drtmle"]
+        assert abs(summary.bias) < 3.5 * summary.bias_se, studies
+
+    def test_the_interval_does_not_cost_coverage(self, studies: dict) -> None:
+        """A floor rather than dominance, because dominance is not what was measured.
+
+        Where the plain interval already covers there is nothing to improve, so the
+        assertion is that the doubly-robust one does not fall away from the nominal rate --
+        which a wrong sign in ``D = D* - D*_Q - D*_g`` would eventually do, since it doubles
+        the correction instead of removing it.
+        """
+        drtmle, tmle = studies["drtmle"], studies["tmle"]
+        assert drtmle.coverage > 0.88, studies
+        assert drtmle.coverage >= tmle.coverage - 3.0 * drtmle.coverage_se, studies
+
+    def test_the_reported_standard_error_is_honest(self, studies: dict) -> None:
+        """The influence-curve variance against the actual spread of the estimates.
+
+        The direct check on the curve: it is a *different* curve from the plain one, so
+        agreeing with the empirical spread is a statement about the extra terms rather than
+        an inherited one.
+        """
+        assert studies["drtmle"].se_ratio == pytest.approx(1.0, abs=0.2), studies
 
 
 class TestClusteredInference:

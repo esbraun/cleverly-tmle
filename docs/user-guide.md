@@ -1054,6 +1054,83 @@ and is mildly anti-conservative as a result. Pass `n_bootstrap=` for inference t
 Why this is the right number, and how it is checked:
 [how the selection is evidenced](methodology.md#c-tmle-how-the-selection-is-evidenced).
 
+## Doubly-robust inference
+
+TMLE is **doubly robust for consistency and singly robust for inference**. The estimate stays
+consistent if either nuisance is right, because the remainder is a *product* of the two
+errors — but the interval needs that product to vanish faster than `1/sqrt(n)`, which takes
+*both* of them converging. With one nuisance inconsistent the estimate is still fine and the
+confidence interval quietly is not, and it degrades as the sample grows rather than
+shrinking.
+
+`DRTMLE` solves two further score equations, built from regressions of each nuisance's
+residual on the *other* nuisance (van der Laan 2014; Benkeser, Carone, van der Laan &
+Gilbert 2017). Those regressions are univariate however many covariates the fit adjusted
+for, so they can be estimated fast enough whether or not the primary nuisances can.
+
+```python
+from cleverly import DRTMLE
+from cleverly.datasets import make_nonlinear_ate
+
+frame, truth = make_nonlinear_ate(n=2000, seed=0)
+res = (
+    DRTMLE(estimands=("ate",), outcome_learner="glm", treatment_learner="glm", random_state=0)
+    .fit(frame, outcome="Y", treatment="A")
+    .single()
+)
+print(res.validation.score_check())
+```
+
+```
+Score-equation check
+--------------------
+target            kind             |score|    before     threshold  ratio     ok
+----------------  ---------------  ---------  ---------  ---------  --------  ---
+mean              fluctuation      7.237e-18  3.209e-09  1.527e-06  4.74e-12  yes
+mean (mechanism)  fluctuation      9.079e-11  8.801e-11  1.527e-06  5.95e-05  yes
+mean (reduced)    fluctuation      3.607e-11  4.900e-05  1.527e-06  2.36e-05  yes
+ate               influence curve  9.424e-10  -          1.527e-06  6.17e-04  yes
+
+PASS: the targeting step solved the estimated efficient score equation.
+```
+
+Two things to read off. There are **three** rows where a plain fit has one: the ordinary
+outcome equation, a *mechanism* equation that fluctuates `g`, and a second outcome equation
+against the reduced regressions. And what changed is the interval, not the estimate — on this
+fit `ate` is 1.5348 against a plain TMLE's 1.5292, a twelfth of a standard error apart, while
+the standard error moves from 0.06850 to 0.06828. **Read a `DRTMLE` fit as the same estimate
+with an interval entitled to be believed under weaker conditions, not as a better estimate.**
+
+`guard=` says which extra equations to solve, in `drtmle`'s vocabulary, and it is **crossed**:
+`"Q"` guards against a misspecified *outcome regression* and adds the equation that fluctuates
+`g`; `"g"` guards against a misspecified *mechanism* and adds the one that fluctuates `Qbar`.
+Both by default; `guard=()` fits no reduced regressions at all and is bit-for-bit a plain
+TMLE. `reduced_outcome_learner=` and `reduced_treatment_learner=` take the reduced
+regressions' learners, defaulting to the primary ones.
+
+It costs real time — two further learner fits per arm on every round of an alternation,
+refitted *inside* the loop as the source does. One consequence is worth knowing: `retarget`
+stops being arithmetic on cached arrays, so a truncation curve on a `DRTMLE` fit costs about
+a fit per point rather than a fraction of one, and a result read back from disk cannot
+retarget at all.
+
+Scope is what the sources *derive*, which is narrower than what R's `drtmle` accepts: a
+binary treatment and the `mean` group. A multi-valued treatment, `att`/`atc`, the other
+parameter axes, `delta=`, `intermediate=`, fold-wise targeting,
+`reduction="bivariate"` and composition with `CTMLE` are all refused by name.
+
+**Three limitations, because they are not visible from the output.** The influence curve's
+form is read off `drtmle`'s implementation rather than derived — Theorem 1 of Benkeser et al.
+(2017) has not been read here, and if the two disagree the theorem wins. There is no
+cross-check against `drtmle`'s own numbers. And a coverage study on the off-diagonal of the
+misspecification grid found *no gap for this variant to close* at the sizes it could reach:
+the regime it is for needs an adaptive good nuisance converging more slowly than `n^(-1/4)`,
+which is beyond what a nightly budget can simulate. Use it where you have reason to think one
+nuisance is badly estimated; do not read it as a free improvement.
+
+Why this is the right number, and how it is checked:
+[what the extra equations remove](methodology.md#doubly-robust-inference-what-the-extra-equations-remove).
+
 ## Cross-fitting and CV-TMLE
 
 Three constructions, and it is worth knowing which one you are running:
