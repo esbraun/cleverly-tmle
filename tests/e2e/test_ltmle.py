@@ -328,14 +328,27 @@ def test_diagnostics_report_the_cumulative_leverage(
             weights = step.clever[step.trained_on]
             assert row["n_followed"] == int(step.trained_on.sum())
             assert row["max_weight"] == pytest.approx(float(np.max(weights)), abs=0)
+            # A max is a selection, so it is bit-exact and asserted as such above.  The
+            # Kish ratio is not: the frame squares a *Python* float (``total ** 2`` after
+            # a ``float()``), this line squares a ``np.float64``, and numpy special-cases
+            # an integer exponent of two into ``x * x`` where CPython calls libm ``pow``.
+            # Same arithmetic, occasionally a different last bit -- and which way it falls
+            # is a property of the platform's libm, not of this package: ``abs=0`` here
+            # passed on the sandbox this was written on and failed on every GitHub runner,
+            # at 756.9831201804801 against ...802.  The tolerance is still twelve orders
+            # tighter than the failure this pins, since reading the weight off the wrong
+            # node or the wrong mask moves the ratio by orders of magnitude, not by a ULP.
             kish = float(np.sum(weights) ** 2 / np.sum(weights**2))
-            assert row["effective_n"] == pytest.approx(kish, abs=0)
+            assert row["effective_n"] == pytest.approx(kish, rel=1e-12)
         # The summary quotes the *final* node, where the product is longest and the
         # leverage is therefore largest -- not the first, and not an average.
         assert fit.max_weight == pytest.approx(float(np.max(fit.steps[-1].clever)), abs=0)
         assert fit.max_weight >= max(float(np.max(step.clever)) for step in fit.steps[:-1])
+        # Same quantity by two routes again, so the same tolerance: the frame masks to
+        # ``trained_on`` and ``fit.effective_n`` does not, which agree only because the
+        # covariate is zero off that mask -- a real claim, and one a ULP cannot express.
         assert rows[(label, result.data.n_times)]["effective_n"] == pytest.approx(
-            fit.effective_n, abs=0
+            fit.effective_n, rel=1e-12
         )
 
 
