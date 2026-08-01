@@ -251,6 +251,82 @@ natural course: min g(A|W)=0.000483, max ratio=1, ESS=2000 (100.0% of n), capped
 Why this is the right number, and how it is checked:
 [why an MTP is not the regime it induces](methodology.md#shifting-a-continuous-dose-why-an-mtp-is-not-the-regime-it-induces).
 
+### Missing outcomes, an intermediate, and weights on a dose
+
+`delta=`, `intermediate=` and `weights=` all work here, and mean what they mean on an arm.
+They were once refused together, on a reason that was wrong for all three — see
+[the roadmap](roadmap.md#refusals-worth-lifting).
+
+With `delta=` the clever covariate gains a factor, and *where* it is evaluated is the part
+worth knowing:
+
+```
+H(a, W) = h(a, W) / π(a, W),     π(a, W) = P(Δ = 1 | A = a, W)
+```
+
+The fluctuation updates `Qbar` as a function of the dose, so obtaining `Qbar*(d(A,W), W)`
+reads the mechanism **at the dose the policy assigns**, not at the one observed — exactly as
+the arm path evaluates `π` at each counterfactual arm, where the `1{A = a}` indicator hides
+it. `intermediate=` adds `P(Z = z | A, W)` on the same footing, and the report is then the
+controlled direct effect *under the policy*, `E[Y^{d(A,W), z}]`.
+
+```python
+# `frame` as above, with a `Delta` column and `Y` missing wherever it is zero.
+res = (
+    TMLE(shifts=[Shift(0.0, cap=None), Shift(0.5, cap=5.0)], density_bins=40, random_state=0)
+    .fit(frame, outcome="Y", treatment="A", delta="Delta")
+    .single()
+)
+
+for report in res.sensitivity.shift_support().values():
+    print(report.summary())
+```
+
+```
+natural course: min g(A|W)=0.000483, max weight=12.2, min mechanism=0.0823, ESS=1365 (68.2% of n), capped=0.0%, unsupported=0
+    weight quantiles -- 1%: 1.04, 5%: 1.09, 50%: 1.55, 95%: 4.71, 99%: 8.85
++0.5: min g(A|W)=0.000483, max weight=116, min mechanism=0.0823, ESS=306 (15.3% of n), capped=2.4%, unsupported=0
+    weight quantiles -- 1%: 0.107, 5%: 0.417, 50%: 1.37, 95%: 10.3, 99%: 36.5
+```
+
+Note what the natural course now costs. Without `delta=` its ratio is one everywhere and its
+effective sample size is exactly `n`; here the missingness alone takes a third of it, which is
+the report saying that the two reweightings multiply.
+
+Three consequences to have in mind.
+
+**The double-robustness condition is about a product.** Consistency needs `Qbar` right **or**
+the product `h · π` right — not either mechanism on its own. A perfectly estimated density
+buys nothing when the missingness model is wrong, and errors in the two can cancel exactly.
+`tests/unit/test_remainder_shift_cde.py` measures all three statements.
+
+**The natural course is no longer `mean(Y)`.** Without `delta=` that identity is exact and is
+the canary that `h` is one under the identity policy. With it, `ey_shift[natural course]` is
+the MAR-identified `E[Y]`, and the mean over recorded rows is the wrong answer.
+
+**`nuisance_bound=` is the only truncation on this axis.** `g_bounds=` does nothing here —
+there is no per-arm propensity, and the density ratio is deliberately untruncated — so the
+mechanisms are what `nuisance_bound=` protects and
+`res.sensitivity.truncation_curve(mechanism=True)` is what sweeps it. `shift_support()` then
+reports the whole weight `h / (π · q_z)` rather than the bare ratio, because the two
+reweightings multiply.
+
+`res.sensitivity.missingness_tilt()` is still refused on this axis, and says why: the tilt
+re-mixes `Qbar` under a moved mechanism, a shift's plug-in is `Qbar` at the assigned dose,
+and whether the tilted parameter is still the shift parameter has not been derived here.
+
+`weights=` needs no such care, because a weight is not in the clever covariate at all. It
+tilts the *population*: the estimand becomes the shift parameter at `dP_w = w dP / E[w]`,
+every nuisance — the density included — is fitted by weighted loss, and the reported curve is
+`w` times the whole bracket. Putting `w` in the covariate's denominator would divide the
+estimating equation by the very tilt it applies.
+
+One modelling caveat that is easy to miss. `missingness_learner=` falls back to
+`treatment_learner=`, and on a continuous fit the missingness design's first column is the raw
+dose — so a default fit with `library="glm"` models `logit π` **linear in the dose**. That is
+the same limitation the outcome regression has here, now applying to a second nuisance; where
+`π` is non-monotone in the dose, pass a flexible learner.
+
 ## Tilting the odds of treatment
 
 Every intervention above replaces the treatment decision. An **incremental
