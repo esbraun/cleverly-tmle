@@ -39,6 +39,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ..targets import parameter_stem
+from ._parameters import arm_parameters
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
 
@@ -127,29 +130,75 @@ class EValue:
         return self.summary()
 
 
+def _default_estimand(result: TMLEResult) -> str:
+    """The parameter ``estimand=None`` reports on: a ratio if one was estimated.
+
+    Chosen by *stem* over the parameters the fit reported, rather than by looking up the
+    three bare names, which exist only on a two-armed fit -- there they are the only
+    parameters with those stems and this is the rule it always followed.  With more arms
+    the first contrast in report order stands in for the report as a whole, the same way
+    :meth:`~cleverly.sensitivity.api.SensitivityAnalysis.report` picks one.
+    """
+    for stem in ("rr", "or", "ate"):
+        for name in result.estimates:
+            if parameter_stem(name) == stem:
+                return name
+    raise ValueError(  # pragma: no cover - guarded by resolve_estimands
+        "no estimand suitable for an E-value was estimated; an E-value is a statement "
+        f"about a contrast, and this fit reported {sorted(result.estimates)}"
+    )
+
+
+def _baseline_mean(result: TMLEResult, estimand: str) -> str | None:
+    """The reported mean under the arm ``estimand`` is contrasted against, if any.
+
+    The risk-difference conversion divides by the baseline risk, and the baseline is the
+    contrast's *reference* arm rather than arm ``0``: with ``reference=1`` a two-armed
+    fit's ``ate`` is ``E[Y^0] - E[Y^1]`` and dividing by ``EY0`` would convert a
+    difference into a ratio of the wrong pair.  Found by arm through
+    :func:`~cleverly.sensitivity._parameters.arm_parameters`, so ``ey0`` and ``ey[low]``
+    are both recognised -- whichever of them the fit was asked for.
+    """
+    known = arm_parameters(result.data, result.config.reference_arm)
+    parameter = known.get(estimand)
+    if parameter is None or parameter.versus is None:  # pragma: no cover - defensive
+        return None
+    return next(
+        (
+            name
+            for name, candidate in known.items()
+            if name in result.estimates
+            and candidate.versus is None
+            and candidate.arm == parameter.versus
+        ),
+        None,
+    )
+
+
 def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
     """E-value for a fitted result.
 
-    ``estimand=None`` picks the most appropriate available: ``"rr"`` if it was
-    estimated, else ``"or"``, else the ``"ate"`` via the standardised-difference
-    approximation.
+    ``estimand=None`` picks the most appropriate available: a risk ratio if one was
+    estimated, else an odds ratio, else a risk difference via the
+    standardised-difference approximation.
+
+    A contrast is named for its arms on a fit with more than two of them, so the
+    estimand here is ``"rr[medium vs low]"`` rather than ``"rr"``, and the *stem* is what
+    picks the conversion.  One E-value per contrast, on the same terms as one
+    omitted-variable bound per contrast: each is a statement about the two arms it names.
     """
     if estimand is None:
-        for candidate in ("rr", "or", "ate"):
-            if candidate in result.estimates:
-                estimand = candidate
-                break
-        else:  # pragma: no cover - guarded by resolve_estimands
-            raise ValueError("no estimand suitable for an E-value was estimated")
+        estimand = _default_estimand(result)
     if estimand not in result.estimates:
         raise ValueError(f"estimand {estimand!r} was not requested in this fit")
 
     estimate = result[estimand]
     low, high = estimate.ci
+    stem = parameter_stem(estimand)
 
-    if estimand == "rr":
+    if stem == "rr":
         rr, ci, approximate, note = estimate.psi, (low, high), False, ""
-    elif estimand == "or":
+    elif stem == "or":
         rr = float(np.sqrt(estimate.psi))
         ci = (float(np.sqrt(low)), float(np.sqrt(high)))
         approximate = True
@@ -158,13 +207,15 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
             "outcome. With a common outcome this understates the risk ratio and so the "
             "E-value is conservative in the wrong direction; prefer estimands=('rr',...)."
         )
-    elif estimand in ("ate", "att", "atc"):
+    elif stem in ("ate", "att", "atc"):
         if result.config.family == "binomial":
-            baseline = result.estimates.get("ey0")
+            baseline_name = _baseline_mean(result, estimand)
+            baseline = None if baseline_name is None else result.estimates[baseline_name]
             if baseline is None or baseline.psi <= 0:
                 raise ValueError(
-                    "converting a risk difference to a risk ratio needs EY0; add 'ey0' and "
-                    "'ey1' to estimands, or request 'rr' directly"
+                    "converting a risk difference to a risk ratio needs the mean under the "
+                    f"arm {estimand!r} is contrasted against; add 'ey' (or 'ey0'/'ey1') to "
+                    "estimands, or request a risk ratio directly"
                 )
             rr = float((baseline.psi + estimate.psi) / baseline.psi)
             ci = (
@@ -194,8 +245,16 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
                 "sensitivity.omitted_variable_bounds() needs no such conversion and is "
                 "preferable here."
             )
-    else:  # pragma: no cover - guarded above
-        raise ValueError(f"cannot compute an E-value for estimand {estimand!r}")
+    else:
+        # Reachable for any reported parameter that is not one of the arm-indexed
+        # contrasts: a counterfactual mean, an MSM coefficient, a contrast of two
+        # regimes. A level has no association to explain away at all; the other axes have
+        # one, and converting it would need that axis's own baseline rather than an arm's.
+        raise ValueError(
+            f"cannot compute an E-value for estimand {estimand!r}: the conversion is "
+            "written for a contrast of two arms (ate/att/atc, rr, or), and this is not "
+            "one of those. Request a risk ratio, an odds ratio or a risk difference."
+        )
 
     above_null = rr >= 1.0
     limit = ci[0] if above_null else ci[1]

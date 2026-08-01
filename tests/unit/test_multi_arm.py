@@ -282,21 +282,10 @@ class TestWhatIsRefused:
                 estimands=("ate",),
             ).fit(_three_arm_frame(), outcome="Y", treatment="A")
 
-    def test_the_omitted_variable_bound_is_refused(self) -> None:
-        result = (
-            TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
-                n_folds=5,
-                random_state=0,
-                simultaneous=False,
-                estimands=("ate",),
-            )
-            .fit(_three_arm_frame(), outcome="Y", treatment="A")
-            .single()
-        )
-        with pytest.raises(ValueError, match="derived for a binary treatment"):
-            result.sensitivity.omitted_variable(estimand="ate")
+    # The omitted-variable bound and the MNAR tilt were refused here too, and are not
+    # any more: both are one parameter at a time and so generalise to one per contrast.
+    # tests/unit/test_sensitivity_multi_arm.py is where they are checked, against the
+    # closed-form nu^2 of each contrast's own Riesz representer.
 
     def test_an_unknown_reference_names_the_levels_it_could_have_been(self) -> None:
         with pytest.raises(DataError, match="is not a level of A"):

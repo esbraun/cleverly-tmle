@@ -144,6 +144,23 @@ class TestTheRestOfTheStackStillWorks:
         frame = fit.sensitivity.truncation_curve(bounds=[0.01, 0.05])
         assert len(frame) > 0
 
+    def test_the_omitted_variable_bound_survives_the_round_trip(self, fit, tmp_path) -> None:
+        """One bound per contrast, and the same one after a reload.
+
+        The bound reads the fit's arms, its reference and its cached nuisances, all three
+        of which cross the file format -- so a reloaded multi-arm fit is where a bound
+        that had gone back to arms 1 and 0 would report a plausible number for a contrast
+        nobody asked for. ``tests/unit/test_sensitivity_multi_arm.py`` checks the value
+        against the closed form; this checks that persistence does not move it.
+        """
+        name = "ate[medium vs high]"
+        path = tmp_path / "multi-sensitivity.npz"
+        fit.save(path)
+        reloaded = load(path)
+        assert reloaded.sensitivity.omitted_variable(name).max_bias == pytest.approx(
+            fit.sensitivity.omitted_variable(name).max_bias, rel=1e-12
+        )
+
     @pytest.mark.parametrize("scheme", ["pooled", "fold"])
     def test_both_targeting_schemes_report_the_same_parameters(self, scheme: str) -> None:
         result = _fit(targeting_scheme=scheme)

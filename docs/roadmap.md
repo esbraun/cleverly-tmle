@@ -5,7 +5,7 @@ the shared base classes (`estimators/base.py`, `inference/`, `learners/`, `fluct
 [Refusals worth lifting](#refusals-worth-lifting) are parameters this package already has the
 machinery for and has simply not written down — drawn from [Not written
 yet](methodology.md#not-written-yet), which is the full list of candidates rather than the
-chosen ones. **All five have landed**, so that list is now a record of what was done and what
+chosen ones. **All six have landed**, so that list is now a record of what was done and what
 the sizing got wrong rather than a plan; the remaining work is the second variant below, sized
 against this codebase under [What `drtmle` would touch](#what-drtmle-would-touch).
 
@@ -34,14 +34,14 @@ against this codebase under [What `drtmle` would touch](#what-drtmle-would-touch
   score equations too. That is a genuine variant rather than a further estimand, so it plugs
   in at `TMLE._nuisances` and the targeting step rather than at the target registry — which
   is right as far as it goes, and is two of the four seams it turns out to touch. It predates
-  the five below and was sized from the paper rather than from a read of what would have to
+  the six below and was sized from the paper rather than from a read of what would have to
   change here; [What `drtmle` would touch](#what-drtmle-would-touch) is that read
 
 ## What `drtmle` would touch
 
 The read the bullet above was missing, taken against `estimators/`, `fluctuation/`,
 `inference/` and `tests/` rather than against the paper. It is written **before** any of the
-work, which is the point: each of items 1 to 5 below records what its sizing got wrong, and
+work, which is the point: each of items 1 to 6 below records what its sizing got wrong, and
 the misses here are ones that can be named in advance rather than found by mutation
 afterwards. Nothing in it is a decision about the derivation — those are still open, and the
 [three things to pin](#three-things-to-pin-before-any-code) says which.
@@ -133,9 +133,9 @@ axis this package has (`att`/`atc`, `regime`, `shift`, `ipsi`, `msm`, and a mult
 treatment) must be **refused by name** rather than silently handed a plain fluctuation, on the
 rule `LTMLE` established: a subsystem that was never taught about a variant raising
 `AttributeError` is not a refusal. Two of them need deciding rather than inheriting.
-`sensitivity/omitted_variable.py`'s Riesz representer reads
-`submodel.observed[:, 1] - submodel.observed[:, 0]`, and the extra covariates change what a
-column means. And the truncation curve and the MNAR tilt reach the targeting through
+`sensitivity/omitted_variable.py`'s Riesz representer reads the clever covariate's columns
+by the arm each targets (`submodel.column_for`, since item 6), and the extra covariates
+change what a column means. And the truncation curve and the MNAR tilt reach the targeting through
 `retarget`, so they would re-solve the extra equations — probably right, and right by
 inheritance rather than by decision, which is how the wrong version of it would also arrive.
 
@@ -171,7 +171,8 @@ Nothing here is blocked on a modelling question.
 
 **The order is a dependency order, not a preference order.** Each item is independently
 shippable, but taken in sequence some of them hand work to the next: the first was
-self-contained and unblocks two sensitivity analyses; the second builds the projection
+self-contained and unblocked the sixth, whose whole content is the contrast machinery it
+built; the second builds the projection
 machinery the fourth copies; the third and fourth both change `fit_regimen` and
 `fit_mechanism`, so doing them adjacent is one round of churn in those signatures rather than
 two — and taking them adjacent paid: the third left the recursion carrying the data's
@@ -180,8 +181,12 @@ The fifth was last because its cost is dominated by test infrastructure rather t
 derivation — it is the only one needing a *new* oracle law rather than a branch on an
 existing one, and that held: the `src/` change was four small commits and the law, its
 Gateaux module, its remainder module and the mutation hunting were the rest of it.
+The sixth is the only one that touches no estimand at all: it lifts two refusals *around*
+the fit rather than adding a parameter to it, which is why it needed no oracle branch and
+no registry entry, and why the [oracle-law gate](methodology.md#the-oracle-law-gate) has
+nothing to say about it.
 
-**All five have landed.** What remains here is the second variant above — now sized against
+**All six have landed.** What remains here is the second variant above — now sized against
 this codebase rather than against the paper, under [What `drtmle` would
 touch](#what-drtmle-would-touch) — and a handful of refusals under [Not written
 yet](methodology.md#not-written-yet) that are there because nobody has asked rather than
@@ -200,9 +205,9 @@ because anything stands in the way.
    keyed by the contrast it carries rather than by an arm it updates. And they are **not**
    in a multi-arm default report: `2(K-1)` further parameters would have moved the
    simultaneous bands of every multi-arm fit that already ran, so `default_arms="binary"`
-   keeps them opt-in. What still follows from the same contrast machinery, and is now the
-   next thing this unblocks rather than part of it: the omitted-variable bound and the MNAR
-   tilt on a multi-valued treatment
+   keeps them opt-in. What still followed from the same contrast machinery, and was the
+   next thing this unblocked rather than part of it, is item 6: the omitted-variable bound
+   and the MNAR tilt on a multi-valued treatment
 2. **A non-identity link for `msm=` — landed.** `link="log"` and `link="logit"` make a
    coefficient a log risk ratio or a log odds ratio, and `res.coefficients(scale="ratio")`
    exponentiates them; see
@@ -334,7 +339,56 @@ because anything stands in the way.
    shift fit. The tilt re-mixes `Q̄` under a moved mechanism, a shift's plug-in is `Q̄` at the
    assigned dose, and whether the tilted parameter is still the shift parameter has not been
    derived — so this is a missing derivation rather than missing transcription, which is why
-   it is not being carried forward as a sixth item
+   it is not being carried forward as an item of its own
+6. **The omitted-variable bound and the MNAR tilt on a multi-valued treatment — landed**,
+   and the E-value with them. `omitted_variable("ate[medium vs low]")`, `robustness_value`,
+   `benchmark`, `contour`, `evalue("rr[medium vs low]")` and `missingness_tilt()` are now
+   one analysis **per contrast**; see [multi-valued
+   treatment](user-guide.md#multi-valued-treatment). This is what item 1 unblocked, and
+   its sizing — one sentence rather than a section — got the size right and one of the two
+   reasons wrong. Five things are worth recording.
+   **The bound's refusal reason was wrong**, in the way items 3 and 5 found theirs to be
+   and for the third time in six items. It said the bound "rests on a scalar confounding
+   strength in the treatment equation, and with more than two arms an omitted covariate has
+   one such strength per arm — a different derivation, not a wider loop". But `cf_d` is not
+   a coefficient in a treatment equation: it is the share of the *Riesz representer's*
+   second moment a confounder would add, and a representer belongs to one linear functional.
+   `ate[high vs low]` has one and `att[mid vs low]` has another, so it is exactly a wider
+   loop — one bound per contrast, each with its own `ν²`, and none of them a summary of the
+   others.
+   **The tilt's refusal named a real choice** — "whether gamma is shared across arms or per
+   arm" — and the answer is a *direction* rather than a scalar or a vector grid. Shared
+   `gamma` stays the default, since that is what the two-armed path always did;
+   `arm_gamma=` declares one multiplier per arm and the grid sweeps its magnitude, so
+   Scharfstein–Rotnitzky–Robins's per-arm parameter vector is reachable (`arm_gamma=v` with
+   `gamma=[1.0]`) while `tipping_gamma` stays a one-dimensional root find, which is what
+   makes a tipping point a single number. Every arm must be named, and the returned frame
+   carries a `gamma[<level>]` column per arm: an arm defaulted to 1 — or a direction living
+   only in the call — would be the quiet choice the keyword exists to make loud.
+   **A default multi-arm fit reports only `ey[...]`**, so the tiltable set had to include
+   the per-arm means or the lift would have delivered a tilt with nothing to tilt. The old
+   filter was the literal tuple `("ate", "att", "atc", "ey1", "ey0")`, and replacing it with
+   a name → arms map *composed forward* through `parameter_name` — `sensitivity/_parameters.py`,
+   shared by all three analyses — is what made that visible rather than a later bug report.
+   **Two latent binary bugs fell out, both about the declared reference**, and no existing
+   test could see either because two arms and `reference=0` are where the constants they
+   replaced were right by default. With `reference=1` the tilt reported `E[Y¹] − E[Y⁰]`
+   under the name of an `ate` the fit had defined the other way round, and weighted the ATT
+   by `A` where the parameter conditions on `A = 0`; and the E-value's risk-difference
+   conversion divided by `ey0` where the baseline it needed was `ey1`. Reading the arms off
+   the parameter fixes both, and they are pinned by a two-armed fit that declares the other
+   reference — `TestTheTiltFollowsTheDeclaredReference` fails on all three estimands if the
+   first comes back, and `test_two_arms_divide_by_the_declared_reference_too` on the second.
+   **The instruments differ because the two objects do**, and that is the part worth
+   carrying forward. The bound is a closed-form functional of the nuisances, so
+   `tests/discrete_law_multi.py` with its own nuisances makes `σ²` and `ν²` exact functions
+   of the eighteen cell probabilities — written out longhand, at `1e-12`, for all nine
+   parameters and *both* estimators of `ν²`, which must agree there by the Riesz identity
+   and so check the arm indexing in a way neither alone could. The tilt is not a functional
+   of the law at all but a re-mixing of the *fitted* regression, so no exact law has
+   anything to say about it: its instruments are that `gamma = 0` reproduces the whole
+   report and that an arm with `π ≡ 1` is left exactly where it was however the others are
+   tilted. No new law, and eleven mutations watched to fail
 
 ## On native acceleration
 

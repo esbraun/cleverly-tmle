@@ -33,9 +33,13 @@ The parameterisation, including the definition of the benchmark gain statistics,
 matches DoubleML's ``sensitivity_analysis`` so numbers are comparable across the two
 libraries.
 
-Scope: the bound applies to the linear functionals this library estimates
-(``ate``, ``ey1``, ``ey0``, ``att``, ``atc``).  Ratios are not linear functionals of the
-outcome regression, so use :mod:`cleverly.sensitivity.evalue` for those.
+Scope: the bound applies to the linear functionals this library estimates -- the
+counterfactual means, their contrasts against the reference arm, and the two conditional
+effects.  With more than two arms those are named for the arms they are about, so the
+estimand to ask for is ``"ate[medium vs low]"`` rather than ``"ate"``; it is one bound
+per contrast, because :math:`\nu^2` is the second moment of *that contrast's* Riesz
+representer.  Ratios are not linear functionals of the outcome regression, so use
+:mod:`cleverly.sensitivity.evalue` for those.
 """
 
 from __future__ import annotations
@@ -51,7 +55,9 @@ from .._typing import FloatArray
 from ..estimators.base import format_table
 from ..estimators.targeting import build_submodel
 from ..inference.cluster import influence_variance
+from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
+from ._parameters import ArmParameter, arm_parameters
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators._nuisance import RepeatFit
@@ -67,8 +73,13 @@ __all__ = [
     "sensitivity_elements",
 ]
 
-#: Estimands for which the Riesz representer -- and therefore this bound -- is defined.
-LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey1", "ey0", "att", "atc"})
+#: Targets for which the Riesz representer -- and therefore this bound -- is defined.
+#:
+#: Stems rather than reported names, since a multi-valued treatment names each parameter
+#: for the arms it is about: ``ate[medium vs low]`` has a stem of ``ate`` and a
+#: representer of its own.  :func:`~cleverly.sensitivity._parameters.arm_parameters` is
+#: what turns a fit's arms into the names these stems produce.
+LINEAR_ESTIMANDS: frozenset[str] = frozenset({"ate", "ey", "ey1", "ey0", "att", "atc"})
 
 
 @dataclass(frozen=True)
@@ -117,31 +128,44 @@ def sensitivity_elements(
         doubly robust form wherever the functional's :math:`m(W, \alpha)` has a closed
         form, which is all of :data:`LINEAR_ESTIMANDS`.
     """
-    if estimand not in LINEAR_ESTIMANDS:
+    parameter = resolve_parameter(result, estimand)
+    per_repeat = [
+        _elements_for(result, repeat, parameter, nu2_estimator) for repeat in result.repeats
+    ]
+    return _average_elements(per_repeat)
+
+
+def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
+    """The arms a requested estimand is about, or a refusal that says why not.
+
+    One bound is one linear functional, so this is where "which contrast" is decided --
+    ``ate`` on a two-armed fit and ``ate[medium vs low]`` on a wider one, each with its
+    own Riesz representer.  The order of the checks matters: a name this bound could
+    never apply to is refused for *that* reason, before the fit is consulted at all, so
+    that asking for a risk ratio is not reported as a missing estimand.
+    """
+    if parameter_stem(estimand) not in LINEAR_ESTIMANDS:
         raise ValueError(
             f"the omitted-variable bound applies to {sorted(LINEAR_ESTIMANDS)}, not "
             f"{estimand!r}. For a risk ratio or odds ratio use sensitivity.evalue()."
         )
-    # Before the "was not requested" check: on a multi-arm fit no parameter is named
-    # plainly `ate` -- they are `ate[mid vs low]` and so on -- so that check would fire
-    # first and report a missing estimand when the real answer is that this bound does
-    # not apply to the fit at all.
-    if not result.data.is_binary_treatment:
+    known = arm_parameters(result.data, result.config.reference_arm)
+    available = {name: parameter for name, parameter in known.items() if name in result.estimates}
+    if estimand in available:
+        return available[estimand]
+    if not available:
         raise ValueError(
-            "the omitted-variable bound is derived for a binary treatment; this fit has "
-            f"{result.data.n_arms} arms {list(result.data.treatment_levels)}. The bound "
-            "rests on a scalar confounding strength in the treatment equation, and with "
-            "more than two arms an omitted covariate has one such strength per arm -- a "
-            "different derivation, not a wider loop. Use sensitivity.evalue() for a "
-            "contrast, or restrict the fit to the two arms being compared."
+            "the omitted-variable bound applies to the arm-indexed linear estimands, and "
+            f"this fit reports none: its parameters are indexed by "
+            f"{result.config.parameter_axis!r} and it reported {sorted(result.estimates)}. "
+            "The bias is bounded through the Riesz representer of a mean or a contrast of "
+            "arms, which a fit whose counterfactuals are not arms does not have."
         )
-    if estimand not in result.estimates:
-        raise ValueError(f"estimand {estimand!r} was not requested in this fit")
-
-    per_repeat = [
-        _elements_for(result, repeat, estimand, nu2_estimator) for repeat in result.repeats
-    ]
-    return _average_elements(per_repeat)
+    raise ValueError(
+        f"estimand {estimand!r} was not requested in this fit. The bound is available for "
+        f"{sorted(available)} -- one per contrast, since nu^2 is the second moment of "
+        "that contrast's own Riesz representer."
+    )
 
 
 def _average_elements(per_repeat: Sequence[SensitivityElements]) -> SensitivityElements:
@@ -179,7 +203,7 @@ def _average_elements(per_repeat: Sequence[SensitivityElements]) -> SensitivityE
 def _elements_for(
     result: TMLEResult,
     repeat: RepeatFit,
-    estimand: str,
+    parameter: ArmParameter,
     nu2_estimator: str,
 ) -> SensitivityElements:
     """The bound's pieces under one cross-fitting draw.
@@ -190,7 +214,7 @@ def _elements_for(
     """
     data = result.data
     scaler = repeat.nuisance.scaler
-    group = "mean" if estimand in ("ate", "ey1", "ey0") else estimand
+    group = parameter.group
     fluctuation = repeat.fluctuations[group]
     bounds = g_bounds_for(group, result.config.g_bounds, result.config.g_bounds_conditional)
     reference = result.config.reference_arm
@@ -207,12 +231,18 @@ def _elements_for(
     )
     # The margin of the arm the estimand *conditions on*: ``_m_alpha`` weights the
     # contrast by the density ratio dP(W | A = c) / dP(W), which is g_c / P(A = c).
-    # Binary throughout -- guarded above -- so the contrast arm is simply the other one.
+    # ``None`` for a mean or an unconditional contrast, which reweight nobody -- and the
+    # arm is read off the parameter rather than assumed to be the other one, since with
+    # K arms ``att[medium vs low]`` and ``att[high vs low]`` condition on different
+    # populations.
     arms = repeat.nuisance.arms
-    contrast = next(arm for arm in arms if arm != reference)
-    conditioning = contrast if estimand == "att" else reference
-    propensity = repeat.nuisance.bounded_propensity(bounds)[:, arms.index(conditioning)]
-    conditioning_share = float(data.arm_fractions[arms.index(conditioning)])
+    conditioning = parameter.conditions_on
+    propensity: FloatArray | None = None
+    conditioning_share: float | None = None
+    if conditioning is not None:
+        index = arms.index(conditioning)
+        propensity = repeat.nuisance.bounded_propensity(bounds)[:, index]
+        conditioning_share = float(data.arm_fractions[index])
 
     # sigma^2: residual variance of the targeted outcome regression, on the original
     # outcome scale so the bound is reported in the units the estimate uses.
@@ -225,14 +255,14 @@ def _elements_for(
     sigma2 = float(np.average(sigma2_element[data.observed], weights=weights[data.observed]))
     psi_sigma2 = np.where(data.observed, sigma2_element - sigma2, 0.0) * weights
 
-    representer = _riesz_representer(estimand, submodel, data.treatment)
+    representer = _riesz_representer(parameter, submodel)
     plugin = float(np.average(representer**2, weights=weights))
 
     method = nu2_estimator
     if method == "auto":
         method = "doubly_robust"
     if method == "doubly_robust":
-        m_alpha = _m_alpha(estimand, submodel, propensity, conditioning_share, reference, contrast)
+        m_alpha = _m_alpha(parameter, submodel, propensity, conditioning_share)
         nu2_element = 2.0 * m_alpha - representer**2
         nu2 = float(np.average(nu2_element, weights=weights))
         if nu2 <= 0:  # pragma: no cover - only with a pathological propensity fit
@@ -249,7 +279,7 @@ def _elements_for(
     max_bias = float(np.sqrt(sigma2 * nu2))
     psi_max_bias = (sigma2 * psi_nu2 + nu2 * psi_sigma2) / (2.0 * max_bias)
     return SensitivityElements(
-        estimand=estimand,
+        estimand=parameter.name,
         sigma2=sigma2,
         nu2=nu2,
         max_bias=max_bias,
@@ -261,29 +291,33 @@ def _elements_for(
     )
 
 
-def _riesz_representer(estimand: str, submodel: Any, treatment: FloatArray) -> FloatArray:
+def _riesz_representer(parameter: ArmParameter, submodel: Any) -> FloatArray:
     r"""``alpha(A, W)`` for the requested estimand.
 
     The clever covariate *is* the Riesz representer -- that is why the same object
     both drives the targeting step and controls how much an omitted confounder can
     move the estimate.  Poor overlap inflates both simultaneously.
+
+    Every column is reached by the arm it carries rather than by position, so
+    ``ate[high vs low]`` reads the two arms it names out of a ``K``-column covariate
+    instead of the two an implementation that counted to two would have found.
     """
-    if estimand == "ate":
-        return np.asarray(submodel.observed[:, 1] - submodel.observed[:, 0], dtype=float)
-    if estimand == "ey1":
-        return np.asarray(submodel.observed[:, 1], dtype=float)
-    if estimand == "ey0":
-        return np.asarray(submodel.observed[:, 0], dtype=float)
-    return np.asarray(submodel.observed[:, 0], dtype=float)
+    if parameter.group in ("att", "atc"):
+        # One column per non-reference arm, and this parameter's is the one carrying the
+        # contrast it is named for.
+        return submodel.contrast_column_for(parameter.arm)
+    if parameter.versus is None:
+        return submodel.column_for(parameter.arm)
+    return np.asarray(
+        submodel.column_for(parameter.arm) - submodel.column_for(parameter.versus), dtype=float
+    )
 
 
 def _m_alpha(
-    estimand: str,
+    parameter: ArmParameter,
     submodel: Any,
-    propensity: FloatArray,
-    conditioning_share: float,
-    reference: float,
-    contrast: float,
+    propensity: FloatArray | None,
+    conditioning_share: float | None,
 ) -> FloatArray:
     r"""The target functional applied to the Riesz representer, ``m(W, alpha)``.
 
@@ -291,31 +325,38 @@ def _m_alpha(
     identity :math:`E[m(W, \alpha)] = E[\alpha^2]`.
 
     ``propensity`` and ``conditioning_share`` belong to the arm the estimand conditions
-    on -- arm ``contrast`` for the ATT and arm ``reference`` for the ATC -- rather than to
-    arm 1 and its complement.  With the default reference those are the same two numbers;
-    naming the arm is what keeps them right when a binary fit declares the other one.
+    on -- the contrast arm for an ATT and the reference for an ATC -- rather than to arm
+    1 and its complement.  With two arms and the default reference those are the same two
+    numbers; naming the arm is what keeps them right when a binary fit declares the other
+    one, and what gives each of ``K - 1`` contrasts its own population.  They are
+    ``None`` for a mean or an unconditional contrast, which reweight nobody.
     """
     # ``arms[a][:, c]`` is the covariate at arm ``a`` in the column targeting arm ``c``:
     # the mean submodel has one column per arm, so both indices are arm levels and
     # neither is a positional 0 or 1.
-    if estimand == "ate":
-        one, zero = submodel.arms[1.0], submodel.arms[0.0]
-        treated, control = submodel.arm_columns[1.0], submodel.arm_columns[0.0]
+    if parameter.group == "mean":
+        columns = submodel.arm_columns
+        at = parameter.arm
+        if parameter.versus is None:
+            return np.asarray(submodel.arms[at][:, columns[at]], dtype=float)
+        versus = parameter.versus
+        first, second = submodel.arms[at], submodel.arms[versus]
         return np.asarray(
-            one[:, treated] - one[:, control] - (zero[:, treated] - zero[:, control]),
+            first[:, columns[at]]
+            - first[:, columns[versus]]
+            - (second[:, columns[at]] - second[:, columns[versus]]),
             dtype=float,
         )
-    if estimand == "ey1":
-        return np.asarray(submodel.arms[1.0][:, submodel.arm_columns[1.0]], dtype=float)
-    if estimand == "ey0":
-        return np.asarray(submodel.arms[0.0][:, submodel.arm_columns[0.0]], dtype=float)
 
     # ATT / ATC: the functional carries an arm-membership weight, since it averages the
     # contrast over the conditioning arm's subpopulation rather than over everyone. The
     # column is read by the arm whose contrast it carries, not as a literal 0.
-    column = submodel.contrast_columns[contrast]
+    assert parameter.versus is not None
+    assert propensity is not None and conditioning_share is not None
+    column = submodel.contrast_columns[parameter.arm]
     difference = np.asarray(
-        submodel.arms[contrast][:, column] - submodel.arms[reference][:, column], dtype=float
+        submodel.arms[parameter.arm][:, column] - submodel.arms[parameter.versus][:, column],
+        dtype=float,
     )
     return np.asarray((propensity / conditioning_share) * difference, dtype=float)
 

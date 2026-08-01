@@ -543,9 +543,12 @@ class CausalData:
     def is_binary_treatment(self) -> bool:
         """Whether there are exactly two arms.
 
-        A handful of estimands and sensitivity analyses are defined only for a single
-        contrast (the ATT, the omitted-variable bound, the MNAR tilt) and check this
-        rather than assuming it.
+        A handful of estimands and analyses name one of exactly two arms -- ``ey1`` and
+        ``ey0``, the incremental estimands, ``CTMLE`` -- and check this rather than
+        assuming it.  Not the ATT, the omitted-variable bound, the E-value or the MNAR
+        tilt, which are one parameter per contrast and read the arms off the parameter;
+        this docstring named all four until they were, which is the shape of claim to
+        check against the code rather than inherit.
         """
         return self.n_arms == 2
 

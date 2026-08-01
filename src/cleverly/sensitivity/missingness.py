@@ -31,6 +31,16 @@ than MAR implies; negative, lower.  A useful way to read the output is to find t
 :math:`\gamma` at which the conclusion changes and ask whether departures of that
 size are plausible given why data went missing.
 
+**One tilt or one per arm.**  The formula above moves every arm's regression by the same
+:math:`\gamma`, which is a modelling assumption and not an accident of the two-armed
+case: it says the unobserved outcomes are displaced by the same amount whatever
+treatment the unit received.  With more than two arms that assumption is easier to doubt
+-- dropout after an ineffective arm need not mean what dropout after an effective one
+does -- so ``arm_gamma=`` declares a *direction* instead, one multiplier per arm, and the
+grid sweeps its magnitude.  It is required to name every arm, because an arm silently
+defaulted to 1 would be the modelling choice made quietly that this keyword exists to
+make loudly.
+
 Caveat, stated plainly: the confidence intervals on the curve treat :math:`\gamma`
 as known and reuse the MAR standard error.  They describe sampling uncertainty at a
 fixed :math:`\gamma`, not uncertainty about :math:`\gamma` itself.
@@ -38,7 +48,7 @@ fixed :math:`\gamma`, not uncertainty about :math:`\gamma` itself.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -46,8 +56,10 @@ import numpy as np
 from .._typing import FloatArray
 from ..inference.delta import normal_ci
 from ..utils.bounds import expit, logit
+from ._parameters import ArmParameter, arm_parameters
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..data import CausalData
     from ..estimators._nuisance import RepeatFit
     from ..estimators.base import TMLEResult
 
@@ -76,11 +88,14 @@ def missingness_tilt(
     gamma: Sequence[float] | None = None,
     *,
     estimands: Sequence[str] | None = None,
+    arm_gamma: Mapping[Any, float] | None = None,
 ) -> Any:
     """Estimate under a range of departures from missingness-at-random.
 
-    Returns a tidy frame with one row per ``(gamma, estimand)``.  Only defined for a
-    fit that supplied ``delta``; without missing outcomes there is nothing to tilt.
+    Returns a tidy frame with one row per ``(gamma, estimand)``, and one
+    ``gamma[<level>]`` column per arm giving the tilt that arm received -- equal to
+    ``gamma`` throughout unless ``arm_gamma=`` says otherwise.  Only defined for a fit
+    that supplied ``delta``; without missing outcomes there is nothing to tilt.
 
     Parameters
     ----------
@@ -90,6 +105,14 @@ def missingness_tilt(
         Restrict to a subset.  Ratios are excluded automatically: tilting changes the
         counterfactual means, and re-deriving a ratio's log-scale influence curve under
         the tilt would misrepresent the uncertainty.
+    arm_gamma:
+        One multiplier per arm, keyed by the treatment level as the caller wrote it, so
+        that the tilt at arm ``a`` is ``arm_gamma[a] * gamma``.  ``None`` -- the default,
+        and what a two-armed fit has always done -- tilts every arm by the same
+        ``gamma``.  Every arm must appear; see this module's docstring for why the choice
+        is not made silently.  The ``gamma`` column of the returned frame is then the
+        magnitude the direction is scaled by rather than the tilt any one arm received,
+        which is what the ``gamma[<level>]`` columns beside it report.
     """
     data = result.data
     if not data.has_missing_outcome:
@@ -109,15 +132,6 @@ def missingness_tilt(
             "truncation_curve(mechanism=True) for sensitivity to the missingness bound, "
             "or shift_support() for the overlap question."
         )
-    if not data.is_binary_treatment:
-        raise ValueError(
-            "missingness_tilt is written for a binary treatment; this fit has "
-            f"{data.n_arms} arms {list(data.treatment_levels)}. The tilt moves each arm's "
-            "missingness mechanism by one shared gamma and reports the estimands that name "
-            "two arms (ate/att/atc/ey1/ey0), none of which a multi-arm fit produces. "
-            "Extending it means deciding whether gamma is shared across arms or per arm, "
-            "which is a modelling choice this function should not make silently."
-        )
     if result.nuisance.incremental is not None:
         raise ValueError(
             "missingness_tilt is written for the arm-indexed estimands; this fit declared "
@@ -133,19 +147,29 @@ def missingness_tilt(
     if result.nuisance.missingness is None:  # pragma: no cover - guarded above
         raise ValueError("missingness_tilt requires a fitted missingness mechanism")
 
-    names = tuple(
-        name
-        for name in (estimands if estimands is not None else result.estimates)
-        if name in ("ate", "att", "atc", "ey1", "ey0")
-    )
-    if not names:
-        raise ValueError("no tiltable estimands requested; the tilt applies to ate/att/atc/ey1/ey0")
+    # Which parameters the tilt can re-mix: the arm-indexed linear ones, named for their
+    # arms on a fit with more than two. Ratios are excluded by being absent from that
+    # map rather than by a second filter here.
+    tiltable = {
+        name: parameter
+        for name, parameter in arm_parameters(data, result.config.reference_arm).items()
+        if name in result.estimates
+    }
+    requested = tuple(estimands if estimands is not None else result.estimates)
+    parameters = tuple(tiltable[name] for name in requested if name in tiltable)
+    if not parameters:
+        raise ValueError(
+            "no tiltable estimands requested; the tilt applies to the arm-indexed means "
+            f"and their contrasts, which for this fit are {sorted(tiltable)}"
+        )
 
+    direction = _tilt_direction(data, arm_gamma)
     grid = tuple(DEFAULT_GAMMA_GRID if gamma is None else (float(g) for g in gamma))
 
     rows: list[dict[str, Any]] = []
     for value in grid:
-        for name in names:
+        for parameter in parameters:
+            name = parameter.name
             # Averaged over the cross-fitting draws, as the fit's own report was. Each
             # draw has its own targeted Qbar and its own missingness mechanism, and the
             # tilt is a function of both, so a tilt read off one draw would sit at a
@@ -154,7 +178,12 @@ def missingness_tilt(
             # difference, so the plain mean is the right average; there is no ratio to
             # take on the log scale.
             psi = float(
-                np.mean([_tilted_psi(result, repeat, name, value) for repeat in result.repeats])
+                np.mean(
+                    [
+                        _tilted_psi(result, repeat, parameter, value, direction)
+                        for repeat in result.repeats
+                    ]
+                )
             )
             std_error = result[name].std_error
             low, high = normal_ci(psi, std_error, result.config.alpha_sig)
@@ -167,6 +196,16 @@ def missingness_tilt(
                     "ci_lower": low,
                     "ci_upper": high,
                     "is_mar": bool(value == 0.0),
+                    # The tilt each arm actually received, appended so the familiar
+                    # columns stay where they were. Without these the direction lives
+                    # only in the call: a curve read back off disk or handed to a plot
+                    # could not say what it swept, and ``gamma`` alone is a magnitude.
+                    # Under the default direction they all equal ``gamma``, which is the
+                    # two-armed report saying that it tilted both arms alike.
+                    **{
+                        f"gamma[{data.arm_label(code)}]": value * direction[code]
+                        for code in data.arm_codes
+                    },
                 }
             )
 
@@ -174,36 +213,79 @@ def missingness_tilt(
     return data.frame_like(payload)
 
 
-def _tilted_psi(result: TMLEResult, repeat: RepeatFit, name: str, gamma: float) -> float:
+def _tilt_direction(data: CausalData, arm_gamma: Mapping[Any, float] | None) -> dict[float, float]:
+    """The per-arm multipliers, keyed by arm *code* -- all ones unless declared.
+
+    Keyed by code on the way out and by the user's own level on the way in, which is the
+    convention every reported name follows: a caller writes ``{"low": 1.0, "high": 0.5}``
+    and never sees ``0.0`` and ``2.0``.
+    """
+    codes = data.arm_codes
+    if arm_gamma is None:
+        return dict.fromkeys(codes, 1.0)
+    levels = list(data.treatment_levels)
+    direction: dict[float, float] = {}
+    for label, multiplier in arm_gamma.items():
+        matches = [index for index, level in enumerate(levels) if level == label]
+        if not matches:
+            raise ValueError(
+                f"arm_gamma names {label!r}, which is not a level of "
+                f"{data.treatment_name}; its levels are {levels}"
+            )
+        direction[float(matches[0])] = float(multiplier)
+    missing = [levels[int(code)] for code in codes if code not in direction]
+    if missing:
+        raise ValueError(
+            f"arm_gamma must name every arm, and {missing} are missing. An arm left out "
+            "would be tilted by the shared gamma after all, which is the assumption this "
+            "keyword exists to state rather than inherit; pass 1.0 to say so."
+        )
+    return direction
+
+
+def _tilted_psi(
+    result: TMLEResult,
+    repeat: RepeatFit,
+    parameter: ArmParameter,
+    gamma: float,
+    direction: Mapping[float, float],
+) -> float:
     """One estimand under one cross-fitting draw, at tilt ``gamma``.
 
     Reads the targeted ``Qbar`` and the missingness mechanism from the *same* draw, which
     is the whole reason :class:`~cleverly.estimators._nuisance.RepeatFit` holds them
     together: mixing one draw's regression with another's mechanism would produce a
     perfectly plausible number for a fit that never happened.
+
+    Every arm is reached by its code -- the column of ``missingness`` included, which is
+    keyed by arm exactly as ``targeted.arms`` is -- rather than by position, so the two
+    cannot come apart on a fit with more arms than the loop that reads them.
     """
     data = result.data
     scaler = repeat.nuisance.scaler
     missingness = repeat.nuisance.bounded_missingness(result.config.missingness_bound)
     assert missingness is not None
     weights = data.weights
+    arms = repeat.nuisance.arms
 
-    group = "mean" if name in ("ate", "ey1", "ey0") else name
-    targeted = repeat.fluctuations[group].targeted
-    full_one = _tilted(targeted.arms[1.0], missingness[:, 1], gamma)
-    full_zero = _tilted(targeted.arms[0.0], missingness[:, 0], gamma)
+    targeted = repeat.fluctuations[parameter.group].targeted
 
-    if name in ("ey1", "ey0"):
-        psi_scaled = float(np.average(full_one if name == "ey1" else full_zero, weights=weights))
+    def full(arm: float) -> FloatArray:
+        return _tilted(targeted.arms[arm], missingness[:, arms.index(arm)], gamma * direction[arm])
+
+    if parameter.versus is None:
+        psi_scaled = float(np.average(full(parameter.arm), weights=weights))
         return scaler.unscale_level(psi_scaled) if not scaler.is_identity else psi_scaled
 
-    contrast = full_one - full_zero
-    if name == "ate":
+    contrast = full(parameter.arm) - full(parameter.versus)
+    conditioning = parameter.conditions_on
+    if conditioning is None:
         psi_scaled = float(np.average(contrast, weights=weights))
     else:
         # The ATT and ATC average the contrast over one arm only, so the arm indicator
-        # multiplies the observation weights.
-        indicator = data.treatment if name == "att" else 1.0 - data.treatment
+        # multiplies the observation weights -- and which arm that is differs per
+        # contrast for the ATT, which is why it is read off the parameter.
+        indicator = np.asarray(data.treatment == conditioning, dtype=float)
         psi_scaled = float(np.average(contrast, weights=weights * indicator))
     return scaler.unscale_difference(psi_scaled) if not scaler.is_identity else psi_scaled
 
@@ -226,6 +308,7 @@ def tipping_gamma(
     null_hypothesis: float = 0.0,
     search: tuple[float, float] = (-8.0, 8.0),
     use_ci: bool = False,
+    arm_gamma: Mapping[Any, float] | None = None,
 ) -> float | None:
     """The tilt at which the conclusion tips.
 
@@ -234,11 +317,15 @@ def tipping_gamma(
     ``search`` does so.  Reporting this single number is usually more informative than
     the whole curve: it converts "is MAR plausible?" into "would the unobserved
     outcomes have to differ by *this much*?".
+
+    With ``arm_gamma=`` the number is the magnitude at which that *direction* tips the
+    conclusion, which is what makes one scalar still meaningful when the arms are tilted
+    by different amounts.
     """
     from scipy import optimize
 
     def deviation(value: float) -> float:
-        frame = missingness_tilt(result, [value], estimands=[estimand])
+        frame = missingness_tilt(result, [value], estimands=[estimand], arm_gamma=arm_gamma)
         import narwhals as nw
 
         row = nw.from_native(frame, eager_only=True)
