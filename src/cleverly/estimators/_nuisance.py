@@ -152,6 +152,13 @@ class NuisanceEstimates:
         treatment and at every counterfactual arm.
     missingness, intermediate:
         ``(n, K)`` arrays indexed by treatment arm, or ``None`` when not applicable.
+        On a ``shifts=`` fit a dose has no arms to index by, so they are ``(n, S + 1)``
+        instead: column ``0`` at the observed dose and column ``s + 1`` at
+        :math:`d_s(A, W)`, which is
+        :attr:`~cleverly.interventions.ShiftSet.design`'s first axis exactly.  Both stay
+        **untruncated** here and are bounded at targeting time by
+        :meth:`bounded_missingness` and :meth:`intermediate_density`, which is what keeps
+        ``nuisance_bound=`` a choice ``retarget`` can revisit without refitting.
     scaler:
         The transformation used to put the outcome on ``[0, 1]``.
     diagnostics:
@@ -475,6 +482,54 @@ def _design_key(arm: float, level: float | None) -> str:
     return f"arm@{arm}|z@{level}"
 
 
+#: Key of the prediction at the treatment each unit actually received.  Only a shift fit
+#: needs it: an arm fit reads the mechanism at its realised arm through the indicator
+#: ``1{A = a}``, and a dose has no indicator to read it with.
+_OBSERVED_KEY = "observed"
+
+
+def _mechanism_designs(
+    data: CausalData, arms: tuple[float, ...], shift_set: ShiftSet | None, design: FloatArray
+) -> dict[str, FloatArray]:
+    r"""Where a per-treatment mechanism -- :math:`\pi` or :math:`q_z` -- must be evaluated.
+
+    Both mechanisms divide the clever covariate, and the fluctuation updates
+    :math:`\bar Q` as a function of the *treatment*, so each has to be known wherever
+    :math:`\bar Q` is read.  On the arm path that is each counterfactual arm.  On a shift
+    path it is the observed dose **and** each shifted one: obtaining
+    :math:`\bar Q^*(d_s(A, W), W)` means evaluating the covariate at :math:`d_s(A, W)`,
+    and the covariate carries :math:`1 / \pi`.  Reusing the observed dose's value there is
+    the mistake this exists to prevent, and it is silent whenever the mechanism happens not
+    to depend on the dose.
+
+    ``design`` is the block's own training design, passed back as a named prediction so
+    that column ``0`` is an *out-of-fold* :math:`\pi(A_i, W_i)` rather than an in-sample
+    one -- the same trick the outcome regression already uses for its ``"observed"`` key.
+    """
+    if shift_set is None:
+        return {_arm_key(arm): data.counterfactual_design(arm) for arm in arms}
+    designs = {_OBSERVED_KEY: design}
+    for index, code in enumerate(shift_set.codes):
+        designs[_arm_key(code)] = data.counterfactual_design(shift_set.shifted[:, index])
+    return designs
+
+
+def _mechanism_columns(
+    predictions: dict[str, FloatArray], arms: tuple[float, ...], shift_set: ShiftSet | None
+) -> FloatArray:
+    """Stack :func:`_mechanism_designs`' predictions into the array the submodel reads.
+
+    ``(n, K)`` keyed by arm on the arm path, and ``(n, S + 1)`` observed-first on a shift
+    path -- the same layout as :attr:`~cleverly.interventions.ShiftSet.design`'s first
+    axis, so a builder that indexes one indexes the other with the same integer.
+    """
+    if shift_set is None:
+        return np.column_stack([predictions[_arm_key(arm)] for arm in arms])
+    columns = [predictions[_OBSERVED_KEY]]
+    columns.extend(predictions[_arm_key(code)] for code in shift_set.codes)
+    return np.column_stack(columns)
+
+
 def _requested_levels(
     intermediate_value: float | None, extra_levels: Sequence[float]
 ) -> tuple[float, ...]:
@@ -596,19 +651,20 @@ def fit_nuisances(
             raise ValueError(
                 "the data has missing outcomes but no missingness_learner was supplied"
             )
+        missingness_design = data.missingness_design()
         missing_out, missing_diagnostics = cross_fit_predictions(
             missingness_learner,
-            data.missingness_design(),
+            missingness_design,
             data.observed.astype(float),
             data.weights,
             folds,
             task="classification",
-            predict_designs={_arm_key(arm): data.counterfactual_design(arm) for arm in arms},
+            predict_designs=_mechanism_designs(data, arms, shift_set, missingness_design),
             groups=groups,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
         )
-        missingness = np.column_stack([missing_out[_arm_key(arm)] for arm in arms])
+        missingness = _mechanism_columns(missing_out, arms, shift_set)
         if missing_diagnostics:
             diagnostics["missingness"] = missing_diagnostics
 
@@ -625,19 +681,20 @@ def fit_nuisances(
         # extended by the treatment, which is the time ordering; it does not inherit the
         # missingness model's assumptions, and a longitudinal extension that added ``Z``
         # to the missingness design would silently make this ``P(Z | A, W, Z)``.
+        intermediate_design = data.treatment_design()
         intermediate_out, intermediate_diagnostics = cross_fit_predictions(
             intermediate_learner,
-            data.treatment_design(),
+            intermediate_design,
             data.intermediate,
             data.weights,
             folds,
             task="classification",
-            predict_designs={_arm_key(arm): data.counterfactual_design(arm) for arm in arms},
+            predict_designs=_mechanism_designs(data, arms, shift_set, intermediate_design),
             groups=groups,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
         )
-        intermediate = np.column_stack([intermediate_out[_arm_key(arm)] for arm in arms])
+        intermediate = _mechanism_columns(intermediate_out, arms, shift_set)
         if intermediate_diagnostics:
             diagnostics["intermediate"] = intermediate_diagnostics
 

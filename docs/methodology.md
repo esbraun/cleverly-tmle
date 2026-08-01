@@ -43,6 +43,25 @@ itself held back, so `h` carries the further indicator `1{a ≤ u}` — which is
 whenever the cap sits at or above the largest dose, the common case. The tight cap is what
 caught that term missing.
 
+**Coarsening the outcome.** With `delta=` the covariate becomes `h(a, W) / π(a, W)`, and the
+argument that makes it the existing derivation with one further factor is the same one that
+settled `incremental=` with `delta=`: only the residual term needs the inverse weight, since
+`Qbar(d(A,W),W) − Ψ` is a function of `(A, W)` and both are recorded whatever happens to `Y`.
+What is *not* the same is where `π` is read. The fluctuation updates `Qbar` as a function of
+the dose, so `Qbar*(d(A,W), W)` needs the covariate — and hence the mechanism — at the dose
+the policy assigns. The arm path does this too; its `1{A = a}` indicator hides it.
+
+Two things about checking that are worth recording, because both were measured rather than
+assumed. The oracle law had to be a **new** one crossing `tests/discrete_law_shift.py` with
+`tests/discrete_law_cde.py`, and its `π` had to vary with the **dose** — a mechanism depending
+on `W` alone makes `π(d(a,w), w) = π(a, w)` identically, collapses the whole `(n, S+1)` array
+to identical columns, and leaves a law that proves nothing while passing. And a Gateaux check
+on an exact law **cannot see** a mechanism evaluated at the wrong dose in a counterfactual
+block: there `epsilon` is zero, so the reported curve reads the observed block and the
+untargeted `Qbar`, and no counterfactual block is read at all. That mutation is pinned
+structurally in `tests/unit/test_shift_submodel.py` and behaviourally in
+`tests/unit/test_shift_fit.py`; it was applied and seen to pass the Gateaux module first.
+
 ## Tilting the odds of treatment: two score equations
 
 **Two score equations, and the mechanism is targeted.** Because `q_δ` is built out of `g`,
@@ -496,7 +515,12 @@ error in `∂m/∂g` survives on one side; and `δ = 1`, where the curve is `Y -
 whatever the nuisances are. The shift estimands get it too (`..._shift.py`, against
 `tests/discrete_law_shift.py`), on a law with four ordered doses and two caps — the tight
 one because a cap above the largest dose never exercises the `1{a ≤ u}` factor, and that
-law found the factor missing. The longitudinal estimator answers to a law of its own
+law found the factor missing. Coarsening that outcome needs a further law again
+(`..._shift_cde.py`, against `tests/discrete_law_shift_cde.py`), which crosses those doses
+with the `(Δ, Z)` axes of `tests/discrete_law_cde.py` — a fourth dimension rather than a
+wider third, because both parents have to go on proving their own derivations unchanged, and
+because `π` and `q_z` have to vary with the *dose* for any of it to be checkable at all.
+The longitudinal estimator answers to a law of its own
 (`..._longitudinal.py`, against `tests/discrete_law_longitudinal.py`), on a two-time-point
 process where `L₂` is caused by `A₁` and confounds `A₂` and where censoring depends on the
 history at both nodes — so a fit that dropped either the intermediate covariate or the
@@ -574,16 +598,19 @@ so rather than implying the request was ill-posed.
 | refused | where |
 | --- | --- |
 | `CTMLE`, the omitted-variable bound and the MNAR tilt on a multi-valued treatment | [multi-valued treatment](user-guide.md#multi-valued-treatment) |
-| `delta=`, `intermediate=` and estimated weights with `shifts=` | [shifting a continuous dose](user-guide.md#shifting-a-continuous-dose) |
+| the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](user-guide.md#tilting-the-odds-of-treatment) |
 | a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |
 | blocked-temporal and rolling-origin splits | [cross-fitting](user-guide.md#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](user-guide.md#observation-weights-and-which-population-they-define) |
 
-Two of these are on the [roadmap](roadmap.md#refusals-worth-lifting), and three have left the list
-entirely: `ATT` / `ATC` on a multi-valued treatment is item 1 and has landed, observation
-weights for `LTMLE` is item 3 and has landed, and a working model over regimens is item 4
-and has landed. The rest are there because nobody
+Four of these have left the list entirely: `ATT` / `ATC` on a multi-valued treatment is
+roadmap item 1, observation weights for `LTMLE` is item 3, a working model over regimens is
+item 4, and `delta=`, `intermediate=` and weights with `shifts=` is item 5 — all four have
+landed, and the [roadmap](roadmap.md#refusals-worth-lifting)'s list is now empty. The row item
+5 left behind is a narrower gap than the one it replaced: the tilt itself is written, and what
+is missing is the derivation saying whether the tilted parameter is still the shift parameter.
+The rest are there because nobody
 has asked, not because anything stands in the way — with one exception worth naming:
 `CTMLE` on a multi-valued treatment is the only row here whose *derivation* is unsettled,
 since both searches order candidates by one propensity margin and with `K` arms there is no
@@ -613,6 +640,8 @@ produces a number, and the number is wrong.
 | a `Stochastic` regime whose density came from the estimated mechanism | `g*` becomes a functional of `P`, so the EIF carries a term for the pathwise derivative through `ĝ` that a regime's curve does not have. The reported standard error is too **small** |
 | an incremental intervention built by hand as a `Stochastic` regime | the same omission, and its size is exactly `Var(δ{Q̄(1,W) − Q̄(0,W)}/D² · (A − g))`. Too small, always |
 | a shift's inference taken from the regime inducing the same density | means and clever covariates agree entry for entry; the curves do not. The gap is `Var(Q̄(d(A,W),W) − E[Q̄(d(A,W),W) | W])`. Too small, always |
+| a shift fit run on the complete cases when outcomes are missing | it is an ordinary shift fit on a *different* joint law of `(A, W)`, so it converges to a different number — and nothing in its own output says so. Measured on the dose fixture at 0.17, four standard errors, with a mechanism whose slopes are mild. `delta=` is what corrects it |
+| a missingness or intermediate mechanism read at the observed dose rather than the assigned one | the fluctuation updates `Q̄` as a function of the dose, so `Q̄*(d(A,W),W)` is the update evaluated where the policy sends the unit. Silent wherever the mechanism does not happen to depend on the dose — and invisible to a Gateaux check on an exact law, where `epsilon` is zero and no counterfactual block is read |
 | a "stabilised" MSM weighting `h` by the estimated mechanism | the same argument once more — `h` a functional of `P`, a term missing from the EIF |
 | `g_bounds=` or `truncation_curve()` on an `incremental=` fit | `g` is *inside* `Ψ(δ)`, so truncating it moves the estimand rather than regularising a denominator. The result is a number for a parameter nobody declared |
 | a `cap=` fitted from the data on a shift | the estimand becomes data-dependent: the interval conditions on an estimated boundary, and every bootstrap replicate targets a slightly different policy |

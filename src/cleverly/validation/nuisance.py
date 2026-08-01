@@ -47,6 +47,7 @@ from ..estimators.base import format_table
 from ..utils.bounds import logit
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..data.causal_data import CausalData
     from ..estimators.base import TMLEResult
 
 __all__ = ["NuisanceDiagnostics", "NuisanceModelReport", "nuisance_diagnostics"]
@@ -197,6 +198,28 @@ class NuisanceDiagnostics:
         return self.summary()
 
 
+def _at_realised_treatment(data: CausalData, mechanism: FloatArray) -> FloatArray:
+    r"""A per-treatment mechanism read at the treatment each unit actually received.
+
+    That is the prediction a calibration report has an outcome to compare against: the
+    model was fitted on :math:`(A_i, W_i)`, so it is :math:`\hat\pi(A_i, W_i)` that
+    :math:`\Delta_i` is evidence about, not the value at some other arm.
+
+    On a ``shifts=`` fit the mechanism is ``(n, S + 1)`` and column ``0`` *is* the value at
+    the row's own dose, so there is nothing to select.  Reading ``[:, 1]`` there would
+    silently report the mechanism at some shift's assigned dose against the observed
+    outcome, selected by ``dose == 1.0`` -- a plausible number for a quantity nobody asked
+    for.
+    """
+    values = np.asarray(mechanism, dtype=float)
+    if data.is_continuous_treatment:
+        return np.asarray(values[:, 0], dtype=float)
+    # Binary-only, as it has always been: a K-armed fit reports arm 0's value for every
+    # row outside arms 0 and 1. Pre-existing and out of scope here; named so it is not
+    # mistaken for something this branch introduced.
+    return np.asarray(np.where(data.treatment == 1.0, values[:, 1], values[:, 0]), dtype=float)
+
+
 def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     """Out-of-fold diagnostics for every nuisance model in the fit."""
     data = result.data
@@ -230,13 +253,10 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
             )
 
     if nuisance.missingness is not None:
-        arm_probability = np.where(
-            data.treatment == 1.0, nuisance.missingness[:, 1], nuisance.missingness[:, 0]
-        )
         models.append(
             _binary_report(
                 "missingness",
-                arm_probability,
+                _at_realised_treatment(data, nuisance.missingness),
                 data.observed.astype(float),
                 data.weights,
                 nuisance.diagnostics.get("missingness"),
@@ -244,9 +264,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         )
 
     if nuisance.intermediate is not None and data.intermediate is not None:
-        arm_probability = np.where(
-            data.treatment == 1.0, nuisance.intermediate[:, 1], nuisance.intermediate[:, 0]
-        )
+        arm_probability = _at_realised_treatment(data, nuisance.intermediate)
         models.append(
             _binary_report(
                 "intermediate",

@@ -140,6 +140,28 @@ load-balancing the tail, not contending for cores.
   stochastic regime at the induced density; its influence curve does not, and
   `tests/unit/test_influence_gateaux_shift.py` keeps the negative control that fails if
   someone delegates one to the other.
+  **`delta=`, `intermediate=` and `weights=` are all supported here**, and all three were
+  once refused together on a reason that was wrong for all three. The first two put a further
+  factor in the covariate — `H(a,W) = h/(π·q_z)` — and the axis they are indexed by is the
+  thing to get right: they are `(n, S+1)` arrays, **column 0 at the observed dose and column
+  `s+1` at `d_s(A,W)`, matching `ShiftSet.design`'s first axis, and that correspondence is the
+  contract**. They live on `NuisanceEstimates`, *not* on `ShiftSet`, because the bound is a
+  targeting-time choice that `retarget`, the MNAR override and `truncation_curve(mechanism=True)`
+  all depend on — folding `1/π` in at fit time would make that curve flat by construction,
+  which reads as insensitivity rather than as a bug. `weights=` is a population tilt and is
+  **not** a factor in `h`; `g_bounds` does not bite on this axis at all, so `nuisance_bound`
+  is the only truncation a shift fit has.
+  **A Gateaux check on an exact law cannot see a counterfactual block.** At `epsilon = 0` the
+  curve reads the observed block and the untargeted `Q̄`, so dividing every block by the
+  mechanism at the observed dose passes every test in
+  `tests/unit/test_influence_gateaux_shift_cde.py` — as does applying the selection indicator
+  to the counterfactual blocks, which `mean_submodel` deliberately does not do and which would
+  leave rows at the other level un-updated in the plug-in. Both are pinned in
+  `tests/unit/test_shift_submodel.py` structurally and in `tests/unit/test_shift_fit.py`
+  through a plug-in with `epsilon != 0`; neither is redundant, and neither was written before
+  the mutation was watched to pass. The oracle is `tests/discrete_law_shift_cde.py`, whose `π`
+  and `q_z` vary with the **dose** — on `W` alone they would make `π(d(a,w),w) = π(a,w)` and
+  the whole thing untestable. The MNAR tilt stays refused here, by name.
 - **An incremental intervention tilts the mechanism, so the estimator targets it.**
   `incremental=` multiplies the odds of treatment by `δ` (Kennedy 2019). Because `q_δ` is built
   out of `g`, three things differ from every other axis and each is easy to get wrong.

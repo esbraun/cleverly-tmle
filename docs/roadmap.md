@@ -5,7 +5,8 @@ the shared base classes (`estimators/base.py`, `inference/`, `learners/`, `fluct
 [Refusals worth lifting](#refusals-worth-lifting) are parameters this package already has the
 machinery for and has simply not written down — drawn from [Not written
 yet](methodology.md#not-written-yet), which is the full list of candidates rather than the
-chosen ones.
+chosen ones. **All five have landed**, so that list is now a record of what was done and what
+the sizing got wrong rather than a plan; the remaining work is the second variant below.
 
 ## Variants
 
@@ -21,8 +22,9 @@ chosen ones.
   refusing is the *other* competing-risks estimand — the incidence under **elimination** of
   the competing events, which intervenes on them rather than conditioning on the history,
   and so is [a different question](methodology.md#a-different-question) rather than a gap: a
-  further factor per node in the denominator, and its own identification. The largest thing it is
-  missing, as against refusing, is a working model over regimens, which is fourth below
+  further factor per node in the denominator, and its own identification. A working model over
+  regimens was the largest thing it was *missing* as against refusing; that is item 4 below
+  and has landed
 - **doubly-robust nonparametric inference (`drtmle`)** — Benkeser, Carone, van der Laan &
   Gilbert (2017). Every interval reported here is valid when the second-order remainder is
   negligible, which needs *both* nuisances converging fast enough; `drtmle` buys an interval
@@ -48,9 +50,14 @@ machinery the fourth copies; the third and fourth both change `fit_regimen` and
 `fit_mechanism`, so doing them adjacent is one round of churn in those signatures rather than
 two — and taking them adjacent paid: the third left the recursion carrying the data's
 weights, which the fourth inherited rather than adding.
-The fifth is last because its cost is dominated by test infrastructure rather than by
+The fifth was last because its cost is dominated by test infrastructure rather than by
 derivation — it is the only one needing a *new* oracle law rather than a branch on an
-existing one.
+existing one, and that held: the `src/` change was four small commits and the law, its
+Gateaux module, its remainder module and the mutation hunting were the rest of it.
+
+**All five have landed.** What remains here is the second variant above, and a handful of
+refusals under [Not written yet](methodology.md#not-written-yet) that are there because
+nobody has asked rather than because anything stands in the way.
 
 1. **`ATT` / `ATC` for a multi-valued treatment — landed.** "The effect among those who
    actually received arm `a`" is now `att[a vs ref]`, one per non-reference arm, with
@@ -150,24 +157,56 @@ existing one.
    claim that an `at_risk` mask "leaves `epsilon` non-zero" was simply false, since the
    covariate is already zeroed off `trained_on` and the substitution moves no reported
    number at all. The first two are now covered and the third is now stated correctly
-5. **`shifts=` with `delta=`.** Last for what it costs rather than for what it is worth: it
-   is the only one of the five needing a *new* oracle law, so most of the work is test
-   infrastructure. The audit also changed what this item is. The refusal's stated reason
-   was **wrong** — `data/causal_data.py` said each of `delta=`, `intermediate=` and
-   `weights=` becomes "a conditional density" on a continuum, but `P(Δ = 1 | A, W)` is a
-   conditional *probability* of a binary event, an ordinary classifier with the dose as a
-   numeric feature, and does not become a density because `A` is continuous. That is the
-   same mistake made and then overturned for `incremental=` with `delta=`, where the
-   derivation turned out to be the existing one with an extra factor. What is genuinely
-   required is smaller than the old message claimed and larger than nothing: `π` evaluated
-   at the *shifted* dose as well as the observed one, since the arm path evaluates `π_a(W)`
-   at each counterfactual arm rather than at the observed treatment — an `(n, S + 1)` array
-   threaded through `ShiftSet` and `mtp_submodel`, which currently discards `missingness`
-   outright — and an oracle law crossing the two that exist,
-   `tests/discrete_law_shift.py` having no `Δ` and `tests/discrete_law_mar.py` no doses.
-   Missing outcomes with a continuous exposure are routine, so this is worth doing.
-   Correcting the stated reason has already been done and is not part of it; re-auditing
-   `intermediate=` on the same grounds is, since `P(Z = z | A, W)` is a probability too
+5. **`shifts=` with `delta=` — landed, and with `intermediate=` and `weights=` besides.**
+   `_refuse_continuous_combinations` refused all three on one reason and the reason was
+   wrong for all three, so lifting them was one change rather than three; see [missing
+   outcomes, an intermediate, and weights on a
+   dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose). The
+   derivation was the existing one with a further factor, exactly as it had been for
+   `incremental=` with `delta=`: `H(a, W) = h(a, W) / {π(a, W) q_z(a, W)}`, and only the
+   residual term is inverse-weighted because `Q̄(d(A,W),W) − Ψ` is a function of `(A, W)` and
+   both are recorded whatever happens to `Y`. Five things are worth recording, and the sizing
+   above got three of them wrong.
+   The `(n, S + 1)` array belongs on **`NuisanceEstimates`, not on `ShiftSet`**, which the
+   sizing had backwards. `bounded_missingness(nuisance_bound)` truncates at *targeting* time,
+   and `retarget`, the MNAR override and `truncation_curve(mechanism=True)` all depend on
+   that; folding `1/π` into `ShiftSet.design` at fit time would freeze the bound and make the
+   mechanism truncation curve **flat by construction** — which reads as "the estimate does not
+   hinge on the truncation choice", a wrong conclusion reported silently. Keeping it where the
+   arm path keeps it also meant no `ShiftSet` field, no `subset` branch and no serializer
+   change, and `clever_covariate_inputs` worked untouched.
+   **A Gateaux check on an exact law cannot see the mistake this item is about.** At `epsilon
+   = 0` the reported curve reads the *observed* block of the covariate and the untargeted
+   `Q̄`, so dividing every block by the mechanism at the observed dose — the whole error the
+   `(n, S + 1)` array exists to prevent — passes all 39 tests of the new Gateaux module. So
+   does applying the selection indicator to the counterfactual blocks. Both were applied and
+   watched to pass before the two instruments that *do* catch them were written: a structural
+   pin on the covariate's blocks, and a plug-in with `epsilon != 0`. This is item 4's lesson
+   again and it did not announce itself the second time either.
+   `intermediate=` came free and turned up a live bug on the way. `mtp_submodel` applied the
+   `1{Z = z}` indicator to its counterfactual blocks, where `mean_submodel` deliberately does
+   not — the blocks are already at `Z = z` by construction — so every row whose intermediate
+   took the other level would have carried an **un-updated** prediction into the plug-in. Dead
+   code while `intermediate=` was refused here; a silent bug the moment it was not.
+   `weights=` needed no `src/` change at all beyond deleting the refusal: `fit_conditional_density`
+   already routed the weights through the long expansion, `shift_means` already averaged and
+   scaled by them, and `_bounds_n` already resolved `auto` at the effective `n`. Item 3's
+   compounding-bound story does **not** carry over, though, and saying so matters: `g_bounds`
+   does not bite on this axis at all, since there is no per-arm propensity and the ratio is
+   untruncated, so `nuisance_bound` is the only truncation a shift fit has.
+   The oracle law was the cost the sizing said it was, and one law rather than the predicted
+   one-per-lift: `tests/discrete_law_shift_cde.py` crosses the doses with `(Δ, Z)` and takes
+   `level=None` for the parameter a `delta=`-only fit reports, so the two cannot disagree by
+   construction. Its one indispensable property is that `π` and `q_z` vary with the **dose** —
+   a mechanism depending on `W` alone makes `π(d(a,w), w) = π(a, w)` identically and the whole
+   feature untestable. With the law's own nuisances the fit returns the truth *exactly* at all
+   three levels; the mechanism's quantile binning is why that, and not a coverage study, is
+   the strongest end-to-end statement available here.
+   What is left refused is a narrower gap than the one it replaced: the **MNAR tilt** on a
+   shift fit. The tilt re-mixes `Q̄` under a moved mechanism, a shift's plug-in is `Q̄` at the
+   assigned dose, and whether the tilted parameter is still the shift parameter has not been
+   derived — so this is a missing derivation rather than missing transcription, which is why
+   it is not being carried forward as a sixth item
 
 ## On native acceleration
 
