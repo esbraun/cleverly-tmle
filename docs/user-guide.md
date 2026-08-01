@@ -65,15 +65,39 @@ would change the simultaneous bands of every multi-arm fit that already ran. Ask
 or ask for `estimands="all"`. `result.contrast()` is not the alternative — a conditional
 effect conditions on `A = a` and so is not a function of the marginal means at all.
 
-What is still refused rather than guessed at on a multi-valued treatment, both **not
-written yet** rather than unsound: `CTMLE` (both searches order candidates by one
-propensity margin, and with `K` arms there is no canonical single ordering — the one with
-no settled answer), and the omitted-variable bound and the MNAR tilt, which now have the
-contrast machinery they were waiting on and are on the [roadmap](roadmap.md#refusals-worth-lifting).
+**The sensitivity analyses are one per contrast.** Name the parameter and they answer for
+the two arms it names:
+
+```python
+res.sensitivity.omitted_variable("ate[medium vs low]")
+res.sensitivity.robustness_value("att[medium vs low]")
+res.sensitivity.evalue("rr[medium vs low]")
+res.sensitivity.missingness_tilt()          # every arm's mean, and every contrast
+```
+
+That is a wider loop rather than a wider derivation, and it is worth saying why: the
+omitted-variable bound's `nu^2` is the second moment of *that parameter's* Riesz
+representer, and the representer of `ate[medium vs low]` is two columns of the same
+`K`-column clever covariate the fit already targeted. So each contrast gets its own bound,
+its own robustness value and its own E-value, and none of them is a summary of the others.
+The bare `"ate"` is not a parameter of such a fit, so asking for it lists the contrasts
+that are. `res.sensitivity.report()` picks the first reported contrast when you do not
+name one.
+
+What is still refused rather than guessed at on a multi-valued treatment, **not written
+yet** rather than unsound: `CTMLE` — both searches order candidates by one propensity
+margin, and with `K` arms there is no canonical single ordering, which makes it the one
+row with no settled answer rather than the one nobody has asked for.
 
 A two-armed fit is unchanged in every respect, including the familiar `ate` / `att` /
 `atc` / `ey1` / `ey0` names — the same numbers to the last bit, and `reference=` selects
 which contrast a conditional effect reports exactly as it already selected which `ate`.
+One exception, and it is a correction rather than a change: the MNAR tilt and the
+E-value used to read arms `1` and `0` as constants, so on a two-armed fit that declared
+`reference=1` they answered for the *other* contrast — the tilt for `E[Y¹] − E[Y⁰]` where
+the fit reports `E[Y⁰] − E[Y¹]`, and the ATT among the treated where the parameter is
+among the untreated. They now read the arms off the parameter, as everything else here
+does.
 
 ## Dynamic and stochastic regimes
 
@@ -1239,6 +1263,37 @@ res.sensitivity.benchmark(["W1", "W2"])  # calibrate cf_y/cf_d against observed 
 res.sensitivity.evalue()  # VanderWeele-Ding E-value (binary outcomes)
 res.sensitivity.missingness_tilt()  # MNAR exponential tilt (needs `delta=`)
 ```
+
+The three confounding analyses take one parameter at a time, so on a multi-valued
+treatment they take its reported name — `omitted_variable("ate[medium vs low]")` — and
+answer for the two arms it names. See [multi-valued
+treatment](#multi-valued-treatment).
+
+**The MNAR tilt, and whether one gamma fits every arm.** The tilt displaces the unobserved
+outcomes on the logit scale by `gamma` and mixes them back in at `1 - P(Delta = 1 | A, W)`,
+so `gamma = 0` is the MAR analysis and the curve passes through the reported estimate. By
+default one `gamma` moves every arm, which is an assumption and not an accident of the
+two-armed case: it says the unobserved outcomes are displaced by the same amount whatever
+treatment the unit received. Where that is doubtful — dropout after an ineffective arm need
+not mean what dropout after an effective one does — `arm_gamma=` declares a *direction*
+instead, and the grid sweeps its magnitude:
+
+```python
+# the unobserved outcomes are worse than they look under `low`, better under
+# `medium`, and MAR under `high`
+direction = {"low": 1.0, "medium": -1.0, "high": 0.0}
+
+res.sensitivity.missingness_tilt([0.0, 0.5, 1.0], arm_gamma=direction)
+res.sensitivity.tipping_gamma("ate[medium vs low]", arm_gamma=direction)
+```
+
+The tilt at arm `a` is then `arm_gamma[a] * gamma`, and the returned frame carries a
+`gamma[<level>]` column per arm saying what each one received. Every arm must be named:
+one left out would be tilted by the shared `gamma` after all, which is the assumption the
+keyword exists to state rather than inherit. Any per-arm tilt vector is reachable this way
+— pass it as the direction with `[1.0]` as the grid — and keeping the sweep
+one-dimensional is what keeps `tipping_gamma` a single number: how far along *this*
+departure the conclusion survives.
 
 ## Validation
 

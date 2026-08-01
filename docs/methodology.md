@@ -597,24 +597,30 @@ so rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| `CTMLE`, the omitted-variable bound and the MNAR tilt on a multi-valued treatment | [multi-valued treatment](user-guide.md#multi-valued-treatment) |
+| `CTMLE` on a multi-valued treatment | [multi-valued treatment](user-guide.md#multi-valued-treatment) |
 | the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](user-guide.md#tilting-the-odds-of-treatment) |
 | a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |
 | blocked-temporal and rolling-origin splits | [cross-fitting](user-guide.md#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](user-guide.md#observation-weights-and-which-population-they-define) |
 
-Four of these have left the list entirely: `ATT` / `ATC` on a multi-valued treatment is
+Four rows have left this list entirely: `ATT` / `ATC` on a multi-valued treatment is
 roadmap item 1, observation weights for `LTMLE` is item 3, a working model over regimens is
-item 4, and `delta=`, `intermediate=` and weights with `shifts=` is item 5 — all four have
-landed, and the [roadmap](roadmap.md#refusals-worth-lifting)'s list is now empty. The row item
-5 left behind is a narrower gap than the one it replaced: the tilt itself is written, and what
-is missing is the derivation saying whether the tilted parameter is still the shift parameter.
+item 4, and `delta=`, `intermediate=` and weights with `shifts=` is item 5. A fifth row was
+*shortened* rather than removed — item 6 lifted the omitted-variable bound and the MNAR tilt
+on a multi-valued treatment and left `CTMLE` behind. All of them have landed, and the
+[roadmap](roadmap.md#refusals-worth-lifting)'s list is now empty. The row
+item 5 left behind is a narrower gap than the one it replaced: the tilt itself is written, and
+what is missing is the derivation saying whether the tilted parameter is still the shift
+parameter.
 The rest are there because nobody
 has asked, not because anything stands in the way — with one exception worth naming:
 `CTMLE` on a multi-valued treatment is the only row here whose *derivation* is unsettled,
 since both searches order candidates by one propensity margin and with `K` arms there is no
-canonical single ordering.
+canonical single ordering. That is now the whole of its row, where it used to share one with
+two refusals that turned out to be transcription: an omitted-variable bound is one linear
+functional at a time and an MNAR tilt is one arm's regression at a time, so both are a wider
+loop over the contrasts rather than a derivation that stops at two arms.
 
 ### A different question
 

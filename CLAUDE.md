@@ -443,6 +443,22 @@ load-balancing the tail, not contending for cores.
   would move the simultaneous bands of every multi-arm fit that already existed, which are
   computed across whatever is reported. The oracle is `tests/discrete_law_multi.py`; the
   binary path is bit-for-bit unchanged, including `epsilon`'s column name `h_att`.
+- **A sensitivity analysis of one parameter reads its arms off its name.** The
+  omitted-variable bound, the E-value and the MNAR tilt each answer for *one* estimand, so
+  each has to get from `"ate[medium vs low]"` back to the two arms it names.
+  `sensitivity/_parameters.py` is the one place that happens: `arm_parameters(data,
+  reference)` **composes** every arm-indexed linear name forward through `parameter_name`
+  and hands back the arms — never split a reported name on `" vs "`, which is a legal
+  substring of a user's own label. Read the covariate through `column_for` /
+  `contrast_column_for`, the mechanism through `arms.index(arm)`, and the ATT/ATC
+  population through `ArmParameter.conditions_on`; the constants those replaced were right
+  on two arms with `reference=0` and silently wrong on either departure, which is what
+  `tests/unit/test_sensitivity_multi_arm.py` pins. `ν²` belongs to one contrast's Riesz
+  representer, so these are one bound *per contrast* and never a summary across them.
+  The MNAR tilt's `gamma` is shared across arms by default, as the binary path always had
+  it; `arm_gamma=` declares a direction and must name every arm, because the assumption
+  that dropout means the same thing whatever the unit received is a modelling choice and
+  not a default.
 - **Nuisance reuse**: `TMLE.retarget` re-runs only the targeting step against cached
   nuisance fits. Sensitivity analyses must use it rather than refitting.
 - **New estimator variants**: a variant that only changes *which* nuisance estimate is
