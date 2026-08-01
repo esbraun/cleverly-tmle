@@ -100,18 +100,39 @@ class SensitivityAnalysis:
         by, the ratio's upper quantiles, the effective sample size those weights leave,
         and how many rows the cap held back.
 
+        With ``delta=`` or ``intermediate=`` the covariate divides by a mechanism as well,
+        and the report is of the whole weight ``h / (pi * q_z)``: the two reweightings
+        multiply, so a ratio-only effective sample size would understate the strain.  The
+        bound on that mechanism is ``nuisance_bound=`` and
+        :meth:`truncation_curve` sweeps it.
+
         Raises on an arm-indexed or regime-indexed fit, where :meth:`positivity` and
         :meth:`support` are the diagnostics.
         """
-        shifts = self._result.nuisance.shifts
-        density = self._result.nuisance.density
+        nuisance = self._result.nuisance
+        shifts = nuisance.shifts
+        density = nuisance.density
         if shifts is None or density is None:
             raise ValueError(
                 "shift_support() reports overlap for the shifts a fit declared, and this "
                 "fit declared none. Pass shifts= to TMLE, or use positivity() for the "
                 "arm-level report and support() for a regime fit."
             )
-        return check_shift_support(shifts, density, self._result.data.treatment)
+        # The *bounded* mechanisms, because the bound is what the covariate actually
+        # divided by; the raw arrays would report a strain the fit did not take.
+        bound = self._result.config.missingness_bound
+        level = self._result.intermediate_value
+        mechanisms = [
+            values
+            for values in (
+                nuisance.bounded_missingness(bound),
+                None if level is None else nuisance.intermediate_density(level, bound),
+            )
+            if values is not None
+        ]
+        return check_shift_support(
+            shifts, density, self._result.data.treatment, mechanisms=mechanisms
+        )
 
     def incremental_support(self) -> dict[str, IncrementalSupport]:
         """Overlap *for the declared tilts*, which is a question with a known answer.

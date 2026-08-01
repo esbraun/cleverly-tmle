@@ -79,6 +79,7 @@ intervention's is half of the estimand.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -375,32 +376,59 @@ class ShiftSupport:
     ess_ratio: float
     capped_fraction: float
     unsupported: int
+    #: Smallest :math:`\pi(A, W)\,q_z(A, W)` among the mechanisms that divide the
+    #: covariate alongside the ratio, or ``None`` when the fit declared neither.  The
+    #: quantiles and ESS above are of the *whole* weight when this is not ``None``.
+    min_mechanism: float | None = None
 
     def summary(self) -> str:
         quantiles = ", ".join(f"{q:.0%}: {v:.3g}" for q, v in sorted(self.ratio_quantiles.items()))
+        mechanism = (
+            "" if self.min_mechanism is None else f", min mechanism={self.min_mechanism:.3g}"
+        )
+        label = "ratio" if self.min_mechanism is None else "weight"
         return (
-            f"{self.name}: min g(A|W)={self.min_density:.3g}, max ratio={self.max_ratio:.3g}, "
+            f"{self.name}: min g(A|W)={self.min_density:.3g}, max {label}={self.max_ratio:.3g}"
+            f"{mechanism}, "
             f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), "
             f"capped={self.capped_fraction:.1%}, unsupported={self.unsupported}\n"
-            f"    ratio quantiles -- {quantiles}"
+            f"    {label} quantiles -- {quantiles}"
         )
 
 
 def check_shift_support(
-    shifts: ShiftSet, density: ConditionalDensity, treatment: FloatArray
+    shifts: ShiftSet,
+    density: ConditionalDensity,
+    treatment: FloatArray,
+    *,
+    mechanisms: Sequence[FloatArray] = (),
 ) -> dict[str, ShiftSupport]:
     """Per-shift overlap, in the vocabulary :mod:`cleverly.interventions.support` uses.
 
     The quantity a shift's positivity rests on is not a propensity but the *ratio*
     :math:`g(a - \\delta \\mid w) / g(a \\mid w)`: it is what multiplies each residual, so
     its tail is where one row starts to dominate the estimating equation.
+
+    ``mechanisms`` are the further ``(n, S + 1)`` denominators a fit declared -- the
+    missingness mechanism under ``delta=``, the intermediate density under
+    ``intermediate=`` -- of which only column ``0``, the value at the row's own dose, is
+    read here.  The weight the estimating equation forms is
+    :math:`h_r(A, W) / \\{\\pi(A, W) q_z(A, W)\\}`, so the two reweightings *multiply* and
+    an effective sample size taken of the ratio alone understates the strain --
+    :mod:`cleverly.sensitivity.positivity` makes the same argument about ``1 / g`` and a
+    population weight.  Passing nothing reports the ratio by itself, which is what a fit
+    with no such mechanism means.
     """
     a = np.asarray(treatment, dtype=float).reshape(-1)
     observed_density = density.density_at(a)
+    at_observed = [np.asarray(m, dtype=float)[:, 0] for m in mechanisms]
+    denominator = np.ones(a.size)
+    for values in at_observed:
+        denominator = denominator * values
     out: dict[str, ShiftSupport] = {}
     for index, name in enumerate(shifts.names):
-        ratio = shifts.ratio[:, index]
-        finite = ratio[np.isfinite(ratio)]
+        weight = shifts.ratio[:, index] / denominator
+        finite = weight[np.isfinite(weight)]
         total = float(finite.sum())
         ess = float(total**2 / np.sum(finite**2)) if np.any(finite > 0) else 0.0
         out[name] = ShiftSupport(
@@ -414,5 +442,6 @@ def check_shift_support(
             ess_ratio=ess / a.size if a.size else 0.0,
             capped_fraction=float(np.mean(shifts.capped[:, index])),
             unsupported=int(np.sum(observed_density <= 0.0)),
+            min_mechanism=float(denominator.min()) if at_observed else None,
         )
     return out

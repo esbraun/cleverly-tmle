@@ -97,6 +97,18 @@ def missingness_tilt(
             "missingness_tilt requires a fit with missing outcomes. Pass delta=<column> to "
             "fit() so the missingness mechanism is estimated."
         )
+    if data.is_continuous_treatment:
+        raise ValueError(
+            "missingness_tilt is written for the arm-indexed estimands; this fit declared "
+            "a continuous dose with shifts= and reports ey_shift/ate_shift. The tilt "
+            "re-mixes the targeted Qbar at each arm under a moved missingness mechanism, "
+            "and a shift's plug-in is Qbar at the dose the policy assigns rather than at "
+            "an arm -- so the tilt would have to move pi at that dose too, and whether "
+            "the tilted parameter is still the shift parameter under a non-ignorable "
+            "mechanism has not been derived here. Use "
+            "truncation_curve(mechanism=True) for sensitivity to the missingness bound, "
+            "or shift_support() for the overlap question."
+        )
     if not data.is_binary_treatment:
         raise ValueError(
             "missingness_tilt is written for a binary treatment; this fit has "
