@@ -6,7 +6,8 @@ the shared base classes (`estimators/base.py`, `inference/`, `learners/`, `fluct
 machinery for and has simply not written down — drawn from [Not written
 yet](methodology.md#not-written-yet), which is the full list of candidates rather than the
 chosen ones. **All five have landed**, so that list is now a record of what was done and what
-the sizing got wrong rather than a plan; the remaining work is the second variant below.
+the sizing got wrong rather than a plan; the remaining work is the second variant below, sized
+against this codebase under [What `drtmle` would touch](#what-drtmle-would-touch).
 
 ## Variants
 
@@ -31,10 +32,135 @@ the sizing got wrong rather than a plan; the remaining work is the second varian
   that stays valid when only one of them is consistent, by estimating additional
   reduced-dimension regressions of each nuisance's residual on the other and solving their
   score equations too. That is a genuine variant rather than a further estimand, so it plugs
-  in at `TMLE._nuisances` and the targeting step rather than at the target registry. **Its
-  scope has not been audited against this codebase**, unlike the five below — it predates
-  them, and the sizing here is from the paper rather than from a read of what would have to
-  change
+  in at `TMLE._nuisances` and the targeting step rather than at the target registry — which
+  is right as far as it goes, and is two of the four seams it turns out to touch. It predates
+  the five below and was sized from the paper rather than from a read of what would have to
+  change here; [What `drtmle` would touch](#what-drtmle-would-touch) is that read
+
+## What `drtmle` would touch
+
+The read the bullet above was missing, taken against `estimators/`, `fluctuation/`,
+`inference/` and `tests/` rather than against the paper. It is written **before** any of the
+work, which is the point: each of items 1 to 5 below records what its sizing got wrong, and
+the misses here are ones that can be named in advance rather than found by mutation
+afterwards. Nothing in it is a decision about the derivation — those are still open, and the
+[three things to pin](#three-things-to-pin-before-any-code) says which.
+
+### Four seams, where the sizing names two
+
+1. **`TMLE._nuisances`**, as `CTMLE` does — but *adding* fields to `NuisanceEstimates` rather
+   than replacing `propensity`, which is the difference between the two variants and the
+   reason this one cannot be "override `_nuisances` and let the inherited `retarget` do the
+   rest". The two reduced-dimension regressions go through `cross_fit_predictions` untouched:
+   a one-column design, a residual target, `fit_mask` for the arm's rows.
+2. **The targeting dispatch** in `TMLE._retarget_detailed`, which today has exactly two
+   special branches — `needs_mechanism(group)` and `needs_projection(nuisance, group)` — and
+   a default. This is a third, and a `solve_with_reduction` beside the two solvers in
+   `estimators/targeting.py`. If one of the extra equations fluctuates **`g`**, as the
+   paper's shape suggests, then `solve_with_mechanism` is what it resembles, down to
+   returning a re-derived `NuisanceEstimates` the way that one returns `retilted`.
+3. **`inference/influence.py`**, where the reported curve gains terms the plain one has no
+   analogue of. `ipsi_means` is the precedent for that and for saying in its docstring
+   exactly what reporting the plain curve instead would cost.
+4. **`estimators/serialize.py`**: `FORMAT_VERSION` 8 → 9 for the extra arrays, on the terms
+   versions 4 and 5 were bumped. A reloaded fit that had lost them would report a plain
+   TMLE's interval under the variant's name, which is the shape of mistake that bump exists
+   to prevent.
+
+### The exact-law instrument cannot see what this estimator buys
+
+This is the finding that matters most, and unlike its two predecessors it is derivable rather
+than discovered. Under a law the sample realises exactly with a saturated learner — the
+setting of every `tests/unit/test_influence_gateaux*.py` module — both nuisances are exact, so
+both reduced-dimension regressions have identically zero targets: `E[Y − Q̄₀ | A = a, ĝ] = 0`
+and `E[1{A=a}/g₀ − 1 | Q̄₀] = 0`. Both extra fluctuation coefficients are then zero and the
+estimator reproduces `TMLE` exactly. So the package's primary evidence that a curve is right
+supplies only a **degeneracy check** here, and would pass against an implementation whose
+extra terms are wrong in any way that vanishes at the truth. That is items 4 and 5's lesson
+arriving a third time, and the first time it has been seen coming.
+
+What *can* see it is the remainder idiom. `tests/unit/test_remainder.py` evaluates the von
+Mises expansion at nuisances that are **wrong on purpose** on the finite-support law,
+deterministically and to machine precision, and this estimator's claim is precisely a
+statement about that remainder — that a product of the two nuisance errors is replaced by
+products of *reduced-dimension* ones. It is statable there as an equality with `TMLE`'s
+product form as the negative control, which makes that module the thing to write **first**,
+before the estimator rather than after it.
+
+End to end the claim is about **coverage, not bias**, and that distinction is the whole
+variant. `TMLE`'s double robustness is a statement about the *point estimate*: `R₂` is the
+product `‖ĝ − g₀‖·‖Q̄ − Q̄₀‖`, so one inconsistent nuisance still leaves `R₂ → 0` and `ψ̂`
+consistent — which `tests/unit/test_remainder.py` already checks exactly. The interval needs
+the strictly stronger `√n · R₂ → 0`. With both nuisances consistent at `n^(−1/4)` the product
+delivers that; with only one, the bad factor stops shrinking and `R₂` becomes *first-order* in
+the good one's error, which no nonparametric estimator drives below `n^(−1/2)`. So the
+estimator stops being asymptotically linear and its coverage decays as `n` grows while its
+bias does not. **`TMLE` is doubly robust for consistency and singly robust for inference**,
+and closing that second gap is what this variant is for.
+
+Which makes the nightly instrument a `CoverageStudy` over the off-diagonal of
+`tests/e2e/test_double_robustness.py`'s grid, with `TMLE`'s own coverage as the control this
+has to beat — and one trap in building it. That grid's "correct" cell is an **oracle**
+(`OracleOutcomeContinuous`, `OracleTreatment`), which makes the good nuisance exactly right,
+`R₂` exactly zero, and `TMLE`'s interval already valid; a study built that way would show
+nothing to buy. The gap opens only where the good nuisance is *estimated*, so the study needs
+a correctly-specified learner in that slot rather than the truth. Nightly tier; never run it
+in the sandbox.
+
+### Three things to pin before any code
+
+Each is invisible to the check that would otherwise catch it.
+
+1. **The two extra estimating equations, and which nuisance each fluctuates.** If one of them
+   fluctuates `g` the targeting is an alternation, and whether an alternation terminates is
+   not automatic: `solve_with_mechanism` terminates because its two steps are coordinate
+   ascent on one joint likelihood, and `solve_with_projection` is a separate function
+   precisely because that argument did not carry over to a least-squares half.
+2. **Which influence curve is reported** — `D*` at the targeted nuisances alone, or `D*` plus
+   the extra components. The difference is exactly zero at the truth, so no exact-law test can
+   see it, and it surfaces only as mis-coverage in the off-diagonal cells, which is the one
+   thing the estimator exists to fix.
+3. **How the reduced regressions are cross-fitted.** Their *design* is itself an out-of-fold
+   prediction — `ĝ(W)` or `Q̄(a, W)` — so fitting them on the same `Folds` trains fold `k`'s
+   regression on design values produced by models that saw fold `k`. That is the dependence
+   `tests/unit/test_crossfit_leakage.py` exists to prevent, arriving through the design matrix
+   rather than through the target.
+
+### Scope to declare rather than discover
+
+Binary, `mean`-group only — `ey1`, `ey0`, `ate` — is what the derivation covers. Every other
+axis this package has (`att`/`atc`, `regime`, `shift`, `ipsi`, `msm`, and a multi-valued
+treatment) must be **refused by name** rather than silently handed a plain fluctuation, on the
+rule `LTMLE` established: a subsystem that was never taught about a variant raising
+`AttributeError` is not a refusal. Two of them need deciding rather than inheriting.
+`sensitivity/omitted_variable.py`'s Riesz representer reads
+`submodel.observed[:, 1] - submodel.observed[:, 0]`, and the extra covariates change what a
+column means. And the truncation curve and the MNAR tilt reach the targeting through
+`retarget`, so they would re-solve the extra equations — probably right, and right by
+inheritance rather than by decision, which is how the wrong version of it would also arrive.
+
+**Combining it with `CTMLE` is a derivation rather than a composition**, and the seams make
+that easy to miss: both variants override `_nuisances`, both are binary and `mean`-only, and a
+subclass that ran the selection and then fitted the reduced regressions against the chosen `ĝ`
+would run. Two things stop it. A reduced regression conditions on the *other* nuisance's
+estimate, so it reads `ĝ` as a covariate — and `CTMLE`'s `ĝ` is deliberately not an estimate
+of `g₀`, the collaborative point being that `g` need only adjust for what `Q̄` missed. And
+`CTMLE` scores its path by the cross-validated loss of the *targeted* `Q̄`, so the criterion
+choosing `ĝ` presupposes that `Q̄` is informative — which is precisely the cell this variant is
+insuring against. The cost is the visible half of the problem and not the important one:
+`cross_validate` rebuilds the path inside every selection fold, so each position would carry
+its own pair of reduced regressions and its own alternation. Refuse it by name, beside the
+`incremental=` refusal it is a cousin of — there each candidate `ĝ` defines a different
+`Ψ(δ)`; here it defines different reduced regressions.
+
+### Sizing
+
+Comparable to `CTMLE` or larger, and **not** transcription in the way the five items below
+were. `CTMLE` swaps one array and inherits every influence curve, sensitivity analysis and
+diagnostic untouched; this adds arrays, a targeting branch, curve terms and a serializer
+version, and each of those is a place a reader could be told a plain TMLE's number. Four to
+six commits in `src/`, plus a remainder module, a nightly coverage study and a section of the
+guide — and the remainder module first.
 
 ## Refusals worth lifting
 
@@ -55,9 +181,11 @@ derivation — it is the only one needing a *new* oracle law rather than a branc
 existing one, and that held: the `src/` change was four small commits and the law, its
 Gateaux module, its remainder module and the mutation hunting were the rest of it.
 
-**All five have landed.** What remains here is the second variant above, and a handful of
-refusals under [Not written yet](methodology.md#not-written-yet) that are there because
-nobody has asked rather than because anything stands in the way.
+**All five have landed.** What remains here is the second variant above — now sized against
+this codebase rather than against the paper, under [What `drtmle` would
+touch](#what-drtmle-would-touch) — and a handful of refusals under [Not written
+yet](methodology.md#not-written-yet) that are there because nobody has asked rather than
+because anything stands in the way.
 
 1. **`ATT` / `ATC` for a multi-valued treatment — landed.** "The effect among those who
    actually received arm `a`" is now `att[a vs ref]`, one per non-reference arm, with
