@@ -138,6 +138,94 @@ class TestTheSubmodel:
                 "mtp", data.treatment, np.zeros((N, 0)), arms=(), shifts=np.zeros((N, 2, 2))
             )
 
+    def test_a_fit_with_no_extra_mechanism_is_the_bare_ratio(self) -> None:
+        # The regression surface: `_arm_matrix` returns ones when the argument is absent,
+        # so a shift fit that declares neither delta= nor intermediate= divides by nothing
+        # and every array is the one it was before either was supported.
+        built, submodel = self._submodel(Shift(0.0, cap=3.0), Shift(1.0, cap=3.0))
+        np.testing.assert_array_equal(submodel.observed, built.design[:, 0, :])
+        for index in (0, 1):
+            np.testing.assert_array_equal(
+                submodel.arms[float(index)], built.design[:, index + 1, :]
+            )
+
+    def test_each_block_divides_by_the_mechanism_at_its_own_dose(self) -> None:
+        """The claim no Gateaux check on an exact law can make.
+
+        At ``epsilon = 0`` the reported curve reads the *observed* block and the untargeted
+        ``Qbar``, so a mechanism evaluated at the wrong dose in a counterfactual block
+        moves no reported number there at all --
+        ``tests/unit/test_influence_gateaux_shift_cde.py`` says so in its docstring, and the
+        mutation was applied and seen to pass.  This is where it is caught instead: block
+        ``j`` of the covariate must divide by column ``j`` of each mechanism, longhand.
+        """
+        data, _, _ = _setup()
+        built = _shifts(Shift(0.0, cap=3.0), Shift(1.0, cap=3.0))
+        rng = np.random.default_rng(7)
+        pi = rng.uniform(0.2, 0.9, size=(N, 3))
+        qz = rng.uniform(0.2, 0.9, size=(N, 3))
+        submodel = submodel_for(
+            "mtp",
+            data.treatment,
+            np.zeros((N, 0)),
+            arms=(),
+            shifts=built.design,
+            missingness=pi,
+            intermediate_density=qz,
+        )
+        np.testing.assert_allclose(
+            submodel.observed,
+            built.design[:, 0, :] / (pi[:, 0] * qz[:, 0])[:, None],
+            atol=1e-14,
+            rtol=0,
+        )
+        for index in (0, 1):
+            np.testing.assert_allclose(
+                submodel.arms[float(index)],
+                built.design[:, index + 1, :] / (pi[:, index + 1] * qz[:, index + 1])[:, None],
+                atol=1e-14,
+                rtol=0,
+            )
+        # And the mutation that reuses column 0 everywhere is far away, so the assertions
+        # above are not passing by coincidence on a mechanism that barely moves.
+        naive = built.design[:, 1, :] / (pi[:, 0] * qz[:, 0])[:, None]
+        assert np.max(np.abs(submodel.arms[0.0] - naive)) > 1e-2
+
+    def test_the_selection_indicator_stays_off_the_counterfactual_blocks(self) -> None:
+        # mean_submodel's rule, and for its reason: the counterfactual blocks are already
+        # evaluated at Z = z by construction, so zeroing them would leave every row whose
+        # intermediate took the other level with an un-updated prediction in the plug-in.
+        data, _, _ = _setup()
+        built = _shifts(Shift(0.0, cap=3.0), Shift(1.0, cap=3.0))
+        selection = np.tile([1.0, 0.0], N // 2)
+        submodel = submodel_for(
+            "mtp",
+            data.treatment,
+            np.zeros((N, 0)),
+            arms=(),
+            shifts=built.design,
+            selection=selection,
+        )
+        np.testing.assert_array_equal(submodel.observed, built.design[:, 0, :] * selection[:, None])
+        for index in (0, 1):
+            np.testing.assert_array_equal(
+                submodel.arms[float(index)], built.design[:, index + 1, :]
+            )
+        assert np.any(submodel.arms[1.0][selection == 0.0] != 0.0)
+
+    def test_a_mis_shaped_mechanism_names_the_block_count(self) -> None:
+        data, _, _ = _setup()
+        built = _shifts(Shift(0.0, cap=3.0), Shift(1.0, cap=3.0))
+        with pytest.raises(ValueError, match=r"missingness probabilities must have shape"):
+            submodel_for(
+                "mtp",
+                data.treatment,
+                np.zeros((N, 0)),
+                arms=(),
+                shifts=built.design,
+                missingness=np.full((N, 2), 0.5),
+            )
+
     def test_the_arm_builders_accept_and_ignore_it(self) -> None:
         # The registry dispatches on the group name alone, so every builder takes the
         # same keyword-only signature. A builder that targets arms must tolerate shifts=.

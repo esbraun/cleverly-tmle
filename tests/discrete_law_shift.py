@@ -242,6 +242,80 @@ def induced_regime_functional(probs: Any, label: str) -> Any:
     return (marginal * (star * qbar).sum(axis=1)).sum()
 
 
+# --------------------------------------------------------------------- weighting
+
+
+def cell_weights(weight_of: Any) -> np.ndarray:
+    """A weight per support point, from a function of ``(w, a, y)``.
+
+    Observation weights are a function of the observed row, so on a law with finite
+    support they are twenty-four numbers.  Transcribed from
+    :func:`tests.discrete_law.cell_weights` rather than imported, on the terms this module
+    restates everything else: an oracle that reached into another module for the machinery
+    it checks would make the two agree by construction.
+    """
+    return np.array([float(weight_of(w, a, y)) for w, a, y in SUPPORT], dtype=float)
+
+
+def row_weights(weights: np.ndarray) -> np.ndarray:
+    """Cell weights expanded to one value per row of :func:`frame`."""
+    counts = [COUNTS[w, a, y] for w, a, y in SUPPORT]
+    return np.repeat(np.asarray(weights, dtype=float), counts)
+
+
+def tilt(probs: Any, weights: Any) -> Any:
+    r"""The weighted law :math:`dP_w = w\,dP / E_P[w]`, as cell probabilities.
+
+    Kept analytic in ``probs`` -- a ratio of linear functions -- so :func:`weighted_gateaux`
+    can differentiate through it by a complex step.
+    """
+    p = np.asarray(probs)
+    w = np.asarray(weights, dtype=float).reshape(len(SUPPORT))
+    cells = np.zeros_like(p)
+    for index, (a, b, c) in enumerate(SUPPORT):
+        cells[a, b, c] = w[index]
+    tilted = cells * p
+    return tilted / tilted.sum()
+
+
+def weighted_functional(probs: Any, estimand: str, weights: Any) -> Any:
+    """``Psi(P_w)`` -- the shift parameter of the tilted law, longhand.
+
+    A weight tilts the *population*, so both halves of the parameter move: the mechanism a
+    weighted fit's density converges to is :math:`P_w(A \\mid W)`, hence a different clever
+    covariate, and the dose distribution the plug-in averages against is the tilted one.
+    Writing the parameter this way makes both statements testable rather than assumed --
+    and in particular it says the weight is *not* a factor in the clever covariate's
+    denominator, which is what the refusal this replaced claimed it was.
+    """
+    return functional(tilt(probs, weights), estimand)
+
+
+def weighted_gateaux(estimand: str, point: int, weights: Any, *, step: float = 1e-30) -> float:
+    r"""Gateaux derivative of :math:`P \mapsto \Psi(P_w)` at support point ``point``.
+
+    The contamination is of :math:`P`, the law the *rows are drawn from* -- not of
+    :math:`P_w`.
+    """
+    base = PROBS.astype(complex)
+    mass = np.zeros_like(base)
+    mass[SUPPORT[point]] = 1.0
+    perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+    return float(np.imag(weighted_functional(perturbed, estimand, weights)) / step)
+
+
+def weighted_eif(estimand: str, weights: Any) -> np.ndarray:
+    """The EIF of ``Psi(P_w)`` at every support point, in support order."""
+    return np.array([weighted_gateaux(estimand, point, weights) for point in range(len(SUPPORT))])
+
+
+def tilted_nuisances(weights: Any) -> tuple[np.ndarray, np.ndarray]:
+    """``(g, Qbar)`` of the tilted law -- what a weighted fit's nuisances converge to."""
+    tilted = np.asarray(tilt(PROBS, weights), dtype=float)
+    joint = tilted[:, :, 0] + tilted[:, :, 1]
+    return joint / joint.sum(axis=1, keepdims=True), tilted[:, :, 1] / joint
+
+
 class DiscreteShiftLaw:
     """The law, duck-typed as a data-generating process for the oracle learners."""
 

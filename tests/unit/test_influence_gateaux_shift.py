@@ -70,6 +70,104 @@ def _pieces() -> tuple[np.ndarray, InitialFit, object, ShiftSet]:
     return outcome, initial, submodel, shifts
 
 
+def _weighted_pieces(weights: np.ndarray) -> tuple[np.ndarray, InitialFit, object, ShiftSet]:
+    """The *tilted* law's nuisances, which is what a weighted fit's converge to.
+
+    A weight tilts the population, so the density a weighted fit learns is
+    :math:`g_w(a \\mid W)` and the regression is :math:`\\bar Q_w`; neither is a factor in
+    the clever covariate, which is the whole content of the claim being checked.
+    """
+    frame = law.frame()
+    covariate = frame["W"].to_numpy().astype(int)
+    dose = frame["A"].to_numpy(dtype=float)
+    outcome = frame["Y"].to_numpy(dtype=float)
+    index = np.rint(dose).astype(int)
+    g_w, q_w = law.tilted_nuisances(weights)
+
+    density = ConditionalDensity(g_w[covariate], law.EDGES)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        data = CausalData.from_arrays(
+            outcome, dose, covariate.reshape(-1, 1).astype(float), treatment_kind="continuous"
+        )
+        shifts = ShiftSet.evaluate(SHIFTS, data, density)
+
+    initial = InitialFit(
+        q_w[covariate, index],
+        {
+            float(code): q_w[covariate, np.asarray(law.POLICIES[name])[index]]
+            for code, name in shifts.labels.items()
+        },
+    )
+    submodel = submodel_for("mtp", dose, np.zeros((dose.size, 0)), arms=(), shifts=shifts.design)
+    return outcome, initial, submodel, shifts
+
+
+class TestAWeightedShiftFit:
+    """``weights=`` on a dose, which used to be refused for a reason that was wrong.
+
+    The refusal said a weight "puts a further per-arm factor in the clever covariate's
+    denominator".  It does not: a weight tilts the *population*, so the estimand is the
+    shift parameter at ``dP_w``, ``h`` divides by the density ratio and nothing else, and
+    putting ``w`` there would divide the estimating equation by the very tilt it applies.
+    Roadmap item 3 established that for ``LTMLE``; these are the same statements one node
+    down.
+    """
+
+    #: A tilt that depends on the covariate and on the dose -- not on ``Y``, which a real
+    #: weight cannot see -- and is far from constant, so the two laws genuinely differ.
+    WEIGHTS = law.cell_weights(lambda w, a, y: 0.5 + 0.5 * w + 0.25 * a)
+
+    def test_the_weighted_estimand_is_the_tilted_laws(self) -> None:
+        weights = law.row_weights(self.WEIGHTS)
+        outcome, initial, submodel, _ = _weighted_pieces(self.WEIGHTS)
+        means = shift_means(outcome, initial, submodel, weights / weights.mean())
+        expected = float(law.weighted_functional(law.PROBS, "ey_shift[+1]", self.WEIGHTS))
+        assert means[1.0].psi == pytest.approx(expected, abs=1e-12)
+        # ... and it is a different number from the unweighted one, or the tilt is inert.
+        assert abs(expected - law.TRUTH["ey_shift[+1]"]) > 1e-2
+
+    @pytest.mark.parametrize("name", MEANS)
+    def test_the_curve_is_the_gateaux_derivative_of_the_tilted_parameter(self, name: str) -> None:
+        weights = law.row_weights(self.WEIGHTS)
+        outcome, initial, submodel, shifts = _weighted_pieces(self.WEIGHTS)
+        code = float(list(shifts.labels.values()).index(name[len("ey_shift[") : -1]))
+        means = shift_means(outcome, initial, submodel, weights / weights.mean())
+        reported = np.asarray(means[code].influence_curve)[law.first_row_of()]
+        expected = law.weighted_eif(name, self.WEIGHTS)
+        np.testing.assert_allclose(reported, expected, atol=1e-12, rtol=0)
+
+    def test_the_weight_is_not_a_factor_in_the_clever_covariate(self) -> None:
+        """The refusal's stated reason, asserted false rather than argued against.
+
+        The covariate is built from the density alone.  Dividing it by the weight -- what
+        the old message said the parameter needed -- moves the curve away from the tilted
+        law's derivative, so the two statements cannot both be right.
+        """
+        from dataclasses import replace as dc_replace
+
+        weights = law.row_weights(self.WEIGHTS)
+        normalised = weights / weights.mean()
+        outcome, initial, submodel, _ = _weighted_pieces(self.WEIGHTS)
+        divided = dc_replace(
+            submodel,
+            observed=submodel.observed / normalised[:, None],
+            arms={code: values / normalised[:, None] for code, values in submodel.arms.items()},
+        )
+        means = shift_means(outcome, initial, divided, normalised)
+        reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
+        gap = np.max(np.abs(reported - law.weighted_eif("ey_shift[+1]", self.WEIGHTS)))
+        assert gap > 1e-2
+
+    def test_a_constant_weight_is_the_unweighted_fit(self) -> None:
+        flat = law.cell_weights(lambda w, a, y: 1.0)
+        outcome, initial, submodel, _ = _weighted_pieces(flat)
+        means = shift_means(outcome, initial, submodel, np.ones(outcome.size))
+        assert means[1.0].psi == pytest.approx(law.TRUTH["ey_shift[+1]"], abs=1e-12)
+        reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
+        np.testing.assert_allclose(reported, law.eif("ey_shift[+1]"), atol=1e-12, rtol=0)
+
+
 class TestThePremisesHold:
     def test_the_gateaux_derivative_has_mean_zero(self) -> None:
         for name in MEANS + CONTRASTS:

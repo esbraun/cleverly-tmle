@@ -171,6 +171,84 @@ class OracleIntermediate(BaseEstimator):
         return np.column_stack([1.0 - p, p])
 
 
+class OracleDoseMechanism(BaseEstimator):
+    """``P(Delta = 1 | A, W)`` or ``P(Z = 1 | A, W)`` when ``A`` is a *dose*.
+
+    The arm-indexed oracles above read the arm out of the design's first column and then
+    ask the law for one arm at a time, because there are only ever two of them.  A modified
+    treatment policy assigns a different dose to every unit, so the design's first column is
+    a vector of treatments rather than a label -- and the mechanism has to be answered at
+    all of them at once.  That is the whole difference, and it is the reason this cannot be
+    :class:`OracleMissingness` with a wider ``arms`` tuple.
+
+    ``role`` selects which of the law's accessors to call, so one class serves both
+    mechanisms; they have the same signature and differ only in what they mean.
+    """
+
+    def __init__(self, dgp: Any, role: str = "missingness") -> None:
+        self.dgp = dgp
+        self.role = role
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleDoseMechanism:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, X: Any) -> Any:
+        design = np.asarray(X, dtype=float)
+        dose, w = design[:, 0], design[:, 1:]
+        answer = getattr(self.dgp, self.role)
+        p = np.clip(np.asarray(answer(w, dose), dtype=float), 1e-9, 1.0 - 1e-9)
+        return np.column_stack([1.0 - p, p])
+
+
+class OracleDoseOutcome(BaseEstimator):
+    """``E[Y | A, W]`` -- or ``E[Y | A, Z, W]`` -- when ``A`` is a dose.
+
+    Reads the level out of the design's last column when the fit carries an intermediate,
+    exactly as :class:`OracleDirectOutcome` does, and passes ``None`` when it does not --
+    which on the crossed shift law is a *different regression* rather than a default, since
+    a fit without ``intermediate=`` learns ``Qbar`` with ``Z`` marginalised out.
+
+    ``has_intermediate`` has to be declared rather than inferred: the width of the design
+    is not enough to tell an intermediate column from a further covariate.
+    """
+
+    def __init__(self, dgp: Any, has_intermediate: bool = False) -> None:
+        self.dgp = dgp
+        self.has_intermediate = has_intermediate
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleDoseOutcome:
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def _mean(self, X: Any) -> Any:
+        design = np.asarray(X, dtype=float)
+        dose = design[:, 0]
+        if not self.has_intermediate:
+            return np.clip(
+                np.asarray(self.dgp.outcome_mean(design[:, 1:], dose, None), dtype=float),
+                1e-9,
+                1.0 - 1e-9,
+            )
+        w, z = design[:, 1:-1], design[:, -1]
+        values = np.empty(design.shape[0], dtype=float)
+        for level in (0.0, 1.0):
+            rows = z == level
+            if not rows.any():
+                continue
+            values[rows] = np.asarray(
+                self.dgp.outcome_mean(w[rows], dose[rows], level), dtype=float
+            )
+        return np.clip(values, 1e-9, 1.0 - 1e-9)
+
+    def predict_proba(self, X: Any) -> Any:
+        p = self._mean(X)
+        return np.column_stack([1.0 - p, p])
+
+    def predict(self, X: Any) -> Any:
+        return self._mean(X)
+
+
 class OracleDirectOutcome(BaseEstimator):
     """An outcome model returning the true ``E[Y | A, Z, W]`` for a direct-effect fit.
 
