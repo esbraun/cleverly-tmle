@@ -283,6 +283,14 @@ class Fluctuation:
     #: tilted, while this is the reported parameter, solved for rather than fluctuated.
     #: See :func:`~cleverly.estimators.targeting.solve_with_projection`.
     projection: Any | None = None
+    #: The extra half of a doubly-robust fit: equation (10)'s fluctuation, the reduced
+    #: regressions it was solved against, and the mechanism tilt of equation (9).  ``None``
+    #: for every fit that is not a :class:`~cleverly.DRTMLE`.  A third sibling of the two
+    #: above, carried here for the same reason and with the same consequence -- neither the
+    #: targeted mechanism nor the refitted reductions are written back onto the nuisances,
+    #: so ``result.nuisance`` keeps describing the models that were actually fitted.
+    #: See :func:`~cleverly.estimators.targeting.solve_with_reduction`.
+    reduction: Any | None = None
 
     @property
     def score_norm(self) -> float:

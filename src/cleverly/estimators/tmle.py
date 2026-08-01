@@ -112,6 +112,7 @@ from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     ParameterEstimate,
     average_estimates,
+    reduced_corrections,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
@@ -134,13 +135,16 @@ from .base import (
 )
 from .targeting import (
     ProjectionFluctuation,
+    ReductionSpec,
     TargetingSpec,
     build_submodel,
     needs_projection,
+    needs_reduction,
     reported_beta,
     solve_submodel,
     solve_with_mechanism,
     solve_with_projection,
+    solve_with_reduction,
 )
 
 __all__ = ["TMLE", "tmle"]
@@ -1494,6 +1498,15 @@ class TMLE:
                     weights=data.weights,
                     observed=data.observed,
                 )
+            elif needs_reduction(nuisance, group):
+                # A fit carrying reduced-dimension regressions solves two further score
+                # equations, one of which fluctuates g. Nothing about the *reported*
+                # nuisances moves -- the estimand is still the plug-in mean of the targeted
+                # regression -- so this returns two values, as the projection does and
+                # unlike the mechanism alternation.
+                submodel, fluctuation = self._solve_reduction(
+                    data, nuisance, group, bounds, nuisance_bound
+                )
             elif needs_projection(nuisance, group):
                 # A working model with a non-identity link has a clever covariate that
                 # reads its own coefficients, so the covariate and the projection are
@@ -1788,6 +1801,55 @@ class TMLE:
             scaled, nuisance.outcome, submodel, data.weights, data.observed
         )
 
+    def _reduction(self, data: CausalData, nuisance: NuisanceEstimates) -> ReductionSpec | None:
+        """How to refit the reduced-dimension regressions, or ``None`` for a plain fit.
+
+        The extension point for the doubly-robust variant, and the one place a targeting
+        step here needs a learner.  :class:`~cleverly.DRTMLE` returns a closure over the
+        learners it resolved; every other estimator returns ``None``, which is what makes
+        a plain ``TMLE`` handed somebody else's nuisances refuse rather than re-solve the
+        extra equations against arrays it cannot refresh.
+        """
+        del data, nuisance
+        return None
+
+    def _solve_reduction(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: TargetGroup,
+        bounds: tuple[float, float],
+        nuisance_bound: float | None,
+    ) -> tuple[Submodel, Fluctuation]:
+        """Alternate the outcome, the mechanism and the reduced regressions.
+
+        Pooled only.  Fold-wise targeting would need each fold's reduced regressions fitted
+        out of that fold and its own alternation run inside it, which is a derivation rather
+        than a loop -- :class:`~cleverly.DRTMLE` refuses ``targeting_scheme="fold"`` by name
+        rather than quietly targeting pooled, which is what the mechanism alternation does.
+        """
+        reduction = self._reduction(data, nuisance)
+        if reduction is None:
+            raise NotImplementedError(
+                "these nuisances carry reduced-dimension regressions, so the targeting step "
+                "has two further score equations to solve -- and solving them refits those "
+                f"regressions against the targeted pair, which a {type(self).__name__} has "
+                "no learners for. Retarget with the DRTMLE that fitted them, or drop "
+                "`reduced` to report a plain TMLE under a plain TMLE's name."
+            )
+        return solve_with_reduction(
+            data,
+            nuisance,
+            group,
+            self.targeting_spec(),
+            reduction=reduction,
+            bounds=bounds,
+            nuisance_bound=self.nuisance_bound if nuisance_bound is None else nuisance_bound,
+            scaled=nuisance.scaler.scale(data.outcome),
+            weights=data.weights,
+            observed=data.observed,
+        )
+
     def _solve_projection(
         self,
         data: CausalData,
@@ -2019,6 +2081,41 @@ class TMLE:
             return regimes.codes, dict(regimes.labels)
         return data.arm_codes, {arm: data.arm_label(arm) for arm in data.arm_codes}
 
+    def _corrections(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        fluctuation: Fluctuation,
+        targeted: InitialFit,
+        scaled: FloatArray,
+    ) -> dict[float, FloatArray] | None:
+        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other.
+
+        Read entirely off the fluctuation, which is where the alternation left the pieces:
+        the refitted reduced regressions, the targeted mechanism and the truncation the two
+        extra covariates divided by.  A curve built from ``result.nuisance`` instead would
+        be the curve of a fit nobody ran -- those arrays are deliberately the *initial*
+        ones.  Without the ``"Q"`` guard no mechanism was tilted and the initial one is
+        what equation (10) was solved beside, so that is what the curve reads.
+        """
+        reduction = fluctuation.reduction
+        if reduction is None:
+            return None
+        mechanism = (
+            fluctuation.mechanism.propensity
+            if fluctuation.mechanism is not None
+            else nuisance.propensity.arm(reduction.reduced.arms[1])
+        )
+        return reduced_corrections(
+            scaled,
+            targeted,
+            data.treatment,
+            reduction.reduced,
+            mechanism,
+            bounds=reduction.bounds,
+            observed=data.observed,
+        )
+
     def _estimates_for(
         self,
         data: CausalData,
@@ -2052,6 +2149,11 @@ class TMLE:
         # carrying the fluctuated mechanism, and it is that one which reaches here.
         incremental = nuisance.incremental
         msm = nuisance.msm
+        # The two terms doubly-robust inference subtracts, built from the arrays the
+        # alternation exited at: the refitted reductions and the *targeted* mechanism, both
+        # of which live on the fluctuation rather than on the nuisances. `None` for every
+        # other fit, and then `counterfactual_means` is untouched character for character.
+        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled)
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)
@@ -2065,6 +2167,11 @@ class TMLE:
             shifts = None if shifts is None else shifts.subset(index)
             incremental = None if incremental is None else incremental.subset(index)
             msm = None if msm is None else msm.subset(index)
+            corrections = (
+                None
+                if corrections is None
+                else {arm: values[index] for arm, values in corrections.items()}
+            )
             n = int(index.size)
 
         # On a regime, shift, tilt or working-model fit the parameter axis is that rather
@@ -2088,6 +2195,7 @@ class TMLE:
             arm_labels=labels,
             reference=reference,
             regimes=None if regimes is None else regimes.values,
+            corrections=corrections,
             shifts=None if shifts is None else shifts.design,
             incremental=incremental,
             msm_design=None if msm is None else msm.design,

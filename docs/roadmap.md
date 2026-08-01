@@ -6,9 +6,10 @@ the shared base classes (`estimators/base.py`, `inference/`, `learners/`, `fluct
 machinery for and has simply not written down — drawn from [Not written
 yet](methodology.md#not-written-yet), which is the full list of candidates rather than the
 chosen ones. **All six have landed**, so that list is now a record of what was done and what
-the sizing got wrong rather than a plan; the remaining work is the second variant below, sized
-against this codebase and against its source under [What `drtmle` would
-touch](#what-drtmle-would-touch).
+the sizing got wrong rather than a plan. The second variant is **in progress**: its code is
+written and its tests pass, and it is not finished — what is outstanding is enumerated under
+[What is still open](#what-is-still-open), and the first two entries are the kind that decide
+whether the thing is correct at all.
 
 ## Variants
 
@@ -37,21 +38,28 @@ touch](#what-drtmle-would-touch).
   in at `TMLE._nuisances` and the targeting step rather than at the target registry — which
   is right as far as it goes, and is two of the **six** seams it turns out to touch. It
   predates the six below and was sized from the paper rather than from a read of what would
-  have to change here; [What `drtmle` would touch](#what-drtmle-would-touch) is that read,
+  have to change here; [What `drtmle` touched](#what-drtmle-touched) is that read,
   and now also a read of the source — the derivation that section left open is
-  [pinned](#what-the-source-settles) rather than conjectured. **Under way**: the remainder
-  module and the reduced-dimension regressions have landed, with the serializer bump that
-  had to travel with them, and what is left is the alternation and the influence curve.
-  Nothing is reported under a `drtmle` name yet and that is deliberate — the estimator
-  arrives with the equations it solves, not with the arrays they are solved against
+  [pinned](#what-the-source-settles) rather than conjectured. **In progress**, as
+  `cleverly.DRTMLE`: the remainder module, the reduced-dimension regressions, the
+  three-equation alternation, the estimator and the influence curve are written, in five
+  commits, and every test passes. That is not the same as finished, and calling it landed
+  would be claiming the part that is missing. **Theorem 1 of Benkeser et al. (2017) is
+  unread**, so the influence curve — which is the whole of what this variant is for — is
+  transcribed from `drtmle`'s implementation rather than derived; nothing here has been
+  compared against that implementation's numbers either; and a coverage study on the
+  off-diagonal of the misspecification grid found **no gap for the variant to close** at the
+  sizes it could reach. See [What is still open](#what-is-still-open) for the rest
 
-## What `drtmle` would touch
+## What `drtmle` touched
 
 The read the bullet above was missing, taken against `estimators/`, `fluctuation/`,
-`inference/` and `tests/` rather than against the paper. It is written **before** any of the
+`inference/` and `tests/` rather than against the paper. It was written **before** any of the
 work, which is the point: each of items 1 to 6 below records what its sizing got wrong, and
-the misses here are ones that can be named in advance rather than found by mutation
-afterwards.
+the misses here are ones that could be named in advance rather than found by mutation
+afterwards. It is kept in the tense it was written in, with what each seam actually cost
+marked where it differed — a section rewritten after the fact to match the outcome would be
+worth nothing to the next sizing.
 
 It has since been read *against the source* as well, and the two halves are kept apart
 deliberately. [What the source settles](#what-the-source-settles) is the derivation, which
@@ -59,6 +67,80 @@ this section used to leave open under a heading called "three things to pin"; tw
 three are now answered and the third is still open, and saying which is which is the point of
 keeping the heading's shape. What the source changed about the **plan** — the scope, and two
 further seams — is folded into the sections below, each marked where it moved.
+
+### What is still open
+
+The variant is in progress, and this is the list. It is ordered by what would change a
+reported number, not by effort. Nothing below is a surprise waiting to be found — each was
+met while building the thing and is recorded where the code that has it lives.
+
+**1. Theorem 1 of Benkeser et al. (2017) has not been read.** The influence curve
+`D = D* − D*_Q − D*_g` is read off `drtmle`'s implementation, not derived. The whole variant
+is a variance estimate, so a curve transcribed from software and never checked against its
+derivation is the one part of this that could be wrong in a way nothing here would catch.
+Biometrika is paywalled and this environment's network policy denies the working-paper
+mirrors, so it is the only item that has to happen outside the repository.
+`inference/influence.py::reduced_corrections` says so in its own docstring.
+
+**2. No number here has been compared against `drtmle`'s output.** The package has no
+cross-language test anywhere, so this is not a new gap — but it is the cheapest check that
+would catch most of what item 1 is about, and it is a more costly omission here than
+elsewhere because the whole estimator is a transcription of that package.
+
+**3. There is no evidence the variant delivers what it is for.** A coverage pilot over the
+off-diagonal of the misspecification grid put `TMLE` and `DRTMLE` at 0.958 apiece in one cell
+and 1.000 in the other — no gap to close. The diagnosis is understood (a correctly specified
+*parametric* nuisance converges at `n^(−1/2)`, so the product condition never binds) and the
+regime that would show it — an adaptive nuisance slower than `n^(−1/4)` at large `n` — costs
+hours rather than minutes, because a `DRTMLE` study runs ~100× a plain one.
+`tests/e2e/test_coverage_slow.py`'s `TestDoublyRobustInference` guards what it can and says
+in its docstring that it is not a demonstration.
+
+**4. The alternation does not reliably converge, and the reason is structural.** Equation
+(10)'s covariate is `gr2/gr1`, and `gr2` vanishes exactly where the mechanism is right — so
+on the fits anybody actually wants that covariate is nearly zero and its Newton solve is
+near-singular: observed at `mean|h| = 1e-3`, `|epsilon|` reaching 280 and a singular Hessian
+in a third of the rounds on one unseeded draw. Such a fit runs to the outer cap and reports
+`failure = "max_iter_reached"`. Six seeded fits at `n = 800` converged in 15 to 45 rounds, so
+it is a minority behaviour rather than the norm — but "minority" is measured on four
+processes, and `drtmle` sidesteps it entirely by capping at three iterations and never
+claiming convergence. `ReductionFluctuation.ill_conditioned` reports it.
+
+**5. Equation (9) is never solved exactly.** Its covariate `Qr/g*` reads the very mechanism
+it tilts, so one solve zeroes the score at the pre-tilt covariate and leaves a residual at
+the post-tilt one. The closing pass iterates it — to `4e-12` on the exact law and about
+`1e-9` on a fitted one — and does not remove it. Equations (8) and (10) *are* exact, so this
+is the only term keeping the reported curve's mean off machine zero.
+
+**6. The closing pass's mechanism stage stops on its cap, not on its tolerance.** It ran its
+full twenty steps on every fit measured, settling around `1e-9` rather than reaching
+`spec.tol = 1e-10`. Harmless — the steps are arithmetic, and item 5 is why it cannot get
+there — but the cap is doing the stopping, and a cap that always binds is worth knowing
+about rather than reading as convergence.
+
+**7. The relative-score exit criterion is a poor instrument for equation (10).** The loop
+exits on `|score| / mean|h|`, and `mean|h| ≈ 1e-3` for that covariate, so an absolutely
+negligible score reads as a large relative one. That is *why* the loop looks unconvergent
+where it does. Changing it was drafted, and reverted — the failing case turned out to be a
+minority draw, and a threshold changed after seeing a failure needs the failure characterised
+first. It remains the right question and the wrong time to have answered it.
+
+**8. `retarget` is no longer arithmetic on cached arrays.** The reductions are refitted
+inside the alternation, so a truncation curve or an MNAR sweep costs about a fit per point
+rather than a fraction of one, and a result read back from disk cannot retarget at all — its
+estimator is gone and there are no learners to refit with. `ReductionFluctuation` is not
+serialised either, so a reloaded fit keeps its estimates and loses the record of what solved
+them.
+
+**9. `gr2`'s truncation is fixed at fit time**, so the part of a truncation curve that comes
+from equation (10) is flat by construction. `fit_reduced`'s docstring sets out why, and why
+flat-by-construction reads as insensitivity rather than as a limitation.
+
+**10. Scope is narrower than the source's software**, deliberately and by name:
+`reduction="bivariate"` (derived, not written), a multi-valued treatment (a gap in what has
+been *read* rather than in what exists), `att`/`atc`, the other four parameter axes,
+`delta=`, `intermediate=`, fold-wise targeting and composition with `CTMLE`. Only the first
+two are candidates; the rest are refusals with reasons.
 
 ### What the source settles
 
@@ -138,7 +220,7 @@ against rather than as the specification.
 **The third is genuinely open and is the only one.** Nothing in the source addresses how the
 reduced regressions are cross-fitted, and the difficulty this section named — that their
 *design* is itself an out-of-fold prediction — is real and unaddressed there. It stays
-[below](#the-one-thing-still-to-pin) as the one decision to make before any code.
+[below](#the-one-thing-still-to-pin--settled-on-an-argument-rather-than-a-measurement) as the one decision to make before any code.
 
 The source also volunteers this section's own instrument finding, in its Discussion, as
 advice about the reduced learner library: "when the OR and PS are consistently estimated, the
@@ -165,7 +247,9 @@ inherited.
    `test_remainder_drtmle`'s longhand arithmetic rather than against a second derivation.
    **No estimator reaches any of it**, deliberately: a `DRTMLE` that fitted the reductions and
    reported the ordinary estimates would be this variant's whole failure mode, so the name
-   arrives with the alternation. Three things the sizing did not name.
+   arrives with the alternation — and in the event with the *curve*, one commit later still,
+   because an estimator that solved the equations and reported the plain interval would be
+   that same failure mode for the length of a commit. Three things the sizing did not name.
    *Where it is built is a departure from the `shifts`/`incremental` precedent and had to be
    argued rather than copied.* Those are built **inside** `fit_nuisances`, so that "the tilt
    and the `g` it tilts came from one out-of-fold model" is structural. This is built outside,
@@ -192,16 +276,61 @@ inherited.
    as `tests/e2e/test_ltmle_msm.py` catches the same mistake for the working model over
    regimens. Of seven deliberate mutations that one was the only survivor, and it did not
    announce itself the second time either.
-2. **The targeting dispatch** in `TMLE._retarget_detailed`, which today has exactly two
-   special branches — `needs_mechanism(group)` and `needs_projection(nuisance, group)` — and
-   a default. This is a third, and a `solve_with_reduction` beside the two solvers in
-   `estimators/targeting.py`. It resembles `solve_with_mechanism` down to returning a
-   re-derived `NuisanceEstimates` the way that one returns `retilted`, and the resemblance
-   now [reaches the termination argument](#what-the-source-settles) rather than stopping at
-   the shape.
-3. **`inference/influence.py`**, where the reported curve gains terms the plain one has no
-   analogue of. `ipsi_means` is the precedent for that and for saying in its docstring
-   exactly what reporting the plain curve instead would cost.
+2. **The targeting dispatch — landed, and the predicate is not the one this named.**
+   `needs_mechanism(group)` and `needs_projection(nuisance, group)` gained a third branch,
+   `needs_reduction(nuisance, group)`, and a `solve_with_reduction` beside the two solvers in
+   `estimators/targeting.py`. Two things came out differently. It returns **two** values, not
+   the re-derived `NuisanceEstimates` this predicted: `ipsi` re-derives because its estimand
+   is a functional of `g`, and this estimand is the plug-in mean of the targeted regression,
+   which reads no mechanism at all. And the predicate has to read the *nuisances*: the group
+   is still `"mean"`, so one keyed on the group name would divert every ordinary fit in the
+   package — which is also why neither covariate could go in `SUBMODEL_BUILDERS` or
+   `MECHANISM_BUILDERS`.
+   Three things the sizing did not name, and the first is the one worth carrying forward.
+   *The stall rule had to watch the objective as well as the score.* The mechanism
+   alternation's score falls by a roughly constant factor every round; three coupled
+   equations make it **non-monotone** for the first few — measured at 2.8e-2, 2.9e-2, 1.7e-2,
+   1.8e-2 before descending cleanly to 7e-9, while the joint likelihood rose at every one of
+   those rounds. The score-only rule inherited from `solve_with_mechanism` stopped that fit
+   at round 2 with two equations open and reported the interval anyway.
+   *Every score in sight goes stale, and a stale one is invisible at the fixed point*, where
+   a remembered zero and a fresh zero are both zero. So the test compares the *reported*
+   score against one recomputed at the exiting pair rather than testing convergence.
+   *And the scores have to be taken at the reductions the curve reads.* They were briefly
+   taken at the set equation (10) was solved along while the curve read the later refit,
+   which made `score_check`'s per-estimand row disagree with its per-equation rows by two
+   orders of magnitude — a real defect, found by reading the diagnostic rather than by a
+   test.
+   *Which fixed the reporting and left the deeper half.* Making the scores and the curve
+   agree does not make either of them **solved**: equation (10) is solved at the round's
+   first refit and equation (9) at the previous round's second one, so with `drtmle`'s
+   ordering neither is solved at the arrays the curve is built from, and the curve's mean is
+   zero only insofar as the loop converged — which is the property the whole estimator rests
+   on. Measured on an 800-row fit by stopping the rounds early:
+
+   | rounds | max\|mean of reported curve\| | after the closing pass |
+   | --- | --- | --- |
+   | 1 | 3.7e-3 (3.5% of `se`) | 5.8e-7 |
+   | 3 | 1.4e-3 | 5.7e-11 |
+   | 10 | 2.6e-5 | 1.2e-10 |
+   | 26 (converged) | 7.0e-10 | 3.4e-10 |
+
+   The fix keeps the source's ordering and adds a **closing pass** that re-solves all three
+   equations at the reductions the record carries, refitting nothing. Freezing the
+   reductions makes the system *triangular* — `D*_g` contains no `Q̄` at all, so equation
+   (9) settles first and nothing downstream disturbs it — and equations (8) and (10) are
+   then solved **jointly** in one Newton step over all four columns rather than backfitted,
+   which on the exact law is the difference between `3.9e-4` after twenty alternating steps
+   and `1.5e-12` after one. `drtmle` has the same gap and absorbs it into `tolIC = 1/n`.
+3. **`inference/influence.py` — landed**, where the reported curve gains terms the plain one
+   has no analogue of. `counterfactual_means` takes an optional `corrections` mapping and is
+   otherwise untouched *character for character*, because the comment already there records
+   that re-associating that sum moves the last bit of every influence curve.
+   One consequence the sizing did not name: `ICParts` had to gain a **third field**. It
+   decomposes the curve into a positivity half and an outcome-heterogeneity half, and the
+   correction is neither — leaving it out would have made the decomposition disagree with the
+   curve by exactly what the variant does, and nothing in the estimation path reads it, so
+   that drift would have been silent.
 4. **`estimators/serialize.py` — landed.** `FORMAT_VERSION` 8 → 9 for the extra arrays, on the
    terms versions 4 and 5 were bumped. A reloaded fit that had lost them would report a plain
    TMLE's interval under the variant's name, which is the shape of mistake that bump exists
@@ -226,14 +355,25 @@ inherited.
    fixed solves a different equation, and whether that one suffices is a question for the
    theorem this package has not read rather than a matter of taste. So this is a decision with
    a cost on both sides — refit and lose `retarget`, or hold fixed and owe an argument.
-   **It is still open, and the sentence that used to end this item was wrong**: it said the
-   difference was measurable in the remainder module before any estimator exists. It is not.
-   That module runs no targeting step at all — it evaluates the von Mises expansion at
-   nuisances handed to it — so there is no alternation there for a refit to happen inside of,
-   and the choice cannot show up in a number it computes. The decision belongs to the
-   alternation commit, and what it needs is a comparison of two fitted estimators rather than
-   an exact-law identity.
-6. **The `Submodel` column contract survives, and the reason is a `drtmle` default.** This
+   **Settled in favour of the source: the reductions are refitted on every round.** Holding
+   them fixed solves a different equation, and the argument that the different one suffices
+   would have to come from a theorem nobody here has read — which is not a trade this section
+   was entitled to make.
+   **And the cost is smaller than this feared**, for a reason that was there to be checked
+   and was not: `retarget` is a *method on the estimator*, and every sensitivity path that
+   reaches it already requires a live one — `sensitivity/positivity.py` and
+   `omitted_variable.py` both raise when `result.estimator is None`. So the truncation curve
+   and the MNAR tilt keep working; what changes is that a sweep costs about a fit per point
+   rather than a fraction of one, and that a plain `TMLE` handed nuisances carrying `reduced`
+   refuses by name instead of re-solving against arrays it cannot refresh. The learners reach
+   the solver as a `ReductionSpec.refit` callable, so `estimators/targeting.py` stays free of
+   the estimator it was separated from.
+   One thing this item asked for was **not** delivered and should not be pretended otherwise:
+   it wanted "a comparison of two fitted estimators". Both were run — held-fixed against
+   refitted on a 2000-row fit — and they differ by about 5% of a standard error, which
+   settles neither question. The decision above rests on the source's wording, not on that
+   measurement.
+6. **The `Submodel` column contract survives — landed, and it did.** This
    section worried that the extra covariates change what a column means, which matters because
    `sensitivity/omitted_variable.py` reads `submodel.column_for`. `drtmle`'s default
    `Qsteps = 2` is a **backfitting** minimisation — fluctuate along the second covariate, then
@@ -242,6 +382,17 @@ inherited.
    arm to a single column, and `column_for` keeps meaning what it means. The worry turns into a
    reason to prefer the backfitting form, and into the reason the second covariate is a second
    `Submodel` in the same group rather than one wider one.
+   What the backfitting form *costs* is the thing this section had no way to see, and it is
+   worth writing down for anyone who reaches for `Qsteps = 1` to avoid it. Equation (10)'s
+   covariate is `gr2 / gr1`, and `gr2` vanishes exactly where the mechanism is right — so on
+   a fit whose `ĝ` is nearly right that covariate is nearly zero and its own Newton solve is
+   near-singular: observed at `mean|h| = 1e-3`, `|epsilon|` reaching 280 and a singular
+   Hessian in a third of the rounds on one unseeded draw. Solved *jointly* with equation (8)
+   the well-conditioned `1/g` columns would dominate that Hessian, which is presumably why
+   `drtmle` offers the choice at all. How often it bites was measured rather than assumed:
+   across six seeded fits at `n = 800` the alternation converged in 15 to 45 rounds with no
+   ill-conditioned solve and a worst score of `1e-9`, so it is a minority behaviour of
+   particular draws. `ReductionFluctuation.ill_conditioned` reports it either way.
 
 Two things follow that a reader will otherwise assume the other way. **No target is
 registered**, so the [oracle-law gate](methodology.md#the-oracle-law-gate) has nothing to say
@@ -268,7 +419,11 @@ seen coming.
 The source pins two things that sharpen this, and both make it worse rather than better. The
 degeneracy is **row by row**, not merely in the coefficients: `Qr` and `gr2` are identically
 zero at the truth, so `D*_g` and `D*_Q` vanish at every observation and the reported curve
-*equals* `D*` array for array. Which means the one thing the second open question settled —
+is `D*` to machine precision. (Not *array for array*, which this said and which is wrong by
+one bit: a saturated regression of a residual that sums to zero returns something of order
+`1e-17`, and subtracting that moves the last bit. A test asserting bit-for-bit equality there
+would have been asserting an arithmetic accident.) Which means the one thing the second open
+question settled —
 that the combination is `D* − D*_Q − D*_g` and not a sum — is invisible to every Gateaux
 module there is, and needs a structural pin at deliberately wrong nuisances instead. `gr1`
 is the exception that proves the shape: it is a probability and does not vanish, and it sits
@@ -312,7 +467,7 @@ to be a question about; and it computes the three regressions longhand at the tr
 than fitting them, so there is no learner and no split for a fold question to bite on. It
 says so itself, in the class that measures the rate: the fitted-reduced-regression case
 belongs to the stage that has learners. Both decisions moved forward one commit rather than
-being answered early, and the fold one is [now settled](#the-one-thing-still-to-pin) there.
+being answered early, and the fold one is [now settled](#the-one-thing-still-to-pin--settled-on-an-argument-rather-than-a-measurement) there.
 
 End to end the claim is about **coverage, not bias**, and that distinction is the whole
 variant. `TMLE`'s double robustness is a statement about the *point estimate*: `R₂` is the
@@ -333,6 +488,23 @@ has to beat — and one trap in building it. That grid's "correct" cell is an **
 nothing to buy. The gap opens only where the good nuisance is *estimated*, so the study needs
 a correctly-specified learner in that slot rather than the truth. Nightly tier; never run it
 in the sandbox.
+
+**Built, run, and it found nothing to buy** — which is the most important result on this page
+and is a negative one. A pilot at `n = 500` over 24 replicates with `glm` correctly specified
+for `Q̄` and misspecified for `g` put `TMLE` and `DRTMLE` at coverage 0.958 apiece, biases of
+−0.013 and −0.008 against a Monte Carlo standard error of 0.018; the mirror cell put both at
+1.000. The trap above was avoided and the gap still did not open, because the *diagnosis* was
+incomplete: a correctly specified **parametric** nuisance converges at `n^(−1/2)`, so the
+product condition is nowhere near binding and `R₂` is a small constant times `n^(−1/2)` rather
+than a first-order term. What this variant is for is an **adaptive** good nuisance converging
+more slowly than `n^(−1/4)` — a Super Learner in enough dimensions — at an `n` large enough for
+the decay to show. That is out of reach on a nightly budget rather than uninteresting: the
+pilot's two `DRTMLE` studies took 358s and 372s against the plain estimator's 5s and 3s.
+`tests/e2e/test_coverage_slow.py`'s `TestDoublyRobustInference` therefore guards what it can
+— that the point estimate is still doubly robust, that the interval does not *cost* coverage,
+that the standard error matches the spread of the estimates — and says in its own docstring
+that it is not a demonstration. **So this variant currently rests on its derivation and on
+`drtmle`'s implementation, with no end-to-end evidence that it delivers.**
 
 ### The one thing still to pin — settled, on an argument rather than a measurement
 
@@ -373,9 +545,11 @@ section asked for would have compared two constructions of which one was never o
 
 ### Scope, declared at what the derivation covers
 
-**Binary, `mean` group** — `ey1`, `ey0`, `ate` — with both reductions available:
-`reduction="univariate"` for Benkeser et al.'s three univariate regressions and
-`reduction="bivariate"` for van der Laan's original pair. A `guard=` keyword says which of the
+**Binary, `mean` group** — `ey1`, `ey0`, `ate` — and, in the event, **one** reduction rather
+than both: `reduction="univariate"` is written and `"bivariate"` is refused by name. Both are
+derived in the sources and both were in scope here; the second was cut because it is a
+different extra equation on a two-column design rather than a wider loop over the first, and
+nothing was waiting on it. A `guard=` keyword says which of the
 extra equations are solved at all, `drtmle`'s vocabulary for the same choice, and an empty one
 is a plain TMLE. Both reductions are in scope because both are *derived* in the sources: the
 bivariate one is van der Laan (2014)'s and the univariate one is Benkeser et al. (2017)'s
@@ -444,20 +618,35 @@ hedge: three reduced regressions rather than two, two reductions rather than one
 order the seams are numbered and with the remainder module still first: remainder module, then
 the reduced regressions, then the alternation, then the curve, then the serializer.
 
-**Two of those have landed and the order came out different**, in the one way worth recording.
-The remainder module went first as planned. The reduced regressions followed — and took the
-serializer bump with them, off the end of the list, because `NuisanceEstimates` is
-reconstructed field by field on load and a field added without one reloads silently as `None`.
-A version bump is cheap to write while the reason for it is in hand and expensive to remember
-afterwards, so it belongs with the array rather than with the estimator that reads it. What is
-left is the alternation and the curve, and Theorem 1 below is still ahead of the second.
+**It came out at four commits in `src/`, and the order was different twice.** The remainder
+module went first as planned. The reduced regressions followed — and took the serializer bump
+with them, off the end of the list, because `NuisanceEstimates` is reconstructed field by
+field on load and a field added without one reloads silently as `None`. A version bump is
+cheap to write while the reason for it is in hand and expensive to remember afterwards, so it
+belongs with the array rather than with the estimator that reads it. Then the covariates, the
+alternation, and **the estimator and the curve together** — the second departure, and the
+sharper one. The list has them apart; landing them apart would have left `DRTMLE` reporting a
+plain TMLE's interval under a doubly-robust name for the length of a commit, which is the
+failure mode the whole section is organised around.
 
-**Theorem 1 of Benkeser et al. (2017) is a prerequisite of the curve commit, not background
-reading**, and it is the only thing on this page that has to happen outside the repository.
-The form the curve takes above is what `drtmle` computes, read off the implementation; the
-theorem is where it is derived, and the whole point of this variant is a variance estimate, so
-a curve transcribed from an implementation and never checked against its derivation is the one
-part of the work that could be wrong in a way nothing here would catch.
+So the sizing was low by about one commit and right about the shape. What it got wrong is
+elsewhere: it treated the reduced regressions as the hard part and the alternation as
+transcription, and the alternation is where every surprise was — a stall rule that had to
+watch the objective, three scores that go stale in three different ways, and equation (10)'s
+conditioning.
+
+**Theorem 1 of Benkeser et al. (2017) was a prerequisite of the curve commit and is not
+met.** It is the only thing on this page that has to happen outside the repository, and it did
+not: Biometrika is paywalled and this environment's network policy denies the working-paper
+mirrors. The curve landed anyway, labelled where a reader meets it — in
+`reduced_corrections`' docstring, in the methodology section and in the guide — as **what
+`drtmle` computes rather than what the theorem derives**. That is a deliberate, stated
+exception to this page's own rule, not an oversight, and it is the first thing to close.
+There is a cheaper check that was also not done and would catch much of the same class of
+error: **no number here has ever been compared against `drtmle`'s own output.** The package
+has no cross-language test at all, so this is not a new gap; it is a more costly one here than
+elsewhere, because the whole variant is a variance estimate transcribed from that
+implementation.
 
 The thing that did *not* move is worth saying, because the temptation runs the other way. The
 source's implementation accepts more than its derivation covers — a multi-valued treatment
@@ -472,6 +661,22 @@ package has already made differently. Its defaults are `maxIter = 3`, a mechanis
 `tol = 1e-10` here. And its mechanism fluctuation **silently sets a divergent coefficient to
 zero**, where `_newton_logistic` reports a `TargetingFailure` — the difference between a fit
 that quietly declines to target and one that says it could not.
+
+The first of those three was very nearly imported anyway, and the near-miss is the most useful
+thing on this page. A fit whose fold split was drawn unseeded ran to the outer cap with the
+two extra scores at `1e-5` and `score_check` reporting NO, and the response drafted was to
+hold a doubly-robust fit to a *statistical* tolerance — `se/√n` rather than `1e-3·se/√n` — on
+the argument that these equations cannot be solved to machine precision and `o(n^{-1/2})` is
+all asymptotic linearity asks. The argument is sound and the change was still wrong, for a
+reason that took one measurement: across six **seeded** fits at `n = 800` the alternation
+converged in 15 to 45 rounds with a worst score of `1e-9`, and the ordinary tolerance passed
+every time. The failure was a minority draw, not a property of the estimator, and blunting the
+diagnostic a thousandfold for every doubly-robust fit would have hidden the next real one.
+**A threshold changed after seeing a failure needs the failure characterised first**, and the
+order those two happened in is the whole lesson. What survived from the episode is the defect
+it turned up on the way: the reported score and the reported curve were being read off
+*different* refits of the reduced regressions, which is why the per-estimand row disagreed
+with the per-equation rows by two orders of magnitude.
 
 ## Refusals worth lifting
 
@@ -497,9 +702,9 @@ the fit rather than adding a parameter to it, which is why it needed no oracle b
 no registry entry, and why the [oracle-law gate](methodology.md#the-oracle-law-gate) has
 nothing to say about it.
 
-**All six have landed.** What remains here is the second variant above — now sized against
-this codebase *and* read against the source, under [What `drtmle` would
-touch](#what-drtmle-would-touch) — and a handful of refusals under [Not written
+**All six have landed.** What remains on this page is the second variant above, which is
+**in progress** rather than done — ten open items, listed at [What is still
+open](#what-is-still-open) — plus a handful of refusals under [Not written
 yet](methodology.md#not-written-yet) that are there because nobody has asked rather than
 because anything stands in the way.
 

@@ -13,17 +13,20 @@ from .base import (
     resolve_estimands,
 )
 from .ctmle import CTMLE, CTMLESearch, CTMLESelection
+from .drtmle import DRTMLE, ReducedFit
 from .tmle import TMLE, tmle
 
 __all__ = [
     "ALL_ESTIMANDS",
     "CTMLE",
     "DEFAULT_ESTIMANDS",
+    "DRTMLE",
     "TMLE",
     "CTMLESearch",
     "CTMLESelection",
     "CVTargeting",
     "NuisanceEstimates",
+    "ReducedFit",
     "TMLEConfig",
     "TMLEResult",
     "TMLEResultSet",

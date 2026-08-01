@@ -19,6 +19,7 @@ from .mechanism import (
     solve_mechanism,
 )
 from .one_step import solve_one_step
+from .reduced import reduced_mechanism_covariate, reduced_outcome_submodel
 from .submodel import (
     SUBMODEL_BUILDERS,
     Submodel,
@@ -56,6 +57,8 @@ __all__ = [
     "mechanism_covariate",
     "msm_submodel",
     "needs_mechanism",
+    "reduced_mechanism_covariate",
+    "reduced_outcome_submodel",
     "regime_submodel",
     "register_mechanism",
     "register_submodel",
