@@ -261,17 +261,27 @@ class TestTheGuardSelectsTheEquations:
 
     def test_guarding_against_a_wrong_outcome_regression_fluctuates_the_mechanism(self) -> None:
         fluctuation = alternate(WRONG_G, WRONG_Q, guard=("Q",))
+        initial = nuisances(WRONG_G, WRONG_Q).propensity.arm(1.0)
 
         assert fluctuation.mechanism is not None
-        assert not np.allclose(fluctuation.mechanism.epsilon, 0.0)
+        assert not np.allclose(fluctuation.mechanism.propensity, initial)
         assert fluctuation.reduction.epsilon.size == 0, "equation (10) was not asked for"
 
     def test_guarding_against_a_wrong_mechanism_fluctuates_the_outcome_regression(self) -> None:
         fluctuation = alternate(WRONG_G, WRONG_Q, guard=("g",))
+        reduction = fluctuation.reduction
 
         assert fluctuation.mechanism is None
-        assert fluctuation.reduction.epsilon.size == 2
-        assert not np.allclose(fluctuation.reduction.epsilon, 0.0)
+        assert reduction.epsilon.size == 2
+        # The regression moved, and the equation that moved it started somewhere. Neither
+        # is a statement about `epsilon`, which is the *last round's* step and is near zero
+        # at any converged fixed point -- see `ReductionFluctuation`.
+        assert not np.allclose(
+            fluctuation.targeted.arms[1.0], plain(WRONG_G, WRONG_Q).targeted.arms[1.0]
+        )
+        assert np.max(np.abs(reduction.score_initial)) > 1e-4
+        assert np.max(np.abs(reduction.score)) < 1e-10
+        assert reduction.trace[0][2] > reduction.trace[-1][2]
 
     def test_both_guards_solve_both(self) -> None:
         fluctuation = alternate(WRONG_G, WRONG_Q, guard=BOTH)

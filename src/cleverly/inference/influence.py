@@ -52,7 +52,7 @@ from .._typing import BoolArray, FloatArray, IntArray
 from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
-from ..utils.bounds import OutcomeScaler
+from ..utils.bounds import OutcomeScaler, bound
 from .cluster import influence_variance
 from .delta import log_odds_ratio_influence, log_ratio_influence, normal_ci, two_sided_pvalue
 
@@ -69,6 +69,7 @@ __all__ = [
     "make_estimate",
     "msm_coefficients",
     "ratio_estimates",
+    "reduced_corrections",
     "regime_means",
     "shift_means",
 ]
@@ -345,6 +346,7 @@ def counterfactual_means(
     submodel: Submodel,
     weights: FloatArray,
     observed: BoolArray | None = None,
+    corrections: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ArmMean]:
     r"""Every counterfactual mean and its influence curve, keyed by arm.
 
@@ -361,6 +363,13 @@ def counterfactual_means(
     ``submodel`` must be the *unweighted* mean submodel even when the fluctuation was fit
     in weighted form: the influence curve is defined by the true clever covariate, not by
     the reparameterisation used to fit it.
+
+    ``corrections`` are :func:`reduced_corrections`' :math:`D^*_Q + D^*_g`, **subtracted**,
+    for a fit that solved the doubly-robust equations.  ``None`` -- every fit that did not --
+    leaves the expression below untouched character for character, which matters: see the
+    comment on the sum.  The subtraction cannot move :math:`\hat\Psi`, since the targeting
+    drove all three empirical means to zero; what it moves is the variance, which is the
+    whole of what that variant buys.
     """
     if submodel.group != "mean":
         raise ValueError(f"expected the 'mean' submodel; got {submodel.group!r}")
@@ -376,7 +385,87 @@ def counterfactual_means(
         # every influence curve, because floating-point addition is not associative. The
         # decomposition is a diagnostic (`counterfactual_mean_parts`); the estimation path
         # keeps the arithmetic its regression fixtures were built against.
-        out[arm] = ArmMean(psi, w * (submodel.column_for(arm) * residual + prediction - psi))
+        if corrections is None:
+            out[arm] = ArmMean(psi, w * (submodel.column_for(arm) * residual + prediction - psi))
+        else:
+            out[arm] = ArmMean(
+                psi,
+                w
+                * (
+                    submodel.column_for(arm) * residual
+                    + prediction
+                    - psi
+                    - np.asarray(corrections[arm], dtype=float)
+                ),
+            )
+    return out
+
+
+def reduced_corrections(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    treatment: FloatArray,
+    reduced: Any,
+    propensity: FloatArray,
+    *,
+    bounds: tuple[float, float],
+    observed: BoolArray | None = None,
+) -> dict[float, FloatArray]:
+    r""":math:`D^*_Q + D^*_g` per arm, the two terms doubly-robust inference subtracts.
+
+    .. math::
+
+        D^*_g &= \frac{Q_r(a, W)}{g^*(a|W)}\,\{1_a - g^*(a|W)\} \\
+        D^*_Q &= 1_a\,\frac{g_{r,2}(a|W)}{g_{r,1}(a|W)}\,\{Y - \bar Q^*(a, W)\}
+
+    and the reported curve is :math:`D^* - D^*_Q - D^*_g`.  **Minus**, both of them: that is
+    what ``drtmle`` computes, and a sum is the plausible transcription error.  Since the
+    targeting drove all three empirical means to zero, the combination cannot move the point
+    estimate however the signs go -- it moves only the variance, so nothing that reports
+    :math:`\hat\Psi` can catch getting this wrong.  ``tests/unit/test_influence_drtmle.py``
+    carries the sign as a negative control at deliberately wrong nuisances, which is the
+    only place it is visible: at the truth :math:`Q_r` and :math:`g_{r,2}` vanish row by row
+    and the reported curve *equals* :math:`D^*` array for array.
+
+    **This is a fidelity claim about** ``drtmle``, **not a theoretical result.**  The form
+    above is read off that package's implementation.  Theorem 1 of Benkeser et al. (2017) is
+    where the influence function is derived and it has not been read here; if the two
+    disagree the theorem wins and this function is wrong.  Read it before trusting the
+    interval in anger.
+
+    Parameters
+    ----------
+    targeted, propensity:
+        The **targeted** regression and the targeted :math:`g^*(a_1 \mid W)` as an ``(n,)``
+        array, both as the alternation left them.  Reading the initial mechanism here would
+        report a curve for a fit nobody ran, since the equations were solved at the tilted
+        one.
+    reduced:
+        The :class:`~cleverly.estimators.reduced.ReducedSet` the equations were finally
+        solved against -- the refit, not the fit's own.  Typed loosely to keep this module
+        free of :mod:`cleverly.estimators`, which imports it.
+    bounds:
+        The same mechanism truncation the clever covariates divided by.
+    """
+    y = np.asarray(outcome, dtype=float).reshape(-1)
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    g1 = bound(np.asarray(propensity, dtype=float).reshape(-1), float(bounds[0]), float(bounds[1]))
+    mechanism = {reduced.arms[0]: 1.0 - g1, reduced.arms[1]: g1}
+    ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)
+    keep = np.ones(y.shape[0]) if observed is None else np.asarray(observed, dtype=float)
+
+    out: dict[float, FloatArray] = {}
+    for j, arm in enumerate(reduced.arms):
+        indicator = (a == float(arm)).astype(float)
+        d_g = (
+            np.asarray(reduced.qr, dtype=float)[:, j]
+            / mechanism[arm]
+            * (indicator - mechanism[arm])
+        )
+        # The outcome residual is at the arm this row took, so the indicator already puts it
+        # at `arm`; `keep` is the missing-outcome mask every residual here carries.
+        d_q = indicator * keep * ratio[:, j] * (y - targeted.observed)
+        out[arm] = np.asarray(d_g + d_q, dtype=float)
     return out
 
 
@@ -757,20 +846,35 @@ class ICParts(NamedTuple):
 
     residual: FloatArray
     plugin: FloatArray
+    #: The doubly-robust correction, ``-(D*_Q + D*_g)``, for a fit that solved the extra
+    #: score equations; zeros for every other fit, which is what keeps ``total`` and
+    #: ``shares()`` reading exactly as they did before that variant existed.  It belongs to
+    #: neither half above -- it is neither a positivity artefact nor outcome heterogeneity
+    #: but the price of an interval that survives one bad nuisance -- and leaving it out
+    #: would make this decomposition disagree with the curve by the whole of what the
+    #: variant does.
+    guard: FloatArray | None = None
 
     @property
     def total(self) -> FloatArray:
-        return np.asarray(self.residual + self.plugin, dtype=float)
+        summed = np.asarray(self.residual + self.plugin, dtype=float)
+        if self.guard is None:
+            return summed
+        return np.asarray(summed + self.guard, dtype=float)
 
     def shares(self) -> dict[str, float]:
         """Each term's share of the influence curve's variance."""
         total = float(np.var(self.total))
         if total <= 0:
-            return {"residual": float("nan"), "plugin": float("nan")}
-        return {
+            out = {"residual": float("nan"), "plugin": float("nan")}
+            return out if self.guard is None else {**out, "guard": float("nan")}
+        shares = {
             "residual": float(np.var(self.residual)) / total,
             "plugin": float(np.var(self.plugin)) / total,
         }
+        if self.guard is None:
+            return shares
+        return {**shares, "guard": float(np.var(self.guard)) / total}
 
 
 def counterfactual_mean_parts(
@@ -779,6 +883,7 @@ def counterfactual_mean_parts(
     submodel: Submodel,
     weights: FloatArray,
     observed: BoolArray | None = None,
+    corrections: Mapping[float, FloatArray] | None = None,
 ) -> dict[float, ICParts]:
     """The decomposed influence curves behind :func:`counterfactual_means`, per arm.
 
@@ -787,6 +892,10 @@ def counterfactual_mean_parts(
     associative.  The gap is a few ULP and is asserted in
     ``tests/unit/test_ic_parts.py``; use :func:`counterfactual_means` for the
     estimate and this for the diagnostic.
+
+    ``corrections`` is what :func:`counterfactual_means` subtracts, and must be passed
+    whenever it was: this is meant to decompose *the* curve, and a decomposition missing a
+    term the curve has is worse than no decomposition at all.
     """
     if submodel.group != "mean":
         raise ValueError(f"expected the 'mean' submodel; got {submodel.group!r}")
@@ -796,6 +905,7 @@ def counterfactual_mean_parts(
         arm: ICParts(
             w * submodel.column_for(arm) * residual,
             w * (targeted.arms[arm] - float(np.average(targeted.arms[arm], weights=w))),
+            None if corrections is None else -w * np.asarray(corrections[arm], dtype=float),
         )
         for arm in targeted.levels
     }

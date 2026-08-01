@@ -591,6 +591,11 @@ class ReductionFluctuation:
 
     Attributes
     ----------
+    bounds:
+        The mechanism truncation the two extra covariates divided by.  On record because the
+        influence curve is built from these same quantities and must divide by the same
+        thing -- a curve reconstructed at a different bound would be a curve for an
+        estimator nobody ran.
     reduced:
         The reduced-dimension regressions the equations were finally solved against --
         refitted against the targeted pair, so **not** the ones on
@@ -599,7 +604,12 @@ class ReductionFluctuation:
         reads these.
     epsilon, score, score_scale, score_initial, names:
         Equation (10)'s fluctuation, reported on the same footing as the outcome
-        fluctuation's so the two can sit in one table.
+        fluctuation's so the two can sit in one table.  ``epsilon`` is the **last round's**
+        step and not a running total, exactly as the outcome fluctuation's is in every
+        alternation here -- so it is near zero at any converged fixed point and is a poor
+        thing to assert "the equation did something" against.  ``score_initial`` is the
+        exception and is the **first** round's: a "before" taken from the exiting round
+        would be zero for the same reason and would say nothing about what was solved.
     trace:
         One ``(outer, outcome score, reduced score, mechanism score, joint loglik)`` row per
         round.  The joint value is what makes the loop terminate rather than merely settle:
@@ -612,6 +622,7 @@ class ReductionFluctuation:
 
     reduced: ReducedSet
     guard: tuple[str, ...]
+    bounds: tuple[float, float]
     epsilon: FloatArray
     score: FloatArray
     score_scale: FloatArray
@@ -747,8 +758,14 @@ def solve_with_reduction(
     mechanism: MechanismFluctuation | None = None
     extra: Fluctuation | None = None
     extra_submodel: Submodel | None = None
+    # Equation (10)'s violation before any round, kept from the first solve rather than the
+    # last. Every other field here is the exiting round's, which is right for a score and
+    # wrong for a "before": at a converged fixed point the last round starts where it ends,
+    # so the last round's `score_initial` is zero and says nothing about what was solved.
+    first_initial: FloatArray | None = None
     trace: list[tuple[int, float, float, float, float]] = []
     previous: float | None = None
+    previous_joint: float | None = None
 
     for outer in range(1, max_outer + 1):
         if "Q" in guard:
@@ -768,6 +785,8 @@ def solve_with_reduction(
             extra = solve_submodel(
                 scaled, fluctuation.targeted, extra_submodel, weights, observed, spec, warn=False
             )
+            if first_initial is None:
+                first_initial = np.asarray(extra.score_initial)
 
         submodel = build_submodel(
             data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
@@ -817,13 +836,21 @@ def solve_with_reduction(
         )
         if worst <= spec.tol:
             break
-        # Linear convergence, as in the mechanism alternation: the worst score falls by a
-        # roughly constant factor each round until the coupled system reaches its fixed
-        # point and stops moving. Stop when a round no longer improves it materially and
-        # let the *size* of what is left decide whether that counts as a failure.
-        if previous is not None and worst > _STALL_FACTOR * previous:
+        # The stall rule watches the *objective as well as* the score, which is where this
+        # loop parts company with `solve_with_mechanism`. There the mechanism score falls by
+        # a roughly constant factor every round; here three coupled equations make it
+        # non-monotone for the first few -- measured on a 600-row `glm` fit, the mechanism
+        # score went 2.8e-2, 2.9e-2, 1.7e-2, 1.8e-2 before descending cleanly to 7e-9, while
+        # the joint likelihood rose at every one of those rounds. A score-only rule stopped
+        # that fit at round 2 with two equations open and reported the interval anyway. So
+        # stall only when *neither* has moved: the objective is what the coordinate ascent
+        # is climbing, and the score is what the exit is about.
+        climbing = previous_joint is None or joint > previous_joint + spec.tol * (1.0 + abs(joint))
+        improving = previous is None or worst <= _STALL_FACTOR * previous
+        if not climbing and not improving:
             break
-        previous = worst
+        previous = worst if previous is None else min(previous, worst)
+        previous_joint = joint
 
     last = trace[-1] if trace else (0, 0.0, 0.0, 0.0, 0.0)
     worst = max(last[1], last[2], last[3])
@@ -838,10 +865,11 @@ def solve_with_reduction(
     record = ReductionFluctuation(
         reduced=reduced,
         guard=guard,
+        bounds=(float(bounds[0]), float(bounds[1])),
         epsilon=np.zeros(0) if extra is None else extra.epsilon,
         score=np.zeros(0) if extra is None else extra.score,
         score_scale=np.zeros(0) if extra is None else np.asarray(extra.score_scale),
-        score_initial=np.zeros(0) if extra is None else np.asarray(extra.score_initial),
+        score_initial=np.zeros(0) if first_initial is None else first_initial,
         names=() if extra_submodel is None else extra_submodel.names,
         trace=tuple(trace),
         converged=bool(worst <= spec.tol),

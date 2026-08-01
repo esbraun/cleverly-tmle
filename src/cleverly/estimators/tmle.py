@@ -112,6 +112,7 @@ from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
     ParameterEstimate,
     average_estimates,
+    reduced_corrections,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
@@ -2080,6 +2081,41 @@ class TMLE:
             return regimes.codes, dict(regimes.labels)
         return data.arm_codes, {arm: data.arm_label(arm) for arm in data.arm_codes}
 
+    def _corrections(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        fluctuation: Fluctuation,
+        targeted: InitialFit,
+        scaled: FloatArray,
+    ) -> dict[float, FloatArray] | None:
+        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other.
+
+        Read entirely off the fluctuation, which is where the alternation left the pieces:
+        the refitted reduced regressions, the targeted mechanism and the truncation the two
+        extra covariates divided by.  A curve built from ``result.nuisance`` instead would
+        be the curve of a fit nobody ran -- those arrays are deliberately the *initial*
+        ones.  Without the ``"Q"`` guard no mechanism was tilted and the initial one is
+        what equation (10) was solved beside, so that is what the curve reads.
+        """
+        reduction = fluctuation.reduction
+        if reduction is None:
+            return None
+        mechanism = (
+            fluctuation.mechanism.propensity
+            if fluctuation.mechanism is not None
+            else nuisance.propensity.arm(reduction.reduced.arms[1])
+        )
+        return reduced_corrections(
+            scaled,
+            targeted,
+            data.treatment,
+            reduction.reduced,
+            mechanism,
+            bounds=reduction.bounds,
+            observed=data.observed,
+        )
+
     def _estimates_for(
         self,
         data: CausalData,
@@ -2113,6 +2149,11 @@ class TMLE:
         # carrying the fluctuated mechanism, and it is that one which reaches here.
         incremental = nuisance.incremental
         msm = nuisance.msm
+        # The two terms doubly-robust inference subtracts, built from the arrays the
+        # alternation exited at: the refitted reductions and the *targeted* mechanism, both
+        # of which live on the fluctuation rather than on the nuisances. `None` for every
+        # other fit, and then `counterfactual_means` is untouched character for character.
+        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled)
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)
@@ -2126,6 +2167,11 @@ class TMLE:
             shifts = None if shifts is None else shifts.subset(index)
             incremental = None if incremental is None else incremental.subset(index)
             msm = None if msm is None else msm.subset(index)
+            corrections = (
+                None
+                if corrections is None
+                else {arm: values[index] for arm, values in corrections.items()}
+            )
             n = int(index.size)
 
         # On a regime, shift, tilt or working-model fit the parameter axis is that rather
@@ -2149,6 +2195,7 @@ class TMLE:
             arm_labels=labels,
             reference=reference,
             regimes=None if regimes is None else regimes.values,
+            corrections=corrections,
             shifts=None if shifts is None else shifts.design,
             incremental=incremental,
             msm_design=None if msm is None else msm.design,
