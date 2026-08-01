@@ -299,6 +299,34 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
                         ),
                     )
                 )
+            # A doubly-robust fit solves a *third* equation, in a second submodel of the
+            # same group -- so the row above is the mechanism half of it and this one is
+            # the second outcome half. Reported apart for the same reason: the influence
+            # curve's mean is zero only if all three are solved, and says nothing about
+            # which one is not.
+            reduction = fluctuation.reduction
+            if reduction is not None and np.asarray(reduction.score).size:
+                score = float(np.max(np.abs(reduction.score)))
+                stem = f"{group} (reduced)"
+                rows.append(
+                    ScoreCheckRow(
+                        name=stem if result.n_repeats == 1 else f"{stem}[draw {index}]",
+                        kind="fluctuation",
+                        score=score,
+                        threshold=float(threshold),
+                        std_error=float(reference_se),
+                        passed=bool(score <= threshold),
+                        converged=reduction.converged,
+                        n_iter=reduction.n_outer,
+                        method=fluctuation.method,
+                        score_initial=(
+                            float(np.max(np.abs(reduction.score_initial)))
+                            if np.asarray(reduction.score_initial).size
+                            else float("nan")
+                        ),
+                        failure=reduction.failure or "",
+                    )
+                )
 
     for name, estimate in result.estimates.items():
         threshold = tolerance * estimate.std_error / np.sqrt(n)

@@ -23,13 +23,20 @@ This module deliberately does not import :mod:`cleverly.estimators.base`, so
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray, TargetingMethod
 from ..data.causal_data import CausalData
-from ..fluctuation.iterative import Fluctuation, InitialFit, solve_fluctuation
+from ..fluctuation._score import relative_score, score_columns, score_scale
+from ..fluctuation.iterative import (
+    Fluctuation,
+    InitialFit,
+    TargetingFailure,
+    solve_fluctuation,
+)
 from ..fluctuation.mechanism import (
     MechanismFluctuation,
     mechanism_covariate,
@@ -37,21 +44,27 @@ from ..fluctuation.mechanism import (
     solve_mechanism,
 )
 from ..fluctuation.one_step import solve_one_step
+from ..fluctuation.reduced import reduced_mechanism_covariate, reduced_outcome_submodel
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict, submodel_for
 from ..msm import solve_projection
 from ..utils.bounds import OutcomeScaler
-from ._nuisance import NuisanceEstimates
+from ._nuisance import NuisanceEstimates, Propensity
 from .direct_effect import clever_covariate_inputs
+from .reduced import ReducedSet
 
 __all__ = [
     "ProjectionFluctuation",
+    "ReductionFluctuation",
+    "ReductionSpec",
     "TargetingSpec",
     "build_submodel",
     "needs_projection",
+    "needs_reduction",
     "reported_beta",
     "solve_submodel",
     "solve_with_mechanism",
     "solve_with_projection",
+    "solve_with_reduction",
 ]
 
 #: A round that leaves the mechanism score above this share of the previous round's has
@@ -520,3 +533,347 @@ def solve_with_mechanism(
         failure = "max_iter_reached"
     mechanism = replace(mechanism, trace=tuple(trace), failure=failure)
     return submodel, replace(fluctuation, mechanism=mechanism), current
+
+
+@dataclass(frozen=True)
+class ReductionSpec:
+    """What a doubly-robust targeting step needs that the cached arrays cannot carry.
+
+    A third sibling of :class:`TargetingSpec`, and the one place this module's
+    estimator-free design bends.  Every other targeting step here is arithmetic on fitted
+    predictions, so a serialised result can re-run it with nothing but its settings.  This
+    one **refits learners inside the alternation** -- equations (9) and (10) are stated at
+    starred :math:`Q_r^*` and :math:`g_r^*`, and ``drtmle``'s algorithm maps initial
+    estimates of the outcome regression, the mechanism *and the reduced regressions* into
+    estimates that satisfy them.  Holding the reductions at their initial fit would solve a
+    different equation, and whether that one suffices is a question for a theorem rather
+    than a matter of taste.
+
+    So the learners arrive as a callable rather than as an import: this module stays free of
+    :mod:`cleverly.learners` and of the estimator, and
+    :class:`~cleverly.DRTMLE` supplies a closure over the ones it resolved.  What that
+    costs is stated where a reader meets it -- a truncation curve on a doubly-robust fit
+    costs a fit per point rather than a fraction of one.
+
+    Attributes
+    ----------
+    refit:
+        Takes a :class:`~cleverly.estimators._nuisance.NuisanceEstimates` carrying the
+        *current* targeted regression and mechanism, and returns the reductions relative to
+        them.  It is handed a whole object rather than two arrays for the reason
+        :func:`~cleverly.estimators.reduced.fit_reduced` takes one: ``folds`` is read off
+        it, so it cannot be given a mechanism and a split that came from different
+        constructions.
+    guard:
+        Which extra equations are solved, in ``drtmle``'s vocabulary and **crossed** the way
+        that package crosses it: ``"Q"`` guards against a misspecified outcome regression
+        and adds equation (9), which fluctuates ``g``; ``"g"`` guards against a misspecified
+        mechanism and adds equation (10), which fluctuates ``Qbar``.  An empty guard is a
+        plain TMLE and never reaches here -- a fit that wants one carries no reductions at
+        all, which is what makes it bit-for-bit the ordinary path rather than the ordinary
+        path recovered by a loop that happens to exit early.
+    """
+
+    refit: Callable[[NuisanceEstimates], ReducedSet]
+    guard: tuple[str, ...] = ("Q", "g")
+
+
+@dataclass(frozen=True)
+class ReductionFluctuation:
+    """Equation (10)'s fluctuation, and how the doubly-robust alternation went.
+
+    The third sibling of :class:`~cleverly.fluctuation.mechanism.MechanismFluctuation` and
+    :class:`ProjectionFluctuation`, and closest to the first: both are halves of a targeting
+    step that has more than one, and both are carried on the outcome fluctuation solved
+    beside them.  Equation (9)'s half is a ``MechanismFluctuation`` and lives in
+    ``Fluctuation.mechanism``, exactly where ``ipsi`` puts its own, so
+    :func:`~cleverly.validation.score_check` reports it with no changes.
+
+    Attributes
+    ----------
+    reduced:
+        The reduced-dimension regressions the equations were finally solved against --
+        refitted against the targeted pair, so **not** the ones on
+        ``result.nuisance.reduced``, which stay the initial fit exactly as
+        ``result.nuisance.propensity`` stays the initial mechanism.  The influence curve
+        reads these.
+    epsilon, score, score_scale, score_initial, names:
+        Equation (10)'s fluctuation, reported on the same footing as the outcome
+        fluctuation's so the two can sit in one table.
+    trace:
+        One ``(outer, outcome score, reduced score, mechanism score, joint loglik)`` row per
+        round.  The joint value is what makes the loop terminate rather than merely settle:
+        equation (9) is a weighted logistic MLE of ``A`` given ``W`` and equations (8) and
+        (10) are the outcome quasi-likelihood, separate factors of the likelihood of
+        ``(A, Y) | W``, so each step maximises its own factor with the other held fixed.
+        Refitting the reductions between rounds does not break that -- it changes the
+        *direction* of the next submodel, not the value at the point it passes through.
+    """
+
+    reduced: ReducedSet
+    guard: tuple[str, ...]
+    epsilon: FloatArray
+    score: FloatArray
+    score_scale: FloatArray
+    score_initial: FloatArray
+    names: tuple[str, ...] = ()
+    trace: tuple[tuple[int, float, float, float, float], ...] = field(default_factory=tuple)
+    converged: bool = True
+    failure: str | None = None
+
+    @property
+    def relative_score(self) -> float:
+        """Equation (10)'s largest score component relative to its possible magnitude."""
+        return relative_score(self.score, self.score_scale)
+
+    @property
+    def n_outer(self) -> int:
+        return len(self.trace)
+
+    def coefficients(self) -> dict[str, float]:
+        return dict(zip(self.names, np.asarray(self.epsilon).tolist(), strict=True))
+
+
+def needs_reduction(nuisance: NuisanceEstimates, group: TargetGroup) -> bool:
+    """Whether this fit's targeting has extra score equations to solve beside the outcome's.
+
+    A property of the *nuisances* rather than of the group, and it has to be: the group is
+    still ``"mean"`` -- the report is still ``ey1``, ``ey0`` and ``ate``, a different
+    estimator behind the same parameters exactly as :class:`~cleverly.CTMLE` is -- so a
+    predicate keyed on the group name alone would divert every ordinary fit in the package.
+    """
+    return group == "mean" and nuisance.reduced is not None
+
+
+def solve_with_reduction(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    group: TargetGroup,
+    spec: TargetingSpec,
+    *,
+    reduction: ReductionSpec,
+    bounds: tuple[float, float],
+    nuisance_bound: float,
+    scaled: FloatArray,
+    weights: FloatArray,
+    observed: BoolArray,
+    max_outer: int = 50,
+    warn: bool = True,
+) -> tuple[Submodel, Fluctuation]:
+    r"""Solve the outcome equation and the two extra ones together, alternating until all settle.
+
+    A plain TMLE solves equation (8) and stops.  Doubly-robust inference (van der Laan 2014;
+    Benkeser, Carone, van der Laan & Gilbert 2017) adds
+
+    .. math::
+
+        (9)  \quad & P_n[\, Q_r(a, W)/g^*(a|W)\,\{1_a - g^*(a|W)\}\,] = 0 \\
+        (10) \quad & P_n[\, 1_a\,g_{r,2}(a|W)/g_{r,1}(a|W)\,\{Y - \bar Q^*(a, W)\}\,] = 0
+
+    and none of the three can be solved once and left: (9) fluctuates :math:`g` along a
+    covariate reading the very :math:`g^*` it moves, (8) and (10) fluctuate :math:`\bar Q`
+    along covariates reading :math:`g^*` and the reductions, and the reductions are
+    themselves regressions *on* the current pair.
+
+    .. code-block:: text
+
+        prime:  Qbar* <- fluctuation of Qbar^0 along 1_a/g          (equation 8)
+        repeat:
+            if "Q" in guard:  g* <- logistic tilt along Qr/g*       (equation 9)
+                              refit Qr, gr1, gr2 at (Qbar*, g*)
+            if "g" in guard:  Qbar* <- fluctuate along gr2/gr1      (equation 10)
+            Qbar* <- fluctuate along 1_a/g*                         (equation 8)
+            re-evaluate all three scores at the pair the round exits at
+
+    Three things about that shape are decisions rather than transcription.
+
+    **The outcome fluctuation continues from** :math:`\bar Q^*` **rather than restarting from**
+    :math:`\bar Q^0`, which is :func:`solve_with_mechanism`'s choice and not
+    :func:`solve_with_projection`'s.  The argument is the one
+    :mod:`cleverly.fluctuation.mechanism` writes out and it carries over: equation (9) is a
+    weighted logistic MLE of :math:`A \mid W` and equations (8) and (10) are the outcome
+    quasi-likelihood, separate factors of the likelihood of :math:`(A, Y) \mid W`, so each
+    step maximises its own factor with the others held fixed and the joint value never
+    decreases.  Restarting would break the monotonicity and with it the reason this
+    terminates.
+
+    **Equations (8) and (10) are solved one after the other rather than as one wider
+    submodel**, which is ``drtmle``'s ``Qsteps = 2`` -- backfitting, "found to be more
+    stable in simulations".  It is also what keeps a ``Submodel`` column belonging to one
+    arm, which :mod:`cleverly.sensitivity.omitted_variable` reads.
+
+    **Every score in sight goes stale, and the convergence test is taken after the round
+    rather than during it.**  The mechanism covariate reads :math:`\bar Q^*`, which the two
+    outcome steps then move; equation (10)'s covariate is fixed within a round but its
+    residual is not, since equation (8) fluctuates :math:`\bar Q` afterwards.  A loop
+    testing the scores where they were solved would exit having solved one equation and
+    left another open -- the failure :func:`~cleverly.fluctuation.mechanism.mechanism_score`
+    exists for, here three times over.
+
+    Returns the final outcome submodel and the equation-(8) fluctuation, carrying equation
+    (9)'s tilt on :attr:`~cleverly.fluctuation.Fluctuation.mechanism` and equation (10)'s on
+    ``.reduction``.  **Two values rather than** :func:`solve_with_mechanism`'s **three**:
+    that one re-derives its nuisances because ``ipsi``'s estimand is a functional of
+    :math:`g`, and this estimand is :math:`E[\bar Q^*(a, W)]`, which reads no mechanism at
+    all.  Nothing the alternation moves belongs on ``result.nuisance``.
+    """
+    if nuisance.reduced is None:
+        raise ValueError(
+            f"group {group!r} solves the doubly-robust score equations, so the fit must "
+            "carry the reduced-dimension regressions that define them; this "
+            "NuisanceEstimates has none"
+        )
+    guard = tuple(reduction.guard)
+    if not guard:
+        raise ValueError(
+            "an empty guard solves no extra equation and is a plain TMLE; such a fit must "
+            "carry no reduced regressions at all rather than reach this alternation"
+        )
+    arms = nuisance.arms
+    if len(arms) != 2:
+        raise ValueError(f"the doubly-robust equations are derived for two arms; got {list(arms)}")
+    upper = arms[1]
+    indicator = (np.asarray(data.treatment, dtype=float) == float(upper)).astype(float)
+    mask = np.asarray(observed, dtype=bool)
+
+    reduced = nuisance.reduced
+    targeted_g = nuisance.propensity.arm(upper)
+    current = nuisance
+    submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
+    fluctuation = solve_submodel(
+        scaled, nuisance.outcome, submodel, weights, observed, spec, warn=warn
+    )
+
+    mechanism: MechanismFluctuation | None = None
+    extra: Fluctuation | None = None
+    extra_submodel: Submodel | None = None
+    trace: list[tuple[int, float, float, float, float]] = []
+    previous: float | None = None
+
+    for outer in range(1, max_outer + 1):
+        if "Q" in guard:
+            mechanism = solve_mechanism(
+                indicator,
+                targeted_g,
+                reduced_mechanism_covariate(reduced, targeted_g, bounds=bounds),
+                weights,
+                tol=spec.tol,
+            )
+            targeted_g = mechanism.propensity
+            current = _retargeted_mechanism(nuisance, targeted_g, arms)
+            reduced = reduction.refit(_reduction_inputs(current, fluctuation.targeted, targeted_g))
+
+        if "g" in guard:
+            extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
+            extra = solve_submodel(
+                scaled, fluctuation.targeted, extra_submodel, weights, observed, spec, warn=False
+            )
+
+        submodel = build_submodel(
+            data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
+        )
+        fluctuation = solve_submodel(
+            scaled,
+            fluctuation.targeted if extra is None else extra.targeted,
+            submodel,
+            weights,
+            observed,
+            spec,
+            warn=False,
+        )
+        if "Q" in guard:
+            # Qr is a regression of the outcome residual, so the step just taken moved its
+            # target. Refit before the score below is read, or the loop tests equation (9)
+            # at a covariate the exiting pair no longer implies.
+            reduced = reduction.refit(_reduction_inputs(current, fluctuation.targeted, targeted_g))
+
+        reduced_score = 0.0
+        if extra_submodel is not None:
+            settled = score_columns(
+                scaled, fluctuation.targeted.observed, extra_submodel.observed, weights, mask
+            )
+            scale = score_scale(extra_submodel.observed, weights, mask)
+            assert extra is not None
+            extra = replace(extra, score=settled, score_scale=scale)
+            reduced_score = relative_score(settled, scale)
+
+        mechanism_relative = 0.0
+        if mechanism is not None:
+            settled_g, scale_g = mechanism_score(
+                indicator,
+                targeted_g,
+                reduced_mechanism_covariate(reduced, targeted_g, bounds=bounds),
+                weights,
+            )
+            mechanism = replace(mechanism, score=settled_g, score_scale=scale_g)
+            mechanism_relative = mechanism.relative_score
+
+        joint = float(fluctuation.loglik) + float(
+            0.0 if mechanism is None else (mechanism.loglik or 0.0)
+        )
+        worst = max(fluctuation.relative_score_norm, reduced_score, mechanism_relative)
+        trace.append(
+            (outer, fluctuation.relative_score_norm, reduced_score, mechanism_relative, joint)
+        )
+        if worst <= spec.tol:
+            break
+        # Linear convergence, as in the mechanism alternation: the worst score falls by a
+        # roughly constant factor each round until the coupled system reaches its fixed
+        # point and stops moving. Stop when a round no longer improves it materially and
+        # let the *size* of what is left decide whether that counts as a failure.
+        if previous is not None and worst > _STALL_FACTOR * previous:
+            break
+        previous = worst
+
+    last = trace[-1] if trace else (0, 0.0, 0.0, 0.0, 0.0)
+    worst = max(last[1], last[2], last[3])
+    unsolved: TargetingFailure | None = None if worst <= _UNSOLVED else "max_iter_reached"
+    failure = unsolved
+    if mechanism is not None:
+        mechanism = replace(
+            mechanism,
+            trace=tuple((row[0], row[1], row[3], row[4]) for row in trace),
+            failure=mechanism.failure or unsolved,
+        )
+    record = ReductionFluctuation(
+        reduced=reduced,
+        guard=guard,
+        epsilon=np.zeros(0) if extra is None else extra.epsilon,
+        score=np.zeros(0) if extra is None else extra.score,
+        score_scale=np.zeros(0) if extra is None else np.asarray(extra.score_scale),
+        score_initial=np.zeros(0) if extra is None else np.asarray(extra.score_initial),
+        names=() if extra_submodel is None else extra_submodel.names,
+        trace=tuple(trace),
+        converged=bool(worst <= spec.tol),
+        failure=failure,
+    )
+    return submodel, replace(fluctuation, mechanism=mechanism, reduction=record)
+
+
+def _retargeted_mechanism(
+    nuisance: NuisanceEstimates, targeted: FloatArray, arms: tuple[float, ...]
+) -> NuisanceEstimates:
+    """``nuisance`` with the mechanism replaced by the tilted one, for the covariate only.
+
+    Built here and thrown away with the alternation: the targeted mechanism belongs on the
+    fluctuation, never on ``result.nuisance``, so that the nuisance diagnostics go on
+    describing the model that was fitted.  The complement form is
+    :meth:`~cleverly.estimators._nuisance.Propensity.bounded`'s two-arm rule arriving one
+    step earlier -- the tilt moves one probability and the other arm is its complement.
+    """
+    g1 = np.asarray(targeted, dtype=float).reshape(-1)
+    return replace(nuisance, propensity=Propensity(np.column_stack([1.0 - g1, g1]), arms))
+
+
+def _reduction_inputs(
+    nuisance: NuisanceEstimates, targeted: InitialFit, mechanism: FloatArray
+) -> NuisanceEstimates:
+    """The nuisances a refit of the reduced regressions is taken *relative to*.
+
+    The targeted pair rather than the initial one, which is the whole of what makes this an
+    alternation rather than three equations solved at arrays fixed in advance.  ``folds``,
+    the scaler and the weights travel unchanged, so the refit is out of fold on the same
+    split the primary fits used.
+    """
+    del mechanism  # already written onto `nuisance` by `_retargeted_mechanism`
+    return replace(nuisance, outcome=targeted)
