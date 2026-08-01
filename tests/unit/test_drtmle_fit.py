@@ -241,13 +241,16 @@ class TestTheAlternationCanBeIllConditioned:
     ``mean|h| = 1e-3`` with ``|epsilon|`` reaching 280 and a singular Hessian in a third of
     the rounds, on a fit whose fold split was drawn unseeded.
 
-    **How often that happens was measured rather than assumed, and it is not the norm.**
-    Across six seeded fits at ``n = 800`` the alternation converged in 15 to 45 rounds with
-    no ill-conditioned solve and a worst score of ``1e-9``, and the score check passed at its
-    ordinary ``1e-3`` tolerance every time.  So this is a minority behaviour of particular
-    draws, not a property of the estimator -- which is why the diagnostic was left alone.  A
-    fit that does hit it reports ``failure = "max_iter_reached"`` and ``score_check`` says
-    NO, and that is the diagnostic working rather than something to accommodate.
+    **How often that happens was measured rather than assumed, and the first measurement was
+    wrong.**  Six seeded fits at ``n = 800`` on this one process reported no ill-conditioned
+    solve and a worst score of ``1e-9``, which read as a minority behaviour of particular
+    draws.  A 96-fit sweep -- four processes by two sizes by twelve seeds, tabulated in
+    ``docs/roadmap.md`` under *How the alternation exits* -- says otherwise: the solve is
+    ill-conditioned on 5 of 12 ``linear`` draws at ``n = 600`` and 9 of 12 at ``n = 1,200``,
+    and highest exactly where the mechanism is easiest to get right, which is what the
+    paragraph above predicts and what sweeping only hard processes would have hidden.  A fit
+    that hits it reports ``failure = "max_iter_reached"`` and ``score_check`` says NO, and
+    that is the diagnostic working rather than something to accommodate.
 
     What is asserted below is therefore the invariant that holds either way, not either
     outcome: pinning ``ill_conditioned > 0`` would be pinning a seed.

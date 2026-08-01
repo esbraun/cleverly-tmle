@@ -101,10 +101,26 @@ in its docstring that it is not a demonstration.
 on the fits anybody actually wants that covariate is nearly zero and its Newton solve is
 near-singular: observed at `mean|h| = 1e-3`, `|epsilon|` reaching 280 and a singular Hessian
 in a third of the rounds on one unseeded draw. Such a fit runs to the outer cap and reports
-`failure = "max_iter_reached"`. Six seeded fits at `n = 800` converged in 15 to 45 rounds, so
-it is a minority behaviour rather than the norm — but "minority" is measured on four
-processes, and `drtmle` sidesteps it entirely by capping at three iterations and never
-claiming convergence. `ReductionFluctuation.ill_conditioned` reports it.
+`failure = "max_iter_reached"`. `ReductionFluctuation.ill_conditioned` reports it, and
+`drtmle` sidesteps the whole question by capping at three iterations and never claiming
+convergence.
+
+**This has now been swept** — 96 fits, four processes by two sizes by twelve seeds, at
+[the numbers](#how-the-alternation-exits) below — and the sweep **corrected the claim that
+stood here**. That claim was "six seeded fits at `n = 800` converged in 15 to 45 rounds, so
+it is a minority behaviour rather than the norm", and it was measured on *one* process
+(`nonlinear`, `tests/unit/test_drtmle_fit.py`). Running out of rounds is indeed a minority:
+**8 of 96**. But converging is rarer still — **2 of 96 reached the tolerance**, and **86
+stalled**. The old sentence named the wrong minority: it contrasted the cap against
+convergence and never mentioned the exit that actually dominates. What the six fits called
+"converged in 15 to 45 rounds" was a loop stalling at a fixed point, which is a different
+event with a different meaning, and the round count was the only part of it that was right.
+
+The conditioning is also **worst where the sweep predicted**, which is the part that was
+reasoned rather than measured before: `gr2` vanishes where the mechanism is *right*, so the
+easy process should be the ill-conditioned one, and it is. `linear` reports an
+ill-conditioned solve on **5 of 12** fits at `n = 600` and **9 of 12** at `n = 1,200`,
+against **0 of 12** for `nonlinear` at `n = 600`.
 
 **5. Equation (9) is never solved exactly.** Its covariate `Qr/g*` reads the very mechanism
 it tilts, so one solve zeroes the score at the pre-tilt covariate and leaves a residual at
@@ -116,14 +132,38 @@ is the only term keeping the reported curve's mean off machine zero.
 full twenty steps on every fit measured, settling around `1e-9` rather than reaching
 `spec.tol = 1e-10`. Harmless — the steps are arithmetic, and item 5 is why it cannot get
 there — but the cap is doing the stopping, and a cap that always binds is worth knowing
-about rather than reading as convergence.
+about rather than reading as convergence. **The sweep says "every fit measured" was not an
+artefact of measuring six**: the stage stopped on its cap on **94 of 96**. The two that did
+not are both `weak-overlap`, which is the process item 11 is about.
 
-**7. The relative-score exit criterion is a poor instrument for equation (10).** The loop
-exits on `|score| / mean|h|`, and `mean|h| ≈ 1e-3` for that covariate, so an absolutely
-negligible score reads as a large relative one. That is *why* the loop looks unconvergent
-where it does. Changing it was drafted, and reverted — the failing case turned out to be a
-minority draw, and a threshold changed after seeing a failure needs the failure characterised
-first. It remains the right question and the wrong time to have answered it.
+**7. The relative-score exit criterion was a poor instrument, and it has been replaced.**
+The loop exited on `|score| / mean|h|` against `spec.tol = 1e-10`, and `mean|h|` is `1e-3`
+to `1e-2` for equation (10)'s covariate, so an absolutely negligible score read as a large
+relative one. The sweep put a count on it: on **68 of 96** fits equation (10)'s relative
+score was above the tolerance while the worst absolute score was under `1e-3` of `se/√n` —
+the relative criterion calling unsolved what the statistical one calls negligible.
+
+That is the characterisation the change was waiting on, so the change was made.
+`targeting._solved` now accepts an equation on *either* ruler: the relative test as before,
+or an absolute score under `_NEGLIGIBLE / n`, which is the bar
+[`score_check`](#what-is-still-open) already applies to the fit that gets reported
+(`DEFAULT_TOLERANCE * se / sqrt(n)`, and `se = O(n^-1/2)` on the scaled outcome). Asymptotic
+linearity asks for `P_n D = o(n^-1/2)`; machine zero was never the requirement.
+
+Two things about how it was done are worth keeping. It applies to **all three** equations
+rather than to equation (10) alone, and that was measured rather than assumed: on a 400-row
+`linear` fit the round the loop gave up at had equation (10) at `2.3e-8` *and* equation (9)
+at `3.9e-8`, with the joint likelihood flat to six decimals — the two trade off, so relaxing
+either alone stops nothing. Equation (9) cannot reach `spec.tol` for the reason item 5
+gives, so it needed the same relief. And equation (8), whose `1/g` is bounded below by the
+truncation, still stops on the relative test, so a well-conditioned fit is unaffected.
+
+Refitting three processes at two seeds under both rules, every fit moved from `stall` to
+`tolerance` and took a third to a tenth of the rounds — `linear` 30 → 3, `nonlinear` 22 → 8,
+`weak-overlap` 36 → 11 — while the worst score `score_check` sees was no worse and usually
+better, and `ate` moved by at most `4.1e-5`, which is `2.4e-4` of a standard error. **The
+sweep below therefore measures the criterion this item replaced**, which is the right way
+round: it is the evidence the change was argued from, not a report on the change.
 
 **8. `retarget` is no longer arithmetic on cached arrays.** The reductions are refitted
 inside the alternation, so a truncation curve or an MNAR sweep costs about a fit per point
@@ -141,6 +181,53 @@ flat-by-construction reads as insensitivity rather than as a limitation.
 been *read* rather than in what exists), `att`/`atc`, the other four parameter axes,
 `delta=`, `intermediate=`, fold-wise targeting and composition with `CTMLE`. Only the first
 two are candidates; the rest are refusals with reasons.
+
+**11. Under weak overlap the fit does not solve its own score equation, and nothing said so
+before the sweep.** On `weak_overlap_dgp` the score check fails on **23 of 24** fits, with
+the worst score at rough parity with `se/√n` — median `1.1` at `n = 600` and `1.0` at
+`n = 1,200`, against `1e-7` to `4e-7` on every other process. A score the size of `se/√n` is
+not a tolerance that wants loosening: it is first order in the very quantity the interval is
+built from, so the interval is not the one the derivation describes.
+
+This is **not** the exit criterion, and item 7's change neither caused nor cured it: refit
+under both rules the same two draws fail with worst scores agreeing to three figures
+(`1.65e-3` against `1.64e-3`, and `7.97e-3` against `7.96e-3`). It is also not the
+conditioning of item 4 — `ill_conditioned` is **0 of 24** here, the only process where it
+never fires. What it most likely is, and what has *not* been checked, is that `1/g` under
+weak overlap makes equation (8)'s covariate so large that the truncation is doing the work;
+`sensitivity.positivity()` on these fits is the obvious next reading. Until then this is the
+item that should stop anyone using `DRTMLE` where overlap is poor, and it outranks items 4,
+6 and 7, which are about a loop that reports its own difficulty honestly.
+
+### How the alternation exits
+
+96 fits: four processes by two sizes by twelve seeds, `glm` on both nuisances, `n_folds=5`,
+`learner_folds=3`, both the data seed and the fold seed varying. Dispatched as
+`.github/workflows/drtmle-convergence.yml` from `benchmarks/bench_drtmle.py`, 2,588s of
+runner at 42.6s per fit, and **no fit raised**. The rows are kept here for the reason
+`bench_tmle.py` keeps its own: a comparison nobody can rerun becomes folklore.
+
+**These numbers measure the exit criterion item 7 replaced**, not the current one. That is
+deliberate and is the order the item required — the failure had to be characterised before
+the threshold moved.
+
+| process | n | rounds med [range] | tol/stall/cap | ill>0 | closing capped | med eq10 at exit | med min `mean\|h\|` | med `\|score\|/(se/√n)` | check fails |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| linear | 600 | 22 [9–50] | 0/11/1 | 5/12 | 12/12 | 2.4e-09 | 9.8e-04 | 1.7e-07 | 1/12 |
+| linear | 1,200 | 18 [9–50] | 0/11/1 | 9/12 | 12/12 | 1.1e-08 | 8.0e-04 | 3.2e-07 | 0/12 |
+| nonlinear | 600 | 19 [13–50] | 0/10/2 | 0/12 | 12/12 | 2.5e-09 | 9.4e-03 | 1.8e-07 | 0/12 |
+| nonlinear | 1,200 | 20 [13–50] | 0/11/1 | 4/12 | 12/12 | 9.0e-10 | 2.7e-03 | 1.9e-07 | 0/12 |
+| off-diagonal | 600 | 16 [8–44] | 0/12/0 | 3/12 | 12/12 | 4.1e-09 | 4.8e-03 | 2.8e-07 | 0/12 |
+| off-diagonal | 1,200 | 24 [8–50] | 0/11/1 | 3/12 | 12/12 | 1.4e-08 | 1.5e-03 | 4.0e-07 | 0/12 |
+| weak-overlap | 600 | 16 [6–50] | 1/10/1 | 0/12 | 11/12 | 2.1e-11 | 3.1e-02 | 1.1e+00 | 11/12 |
+| weak-overlap | 1,200 | 12 [7–50] | 1/10/1 | 0/12 | 11/12 | 8.7e-12 | 2.3e-02 | 1.0e+00 | 12/12 |
+
+Read down the `tol/stall/cap` column first, because it is the one that changed a claim:
+**2 fits of 96 reached the tolerance, 86 stalled and 8 ran out of rounds.** Then `ill>0`,
+which rises with `n` on `linear` (5/12 to 9/12) and is highest exactly where the mechanism
+is easiest to get right — the prediction item 4 makes and had never tested. Then `check
+fails`, which is flat zero everywhere except `weak-overlap` and the one `linear` draw at
+`n = 600`, and is item 11.
 
 ### What the source settles
 
@@ -393,6 +480,13 @@ inherited.
    across six seeded fits at `n = 800` the alternation converged in 15 to 45 rounds with no
    ill-conditioned solve and a worst score of `1e-9`, so it is a minority behaviour of
    particular draws. `ReductionFluctuation.ill_conditioned` reports it either way.
+   **Measured properly since, and the sentence above was measured on one process.** Over
+   [96 fits](#how-the-alternation-exits) `ill_conditioned` fires on 5 of 12 `linear` draws
+   at `n = 600` and 9 of 12 at `n = 1,200` — not a minority, and heaviest on the *easy*
+   process, which is what "vanishes where the mechanism is right" predicts and what a sweep
+   over hard processes alone would have missed. "Converged" was also the wrong word: 86 of
+   96 stalled and 2 reached the tolerance. The reasoning in this paragraph survives; the
+   number attached to it did not.
 
 Two things follow that a reader will otherwise assume the other way. **No target is
 registered**, so the [oracle-law gate](methodology.md#the-oracle-law-gate) has nothing to say
@@ -677,6 +771,20 @@ order those two happened in is the whole lesson. What survived from the episode 
 it turned up on the way: the reported score and the reported curve were being read off
 *different* refits of the reduced regressions, which is why the per-estimand row disagreed
 with the per-equation rows by two orders of magnitude.
+
+**The characterisation has since been done, and the threshold has since changed** — see
+item 7 and [the sweep](#how-the-alternation-exits). The lesson holds exactly as stated: it
+took 96 fits rather than six to justify, and what the sweep found was not what the six fits
+had suggested. Two details of the paragraph above are worth correcting rather than leaving
+to imply otherwise. The six fits did not "converge" — over 96, stalling is what 86 of them
+do — so the reassurance that the loop reaches its tolerance on ordinary draws was never
+true; it was two draws in 96. And the drafted change that was reverted is *not* the change
+that landed. That one would have loosened `score_check`'s diagnostic for every
+doubly-robust fit, which is what "blunting it a thousandfold" rightly refused. What landed
+loosens nothing a reader is shown: `score_check` still holds the reported fit to
+`1e-3·se/√n`, and only the *loop's* internal stopping rule gained a second ruler. Item 11
+is why that distinction earns its keep — the diagnostic is still sharp enough to fail 23 of
+24 `weak-overlap` fits, which is the next real one, and it was found rather than hidden.
 
 ## Refusals worth lifting
 

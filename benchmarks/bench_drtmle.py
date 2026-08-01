@@ -4,13 +4,23 @@ Run with ``python benchmarks/bench_drtmle.py``.  This is a **characterisation**,
 benchmark and not a test: it asserts nothing, and its output is a distribution rather than
 a verdict.
 
-``docs/roadmap.md``'s open items 4, 6 and 7 all rest on the same evidence -- six seeded
-fits at ``n = 800`` on one process -- and item 4 says so itself: *"'minority' is measured
-on four processes"*.  Item 7 wants the loop's exit criterion changed and is explicit that
-the change has to wait: *"a threshold changed after seeing a failure needs the failure
-characterised first"*.  This script is that characterisation, and it exists so the numbers
-stop living as prose in a docstring.  It is the same reasoning ``bench_tmle.py`` states for
-keeping its rows: a comparison nobody can rerun becomes folklore.
+``docs/roadmap.md``'s open items 4, 6 and 7 all rested on the same evidence -- six seeded
+fits at ``n = 800`` on one process -- and item 7 wanted the loop's exit criterion changed
+but was explicit that the change had to wait: *"a threshold changed after seeing a failure
+needs the failure characterised first"*.  This script is that characterisation, and it
+exists so the numbers stop living as prose in a docstring.  It is the same reasoning
+``bench_tmle.py`` states for keeping its rows: a comparison nobody can rerun becomes
+folklore.
+
+**It has been run, and the table is in ``docs/roadmap.md`` under *How the alternation
+exits*.**  What it found is worth knowing before running it again.  Item 4's "minority
+behaviour rather than the norm" named the wrong minority: 8 of 96 fits ran out of rounds,
+but only **2 reached the tolerance** and **86 stalled**.  Item 6 held exactly (94 of 96).
+Item 7's disagreement showed on 68 of 96 and the criterion was changed on the strength of
+it, so **a fresh sweep no longer measures what that table measures** -- rerun it to see the
+new exit distribution, not to reproduce the old one.  And it turned up something none of
+the three items was about: ``weak-overlap`` fails ``score_check`` on 23 of 24 fits, which
+is now item 11.
 
 The three questions, and the columns that answer them:
 
@@ -362,8 +372,9 @@ def main() -> None:
     print(
         f"{len(capped)} of {len(ok)} fits ran out of rounds and {len(stalled)} stalled; "
         f"{len(ok) - len(capped) - len(stalled)} reached the tolerance. Item 4 of the "
-        "roadmap says a capped exit is a minority behaviour of particular draws -- this is "
-        "the column that says whether that holds off `nonlinear_dgp` and off n = 800."
+        "roadmap called a capped exit a minority behaviour of particular draws; the first "
+        "sweep found that true (8 of 96) and the contrast misleading -- only 2 of 96 "
+        "converged, and stalling is what the loop mostly does. Read all three counts."
     )
     closing_capped = [r for r in ok if r.closing_capped]
     print(

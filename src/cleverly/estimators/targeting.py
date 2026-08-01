@@ -829,14 +829,24 @@ def solve_with_reduction(
     nearly right, which is every fit anybody wants, that covariate is nearly zero and its
     Newton solve is near-singular: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching
     280 and a singular Hessian in a third of the rounds on one unseeded draw.  Such a fit
-    exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.  Six seeded fits at
-    ``n = 800`` converged in 15 to 45 rounds, so it is a minority behaviour of particular
-    draws rather than the norm -- but ``drtmle`` sidesteps it entirely by capping at three
-    iterations and never claiming to converge, and this loop's exit test is a *relative*
-    score, which divides by a ``mean|h|`` of order ``1e-3`` and so reads an absolutely
-    negligible score as a large one.  :attr:`ReductionFluctuation.ill_conditioned` reports
-    the conditioning; ``docs/roadmap.md`` lists both under *What is still open*, and
-    :class:`~cleverly.DRTMLE`'s module docstring says what turns on them.
+    exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.  ``drtmle``
+    sidesteps the question entirely by capping at three iterations and never claiming to
+    converge.  :attr:`ReductionFluctuation.ill_conditioned` reports the conditioning;
+    ``docs/roadmap.md`` lists this under *What is still open*, and
+    :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
+
+    **Swept over 96 fits** -- four processes by two sizes by twelve seeds, the table under
+    *How the alternation exits* -- which replaced the six-fit claim that stood here.  It
+    said the loop "converged in 15 to 45 rounds" on six seeded draws of *one* process, and
+    so ran to the cap only on a minority.  Running out of rounds is a minority (8 of 96),
+    but converging is rarer: **2 of 96 reached the tolerance and 86 stalled**.  The
+    conditioning is also worst on ``linear`` -- 5 of 12 draws at ``n = 600`` and 9 of 12 at
+    ``n = 1,200``, against 0 of 12 for ``nonlinear`` -- which is what "vanishes where the
+    mechanism is right" predicts, the easy process being the ill-conditioned one.
+
+    The exit test used to be a *relative* score alone, dividing by a ``mean|h|`` of order
+    ``1e-3`` and so reading an absolutely negligible score as a large one; :data:`_NEGLIGIBLE`
+    and :func:`_solved` are what that became and say why.
 
     Returns the final outcome submodel and the equation-(8) fluctuation, carrying equation
     (9)'s tilt on :attr:`~cleverly.fluctuation.Fluctuation.mechanism` and equation (10)'s on
