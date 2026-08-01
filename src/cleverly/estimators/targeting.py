@@ -86,6 +86,31 @@ _STALL_FACTOR = 0.95
 #: error -- :func:`~cleverly.validation.score_check` makes that comparison properly.
 _UNSOLVED = 1e-6
 
+#: An **absolute** score below ``_NEGLIGIBLE / n`` counts equation (10) as solved, whatever
+#: its relative score says.  This exists because the relative test is the wrong instrument
+#: for that one equation, and the reason is structural rather than a matter of taste.
+#:
+#: :func:`~cleverly.fluctuation._score.relative_score` divides by ``mean|w h|``, which
+#: :func:`~cleverly.fluctuation._score.score_scale` documents as "the largest the score
+#: could be" -- a sound normalisation for a covariate of order one.  Equation (10)'s
+#: covariate is :math:`g_{r,2}/g_{r,1}` and :math:`g_{r,2}` vanishes exactly where the
+#: mechanism is right, so on the fits anybody wants that denominator is ``1e-3`` to
+#: ``1e-2``: measured at ``9.4e-3`` and ``2.4e-3`` on a 400-row ``linear`` fit and
+#: ``5.1e-2`` and ``4.9e-3`` on a ``nonlinear`` one.  Asking for ``spec.tol`` *of that* is
+#: asking for an absolute score near ``1e-13``, six orders below the point at which the
+#: score stops mattering -- so the loop reads an absolutely negligible score as a large
+#: relative one and runs to its cap or its stall.  That is not a solver that failed; it is
+#: a ruler with the wrong zero.
+#:
+#: The bar here is the one the package already applies to the fit it reports:
+#: :func:`~cleverly.validation.score_check` passes a fluctuation whose score is under
+#: ``DEFAULT_TOLERANCE * se / sqrt(n)``, and with ``se = O(n**-0.5)`` on the scaled outcome
+#: that is this constant over ``n``.  Asymptotic linearity asks for ``P_n D = o(n**-0.5)``
+#: and nothing more; machine zero was never the requirement.  Where the covariate *is* of
+#: order one the relative test is the tighter of the two and still does the stopping, so
+#: equations (8) and (9) are unaffected and no well-conditioned fit changes.
+_NEGLIGIBLE = 1e-3
+
 #: Which of :func:`solve_with_reduction`'s three exits fired.  ``"tolerance"`` is the loop
 #: reaching ``spec.tol``, ``"stall"`` is the dual rule below finding neither the objective
 #: climbing nor the score improving, and ``"cap"`` is running out of ``max_outer`` rounds.
@@ -886,6 +911,7 @@ def solve_with_reduction(
             reduced = reduction.refit(_reduction_inputs(current, fluctuation.targeted, targeted_g))
 
         reduced_score = 0.0
+        reduced_absolute = 0.0
         if extra_submodel is not None:
             # At the *final* reductions, not the ones equation (10) was solved along. The
             # influence curve reads `reduction.reduced`, so a score taken at any other set
@@ -900,6 +926,7 @@ def solve_with_reduction(
             assert extra is not None
             extra = replace(extra, score=settled, score_scale=scale)
             reduced_score = relative_score(settled, scale)
+            reduced_absolute = float(np.max(np.abs(settled))) if settled.size else 0.0
 
         mechanism_relative = 0.0
         if mechanism is not None:
@@ -919,7 +946,13 @@ def solve_with_reduction(
         trace.append(
             (outer, fluctuation.relative_score_norm, reduced_score, mechanism_relative, joint)
         )
-        if worst <= spec.tol:
+        # Equation (10) is judged on whichever of the two rulers it can actually meet, and
+        # the other two are judged as they always were. `worst` stays the *relative* max
+        # above, because it is what the stall rule measures progress with and a mixed
+        # quantity would make "improving" mean two things on alternate rounds.
+        negligible = _NEGLIGIBLE / float(data.n)
+        reduced_solved = reduced_score <= spec.tol or reduced_absolute <= negligible
+        if max(fluctuation.relative_score_norm, mechanism_relative) <= spec.tol and reduced_solved:
             exit_reason = "tolerance"
             break
         # The stall rule watches the *objective as well as* the score, which is where this
