@@ -9,6 +9,7 @@ is quietly reordering or recasting something.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import narwhals as nw
 import numpy as np
@@ -258,7 +259,11 @@ class TestPackageSurface:
                 assert hasattr(module, name), f"{module_name}.{name}"
 
     def test_the_readme_quickstart_runs(self) -> None:
-        """The example in the README, executed as written."""
+        """The quickstart in the README, executed as written.
+
+        Cheaper learners and a smaller ``n`` than the README's, which is the fast tier's
+        rule; what is pinned is that every call in it exists and returns what it claims.
+        """
         from cleverly.datasets import make_nonlinear_ate
 
         frame, truth = make_nonlinear_ate(n=800, seed=0, backend="polars")
@@ -278,6 +283,47 @@ class TestPackageSurface:
         assert len(res.estimates["ate"].ci) == 2
         assert res.estimates["ate"].influence_curve.shape == (800,)
         assert "ate" in truth
+
+    def test_the_readme_end_to_end_example_runs(self, tmp_path: Path) -> None:
+        """The README's end-to-end fit: every diagnostic it shows, off one fitted result.
+
+        The point of that section is that nothing after ``fit`` refits, so the assertions
+        are that each call exists and returns its own report -- not what the numbers are,
+        which the README states for the default learner library rather than for ``glm``.
+        """
+        import cleverly
+        from cleverly.datasets import make_nonlinear_ate
+
+        frame, _ = make_nonlinear_ate(n=800, seed=0)
+        res = (
+            TMLE(
+                estimands=("ate", "ey1", "ey0"),
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=4,
+                learner_folds=3,
+                random_state=0,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3", "W4"])
+            .single()
+        )
+        assert isinstance(res.summary(), str)
+
+        assert isinstance(res.sensitivity.positivity().summary(), str)
+        assert set(res.sensitivity.robustness_value()) >= {"rv", "rva"}
+        assert res.sensitivity.benchmark(["W1", "W2"]) is not None
+
+        assert isinstance(res.validation.score_check().summary(), str)
+        assert isinstance(res.validation.nuisance().summary(), str)
+
+        # The risk ratio was not among the requested estimands: it comes from the joint
+        # influence curve by the delta method, with no refit.
+        ratio = res.contrast(lambda psi: psi[0] / psi[1], ["ey1", "ey0"])
+        assert ratio.psi == pytest.approx(res.estimates["ey1"].psi / res.estimates["ey0"].psi)
+
+        path = tmp_path / "fit.npz"
+        res.save(path)
+        assert cleverly.load(path).estimates["ate"].psi == res.estimates["ate"].psi
 
 
 class TestTheResultSet:

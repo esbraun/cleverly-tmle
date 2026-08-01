@@ -15,7 +15,8 @@ rewriting it in Rust buys 2% at best, and the honest conclusion is to leave it a
 The kernels most likely to justify native code are the ones that scale in
 ``n_replicates x n``: the multiplier bootstrap and the targeted bootstrap.
 
-What running this actually established (see the README):  every one of those kernels
+What running this actually established (see ``docs/roadmap.md``, *On native
+acceleration*):  every one of those kernels
 turned out to be cheaper to *fix* than to rewrite.  The multiplier bootstrap spent
 over 90% of its time generating multipliers rather than multiplying, and for Gaussian
 multipliers the whole resampling loop has a closed form.  The cluster bootstrap was

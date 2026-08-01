@@ -92,7 +92,8 @@ def _refuse_continuous_combinations(
 
     This used to say the obstacle was that on a continuum each factor "is a conditional
     density whose product with the treatment density needs its own derivation".  That is
-    **wrong**, and the README's roadmap says so: ``P(Delta = 1 | A, W)`` is a conditional
+    **wrong**, and ``docs/roadmap.md`` says so under *Refusals worth lifting*:
+    ``P(Delta = 1 | A, W)`` is a conditional
     *probability* of a binary event, which an ordinary classifier estimates with the dose
     as a numeric feature, and it does not become a density because ``A`` is continuous;
     ``P(Z = z | A, W)`` is a probability for the same reason.  The same mistake was made
@@ -736,7 +737,7 @@ class CausalData:
         equivalently that ``Delta`` is independent of ``Z`` given ``(A, W)``, which
         holds in particular when the outcome's recording is decided before ``Z`` is
         realised.  Where that is implausible, the estimand belongs to an ``ltmle``-style
-        longitudinal analysis; see the roadmap in the README.
+        longitudinal analysis; see ``docs/roadmap.md``.
 
         :mod:`cleverly.estimators.direct_effect` states the rest of the assumptions this
         one belongs to, and derives the influence function they identify.
