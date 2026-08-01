@@ -120,13 +120,22 @@ _SHIFT_ID = Identification(
         "law, so the influence function carries no term for estimating it. A cap fitted "
         "from the data would break this, which is why cap= is required rather than "
         "defaulted to max(A)",
+        "with delta=: missingness at random given (A, W), and positivity for it *at the "
+        "assigned dose* -- P(Delta = 1 | A = d(a, w), W = w) > 0, not only at the dose "
+        "observed. The fluctuation updates Qbar as a function of the dose, so obtaining "
+        "Qbar*(d(A, W), W) reads the mechanism where the policy sends the unit",
+        "with intermediate=: the same two statements for P(Z = z | A, W), plus that Delta "
+        "is not caused by Z -- the assumption missingness_design() states for an arm",
     ),
     required_nuisances=("outcome_regression", "treatment_density"),
     dr_condition=(
         "consistent if either Qbar(A, W) or the conditional density g(a | W) is "
         "consistent; the mechanism half is a density ratio rather than a propensity, so "
         "its error is the error in g(a - delta | W) / g(a | W) rather than in a "
-        "probability"
+        "probability. With delta= that half becomes the *product* of the ratio and "
+        "P(Delta = 1 | A, W), and with intermediate= the ratio times "
+        "P(Z = z | A, W) * P(Delta = 1 | A, W) -- so it is Qbar right OR the whole "
+        "product right, exactly as on the arm path, and not either mechanism alone"
     ),
     references=(
         "Diaz & van der Laan (2012)",

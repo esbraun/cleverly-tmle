@@ -33,6 +33,7 @@ import numpy as np
 import pytest
 from sklearn.base import BaseEstimator
 
+import tests.conftest as conftest
 from cleverly import TMLE, load
 from cleverly.datasets import shift_dgp
 from cleverly.interventions import Shift
@@ -301,6 +302,168 @@ class TestTheDensityIsLoadBearing:
     def test_a_quadratic_response_does_not(self) -> None:
         # beta*delta + curvature*(2*E[A] + delta) -- a functional of the dose's own law.
         assert self._uncapped_effect(0.25) == pytest.approx(0.5 + 0.25 * (2 * 2.0 + 1.0), abs=1e-3)
+
+
+class _MissingAtRandom:
+    r"""A missingness mechanism for the dose fixture, and an oracle for it.
+
+    :math:`\pi(a, w) = \mathrm{expit}(2.4 - 0.9 a + 1.2 w_1)` -- decreasing in the dose
+    and increasing in the confounder, which is what makes a complete-case analysis
+    *biased* rather than merely less efficient: dropping the unrecorded rows tilts the
+    joint law of ``(A, W)`` the shifted predictions are averaged against.
+
+    The coefficients are not decorative.  The dose is itself confounded by :math:`w_1`
+    with coefficient 0.7, so a mechanism whose two slopes push along that direction very
+    nearly cancels: at :math:`(-0.45, 0.7)` the population bias on ``ey_shift[+0.5]`` is
+    ``-0.025``, a third of a standard error, and the negative control would have been
+    vacuous while reading as though it were not.  These leave ``-0.173`` and keep
+    :math:`\pi` above 0.014 everywhere -- clear of ``nuisance_bound``, so nothing is
+    truncated and the bias is the mechanism's rather than the bound's.
+
+    ``truth`` needs no adjustment at all, and that is a claim rather than a convenience:
+    :math:`\pi` is not in :math:`E[\bar Q(d(A, W), W)]`, so the MAR-identified parameter
+    is the one the complete-data fixture already reports.
+    """
+
+    def __init__(self, dgp: Any) -> None:
+        self.dgp = dgp
+
+    def probability(self, w: Any, a: Any) -> Any:
+        latent = np.asarray(w, dtype=float)
+        dose = np.asarray(a, dtype=float).reshape(-1)
+        return 1.0 / (1.0 + np.exp(-(2.4 - 0.9 * dose + 1.2 * latent[:, 0])))
+
+    # The name conftest.OracleDoseMechanism reaches for.
+    def missingness(self, w: Any, a: Any) -> Any:
+        return self.probability(w, a)
+
+
+def _mar_frame(frame, dgp, seed: int):  # type: ignore[no-untyped-def]
+    """The fixture's frame with outcomes knocked out at random given ``(A, W)``."""
+    latent = np.column_stack([np.asarray(frame[name], dtype=float) for name in ("W1", "W2", "W3")])
+    dose = np.asarray(frame["A"], dtype=float)
+    pi = _MissingAtRandom(dgp).probability(latent, dose)
+    observed = np.random.default_rng(seed).random(len(frame)) < pi
+    return (
+        frame.assign(
+            Delta=observed.astype(float),
+            Y=np.where(observed, np.asarray(frame["Y"], dtype=float), np.nan),
+        ),
+        observed,
+    )
+
+
+class TestAShiftWithOutcomesMissingAtRandom:
+    """The same three claims as above, with a third nuisance in the covariate.
+
+    The oracle law in ``tests/discrete_law_shift_cde.py`` settles the arithmetic exactly;
+    what a real dose adds is that ``pi`` is now *estimated* at each shifted dose by a
+    classifier reading the dose as a numeric feature -- which is the thing the refusal
+    this replaced said could not be done.
+    """
+
+    #: Three times the complete-data fixture's, and the reason is the negative control
+    #: rather than the estimate: the complete-case bias is ``0.173`` in population, so at
+    #: ``N`` its standard error is the same size and "biased" would not be a statement a
+    #: single fit could make. Costs a second, since every nuisance here is a glm or an
+    #: oracle.
+    MAR_N = 3 * N
+
+    @pytest.fixture(scope="class")
+    def mar_fit(self):  # type: ignore[no-untyped-def]
+        dgp = shift_dgp(curvature=0.25)
+        frame, truth = dgp.sample(self.MAR_N, shifts=POLICIES, seed=5)
+        holed, observed = _mar_frame(frame, dgp, seed=11)
+        result = (
+            TMLE(
+                outcome_learner=OracleShiftOutcome(dgp),
+                treatment_learner="glm",
+                missingness_learner=conftest.OracleDoseMechanism(_MissingAtRandom(dgp)),
+                cross_fit=False,
+                shifts=SHIFTS,
+                density_bins=BINS,
+                random_state=0,
+                simultaneous=False,
+            )
+            .fit(holed, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"], delta="Delta")
+            .single()
+        )
+        return result, truth, holed, observed
+
+    def test_a_useful_share_of_outcomes_is_missing(self, mar_fit) -> None:  # type: ignore[no-untyped-def]
+        _, _, _, observed = mar_fit
+        assert 0.15 < 1.0 - float(observed.mean()) < 0.6
+
+    def test_the_score_equation_is_still_solved(self, mar_fit) -> None:  # type: ignore[no-untyped-def]
+        result, _, _, _ = mar_fit
+        assert result.fluctuations["mtp"].converged
+        assert bool(result.validation.score_check())
+
+    @pytest.mark.parametrize(
+        "estimand",
+        ["ey_shift[natural course]", "ey_shift[+0.5]", "ate_shift[+0.5 vs natural course]"],
+    )
+    def test_the_truth_is_recovered(self, mar_fit, estimand: str) -> None:  # type: ignore[no-untyped-def]
+        result, truth, _, _ = mar_fit
+        estimate = result[estimand]
+        deviation = abs(estimate.psi - truth[estimand])
+        assert deviation < 4.0 * estimate.std_error, (
+            f"{estimand}: {estimate.psi:.4f} vs truth {truth[estimand]:.4f}, "
+            f"se {estimate.std_error:.4f}"
+        )
+
+    def test_dropping_the_incomplete_rows_is_biased(self, mar_fit) -> None:  # type: ignore[no-untyped-def]
+        """The reason the mechanism is in the covariate at all.
+
+        A complete-case fit is a perfectly ordinary shift fit run on a *different* joint
+        law of ``(A, W)``, so it converges to a different number -- and nothing in its
+        own output says so.  Measured here rather than argued.
+        """
+        result, truth, holed, observed = mar_fit
+        dgp = shift_dgp(curvature=0.25)
+        complete = holed[np.asarray(observed)]
+        naive = (
+            TMLE(
+                outcome_learner=OracleShiftOutcome(dgp),
+                treatment_learner="glm",
+                cross_fit=False,
+                shifts=SHIFTS,
+                density_bins=BINS,
+                random_state=0,
+                simultaneous=False,
+            )
+            .fit(complete, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+            .single()
+        )
+        name = "ey_shift[+0.5]"
+        corrected = abs(result.psi(name) - truth[name])
+        dropped = abs(naive.psi(name) - truth[name])
+        # Three rather than four standard errors, and the gap is Monte Carlo slack rather
+        # than a weakened claim: the *population* complete-case bias is 0.173, which at
+        # this n is 4.2 standard errors, and one draw of it came out at 3.7. Raising the
+        # threshold to four would make the test a coin flip on the seed.
+        assert dropped > 3.0 * naive[name].std_error
+        assert dropped > 3.0 * corrected
+
+    def test_the_overlap_report_is_of_the_whole_weight(self, mar_fit) -> None:  # type: ignore[no-untyped-def]
+        result, _, _, _ = mar_fit
+        report = result.sensitivity.shift_support()
+        assert report["+0.5"].min_mechanism is not None
+        assert report["+0.5"].min_mechanism < 1.0
+        # The natural course's ratio is one everywhere, so with no mechanism its ESS is
+        # exactly n; here the missingness alone brings it down, which is the claim.
+        assert report["natural course"].max_ratio > 1.0
+        assert report["natural course"].ess_ratio < 1.0
+
+    def test_the_fit_survives_a_round_trip(self, mar_fit, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        result, _, _, _ = mar_fit
+        path = tmp_path / "shift_mar.npz"
+        result.save(path)
+        back = load(path)
+        assert back.nuisance.missingness.shape == (result.data.n, len(SHIFTS) + 1)
+        np.testing.assert_array_equal(back.nuisance.missingness, result.nuisance.missingness)
+        for name in result.estimates:
+            np.testing.assert_array_equal(back[name].influence_curve, result[name].influence_curve)
 
 
 class TestTheFitSurvivesARoundTrip:
