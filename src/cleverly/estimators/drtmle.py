@@ -5,7 +5,7 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
    **This variant is in progress.**  The code is written and its tests pass; that is not the
    same as finished, and two of the outstanding items are the kind that decide whether the
    thing is right at all.  The full list, with what each would change, is in
-   ``docs/roadmap.md`` under *What is still open*.  The four a caller's numbers depend on:
+   ``docs/roadmap.md`` under *What is still open*.  The five a caller's numbers depend on:
 
    1. **Theorem 1 of Benkeser et al. (2017) has not been read.**  The influence curve --
       which is the whole of what this variant buys -- is read off the R package ``drtmle``'s
