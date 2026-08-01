@@ -8,7 +8,7 @@ having to thread them through.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from ..interventions import (
@@ -19,6 +19,7 @@ from ..interventions import (
     check_shift_support,
     check_support,
 )
+from ._parameters import arm_parameters
 from .evalue import EValue, evalue
 from .missingness import missingness_tilt, tipping_gamma
 from .omitted_variable import (
@@ -216,7 +217,12 @@ class SensitivityAnalysis:
         null_hypothesis: float = 0.0,
         nu2_estimator: str = "auto",
     ) -> SensitivityBounds:
-        """Bias-adjusted bounds under an assumed strength of unmeasured confounding."""
+        """Bias-adjusted bounds under an assumed strength of unmeasured confounding.
+
+        One bound per contrast: with more than two arms the estimand to name is
+        ``"ate[medium vs low]"``, since the bound's ``nu2`` is the second moment of that
+        contrast's own Riesz representer.
+        """
         return omitted_variable_bounds(
             self._result,
             estimand,
@@ -277,7 +283,11 @@ class SensitivityAnalysis:
         )
 
     def evalue(self, estimand: str | None = None) -> EValue:
-        """VanderWeele--Ding E-value for the point estimate and confidence limit."""
+        """VanderWeele--Ding E-value for the point estimate and confidence limit.
+
+        One per contrast: with more than two arms the estimand to name is
+        ``"rr[medium vs low]"``, and ``None`` picks the first ratio the fit reported.
+        """
         return evalue(self._result, estimand)
 
     # ------------------------------------------------------------ missingness
@@ -287,9 +297,14 @@ class SensitivityAnalysis:
         gamma: Sequence[float] | None = None,
         *,
         estimands: Sequence[str] | None = None,
+        arm_gamma: Mapping[Any, float] | None = None,
     ) -> Any:
-        """Estimates under departures from missingness-at-random."""
-        return missingness_tilt(self._result, gamma, estimands=estimands)
+        """Estimates under departures from missingness-at-random.
+
+        ``arm_gamma=`` declares one multiplier per arm when the departure should not be
+        assumed the same in each; the grid then sweeps that direction's magnitude.
+        """
+        return missingness_tilt(self._result, gamma, estimands=estimands, arm_gamma=arm_gamma)
 
     def tipping_gamma(
         self,
@@ -297,24 +312,45 @@ class SensitivityAnalysis:
         *,
         null_hypothesis: float = 0.0,
         use_ci: bool = False,
+        arm_gamma: Mapping[Any, float] | None = None,
     ) -> float | None:
         """The departure from MAR at which the conclusion would tip."""
-        return tipping_gamma(self._result, estimand, null_hypothesis=null_hypothesis, use_ci=use_ci)
+        return tipping_gamma(
+            self._result,
+            estimand,
+            null_hypothesis=null_hypothesis,
+            use_ci=use_ci,
+            arm_gamma=arm_gamma,
+        )
 
     # --------------------------------------------------------------- combined
 
+    def _reportable(self, estimand: str) -> str | None:
+        """The parameter the report should be about, or ``None`` if there is none.
+
+        ``"ate"`` names a parameter on a two-armed fit and none at all on a wider one,
+        where the contrasts are ``ate[medium vs low]`` -- so a default that was a name
+        has to become a *rule*: the requested one where it exists, else the first
+        arm-indexed linear parameter the fit reported, in report order.
+        """
+        if estimand in self._result.estimates:
+            return estimand
+        known = arm_parameters(self._result.data, self._result.config.reference_arm)
+        return next((name for name in self._result.estimates if name in known), None)
+
     def report(self, estimand: str = "ate") -> str:
         """Everything that can be computed without a refit, as one printable report."""
+        name = self._reportable(estimand)
         blocks = [self.positivity().summary()]
         # Both analyses are scale-dependent and legitimately unavailable for some
         # fits (a ratio estimand, an outcome with no variance); skip rather than fail.
-        if estimand in self._result.estimates:
+        if name is not None:
             with contextlib.suppress(ValueError):
-                blocks.append(self.omitted_variable(estimand).summary())
+                blocks.append(self.omitted_variable(name).summary())
         with contextlib.suppress(ValueError):
             blocks.append(self.evalue().summary())
-        if self._result.data.has_missing_outcome:
-            tipping = self.tipping_gamma(estimand if estimand in self._result.estimates else "ate")
+        if self._result.data.has_missing_outcome and name is not None:
+            tipping = self.tipping_gamma(name)
             blocks.append(
                 "Missingness tilt\n"
                 + "-" * 16
