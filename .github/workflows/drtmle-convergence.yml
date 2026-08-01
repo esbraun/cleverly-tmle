@@ -39,7 +39,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv python install 3.12
-      - run: uv pip install --system -e ".[dev]"
+      # A virtual environment rather than `--system`; `ci.yml`'s `typecheck` job says why.
+      # This workflow never ran green even once: it was written while every install step in
+      # the repository was already failing, and dispatching it was the thing that found out.
+      - run: |
+          uv venv --python 3.12
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - run: uv pip install -e ".[dev]"
       # Through the environment rather than interpolated into the command, so the inputs
       # are arguments and not fragments of shell -- `nightly.yml` says the same.
       - env:

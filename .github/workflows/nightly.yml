@@ -24,7 +24,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv python install 3.12
-      - run: uv pip install --system -e ".[dev]"
+      # A virtual environment rather than `--system`; `ci.yml`'s `typecheck` job says why,
+      # and this workflow was red for the same reason and just as silently -- a scheduled
+      # run that fails at its install step reports a failed tier rather than a missing one.
+      - run: |
+          uv venv --python 3.12
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - run: uv pip install -e ".[dev]"
       # Through the environment rather than interpolated into the command, so the
       # input is an argument and not a fragment of shell. The fallback is for the
       # scheduled path, where ``inputs`` is empty.
