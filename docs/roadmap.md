@@ -8,8 +8,11 @@ yet](methodology.md#not-written-yet), which is the full list of candidates rathe
 chosen ones. **All six have landed**, so that list is now a record of what was done and what
 the sizing got wrong rather than a plan. The second variant is **in progress**: its code is
 written and its tests pass, and it is not finished — what is outstanding is enumerated under
-[What is still open](#what-is-still-open), and the first two entries are the kind that decide
-whether the thing is correct at all.
+[What is still open](#what-is-still-open). **What would finish it is one thing**: a
+demonstration that its interval covers where a plain `TMLE`'s does not, which is the single
+claim the variant exists to make and the one nobody has yet shown. [What would clear
+this](#what-would-clear-this) sets out what such a demonstration has to contain, what it
+costs, and the four entries that have to be settled before its result would be believable.
 
 ## Variants
 
@@ -49,7 +52,11 @@ whether the thing is correct at all.
   transcribed from `drtmle`'s implementation rather than derived; nothing here has been
   compared against that implementation's numbers either; and a coverage study on the
   off-diagonal of the misspecification grid found **no gap for the variant to close** at the
-  sizes it could reach. See [What is still open](#what-is-still-open) for the rest
+  sizes it could reach. A 96-fit sweep has since added a fourth: **under weak overlap the
+  score check fails on 23 of 24 fits**, with the worst score at rough parity with `se/√n`
+  rather than the `1e-7` every other process reports — so do not use this estimator where
+  overlap is poor. See [What is still open](#what-is-still-open) for the rest, and [what
+  would clear this](#what-would-clear-this) for which of it blocks
 
 ## What `drtmle` touched
 
@@ -71,8 +78,17 @@ further seams — is folded into the sections below, each marked where it moved.
 ### What is still open
 
 The variant is in progress, and this is the list. It is ordered by what would change a
-reported number, not by effort. Nothing below is a surprise waiting to be found — each was
-met while building the thing and is recorded where the code that has it lives.
+reported number, not by effort.
+
+It used to say "nothing below is a surprise waiting to be found — each was met while
+building the thing". That was true when written and is not true now: **item 11 was found by
+running the sweep**, not while building, and it is the most serious thing on the list. The
+claim was never safe — "no surprises left" is a statement about what has been looked for,
+and until the sweep ran, `weak_overlap_dgp` had not been. Read the list as what is known
+rather than as what exists.
+
+[What would clear this](#what-would-clear-this) separates the entries that block calling the
+variant landed from the ones that are limitations to live with.
 
 **1. Theorem 1 of Benkeser et al. (2017) has not been read.** The influence curve
 `D = D* − D*_Q − D*_g` is read off `drtmle`'s implementation, not derived. The whole variant
@@ -87,14 +103,20 @@ cross-language test anywhere, so this is not a new gap — but it is the cheapes
 would catch most of what item 1 is about, and it is a more costly omission here than
 elsewhere because the whole estimator is a transcription of that package.
 
-**3. There is no evidence the variant delivers what it is for.** A coverage pilot over the
-off-diagonal of the misspecification grid put `TMLE` and `DRTMLE` at 0.958 apiece in one cell
-and 1.000 in the other — no gap to close. The diagnosis is understood (a correctly specified
-*parametric* nuisance converges at `n^(−1/2)`, so the product condition never binds) and the
-regime that would show it — an adaptive nuisance slower than `n^(−1/4)` at large `n` — costs
-hours rather than minutes, because a `DRTMLE` study runs ~100× a plain one.
-`tests/e2e/test_coverage_slow.py`'s `TestDoublyRobustInference` guards what it can and says
-in its docstring that it is not a demonstration.
+**3. There is no evidence the variant delivers what it is for, and this is the item that
+clears the rest.** A coverage pilot over the off-diagonal of the misspecification grid put
+`TMLE` and `DRTMLE` at 0.958 apiece in one cell and 1.000 in the other — no gap to close. The
+diagnosis is understood (a correctly specified *parametric* nuisance converges at `n^(−1/2)`,
+so the product condition never binds) and the regime that would show it — an adaptive
+nuisance slower than `n^(−1/4)` at large `n` — costs hours rather than minutes, because a
+`DRTMLE` study runs ~100× a plain one. `tests/e2e/test_coverage_slow.py`'s
+`TestDoublyRobustInference` guards what it can and says in its docstring that it is not a
+demonstration.
+
+**Read this item as the definition of done rather than as one entry among twelve.** Every
+other blocker below is a precondition for believing the number this one would produce; the
+rest are limitations. [What would clear this](#what-would-clear-this) says what the study has
+to contain and what it costs.
 
 **4. The alternation does not reliably converge, and the reason is structural.** Equation
 (10)'s covariate is `gr2/gr1`, and `gr2` vanishes exactly where the mechanism is right — so
@@ -198,6 +220,103 @@ weak overlap makes equation (8)'s covariate so large that the truncation is doin
 `sensitivity.positivity()` on these fits is the obvious next reading. Until then this is the
 item that should stop anyone using `DRTMLE` where overlap is poor, and it outranks items 4,
 6 and 7, which are about a loop that reports its own difficulty honestly.
+
+**12. Item 7's change is not pinned by a test, and the sweep does not measure it.** Three
+loose ends, left by the change rather than found by it, and the first is the one that
+matters.
+
+*No test distinguishes the two exit criteria.* The whole `drtmle` suite — 61 tests — passes
+identically before and after, because every assertion in it is about the *reported* fit and
+the closing pass makes that fit the same either way. That is the failure mode `CLAUDE.md`
+names by name: a test written after a change, never watched to fail, pins nothing. What the
+change does is move the exit from `stall` at 30 rounds to `tolerance` at 3, and nothing in
+the repository would notice if `_solved` lost its absolute branch tomorrow. The evidence
+for the change is six refits recorded in a commit message, which is exactly the folklore
+`bench_tmle.py` exists to prevent.
+
+*The sweep measures the old criterion.* [The table](#how-the-alternation-exits) is the
+evidence the change was argued from, which is the right way round, but it means the exit
+distribution under the current rule is uncharacterised. A rerun is one dispatch and about
+45 minutes and would say whether `tolerance` is now the norm at scale or only on the six
+fits looked at.
+
+*The absolute bar is a proxy for the one it cites.* `score_check` compares against
+`DEFAULT_TOLERANCE * se / sqrt(n)` using the fit's actual `se`; `_NEGLIGIBLE / n` substitutes
+`se = O(n^-1/2)` on the scaled outcome, which is an assumption about the influence curve
+rather than a measurement of it. It is conservative exactly where it matters — under weak
+overlap `se` is large, so the loop's bar is the stricter one — but "conservative on the
+cases we looked at" is not "correct", and a fit with a very small `se` is the untested
+direction. Passing the realised `se` in would remove the assumption; it was not done because
+the loop runs before the estimate exists.
+
+### What would clear this
+
+**Cleared means item 3 is demonstrated: a regime where `DRTMLE`'s interval attains its
+nominal coverage and `TMLE`'s does not.** Nothing less clears it. Every other entry on the
+list is either a precondition for believing such a demonstration or a limitation to live
+with, and none of them is the point. The variant exists for exactly one claim — `TMLE` is
+doubly robust for *consistency* and singly robust for *inference*, and this closes the
+second gap — and a package that ships it without evidence is asking to be believed rather
+than showing its work.
+
+That bar is deliberately higher than "no known defects". An estimator with every item below
+resolved and no demonstration is one that computes something nobody has shown is worth
+computing. `bench_tmle.py`'s conclusion was that a Rust extension was not worth building,
+and it counts as a result because it was *measured*; the same standard applies here, and it
+cuts both ways — a study that finds no gap at reachable `n` is also a clearing outcome, and
+the honest response to it is to say so in the README rather than to keep looking.
+
+**What the demonstration has to show.** The remainder is
+`R₂ = ‖ĝ − g₀‖ · ‖Q̄̂ − Q̄₀‖`, and a `TMLE` interval needs `√n · R₂ → 0`. So the regime is one
+where that product does *not* vanish fast enough while one nuisance is still consistent:
+
+- **Both off-diagonal cells**, not one. `Q̄` right and `g` wrong, and `g` right and `Q̄`
+  wrong. `DRTMLE` should hold nominal in both; `TMLE` should fall short in at least one. One
+  cell is an anecdote, because which nuisance is wrong is the whole axis.
+- **A genuinely slow nuisance.** [The pilot found no gap](#what-is-still-open) and the
+  diagnosis is understood: a correctly specified *parametric* nuisance converges at
+  `n^(−1/2)`, so `R₂` is `O(n^(−1))` and the product condition never binds — there was
+  nothing for the variant to fix. The study needs an adaptive learner whose rate is worse
+  than `n^(−1/4)`, which is what makes this expensive rather than merely long.
+- **Coverage against its Monte Carlo standard error**, over replications. `CLAUDE.md`'s rule
+  applies with force here: never assert coverage on a single fit, and size the replication
+  count to the gap being resolved. Separating 0.95 from 0.88 wants a few hundred, not 120.
+- **A size trend.** The claim is asymptotic, so the gap should *open* as `n` grows. Two
+  sizes showing `TMLE` drifting down while `DRTMLE` holds is far better evidence than one
+  size showing a difference, and it is what rules out a coincidence at a single `n`.
+
+**What it costs, since that is why it has not been done.** A `DRTMLE` fit is 43s at
+`n = 1,200` (measured, [the sweep](#how-the-alternation-exits)) and a study runs both
+estimators over every replicate. Two cells by two sizes by 250 replicates is ~2,000 fits,
+which is ~24 hours serial and about two on a 12-way `matrix:`. That is a dispatch-only
+workflow of its own — `drtmle-convergence.yml` is the template, and the nightly tier must
+not absorb it.
+
+**Preconditions — a demonstration produced by this code would not currently be believable.**
+
+| item | why it blocks the demonstration |
+| --- | --- |
+| 1. Theorem 1 unread | the demonstration *is* a statement about the interval, and the interval is built from a curve transcribed from software rather than derived. A coverage study cannot distinguish "the theory works" from "two transcription errors cancelled" |
+| 2. no cross-check against `drtmle` | the cheapest way to make item 1 believable without reading Biometrika: one fixture fit in R, its `psi` and `se` committed, one test |
+| 11. weak overlap unsolved | **the sharpest obstacle, because it may sit exactly where the demonstration wants to look.** Poor overlap is a natural way to make `R₂` bite, and it is the one regime where the score check already fails on 23 of 24 fits. Until that is diagnosed, the most promising site for the study is unusable and it is not known whether the fault is confined to it |
+| 12. exit criterion unpinned | a study is thousands of fits whose exits nobody will read individually. The loop's stopping rule needs a test that fails when it changes, or a silent regression mid-study is indistinguishable from a result |
+
+**Not blocking — real, understood, and worth writing down rather than fixing.**
+
+Items 4, 5 and 6 are the alternation reporting its own difficulty honestly: `exit_reason`,
+`ill_conditioned` and `closing_capped` all exist so that a reader can see what happened, and
+the closing pass means the reported curve is mean-zero whatever the loop did. Items 8 and 9
+are costs of the design — `retarget` refits, and `gr2`'s truncation is fixed — both stated
+where the code that has them lives. Item 10 is scope, and only its first two entries are
+candidates at all. None of these would change a coverage number.
+
+**The order to work in**, which follows from the above rather than from effort: item 11
+first, because it may be where the demonstration has to happen and it is currently broken;
+then item 2, which is cheap and buys most of item 1's assurance; then item 3 itself. Item 12
+is a morning's work and should not queue behind any of them.
+
+So the honest one-line status is: **the estimator computes and reports its own difficulties,
+and the single thing it exists to demonstrate has not been demonstrated.**
 
 ### How the alternation exits
 

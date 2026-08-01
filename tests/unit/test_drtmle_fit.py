@@ -22,7 +22,7 @@ from cleverly.data import CausalData
 from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.serialize import load
-from cleverly.estimators.targeting import build_submodel
+from cleverly.estimators.targeting import _solved, build_submodel
 from cleverly.estimators.tmle import DEFAULT_NUISANCE_BOUND
 from cleverly.inference.influence import counterfactual_means, reduced_corrections
 from tests.conftest import FAST_KWARGS
@@ -303,6 +303,70 @@ class TestTheAlternationCanBeIllConditioned:
         assert check.passed, check.summary()
         worst = max(abs(row.score) for row in check.rows)
         assert worst < 1e-3 * hard.estimates["ate"].std_error
+
+
+class TestAnEquationStopsOnEitherRuler:
+    r"""``_solved`` accepts a relative score *or* a negligible absolute one, and the second
+    branch is the whole of what the exit criterion change was.
+
+    **This is a unit test of the predicate rather than an assertion about a fit, and that is
+    deliberate.**  The change it pins moves the loop's exit from ``stall`` at 30 rounds to
+    ``tolerance`` at 3 on the fits measured, but it does not move the fit: the closing pass
+    re-solves all three equations afterwards, so ``psi``, the curve and ``score_check`` come
+    out the same either way -- ``ate`` moved by ``4.1e-5``, which is ``2.4e-4`` of a standard
+    error.  That is why the whole 61-test suite passed identically before and after, and why
+    a test asserting something about the *result* cannot pin this no matter how it is
+    written.  What can be pinned is the predicate, and removing its absolute branch turns the
+    second case below red immediately.
+
+    Asserting ``exit_reason == "tolerance"`` on a fitted result would be the other candidate,
+    and it is rejected for the reason the class above rejects it: which exit fires is a
+    property of the draw, and six fits are not enough to make it a property of the estimator.
+    The sweep in ``docs/roadmap.md`` had 2 of 96 reach the tolerance under the *old* rule and
+    the new rule has not been swept, so pinning it here would pin a seed.
+
+    The magnitudes are the measured ones.  On a 400-row ``linear`` fit the round the loop
+    gave up at had equation (10) at ``2.3e-8`` relative -- six orders above ``spec.tol`` --
+    while its absolute score was near ``1.1e-10``, against a negligible bar of ``1e-3/400``.
+    That gap is the item-7 defect in two numbers.
+    """
+
+    TOL = 1e-10
+    NEGLIGIBLE = 1e-3 / 400.0
+
+    def test_a_small_relative_score_is_solved_as_it_always_was(self) -> None:
+        """Equation (8)'s path, unchanged: ``1/g`` is bounded below, so the ratio decides."""
+        assert _solved(relative=1e-17, absolute=1.0, tol=self.TOL, negligible=self.NEGLIGIBLE)
+
+    def test_a_negligible_absolute_score_is_solved_though_the_ratio_is_not(self) -> None:
+        """Equations (9) and (10)'s path, and the branch the change added.
+
+        Both measured magnitudes, from the round a 400-row fit stalled on. Delete the
+        absolute branch of ``_solved`` and this is the assertion that fails.
+        """
+        assert _solved(relative=2.3e-8, absolute=1.1e-10, tol=self.TOL, negligible=self.NEGLIGIBLE)
+
+    def test_a_score_that_is_large_on_both_rulers_is_not_solved(self) -> None:
+        """The change loosens which ruler is used, not what counts as solved on either.
+
+        ``1e-3`` absolute is roughly the worst score the weak-overlap fits report, and they
+        are the ones the diagnostic must go on failing -- see item 11.
+        """
+        assert not _solved(relative=2.3e-8, absolute=1e-3, tol=self.TOL, negligible=self.NEGLIGIBLE)
+
+    def test_the_bar_tightens_with_the_sample_size(self) -> None:
+        """``_NEGLIGIBLE / n``, so a score that is negligible at 400 rows need not be at 40,000.
+
+        The bar stands in for ``score_check``'s ``tolerance * se / sqrt(n)`` with
+        ``se = O(n**-0.5)``; item 12 records that this is an assumption rather than a
+        measurement. What the substitution must not lose is the direction, which is what
+        this pins.
+        """
+        absolute = 1.1e-10
+        assert _solved(relative=1.0, absolute=absolute, tol=self.TOL, negligible=1e-3 / 400)
+        assert not _solved(
+            relative=1.0, absolute=absolute, tol=self.TOL, negligible=1e-3 / 40_000_000
+        )
 
 
 class TestTheRefusals:
