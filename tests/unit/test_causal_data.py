@@ -558,18 +558,29 @@ class TestContinuousTreatment:
         assert data.is_continuous_treatment
 
     @pytest.mark.parametrize("role", ["delta", "weights", "intermediate"])
-    def test_the_roles_that_need_a_per_arm_factor_are_refused(self, role: str) -> None:
+    def test_the_roles_a_dose_used_to_refuse_are_accepted(self, role: str) -> None:
+        """All three were refused together, on a reason that was wrong for all three.
+
+        ``P(Delta = 1 | A, W)`` and ``P(Z = z | A, W)`` are conditional *probabilities* of
+        binary events -- an ordinary classifier with the dose as a numeric feature -- and
+        do not become densities because ``A`` is continuous; a weight tilts the population
+        and is not in the clever covariate at all.  What was genuinely missing was the
+        mechanisms evaluated at the *shifted* dose, and an oracle law to check the
+        composition against; ``docs/roadmap.md`` item 5 records both.
+        """
         frame = _continuous_frame()
-        frame["extra"] = 1.0
-        with pytest.raises(DataError, match="not yet supported together with"):
-            CausalData.from_frame(
-                frame,
-                outcome="Y",
-                treatment="A",
-                treatment_kind="continuous",
-                covariates=["W1", "W2"],
-                **{role: "extra"},
-            )
+        # Both levels present, and a positive weight: the refusal used to fire before any
+        # of these columns was validated, so a constant 1.0 passed for all three roles.
+        frame["extra"] = np.tile([0.0, 1.0], len(frame) // 2) if role != "weights" else 1.0
+        data = CausalData.from_frame(
+            frame,
+            outcome="Y",
+            treatment="A",
+            treatment_kind="continuous",
+            covariates=["W1", "W2"],
+            **{role: "extra"},
+        )
+        assert data.is_continuous_treatment
 
     def test_an_unknown_kind_is_refused(self) -> None:
         with pytest.raises(DataError, match="treatment_kind must be"):
