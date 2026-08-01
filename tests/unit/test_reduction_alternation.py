@@ -180,6 +180,60 @@ class TestAllThreeEquationsAreSolved:
         assert 1 <= reduction.n_outer < 50
 
 
+class TestHowTheLoopExited:
+    """Which of the three exits fired -- a fact nothing else on the record carries.
+
+    ``rounds`` cannot separate a stall from a cap without ``max_outer``, which is a function
+    default rather than a field.  And ``failure`` answers a different question: it is set
+    from the *closing pass's* scores against a statistical threshold, without ever reading
+    the round count.  The two therefore come apart in both directions, which is why one
+    cannot stand in for the other and why the claim "such a fit runs to the outer cap" had
+    nothing to be checked against before this was recorded.
+
+    **A stall gets no test.**  It needs a draw on which neither the joint likelihood climbs
+    nor the worst score improves by a factor of ``_STALL_FACTOR``, and no pair on this law
+    produces one -- the exact-law refit is saturated, so the loop either descends cleanly or
+    runs out of rounds.  A test that manufactured a stall by other means would pin the
+    manufacture rather than the behaviour, so the exit is left checked only for membership,
+    where an estimator fit meets it.
+    """
+
+    def test_a_pair_that_settles_exits_on_the_tolerance(self) -> None:
+        assert alternate(WRONG_G, WRONG_Q).reduction.exit_reason == "tolerance"
+
+    def test_a_loop_that_runs_out_of_rounds_says_cap_where_failure_says_nothing(self) -> None:
+        """The two disagreeing on one fit is the point, not an artefact of this one.
+
+        Capped at a single refitting round the loop exits with rounds left unrun, and the
+        closing pass then drives all three scores well under ``_UNSOLVED`` -- so ``failure``
+        is ``None`` and ``converged`` is ``True`` on a fit that never terminated on its own.
+        A reader inferring the cap from either of those would infer the opposite.
+        """
+        reduction = alternate(WRONG_G, WRONG_Q, max_outer=1).reduction
+
+        assert reduction.exit_reason == "cap"
+        assert reduction.n_outer == 1
+        assert reduction.failure is None
+
+    def test_the_closing_pass_reports_its_own_cap_separately(self) -> None:
+        """Equation (9)'s stage stops on ``max_steps`` or on the tolerance, and says which.
+
+        Its covariate reads the mechanism it tilts, so each solve leaves a residual at the
+        post-tilt covariate that iterating shrinks without removing.  Whether twenty steps
+        were enough is therefore a property of the fit rather than a constant, and the flag
+        is asserted here against the score it is a statement about -- at two refitting rounds
+        the stage lands at ``2.1e-10`` and is capped, and at the loop's own exit it reaches
+        ``4.2e-12`` and is not.
+        """
+        capped = alternate(WRONG_G, WRONG_Q, max_outer=2)
+        settled = alternate(WRONG_G, WRONG_Q)
+
+        assert capped.reduction.closing_capped
+        assert capped.mechanism.relative_score > SPEC.tol
+        assert not settled.reduction.closing_capped
+        assert settled.mechanism.relative_score <= SPEC.tol
+
+
 class TestTheJointLikelihoodNeverDecreases:
     r"""Why this terminates rather than merely settling.
 

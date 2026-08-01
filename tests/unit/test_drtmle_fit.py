@@ -83,6 +83,7 @@ class TestWhatItReports:
         """
         reduction = fit.repeats[0].fluctuations["mean"].reduction
         assert 1 <= reduction.n_outer < 50
+        assert reduction.exit_reason != "cap"
         assert reduction.failure is None
         assert reduction.ill_conditioned == 0
 
@@ -276,11 +277,20 @@ class TestTheAlternationCanBeIllConditioned:
         equations a capped alternation left open, so a fit can report ``n_outer == 50`` and
         no failure. That is the whole point of the pass, and asserting the old coupling
         would forbid it.
+
+        Which exit fired is checked for *membership* rather than for a value: this fit is
+        the one whose behaviour depends on the draw, so pinning ``"tolerance"`` here would
+        pin a seed. What is pinned is the one direction that holds by construction -- a cap
+        exit means the rounds ran out, where the converse does not follow, since the last
+        round of a full fifty may still break on the tolerance.
         """
         reduction = hard.repeats[0].fluctuations["mean"].reduction
         assert reduction.ill_conditioned >= 0
         assert 1 <= reduction.n_outer <= 50
         assert reduction.closing > 0, "the closing pass runs on every fit that has reductions"
+        assert reduction.exit_reason in {"tolerance", "stall", "cap"}
+        if reduction.exit_reason == "cap":
+            assert reduction.n_outer == 50
         if reduction.n_outer < 50:
             assert reduction.failure is None
 
