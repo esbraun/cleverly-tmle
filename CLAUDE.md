@@ -21,6 +21,13 @@ or on a developer machine with cores to spare.
 pytest -m "not slow" -q        # the only tier to run in the sandbox
 ```
 
+**`benchmarks/bench_drtmle.py` is the same kind of thing without the marker to say so.**
+It is not a test, so no selection excludes it, and at its defaults it is ~96 `DRTMLE` fits
+of tens of seconds each — measured at 57s per fit on 400 rows here. Dispatch
+`.github/workflows/drtmle-convergence.yml` and read its table out of the job log. A
+`--processes nonlinear --sizes 400 --seeds 2 --jobs 1` smoke run is two fits and about two
+minutes, which is the most of it that belongs in the sandbox.
+
 **Interrupt a test run with `Ctrl-C`, not `kill -9`.** Which signal you use is the whole
 difference: joblib registers an `atexit` handler that shuts its worker pool down on every
 path where Python still runs, so a `SIGINT` — and an ordinary failure, and a clean exit —

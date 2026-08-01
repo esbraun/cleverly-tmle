@@ -1,0 +1,57 @@
+name: drtmle-convergence
+
+# Dispatch only, with no schedule. This is a characterisation rather than a check: it
+# asserts nothing, its output is a table a human reads, and running it nightly would
+# spend tens of minutes producing numbers nobody had asked for. It is a separate
+# workflow rather than a job on `nightly.yml` so that dispatching the slow tier does
+# not also start this sweep.
+#
+# The environment this repository is developed in cannot run it (see CLAUDE.md), so this
+# is how the roadmap's open items 4, 6 and 7 get their numbers.
+on:
+  workflow_dispatch:
+    inputs:
+      processes:
+        description: "space-separated: linear nonlinear weak-overlap off-diagonal"
+        default: "linear nonlinear weak-overlap off-diagonal"
+      sizes:
+        description: "space-separated sample sizes"
+        default: "600 1200"
+      seeds:
+        description: "fits per (process, n) cell"
+        default: "12"
+      jobs:
+        description: "parallel fits; the runner has 4 cores and each fit is single-threaded"
+        default: "3"
+      rows:
+        description: "also print every individual fit, not just the per-cell summary"
+        type: boolean
+        default: true
+
+jobs:
+  characterise:
+    runs-on: ubuntu-latest
+    # A fit is tens of seconds and the defaults are ~96 of them. Generous rather than
+    # tight: a sweep killed at the cap reports a truncated distribution, which is the one
+    # failure mode that would look like a result.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv pip install --system -e ".[dev]"
+      # Through the environment rather than interpolated into the command, so the inputs
+      # are arguments and not fragments of shell -- `nightly.yml` says the same.
+      - env:
+          PROCESSES: ${{ inputs.processes }}
+          SIZES: ${{ inputs.sizes }}
+          SEEDS: ${{ inputs.seeds }}
+          JOBS: ${{ inputs.jobs }}
+          ROWS: ${{ inputs.rows && '--rows' || '' }}
+        run: >
+          python benchmarks/bench_drtmle.py
+          --processes $PROCESSES
+          --sizes $SIZES
+          --seeds "$SEEDS"
+          --jobs "$JOBS"
+          $ROWS

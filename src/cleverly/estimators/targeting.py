@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from typing import Literal
 
 import numpy as np
 
@@ -54,6 +55,7 @@ from .reduced import ReducedSet
 
 __all__ = [
     "ProjectionFluctuation",
+    "ReductionExit",
     "ReductionFluctuation",
     "ReductionSpec",
     "TargetingSpec",
@@ -83,6 +85,17 @@ _STALL_FACTOR = 0.95
 #: (~1e-10), and well below the point at which the score would matter beside a standard
 #: error -- :func:`~cleverly.validation.score_check` makes that comparison properly.
 _UNSOLVED = 1e-6
+
+#: Which of :func:`solve_with_reduction`'s three exits fired.  ``"tolerance"`` is the loop
+#: reaching ``spec.tol``, ``"stall"`` is the dual rule below finding neither the objective
+#: climbing nor the score improving, and ``"cap"`` is running out of ``max_outer`` rounds.
+#:
+#: Recorded because nothing else on the record carries it and the three are not otherwise
+#: distinguishable: ``rounds`` cannot separate a stall from a cap without ``max_outer``,
+#: which is a function default rather than a field, and ``failure`` is a statement about
+#: score magnitude rather than about how the loop ended -- see
+#: :attr:`ReductionFluctuation.exit_reason`.
+ReductionExit = Literal["tolerance", "stall", "cap"]
 
 
 @dataclass(frozen=True)
@@ -635,6 +648,22 @@ class ReductionFluctuation:
     rounds: int = 0
     converged: bool = True
     failure: str | None = None
+    #: Which of the loop's three exits fired.  **Not** a restatement of :attr:`failure`, and
+    #: the two disagree in both directions: ``failure`` is set from the *closing pass's*
+    #: scores against :data:`_UNSOLVED` and never reads the round count, so a fit that ran
+    #: out of rounds but scores well reports ``None`` while one that stalled at round three
+    #: with a bad score reports ``"max_iter_reached"`` -- a name that on its own would have a
+    #: reader believe the cap was reached.  Which exit fired is a fact about the loop, it is
+    #: recoverable from nowhere else on this record, and it is what a claim of the form "such
+    #: a fit runs to the outer cap" has to be checked against.
+    exit_reason: ReductionExit = "tolerance"
+    #: Whether the closing pass's mechanism stage stopped on its step cap rather than on
+    #: ``spec.tol``.  Equation (9)'s covariate reads the very mechanism it tilts, so each
+    #: solve leaves a residual at the post-tilt covariate that iterating shrinks without
+    #: removing; the cap binding is an expected outcome of that rather than a fault.  It is
+    #: on the record so that a reader can see the stage stopped counting rather than infer
+    #: from :attr:`closing` that it converged.
+    closing_capped: bool = False
     #: How many rounds' equation-(10) solves reported a failure of their own.  Not rare and
     #: not a defect in the solver: :math:`g_{r,2}` vanishes exactly where the mechanism is
     #: right, so on any fit whose :math:`\hat g` is nearly right that covariate is nearly
@@ -811,6 +840,9 @@ def solve_with_reduction(
     trace: list[tuple[int, float, float, float, float]] = []
     previous: float | None = None
     previous_joint: float | None = None
+    # The cap is what happens when neither break below fires, so it is the starting value
+    # rather than a fourth case to detect after the loop.
+    exit_reason: ReductionExit = "cap"
 
     for outer in range(1, max_outer + 1):
         if "Q" in guard:
@@ -888,6 +920,7 @@ def solve_with_reduction(
             (outer, fluctuation.relative_score_norm, reduced_score, mechanism_relative, joint)
         )
         if worst <= spec.tol:
+            exit_reason = "tolerance"
             break
         # The stall rule watches the *objective as well as* the score, which is where this
         # loop parts company with `solve_with_mechanism`. There the mechanism score falls by
@@ -901,6 +934,7 @@ def solve_with_reduction(
         climbing = previous_joint is None or joint > previous_joint + spec.tol * (1.0 + abs(joint))
         improving = previous is None or worst <= _STALL_FACTOR * previous
         if not climbing and not improving:
+            exit_reason = "stall"
             break
         previous = worst if previous is None else min(previous, worst)
         previous_joint = joint
@@ -963,8 +997,10 @@ def solve_with_reduction(
         rounds=rounds,
         converged=bool(worst <= spec.tol),
         failure=failure,
+        exit_reason=exit_reason,
         ill_conditioned=ill_conditioned,
         closing=closing.steps,
+        closing_capped=closing.capped,
     )
     return submodel, replace(fluctuation, mechanism=mechanism, reduction=record)
 
@@ -982,6 +1018,7 @@ class _Closing:
     mechanism_score: float
     joint: float
     steps: int
+    capped: bool
 
 
 def _close_at_frozen_reductions(
@@ -1047,7 +1084,9 @@ def _close_at_frozen_reductions(
     zeroes the score at the covariate built from the *pre-tilt* :math:`g^*` and leaves a
     residual at the post-tilt one.  Iterating shrinks that; it does not remove it.  The
     honest claim is that all three equations are solved at the arrays the curve is built
-    from, to the loop's tolerance, not exactly.
+    from, to the loop's tolerance, not exactly.  Whether that stage stopped on ``max_steps``
+    or on the tolerance is reported as ``capped``, so that a reader is not left to infer
+    convergence from a step count that has no other way of saying which it was.
     """
     steps = 0
     if "Q" in guard:
@@ -1071,6 +1110,11 @@ def _close_at_frozen_reductions(
             if mechanism.relative_score <= spec.tol:
                 break
 
+    # The stage ran out of steps exactly when it left the score above tolerance, so this is
+    # read off the score rather than off which way the loop above ended -- one statement of
+    # what happened rather than two that could drift apart.
+    capped = "Q" in guard and mechanism is not None and mechanism.relative_score > spec.tol
+
     current = _retargeted_mechanism(nuisance, targeted_g, arms) if "Q" in guard else nuisance
     submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
     extra_submodel: Submodel | None = None
@@ -1092,6 +1136,7 @@ def _close_at_frozen_reductions(
             joint=float(fluctuation.loglik)
             + float(0.0 if mechanism is None else (mechanism.loglik or 0.0)),
             steps=steps,
+            capped=capped,
         )
 
     extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
@@ -1145,6 +1190,7 @@ def _close_at_frozen_reductions(
         joint=float(fluctuation.loglik)
         + float(0.0 if mechanism is None else (mechanism.loglik or 0.0)),
         steps=steps,
+        capped=capped,
     )
 
 

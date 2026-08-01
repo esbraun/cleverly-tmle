@@ -45,3 +45,10 @@ def slow(session: nox.Session) -> None:
 def bench(session: nox.Session) -> None:
     session.install("-e", ".[all]")
     session.run("python", "benchmarks/bench_tmle.py", *session.posargs)
+
+
+@nox.session(name="bench-drtmle")
+def bench_drtmle(session: nox.Session) -> None:
+    """Characterise how the doubly-robust alternation exits.  Tens of minutes at defaults."""
+    session.install("-e", ".[all]")
+    session.run("python", "benchmarks/bench_drtmle.py", *session.posargs)
