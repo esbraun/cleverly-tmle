@@ -139,6 +139,20 @@ column means. And the truncation curve and the MNAR tilt reach the targeting thr
 `retarget`, so they would re-solve the extra equations — probably right, and right by
 inheritance rather than by decision, which is how the wrong version of it would also arrive.
 
+**Combining it with `CTMLE` is a derivation rather than a composition**, and the seams make
+that easy to miss: both variants override `_nuisances`, both are binary and `mean`-only, and a
+subclass that ran the selection and then fitted the reduced regressions against the chosen `ĝ`
+would run. Two things stop it. A reduced regression conditions on the *other* nuisance's
+estimate, so it reads `ĝ` as a covariate — and `CTMLE`'s `ĝ` is deliberately not an estimate
+of `g₀`, the collaborative point being that `g` need only adjust for what `Q̄` missed. And
+`CTMLE` scores its path by the cross-validated loss of the *targeted* `Q̄`, so the criterion
+choosing `ĝ` presupposes that `Q̄` is informative — which is precisely the cell this variant is
+insuring against. The cost is the visible half of the problem and not the important one:
+`cross_validate` rebuilds the path inside every selection fold, so each position would carry
+its own pair of reduced regressions and its own alternation. Refuse it by name, beside the
+`incremental=` refusal it is a cousin of — there each candidate `ĝ` defines a different
+`Ψ(δ)`; here it defines different reduced regressions.
+
 ### Sizing
 
 Comparable to `CTMLE` or larger, and **not** transcription in the way the five items below
