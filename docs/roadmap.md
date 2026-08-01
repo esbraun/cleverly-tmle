@@ -39,7 +39,11 @@ touch](#what-drtmle-would-touch).
   predates the six below and was sized from the paper rather than from a read of what would
   have to change here; [What `drtmle` would touch](#what-drtmle-would-touch) is that read,
   and now also a read of the source — the derivation that section left open is
-  [pinned](#what-the-source-settles) rather than conjectured
+  [pinned](#what-the-source-settles) rather than conjectured. **Under way**: the remainder
+  module and the reduced-dimension regressions have landed, with the serializer bump that
+  had to travel with them, and what is left is the alternation and the influence curve.
+  Nothing is reported under a `drtmle` name yet and that is deliberate — the estimator
+  arrives with the equations it solves, not with the arrays they are solved against
 
 ## What `drtmle` would touch
 
@@ -147,13 +151,47 @@ Four were nameable from this codebase alone. Two more are visible only once the 
 the algorithm, and each of those is a place where a decision has to be *stated* rather than
 inherited.
 
-1. **`TMLE._nuisances`**, as `CTMLE` does — but *adding* fields to `NuisanceEstimates` rather
-   than replacing `propensity`, which is the difference between the two variants and the
-   reason this one cannot be "override `_nuisances` and let the inherited `retarget` do the
-   rest". The reduced-dimension regressions go through `cross_fit_predictions` untouched:
-   a one-column design, a residual target, `fit_mask` for the arm's rows. There are **three**
-   of them per arm rather than the two this said, and under `reduction="bivariate"` two, one
-   of which has a two-column design.
+1. **`TMLE._nuisances`, as `CTMLE` does — landed, as far as the arrays go.** *Adding* fields to
+   `NuisanceEstimates` rather than replacing `propensity`, which is the difference between the
+   two variants and the reason this one cannot be "override `_nuisances` and let the inherited
+   `retarget` do the rest". The reduced-dimension regressions do go through
+   `cross_fit_predictions` untouched — `estimators/_nuisance.py`, not `learners/crossfit.py` —
+   with a one-column design, a residual target and `fit_mask` for the arm's rows. There are
+   **three** of them per arm rather than the two this said, and under `reduction="bivariate"`
+   two, one of which has a two-column design; the bivariate reduction is refused by name for
+   now.
+   `estimators/reduced.py` holds a `ReducedSet` and `fit_reduced`; `NuisanceEstimates.reduced`
+   is the field; `tests/unit/test_reduced_regressions.py` checks the fitted values against
+   `test_remainder_drtmle`'s longhand arithmetic rather than against a second derivation.
+   **No estimator reaches any of it**, deliberately: a `DRTMLE` that fitted the reductions and
+   reported the ordinary estimates would be this variant's whole failure mode, so the name
+   arrives with the alternation. Three things the sizing did not name.
+   *Where it is built is a departure from the `shifts`/`incremental` precedent and had to be
+   argued rather than copied.* Those are built **inside** `fit_nuisances`, so that "the tilt
+   and the `g` it tilts came from one out-of-fold model" is structural. This is built outside,
+   in a `_nuisances` override, because it belongs to one variant rather than to every fit —
+   and the invariant survives only because `fit_reduced` takes a whole `NuisanceEstimates` and
+   reads `folds` off it, so it cannot be handed a mechanism and a split that did not come from
+   one construction. That is why it takes the object rather than two arrays.
+   *One bound is chosen at fit time, and it is the only one in this package that is.* `gr2`'s
+   **target** is a quotient by the mechanism, so it cannot be stored raw and re-truncated by
+   `retarget` the way `bounded_propensity` and `bounded_missingness` are: the array *is* a
+   regression of that quotient. It divides by the fit's own declared `g_bounds`, which travels
+   on `ReducedSet.g_bounds` — and the consequence has to be said where a reader meets it:
+   `truncation_curve` moves the clever covariate's denominator and **does not** move these
+   arrays, so the part of the curve that comes from the extra equations is flat by
+   construction. That is item 5's lesson arriving from the other direction, and flat by
+   construction reads as insensitivity rather than as a limitation. The *design*, by contrast,
+   is the untruncated `ĝ`: truncation is for denominators, and bounding a conditioning
+   variable would collapse the extreme rows into ties and coarsen the very σ-algebra the
+   reduction projects onto.
+   *And the exact law has a second blind spot, in the same place item 4 found its first.* Its
+   outcome is binary, so `OutcomeScaler` is the identity and `scale` is a no-op — taking `Qr`'s
+   residual against the **raw** outcome rather than the scaled one was applied and passed all
+   25 tests of the new module. An affine relabelling of the outcome is what catches it, exactly
+   as `tests/e2e/test_ltmle_msm.py` catches the same mistake for the working model over
+   regimens. Of seven deliberate mutations that one was the only survivor, and it did not
+   announce itself the second time either.
 2. **The targeting dispatch** in `TMLE._retarget_detailed`, which today has exactly two
    special branches — `needs_mechanism(group)` and `needs_projection(nuisance, group)` — and
    a default. This is a third, and a `solve_with_reduction` beside the two solvers in
@@ -164,10 +202,15 @@ inherited.
 3. **`inference/influence.py`**, where the reported curve gains terms the plain one has no
    analogue of. `ipsi_means` is the precedent for that and for saying in its docstring
    exactly what reporting the plain curve instead would cost.
-4. **`estimators/serialize.py`**: `FORMAT_VERSION` 8 → 9 for the extra arrays, on the terms
-   versions 4 and 5 were bumped. A reloaded fit that had lost them would report a plain
+4. **`estimators/serialize.py` — landed.** `FORMAT_VERSION` 8 → 9 for the extra arrays, on the
+   terms versions 4 and 5 were bumped. A reloaded fit that had lost them would report a plain
    TMLE's interval under the variant's name, which is the shape of mistake that bump exists
-   to prevent.
+   to prevent. It landed **with the arrays rather than with the estimator that will read
+   them**, which is the opposite of the order this section lists it in and is deliberate:
+   `_nuisance_from` names every field it reconstructs, so one left unwritten reloads silently
+   as `None`, and the reason for the bump was in hand while the block was being written. The
+   cost is stated rather than discovered — every `.npz` written by an earlier version becomes
+   unreadable, by the design the reader already declares.
 5. **`retarget` stops being a pure function of cached arrays** — and this is the one that
    contradicts something already written down. Every targeting step here is arithmetic on
    fitted predictions; `drtmle` **fits learners inside the alternation**, re-estimating all
@@ -182,9 +225,14 @@ inherited.
    mechanism **and the reduced regressions** into estimates that satisfy them. Holding them
    fixed solves a different equation, and whether that one suffices is a question for the
    theorem this package has not read rather than a matter of taste. So this is a decision with
-   a cost on both sides — refit and lose `retarget`, or hold fixed and owe an argument — and it
-   is the first thing the remainder module should be pointed at, since the difference between
-   the two is measurable there before any estimator exists.
+   a cost on both sides — refit and lose `retarget`, or hold fixed and owe an argument.
+   **It is still open, and the sentence that used to end this item was wrong**: it said the
+   difference was measurable in the remainder module before any estimator exists. It is not.
+   That module runs no targeting step at all — it evaluates the von Mises expansion at
+   nuisances handed to it — so there is no alternation there for a refit to happen inside of,
+   and the choice cannot show up in a number it computes. The decision belongs to the
+   alternation commit, and what it needs is a comparison of two fitted estimators rather than
+   an exact-law identity.
 6. **The `Submodel` column contract survives, and the reason is a `drtmle` default.** This
    section worried that the extra covariates change what a column means, which matters because
    `sensitivity/omitted_variable.py` reads `submodel.column_for`. `drtmle`'s default
@@ -236,11 +284,35 @@ deterministically and to machine precision, and this estimator's claim is precis
 statement about that remainder — that a product of the two nuisance errors is replaced by
 products of *reduced-dimension* ones. It is statable there as an equality with `TMLE`'s
 product form as the negative control, which makes that module the thing to write **first**,
-before the estimator rather than after it. It has since acquired a second job and the same
-answer: the two decisions the source leaves open — whether the reduced regressions are held at
-their initial fit or refitted each round (seam 5), and which folds they are fitted on (the one
-thing still to pin) — are both *measurable* there, on a law where the remainder is an exact
-finite sum, and both are otherwise settled by whichever version gets typed first.
+before the estimator rather than after it.
+
+`tests/unit/test_remainder_drtmle.py` is that module and it has landed. Three things it
+established, and the first two correct what was predicted here rather than confirming it.
+**One guard removes the whole first-order remainder and two over-correct**: each extra
+equation subtracts a *projection* of `R₂` — equation (9) onto `σ(ĝ)`, the other onto `σ(Q̄̂)`
+— and on a three-cell law where both σ-algebras are all of `σ(W)` either projection recovers
+the whole of it, so the pair leaves exactly `−R₂`. That is arithmetic rather than a defect,
+since asymptotically at most one of the two errors fails to vanish and so at most one
+projection is non-negligible, which is why `drtmle` solves both by default — but "the
+remainder vanishes when both nuisances are wrong" is false, and a test asserting it would
+have gone red and been blamed on the implementation. **The second-order claim is about the
+*reduced* error**, not about the two primary ones: with exact reduced regressions the guard
+removes everything at every scale, so there is no rate to measure, and what survives a
+perturbed `Qr` is a product of the reduced error with a primary one — which is the whole
+reason the reduced regressions may be univariate. And **a tie is what makes a reduction a
+reduction**: with a distinct nuisance value in every cell the regression conditions on `W`
+relabelled, so the tie constants are what separate an implementation that conditions on the
+estimated nuisance from one that quietly conditions on the covariate.
+
+**What it did not settle is either of the two open decisions**, against what this paragraph
+used to claim — that whether the reduced regressions are held at their initial fit or
+refitted each round (seam 5), and which folds they are fitted on, were both *measurable*
+there. Neither is. The module runs no targeting step, so there is no alternation for seam 5
+to be a question about; and it computes the three regressions longhand at the true law rather
+than fitting them, so there is no learner and no split for a fold question to bite on. It
+says so itself, in the class that measures the rate: the fitted-reduced-regression case
+belongs to the stage that has learners. Both decisions moved forward one commit rather than
+being answered early, and the fold one is [now settled](#the-one-thing-still-to-pin) there.
 
 End to end the claim is about **coverage, not bias**, and that distinction is the whole
 variant. `TMLE`'s double robustness is a statement about the *point estimate*: `R₂` is the
@@ -262,27 +334,42 @@ nothing to buy. The gap opens only where the good nuisance is *estimated*, so th
 a correctly-specified learner in that slot rather than the truth. Nightly tier; never run it
 in the sandbox.
 
-### The one thing still to pin
+### The one thing still to pin — settled, on an argument rather than a measurement
 
 Of the three things this section said to pin before any code, two are
 [settled above](#what-the-source-settles) — which equations there are and which nuisance each
-fluctuates, and which influence curve is reported. One is not, and it is not settled in the
-source either.
+fluctuates, and which influence curve is reported. The third was **how the reduced regressions
+are cross-fitted**, and it is settled now, in `fit_reduced`'s docstring where it belongs.
 
-**How the reduced regressions are cross-fitted.** Their *design* is itself an out-of-fold
+The problem is real and is stated correctly: their *design* is itself an out-of-fold
 prediction — `ĝ(W)` or `Q̄(a, W)` — so fitting them on the same `Folds` trains fold `k`'s
-regression on design values produced by models that saw fold `k`. That is the dependence
+regression on design values produced by models that saw fold `k`. Row `i`'s own data reaches
+its own prediction through the *other* rows' design values, which is the dependence
 `tests/unit/test_crossfit_leakage.py` exists to prevent, arriving through the design matrix
 rather than through the target. `drtmle` cross-validates the reduced regressions alongside
 every other nuisance and does not distinguish this case, and the software paper does not
-discuss it — so there is nothing here to transcribe and nothing to defer to. The choice is
-between reusing `nuisance.folds` and drawing an independent split for the reduced regressions,
-and with no source to settle it, it should be settled by measuring: the remainder module can
-do that before any estimator exists, and whichever way it comes out, the reasoning belongs
-in a docstring rather than in a commit message.
+discuss it, so there was nothing to transcribe and nothing to defer to.
 
-It keeps its own heading because it is the *only* one, and because a section that quietly
-absorbed the two answered ones would read as though nothing had been open.
+**But the choice this section named is not a choice.** It offered "reuse `nuisance.folds` or
+draw an independent split", and an independent split removes *none* of the dependence: the
+contamination is in the design values, so which rows are trained on cannot undo it, and a
+second split only loses the alignment with the fits it is a reduction of. The one construction
+that does remove it is **per-fold designs** — predict `ĝ^(−k)` at every row, so fold `k`'s
+reduced regression only ever sees designs from the model that excluded fold `k`. That costs no
+extra fits, since `cross_fit_predictions` already builds that model and keeps only its
+test-fold slice.
+
+What it costs is worse than what it buys, and that is the decision. The training designs would
+be that model's *in-sample* predictions and the test design its out-of-sample one, and a
+reduced regression is a regression **of** the design — so it trades a second-order dependence
+for a first-order covariate shift. So the split is reused, which is also what `drtmle` does,
+and `groups` is forwarded so that the claim `test_crossfit_leakage` actually states — a model
+must not train on rows standing in for the ones it predicts — holds at the level it is stated.
+
+It keeps its own heading, and its shape, because a section that quietly absorbed an answered
+question would read as though nothing had been open. What is worth carrying forward is that
+this one was settled by *restating* it rather than by measuring it: the measurement this
+section asked for would have compared two constructions of which one was never on the table.
 
 ### Scope, declared at what the derivation covers
 
@@ -356,6 +443,14 @@ hedge: three reduced regressions rather than two, two reductions rather than one
 `retarget` contract to decide in writing rather than to inherit. Call it five to seven, in the
 order the seams are numbered and with the remainder module still first: remainder module, then
 the reduced regressions, then the alternation, then the curve, then the serializer.
+
+**Two of those have landed and the order came out different**, in the one way worth recording.
+The remainder module went first as planned. The reduced regressions followed — and took the
+serializer bump with them, off the end of the list, because `NuisanceEstimates` is
+reconstructed field by field on load and a field added without one reloads silently as `None`.
+A version bump is cheap to write while the reason for it is in hand and expensive to remember
+afterwards, so it belongs with the array rather than with the estimator that reads it. What is
+left is the alternation and the curve, and Theorem 1 below is still ahead of the second.
 
 **Theorem 1 of Benkeser et al. (2017) is a prerequisite of the curve commit, not background
 reading**, and it is the only thing on this page that has to happen outside the repository.
