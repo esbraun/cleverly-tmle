@@ -72,7 +72,7 @@ the two arms it names:
 res.sensitivity.omitted_variable("ate[medium vs low]")
 res.sensitivity.robustness_value("att[medium vs low]")
 res.sensitivity.evalue("rr[medium vs low]")
-res.sensitivity.missingness_tilt()          # every arm's mean, and every contrast
+res.sensitivity.missingness_tilt()  # every arm's mean, and every contrast
 ```
 
 That is a wider loop rather than a wider derivation, and it is worth saying why: the
