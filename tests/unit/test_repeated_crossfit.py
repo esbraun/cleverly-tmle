@@ -586,11 +586,16 @@ class TestTheOmittedVariableBoundFollowsTheDraws:
         return fast_tmle(repeats=2, estimands=["ate"]).fit(frame, **COLUMNS).single()
 
     def test_the_bound_is_the_mean_of_the_draws(self, binary_fit: Any) -> None:
-        from cleverly.sensitivity.omitted_variable import _elements_for, sensitivity_elements
+        from cleverly.sensitivity.omitted_variable import (
+            _elements_for,
+            resolve_parameter,
+            sensitivity_elements,
+        )
 
         averaged = sensitivity_elements(binary_fit, "ate")
+        parameter = resolve_parameter(binary_fit, "ate")
         per_draw = [
-            _elements_for(binary_fit, repeat, "ate", "auto").max_bias
+            _elements_for(binary_fit, repeat, parameter, "auto").max_bias
             for repeat in binary_fit.repeats
         ]
         assert averaged.max_bias == pytest.approx(float(np.mean(per_draw)))
@@ -598,10 +603,11 @@ class TestTheOmittedVariableBoundFollowsTheDraws:
     def test_it_reads_each_draws_own_regression_and_mechanism(self, binary_fit: Any) -> None:
         # Crossing them would still produce a number; this pins that the pairing is the
         # one RepeatFit holds rather than an incidental zip.
-        from cleverly.sensitivity.omitted_variable import _elements_for
+        from cleverly.sensitivity.omitted_variable import _elements_for, resolve_parameter
 
-        first = _elements_for(binary_fit, binary_fit.repeats[0], "ate", "auto")
-        second = _elements_for(binary_fit, binary_fit.repeats[1], "ate", "auto")
+        parameter = resolve_parameter(binary_fit, "ate")
+        first = _elements_for(binary_fit, binary_fit.repeats[0], parameter, "auto")
+        second = _elements_for(binary_fit, binary_fit.repeats[1], parameter, "auto")
         assert first.sigma2 != second.sigma2
 
 
