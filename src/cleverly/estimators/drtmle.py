@@ -19,8 +19,15 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
    4. **The alternation does not reliably converge.**  Equation (10)'s covariate is
       near-singular on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so some draws exit at
-      the outer cap and report ``failure = "max_iter_reached"``.  Read
+      the outer cap and report ``failure = "max_iter_reached"``.  Over a 96-fit sweep 8 did
+      that, 86 stalled at a fixed point and 2 reached the tolerance.  Read
       ``res.validation.score_check()`` on every fit rather than assuming.
+   5. **Under weak overlap the fit does not solve its own score equation.**  On
+      ``weak_overlap_dgp`` the score check fails on 23 of 24 swept fits, with the worst
+      score at rough parity with ``se/sqrt(n)`` rather than the ``1e-7`` every other process
+      reports.  A score that size is first order in the quantity the interval is built from,
+      so do not use this estimator where overlap is poor until that is understood.  It is
+      not the conditioning of item 4 -- ``ill_conditioned`` never fires on that process.
 
 Every interval this package reports is valid when the second-order remainder is negligible,
 and for a plain TMLE that remainder is the product

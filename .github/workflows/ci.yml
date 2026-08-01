@@ -30,10 +30,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv python install 3.11
+      # A virtual environment rather than `--system`, and the reason is not only that
+      # `--system` stopped working. `ubuntu-latest`'s Debian Python is marked externally
+      # managed (PEP 668), so `uv pip install --system` is now refused outright -- which
+      # turned every job in this file except `lint` red, with no commit to blame, and kept
+      # them red while the merges went on. But `--system` was the wrong instrument even
+      # while it worked: it installs into whichever interpreter `/usr` holds, *not* the one
+      # `uv python install` just placed, so the version above and the version tested were
+      # only ever the same by accident. `uv venv --python` makes them the same by
+      # construction, which is what the matrix in `tests` actually needs.
+      - run: |
+          uv venv --python 3.11
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       # Pinned for the reason the ruff version above is: `mypy>=1.11` resolved to whatever
       # was current, and a release that tightens a check -- or a dependency that ships
       # better stubs -- turns this job red with no commit to blame. Bump it deliberately.
-      - run: uv pip install --system -e ".[all]" "mypy==1.19.1"
+      - run: uv pip install -e ".[all]" "mypy==1.19.1"
       - run: mypy src/cleverly
 
   tests:
@@ -46,5 +58,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv python install ${{ matrix.python-version }}
-      - run: uv pip install --system -e ".[dev]"
+      # `--python` threaded through from the matrix, for the reason `typecheck` above sets
+      # out: without it this job installs into `/usr`'s interpreter and every row of the
+      # matrix exercises the same one.
+      - run: |
+          uv venv --python ${{ matrix.python-version }}
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - run: uv pip install -e ".[dev]"
       - run: pytest -m "not slow" -q -n auto

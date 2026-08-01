@@ -257,8 +257,18 @@ class TestWeightsAndClusters:
         # The point estimates are close but not identical: passing id= also keeps
         # clusters intact when building the cross-fitting folds, which changes the
         # out-of-fold nuisance predictions slightly.
+        #
+        # How *much* they differ is a property of the fold split, and the fold split is a
+        # property of the installed scikit-learn rather than of this package -- so the
+        # number here has to leave room for a resolver that picks a different one. It did:
+        # the gap is 0.09 standard errors on Python 3.11 and 0.29 on 3.10, deterministically
+        # and identically across runs, which the old `0.2` sat exactly between. That `0.2`
+        # was never derived; it was whatever one interpreter happened to produce, and it
+        # spent the outage failing on a quarter of the matrix with nothing to say so.
+        # `0.5` still fails on the thing this line is for -- clustering moving the estimate
+        # rather than the interval -- which would be a shift of several standard errors.
         assert clustered.psi("ate") == pytest.approx(
-            ignoring.psi("ate"), abs=0.2 * ignoring["ate"].std_error
+            ignoring.psi("ate"), abs=0.5 * ignoring["ate"].std_error
         )
         assert clustered.data.n_clusters == 100
 

@@ -21,8 +21,8 @@ on:
         description: "fits per (process, n) cell"
         default: "12"
       jobs:
-        description: "parallel fits; the runner has 4 cores and each fit is single-threaded"
-        default: "3"
+        description: "parallel fits; each fit is single-threaded, and 2 fits the runner"
+        default: "2"
       rows:
         description: "also print every individual fit, not just the per-cell summary"
         type: boolean
@@ -32,14 +32,22 @@ jobs:
   characterise:
     runs-on: ubuntu-latest
     # A fit is tens of seconds and the defaults are ~96 of them. Generous rather than
-    # tight: a sweep killed at the cap reports a truncated distribution, which is the one
-    # failure mode that would look like a result.
+    # tight, and for a sharper reason than headroom: the script prints nothing until every
+    # fit has returned, so a sweep killed at the cap reports no table at all rather than a
+    # truncated one. Measured at 2,588s for the full 96 at `jobs: 2` -- 43s a fit -- so the
+    # cap is roughly four times what the defaults need.
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv python install 3.12
-      - run: uv pip install --system -e ".[dev]"
+      # A virtual environment rather than `--system`; `ci.yml`'s `typecheck` job says why.
+      # This workflow never ran green even once: it was written while every install step in
+      # the repository was already failing, and dispatching it was the thing that found out.
+      - run: |
+          uv venv --python 3.12
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - run: uv pip install -e ".[dev]"
       # Through the environment rather than interpolated into the command, so the inputs
       # are arguments and not fragments of shell -- `nightly.yml` says the same.
       - env:

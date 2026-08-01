@@ -86,6 +86,50 @@ _STALL_FACTOR = 0.95
 #: error -- :func:`~cleverly.validation.score_check` makes that comparison properly.
 _UNSOLVED = 1e-6
 
+#: An **absolute** score below ``_NEGLIGIBLE / n`` counts an equation as solved, whatever
+#: its relative score says.  This exists because the relative test is the wrong instrument
+#: for two of the three, and the reason is structural rather than a matter of taste.
+#:
+#: :func:`~cleverly.fluctuation._score.relative_score` divides by ``mean|w h|``, which
+#: :func:`~cleverly.fluctuation._score.score_scale` documents as "the largest the score
+#: could be" -- a sound normalisation for a covariate of order one.  Equation (10)'s
+#: covariate is :math:`g_{r,2}/g_{r,1}` and :math:`g_{r,2}` vanishes exactly where the
+#: mechanism is right, so on the fits anybody wants that denominator is ``1e-3`` to
+#: ``1e-2``: measured at ``9.4e-3`` and ``2.4e-3`` on a 400-row ``linear`` fit and
+#: ``5.1e-2`` and ``4.9e-3`` on a ``nonlinear`` one.  Asking for ``spec.tol`` *of that* is
+#: asking for an absolute score near ``1e-13``, six orders below the point at which the
+#: score stops mattering.  Equation (9) cannot reach ``spec.tol`` for a different reason
+#: and one already written down as item 5: its covariate reads the very mechanism it
+#: tilts, so a solve zeroes the score at the pre-tilt covariate and leaves a residual at
+#: the post-tilt one.  Neither is a solver that failed; both are rulers with the wrong
+#: zero, and on the round a 400-row fit gave up at they read ``2.3e-8`` and ``3.9e-8``
+#: together -- so relaxing either alone stops nothing, which was measured before this was
+#: applied to all three.
+#:
+#: The bar here is the one the package already applies to the fit it reports:
+#: :func:`~cleverly.validation.score_check` passes a fluctuation whose score is under
+#: ``DEFAULT_TOLERANCE * se / sqrt(n)``, and with ``se = O(n**-0.5)`` on the scaled outcome
+#: that is this constant over ``n``.  Asymptotic linearity asks for ``P_n D = o(n**-0.5)``
+#: and nothing more; machine zero was never the requirement.  Where the covariate *is* of
+#: order one -- equation (8), whose ``1/g`` is bounded below by the truncation -- the
+#: relative test is the tighter of the two and still does the stopping, so a
+#: well-conditioned fit exits exactly where it used to.
+_NEGLIGIBLE = 1e-3
+
+
+def _solved(relative: float, absolute: float, tol: float, negligible: float) -> bool:
+    """Whether one equation is solved, on whichever of the two rulers it can meet.
+
+    The relative test is the tighter one wherever the covariate is of order one, so it
+    goes on doing the stopping for equation (8) and nothing about a well-conditioned fit
+    changes.  The absolute test is what lets equations (9) and (10) stop at all: both have
+    a covariate that is small or that moves under its own solve, and neither can reach
+    ``tol`` *of its own magnitude* -- which is a fact about the derivation, recorded as
+    items 5 to 7 of ``docs/roadmap.md``, rather than a solver that needs more rounds.
+    """
+    return relative <= tol or absolute <= negligible
+
+
 #: Which of :func:`solve_with_reduction`'s three exits fired.  ``"tolerance"`` is the loop
 #: reaching ``spec.tol``, ``"stall"`` is the dual rule below finding neither the objective
 #: climbing nor the score improving, and ``"cap"`` is running out of ``max_outer`` rounds.
@@ -785,14 +829,24 @@ def solve_with_reduction(
     nearly right, which is every fit anybody wants, that covariate is nearly zero and its
     Newton solve is near-singular: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching
     280 and a singular Hessian in a third of the rounds on one unseeded draw.  Such a fit
-    exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.  Six seeded fits at
-    ``n = 800`` converged in 15 to 45 rounds, so it is a minority behaviour of particular
-    draws rather than the norm -- but ``drtmle`` sidesteps it entirely by capping at three
-    iterations and never claiming to converge, and this loop's exit test is a *relative*
-    score, which divides by a ``mean|h|`` of order ``1e-3`` and so reads an absolutely
-    negligible score as a large one.  :attr:`ReductionFluctuation.ill_conditioned` reports
-    the conditioning; ``docs/roadmap.md`` lists both under *What is still open*, and
-    :class:`~cleverly.DRTMLE`'s module docstring says what turns on them.
+    exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.  ``drtmle``
+    sidesteps the question entirely by capping at three iterations and never claiming to
+    converge.  :attr:`ReductionFluctuation.ill_conditioned` reports the conditioning;
+    ``docs/roadmap.md`` lists this under *What is still open*, and
+    :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
+
+    **Swept over 96 fits** -- four processes by two sizes by twelve seeds, the table under
+    *How the alternation exits* -- which replaced the six-fit claim that stood here.  It
+    said the loop "converged in 15 to 45 rounds" on six seeded draws of *one* process, and
+    so ran to the cap only on a minority.  Running out of rounds is a minority (8 of 96),
+    but converging is rarer: **2 of 96 reached the tolerance and 86 stalled**.  The
+    conditioning is also worst on ``linear`` -- 5 of 12 draws at ``n = 600`` and 9 of 12 at
+    ``n = 1,200``, against 0 of 12 for ``nonlinear`` -- which is what "vanishes where the
+    mechanism is right" predicts, the easy process being the ill-conditioned one.
+
+    The exit test used to be a *relative* score alone, dividing by a ``mean|h|`` of order
+    ``1e-3`` and so reading an absolutely negligible score as a large one; :data:`_NEGLIGIBLE`
+    and :func:`_solved` are what that became and say why.
 
     Returns the final outcome submodel and the equation-(8) fluctuation, carrying equation
     (9)'s tilt on :attr:`~cleverly.fluctuation.Fluctuation.mechanism` and equation (10)'s on
@@ -886,6 +940,7 @@ def solve_with_reduction(
             reduced = reduction.refit(_reduction_inputs(current, fluctuation.targeted, targeted_g))
 
         reduced_score = 0.0
+        reduced_absolute = 0.0
         if extra_submodel is not None:
             # At the *final* reductions, not the ones equation (10) was solved along. The
             # influence curve reads `reduction.reduced`, so a score taken at any other set
@@ -900,8 +955,10 @@ def solve_with_reduction(
             assert extra is not None
             extra = replace(extra, score=settled, score_scale=scale)
             reduced_score = relative_score(settled, scale)
+            reduced_absolute = float(np.max(np.abs(settled))) if settled.size else 0.0
 
         mechanism_relative = 0.0
+        mechanism_absolute = 0.0
         if mechanism is not None:
             settled_g, scale_g = mechanism_score(
                 indicator,
@@ -911,6 +968,7 @@ def solve_with_reduction(
             )
             mechanism = replace(mechanism, score=settled_g, score_scale=scale_g)
             mechanism_relative = mechanism.relative_score
+            mechanism_absolute = float(np.max(np.abs(settled_g))) if settled_g.size else 0.0
 
         joint = float(fluctuation.loglik) + float(
             0.0 if mechanism is None else (mechanism.loglik or 0.0)
@@ -919,7 +977,19 @@ def solve_with_reduction(
         trace.append(
             (outer, fluctuation.relative_score_norm, reduced_score, mechanism_relative, joint)
         )
-        if worst <= spec.tol:
+        # Each equation is judged on whichever of the two rulers it can actually meet, and
+        # all three get the same pair rather than equation (10) getting a special case:
+        # measured on a 400-row fit, the round the loop gave up on had equation (10) at
+        # 2.3e-8 relative *and* equation (9) at 3.9e-8, so relaxing one alone changes
+        # nothing. `worst` stays the *relative* max above, because it is what the stall
+        # rule measures progress with and a mixed quantity would make "improving" mean two
+        # things on alternate rounds.
+        negligible = _NEGLIGIBLE / float(data.n)
+        if (
+            _solved(fluctuation.relative_score_norm, fluctuation.score_norm, spec.tol, negligible)
+            and _solved(reduced_score, reduced_absolute, spec.tol, negligible)
+            and _solved(mechanism_relative, mechanism_absolute, spec.tol, negligible)
+        ):
             exit_reason = "tolerance"
             break
         # The stall rule watches the *objective as well as* the score, which is where this
