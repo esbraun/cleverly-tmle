@@ -322,11 +322,15 @@ class Submodel:
 
 
 def _arm_matrix(n: int, k: int, probabilities: FloatArray | None, label: str) -> FloatArray:
-    """Validate an ``(n, K)`` arm-indexed probability array, or ones when absent.
+    """Validate an ``(n, K)`` treatment-indexed probability array, or ones when absent.
 
     Ones rather than ``None`` so the callers multiply unconditionally: a mechanism that
     does not apply contributes a factor of one to every arm's denominator, which is an
     identity rather than a special case.
+
+    ``k`` is the number of treatment values the mechanism was evaluated at, which is the
+    arm count on the arm path and ``S + 1`` on a shift path -- the observed dose and each
+    shifted one.  Nothing here reads the arms themselves, so the two share the check.
     """
     if probabilities is None:
         return np.ones((n, k))
@@ -823,6 +827,13 @@ def mtp_submodel(
     -- see :mod:`cleverly.interventions.shift` for the derivation, the sanity checks it
     satisfies, and why this is not the ``regime`` fluctuation at the induced density.
 
+    with a further factor per mechanism that stands between the dose and a recorded
+    outcome:
+
+    .. math::
+
+        H_r(a, W) = \frac{h_r(a, W)}{\pi(a, W)\, q_z(a, W)}
+
     ``shifts`` is the ``(n, S, S)`` array
     :math:`h_r(d_s(A_i, W_i), W_i)` **stacked with** the ``(n, S)`` covariate at the
     observed treatment; both are read off
@@ -830,12 +841,31 @@ def mtp_submodel(
     conditional density.  ``propensity`` is ignored: a continuous treatment has no
     per-arm mechanism, and its ``(n, 0)`` propensity carries no information.
 
+    ``missingness`` and ``intermediate_density`` are **not** ignored, and the axis they
+    are indexed by is the thing to get right.  Both are ``(n, S + 1)`` -- the mechanism at
+    the observed dose in column ``0`` and at :math:`d_s(A, W)` in column ``s + 1``, which
+    is ``shifts``' first axis exactly -- so block ``j`` of the covariate is divided by
+    column ``j`` of each.  Dividing every block by column ``0`` would be the arm path's
+    mistake with the indicator removed: :math:`\bar Q^*(d_s(A,W), W)` is the fluctuation
+    read *at the shifted dose*, so the mechanism has to be the one that holds there.  It is
+    a silent error wherever the mechanism does not happen to depend on the dose, which is
+    why ``tests/discrete_law_shift_cde.py`` makes both depend on it -- and it is invisible
+    to a Gateaux check on an exact law, where ``epsilon`` is zero and no counterfactual
+    block is read at all.  ``tests/unit/test_shift_submodel.py`` pins the blocks
+    structurally and ``tests/unit/test_shift_fit.py`` pins the plug-in they move; neither
+    is redundant with the other.
+
+    ``selection`` multiplies only the *observed* covariate, exactly as it does in
+    :func:`mean_submodel`: the counterfactual blocks are already evaluated at ``Z = z`` by
+    construction, and zeroing them would leave every row whose intermediate took the other
+    level with an **un-updated** prediction in the plug-in.
+
     Unlike ``regime``, ``arm_columns`` is **populated**: column ``s`` really does target
     one parameter, the mean under shift ``s``, so
     :meth:`~Submodel.column_for` can answer and
     :func:`~cleverly.inference.influence.shift_means` reads it.
     """
-    del propensity, arms, arm_fractions, reference, missingness, intermediate_density, regimes
+    del propensity, arms, arm_fractions, reference, regimes
     del msm
     del incremental
     if shifts is None:
@@ -853,11 +883,13 @@ def mtp_submodel(
             f"the observed treatment stacked above the one at each shifted treatment. "
             f"Got {stacked.shape} for {n} rows."
         )
+    evaluated = stacked.shape[1]
+    pi = _arm_matrix(n, evaluated, missingness, "missingness probabilities")
+    pz = _arm_matrix(n, evaluated, intermediate_density, "intermediate probabilities")
     keep = _selection_indicator(n, selection)
-    observed = keep[:, None] * stacked[:, 0, :]
-    counterfactual = {
-        float(index): keep[:, None] * stacked[:, index + 1, :] for index in range(stacked.shape[2])
-    }
+    covariate = stacked / (pi * pz)[:, :, None]
+    observed = keep[:, None] * covariate[:, 0, :]
+    counterfactual = {float(index): covariate[:, index + 1, :] for index in range(stacked.shape[2])}
     return Submodel(
         observed,
         counterfactual,
