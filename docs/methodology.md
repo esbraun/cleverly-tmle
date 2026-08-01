@@ -721,3 +721,13 @@ and the registry must cover each other exactly.
   E-value*.
 - Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
   nonresponse models*.
+
+The last three are for a variant that is planned rather than written, and are listed because
+the [roadmap](roadmap.md#what-drtmle-would-touch) cites them by name for the derivation it
+pins. Nothing above rests on them.
+
+- van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical
+  inference*.
+- Benkeser, Carone, van der Laan & Gilbert (2017), *Doubly robust nonparametric inference on the
+  average treatment effect*.
+- Benkeser & Hejazi (2023), *Doubly-robust inference in R using `drtmle`*.
