@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -49,6 +49,9 @@ from ..msm import MSMSet
 from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
 from .direct_effect import check_level
+
+if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes one way
+    from .reduced import ReducedSet
 
 __all__ = [
     "NuisanceEstimates",
@@ -222,6 +225,16 @@ class NuisanceEstimates:
     #: it -- unlike a shift, a working model's design is a function of the covariates
     #: alone and needs no mechanism to evaluate.
     msm: MSMSet | None = None
+    #: The reduced-dimension regressions of the doubly-robust-inference variant, or
+    #: ``None`` for every fit that is not one.  Carried for the reason ``regimes`` is,
+    #: and built *outside* :func:`fit_nuisances` -- unlike ``shifts`` and ``incremental``,
+    #: which are here because every fit that declares them needs them, this belongs to
+    #: one variant and is fitted in its ``_nuisances`` override.  The invariant those two
+    #: are built inside for survives anyway:
+    #: :func:`~cleverly.estimators.reduced.fit_reduced` takes a whole
+    #: :class:`NuisanceEstimates` and reads ``folds`` off it, so it cannot be handed a
+    #: mechanism and a split that did not come from one construction.
+    reduced: ReducedSet | None = None
 
     def retilted(self, mechanism: FloatArray) -> NuisanceEstimates:
         """The same nuisances with every tilt re-evaluated at ``mechanism``.

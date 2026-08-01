@@ -54,6 +54,7 @@ from ..utils.bounds import OutcomeScaler
 from ._nuisance import NuisanceEstimates, Propensity, RepeatFit
 from .base import TMLEConfig, TMLEResult
 from .recipe import TMLERecipe
+from .reduced import ReducedSet
 from .targeting import TargetingSpec
 
 __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save"]
@@ -96,7 +97,16 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: and the bump is here rather than a default because the field decides which *estimand*
 #: the coefficients belong to: a log-link file read back without it would report log risk
 #: ratios under a linear model's arithmetic, with intervals to match.
-FORMAT_VERSION = 8
+#:
+#: ``9`` records the reduced-dimension regressions of the doubly-robust-inference variant.
+#: :func:`_nuisance_from` names every field it reconstructs, so one left unwritten reloads
+#: silently as its default -- and the default here is ``None``, which is not a degraded
+#: version of the variant but a *different estimator*: the extra score equations would
+#: have nothing to be solved against, and the reloaded fit would report a plain TMLE's
+#: interval under a doubly-robust name, with nothing in the parameter's name to say so.
+#: That is the same reason version 5 could not default the working model, and it is why
+#: the bump lands with the arrays rather than with the estimator that will read them.
+FORMAT_VERSION = 9
 
 _ARRAY_MARK = "__array__"
 
@@ -401,6 +411,23 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
                 "link": str(nuisance.msm.link),
             }
         ),
+        # The reduced-dimension regressions, as arrays for the reason the tilts are: they
+        # are functionals of the two nuisances *and* of the split, so rebuilding them on
+        # load would mean refitting three learners, which is the one thing `retarget`
+        # promises never to do. `g_bounds` travels with them because it is the bound their
+        # target was formed at, and a reader has to be able to find that out.
+        "reduced": (
+            None
+            if nuisance.reduced is None
+            else {
+                "qr": arrays.put(f"{prefix}.reduced.qr", nuisance.reduced.qr),
+                "gr1": arrays.put(f"{prefix}.reduced.gr1", nuisance.reduced.gr1),
+                "gr2": arrays.put(f"{prefix}.reduced.gr2", nuisance.reduced.gr2),
+                "arms": [float(arm) for arm in nuisance.reduced.arms],
+                "g_bounds": [float(value) for value in nuisance.reduced.g_bounds],
+                "reduction": str(nuisance.reduced.reduction),
+            }
+        ),
     }
 
 
@@ -428,6 +455,21 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
         shifts=_shifts_from(arrays, payload.get("shifts")),
         incremental=_incremental_from(arrays, payload.get("incremental")),
         msm=_msm_from(arrays, payload.get("msm")),
+        reduced=_reduced_from(arrays, payload.get("reduced")),
+    )
+
+
+def _reduced_from(arrays: _Arrays, payload: dict[str, Any] | None) -> ReducedSet | None:
+    if payload is None:
+        return None
+    lower, upper = payload["g_bounds"]
+    return ReducedSet(
+        qr=arrays.get(payload["qr"]),
+        gr1=arrays.get(payload["gr1"]),
+        gr2=arrays.get(payload["gr2"]),
+        arms=tuple(float(arm) for arm in payload["arms"]),
+        g_bounds=(float(lower), float(upper)),
+        reduction=str(payload["reduction"]),
     )
 
 

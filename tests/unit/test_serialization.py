@@ -311,6 +311,51 @@ class TestFormat:
         assert loads(dumps(result)).config.crossfit == result.config.crossfit
 
 
+class TestTheReducedRegressionsSurvive:
+    """Format version 9's arrays, grafted on rather than fitted.
+
+    No estimator produces a :class:`~cleverly.estimators.reduced.ReducedSet` yet -- the
+    extra score equations are the commits after this one -- so the round trip is checked
+    against a set attached by hand.  It is checked *now* rather than then because
+    ``_nuisance_from`` names every field it reconstructs: one left unwritten reloads
+    silently as ``None``, and the version comment says what reporting a plain TMLE's
+    interval under a doubly-robust name would look like.
+    """
+
+    @staticmethod
+    def _with_reduced(result):  # type: ignore[no-untyped-def]
+        from dataclasses import replace
+
+        from cleverly.estimators.reduced import ReducedSet
+
+        nuisance = result.nuisance
+        n, k = nuisance.n, len(nuisance.arms)
+        rng = np.random.default_rng(0)
+        reduced = ReducedSet(
+            qr=rng.normal(size=(n, k)),
+            gr1=rng.uniform(0.2, 0.8, size=(n, k)),
+            gr2=rng.normal(size=(n, k)),
+            arms=nuisance.arms,
+            g_bounds=(0.01, 0.99),
+        )
+        repeat = replace(result.repeats[0], nuisance=replace(nuisance, reduced=reduced))
+        return replace(result, repeats=(repeat,)), reduced
+
+    def test_every_array_returns_bit_for_bit(self, result) -> None:  # type: ignore[no-untyped-def]
+        grafted, reduced = self._with_reduced(result)
+        back = loads(dumps(grafted)).nuisance.reduced
+        assert back is not None
+        for name in ("qr", "gr1", "gr2"):
+            np.testing.assert_array_equal(getattr(back, name), getattr(reduced, name))
+        assert back.arms == reduced.arms
+        assert back.g_bounds == reduced.g_bounds
+        assert back.reduction == reduced.reduction
+
+    def test_a_fit_without_them_still_reloads_as_none(self, result, reloaded) -> None:  # type: ignore[no-untyped-def]
+        assert result.nuisance.reduced is None
+        assert reloaded.nuisance.reduced is None
+
+
 class TestProvenance:
     def test_identical_data_gives_an_identical_fingerprint(self) -> None:
         assert _fit().provenance.data_fingerprint == _fit().provenance.data_fingerprint
