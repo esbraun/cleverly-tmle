@@ -110,8 +110,8 @@ class TestAWeightedShiftFit:
     denominator".  It does not: a weight tilts the *population*, so the estimand is the
     shift parameter at ``dP_w``, ``h`` divides by the density ratio and nothing else, and
     putting ``w`` there would divide the estimating equation by the very tilt it applies.
-    Roadmap item 3 established that for ``LTMLE``; these are the same statements one node
-    down.
+    The roadmap's *Refusals worth lifting* item 3 established that for ``LTMLE``; these are
+    the same statements one node down.
     """
 
     #: A tilt that depends on the covariate and on the dose -- not on ``Y``, which a real
