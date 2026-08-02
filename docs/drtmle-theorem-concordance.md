@@ -1,9 +1,11 @@
 # DRTMLE: the theorem concordance
 
 What the sources derive, what this package computes, what `drtmle` computes, and where the three
-disagree. This is [piece A1](roadmap.md#a1--the-theoretical-audit)'s artefact and it is **open**:
-seeded from two documents that are in hand, incomplete in the places they name, and carrying one
-**stop-ship discrepancy** — [the sign of the mechanism correction](#4-the-sign-discrepancy-item-21).
+disagree. This is [piece A1](roadmap.md#a1--the-theoretical-audit)'s artefact and it is **open**,
+though less so than it was: the working paper is now in the repository and read first-hand, and
+the stop-ship discrepancy it appeared to carry — [the sign of the mechanism
+correction](#4-the-sign-discrepancy-item-21--resolved) — is **resolved in favour of the implementation**, on
+that paper's own appendices.
 
 Its purpose is to make the next reader's audit cheap rather than a re-derivation, so every row
 says where it came from. A row with no source is not a row.
@@ -13,7 +15,7 @@ says where it came from. A row with no source is not a row.
 | document | in hand | what it supplies |
 | --- | --- | --- |
 | Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using drtmle*, Observational Studies 9(2):43–78 | **yes**, `docs/pdf.pdf` | equations (5)–(10), both reduced-regression constructions, the package workflow, the qualitative doubly-robust claims, the multi-level and cross-validation claims |
-| Benkeser, Carone, van der Laan & Gilbert (2016), the Berkeley working paper | **transcribed**, by the second review | Theorem 1, `D_A`, `D_Y`, `D^{*,#}`, the variance formula, the recursive algorithm, appendix A's bivariate remainder, appendix B's univariate remainder and its sufficient conditions, appendix C on unnecessary one-step corrections |
+| Benkeser, Carone, van der Laan & Gilbert (2016), the Berkeley working paper, UCB Biostatistics paper 356 | **yes**, `docs/viewcontent.cgi.pdf` — it was transcribed by the second review before the document itself was in hand | Theorem 1, `D_A`, `D_Y`, `D^{*,#}`, the variance formula, the recursive algorithm, appendix A's bivariate remainder, appendix B's univariate remainder and its sufficient conditions, appendix C on unnecessary one-step corrections |
 | Benkeser, Carone, van der Laan & Gilbert (2017), Biometrika 104(4):863–880, PMC5793673 | **no** | the *published* Theorem 1, which is authoritative wherever the working paper and it differ |
 | van der Laan (2014), IJB 10(1):29–57, Theorem 3 | **no** | the bivariate construction's regularity conditions |
 | `benkeser/drtmle` 1.1.2 source | **yes**, read | what the reference implementation actually computes |
@@ -24,17 +26,25 @@ Two consequences, and they are the reason this file exists rather than a paragra
   (2014) Theorem 3 and Benkeser et al. (2017) Theorem 1 for the regularity conditions and the
   corrected influence function respectively, and reproduces neither, nor appendix B. It is the
   equation-level specification and the software-paper claim set; that is all.
-- **The working paper closes most of the rest, and opens something worse.** It supplies every
-  theorem object A1 needed. It also disagrees with both implementations on a sign.
+- **The working paper closes most of the rest, and what looked worse turned out to be internal.**
+  It supplies every theorem object A1 needed. Its §3.1 *display* also disagrees with both
+  implementations on a sign — and with its own appendices, which is what settles it. See
+  [§4](#4-the-sign-discrepancy-item-21--resolved).
 
 ```text
 Benkeser et al., Theorem 1
-- theorem statement available:                  YES (2016 working paper)
-- corrected influence function available:       YES (2016 working paper)
-- appendix B remainder terms available:         YES (2016 working paper)
-- published (2017) version checked against it:  NO   <-- the open gate
-- sufficient to close A1:                       NO
+- theorem statement available:                  YES (2016 working paper, docs/viewcontent.cgi.pdf)
+- corrected influence function available:       YES
+- appendix A and B remainder terms available:   YES
+- the sign question (item 21):                  RESOLVED, on the paper's own appendices
+- published (2017) version checked against it:  NO   <-- no longer a gate; see below
 ```
+
+**Reading the document rather than a transcription of it changed the answer.** The transcription
+was faithful — the §3.1 display really does carry a leading minus on `D_A` — but a display is not
+a derivation, and the derivation is twenty pages later. This is
+[lesson 6](drtmle-investigation-log.md#what-the-sizings-got-wrong) again: the cheapest instrument
+for a claim about a source is a reader with the source open, and second-hand is not open.
 
 ## 1. The target and the ordinary score
 
@@ -95,13 +105,18 @@ g_{1,0,r}(Q̄)(w)      = E_0[ A | Q̄(W) = Q̄(w) ]
 g_{2,0,r}(Q̄, g)(w)   = E_0[ (A − g(W))/g(W) | Q̄(W) = Q̄(w) ]
 ```
 
-**The two corrections.** Note the leading minus sign on the first; it is
-[§4](#4-the-sign-discrepancy-item-21)'s whole subject:
+**The two corrections**, as the §3.1 and §3.2 *displays* print them. The leading minus on the
+first is [§4](#4-the-sign-discrepancy-item-21--resolved)'s whole subject, and the answer there is that the
+paper's own appendices contradict it — so these two lines are a transcription of the displays and
+**not** what the theorem derives:
 
 ```text
-D_A(Q̄_{0,r}, g)(O)              = − Q̄_{0,r}(W)/g(W) · {A − g(W)}
+D_A(Q̄_{0,r}, g)(O)              = − Q̄_{0,r}(W)/g(W) · {A − g(W)}      <-- display; see §4
 D_Y(Q̄, g_{1,0,r}, g_{2,0,r})(O) =   A/g_{1,0,r}(W) · g_{2,0,r}(W) · {Y − Q̄(W)}
 ```
+
+Note that §3.1 prints the *bivariate* `D_Y` with a leading minus as well, and §3.2 reprints the
+same object without one. One of the two is wrong on its face, whatever is decided about `D_A`.
 
 **The limiting influence function.**
 
@@ -152,70 +167,83 @@ replace `A` and `g(1|W)` with the arm indicator and arm probability. The ATE inf
 the **rowwise difference** of the two arm-level curves — which is what this package computes and
 what makes an ATE-only diagnostic insufficient, since arm-specific errors cancel in a difference.
 
-## 4. The sign discrepancy (item 21)
+## 4. The sign discrepancy (item 21) — resolved
 
-**This is the highest-priority open question on the whole variant, and it outranks the truncation
-convention as a theorem-fidelity gate.**
+**Resolved in favour of the implementation, on the working paper's own appendices.** It was the
+highest-priority open question on this variant; what follows is the charge, what settles it, and
+what is left.
 
-The theorem defines `D_A = −(Q_r/g)(A − g)` and then **subtracts** `D_A`. Its net mechanism-side
-contribution to the corrected curve is therefore
-
-```text
-− D_A = + (Q_r/g)(A − g)
-```
-
-This package defines a **positive** mechanism correction and subtracts *that*:
+Write `u` and `v` for the two **positive** quantities the software computes:
 
 ```text
-D*_g (code) = + (Q_r/g)(A − g)          inference/influence.py::reduced_corrections
-D   (code)  = D* − D*_Q − D*_g
+u := (Q_r/g)·{A − g}                     inference/influence.py::reduced_correction_parts, d_g
+v := 1_a·(g_{r,2}/g_{r,1})·{Y − Qbar}                                                     d_q
 ```
 
-R does the same: `eval_Dstar_g` returns `Qr/g·{1(A = a) − g}` and the covariance block subtracts
-it, `unlist(DnoStar) − unlist(DnQoStar) − unlist(DngoStar)`. So under the working paper's
-definitions
+### The charge
+
+The §3.1 display defines `D_A := −u`, with a leading minus, and Theorem 1 reports
+`D^{*,#} = D* − D_A − D_Y`. Read off those two, the theorem's mechanism contribution is `+u` while
+the code's is `−u` — and the disagreement is with `drtmle` as well. The item was filed on `D_A`
+alone, correctly: §3.2's `D_Y`, which is the one the univariate construction uses, carries no
+leading minus, so `− D_Y = −v` agrees with the code and was never in dispute. §3.1's *bivariate*
+`D_Y` does carry one, which is where the second thread below starts.
+
+### What settles it
+
+**The same paper prints the object twice with two signs.** §3.2 redefines `D_Y` for the
+univariate construction — the one this package implements — as `a·(g_{2,r}/g_{1,r})·{y − Qbar}`,
+with **no** leading minus. Two displays of one object with opposite signs is already a reason not
+to settle the question from a display.
+
+**Appendices A and B derive both terms, and each derivation fixes the orientation.** Each reads
 
 ```text
-theorem:  D^{*,#} = D* − D_A − D_Y = D* + (Q_r/g)(A − g) − D_Y
-code/R:   D       = D* − D*_g − D*_Q = D* − (Q_r/g)(A − g) − D*_Q
+P_0[ term ] = −(P_n − P_0)·D + B_n + (second order),        with B_n := P_n·D
 ```
 
-and the two differ by `2·(Q_r/g)(A − g)` — the **opposite sign on the mechanism-side correction**.
-The reduced-outcome correction `D_Y` is not in dispute: the paper and both implementations agree
-on it.
+and `P_0[u] = P_n[u] − (P_n − P_0)[u]` is an identity for any `u` whatever. So the decomposition
+is satisfiable **only** with `D` equal to the positive term: appendix A forces `D_A = +u`, and
+appendix B forces `D_Y = +v`. Then Theorem 1's own `D^{*,#} = D* − D_A − D_Y` is `D* − u − v`,
+which is what the code and `drtmle` compute, and its `σ²_n = P_n{D* − D_A − D_Y}²` is the variance
+they report.
 
-**This is not a naming quibble.** All three empirical means being driven to zero makes `ψ`
-insensitive to the sign, so nothing that reports a point estimate can catch it; what it moves is
-the **variance**, which is the only product this variant has. It moves it in both directions
-depending on the covariance between `D*` and the correction, so "it was conservative on the fits
-we looked at" is not available as an answer either.
+Appendix A's opening step is the one that says *which* quantity is being decomposed, and it is
+checkable rather than interpretable:
 
-**What does not settle it.**
+```text
+−P_0{ (Qbar_r/g_0)·(g_n − g_0) } = P_0{ (Qbar_r/g_0)·(A − g_n) }      since E_0[A | W] = g_0
+```
 
-- *Agreement with R.* Both implementations descend from one source; parity is evidence about the
-  transcription. The existing sign mutation in `tests/unit/test_influence_drtmle.py` proves
-  R/Python parity, not theorem correctness — see
-  [lesson 9](drtmle-investigation-log.md#what-the-sizings-got-wrong).
-- *Coverage.* Finite-sample cancellation can hide a variance error of this shape, and a coverage
-  study that came out right with the wrong sign would be indistinguishable from a result.
+The right-hand side is `u`, positive. `tests/unit/test_theorem_drtmle.py` checks that identity on
+the exact law, checks that the correction's mean is materially non-zero there (without which both
+readings would agree and the question would be unanswerable), and checks the consequence: the
+asymptotic-linearity representation closes to `1e-12` with the corrections **subtracted** and
+fails by **exactly twice the correction** when they are added. It also pins the arrays
+`reduced_correction_parts` builds against `u` and `v`, so the adjudication is a statement about
+this package and not only about the paper. Watched to fail against three mutations, one of them
+the flipped sign in the library itself.
 
-**What settles it**, in order:
+So the leading minus in the §3.1 display is not a rival convention to be matched. It is
+inconsistent with the derivation in the same document, with Theorem 1's own variance formula, and
+with the exact-law arithmetic in this repository.
 
-1. **Check the published 2017 article.** The working paper corresponds to the later Biometrika
-   article under the same title; where they differ the published Theorem 1 is authoritative. It is
-   entirely possible that the definition was revised, in which case this item closes with a
-   citation and no code change.
-2. **A hand-calculated finite-support fixture with nonzero `Q_r`**, comparing five things: the
-   theorem's `D_A`, Python's `D*_g`, R's `eval_Dstar_g`, the full theorem curve, and the full
-   Python/R curve. **The fixture must be built so the two signs produce materially different
-   variances** — at the truth `Q_r` vanishes row by row and both signs agree, which is
-   [lesson 2](drtmle-investigation-log.md#what-the-sizings-got-wrong)'s degeneracy arriving for
-   the fifth time.
-3. Only then a code change, if one is needed.
+### What is left, and it is not a gate
 
-Until step 1 is done, **every `DRTMLE` standard error is provisional on this as well as on
-[item 20](roadmap.md#b1a--the-identity-and-safety-patch)**, and no document here may describe the
-curve as theorem-derived.
+The **published 2017** article is still unread. It no longer blocks anything: the adjudication is
+on internal consistency plus arithmetic, and neither depends on the edition. If the published
+version prints the same §3.1 display, the display is wrong there too; if it prints `D_A = +u`, the
+working paper's display was a typo and the published version says so. Either way the code does not
+move. Should someone obtain it, the row to check is the §3.1 display and nothing else.
+
+Two further sign observations from the same reading, recorded because they are the kind of thing a
+later reader will otherwise re-derive:
+
+- **Equation (2) is printed with `+(P_n − P_0)D − B_n`, and its appendices derive `−(P_n − P_0)D +
+  B_n`.** The two are the same statement under `D → −D`, which is the same slip as the display's.
+- **Equation (2) also crosses its second-order labels**: appendix A's block, which is the `D_A`
+  one, is collected into `R_{Q,n}`, while (2) pairs `D_A` with `R_{g,n}`. Harmless for the
+  implementation — nothing here reads those labels — and worth knowing before quoting (2).
 
 ## 5. The remaining remainder terms
 
@@ -280,12 +308,26 @@ the procedure is:
 7. iterate until the empirical means of `D*`, `D_A` and `D_Y` are approximately zero;
 8. return the final targeted collection.
 
-**The Python iteration is not an exact transcription of this order, and that is item 22.** It is
-not automatically wrong — Theorem 1 asks for the final equations and remainders, not for a unique
-update order — but it is unchecked, and "the fixed points coincide" is a claim with no instrument
-behind it. [A2](roadmap.md#a2--reference-and-independent-validation) must compare the paper's
-order, R's order, Python's order, the fixed point each reaches, and the final three
-theorem-defined scores at each.
+The transcription above is confirmed against `docs/viewcontent.cgi.pdf` first-hand. Two details it
+did not carry, both worth having: the outcome fluctuations at steps 2 and 4 are fitted **using
+only data points with `A = 1`**, which is the package's per-arm indicator design; and the
+procedure has no closing pass and no truncation anywhere in it
+([§7](#7-truncation-is-not-in-the-theorems-algorithm)).
+
+**The Python iteration is not an exact transcription of this order, and that is item 22 — which
+the source narrows to a numerical question.** Step 7 states the exit condition as *exactly* the
+three empirical means being approximately zero. So the paper asks for a fixed point satisfying
+the three equations and prescribes the order only as one way of reaching it; an order that
+reaches a point satisfying step 7 has done what the theorem requires, and Theorem 1's own
+hypotheses are conditions on the returned collection rather than on the route. That is what makes
+the difference licensed rather than merely unchecked.
+
+What is *not* settled by reading is whether the two orders reach the same fixed point on real
+data, which is a numerical claim and belongs to
+[A2](roadmap.md#a2--reference-and-independent-validation): compare the paper's order, R's order,
+Python's order, the fixed point each reaches, and the final three theorem-defined scores at each.
+The instrument for the last of those now exists — `res.validation.correction_check()` reports each
+score at the returned state, per arm — so the comparison is a run rather than a construction.
 
 **Do not compare fluctuation coefficients across algorithms unless the submodels and the update
 order are identical.** R's `epsilon` and this package's are different quantities already, for a
@@ -368,7 +410,7 @@ All read out of `benkeser/drtmle` at **version 1.1.2** (`R/drtmle.R`, `R/estimat
   the signed numerator. The roles are swapped between the two sources, so a formula transcribed
   from one and checked against the other is inverted and still plausible.
 - **R's internal signs are confirmed** and they are what this package computes — which is now
-  [§4](#4-the-sign-discrepancy-item-21)'s problem rather than its reassurance.
+  [§4](#4-the-sign-discrepancy-item-21--resolved)'s problem rather than its reassurance.
 - **R tilts each arm's mechanism separately** — `fluctuateG` is a `mapply` over `a_0`, each a
   one-column `glm` with offset `trimLogit(g_a)` — where this package solves *one* two-column tilt
   of `g(a_1|W)` and expresses the lower arm's equation against the same residual. The two solve
@@ -513,7 +555,7 @@ no `unverified` in it has been filled in from the code rather than from the pape
 | univariate R-PS1 / R-PS2 | yes | 2023 art. | — |
 | univariate third score | yes | 2023 art., (10-uni) | — |
 | **Theorem 1 statement** | yes | 2016 working paper | the **published 2017** version |
-| **corrected influence function** | yes, sign disputed | 2016 working paper | the published 2017 version — [§4](#4-the-sign-discrepancy-item-21) |
+| **corrected influence function** | yes | 2016 working paper | nothing — the display/appendix sign conflict is resolved in [§4](#4-the-sign-discrepancy-item-21--resolved) |
 | appendix B remainder terms | yes | 2016 working paper | — |
 | reduced-regression rate conditions | yes, as *sufficient* examples | 2016 working paper, app. A/B | necessary conditions, if wanted |
 | empirical-process conditions | yes | 2016 working paper | — |
@@ -543,8 +585,8 @@ statuses below are the state on the day this file was seeded, not a result.
 | exact zeros vs `o_p(n^(−1/2))` | Thm 1 | the stopping rule | numerical criterion | item 12 | met under a stated restriction |
 | arm-level means / ATE contrast | Thm 1 + adaptation | the reported parameters | rowwise difference of arm curves | — | met; the adaptation is stated, not cited |
 | hard truncation of `ĝ` | **nowhere** | the implementation as written | applied, inconsistently | item 20 | **not covered by the source** — [§7](#7-truncation-is-not-in-the-theorems-algorithm) |
-| the mechanism correction's sign | Thm 1 | the variance | opposite to the working paper | [§4](#4-the-sign-discrepancy-item-21) | **violated or mis-transcribed** — item 21 |
-| the update order | Thm 1's algorithm | nothing, if the fixed point is the same | different order | — | **unverified** — item 22 |
+| the mechanism correction's sign | Thm 1 | the variance | the appendices' orientation | [§4](#4-the-sign-discrepancy-item-21--resolved), `test_theorem_drtmle.py` | **met**; the §3.1 display disagrees and its own appendices contradict it — item 21, closed |
+| the update order | Thm 1's algorithm | nothing, if the fixed point is the same | different order | [§6](#6-the-recursive-algorithm-item-22) | **met under a stated restriction**: the paper's step 7 states its own exit as the three scores, so the order is not prescriptive; whether the fixed points coincide numerically is A2's — item 22 |
 | fixed weights | **nowhere** | item 17's claim | weighted loss throughout | `test_remainder_drtmle.py` | met for a **fixed** weight; estimated weights not covered |
 | repeated sample splitting | **nowhere** | item 18's claim | mean over draws | `test_drtmle_fit.py` | met arithmetically; not covered by the source |
 | `K` arms | **nowhere** | piece D | binary only | — | **not covered by the source** — [§12](#12-multi-valued-treatment-and-the-simplex) |

@@ -536,11 +536,15 @@ sign a doubly-robust fit off with "the targeting step solved the estimated effic
 equation" over three rows, two of which are the corrections; its verdict now branches on
 whether the fit is corrected and says which equations it solved.
 
-**The influence curve is a fidelity claim about `drtmle`, not a theoretical result.** The
-form above is what that package computes, read off its implementation. Theorem 1 of Benkeser
-et al. (2017) is where the influence function is derived, and **it has not been read here**;
-if the two disagree the theorem wins and `cleverly.inference.influence.reduced_corrections`
-is wrong. Scope is likewise set by what has been *derived* rather than by what `drtmle`
+**The influence curve was a fidelity claim about `drtmle`, and it has now been checked against
+the theorem.** The form above is what that package computes, read off its implementation;
+Theorem 1 of Benkeser, Carone, van der Laan & Gilbert is where the influence function is
+derived, and the 2016 working paper is now in the repository at `docs/viewcontent.cgi.pdf` and
+read. The two **agree**, and the reason that took an argument is that the paper's §3.1 display
+prints the mechanism correction with a leading minus its own appendices contradict — see
+[the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved),
+which is where a reader who wants the derivation rather than the verdict should go. The
+*published* 2017 article is still unread and no longer gates this. Scope is likewise set by what has been *derived* rather than by what `drtmle`
 accepts: a binary treatment, the `mean` group, and the univariate reduction. A multi-valued
 treatment is a candidate rather than a refusal on principle — the equations are written with
 a free `a` and nothing in them has a two-arm step — but van der Laan (2014) states its
@@ -851,9 +855,10 @@ and the registry must cover each other exactly.
 The last three are for `DRTMLE`, and
 [doubly-robust inference](#doubly-robust-inference-what-the-extra-equations-remove) rests on
 them — on the first two for the estimating equations and on the third's implementation for
-the influence curve, which is a fidelity claim rather than a transcription of a theorem.
-**Theorem 1 of Benkeser et al. (2017) has not been read here**, and that section says what
-turns on it.
+the influence curve. **Theorem 1 has now been read**, in the 2016 working-paper version kept at
+`docs/viewcontent.cgi.pdf`, and the curve agrees with it; that section and
+[the concordance](drtmle-theorem-concordance.md) say what the agreement took and what is still
+open without it.
 
 - van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical
   inference*.

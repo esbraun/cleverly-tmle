@@ -29,9 +29,12 @@ import pytest
 
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.targeting import build_submodel
+from cleverly.fluctuation.mechanism import mechanism_score
+from cleverly.fluctuation.reduced import reduced_mechanism_covariate
 from cleverly.inference.influence import (
     counterfactual_mean_parts,
     counterfactual_means,
+    reduced_correction_parts,
     reduced_corrections,
 )
 from tests import discrete_law as law
@@ -286,6 +289,195 @@ class TestTheDecompositionKeepsUp:
         )
         assert set(parts[1.0].shares()) == {"residual", "plugin"}
         assert parts[1.0].guard is None
+
+
+#: A hand-built state where the mechanism truncation **binds**, which is the whole point of
+#: it: every identity below is satisfied for free on a draw where nothing clips, and that
+#: degeneracy is what hid the defect for two revisions.  Rows 0 and 4 fall outside
+#: :data:`TIGHT_BOUNDS` and no other does, so the arithmetic is checkable by hand.
+RAW_G1 = np.array([0.02, 0.50, 0.90, 0.50, 0.01, 0.70])
+TIGHT_BOUNDS = (0.05, 0.95)
+#: Non-constant and mean one, this package's convention.  A weight of all ones would make
+#: the weighted and unweighted statements of every identity below the same statement.
+WEIGHTS = np.array([0.4, 1.6, 0.5, 1.5, 0.6, 1.4])
+TREATMENT = np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0])
+
+
+def hand_built(qr_scale: tuple[float, float] = (1.0, 1.0)):
+    """``(reduced, targeted, outcome)`` with every array chosen rather than fitted.
+
+    Nothing here is a plausible fit and nothing needs to be: the identities this fixture is
+    for are algebraic, so what it has to be is *exact*, non-degenerate at both arms, and
+    clipped on rows a reader can count.  ``qr_scale`` scales each arm's :math:`Q_r` column,
+    which is what lets a caller aim the per-arm clipping bias.
+    """
+    from cleverly.estimators.reduced import ReducedSet
+    from cleverly.fluctuation.iterative import InitialFit
+
+    qr = np.column_stack(
+        [
+            qr_scale[0] * np.array([0.30, -0.20, 0.10, 0.40, -0.50, 0.25]),
+            qr_scale[1] * np.array([-0.15, 0.35, 0.20, -0.30, 0.45, 0.10]),
+        ]
+    )
+    gr1 = np.column_stack(
+        [np.array([0.3, 0.4, 0.5, 0.6, 0.7, 0.45]), np.array([0.7, 0.6, 0.5, 0.4, 0.3, 0.55])]
+    )
+    gr2 = np.column_stack(
+        [
+            np.array([0.12, -0.08, 0.05, 0.20, -0.11, 0.09]),
+            np.array([-0.07, 0.14, 0.03, -0.18, 0.22, 0.06]),
+        ]
+    )
+    reduced = ReducedSet(qr, gr1, gr2, ARMS, TIGHT_BOUNDS)
+    targeted = InitialFit(
+        np.array([0.55, 0.42, 0.61, 0.38, 0.47, 0.52]),
+        {
+            0.0: np.array([0.50, 0.40, 0.60, 0.38, 0.47, 0.52]),
+            1.0: np.array([0.55, 0.42, 0.61, 0.45, 0.51, 0.58]),
+        },
+    )
+    outcome = np.array([1.0, 0.0, 1.0, 0.0, 1.0, 0.0])
+    return reduced, targeted, outcome
+
+
+def parts_at(bounds=TIGHT_BOUNDS, qr_scale=(1.0, 1.0)):
+    """The corrections and the clipping bias at :func:`hand_built`, under ``bounds``."""
+    reduced, targeted, outcome = hand_built(qr_scale)
+    return (
+        reduced_correction_parts(
+            outcome, targeted, TREATMENT, reduced, RAW_G1, bounds=bounds, observed=None
+        ),
+        reduced,
+        targeted,
+        outcome,
+    )
+
+
+def stored_mechanism_score(reduced, bounds):
+    """Equation (9)'s score exactly as the alternation records it: raw residual, bounded covariate.
+
+    :func:`~cleverly.fluctuation.mechanism.mechanism_score` is the function
+    :func:`~cleverly.estimators.targeting.solve_with_reduction` calls, so this is the
+    recorded number rather than a restatement of it.
+    """
+    return mechanism_score(
+        TREATMENT,
+        RAW_G1,
+        reduced_mechanism_covariate(reduced, RAW_G1, bounds=bounds),
+        WEIGHTS,
+    )[0]
+
+
+class TestTheCorrectionsSplitIntoTheTermsTheEquationsSolve:
+    """Piece B1a's arithmetic, with no fit anywhere in it.
+
+    The reported curve subtracts one array per arm; the alternation records one score per
+    arm per equation.  Whether those are the same statement is algebra, and algebra is
+    cheaper and more exact to check here than on a fitted draw -- what the fitted draws in
+    ``tests/unit/test_drtmle_fit.py`` add is that the wiring reaches this.
+    """
+
+    def test_each_half_is_the_term_its_equation_solves(self) -> None:
+        """Against longhand, not against ``total()``.
+
+        ``reduced_corrections`` now *calls* :meth:`CorrectionParts.total`, so comparing the
+        two would compare one expression with itself and would survive the split being
+        turned into a difference -- watched, and it did.  The longhand below is what makes
+        the comparison say something, and the last assertion is then the one that pins the
+        sum.
+        """
+        parts, reduced, targeted, outcome = parts_at()
+        bounded = np.clip(RAW_G1, *TIGHT_BOUNDS)
+        whole = reduced_corrections(
+            outcome, targeted, TREATMENT, reduced, RAW_G1, bounds=TIGHT_BOUNDS, observed=None
+        )
+
+        for j, arm in enumerate(ARMS):
+            mechanism = bounded if arm == 1.0 else 1.0 - bounded
+            indicator = np.equal(TREATMENT, arm).astype(float)
+            np.testing.assert_allclose(
+                parts.d_g[arm],
+                reduced.qr[:, j] / mechanism * (indicator - mechanism),
+                rtol=0,
+                atol=1e-15,
+            )
+            np.testing.assert_allclose(
+                parts.d_q[arm],
+                indicator * (reduced.gr2[:, j] / reduced.gr1[:, j]) * (outcome - targeted.observed),
+                rtol=0,
+                atol=1e-15,
+            )
+            assert np.array_equal(whole[arm], parts.d_g[arm] + parts.d_q[arm])
+
+    def test_the_fixture_clips_and_says_which_rows(self) -> None:
+        """The precondition every identity below is only informative under."""
+        parts, _, _, _ = parts_at()
+        assert list(np.flatnonzero(parts.clipped)) == [0, 4]
+
+    @pytest.mark.parametrize("arm", ARMS)
+    def test_the_clipping_bias_is_exactly_what_the_two_expressions_differ_by(
+        self, arm: float
+    ) -> None:
+        r"""The identity B1a exists to expose, per arm and with the weights carried.
+
+        :math:`P_n[w D^*_g] - S_g^{stored} = B_{clip}`, and *exactly*: both sides are the
+        same rows of the same arrays, differing only in whether the residual reads the raw
+        tilted mechanism or the truncated one.  The orientation is
+        ``docs/drtmle-validation-plan.md``'s, where :math:`B_{clip}` carries
+        :math:`g - g^b`; the residual the check reports is its negation, and asserting the
+        two agree up to that sign is the point rather than an inconvenience.
+        """
+        parts, reduced, _, _ = parts_at()
+        j = ARMS.index(arm)
+        stored = float(stored_mechanism_score(reduced, TIGHT_BOUNDS)[j])
+        reported = float(np.mean(WEIGHTS * parts.d_g[arm]))
+        clip_bias = float(np.mean(WEIGHTS * parts.clip_bias[arm]))
+
+        assert abs(stored - reported) > 1e-3, "the fixture must make the two disagree"
+        np.testing.assert_allclose(reported - stored, clip_bias, rtol=0, atol=1e-16)
+
+    @pytest.mark.parametrize("arm", ARMS)
+    def test_and_it_is_zero_where_the_bound_does_not_bind(self, arm: float) -> None:
+        """Which is why a fixture that never clips proves nothing, and this is the control."""
+        parts, reduced, _, _ = parts_at(bounds=INERT_BOUNDS)
+        j = ARMS.index(arm)
+
+        assert not parts.clipped.any()
+        np.testing.assert_allclose(parts.clip_bias[arm], 0.0, rtol=0, atol=1e-16)
+        np.testing.assert_allclose(
+            float(stored_mechanism_score(reduced, INERT_BOUNDS)[j]),
+            float(np.mean(WEIGHTS * parts.d_g[arm])),
+            rtol=0,
+            atol=1e-16,
+        )
+
+    def test_the_weights_are_load_bearing(self) -> None:
+        """The identity is between two *weighted* means, and an unweighted one is a different number."""
+        parts, reduced, _, _ = parts_at()
+        stored = stored_mechanism_score(reduced, TIGHT_BOUNDS)
+        for j, arm in enumerate(ARMS):
+            unweighted = float(np.mean(parts.d_g[arm]))
+            assert abs(float(stored[j]) - unweighted) > 1e-3
+            assert abs(unweighted - float(np.mean(WEIGHTS * parts.d_g[arm]))) > 1e-3
+
+    def test_a_per_arm_defect_can_cancel_in_the_contrast(self) -> None:
+        r"""Why the check is per arm and taken **before** the contrast is built.
+
+        ``IC_ate = IC_ey1 - IC_ey0`` rowwise, so equal per-arm clipping biases cancel in it
+        exactly.  The scale below is chosen to make them equal -- solved for rather than
+        guessed, so the cancellation is arithmetic and not a near miss -- and an ATE-only
+        check would then report a fit whose every arm is wrong as clean.
+        """
+        unit, _, _, _ = parts_at()
+        bias = {arm: float(np.mean(WEIGHTS * unit.clip_bias[arm])) for arm in ARMS}
+        parts, _, _, _ = parts_at(qr_scale=(bias[1.0] / bias[0.0], 1.0))
+
+        per_arm = {arm: float(np.mean(WEIGHTS * parts.clip_bias[arm])) for arm in ARMS}
+        contrast = per_arm[1.0] - per_arm[0.0]
+
+        assert min(abs(value) for value in per_arm.values()) > 1e-3
+        assert abs(contrast) < 1e-15, "the cancellation is what an ATE-only check would see"
 
 
 def _mean_submodel(fluctuation):

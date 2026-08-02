@@ -40,8 +40,8 @@ What the second review changed, in one place so the diff is legible:
 | "exactly two truncation conventions" is wrong | accepted and withdrawn |
 | the weak-overlap fit must pass after B1 | accepted as an error; the criterion is now the identity, not the verdict |
 | `α < 1/2` needs a nonzero-drift qualification | accepted; the drift coefficient is now designed and verified, not inferred |
-| the mechanism correction's **sign** disagrees with the working paper | accepted as **item 21**, stop-ship, and pending the published article |
-| the theorem's update order is not the code's | accepted as **item 22** |
+| the mechanism correction's **sign** disagrees with the working paper | accepted as **item 21**, stop-ship — and **closed against the implementation's favour of it** once the paper itself was in hand: the §3.1 display it quoted is contradicted by that paper's own appendices ([lesson 10](#what-the-sizings-got-wrong)) |
+| the theorem's update order is not the code's | accepted as **item 22**, and closed: the paper states its own exit as the three score equations, so the order is not prescriptive |
 | statistical validity and product usefulness are two gates | accepted; the release rule splits |
 | split the document by purpose | accepted; this file is part of that |
 | soften "defect" on the multi-arm simplex question | accepted; it is an unasked question, not a known defect |
@@ -166,6 +166,55 @@ extreme, and that is the point: no amount of solving the first equation bounds t
   closing pass's mechanism stage does bind on its cap, and the uncentred draws are the ones where
   the tilted `g*` leaves the bounds — but the cap binds on 94 of 96 fits while the curve is
   uncentred on a quarter of them, so the cap cannot be what selects them.
+
+### What B1a measured when it landed
+
+The patch is described in [the roadmap](roadmap.md#what-b1a-landed); what belongs here are the
+numbers it produced, because they are what the diagnosis above is now checked against on every
+fit rather than once by hand.
+
+On the module fixture — `nonlinear_dgp`, `n = 600`, seed 3, `glm` on both nuisances, `n_folds=5`,
+`learner_folds=3`, reported on the **outcome** scale rather than the scaled one, so a factor of
+`range = 15.13` against the figures in [the measurements](#the-measurements):
+
+| draw | rows clipped | arm | `Δ_g` | `B_clip` | `Δ_Q` |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 0 / 600 | 0 | `5.5e-19` | `0` | `−1.1e-18` |
+| 0 | 0 / 600 | 1 | `1.4e-18` | `0` | `0` |
+| 1 | 5 / 600 | 0 | `3.410e-03` | `−3.410e-03` | `3.3e-19` |
+| 1 | 5 / 600 | 1 | `−2.449e-04` | `2.449e-04` | `−9.0e-19` |
+
+Three things in that table are the point. `Δ_g = −B_clip` **to every digit**, per arm, which is
+the diagnosis reproducing itself as a number. `Δ_Q` is roundoff on every row, which is the control:
+nothing truncates on equation (10)'s side, so an instrument that fired there would be broken rather
+than informative. And the two draws differ, so the same fit carries both the case that binds and
+the case that does not — a fixture with only one of them is [lesson
+2](#what-the-sizings-got-wrong) waiting to happen.
+
+The gap either side of the bar is what makes `IDENTITY_TOLERANCE = 1e-12` a threshold rather than
+a guess: seven orders above the arithmetic, four below the smallest real failure seen (`7e-08`, on
+an unseeded draw at `n = 400`).
+
+**A clipping row does not by itself produce a large residual**, which is worth recording against
+the obvious reading of item 20. `Δ_g` is `Q_r`-weighted at the clipped rows, so draw 1's two arms
+differ by a factor of fourteen on the same five rows, and an unseeded `n = 400` draw with two
+clipped rows came back at `6.9e-08`. "The bound binds" is the precondition; the magnitude is a
+separate question, and a test that asserted the first while meaning the second would pass on draws
+it should fail.
+
+### What B1a found that was not item 20
+
+The instrument's first run against a `guard=("g",)` fit reported a correction of `2.8e-03` on the
+outcome scale at arm 1 with **zero clipped rows** and no equation (9) anywhere in the fit — which
+is [item 23](roadmap.md#what-is-still-open), a single-guard fit subtracting a correction it never
+solved for. It is a different defect from item 20 in cause, in magnitude and in which fits it
+touches, and nothing here would have seen it: no test in this repository fits a partial guard end
+to end, and the default `guard=("Q", "g")` cannot be in this state.
+
+That is [lesson 8](#what-the-sizings-got-wrong) arriving from the other side. Item 20 was found by
+recomputing a recorded number from the returned state on one fit; this was found by the same
+recomputation, once it was a permanent fixture of every doubly-robust fit rather than thirty lines
+in a scratch file.
 
 ## How the alternation exits
 
@@ -354,13 +403,26 @@ term the curve carries**, which is the check the execution plan asked for under 
 was wrong, and which is right regardless of the diagnosis — and regardless of which convention
 [B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) eventually adopts.
 
+**10. A display is not a derivation, and the difference decided item 21.** The charge that the
+mechanism correction's sign disagreed with the theorem came from a faithful transcription of the
+working paper's §3.1 display, made before the document itself was in hand. With the paper open,
+the display is contradicted by the paper's own appendices twenty pages later — each derives its
+block in a form satisfiable only with the *positive* correction, which is what both
+implementations compute — and the same paper prints the other correction twice with two signs. So
+the source had to be checked against **itself** before the code was checked against the source.
+The general form: when a source and an implementation disagree, the first question is whether the
+source disagrees with itself, and a quotation of one equation is not an answer to it. This is
+[lesson 6](#what-the-sizings-got-wrong) sharpened — a reader with the source open beats a
+quotation of the source, and beats a transcription of it for exactly the same reason.
+
 **9. A finding located in the code is not a finding adjudicated against the theorem, and the
 second review is where that cost showed.** Item 20's cause was found by recomputation, which is
 the right instrument and answered the question asked: *are these two numbers the same functional
 of the same state?* They are not, and the fix follows. What that instrument cannot see is whether
-**either** expression is the one the theorem names — and on the sign of the mechanism correction
-(item 21) the answer may be neither, in which case a fit that satisfies the identity perfectly is
-still reporting the wrong variance. Parity with a reference implementation has the same blind
+**either** expression is the one the theorem names — which on the sign of the mechanism correction
+(item 21) took the paper itself, and where the answer could have been *neither*, leaving a fit
+that satisfies the identity perfectly and reports the wrong variance. It was not neither; that
+was not knowable from here. Parity with a reference implementation has the same blind
 spot in the same place, and by construction: R and Python descend from one source, so agreement
 is evidence about the transcription and not about the derivation. **Two checks that cannot fail
 against the same class of error are one check**, however different their machinery.

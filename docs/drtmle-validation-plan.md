@@ -13,6 +13,10 @@ table](#6-what-each-new-test-has-to-be-watched-to-fail) is what makes any of it 
 
 ## 1. The invariants (piece B1a)
 
+**Landed.** [The roadmap](roadmap.md#what-b1a-landed) says what shipped and which four decisions
+inside it were forks; this section is the specification it was executed from, kept as written
+except where a number in it was wrong — see [the sign](#the-clipping-diagnostic) below.
+
 **This lands before any convention is chosen and is valid under every one of them.** Its purpose
 is to make [item 20](drtmle-investigation-log.md#item-20-from-discovery-to-cause)'s class of
 defect impossible to hide, not to decide what the mechanism should be.
@@ -59,6 +63,21 @@ floating-point, which is what makes it a check on the diagnosis and not only a n
 stays useful afterwards: under any convention it measures how much of the mechanism equation the
 bound is absorbing.
 
+**It does, and the sign above is one orientation out from the residual it explains.** With
+`B_clip` carrying `g_raw − g_b` as written here and the residual defined as
+`Δ_g = S_g^stored − Pn[w D*_g]` as written above, the two are *negatives* of one another:
+
+```text
+Pn[ w · D*_g(a) ] − S_g^stored(a) = Pn[ w · B_clip(a) ]
+```
+
+because one residual reads `1_a − g` and the other `1_a − g^b`. Both are kept as specified —
+`CorrectionParts.clip_bias` is this document's `B_clip` and `CorrectionRow.residual` is this
+document's `Δ` — and the relation is asserted with its sign rather than being tidied away. It
+holds to floating point, per arm, on a draw that clips: `Δ_g = 3.410e-03` against
+`B_clip = −3.410e-03` at arm 0 and `−2.449e-04` against `2.449e-04` at arm 1, on the
+`repeats=2` fixture's draw 1.
+
 ### What the fit then does
 
 Mark inference **invalid** whenever any identity residual exceeds numerical roundoff, or any final
@@ -67,9 +86,21 @@ correction score exceeds the predeclared inferential tolerance, and say so on th
 exists. The two conditions are different failures and must not be reported as one: the first is a
 software defect, the second is a fit that did not solve its equations.
 
+*"Numerical roundoff" is now a number*: `validation.drtmle.IDENTITY_TOLERANCE = 1e-12`, absolute,
+on the outcome scale, and deliberately not relative to the score — a difference between two
+evaluations of one expression has zero as its right value rather than something small compared
+with anything. Measured on `nonlinear_dgp`, a holding identity sits at `2e-19` and the smallest
+real failure at `7e-08`. The inferential tolerance is `score_check`'s own
+`DEFAULT_TOLERANCE · se/√n`, so the two rows are held to the two bars they should be. Both kinds
+appear in `score_check` as their own row kinds (`identity`, `correction`), which is what puts them
+in `summary()`; `res.validation.correction_check()` is the recomputation behind them.
+
 `tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred` pins the defect's numbers
 today and must be **rewritten rather than deleted** — after B1a its fixture is the regression test
-that the bounds still bind on that draw, which is the thing every later assertion needs.
+that the bounds still bind on that draw, which is the thing every later assertion needs. It was:
+the class now asserts the identity rather than the symptom, and holds both halves of the claim in
+one fit, since its draw 0 clips **0** rows of 600 and its draw 1 clips **5**. A fixture chosen for
+passing would prove nothing and one chosen for failing would prove little more.
 
 ## 2. The targeting candidates (piece B1b)
 
@@ -217,7 +248,7 @@ cannot be re-derived when it disagrees.** The script may call the package's inte
 1. **Finite support, deliberately misspecified.** A small discrete `W` with repeated nuisance
    values, so the reduced regressions genuinely pool cells and a longhand calculation is possible.
    This is the one that validates definitions and signs without a learner in the way, and it is
-   the fixture [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21)'s
+   the fixture [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)'s
    hand-calculation extends: it must carry a **nonzero `Q_r`** and be built so the two candidate
    signs give materially different variances.
 2. **Outcome nuisance close but not exact, mechanism wrong.** Deterministic arrays or a
@@ -242,7 +273,7 @@ finite-support quantities, `1e-8`-ish for deterministic GLM predictions and coef
 **Where R and the theorem disagree, keep both in the fixture and mark the disagreement
 explicitly.** The theorem wins for statistical correctness unless the published article changed
 the formula. A2 is an implementation-parity and independent-algebra task; it cannot adjudicate
-[§4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21), and a fixture that quietly
+[§4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved), and a fixture that quietly
 records R's sign as correct would make that permanent.
 
 ## 4. The sweep (piece B2)
@@ -419,7 +450,7 @@ commercially uninteresting, and those are different conclusions.
 **Gate 1 — statistical validity.** `DRTMLE` is theoretically and computationally validated if:
 
 1. theorem concordance closes, including
-   [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21);
+   [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved);
 2. zero state-identity failures from [B1a](#1-the-invariants-piece-b1a)'s checks across the whole
    study;
 3. every required final score is negligible under the predeclared validity rule;
@@ -487,11 +518,15 @@ rather than being found afterwards.
 | unit | the curve reads *starred* nuisances | read the initial `g` or the initial reductions |
 | unit | arm indexing | swap the arm columns |
 | unit | each of equations (8), (9), (10) is solved | drop one equation at a time |
-| unit | the stored eq (9) score **equals** `mean(w·D*_g)` at the returned state (item 20) | truncate `g*` on one side of the identity and not the other |
+| unit | the stored eq (9) score **equals** `mean(w·D*_g)` at the returned state (item 20) | **run**: recompute the "stored" score instead of reading the record, and the identity holds everywhere |
 | unit | the stored eq (10) score equals `mean(w·D*_Q)` at the returned state | swap the `gr2/gr1` ratio |
-| unit | the identity holds on a fit where the bound **binds** | move the fixture to a draw with no clipped row, and watch it pass regardless |
-| unit | `B_clip` reproduces the mismatch on the current implementation | zero the diagnostic and watch the residual go unexplained |
-| unit | the identity is checked **per arm** before the contrast | check the ATE only, and introduce cancelling per-arm errors |
+| unit | the identity holds on a fit where the bound **binds** | **structural**: the fixture's two draws clip 0 and 5 rows and the test asserts both, so moving it breaks the test rather than silently passing |
+| unit | `B_clip` reproduces the mismatch on the current implementation | **run**: zero the diagnostic, and the residual goes unexplained |
+| unit | the identity is checked **per arm** before the contrast | **run**: swap the arm columns when reading the stored score; and separately, a hand-built pair of per-arm biases that cancel exactly in the contrast |
+| unit | the identity carries the row **weights** | **run**: drop `w` from the means, and swapping a fitted result's weights stops moving them |
+| unit | the rows are on **one** outcome scale | **run**: drop the `scaler.range` factor, and the estimand's curve no longer equals its arms' corrections |
+| unit | the split into `D*_g` and `D*_Q` did not move the curve | **run**: return their difference from `total()`. Watched first against a test comparing `total()` with `reduced_corrections` — which **passed**, because the second calls the first, so that test was replaced with one comparing each half against longhand |
+| unit | an identity failure reaches the report (item 16's machinery) | **run**: mark the identity rows passed, and both the verdict and the summary go quiet |
 | unit | the stopping rule accepts either ruler | delete the absolute branch (already done, item 12) |
 | unit | a weighted fit transports (item 17) | reductions taken at the sampling law (already done, item 17) |
 | oracle | the drift decomposition | delete one correction term |

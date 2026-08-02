@@ -110,9 +110,10 @@ from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
 from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cross_validated_variance
 from ..inference.influence import (
+    CorrectionParts,
     ParameterEstimate,
     average_estimates,
-    reduced_corrections,
+    reduced_correction_parts,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
@@ -2089,32 +2090,9 @@ class TMLE:
         targeted: InitialFit,
         scaled: FloatArray,
     ) -> dict[float, FloatArray] | None:
-        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other.
-
-        Read entirely off the fluctuation, which is where the alternation left the pieces:
-        the refitted reduced regressions, the targeted mechanism and the truncation the two
-        extra covariates divided by.  A curve built from ``result.nuisance`` instead would
-        be the curve of a fit nobody ran -- those arrays are deliberately the *initial*
-        ones.  Without the ``"Q"`` guard no mechanism was tilted and the initial one is
-        what equation (10) was solved beside, so that is what the curve reads.
-        """
-        reduction = fluctuation.reduction
-        if reduction is None:
-            return None
-        mechanism = (
-            fluctuation.mechanism.propensity
-            if fluctuation.mechanism is not None
-            else nuisance.propensity.arm(reduction.reduced.arms[1])
-        )
-        return reduced_corrections(
-            scaled,
-            targeted,
-            data.treatment,
-            reduction.reduced,
-            mechanism,
-            bounds=reduction.bounds,
-            observed=data.observed,
-        )
+        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other."""
+        parts = correction_parts(data, nuisance, fluctuation, targeted, scaled)
+        return None if parts is None else parts.total()
 
     def _estimates_for(
         self,
@@ -2263,6 +2241,46 @@ class TMLE:
             per_repeat.append(estimates)
         averaged = average_estimates(per_repeat, cluster=data.cluster)
         return {name: estimate.psi for name, estimate in averaged.items()}
+
+
+def correction_parts(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    fluctuation: Fluctuation,
+    targeted: InitialFit,
+    scaled: FloatArray,
+) -> CorrectionParts | None:
+    """The doubly-robust corrections at the state a fit returned; ``None`` for other fits.
+
+    Read entirely off the fluctuation, which is where the alternation left the pieces: the
+    refitted reduced regressions, the targeted mechanism and the truncation the two extra
+    covariates divided by.  A curve built from ``result.nuisance`` instead would be the
+    curve of a fit nobody ran -- those arrays are deliberately the *initial* ones.  Without
+    the ``"Q"`` guard no mechanism was tilted and the initial one is what equation (10) was
+    solved beside, so that is what the curve reads.
+
+    Module level rather than a method of :class:`TMLE`, and that is the whole point: the
+    reported curve and :func:`~cleverly.validation.drtmle.correction_check`'s identity both
+    come through here, so neither can end up describing a different state from the other.
+    A result read back from disk has no estimator to ask, which is the other reason.
+    """
+    reduction = fluctuation.reduction
+    if reduction is None:
+        return None
+    mechanism = (
+        fluctuation.mechanism.propensity
+        if fluctuation.mechanism is not None
+        else nuisance.propensity.arm(reduction.reduced.arms[1])
+    )
+    return reduced_correction_parts(
+        scaled,
+        targeted,
+        data.treatment,
+        reduction.reduced,
+        mechanism,
+        bounds=reduction.bounds,
+        observed=data.observed,
+    )
 
 
 def _slice_fit(fit: InitialFit, index: IntArray) -> InitialFit:

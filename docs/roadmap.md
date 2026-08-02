@@ -15,12 +15,21 @@ are read off different arrays — **found the cause of item 20**, which is not t
 read under two truncation conventions, and it accounts for item 11 as well. A third review read
 the result against the **2016 working-paper version of the theorem**, which nothing here had had
 in hand before. It accepted that diagnosis, and it found two things the diagnosis could not have
-found and neither could any test in this repository: the mechanism correction's **sign** disagrees
-with the theorem (**item 21**), and the algorithm's **update order** is not the theorem's
-(**item 22**). It also showed that the fix as planned could not be executed as planned, because
-[piece B1](#b-the-loops-exit-and-whether-what-it-leaves-is-what-gets-reported) both preceded and
-depended on pieces A1 and A2 — so B1 splits into **B1a**, an identity and safety patch valid under
-every eventual convention, and **B1b**, the targeting decision that has to wait for the theorem.
+found and neither could any test in this repository: the mechanism correction's **sign** appeared
+to disagree with the theorem (**item 21**), and the algorithm's **update order** is not the
+theorem's (**item 22**). It also showed that the fix as planned could not be executed as planned,
+because [piece B1](#b-the-loops-exit-and-whether-what-it-leaves-is-what-gets-reported) both
+preceded and depended on pieces A1 and A2 — so B1 splits into **B1a**, an identity and safety
+patch valid under every eventual convention, and **B1b**, the targeting decision that has to wait
+for the theorem.
+
+**Then the working paper itself arrived**, at `docs/viewcontent.cgi.pdf`, and reading it rather
+than a transcription of it closed both of the third review's items — the **sign in favour of the
+implementation**, on that paper's own appendices, which contradict the display the charge was
+filed from; and the **update order**, because the paper states its own exit as the three score
+equations and so prescribes a fixed point rather than a route. That is
+[lesson 10](drtmle-investigation-log.md#what-the-sizings-got-wrong), and it is why this page no
+longer opens with a stop-ship.
 
 **This page is now one of four**, because it had become a status page, a methodology review, a
 forensic report, an implementation specification, a test plan, a simulation protocol and a project
@@ -74,17 +83,20 @@ registry.
   it is in [doubly-robust inference](user-guide.md#doubly-robust-inference).
 
   The code is written, in five commits, and every test passes. That is not the same as
-  finished, and calling it landed would be claiming the part that is missing. **Two defects are
-  live and each is a stop-ship on its own:**
+  finished, and calling it landed would be claiming the part that is missing. **One defect is
+  live and it is a stop-ship; the other is closed and is worth keeping visible:**
 
-  - **the mechanism correction's sign disagrees with Theorem 1** as the 2016 working paper states
-    it (item 21). That paper defines `D_A = −(Q_r/g)(A − g)` and *subtracts* it, so its net
-    mechanism contribution is `+(Q_r/g)(A − g)`; this package and `drtmle` alike compute a
-    positive `D*_g` and subtract that. Nothing that reports a point estimate can see this — all
-    three empirical means are driven to zero — and it moves the variance, which is the only thing
-    this variant produces. It is open pending the **published 2017** article, which is
-    authoritative and is not in hand. Details and the acceptance test are in [the concordance's
-    §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21);
+  - ~~the mechanism correction's sign disagrees with Theorem 1~~ (item 21) — **closed, and the
+    curve agrees with the theorem.** The working paper is now in the repository
+    (`docs/viewcontent.cgi.pdf`) and read. Its §3.1 display does define `D_A = −(Q_r/g)(A − g)`
+    while Theorem 1 subtracts `D_A`, which read together flips the mechanism correction — but the
+    paper's **own appendices** derive each block in a form satisfiable only with the *positive*
+    correction, and Theorem 1's variance formula then reads exactly as this package computes it.
+    So the display is wrong on its face, in a document that also prints `D_Y` twice with two
+    signs. The argument, the two further slips in the same paper, and what is left are in [the
+    concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved);
+    `tests/unit/test_theorem_drtmle.py` pins it, watched to fail against a flipped sign in the
+    library itself;
   - **the reported curve is not centred whenever the targeted mechanism leaves the truncation
     bounds** — on roughly a quarter of ordinary splits and on 23 of 24 weak-overlap fits, at
     `2e-05` to `7e-04` where a solved fit sits near `1e-09`, while the loop's own three rows all
@@ -95,11 +107,16 @@ registry.
     defect and it is not confined to poor overlap. [The investigation
     log](drtmle-investigation-log.md#item-20-from-discovery-to-cause) carries the measurements.
 
-  So **until [B1a](#b1a--the-identity-and-safety-patch) lands and item 21 is adjudicated, a
-  `DRTMLE` standard error should be read as provisional on every process.** The second defect is
-  caught, on the influence-curve rows: `res.score_verdict` says so and `summary()` prints it,
-  which is the only reason it was found at all. The first is caught by nothing here, and could
-  not have been.
+  So **until [B1b](#b1b--the-theorem-conforming-targeting-decision) chooses a convention, a
+  `DRTMLE` standard error should be read as provisional wherever `res.score_verdict` says so.**
+  The live defect is now caught *by name*: [B1a](#b1a--the-identity-and-safety-patch) has landed,
+  so `res.validation.correction_check()` recomputes each arm's `Pn[w D*_g]` and `Pn[w D*_Q]` from
+  the exact returned state, reports the residual against the score the loop recorded and the
+  `B_clip` that explains it, and `score_check` marks such a fit invalid in words that say
+  *defect* rather than *did not converge*. Before it, the only witness was the influence-curve
+  rows being uncentred, which was how it was found at all. Item 21 was caught by nothing here and
+  could not have been — it took the source, and the source only settled it because its
+  appendices could be checked against arithmetic this repository already had.
 
   Beyond those: **the influence curve is transcribed from R's `drtmle`, not derived** — the
   working paper closes most of that gap and the published article closes the rest; nothing here
@@ -122,8 +139,10 @@ nothing less clears the variant. What the reviews changed is not that bar but wh
 while another fails:
 
 1. **Theorem fidelity** — the equations solved and the curve reported are the ones the derivation
-   gives, under conditions the fit actually meets. Items 1, 13, 15, 21 and 22. **This link is now
-   known to be broken**, at the sign, which is the change the third review made to this list.
+   gives, under conditions the fit actually meets. Items 1, 13, 15, 21 and 22. The third review
+   reported this link **broken** at the sign; reading the source closed items 21 and 22 in the
+   implementation's favour, so what is left of the link is items 1, 13 and 15 — the labelling, the
+   empirical remainder rate, and the cross-fitting construction.
 2. **Reference fidelity** — the algorithm agrees with `drtmle` component by component, not
    merely at `psi` and `se`, where several differences cancel. Item 2. Note what it cannot do:
    both packages descend from one source, so parity is evidence about the transcription and is
@@ -142,7 +161,9 @@ while another fails:
    truncation applied to one of them on the way into two different expressions. "Built from the
    same state" is necessary and it is not sufficient; the checkable form of this link is an
    **identity between each recorded score and a recomputation of the term the curve carries**,
-   which is [piece B1a](#b1a--the-identity-and-safety-patch).
+   which is [piece B1a](#b1a--the-identity-and-safety-patch) and **has landed**. The link is
+   still broken — the identity fails wherever the bound binds, which is what B1b decides — but it
+   is now measured per arm on the face of every fit rather than inferred from an uncentred curve.
 5. **Inferential usefulness** — coverage in a regime where the plain interval fails. Item 3.
 
 The first review's summary of this is exactly right and worth keeping in its words: none of the
@@ -173,9 +194,9 @@ The numbered items the pieces below close keep the numbering they have had since
 opened, because `benchmarks/bench_drtmle.py`, `.github/workflows/drtmle-convergence.yml`,
 `estimators/targeting.py` and `tests/unit/test_drtmle_fit.py` all cite them by number. **The first
 review's items are therefore 13 to 19 rather than a renumbering**, item **20** — found while
-closing item 18 — is 20 for the same reason, and the third review's two are **21** and **22**,
-which is why the most important item on the page has the highest number. The pieces are lettered
-so the two cannot be confused.
+closing item 18 — is 20 for the same reason, the third review's two are **21** and **22**, which is
+why the most important item on the page has the highest number, and **23** was found by piece
+B1a's own instrument on its first run. The pieces are lettered so the two cannot be confused.
 
 ### The work, in four pieces and seven pull requests
 
@@ -185,7 +206,7 @@ sweep answers all of them — not where the subject matter merely rhymes.
 
 | PR | what it lands | new artefacts |
 | --- | --- | --- |
-| **B1a** | the score/correction identities, the clipping diagnostic, and invalidation when either fails | tests in `tests/unit/test_drtmle_fit.py`, `test_influence_drtmle.py`; `Δ_g`, `Δ_Q`, `B_clip` on the result |
+| **B1a** — *landed* | the score/correction identities, the clipping diagnostic, and invalidation when either fails | `cleverly/validation/drtmle.py`; `res.validation.correction_check()`; `identity` and `correction` rows on `score_check`; tests in `tests/unit/test_drtmle_fit.py` and `test_influence_drtmle.py` |
 | **A1** | items 1, 15, 21 and 22: the theorem read, mapped, graded, and the sign adjudicated | closes out [`docs/drtmle-theorem-concordance.md`](drtmle-theorem-concordance.md) |
 | **A2** | item 2: `drtmle` parity, component by component | `tools/r_reference/export_drtmle_fixture.R`, `tests/reference/drtmle/*.json`, `tests/unit/test_drtmle_reference_parity.py`, `docs/drtmle-r-reference.md` |
 | **B1b** | items 11 and 20: the targeting convention, chosen on theorem fidelity rather than parity | the chosen submodel or solver at the `DRTMLE` call sites; the variant comparison table |
@@ -224,37 +245,44 @@ is the third review's most useful structural correction.
 `D = D* − D*_Q − D*_g` is read off `drtmle`'s implementation, not derived. The whole variant is a
 variance estimate, so a curve transcribed from software and never checked against its derivation
 is the one part of this that could be wrong in a way nothing here would catch — and
-[it is](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21).
+[it is](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved).
 `inference/influence.py::reduced_corrections` says so in its own docstring, as do the guide and
 the appendix.
 
 Two halves. They answer the same question and only one of them is blocked; A2 needs neither the
 paper nor R's agreement to be worth doing.
 
-**The document-access problem is mostly gone and was never a paywall.** The article is an NIH
-author manuscript deposited in PubMed Central as **PMC5793673**. `docs/pdf.pdf` is the 2023
-software article, and the 2016 working-paper version of the theorem has been transcribed into
-[the concordance](drtmle-theorem-concordance.md). What remains genuinely unobtained is the
-**published 2017** article — which matters precisely because item 21 turns on whether a definition
-was revised between the two — and van der Laan (2014) Theorem 3, which only
-[piece D](#d-widen-the-scope-to-what-the-sources-derive) needs. One runner's network measurements
-are in [the investigation log](drtmle-investigation-log.md#what-one-runner-could-and-could-not-reach)
-rather than here, because they are a property of an execution environment on a date and this page
-carried an obstacle it had inherited for two revisions.
+**The document-access problem is gone and was never a paywall.** `docs/pdf.pdf` is the 2023
+software article and `docs/viewcontent.cgi.pdf` is the **2016 Berkeley working paper**, supplied
+by hand and now read first-hand rather than through a transcription — which is what closed item
+21, and which changed the answer: the transcription was faithful and the display it transcribed is
+contradicted by the same paper's appendices. What remains unobtained is the **published 2017**
+article, an NIH author manuscript in PubMed Central as **PMC5793673**, and van der Laan (2014)
+Theorem 3, which only [piece D](#d-widen-the-scope-to-what-the-sources-derive) needs. Neither now
+gates anything: item 21 was settled on internal consistency plus exact-law arithmetic, and neither
+depends on the edition. One runner's network measurements are in [the investigation
+log](drtmle-investigation-log.md#what-one-runner-could-and-could-not-reach) rather than here,
+because they are a property of an execution environment on a date and this page carried an
+obstacle it had inherited for two revisions.
 
 ##### A1 — the theoretical audit
 
-*Closes items 1, 15, 21 and 22.*
+*Closes items 1, 15, 21 and 22.* **Items 21 and 22 are closed**; 1 and 15 are what is left of
+this piece, and neither needs a document that is not in hand.
 
-- **Adjudicate the sign (item 21) first.** Obtain the published 2017 Theorem 1 and check whether
-  it retains `D_A = −(Q_r/g)(A − g)` with `D^{*,#} = D* − D_A − D_Y`. If it does, this package and
-  `drtmle` are both wrong on the mechanism correction and the variance is wrong with them; if it
-  was revised, the item closes with a citation and no code change. Either way build the
-  hand-calculated finite-support fixture with **nonzero `Q_r`** that compares the theorem's `D_A`,
-  Python's `D*_g`, R's `eval_Dstar_g`, the full theorem curve and the full Python/R curve, and
-  that is constructed so the two signs give materially different variances. This outranks the
-  truncation decision: **the sign can change the variance even when every empirical correction
-  mean is zero**, whereas B1a is safe under either answer.
+- ~~**Adjudicate the sign (item 21) first.**~~ **Done, and it did not need the published
+  article.** The plan was to obtain the published 2017 Theorem 1 and see whether it retained
+  `D_A = −(Q_r/g)(A − g)` with `D^{*,#} = D* − D_A − D_Y`. What settled it instead was reading the
+  working paper's **appendices**, which derive each block as
+  `P_0[term] = −(P_n − P_0)D + P_n D + (second order)` — an identity satisfiable only with `D`
+  equal to the *positive* correction. So `D_A = +(Q_r/g)(A − g)`, Theorem 1's `σ²_n` is what this
+  package computes, and the §3.1 display is wrong on its face in a paper that also prints `D_Y`
+  twice with two signs. The fixture the plan asked for exists as
+  `tests/unit/test_theorem_drtmle.py`: nonzero `Q_r`, the appendix step that fixes the
+  orientation, the representation closing to `1e-12` with the corrections subtracted and failing
+  by *exactly twice the correction* when added, the two readings' variances separated, and the
+  package's arrays pinned against the theorem's terms. R's `eval_Dstar_g` is the one column of
+  that comparison still missing, and it is [A2](#a2--reference-and-independent-validation)'s.
 - **Close out the concordance.** The permanent table mapping each object of the theorem to its
   Python name and its R name, and stating for each: the conditioning variable, the sign, the
   denominator and its truncation, whether the value is initial or starred, whether it is
@@ -342,14 +370,15 @@ is pin the reported curve's own decomposition against a perturbation of the law 
 derivably, because everything the variant adds vanishes on an exact law.
 
 **Where R and the theorem disagree, keep both results in the fixture and mark the discrepancy
-explicitly.** The theorem wins for statistical correctness unless the published article changed
-the formula. A2 cannot adjudicate item 21 and a fixture that quietly recorded R's sign as correct
-would make it permanent.
+explicitly.** The theorem wins for statistical correctness. A2 could not have adjudicated item 21
+and a fixture that quietly recorded R's sign as correct would have made it permanent — that
+remains the rule, and the sign it would have recorded turned out to be the right one, which is
+luck rather than method.
 
-When **A1** lands, the labels change with it: `reduced_corrections`, the [methodology
+The labels have moved with item 21: `reduced_corrections`, the [methodology
 section](methodology.md#doubly-robust-inference-what-the-extra-equations-remove) and the guide
-all currently say **what `drtmle` computes** rather than what the theorem derives, and that
-wording is load-bearing until it closes — item 21 is exactly why. A2 landing on its own changes
+used to say **what `drtmle` computes** rather than what the theorem derives, and they now say the
+two agree and what the agreement took. A2 landing on its own changes
 none of it, and the three claims stay separate: that Python implements the same algorithm, that
 the algorithm satisfies the theorem, and that it helps in finite samples.
 
@@ -362,7 +391,8 @@ a convention decision and its tests — which is why this is now three pull requ
 
 ##### B1a — the identity and safety patch
 
-*Opens the closure of items 11 and 20; blocked by nothing.*
+*Opens the closure of items 11 and 20; blocked by nothing.* **Landed.** What it shipped, and
+what it deliberately did not, is [at the end of this section](#what-b1a-landed).
 
 The cause of item 20 is located and is not what either of the first two readings supposed. The
 execution plan's reading — "at least one recorded score is evaluated at a different state from the
@@ -417,6 +447,54 @@ fixture pass":
 That patch is valid under every eventual theoretical convention. It gives A1 and A2 clean evidence
 to decide the final targeting algorithm with, and it prevents B2 or C from producing apparently
 authoritative results through an internally inconsistent curve.
+
+###### What B1a landed
+
+`cleverly/validation/drtmle.py` — `correction_check()`, reached as
+`res.validation.correction_check()` and folded into `score_check` as two new row kinds. Per draw
+and **per arm**, from the exact returned state: each equation's stored score, the mean of the term
+the reported curve subtracts, their difference, `B_clip`, and how many rows the bound binds on.
+
+Four decisions in it are worth having written down, because each was a fork:
+
+- **Derived, never stored**, exactly as `score_verdict` is. Nothing is added to
+  `ReductionFluctuation` and there is **no format bump** — the records format version 10 already
+  serialises are enough, so a fit read back from disk answers with its own arrays. A flag written
+  at fit time would be one nothing could check afterwards, on a diagnostic whose whole subject is
+  a disagreement between what a fit recorded and what it reports.
+- **The curve's own arithmetic, not a second copy of it.** `reduced_corrections` was split into
+  `reduced_correction_parts`, which returns `D*_g` and `D*_Q` apart, and the check takes their
+  means. An identity checked against a re-derivation of the same formula is not an identity —
+  which is not hypothetical: the first version of the test that compared `parts.total()` against
+  `reduced_corrections` survived turning the sum into a difference, because by then one called the
+  other. `estimators/tmle.py::correction_parts` is likewise module level so that the reported curve
+  and the check select the same mechanism.
+- **Two failures, worded apart.** An identity residual is a *software defect* and iterating longer
+  cannot fix it; a correction score above `tolerance · se/√n` is a *fit that did not solve its
+  equations*. `score_check`'s verdict names the first where it applies, because "the score
+  equation was not solved" sends a reader to `one_step` and a smaller step size for a fit whose
+  solver did its job — which is what happened for two revisions.
+- **One scale.** Everything is reported on the outcome's own scale. `Q_r` and the fluctuation's
+  residual live on the `[0, 1]` scaled outcome and the reported curve carries `scaler.range`, so a
+  correction and `se/√n` are otherwise a factor of `range` apart —
+  [lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong)'s pattern in a second place.
+  Dropping the factor was one of the seven mutations run, and it fails a test.
+
+**The sign in the plan was one orientation out and the plan's is kept.** `B_clip` is defined there
+with `g_raw − g_b`, and the residual the check reports is `stored − reported`, so the two are
+*negatives* of one another: `Pn[w D*_g] − S_g^stored = Pn[w B_clip]`. It reproduces to floating
+point, per arm, which is what makes `B_clip` a check on item 20's diagnosis rather than a new
+column.
+
+`IDENTITY_TOLERANCE = 1e-12`, absolute, on the outcome scale and deliberately not relative to the
+score: the quantity is a difference between two evaluations of one expression and its right value
+is zero. Measured on `nonlinear_dgp`, a holding identity sits at `2e-19` and the smallest real
+failure seen at `7e-08`, so the bar has seven orders of headroom below and four above.
+
+**It is an instrument and not a remedy.** The identity still fails on a clipping draw, which is
+the state B1b decides. Nothing about a fit's `psi`, `se` or curve moved; what changed is that such
+a fit now says which arm, which equation, and that the cause is an expression rather than a
+solver.
 
 ##### B1b — the theorem-conforming targeting decision
 
@@ -553,7 +631,30 @@ lesson is [lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong).
 `score_check` **does** catch it, on the *influence-curve* rows, which are computed from the curve
 rather than from what the solver recorded — so a fit in this state now says so on its own report
 rather than printing an interval like any other. That is item 16 arriving on the first case nobody
-constructed for it, and it is the only reason this was seen.
+constructed for it, and it is the only reason this was seen. Since
+[B1a](#b1a--the-identity-and-safety-patch) it is caught *as itself* as well: per arm, per
+equation, against the score the loop stored, with `B_clip` reproducing the discrepancy to floating
+point and the verdict saying **defect** rather than **did not converge**. The item is still open —
+being measured is not being fixed, and which convention replaces the current one is B1b's.
+
+**23. A single-guard fit subtracts a correction whose equation it never solved.** Found by B1a's
+instrument on its first run against a `guard=("g",)` fit, which is what an instrument is for.
+`reduced_corrections` does not branch on `guard` and neither does its caller, so a fit guarding one
+nuisance still subtracts **both** `D*_g` and `D*_Q` while solving one of the two extra equations —
+and the unsolved one's mean is whatever it happens to be. Measured on `nonlinear_dgp` at `n=400`
+with `glm` on both nuisances and **zero clipped rows**, so this is not item 20 wearing a different
+hat: `Pn[w D*_g]` at arm 1 is `2.8e-03` on the outcome scale against a `7.7e-06` bar, and `ey1`'s
+reported curve is off by exactly that. The default `guard=("Q", "g")` is unaffected, which is why
+nothing here saw it: no test in this repository fits a partial guard end to end.
+
+What makes it a defect rather than a question is that the derivation is already written down in
+this repository. `tests/unit/test_remainder_drtmle.py::_expansion` adds `d_g` **only** when `"Q"`
+is guarded and `d_q` only when `"g"` is, one correction per equation the fit actually solves, and
+[the module's own finding](#limitations-recorded-rather-than-fixed) — that one guard removes the
+whole first-order remainder and two over-correct — is stated in exactly those terms. So the fix is
+small and it is *not* B1a's: B1a chooses nothing, and which corrections belong in the curve under a
+partial guard is a claim about the curve that wants its own test against that oracle. It is
+independent of A1, A2 and B1b, and it should not queue behind them.
 
 #### C. The demonstration
 
@@ -712,19 +813,27 @@ behind **A1** — the reading — rather than beside it.
   `requires_binary_treatment` and has never needed one.
 
 **The order to work in**, revised again, and it follows from what blocks what rather than from
-effort. Piece **0** was first and has landed; what is left is:
+effort. Piece **0** was first and has landed, and so now has **B1a**; what is left is:
 
-1. **B1a**, because it is the only piece that changes a number every other piece reads, because it
-   is valid under every convention A1 and A2 might select, and because it is a patch plus its
-   tests rather than a study.
-2. **A1**, and item 21 within it before anything else in it: a sign error in the variance survives
-   every check this repository can run, and if it is real then work already landed is work to
-   redo. **A2 in parallel**, since it needs neither the paper nor a decision.
-3. **B1b**, once A1 has said which mechanism the theorem's `D_g` is evaluated at and A2 has said
-   what R does numerically.
+1. ~~**B1a**~~ — landed. It was first because it is the only piece that changes a number every
+   other piece reads, because it is valid under every convention A1 and A2 might select, and
+   because it is a patch plus its tests rather than a study. [What it
+   shipped](#what-b1a-landed).
+2. **A1**, whose items 21 and 22 are now closed — the sign in the implementation's favour, the
+   update order because the paper prescribes a fixed point rather than a route. What is left of
+   it is item 1's labelling, item 15's cross-fitting construction and the assumption matrix, and
+   none of it needs a document that is not in hand. **A2 in parallel**, since it needs neither
+   the paper nor a decision.
+3. **B1b**, once A1 has said which mechanism the theorem's `D_g` is evaluated at — [the
+   concordance's §7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)
+   is where that stands — and A2 has said what R does numerically.
 4. **B2**, on the corrected implementation, because poor overlap may be where the demonstration
    has to happen and because the exit distribution under the current rule is uncharacterised.
 5. **C**, which is the point.
+
+**Item 23 is outside that order**, like **D**: it is a small fix with an oracle already in the
+repository, it touches only the partial-guard path, and it should not wait on the theorem or on
+anything else here.
 
 Then the applied stress tests, which are generalisation checks and not substitutes for C: a Super
 Learner library, higher-dimensional and nonlinear processes, moderate near-positivity, binary as
@@ -741,12 +850,20 @@ any of it.
 Any one of these blocks calling `DRTMLE` finished, and they are the five links restated as things
 a reader could check rather than as claims. The first is new and is the one currently true:
 
-1. a correction term disagrees with Theorem 1 or the appendix — **this is item 21, and it is open**;
-2. the algorithm's fixed point is not shown to satisfy the theorem's three score conditions (item
-   22, if the order difference turns out to matter);
+1. a correction term disagrees with Theorem 1 or the appendix — this was item 21 and it is
+   **closed**: the appendices force the positive reading, which is the one implemented, and
+   `tests/unit/test_theorem_drtmle.py` is what a reader checks that against rather than the
+   §3.1 display;
+2. the algorithm's fixed point is not shown to satisfy the theorem's three score conditions —
+   item 22, whose *theoretical* half is closed (the paper's step 7 states its own exit as those
+   three empirical means, so the order is not prescriptive) and whose numerical half is A2's:
+   whether the paper's order and this one reach the same fixed point on real data;
 3. R and Python disagree on a component with no written reason;
 4. a stored score and the term the curve carries are not the same functional of the same state —
-   this is item 20, and it is the one that was true and unnoticed;
+   this is item 20, it is the one that was true and unnoticed, and since
+   [B1a](#b1a--the-identity-and-safety-patch) it is true and **reported**: such a fit fails its
+   own score check with a verdict naming the arm and the equation. Caught is not fixed, and this
+   stays here until B1b closes it;
 5. a required score is not negligible under the predeclared validity rule;
 6. `√n · R_remaining` does not trend to zero in either off-diagonal cell, or does so only because
    the two appendix branches cancel;
@@ -756,7 +873,8 @@ a reader could check rather than as claims. The first is new and is the one curr
 10. it does not reproduce in the second seed batch;
 11. any document calls the corrected curve efficient under misspecification (item 14's ground,
     which piece 0 cleared and which prose can re-lose);
-12. any document calls the curve theorem-derived before item 21 closes;
+12. any document calls the curve theorem-derived on the strength of a *display* rather than of the
+    appendices — item 21 closed on the second, and the first says the opposite;
 13. an unsupported estimand or treatment structure is accepted without a derivation;
 14. a weak-overlap interval is reported as valid where the scores fail.
 
@@ -944,7 +1062,7 @@ carried forward as an item of its own.
 
 ## What the sizings got wrong
 
-Nine lessons, and they now live in [the investigation
+Ten lessons, and they now live in [the investigation
 log](drtmle-investigation-log.md#what-the-sizings-got-wrong) with the rest of the record. They are
 kept because the only thing a retrospective is for is the next sizing, and they are not on this
 page because a plan is not a history. In one line each:
@@ -963,7 +1081,9 @@ page because a plan is not a history. In one line each:
 8. two numbers that should be equal and are not is not yet evidence of two states — recompute the
    recorded number from the returned state before looking for a second one;
 9. a finding located in the code is not a finding adjudicated against the theorem, and parity with
-   a reference implementation is blind in exactly the same place.
+   a reference implementation is blind in exactly the same place;
+10. a display is not a derivation — when a source and an implementation disagree, check whether the
+    source disagrees with *itself* before changing the code, because item 21 did.
 
 ## On native acceleration
 

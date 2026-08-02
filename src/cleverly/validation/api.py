@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+from .drtmle import IDENTITY_TOLERANCE, CorrectionCheck, correction_check
 from .nuisance import NuisanceDiagnostics, nuisance_diagnostics
 from .refute import DEFAULT_TESTS, RefutationResult, refute
 from .score import DEFAULT_TOLERANCE, ScoreCheck, score_check
@@ -26,6 +27,11 @@ class ValidationSuite:
         worth reading -- though passing it is necessary rather than sufficient, for the
         reason set out in :mod:`cleverly.validation.score`.  Also reached as
         ``result.score_verdict``, which is what ``result.summary()`` reports from.
+    ``correction_check()``
+        Free, and empty unless this is a guarded :class:`~cleverly.DRTMLE` fit.  Are the
+        corrections the reported curve subtracts the ones the targeting step solved for,
+        arm by arm?  Its verdict is already inside ``score_check()``; this is the
+        recomputation itself -- see :mod:`cleverly.validation.drtmle`.
     ``nuisance()``
         Free.  How good are the initial fits, and are their probabilities calibrated?
     ``refute()``
@@ -47,6 +53,23 @@ class ValidationSuite:
         one -- see :mod:`cleverly.validation.score`.
         """
         return score_check(self._result, tolerance=tolerance)
+
+    def correction_check(
+        self,
+        *,
+        tolerance: float = DEFAULT_TOLERANCE,
+        identity_tolerance: float = IDENTITY_TOLERANCE,
+    ) -> CorrectionCheck:
+        """Per arm, is the correction the curve subtracts the one the fit solved for?
+
+        Free, and empty for every fit that reports no corrections.  ``score_check()``
+        already reports the verdict; this is the recomputation behind it -- each arm's
+        stored score, the mean of the term the reported curve carries, their difference,
+        and the clipping bias that explains it.  See :mod:`cleverly.validation.drtmle`.
+        """
+        return correction_check(
+            self._result, tolerance=tolerance, identity_tolerance=identity_tolerance
+        )
 
     def nuisance(self) -> NuisanceDiagnostics:
         """Out-of-fold fit quality and calibration for every nuisance model."""

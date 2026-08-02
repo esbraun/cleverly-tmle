@@ -1072,6 +1072,11 @@ passed or not. A passing fit says nothing extra. This matters here more than any
 the package: under weak overlap the check fails on 23 of 24 swept fits, and every one of them
 returns a `psi`, an `se` and a confidence interval formatted like any other.
 
+The check goes further on a doubly-robust fit than on any other, because there is more that can
+be wrong: it recomputes each arm's corrections from the state the fit returned and compares them
+with the scores the targeting step recorded, so a curve built from an expression the fit did not
+solve is reported as such rather than inferred from an uncentred estimand. See the table below.
+
 TMLE is **doubly robust for consistency and singly robust for inference**. The estimate stays
 consistent if either nuisance is right, because the remainder is a *product* of the two
 errors — but the interval needs that product to vanish faster than `1/sqrt(n)`, which takes
@@ -1100,21 +1105,41 @@ print(res.validation.score_check())
 ```
 Score-equation check
 --------------------
-target            kind             |score|    before     threshold  ratio     ok
-----------------  ---------------  ---------  ---------  ---------  --------  ---
-mean              fluctuation      6.661e-19  3.745e-07  1.527e-06  4.36e-13  yes
-mean (mechanism)  fluctuation      7.743e-11  7.743e-11  1.527e-06  5.07e-05  yes
-mean (reduced)    fluctuation      6.278e-20  4.900e-05  1.527e-06  4.11e-14  yes
-ate               influence curve  1.003e-09  -          1.527e-06  6.57e-04  yes
+target                   kind             |score|    before     threshold  ratio     ok
+-----------------------  ---------------  ---------  ---------  ---------  --------  ---
+mean                     fluctuation      6.661e-19  3.745e-07  1.527e-06  4.36e-13  yes
+mean (mechanism)         fluctuation      7.743e-11  7.743e-11  1.527e-06  5.07e-05  yes
+mean (reduced)           fluctuation      6.278e-20  4.900e-05  1.527e-06  4.11e-14  yes
+mean (D*_g)[0]           correction       1.841e-10  -          1.527e-06  1.21e-04  yes
+mean (D*_g)[0] identity  identity         7.977e-20  -          1.533e-11  5.20e-09  yes
+mean (D*_Q)[0]           correction       2.908e-21  -          1.527e-06  1.90e-15  yes
+mean (D*_Q)[0] identity  identity         1.039e-22  -          1.533e-11  6.78e-12  yes
+mean (D*_g)[1]           correction       1.187e-09  -          1.527e-06  7.77e-04  yes
+mean (D*_g)[1] identity  identity         2.526e-18  -          1.533e-11  1.65e-07  yes
+mean (D*_Q)[1]           correction       1.064e-18  -          1.527e-06  6.97e-13  yes
+mean (D*_Q)[1] identity  identity         1.014e-19  -          1.533e-11  6.61e-09  yes
+ate                      influence curve  1.003e-09  -          1.527e-06  6.57e-04  yes
 
 PASS: the targeting step solved all 3 estimated score equations of the doubly-robust estimator.
 Validity is not efficiency: the curve reported is D = D* - D*_Q - D*_g, entitled to be believed
 under weaker conditions than D* rather than efficient under them. See cleverly.estimators.drtmle.
 ```
 
-Two things to read off. There are **three** rows where a plain fit has one: the ordinary
-outcome equation, a *mechanism* equation that fluctuates `g`, and a second outcome equation
-against the reduced regressions. And what changed is the interval, not the estimate — on this
+Three things to read off. There are **three** `fluctuation` rows where a plain fit has one: the
+ordinary outcome equation, a *mechanism* equation that fluctuates `g`, and a second outcome
+equation against the reduced regressions.
+
+Then, **per arm**, two more kinds. A `correction` row is the mean of a term the reported curve
+actually subtracts, recomputed from the state the fit returned; an `identity` row is that mean's
+difference from the score the targeting step recorded for the same equation. The two are different
+questions and a failure in each means a different thing — a `correction` row says the fit did not
+solve its equations, an `identity` row says the solver and the curve are not evaluating the same
+expression, which is a defect that iterating longer will not fix. Per arm and not only on the
+`ate`, because errors in the two arms cancel in a difference. `res.validation.correction_check()`
+is the recomputation itself, with the clipping bias `B_clip` that explains an identity failure when
+the mechanism truncation is what caused it.
+
+And what changed is the interval, not the estimate — on this
 fit `ate` is 1.5348 against a plain TMLE's 1.5292, a twelfth of a standard error apart, while
 the standard error moves from 0.06850 to 0.06828. **Read a `DRTMLE` fit as the same estimate
 with an interval entitled to be believed under weaker conditions, not as a better estimate.**
@@ -1137,6 +1162,12 @@ Both by default; `guard=()` fits no reduced regressions at all and is bit-for-bi
 TMLE. `reduced_outcome_learner=` and `reduced_treatment_learner=` take the reduced
 regressions' learners, defaulting to the primary ones.
 
+**Use one guard alone with care**: the curve currently subtracts *both* corrections whatever
+`guard=` says, so a single-guard fit subtracts a term whose equation it never solved and its
+interval is not licensed. Such a fit says so — its score check fails with a `correction` row
+naming the arm, and the note names `guard=` — and it is
+[item 23](roadmap.md#what-is-still-open), open. The default is unaffected.
+
 It costs real time — two further learner fits per arm on every round of an alternation,
 refitted *inside* the loop as the source does. One consequence is worth knowing: `retarget`
 stops being arithmetic on cached arrays, so a truncation curve on a `DRTMLE` fit costs about
@@ -1149,9 +1180,12 @@ parameter axes, `delta=`, `intermediate=`, fold-wise targeting,
 `reduction="bivariate"` and composition with `CTMLE` are all refused by name.
 
 **What is not visible from the output**, and is why this section opens with a warning. The
-influence curve's form is read off `drtmle`'s implementation rather than derived — Theorem 1
-of Benkeser et al. (2017) has not been read here, and if the two disagree the theorem wins.
-There is no cross-check against `drtmle`'s own numbers. A coverage study on the off-diagonal
+influence curve's form is read off `drtmle`'s implementation rather than derived. It has since
+been checked against Theorem 1 — in the 2016 working-paper version, kept at
+`docs/viewcontent.cgi.pdf` — and it agrees, though the paper's own display of one correction
+prints a sign its appendices contradict, so the check took an argument rather than a glance
+([the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)).
+There is still no cross-check against `drtmle`'s own numbers. A coverage study on the off-diagonal
 of the misspecification grid found *no gap for this variant to close* at the sizes it could
 reach: the regime it is for needs an adaptive good nuisance converging more slowly than
 `n^(-1/4)`, which is beyond what a nightly budget can simulate. And the alternation does not

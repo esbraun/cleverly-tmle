@@ -1170,6 +1170,12 @@ def _close_at_frozen_reductions(
     ``docs/drtmle-investigation-log.md`` -- it accounts for item 11 as well, and which
     convention is right is piece B1b's, there being **more than two** of them and the
     theorem's own algorithm truncating nothing at all.
+
+    What has landed is the *instrument*:
+    :func:`~cleverly.validation.drtmle.correction_check` recomputes the mean of the term
+    the curve carries from the state this function returns and reports its difference from
+    the score recorded here, per arm, so the gap can no longer be reported as ``8e-11``
+    without also being reported as itself.  It changes nothing this function does.
     """
     steps = 0
     if "Q" in guard:
