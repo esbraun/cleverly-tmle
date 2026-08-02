@@ -56,10 +56,14 @@ registry.
   Benkeser et al. (2017) is unread**, so the influence curve — which is the whole of what this
   variant is for — is transcribed from R's `drtmle` rather than derived; nothing here has been
   compared against that package's numbers; a coverage study found **no gap for the variant to
-  close** at the sizes it could reach; and **under weak overlap the score check fails on 23 of
-  24 fits**, so do not use this estimator where overlap is poor; and on roughly a quarter of
-  splits the reported *curve* is not centred while all three fluctuation rows report their
-  scores solved — item 20, found by checking item 18. [What is still
+  close** at the sizes it could reach; **under weak overlap the score check fails on 23 of
+  24 fits**, so do not use this estimator where overlap is poor; and — the one to read if you
+  read only one — **on roughly a quarter of splits the reported curve is not centred**, at
+  `2e-05` to `7e-04` where a solved fit sits near `1e-09`, while the loop's own three rows all
+  report their scores solved to `1e-11`. That is item 20, it is *not* confined to poor overlap,
+  and until it is understood a `DRTMLE` standard error should be read as provisional on every
+  process. It is caught, on the influence-curve rows: `res.score_verdict` says so and
+  `summary()` prints it, which is the only reason it was found at all. [What is still
   open](#what-is-still-open) is the rest, and three of its items are there because an
   [external review](drtmle-review.md) put them there: the theorem's *other* assumption beyond
   the three score equations (item 13), the cross-fitting construction the reductions would
@@ -86,7 +90,13 @@ each link can hold while another fails:
    Half of it exists: `tests/unit/test_remainder_drtmle.py` is the exact-law arithmetic. The
    other half is item 13's empirical rate.
 4. **Numerical validity** — every required score solved to a statistically negligible order,
-   and a fit that fails to say so somewhere a reader cannot miss. Items 11, 12 and 16.
+   *at the arrays the reported curve is built from*, and a fit that fails to say so somewhere a
+   reader cannot miss. Items 11, 12, 16 and 20. The qualification is item 20's: a fit can solve
+   all three equations to `1e-11` by its own record and still report a curve whose mean is
+   `2e-04`, which is a link-4 failure that announces itself nowhere in the loop's own
+   diagnostics. Item 11 is the loud version of this link failing and item 20 the quiet one, and
+   the quiet one is on a quarter of ordinary splits rather than on a regime a user was told to
+   avoid.
 5. **Inferential usefulness** — coverage in a regime where the plain interval fails. Item 3.
 
 The review's own summary of this is exactly right and worth keeping in its words: none of the
@@ -95,7 +105,9 @@ only thing this variant produces; a curve that matches the theorem proves nothin
 the alternation solved its equations on a given draw; and the first four together prove nothing
 about whether the interval is ever *better* than the one `TMLE` already reports. The
 [limitations](#limitations-recorded-rather-than-fixed) after the pieces are outside the chain
-entirely: real, understood, and unable to move a coverage number.
+entirely: real, understood, and unable to move a coverage number. Anything that *can* move one
+belongs in a piece, which is where item 20 went after being filed there by mistake — see
+[lesson 7](#what-the-sizings-got-wrong).
 
 That bar is deliberately higher than "no known defects". An estimator with every limitation
 below resolved and no demonstration is one that computes something nobody has shown is worth
@@ -221,11 +233,18 @@ that package is evidence about the transcription, not about the derivation, and 
 right to insist the three claims stay separate: that Python implements the same algorithm, that
 the algorithm satisfies the theorem, and that it helps in finite samples.
 
-#### B. Weak overlap, and the loop's exit under the rule it now uses
+#### B. The loop's exit, and whether what it leaves is what gets reported
 
-**Closes items 11, 12 and 19, and re-measures items 4 and 6.** Five things, and they are one
-piece because one dispatch of `benchmarks/bench_drtmle.py` produces the evidence for all of
+**Closes items 11, 12, 19 and 20, and re-measures items 4 and 6.** Six things, and they are
+one piece because one dispatch of `benchmarks/bench_drtmle.py` produces the evidence for all of
 them.
+
+This piece used to be called *weak overlap, and the loop's exit under the rule it now uses*,
+and item 20 is why it is not. Weak overlap is one regime where the loop leaves the equations
+unsolved and says so loudly; item 20 is a quarter of *ordinary* splits where it leaves them
+solved at arrays the reported curve is not built from, and says nothing at all. The two are the
+same question — is what the loop leaves what gets reported — and only one of them is about
+overlap.
 
 *The fit does not solve its own score equation under weak overlap, and nothing said so before
 the sweep.* On `weak_overlap_dgp` the score check fails on **23 of 24** fits, with the worst
@@ -305,6 +324,35 @@ convergence diagnostics, keep the monotonicity claim for what it does buy (termi
 reason not to restart from `Q̄⁰`), and drop the implication that stalling is a numerical
 disappointment rather than the expected exit.
 
+**20. On a quarter of splits the reported curve is not centred, and the fluctuation rows say
+it is.** Found by checking item 18 and not by looking for it. Over 24 draws — twelve
+`repeats=2` fits on `nonlinear_dgp` at `n=600` with `glm` on both nuisances, `n_folds=5`,
+`learner_folds=3` — **six** leave `Pn[D*_Q + D*_g]` above `1e-8`, at magnitudes from `2e-05` to
+`7e-04` on the scaled outcome, every one of them exiting on `"tolerance"` with no failure
+recorded and no ill-conditioned round. On one such draw equation (9)'s **recorded** score is
+`3.7e-11` while the mean of the `D*_g` the curve actually subtracts is `-2.3e-04`, so the two
+are measured at arrays that are not the same. That is the class of defect
+`TestTheCurveReadsWhatTheAlternationLeft` exists for, and nothing here covered it, because
+every other test in the module reads one fit on one split.
+
+This is not a `repeats=` defect and refusing that keyword would misdiagnose it: a draw of a
+repeated fit is an ordinary fit, and the affected draws include first draws.
+`tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred` pins the numbers.
+
+It closes here because which arrays the closing pass leaves the three equations solved at is
+what this piece is about, but it is **found** in
+[A2](#a-check-the-curve-against-something-other-than-itself), and that is the whole reason A2
+goes first: a divergence between two arrays that should be equal is what a
+component-by-component comparison locates and what no amount of re-sweeping will. The sweep
+this piece dispatches can *count* it — add `Pn[D*_Q + D*_g]` at the reported arrays to the
+per-fit record, beside the three recorded scores, so the disagreement is a column rather than
+an anecdote from twelve fits on one process — but counting it is not finding it.
+
+`score_check` **does** catch it, on the *influence-curve* rows, which are computed from the
+curve rather than from what the solver recorded — so a fit in this state now says so on its own
+report rather than printing an interval like any other. That is item 16 arriving on the first
+case nobody constructed for it, and it is the only reason this was seen.
+
 **Where this piece sits in the order** has changed. It was first, because poor overlap is a
 natural way to make the remainder bite and so may be exactly where piece C has to look, and
 because it is the one regime where the score equations are not solved at all. Both remain true.
@@ -313,7 +361,10 @@ reported curve*, so a curve that is wrong makes the diagnosis uninterpretable �
 holds of piece C's coverage. The resolution is not to reorder wholesale but to notice that only
 **A1** is blocked outside the repository. [A2](#a-check-the-curve-against-something-other-than-itself)
 is cheap, needs nothing this environment cannot reach, and settles the question B's evidence
-rests on; it goes first, then B, then C, with A1 the moment the paper can be got.
+rests on; it goes first, then B, then C, with A1 the moment the paper can be got. Item 20
+sharpens that: a curve whose mean is `2e-04` where its own solver reports `1e-11` is a
+divergence between two things that should be the same array, which is exactly what a
+component-by-component comparison finds and what no amount of re-sweeping will.
 
 #### C. The demonstration
 
@@ -364,8 +415,22 @@ correct number is still only a number.
 **Report enough to be argued with.** Per estimator, per cell, per size: bias, `√n` bias,
 empirical sd, mean estimated `se` and their ratio, coverage, interval width, rejection rate
 under a null variant, targeting-failure rate, the share of intervals item 16 marks invalid, and
-a Monte Carlo standard error against every one of them. **Predeclare the decision rule** before
-the dispatch: `DRTMLE` compatible with 0.95 at the largest size in both cells, `TMLE` short by a
+a Monte Carlo standard error against every one of them.
+
+**Item 20 is a design input here, not a footnote.** On present evidence roughly a
+quarter of draws report a curve that is not centred, and that is on `nonlinear_dgp` with good
+overlap — not in the weak-overlap cells where this page otherwise leads a reader to expect
+invalid fits. So the invalid share this study reports may be ~25% in the cells the
+demonstration turns on. A coverage number computed over the surviving three-quarters is
+conditional on a non-random subset, selected on a diagnostic that is correlated with the fit
+having gone wrong, and reporting it as *the* coverage would be the same class of error as
+reporting a per-protocol analysis as intention-to-treat. The rule therefore has to say what
+happens to an invalid fit — counted as a miss, excluded with the exclusion rate reported beside
+every number, or the study held until item 20 is fixed — and it has to say so before the
+numbers exist. The last of those three is the honest default: a demonstration whose exclusion
+rule was chosen after seeing which cells it helped is not a demonstration.
+
+**Predeclare the decision rule** before the dispatch: `DRTMLE` compatible with 0.95 at the largest size in both cells, `TMLE` short by a
 practically meaningful margin in at least one, an `se` ratio near one, failure rates low, and
 the whole thing surviving a second independent seed batch.
 
@@ -506,13 +571,21 @@ converging is rarer still: 2 of 96 reached the tolerance and 86 stalled.
 tilts, so one solve zeroes the score at the pre-tilt covariate and leaves a residual at the
 post-tilt one. The closing pass iterates it — to `4e-12` on the exact law and about `1e-9` on a
 fitted one — and does not remove it. Equations (8) and (10) *are* exact, so this is the only
-term keeping the reported curve's mean off machine zero.
+term keeping the reported curve's mean off machine zero. **The `1e-9` is the three-quarters of
+draws where it behaves**; on the rest it is four to five orders worse and this stops being a
+limitation, which is [item 20](#b-the-loops-exit-and-whether-what-it-leaves-is-what-gets-reported).
+Whether the two are the same mechanism failing by degree or two different things is not known,
+and it is the first question A2 should settle.
 
 **6. The closing pass's mechanism stage stops on its cap, not on its tolerance.** It settles
-around `1e-9` rather than reaching `spec.tol = 1e-10`, on **94 of 96** swept fits. Harmless —
-the steps are arithmetic, and item 5 is why it cannot get there — but a cap that always binds is
-worth knowing about rather than reading as convergence. The two fits that stopped otherwise are
-both `weak-overlap`, which is what piece B is about.
+around `1e-9` rather than reaching `spec.tol = 1e-10`, on **94 of 96** swept fits. Harmless *at
+that size* — the steps are arithmetic, and item 5 is why it cannot get there — but a cap that
+always binds is worth knowing about rather than reading as convergence, and
+[item 20](#b-the-loops-exit-and-whether-what-it-leaves-is-what-gets-reported) is the reason the
+qualification now has to be there: the stage this cap binds on is the *mechanism* stage, and
+`D*_g` is the term item 20 finds uncentred. A cap that always binds and a term that is
+sometimes wrong by `2e-04` are close enough together to be one story, and nothing here has
+checked whether they are. The two fits that stopped otherwise are both `weak-overlap`.
 
 **8. `retarget` is no longer arithmetic on cached arrays.** The reductions are refitted inside
 the alternation, so a truncation curve or an MNAR sweep costs about a fit per point rather than a
@@ -522,31 +595,6 @@ before it `ReductionFluctuation` was not serialised, which cost a reloaded fit t
 score-check rows and is written up in [piece 0](#closed-since-this-list-opened). This is a cost of
 following the source, which states equations (9) and (10) at *starred* reduced regressions;
 holding them at their initial fit would solve a different equation.
-
-**20. On a quarter of splits the reported curve is not centred, and the fluctuation rows say
-it is.** Found by checking item 18 and not by looking for it. Over 24 draws — twelve
-`repeats=2` fits on `nonlinear_dgp` at `n=600` with `glm` on both nuisances, `n_folds=5`,
-`learner_folds=3` — **six** leave `Pn[D*_Q + D*_g]` above `1e-8`, at magnitudes from `2e-05` to
-`7e-04` on the scaled outcome, every one of them exiting on `"tolerance"` with no failure
-recorded and no ill-conditioned round. On one such draw equation (9)'s **recorded** score is
-`3.7e-11` while the mean of the `D*_g` the curve actually subtracts is `-2.3e-04`, so the two
-are measured at arrays that are not the same. That is the class of defect
-`TestTheCurveReadsWhatTheAlternationLeft` exists for, and nothing here covered it, because
-every other test in the module reads one fit on one split.
-
-This is not a `repeats=` defect and refusing that keyword would misdiagnose it: a draw of a
-repeated fit is an ordinary fit, and the affected draws include first draws. It is not fixed
-here either. Which arrays the closing pass leaves the three equations solved at is
-[piece B](#b-weak-overlap-and-the-loops-exit-under-the-rule-it-now-uses)'s subject, and finding
-where they diverge is what [piece A2](#a-check-the-curve-against-something-other-than-itself)'s
-component-by-component comparison is for — which is why item 20 raises A2's priority rather
-than opening a piece of its own. `tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred`
-pins the numbers.
-
-`score_check` **does** catch it, on the *influence-curve* rows, which are computed from the
-curve rather than from what the solver recorded — so a fit in this state now says so on its own
-report rather than printing an interval like any other. That is item 16 arriving on the first
-case nobody constructed for it, and it is the only reason this was seen.
 
 **9. `gr2`'s truncation is fixed at fit time**, so the part of a truncation curve that comes from
 equation (10) is flat by construction. `fit_reduced`'s docstring sets out why — the array *is* a
@@ -611,7 +659,7 @@ which estimator left the score unsolved. And **only** when it fails, which is na
 passing fit prints nothing new, so every transcript in the README and the guide is unchanged
 and the line is worth reading when it does appear. The interval is still printed — saying it is
 unlicensed is this item, predeclaring which regimes are refused outright is
-[piece B](#b-weak-overlap-and-the-loops-exit-under-the-rule-it-now-uses)'s and needs its
+[piece B](#b-the-loops-exit-and-whether-what-it-leaves-is-what-gets-reported)'s and needs its
 evidence. Serialising the records the check reads was a prerequisite and is format version 10;
 see the note under item 20.
 
@@ -645,7 +693,7 @@ either way. `TestAnEquationStopsOnEitherRuler` in `tests/unit/test_drtmle_fit.py
 `_solved` directly, and the absolute branch was deleted and the suite watched to fail — two of
 the four assertions go red — before the test was kept. Asserting `exit_reason == "tolerance"` on
 a fitted result was rejected: which exit fires is a property of the draw. The item's two other
-loose ends are open and are in [piece B](#b-weak-overlap-and-the-loops-exit-under-the-rule-it-now-uses).
+loose ends are open and are in [piece B](#b-the-loops-exit-and-whether-what-it-leaves-is-what-gets-reported).
 
 ### How the alternation exits
 
@@ -658,7 +706,7 @@ its own: a comparison nobody can rerun becomes folklore.
 **These numbers measure the exit criterion item 7 replaced**, not the current one. That is
 deliberate and is the order the item required — the failure had to be characterised before the
 threshold moved — and re-measuring under the current rule is part of [piece
-B](#b-weak-overlap-and-the-loops-exit-under-the-rule-it-now-uses).
+B](#b-the-loops-exit-and-whether-what-it-leaves-is-what-gets-reported).
 
 | process | n | rounds med [range] | tol/stall/cap | ill>0 | closing capped | med eq10 at exit | med min `mean\|h\|` | med `\|score\|/(se/√n)` | check fails |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -795,6 +843,16 @@ written down in the wrong register. And every test in `test_drtmle_fit.py` read 
 split, so item 20 — a quarter of splits leaving the reported curve uncentred — could not be
 seen from inside the module until a second split was added for an unrelated reason. Lesson 4
 asks whether a test fails when the code is wrong; the two here failed to ask *which* wrong.
+
+There is a third, about this page rather than about the tests, and it is the same mistake one
+level up. Item 20 was first written into [limitations recorded rather than
+fixed](#limitations-recorded-rather-than-fixed) — a section whose own preamble says none of its
+entries would change a coverage number. An uncentred influence curve is a variance estimate for
+something the fit did not compute, so it can change one, which makes item 20 a link-4 failure
+and a piece's business rather than a limitation's. The entry itself was accurate and
+cross-referenced from six places; it was the *heading above it* that told a reader to
+discount it. **Where a finding is filed is part of what it says**, and a section preamble is a
+claim about every entry under it — so adding an entry is asserting that preamble again.
 
 ## On native acceleration
 
