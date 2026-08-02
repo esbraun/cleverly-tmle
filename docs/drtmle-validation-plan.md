@@ -248,7 +248,7 @@ cannot be re-derived when it disagrees.** The script may call the package's inte
 1. **Finite support, deliberately misspecified.** A small discrete `W` with repeated nuisance
    values, so the reduced regressions genuinely pool cells and a longhand calculation is possible.
    This is the one that validates definitions and signs without a learner in the way, and it is
-   the fixture [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21)'s
+   the fixture [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)'s
    hand-calculation extends: it must carry a **nonzero `Q_r`** and be built so the two candidate
    signs give materially different variances.
 2. **Outcome nuisance close but not exact, mechanism wrong.** Deterministic arrays or a
@@ -273,7 +273,7 @@ finite-support quantities, `1e-8`-ish for deterministic GLM predictions and coef
 **Where R and the theorem disagree, keep both in the fixture and mark the disagreement
 explicitly.** The theorem wins for statistical correctness unless the published article changed
 the formula. A2 is an implementation-parity and independent-algebra task; it cannot adjudicate
-[§4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21), and a fixture that quietly
+[§4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved), and a fixture that quietly
 records R's sign as correct would make that permanent.
 
 ## 4. The sweep (piece B2)
@@ -450,7 +450,7 @@ commercially uninteresting, and those are different conclusions.
 **Gate 1 — statistical validity.** `DRTMLE` is theoretically and computationally validated if:
 
 1. theorem concordance closes, including
-   [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21);
+   [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved);
 2. zero state-identity failures from [B1a](#1-the-invariants-piece-b1a)'s checks across the whole
    study;
 3. every required final score is negligible under the predeclared validity rule;

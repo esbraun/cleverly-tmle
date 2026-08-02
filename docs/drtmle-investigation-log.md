@@ -40,8 +40,8 @@ What the second review changed, in one place so the diff is legible:
 | "exactly two truncation conventions" is wrong | accepted and withdrawn |
 | the weak-overlap fit must pass after B1 | accepted as an error; the criterion is now the identity, not the verdict |
 | `α < 1/2` needs a nonzero-drift qualification | accepted; the drift coefficient is now designed and verified, not inferred |
-| the mechanism correction's **sign** disagrees with the working paper | accepted as **item 21**, stop-ship, and pending the published article |
-| the theorem's update order is not the code's | accepted as **item 22** |
+| the mechanism correction's **sign** disagrees with the working paper | accepted as **item 21**, stop-ship — and **closed against the implementation's favour of it** once the paper itself was in hand: the §3.1 display it quoted is contradicted by that paper's own appendices ([lesson 10](#what-the-sizings-got-wrong)) |
+| the theorem's update order is not the code's | accepted as **item 22**, and closed: the paper states its own exit as the three score equations, so the order is not prescriptive |
 | statistical validity and product usefulness are two gates | accepted; the release rule splits |
 | split the document by purpose | accepted; this file is part of that |
 | soften "defect" on the multi-arm simplex question | accepted; it is an unasked question, not a known defect |
@@ -403,13 +403,26 @@ term the curve carries**, which is the check the execution plan asked for under 
 was wrong, and which is right regardless of the diagnosis — and regardless of which convention
 [B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) eventually adopts.
 
+**10. A display is not a derivation, and the difference decided item 21.** The charge that the
+mechanism correction's sign disagreed with the theorem came from a faithful transcription of the
+working paper's §3.1 display, made before the document itself was in hand. With the paper open,
+the display is contradicted by the paper's own appendices twenty pages later — each derives its
+block in a form satisfiable only with the *positive* correction, which is what both
+implementations compute — and the same paper prints the other correction twice with two signs. So
+the source had to be checked against **itself** before the code was checked against the source.
+The general form: when a source and an implementation disagree, the first question is whether the
+source disagrees with itself, and a quotation of one equation is not an answer to it. This is
+[lesson 6](#what-the-sizings-got-wrong) sharpened — a reader with the source open beats a
+quotation of the source, and beats a transcription of it for exactly the same reason.
+
 **9. A finding located in the code is not a finding adjudicated against the theorem, and the
 second review is where that cost showed.** Item 20's cause was found by recomputation, which is
 the right instrument and answered the question asked: *are these two numbers the same functional
 of the same state?* They are not, and the fix follows. What that instrument cannot see is whether
-**either** expression is the one the theorem names — and on the sign of the mechanism correction
-(item 21) the answer may be neither, in which case a fit that satisfies the identity perfectly is
-still reporting the wrong variance. Parity with a reference implementation has the same blind
+**either** expression is the one the theorem names — which on the sign of the mechanism correction
+(item 21) took the paper itself, and where the answer could have been *neither*, leaving a fit
+that satisfies the identity perfectly and reports the wrong variance. It was not neither; that
+was not knowable from here. Parity with a reference implementation has the same blind
 spot in the same place, and by construction: R and Python descend from one source, so agreement
 is evidence about the transcription and not about the derivation. **Two checks that cannot fail
 against the same class of error are one check**, however different their machinery.

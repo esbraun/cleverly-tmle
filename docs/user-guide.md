@@ -1180,9 +1180,12 @@ parameter axes, `delta=`, `intermediate=`, fold-wise targeting,
 `reduction="bivariate"` and composition with `CTMLE` are all refused by name.
 
 **What is not visible from the output**, and is why this section opens with a warning. The
-influence curve's form is read off `drtmle`'s implementation rather than derived — Theorem 1
-of Benkeser et al. (2017) has not been read here, and if the two disagree the theorem wins.
-There is no cross-check against `drtmle`'s own numbers. A coverage study on the off-diagonal
+influence curve's form is read off `drtmle`'s implementation rather than derived. It has since
+been checked against Theorem 1 — in the 2016 working-paper version, kept at
+`docs/viewcontent.cgi.pdf` — and it agrees, though the paper's own display of one correction
+prints a sign its appendices contradict, so the check took an argument rather than a glance
+([the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)).
+There is still no cross-check against `drtmle`'s own numbers. A coverage study on the off-diagonal
 of the misspecification grid found *no gap for this variant to close* at the sizes it could
 reach: the regime it is for needs an adaptive good nuisance converging more slowly than
 `n^(-1/4)`, which is beyond what a nightly budget can simulate. And the alternation does not

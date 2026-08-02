@@ -429,7 +429,8 @@ def reduced_corrections(
         D^*_Q &= 1_a\,\frac{g_{r,2}(a|W)}{g_{r,1}(a|W)}\,\{Y - \bar Q^*(a, W)\}
 
     and the reported curve is :math:`D^* - D^*_Q - D^*_g`.  **Minus**, both of them: that is
-    what ``drtmle`` computes, and a sum is the plausible transcription error.  Since the
+    what ``drtmle`` computes and what Theorem 1 derives (see below), and a sum is the
+    plausible transcription error.  Since the
     targeting drove all three empirical means to zero, the combination cannot move the point
     estimate however the signs go -- it moves only the variance, so nothing that reports
     :math:`\hat\Psi` can catch getting this wrong.  ``tests/unit/test_influence_drtmle.py``
@@ -447,24 +448,24 @@ def reduced_corrections(
     Worth saying explicitly because the numbers invite the opposite reading -- in the guide's
     own worked example the corrected standard error is the smaller of the two.
 
-    **This is a fidelity claim about** ``drtmle``, **not a theoretical result.**  The form
-    above is read off that package's implementation.  Theorem 1 of Benkeser et al. (2017) is
-    where the influence function is derived; if the two disagree the theorem wins and this
-    function is wrong.  Read it before trusting the interval in anger.
+    **The sign was challenged and the challenge is answered.**  The 2016 working paper's §3.1
+    *display* defines the mechanism-side correction with a leading minus,
+    :math:`D_A = -Q_r/g\,(A - g)`, and Theorem 1 subtracts :math:`D_A` -- which read together
+    would make the theorem's curve :math:`D^* + Q_r/g\,(A - g)`, the opposite of this
+    function's.  That was item 21, and it is **resolved in favour of this implementation** on
+    the paper's own appendices: each derives its block as
+    :math:`P_0[\text{term}] = -(P_n - P_0)D + P_n D + (\text{second order})`, an identity
+    satisfiable only with :math:`D` equal to the **positive** term, so appendix A forces
+    :math:`D_A = +Q_r/g\,(A - g)` and appendix B forces :math:`D_Y` to be the positive
+    quantity below.  Theorem 1's own :math:`\sigma^2_n = P_n\{D^* - D_A - D_Y\}^2` is then
+    exactly what this function's caller computes.  The paper also prints :math:`D_Y` twice
+    with two signs, which is the other reason not to settle it from a display.
+    ``tests/unit/test_theorem_drtmle.py`` checks the appendix step that fixes the
+    orientation, and pins these arrays against the theorem's terms;
+    ``docs/drtmle-theorem-concordance.md`` §4 carries the argument.
 
-    **They disagree, on a sign, and that is now the first open question on this variant.**
-    The 2016 working-paper version defines the mechanism-side correction with a *leading
-    minus*, :math:`D_A = -Q_r/g\,(A - g)`, and then subtracts :math:`D_A` -- so its net
-    contribution is :math:`+Q_r/g\,(A - g)`, where the ``d_g`` below is that quantity
-    positive and the caller subtracts it.  ``drtmle`` does the same as this function does, so
-    parity cannot adjudicate it: both packages descend from one source and agreement is
-    evidence about the transcription.  Nothing that reports :math:`\hat\Psi` can catch it
-    either, for the reason in the paragraph above -- it moves only the variance, which is the
-    only thing this variant produces.  It is item 21, it is open pending the *published* 2017
-    article rather than the working paper, and ``docs/drtmle-theorem-concordance.md`` carries
-    the two candidate expressions and the hand-calculated fixture that has to separate them.
-    **Do not "fix" the sign against the working paper alone**, and do not describe this curve
-    as theorem-derived until that closes.
+    The *published* 2017 article remains unread and no longer gates this: the adjudication is
+    internal consistency plus exact-law arithmetic, and neither depends on the edition.
 
     And note what the fidelity claim rests on, because it is less than it sounds: **no number
     this package produces has been compared against** ``drtmle``'s.  There is no

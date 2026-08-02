@@ -7,18 +7,19 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
    thing is right at all.  The full list, with what each would change, is in
    ``docs/roadmap.md`` under *What is still open*.  The five a caller's numbers depend on:
 
-   1. **The influence curve is transcribed rather than derived, and where it has now been
-      checked against a statement of Theorem 1 it disagrees -- on a sign.**  The curve is
-      the whole of what this variant buys and it is read off the R package ``drtmle``'s
-      implementation.  The 2016 working-paper version of Benkeser et al. defines
-      :math:`D_A = -(Q_r/g)(A - g)` and *subtracts* it, so its net mechanism-side
-      contribution is :math:`+(Q_r/g)(A - g)`, where this package and ``drtmle`` alike
-      compute a positive :math:`D^*_g` and subtract that.  Nothing that reports a point
-      estimate can see it -- all three empirical means are driven to zero -- and what it
-      moves is the variance.  Open pending the *published* 2017 article, which is
-      authoritative and is not in hand; that is item 21, and
-      ``docs/drtmle-theorem-concordance.md`` carries the objects and the acceptance test.
-      See :func:`~cleverly.inference.influence.reduced_corrections`.
+   1. **The influence curve was transcribed rather than derived, and it has now been checked
+      against Theorem 1 and agrees.**  The curve is the whole of what this variant buys and
+      it was read off the R package ``drtmle``'s implementation.  The 2016 working paper's
+      display defines :math:`D_A = -(Q_r/g)(A - g)` while Theorem 1 *subtracts* :math:`D_A`,
+      which read together would flip the mechanism correction's sign -- that was item 21, a
+      stop-ship, and nothing that reports a point estimate could have caught it, since all
+      three empirical means are driven to zero and what it moves is the variance.  It is
+      **resolved in favour of this implementation**: the paper's own appendices derive each
+      block in a form satisfiable only with the *positive* correction, and Theorem 1's
+      variance formula then reads exactly as this package computes it.  The argument, and the
+      two further sign slips in the same document, are in
+      ``docs/drtmle-theorem-concordance.md`` §4; ``tests/unit/test_theorem_drtmle.py`` pins
+      it.  See :func:`~cleverly.inference.influence.reduced_corrections`.
    2. **No number here has been compared against ``drtmle``'s output.**  The cheapest check
       on item 1, and it has not been done.
    3. **Nothing demonstrates that the interval is better.**  A coverage study over the
