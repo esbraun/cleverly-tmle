@@ -4,10 +4,12 @@ What has landed, what is open, and why native acceleration is not worth building
 
 **One thing is open**: `DRTMLE`, the doubly-robust-inference variant, which is written and
 tested and not finished. [What is still open](#what-is-still-open) is the list, grouped into
-five pieces of work, each of which is a pull request rather than an errand. That grouping and
+four pieces of work, each of which is a pull request rather than an errand. That grouping and
 its order are a revision: an [external review](drtmle-review.md) of this page and the code
 behind it read the plan against Theorem 1 of Benkeser et al. (2017) and found the definition
 of done right and the route to it short by two conditions, which are now items 13 and 15.
+A fifth piece, **0**, has landed and is in [closed since this list
+opened](#closed-since-this-list-opened).
 Everything else on this page is a record: [Refusals worth
 lifting](#refusals-worth-lifting) is the list of parameters this package had the machinery for
 and had simply not written down, and it is now empty; [What the sizings got
@@ -55,14 +57,18 @@ registry.
   variant is for — is transcribed from R's `drtmle` rather than derived; nothing here has been
   compared against that package's numbers; a coverage study found **no gap for the variant to
   close** at the sizes it could reach; and **under weak overlap the score check fails on 23 of
-  24 fits**, so do not use this estimator where overlap is poor. [What is still
-  open](#what-is-still-open) is the rest, and four of its items are there because an
-  [external review](drtmle-review.md) put there: the theorem's *other* assumption beyond the
-  three score equations (item 13), the cross-fitting construction the reductions would need to
-  satisfy it (item 15), the fact that a fit whose score check fails still reports an ordinary
-  Wald interval (item 16), and four claims stated more broadly than their evidence — that the
-  corrected curve is the efficient one (14), that weights need nothing said about them (17),
-  that `repeats=` averages what it is averaging (18), and that the alternation converges (19)
+  24 fits**, so do not use this estimator where overlap is poor; and on roughly a quarter of
+  splits the reported *curve* is not centred while all three fluctuation rows report their
+  scores solved — item 20, found by checking item 18. [What is still
+  open](#what-is-still-open) is the rest, and three of its items are there because an
+  [external review](drtmle-review.md) put them there: the theorem's *other* assumption beyond
+  the three score equations (item 13), the cross-fitting construction the reductions would
+  need to satisfy it (item 15), and the claim that the alternation converges (19). Four more
+  of the review's items — that the corrected curve is the efficient one (14), that a fit whose
+  score check fails still reports an ordinary Wald interval (16), that weights need nothing
+  said about them (17), and that `repeats=` averages what it is averaging (18) — were piece 0
+  and have [landed](#closed-since-this-list-opened). A fit now says on its own report when its
+  score check fails, which is how item 20 was seen at all
 
 ## What is still open
 
@@ -105,84 +111,14 @@ The numbered items the pieces below close keep the numbering they have had since
 opened, because `benchmarks/bench_drtmle.py`, `.github/workflows/drtmle-convergence.yml`,
 `estimators/targeting.py` and `tests/unit/test_drtmle_fit.py` all cite them by number. **The
 review's items are therefore 13 to 19 rather than a renumbering**, even where one of them is
-more important than an item with a lower number. The pieces are lettered so the two cannot be
-confused.
+more important than an item with a lower number, and item **20** — found while closing item 18
+— is 20 for the same reason. The pieces are lettered so the two cannot be confused.
 
-### The work, in five pieces
+### The work, in four pieces
 
 Each is a pull request. Small items are grouped where the *evidence* is shared — piece B is
 five items because one dispatch of the same sweep answers all of them — not where the subject
 matter merely rhymes.
-
-#### 0. Say only what the fit has earned
-
-**Closes items 14, 16, 17 and 18.** None of the four is research and none of them moves a
-number; each is a claim the package currently makes that is wider than the evidence behind it,
-or a fact about a fit that a reader has to go looking for. They go first because they are what
-protects a user *while* the rest of the list is open, and because the review found all four by
-reading what the code says about itself rather than what it computes — which is the one class
-of defect no test in this repository can fail.
-
-**14. Validity is not efficiency, and nothing here says so.** Under misspecification the
-canonical gradient at `P₀` is still `D*`; `D = D* − D*_Q − D*_g` is the *estimator's*
-asymptotic influence function at the nuisance limits, and the estimator is generally **not
-efficient** there. When both nuisances are consistent the corrections vanish row by row, the
-two coincide, and `DRTMLE` is the ordinary efficient estimator. The review's charge is that the
-docs call the corrected curve efficient; checked against the text, they do not — the
-[methodology section](methodology.md#doubly-robust-inference-what-the-extra-equations-remove)
-says "the reported influence curve" throughout and the guide follows it. What survives is the
-smaller and still-real point, and it is visible in output rather than only in prose:
-`reduced_corrections` lives in a module whose own first line is *Estimands and their efficient
-influence curves*, and `score_check` signs off a `DRTMLE` fit — three rows, two of them
-corrections — with "the targeting step solved the estimated **efficient** score equation",
-which is the guide's own transcript. **Nowhere is the distinction stated**, so a reader who
-knows that TMLE's curve is the efficient one has no reason to think this one is not. The fix is a paragraph in three places and a sentence in `reduced_corrections`, saying
-what `DRTMLE` buys: an interval entitled to be believed under weaker conditions, *not* a
-narrower one and not an efficient one. Worth writing carefully, because the numbers a reader
-meets first invite the opposite reading — in the guide's own worked example the corrected
-standard error is the **smaller** of the two, 0.06828 against 0.06850.
-
-**16. A fit that fails its own score check still reports an ordinary Wald interval.** For an
-estimator whose only product is inference this is the most consequential of the four.
-`score_check` exists, is good, and is **opt-in**: `TMLEResult.summary()` does not run it, and
-`estimators/drtmle.py`'s docstring tells the reader to call `res.validation.score_check()` "on
-every fit rather than assuming" — documentation standing in for reporting. Item 11
-is exactly this case arriving in practice: 23 of 24 `weak_overlap_dgp` fits fail the check and
-every one of them returns a `psi`, an `se` and a CI formatted like any other. What Theorem 1
-licenses is an interval *conditional on* the three scores being negligible, so the fit's own
-answer to that question belongs in `summary()` beside the interval rather than behind a method
-call. The review proposes declared result states — valid, numerically unresolved, positivity
-unsupported, theory-experimental — and that is more structure than is earned before piece B
-says which failures are which; **the part to land now is the reporting**, a score-check line in
-every `DRTMLE` summary and a named field on the result carrying its verdict. Predeclaring
-*which* regimes are refused outright is [piece B](#b-weak-overlap-and-the-loops-exit-under-the-rule-it-now-uses)'s
-product decision, and it needs B's evidence.
-
-**17. `weights=` "needs nothing said about it" is one claim too many.** The package's weights
-taxonomy is thorough and settles most of what the review raises here: `data/weighting.py`
-already fixes the estimand at `Ψ(P_w)` on the tilted law, already rejects frequency and
-replicate weights by name, and already says what an estimated weight's interval conditions on.
-So this is not the four-kinds-of-weights confusion the review supposes. What is left is
-narrower and true: the DRTMLE derivation was read at an *unweighted* law, and transporting it
-to `P_w` needs the reduced regressions to be conditional expectations under `P_w` — which
-weighted loss gives — *and* the reduced mechanism to condition on the `P_w`-mechanism, which is
-not `g₀`. That is very likely fine and is exactly the sort of "very likely fine" this list
-exists to stop asserting. **No test anywhere passes a non-uniform weight to a `DRTMLE` fit**:
-`tests/unit/test_drtmle_fit.py` reads `data.weights` twice and both are the default vector of
-ones. Narrow the docstring to fixed analysis weights on the tilted law, and add the weighted
-case to the remainder module, where a wrong transport shows up as a first-order term that no
-longer cancels.
-
-**18. `repeats=` averages curves that do not come from one construction.** Averaging influence
-curves over split draws is ordinary for a cross-fitted estimator, and `DRTMLE`'s reductions and
-its alternation are both split-dependent: each repeat solves its *own* three equations against
-its own reduced regressions, and the average of three centred curves is centred while the
-average of three fits that each stalled somewhere different need not be. `_fit_reduced` is
-deliberately unseeded so that a refit matches its fit, which makes the primary split the only
-thing `repeats=` varies — the right design, and it is why this is a check rather than a bug.
-What to add: a test that each repeat satisfies its own scores, that the averaged curve's mean
-is still negligible against `se/√n`, and that no repeat is silently dropped. Cheap, and it
-either earns the keyword on this estimator or refuses it by name.
 
 #### A. Check the curve against something other than itself
 
@@ -324,7 +260,7 @@ because the datasets already know their truth.
 **The product decision belongs to this piece.** If the sweep finds no stable region, `DRTMLE`
 should refuse or invalidate under weak overlap on a **predeclared** diagnostic rather than warn
 — a warning is easy to miss, and this is a method whose only purpose is inference. The
-reporting half of that is [item 16](#0-say-only-what-the-fit-has-earned), which lands first; what
+reporting half of that is [item 16](#closed-since-this-list-opened), which has landed; what
 this piece adds is the threshold and the name of the state, decided from evidence.
 
 *The sweep measures the criterion that was replaced.* [The table](#how-the-alternation-exits) is
@@ -349,7 +285,7 @@ deterministic sequence `c_n/√n` with `c_n → 0` slowly — a *numerical* crit
 with the standardised score `|P_n S_j| / sd-hat(S_j)` reported afterwards as a separate
 diagnostic rather than folded into the stopping rule. That separates the two things `_NEGLIGIBLE
 / n` currently conflates: when to stop iterating, and whether the fit that came out is entitled
-to a Wald interval. The second is `score_check`'s job and [item 16](#0-say-only-what-the-fit-has-earned)'s.
+to a Wald interval. The second is `score_check`'s job and [item 16](#closed-since-this-list-opened)'s.
 
 **19. The alternation's convergence argument proves less than it is read as proving.**
 `solve_with_reduction`'s docstring argues that equation (9) is a weighted logistic MLE of
@@ -488,23 +424,28 @@ they sit behind **A1** — the reading — rather than beside it.
   set of unasked questions rather than the only thing in the way — and a simplex-preserving
   parameterisation, most likely a multinomial fluctuation, is the shape of the answer.
 
-**The order to work in**, revised, and it follows from what blocks what rather than from effort:
+**The order to work in**, revised, and it follows from what blocks what rather than from
+effort. Piece **0** was first and has landed; what is left is:
 
-1. **0**, first and immediately. It is the only piece that changes what a user is told while
-   everything below is open, and none of it waits on evidence.
-2. **A2**, because B's and C's evidence is read *through* the curve it checks, and because
-   nothing about it is blocked.
-3. **B**, because poor overlap may be where the demonstration has to happen and it is currently
-   the one regime where the equations are not solved at all.
-4. **C**, which is the point.
-5. **A1** whenever the paper can be got — out of sequence by necessity, not by choice, and it
+1. **A2**, because B's and C's evidence is read *through* the curve it checks, and because
+   nothing about it is blocked. Item 20 raises its priority: a component-by-component
+   comparison is how a curve built at arrays other than the ones the equations were solved at
+   gets found.
+2. **B**, because poor overlap may be where the demonstration has to happen and it is currently
+   the one regime where the equations are not solved at all — and because item 20 is the
+   closing pass's exit, which is this piece's subject.
+3. **C**, which is the point.
+4. **A1** whenever the paper can be got — out of sequence by necessity, not by choice, and it
    outranks everything above it the moment it is possible. If the theorem and the transcription
    disagree, work above it that has already landed is work to redo.
 
 Then the applied stress tests, which are generalisation checks and not substitutes for C: a
 Super Learner library, higher-dimensional and nonlinear processes, moderate near-positivity,
-binary as well as continuous outcomes, fixed analysis weights (item 17), and `repeats=` (item
-18). **D** is independent of all of it and should not queue behind any of it.
+and binary as well as continuous outcomes. A **fitted** weighted run belongs on that list too:
+item 17 closed the *transport* on the exact law, which is the right instrument for an identity
+about conditional expectations, and is not the same thing as having run one. `repeats=` is off
+the list — item 18 ran it. **D** is independent of all of it and should not queue behind any
+of it.
 
 ### What each new test has to be watched to fail
 
@@ -522,19 +463,19 @@ column is what makes it usable.
 | unit | arm indexing | swap the arm columns |
 | unit | each of equations (8), (9), (10) is solved | drop one equation at a time |
 | unit | the stopping rule accepts either ruler | delete the absolute branch (already done, item 12) |
-| unit | a weighted fit transports (item 17) | pass a non-uniform weight; drop it from one loss |
+| unit | a weighted fit transports (item 17) | reductions taken at the sampling law (already done, item 17) |
 | oracle | the drift decomposition | delete one correction term |
 | cross-language | `drtmle` parity, component by component | perturb one component and watch only that row move |
 | integration | `guard=()` is `TMLE` bit for bit | route the empty guard through the reduction loop |
 | integration | each guard removes its own direction | cross the guard semantics |
-| integration | a failing score check is visible in `summary()` (item 16) | silence the verdict |
+| integration | a failing score check is visible in `summary()` (item 16) | silence the verdict (already done, item 16) |
 | simulation | slow `Q̄`, wrong `g` | `TMLE` must under-cover, or the regime was not entered |
 | simulation | slow `g`, wrong `Q̄` | as above, in the mirror cell |
 | simulation | both nuisances right | no material efficiency loss from the corrections |
 | simulation | both wrong | no false robustness claim |
 | simulation | `√n · R_remaining → 0` (item 13) | freeze the reductions at their initial fit |
 | stress | weak overlap | inference must be marked invalid where the scores fail |
-| stress | repeated splits (item 18) | drop a repeat and watch the averaged curve decentre |
+| stress | repeated splits (item 18) | reuse one draw's reductions in every draw; drop a draw from the average (already done, item 18) |
 
 Two of these cannot be written against the exact law and the reason is derivable rather than
 empirical: everything the variant adds vanishes there row by row. The corrected-curve rows want
@@ -576,10 +517,36 @@ both `weak-overlap`, which is what piece B is about.
 **8. `retarget` is no longer arithmetic on cached arrays.** The reductions are refitted inside
 the alternation, so a truncation curve or an MNAR sweep costs about a fit per point rather than a
 fraction of one, and a result read back from disk cannot retarget at all — its estimator is gone
-and there are no learners to refit with. `ReductionFluctuation` is not serialised either, so a
-reloaded fit keeps its estimates and loses the record of what solved them. This is a cost of
+and there are no learners to refit with. The *records* do survive as of format version 10 —
+before it `ReductionFluctuation` was not serialised, which cost a reloaded fit two of its three
+score-check rows and is written up in [piece 0](#closed-since-this-list-opened). This is a cost of
 following the source, which states equations (9) and (10) at *starred* reduced regressions;
 holding them at their initial fit would solve a different equation.
+
+**20. On a quarter of splits the reported curve is not centred, and the fluctuation rows say
+it is.** Found by checking item 18 and not by looking for it. Over 24 draws — twelve
+`repeats=2` fits on `nonlinear_dgp` at `n=600` with `glm` on both nuisances, `n_folds=5`,
+`learner_folds=3` — **six** leave `Pn[D*_Q + D*_g]` above `1e-8`, at magnitudes from `2e-05` to
+`7e-04` on the scaled outcome, every one of them exiting on `"tolerance"` with no failure
+recorded and no ill-conditioned round. On one such draw equation (9)'s **recorded** score is
+`3.7e-11` while the mean of the `D*_g` the curve actually subtracts is `-2.3e-04`, so the two
+are measured at arrays that are not the same. That is the class of defect
+`TestTheCurveReadsWhatTheAlternationLeft` exists for, and nothing here covered it, because
+every other test in the module reads one fit on one split.
+
+This is not a `repeats=` defect and refusing that keyword would misdiagnose it: a draw of a
+repeated fit is an ordinary fit, and the affected draws include first draws. It is not fixed
+here either. Which arrays the closing pass leaves the three equations solved at is
+[piece B](#b-weak-overlap-and-the-loops-exit-under-the-rule-it-now-uses)'s subject, and finding
+where they diverge is what [piece A2](#a-check-the-curve-against-something-other-than-itself)'s
+component-by-component comparison is for — which is why item 20 raises A2's priority rather
+than opening a piece of its own. `tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred`
+pins the numbers.
+
+`score_check` **does** catch it, on the *influence-curve* rows, which are computed from the
+curve rather than from what the solver recorded — so a fit in this state now says so on its own
+report rather than printing an interval like any other. That is item 16 arriving on the first
+case nobody constructed for it, and it is the only reason this was seen.
 
 **9. `gr2`'s truncation is fixed at fit time**, so the part of a truncation curve that comes from
 equation (10) is flat by construction. `fit_reduced`'s docstring sets out why — the array *is* a
@@ -594,9 +561,13 @@ the two candidates, and they are [piece D](#d-widen-the-scope-to-what-the-source
 
 ### Closed since this list opened
 
-Kept as two lines each rather than deleted, because both are cited by number from
-`benchmarks/bench_drtmle.py`, `.github/workflows/drtmle-convergence.yml` and
-`estimators/targeting.py`.
+Kept rather than deleted, because the numbering is frozen: these items are cited by number
+from `benchmarks/bench_drtmle.py`, `.github/workflows/drtmle-convergence.yml`,
+`estimators/targeting.py` and `tests/unit/test_drtmle_fit.py`, so a closed item's number is
+not available for reuse. Items 14, 16, 17 and 18 were **piece 0**, which is why its section is
+gone from the list above: none of the four was research, all four were claims the package made
+that were wider than the evidence behind them, and what they protected a user from was being
+told something the fit had not earned while everything else here is open.
 
 **7. The relative-score exit criterion was a poor instrument — replaced.** The loop exited on
 `|score| / mean|h|` against `spec.tol = 1e-10`, and `mean|h|` is `1e-3` to `1e-2` for equation
@@ -617,6 +588,55 @@ worst score `score_check` sees was no worse and usually better, and `ate` moved 
 `4.1e-5`, which is `2.4e-4` of a standard error. What loosened is the *loop's* internal stopping
 rule and nothing a reader is shown: `score_check` still holds the reported fit to `1e-3·se/√n`,
 which is why it still fails 23 of 24 `weak-overlap` fits.
+
+**14. Validity is not efficiency, and now the output says so.** The prose never called the
+corrected curve efficient — checked, and the review's charge came back narrower than stated.
+The *output* did: `score_check` signed a `DRTMLE` fit off with "the targeting step solved the
+estimated **efficient** score equation" over three rows, two of which are the corrections, and
+`inference/influence.py`'s first line called every curve in the module efficient. A corrected
+fit's verdict now names what it solved and says the curve is `D = D* − D*_Q − D*_g`, valid
+under weaker conditions rather than efficient under them; the paragraph is in the appendix, the
+guide, `estimators/drtmle.py` and a paragraph of `reduced_corrections`, and the README cell says
+it in a clause. A *plain* fit's verdict is byte-for-byte what it was — `README.md`'s transcript
+quotes it — which `tests/unit/test_drtmle_fit.py` pins in both directions, watched to fail
+against deleting the branch and against never setting the flag.
+
+**16. A failing score check is now on the face of the report.** `score_check` was opt-in and
+`estimators/drtmle.py` told the reader to run it "on every fit rather than assuming" —
+documentation standing in for reporting, on an estimator whose only product is inference.
+`TMLEResult.score_verdict` carries the verdict, derived from the fluctuations rather than
+stored, and `summary()` ends with it whenever the check fails. **On every fit, not only a
+doubly-robust one**, which is wider than this item proposed: the argument does not depend on
+which estimator left the score unsolved. And **only** when it fails, which is narrower: a
+passing fit prints nothing new, so every transcript in the README and the guide is unchanged
+and the line is worth reading when it does appear. The interval is still printed — saying it is
+unlicensed is this item, predeclaring which regimes are refused outright is
+[piece B](#b-weak-overlap-and-the-loops-exit-under-the-rule-it-now-uses)'s and needs its
+evidence. Serialising the records the check reads was a prerequisite and is format version 10;
+see the note under item 20.
+
+**17. The weights claim is the narrow one now, and it is checked.** The docstring said
+`weights=` "needs nothing said about it: the reduced regressions are fitted by weighted loss
+and every score equation here is weighted". Both halves are true of the code and neither is the
+claim that needed making — the derivation was read at an unweighted law. It now says what
+transports (the reductions are `P_w`-conditional expectations because they are fitted by
+weighted loss, and the mechanism they condition on and divide by is the `P_w` one because
+`nuisance.propensity` *is* the weighted fit) and where it stops (an estimated weight).
+`tests/unit/test_remainder_drtmle.py` takes the whole expansion at two tilted laws and keeps
+the wrong transport as a test: reductions at the sampling law leave a first-order remainder a
+single guard no longer removes. Running that under *both* weight functions is what found the
+blind spot now written into the module — a weight reading `W` alone is a covariate shift, so it
+leaves every conditional alone and the mutation is a no-op there. A **fitted** weighted run is
+still open and is an applied stress test, not this.
+
+**18. `repeats=` averages what it says it averages, and checking it found item 20.** Each draw
+runs its own alternation against its own refitted reductions — pinned by the two draws' `Qr`
+differing and by `score_check` reporting three solved equations per draw — the report is the
+mean of the draws, and no draw is dropped. The mutation this list proposed, "drop a repeat and
+watch the averaged curve decentre", is **inert**: a centred curve carries its own `−ψ_r`, so
+the mean of any subset of centred curves is centred. What a dropped draw moves is `psi` and the
+row count, and the tests bite on those. What it did surface is item 20, which is a defect in
+the *fit* rather than in this keyword.
 
 **12. That change is now pinned by a test.** It was not, for a while, and the gap is the one
 `CLAUDE.md` names: the whole 61-test `drtmle` suite passed identically before and after, because
@@ -690,7 +710,7 @@ carried forward as an item of its own.
 
 ## What the sizings got wrong
 
-Six lessons, distilled from the per-item retrospectives that used to run to several hundred lines
+Seven lessons, distilled from the per-item retrospectives that used to run to several hundred lines
 on this page. They are kept and the retrospectives are not, because the only thing a retrospective
 is for is the next sizing — the full pre-work read of what `drtmle` would touch, the per-seam
 record of what each cost, and the six landed refusals' own notes are in git history, last carried
@@ -763,6 +783,18 @@ and 19, each still real) and the rest came back whole. That ratio is about the s
 so it decays at the rate claims with no instrument decay.
 **The cheapest instrument for a prose claim is a reader who has the source open**, and one pass
 of that over this page cost less than any item on it.
+
+**7. A test can pin the wrong half of what it is named for, and then it decays like a prose
+claim.** Piece 0 turned up two of these and neither was on this list. `TestItSurvivesARoundTrip`
+had asserted a `DRTMLE` fit's estimates and curves came back intact for as long as the variant
+had existed, and they did — while the *diagnostic* did not: `Fluctuation.mechanism` and
+`.reduction` were never serialised, so a reloaded fit's score check answered a strictly weaker
+question under the same name, and could pass where the live check failed. Limitation 8 recorded
+that as lost record-keeping for two versions, which is what a defect looks like when it has been
+written down in the wrong register. And every test in `test_drtmle_fit.py` read one fit on one
+split, so item 20 — a quarter of splits leaving the reported curve uncentred — could not be
+seen from inside the module until a second split was added for an unrelated reason. Lesson 4
+asks whether a test fails when the code is wrong; the two here failed to ask *which* wrong.
 
 ## On native acceleration
 
