@@ -140,7 +140,7 @@ class ReducedFit:
 
 
 class DRTMLE(TMLE):
-    """TMLE with doubly-robust inference, for a binary point treatment.  **In progress.**
+    r"""TMLE with doubly-robust inference, for a binary point treatment.  **In progress.**
 
     Reports ``ey1``, ``ey0`` and ``ate`` under those names -- a different estimator behind
     the same parameters, exactly as :class:`~cleverly.CTMLE` is -- with an influence curve
@@ -193,9 +193,26 @@ class DRTMLE(TMLE):
       :math:`\\bar Q` is informative -- which is precisely the case this variant insures
       against.
 
-    ``weights=`` is supported and needs nothing said about it: the reduced regressions are
-    fitted by weighted loss and every score equation here is weighted, as they are on a plain
-    fit.
+    ``weights=`` is supported for **fixed analysis weights**, meaning what
+    :mod:`cleverly.data.weighting` says they mean: the estimand is the parameter of the
+    tilted law :math:`dP_w = w\,dP / E[w]`.  It once said the keyword "needs nothing said
+    about it", on the grounds that the reduced regressions are fitted by weighted loss and
+    every score equation here is weighted -- both true, and neither the claim that needed
+    making.  The derivation was read at an *unweighted* law, and transporting it to
+    :math:`P_w` needs two things beyond weighted losses: the reduced regressions must be
+    conditional expectations under :math:`P_w`, which weighted loss gives; and the mechanism
+    they condition on and divide by must be the :math:`P_w`-mechanism rather than
+    :math:`g_0`, which holds because they are built from ``nuisance.propensity`` and that
+    *is* the weighted fit.  ``tests/unit/test_remainder_drtmle.py`` runs the whole expansion
+    at two tilted laws and keeps the wrong transport as a test: reductions taken at the
+    sampling law leave a first-order remainder a single guard no longer removes.
+
+    Where it stops is an **estimated** weight.  Nothing read here says what the reduced
+    regressions of a random tilt are, and the ordinary answer -- that the interval conditions
+    on the weights, as ``weights_estimated=`` declares -- is an argument about :math:`D^*`
+    rather than about :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}`.  No **fitted**
+    weighted ``DRTMLE`` run exists here either; that is an applied stress test and
+    ``docs/roadmap.md`` keeps it open.
     """
 
     def __init__(

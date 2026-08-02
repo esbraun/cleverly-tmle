@@ -103,6 +103,25 @@ The one thing that does change is the same one that changes at a single node:
 :math:`T` nodes it reaches every one of the :math:`2T` factors, so resolving it at the row
 count compounds rather than cancels.
 
+Under doubly-robust inference
+-----------------------------
+
+:class:`~cleverly.DRTMLE` reads ``weights=`` on the same terms, for **fixed analysis
+weights**, and there is one thing more to check than there is anywhere else.  Its extra
+score equations are stated in terms of *reduced-dimension regressions* of each nuisance's
+residual on the other, and those have to be conditional expectations under :math:`P_w`
+rather than :math:`P_0` -- which weighted loss gives -- **and** they have to condition on
+and divide by the :math:`P_w`-mechanism rather than :math:`g_0`, which holds because they
+are built from the weighted mechanism fit.  Neither is automatic from "every equation
+carries :math:`w`", which is why it is checked: ``tests/unit/test_remainder_drtmle.py``
+takes the whole second-order expansion at two tilted laws, and keeps the wrong transport as
+a test rather than as a caveat.
+
+An **estimated** weight is where that stops.  The argument above for the ordinary
+estimator -- that the interval conditions on the weights, which ``weights_estimated=``
+declares -- is about :math:`D^*`, and the reduced regressions of a random tilt are not
+something anything read here derives.
+
 Normalisation
 -------------
 
