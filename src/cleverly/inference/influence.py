@@ -468,12 +468,14 @@ def reduced_corrections(
     The *published* 2017 article remains unread and no longer gates this: the adjudication is
     internal consistency plus exact-law arithmetic, and neither depends on the edition.
 
-    And note what the fidelity claim rests on, because it is less than it sounds: **no number
-    this package produces has been compared against** ``drtmle``'s.  There is no
-    cross-language test here or in CI.  So "what that package computes" is a statement about
-    a formula read out of its source, not about agreement with anything it returns -- which
-    makes running one example through both the cheapest outstanding check on this whole
-    variant.  ``docs/roadmap.md`` lists it under *What is still open* beside the theorem.
+    And note exactly what the reference to ``drtmle`` is: **no number this package produces
+    has been compared against that package's, and none will be.**  There is no cross-language
+    test here or in CI and none is planned.  So "what that package computes" is a statement
+    about a formula read out of its source -- **provenance** -- and not about agreement with
+    anything it returns.  That is a decision and not a gap: both implementations descend from
+    one source, so agreement would be evidence about the transcription and blind to exactly
+    the error above, which is why the sign was settled by the appendices instead.
+    ``docs/roadmap.md``'s item 2 carries the reasoning and ``CLAUDE.md`` the rule.
 
     **The two terms are built by** :func:`reduced_correction_parts` **and added here**, so
     that :func:`~cleverly.validation.drtmle.correction_check` takes each one's empirical

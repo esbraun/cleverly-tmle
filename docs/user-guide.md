@@ -1057,8 +1057,8 @@ Why this is the right number, and how it is checked:
 ## Doubly-robust inference
 
 > **In progress.** `DRTMLE` is written and tested, and it is not finished. Its influence
-> curve is transcribed from R's `drtmle` rather than derived, no number here has been
-> compared against that package's, and no study in this repository shows the interval it
+> curve was transcribed from R's `drtmle` rather than derived — it has since been checked
+> against Theorem 1 and agrees — and no study in this repository shows the interval it
 > reports is better than a plain TMLE's. The full list is in
 > [the roadmap](roadmap.md#what-is-still-open); the short version is at the end of this
 > section. Use it where you have a reason to think one nuisance is badly estimated, and do
@@ -1197,9 +1197,12 @@ been checked against Theorem 1 — in the 2016 working-paper version, kept at
 `docs/viewcontent.cgi.pdf` — and it agrees, though the paper's own display of one correction
 prints a sign its appendices contradict, so the check took an argument rather than a glance
 ([the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)).
-There is still no cross-check against `drtmle`'s own numbers. A coverage study on the off-diagonal
-of the misspecification grid found *no gap for this variant to close* at the sizes it could
-reach: the regime it is for needs an adaptive good nuisance converging more slowly than
+There is no cross-check against `drtmle`'s own *numbers* and there will not be: both
+implementations descend from one source, so agreement would be evidence about the transcription
+and blind to exactly the sign above — [the roadmap's item
+2](roadmap.md#closed-since-this-list-opened) is that decision and its reasoning. A coverage study
+on the off-diagonal of the misspecification grid found *no gap for this variant to close* at the
+sizes it could reach: the regime it is for needs an adaptive good nuisance converging more slowly than
 `n^(-1/4)`, which is beyond what a nightly budget can simulate. And the alternation does not
 reliably converge — equation (10)'s covariate is near-singular on exactly the fits anybody
 wants, so some fold draws exit at the outer cap, which is what the score check is for.

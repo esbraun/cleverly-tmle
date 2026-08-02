@@ -426,15 +426,19 @@ a selector hard-wired to select nothing, so it is not evidence that the search
 discriminates between covariates. The claim that it does is tested where selecting nothing
 is *wrong* — with the outcome model reduced to a constant, the search includes the
 confounder in every seed and still leaves the instrument out, while a do-nothing selector
-is biased by 0.81 against 0.037. Second, there is no cross-language check: R's `ctmle` is
-not compared against here or in CI. `cleverly.estimators.ctmle` sets both out in full.
+is biased by 0.81 against 0.037. Second, there is no cross-language check and there will not be: R's `ctmle` is not compared
+against here or in CI, by [decision](roadmap.md#closed-since-this-list-opened) rather than for
+want of effort. `cleverly.estimators.ctmle` sets both out in full.
 
 ## Doubly-robust inference: what the extra equations remove
 
 **`DRTMLE` is in progress**, and this section describes what it computes rather than what has
-been established about it: the influence curve below is transcribed from R's `drtmle` rather
-than derived, and nothing here has been compared against that package's numbers. The
-roadmap's [What is still open](roadmap.md#what-is-still-open) is the full list.
+been established about it: the influence curve below was transcribed from R's `drtmle` rather
+than derived, and has since been checked against Theorem 1. Nothing here has been compared
+against that package's *numbers* and nothing will be — a
+[decision](roadmap.md#closed-since-this-list-opened) rather than a gap, since agreement between
+two transcriptions of one source is evidence about the transcription. The roadmap's [What is
+still open](roadmap.md#what-is-still-open) is the full list.
 
 `TMLE` is **doubly robust for consistency and singly robust for inference**, and the
 distinction is the whole of what `DRTMLE` is for. The second-order remainder is a product,
@@ -705,8 +709,11 @@ push, in both a comfortable-overlap and a weak-overlap version — and the two d
 is the point of having both.
 
 Two things this does **not** include, stated plainly because their absence is easy to miss.
-There is no comparison against another implementation: not R's `tmle`, not `tmle3`, not
-`ctmle`. And `score_check()` passing is not evidence that the equation was the right one —
+There is no comparison against another implementation — not R's `tmle`, not `tmle3`, not
+`ctmle` — and that is a standing decision: agreement with a second implementation is evidence
+about a transcription, and what is checked here instead is that each method produces what its
+derivation predicts. [The roadmap's item 2](roadmap.md#closed-since-this-list-opened) carries
+the reasoning. And `score_check()` passing is not evidence that the equation was the right one —
 see below.
 
 ## How to read a refusal

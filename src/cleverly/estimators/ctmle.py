@@ -169,9 +169,12 @@ instrument out -- while a selector restricted to the empty candidate is biased b
 against the collaborative fit's 0.037.  See
 ``tests/e2e/test_ctmle.py::TestSelectionIsForcedWhenTheOutcomeModelCannotHelp``.
 
-There is no cross-implementation check.  R's ``ctmle`` is not compared against, here or in
-CI, so nothing in this package's evidence rules out a shared misreading of the algorithm
-that happens to satisfy every internal check listed above.
+There is no cross-implementation check and none is planned.  R's ``ctmle`` is not compared
+against, here or in CI, so nothing in this package's evidence rules out a shared misreading of
+the algorithm that happens to satisfy every internal check listed above -- and note that a
+parity run would not have ruled it out either, which is why the comparison is refused rather
+than merely outstanding: two implementations reading one source agree about a misreading.  See
+``docs/roadmap.md``'s item 2 and ``CLAUDE.md``.
 
 References
 ----------

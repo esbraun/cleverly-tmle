@@ -6,10 +6,16 @@ the detail those pull requests are executed from, so that a rule is written down
 it judges exists.
 
 Four sections match four pieces of work: [B1a](#1-the-invariants-piece-b1a) is the identity patch,
-[B1b](#2-the-targeting-candidates-piece-b1b) is the targeting decision, [A2](#3-the-reference-fixtures-piece-a2)
-is `drtmle` parity, [B2](#4-the-sweep-piece-b2) is the convergence and overlap sweep, and
+[B1b](#2-the-targeting-candidates-piece-b1b) is the targeting decision,
+[A1](#3-the-component-checklist-piece-a1) is the component checklist,
+[B2](#4-the-sweep-piece-b2) is the convergence and overlap sweep, and
 [C](#5-the-controlled-study-piece-c) is the demonstration. [The mutation
 table](#6-what-each-new-test-has-to-be-watched-to-fail) is what makes any of it evidence.
+
+§3 used to be `drtmle` parity. That piece is
+[retired](roadmap.md#closed-since-this-list-opened) — no R here and none in CI — and what took its
+place is the same decomposition checked against the derivation instead of against another
+implementation.
 
 ## 1. The invariants (piece B1a)
 
@@ -119,16 +125,18 @@ make hard clipping after a logistic fluctuation solve that expression's score eq
 | variant | residual | denominator | update | what it is for |
 | --- | --- | --- | --- | --- |
 | **current** | raw | bounded | logistic | the baseline defect |
-| **A — R-compatible** | bounded | bounded | logistic, then clip, then iterate | parity |
+| **A — post-fit clip** | bounded | bounded | logistic, then clip, then iterate | one array, internally consistent |
 | **B — raw throughout** | raw | raw | logistic | the literal unbounded score |
 | **C — hybrid** | raw | bounded | logistic | the score Python actually solves today |
 | **D — direct bounded** | bounded | bounded | root / Z-solve | the exact bounded equation |
 
 **A — post-fit clipping, as `drtmle` does it.** `fluctuateG` applies `pred[pred < tolg] <- tolg`
 to the fitted values and returns *that* as `gnStar`, so R has one array and cannot be in the
-current state. Closest to the reference, eliminates the mismatch, straightforward at the `DRTMLE`
-call sites. Against it: each logistic substep solves the **pre-clipping** score, so convergence
-rests on the outer iteration rather than on a substep identity, and an exact root may never be
+current state. That is **internal consistency and not a theorem**, and it is the whole of the
+argument for this candidate now that reproducing R is not a goal: it eliminates the mismatch and
+is straightforward at the `DRTMLE` call sites. Against it: each logistic substep solves the
+**pre-clipping** score, so convergence rests on the outer iteration rather than on a substep
+identity, and an exact root may never be
 reached while observations sit on the boundary. R sidesteps this by capping at three iterations
 and never claiming convergence.
 
@@ -159,32 +167,33 @@ smooth submodel needs a fresh derivation and may no longer be a standard likelih
 
 ### The decision hierarchy
 
-**Do not select from R parity alone, and do not select from taste.** In order:
+**Do not select from taste, and do not select from what another implementation happens to do.**
+In order:
 
 1. **Theorem fidelity** — which mechanism appears consistently in equation (9), in `D_A`, and in
    the appendix-B terms? [The concordance's §7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)
    is where this is answered, and its present answer is that the theorem clips nothing at all.
 2. **Exact final-score validity** — does the returned state satisfy the exact equation the
    reported correction uses, to the declared statistical tolerance?
-3. **Reference fidelity** — does it reproduce `drtmle` where the two algorithms are meant to
-   agree?
-4. **Numerical stability** — how does it behave as the clipped share rises?
-5. **Substitution-estimator integrity** — is it still a targeted plug-in construction of the kind
+3. **Numerical stability** — how does it behave as the clipped share rises?
+4. **Substitution-estimator integrity** — is it still a targeted plug-in construction of the kind
    the theorem covers?
 
-R parity is evidence under criterion 3. It is not a substitute for 1 and 2.
+There used to be a fifth, *reference fidelity* — whether the variant reproduces `drtmle` where the
+two algorithms are meant to agree — ranked below these and never a substitute for 1 and 2. It is
+gone with the [retired parity piece](roadmap.md#closed-since-this-list-opened), and note that it
+would have been the weakest criterion here in any case: **the theorem clips nothing at all**, so R's
+convention is one candidate among four rather than the reference the others are measured from.
 
 ### What B1b reports
 
 For each variant, on each fixed fixture and seed: fraction clipped; each arm's final raw score;
 each arm's final reported correction mean; the identity residual; `psi`; `se`; the interval; the
-number of rounds; cap/stall status; the objective value where one exists; and the distance from
-R's component arrays.
+number of rounds; cap/stall status; and the objective value where one exists.
 
 Acceptance: score/correction identity by construction; final reported score below the predeclared
-validity threshold; **no silent success when a constrained root does not exist**; R differences
-localised and documented; and the concordance row marked *met* or *met under a stated
-restriction*.
+validity threshold; **no silent success when a constrained root does not exist**; and the
+concordance row marked *met* or *met under a stated restriction*.
 
 ### Two acceptance criteria that were wrong and are now stated correctly
 
@@ -215,7 +224,11 @@ to implement**, rather than treating today's `psi` as ground truth. A material m
 investigation; it does not automatically reject the candidate, and it may well reveal that the old
 estimate came from a different targeting path.
 
-## 3. The reference fixtures (piece A2)
+## 3. The component checklist (piece A1)
+
+**This was `drtmle` parity and it is [retired](roadmap.md#closed-since-this-list-opened).** There
+is no R here and none in CI. What survives is the decomposition, because the decomposition was
+never really about R: only the thing each component was compared *against* was.
 
 **Compare components, not `psi` and `se`.** Several differences cancel at `psi` — a sign error in
 one correction, a scaling, a swapped `gr1`/`gr2`, targeting at the wrong starred arrays — and
@@ -224,43 +237,49 @@ corrections. The list, in the order a discrepancy must be localised: initial `Q�
 predictions; each reduced regression; each targeting coefficient; `D*`, `D*_Q` and `D*_g`
 separately; the full corrected curve; the three empirical scores; then `psi` and `se`.
 
-Start from user-supplied nuisance arrays or a deterministic GLM, never a Super Learner, so that a
+Each is checked against **what the derivation gives for it**, on a law whose truth is known. Start
+from user-supplied nuisance arrays or a deterministic GLM, never a Super Learner, so that a
 discrepancy is arithmetic rather than a fold draw. **Localise to the earliest component that
 differs** before reading anything into the ones after it.
 
-### The mapping a fixture is checked against
+### The mapping a component is checked against
 
-| paper object | Python | R |
-| --- | --- | --- |
-| `Q̄_n` | initial outcome predictions | `estimateQ` |
-| `g_n` | initial propensity predictions | `estimateG` |
-| `Q̄_{r,n}` | `ReducedSet.qr` | `estimateQrn` |
-| `g_{r,n,1}` | `ReducedSet.gr1` | the univariate reduced-PS **denominator** (`grn2` there) |
-| `g_{r,n,2}` | `ReducedSet.gr2` | the univariate signed **numerator** (`grn1` there) |
-| equation (8) | the ordinary outcome score | `fluctuateQ1` / `fluctuateQ` |
-| equation (9) | the mechanism score | `fluctuateG` |
-| equation (10-uni) | the reduced-outcome score | `fluctuateQ2` / `fluctuateQ` |
-| `ψ̂(a)` | targeted counterfactual mean | the final GCOMP/TML estimate |
-| the covariance | rowwise curve covariance | `drtmle`'s covariance block |
+| paper object | Python |
+| --- | --- |
+| `Q̄_n` | initial outcome predictions |
+| `g_n` | initial propensity predictions |
+| `Q̄_{r,n}` | `ReducedSet.qr` |
+| `g_{r,n,1}` | `ReducedSet.gr1` |
+| `g_{r,n,2}` | `ReducedSet.gr2` |
+| equation (8) | the ordinary outcome score |
+| equation (9) | the mechanism score |
+| equation (10-uni) | the reduced-outcome score |
+| `ψ̂(a)` | targeted counterfactual mean |
+| the covariance | rowwise curve covariance |
 
-### Four fixtures, and the shape of each is a decision
+R's names for the same objects — including the `gr1`/`gr2` inversion, which is the single easiest
+thing here to transcribe backwards — are provenance and live in one place, [the concordance's
+§13](drtmle-theorem-concordance.md#13-the-object-concordance), whose `evidence` column is where
+*which test pins which row* is recorded. Two copies of a mapping table is one copy too many.
 
-`tools/r_reference/export_drtmle_fixture.R` writes them and `tests/reference/drtmle/*.json`
-carries them, with the R session info, the package version, the bounds, the arm order and every
-algorithm option recorded beside the arrays — **a fixture whose options are not written down
-cannot be re-derived when it disagrees.** The script may call the package's internals directly
-(`estimategrn`, `fluctuateG`, `fluctuateQ1`, `fluctuateQ2`, `eval_Dstar`, `eval_Dstar_Q`,
-`eval_Dstar_g`) rather than forcing every array through `drtmle()`'s public signature.
+### Four laws, and the shape of each is a decision
+
+Three of the four were already laws rather than exports, which is part of why the retirement costs
+so little. **Every one of them must be deliberately misspecified somewhere**, and that is not a
+stylistic preference: at the truth `Q_r` and `g_{r,2}` vanish row by row, so a broken
+implementation agrees with plain `TMLE` and with any reference alike. That is
+[lesson 2](drtmle-investigation-log.md#what-the-sizings-got-wrong), and it is the reason an
+exact-law check is *not* automatically stronger than the parity check it replaced.
 
 1. **Finite support, deliberately misspecified.** A small discrete `W` with repeated nuisance
    values, so the reduced regressions genuinely pool cells and a longhand calculation is possible.
    This is the one that validates definitions and signs without a learner in the way, and it is
-   the fixture [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)'s
+   the law [item 21](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)'s
    hand-calculation extends: it must carry a **nonzero `Q_r`** and be built so the two candidate
-   signs give materially different variances.
+   signs give materially different variances. `tests/unit/test_remainder_drtmle.py` and
+   `tests/unit/test_theorem_drtmle.py` are this law already.
 2. **Outcome nuisance close but not exact, mechanism wrong.** Deterministic arrays or a
-   deterministic GLM. "Close but not exact" is the whole content: at the truth the corrections
-   vanish row by row.
+   deterministic GLM. "Close but not exact" is the whole content.
 3. **The mirror**: mechanism close, outcome wrong.
 4. **The known-uncentred split**, committed as data rather than as a seed — the fold assignment
    and the nuisance outputs, not a call to a random generator whose implementation may move.
@@ -269,19 +288,14 @@ Tolerances per component rather than one blanket number: machine precision for t
 finite-support quantities, `1e-8`-ish for deterministic GLM predictions and coefficients, and
 **row-by-row** comparison for the curves rather than a comparison of their variances.
 
-### What A2 must also answer, beyond parity
+### What is left, and it is a list of tests rather than a fixture to import
 
-- whether R's final reported correction mean is within `tolIC` **when clipping binds**;
-- whether R's outer iteration compensates for post-fit clipping, or merely stops;
-- whether R's separate arm-specific mechanism fits give materially different results from this
-  package's joint binary parameterisation;
-- what happens at the **upper** bound as well as the lower one.
-
-**Where R and the theorem disagree, keep both in the fixture and mark the disagreement
-explicitly.** The theorem wins for statistical correctness unless the published article changed
-the formula. A2 is an implementation-parity and independent-algebra task; it cannot adjudicate
-[§4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved), and a fixture that quietly
-records R's sign as correct would make that permanent.
+The `TODO` rows of [the concordance's object
+table](drtmle-theorem-concordance.md#13-the-object-concordance). Plus the one gap the retired piece
+had correctly identified and that nothing else covers: **the reported curve's own decomposition,
+pinned against a perturbation of the law** the way the `test_influence_gateaux*` modules do
+elsewhere. Those modules cannot be reused here, derivably — everything the variant adds vanishes on
+an exact law — so whatever replaces them is written against a law that is wrong on purpose.
 
 ## 4. The sweep (piece B2)
 
@@ -537,7 +551,7 @@ rather than being found afterwards.
 | unit | the stopping rule accepts either ruler | delete the absolute branch (already done, item 12) |
 | unit | a weighted fit transports (item 17) | reductions taken at the sampling law (already done, item 17) |
 | oracle | the drift decomposition | delete one correction term |
-| cross-language | `drtmle` parity, component by component | perturb one component and watch only that row move |
+| component | each object of the curve equals what the derivation gives for it, **at a value where it does not vanish** | perturb one component and watch only that row move; and evaluate the whole checklist at the *truth* instead, where every row passes and the check is vacuous — the mutation that says the law is misspecified on purpose |
 | integration | `guard=()` is `TMLE` bit for bit | route the empty guard through the reduction loop |
 | integration | each guard removes its own direction | cross the guard semantics |
 | unit | only the guarded equation's correction is **in the curve** (item 23) | **run**: drop the branch from `CorrectionParts.total()`, and cross it — `tests/unit/test_influence_drtmle.py::TestOnlyTheGuardedEquationsCorrectionIsInTheCurve`, whose fixture is checked at the exact law too, where all three guards agree and every array is zero |
