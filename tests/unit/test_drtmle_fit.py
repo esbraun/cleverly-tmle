@@ -81,6 +81,24 @@ class TestWhatItReports:
         """The verdict is silent on the common path; only a failure interrupts a reader."""
         assert "score check" not in fit.summary()
 
+    def test_the_verdict_does_not_call_the_corrected_curve_efficient(self, fit, ordinary) -> None:
+        """Validity is not efficiency, and the sign-off is where the package said it was.
+
+        The pair is the test. A doubly-robust fit solves three equations, two of them the
+        corrections, and what they leave is the estimator's influence function at the
+        nuisance limits rather than the canonical gradient -- so signing it off as "the
+        estimated efficient score equation" asserted exactly what
+        ``reduced_corrections`` exists to deny. A plain fit's verdict is unchanged, word
+        for word, because there the phrase is right; ``README.md``'s transcript quotes it.
+        """
+        corrected = fit.validation.score_check()
+        plain = ordinary.validation.score_check()
+
+        assert corrected.corrected and not plain.corrected
+        assert "efficient" not in corrected.summary().lower().split("validity is not")[0]
+        assert "Validity is not efficiency" in corrected.summary()
+        assert "solved the estimated efficient score equation" in plain.summary()
+
     def test_the_alternation_terminated_on_its_own(self, fit) -> None:
         """On *this* process, and the qualification is the point.
 
@@ -177,6 +195,11 @@ class TestAnEmptyGuardIsAPlainTMLE:
         )
         assert fluctuation.reduction is None and fluctuation.mechanism is None
         assert bare.nuisance.reduced is None
+        # And in the *report* as well as in the arrays: `corrected` is read off the
+        # reduction records, so this fit gets a plain fit's verdict word for word.
+        check = bare.validation.score_check()
+        assert not check.corrected
+        assert "solved the estimated efficient score equation" in check.summary()
 
 
 class TestTheCurveReadsWhatTheAlternationLeft:

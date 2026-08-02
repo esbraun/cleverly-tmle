@@ -62,6 +62,19 @@ cannot move :math:`\hat\Psi` and only move its variance.  Read a ``DRTMLE`` fit 
 estimate with an interval that is entitled to be believed under weaker conditions, not as a
 better estimate.
 
+**And it is not the efficient one.**  Under misspecification the canonical gradient at
+:math:`P_0` is still :math:`D^*`.  What the three equations leave is
+:math:`D = D^* - D^*_Q - D^*_g`, the *estimator's* asymptotic influence function at the
+nuisance limits, and the estimator is generally **not efficient** there -- so the interval is
+one that stays valid where a plain TMLE's stops being valid, and nothing more than that.
+When both nuisances are consistent the corrections vanish row by row, the two curves
+coincide, and this is the ordinary efficient estimator; that is exactly the case the variant
+is not for.  The distinction is easy to lose because the numbers point the other way: in the
+guide's worked example the corrected standard error is the **smaller** of the two, 0.06828
+against 0.06850, which is a fact about one draw and not a general narrowing.  A doubly-robust
+fit's ``score_check`` says so in its own verdict rather than signing the fit off as having
+solved the efficient score equation.
+
 **What it costs.**  Two further learner fits per arm per round, refitted *inside* the
 alternation, plus a mechanism fluctuation.  A truncation curve or an MNAR sweep on a
 ``DRTMLE`` result therefore costs about a fit per point rather than a fraction of one:

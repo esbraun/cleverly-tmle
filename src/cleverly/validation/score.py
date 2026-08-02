@@ -35,6 +35,21 @@ That the equation is the right one is established elsewhere, and separately:
 A *failure* here, by contrast, is informative on its own and non-circular: it means the
 solver did not converge, or the fluctuation could not reach the root.
 
+On a doubly-robust fit it is not the efficient equation
+---------------------------------------------------------
+
+Everything above is written for :math:`\hat D^*`, and a :class:`~cleverly.DRTMLE` fit
+solves three equations rather than one.  The extra two are not refinements of the
+efficient score equation: the curve their solution leaves is
+:math:`D = D^* - D^*_Q - D^*_g`, the **estimator's** asymptotic influence function at the
+nuisance limits, and it is generally not the canonical gradient at :math:`P_0`.  When both
+nuisances are consistent the corrections vanish row by row and the two coincide -- which is
+precisely the case the variant is not for.  So the verdict here branches on
+:attr:`ScoreCheck.corrected` and does not sign such a fit off as having solved "the
+estimated efficient score equation"; see
+:func:`~cleverly.inference.influence.reduced_corrections` and
+:mod:`cleverly.estimators.drtmle`.
+
 The check compares :math:`|P_n \hat D^*|` against the standard error.  The natural scale is
 :math:`\widehat{se} / \sqrt{n}`: the score has to be small relative to the estimate's
 own sampling variability, not merely small in absolute terms, since the units of the
@@ -113,11 +128,24 @@ class ScoreCheckRow:
 
 @dataclass(frozen=True)
 class ScoreCheck:
-    """Whether the targeting step solved the efficient score equation."""
+    """Whether the targeting step solved the score equations it was supposed to.
+
+    "The efficient score equation" for a plain fit, and deliberately not that phrase for a
+    doubly-robust one -- see :attr:`corrected`.
+    """
 
     rows: tuple[ScoreCheckRow, ...]
     tolerance: float
     n: int
+    #: Whether this fit reports the **corrected** curve
+    #: :math:`D = D^* - D^*_Q - D^*_g` rather than :math:`D^*`.  True for a
+    #: :class:`~cleverly.DRTMLE` fit with a non-empty guard, and what the verdict branches
+    #: on: the equations such a fit solves are its own three, and the curve they leave is
+    #: the *estimator's* influence function at the nuisance limits, which is generally not
+    #: the efficient one.  Signing that off as "the estimated efficient score equation"
+    #: was the one place the package asserted the thing
+    #: :func:`~cleverly.inference.influence.reduced_corrections` exists to deny.
+    corrected: bool = False
 
     @property
     def passed(self) -> bool:
@@ -182,13 +210,31 @@ class ScoreCheck:
         return max(ratios) if ratios else float("nan")
 
     def summary(self) -> str:
-        verdict = (
-            "PASS: the targeting step solved the estimated efficient score equation."
-            if self.passed
-            else "FAIL: the score equation was not solved -- the influence-curve standard "
-            "errors this fit reports do not describe this estimate. See the module "
-            "docstring for the usual causes."
-        )
+        if not self.passed:
+            verdict = (
+                "FAIL: the score equation was not solved -- the influence-curve standard "
+                "errors this fit reports do not describe this estimate. See the module "
+                "docstring for the usual causes."
+            )
+        elif self.corrected:
+            # Not "the efficient score equation": this fit solved *its own* equations, and
+            # the curve they leave is the estimator's influence function at the nuisance
+            # limits. The two coincide when both nuisances are consistent, because the
+            # corrections then vanish row by row -- and that is exactly the case the
+            # variant is not for.
+            solved = sum(1 for row in self.rows if row.kind == "fluctuation")
+            verdict = "\n".join(
+                [
+                    f"PASS: the targeting step solved all {solved} estimated score equations "
+                    "of the doubly-robust estimator.",
+                    "Validity is not efficiency: the curve reported is D = D* - D*_Q - D*_g, "
+                    "entitled to be believed",
+                    "under weaker conditions than D* rather than efficient under them. See "
+                    "cleverly.estimators.drtmle.",
+                ]
+            )
+        else:
+            verdict = "PASS: the targeting step solved the estimated efficient score equation."
         return "\n".join(
             [
                 "Score-equation check",
@@ -378,4 +424,17 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
             )
         )
 
-    return ScoreCheck(rows=tuple(rows), tolerance=tolerance, n=n)
+    return ScoreCheck(
+        rows=tuple(rows),
+        tolerance=tolerance,
+        n=n,
+        # Read off the records rather than passed down from the estimator: this function
+        # takes a result and a result does not name the class that made it.  A guard of
+        # ``()`` leaves no reduction record, so such a fit is *not* corrected here -- which
+        # is right, since it is a plain TMLE in every other respect too.
+        corrected=any(
+            fluctuation.reduction is not None
+            for repeat in result.repeats
+            for fluctuation in repeat.fluctuations.values()
+        ),
+    )

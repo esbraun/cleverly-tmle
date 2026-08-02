@@ -1102,12 +1102,14 @@ Score-equation check
 --------------------
 target            kind             |score|    before     threshold  ratio     ok
 ----------------  ---------------  ---------  ---------  ---------  --------  ---
-mean              fluctuation      7.237e-18  3.209e-09  1.527e-06  4.74e-12  yes
-mean (mechanism)  fluctuation      9.079e-11  8.801e-11  1.527e-06  5.95e-05  yes
-mean (reduced)    fluctuation      3.607e-11  4.900e-05  1.527e-06  2.36e-05  yes
-ate               influence curve  9.424e-10  -          1.527e-06  6.17e-04  yes
+mean              fluctuation      6.661e-19  3.745e-07  1.527e-06  4.36e-13  yes
+mean (mechanism)  fluctuation      7.743e-11  7.743e-11  1.527e-06  5.07e-05  yes
+mean (reduced)    fluctuation      6.278e-20  4.900e-05  1.527e-06  4.11e-14  yes
+ate               influence curve  1.003e-09  -          1.527e-06  6.57e-04  yes
 
-PASS: the targeting step solved the estimated efficient score equation.
+PASS: the targeting step solved all 3 estimated score equations of the doubly-robust estimator.
+Validity is not efficiency: the curve reported is D = D* - D*_Q - D*_g, entitled to be believed
+under weaker conditions than D* rather than efficient under them. See cleverly.estimators.drtmle.
 ```
 
 Two things to read off. There are **three** rows where a plain fit has one: the ordinary
@@ -1116,6 +1118,17 @@ against the reduced regressions. And what changed is the interval, not the estim
 fit `ate` is 1.5348 against a plain TMLE's 1.5292, a twelfth of a standard error apart, while
 the standard error moves from 0.06850 to 0.06828. **Read a `DRTMLE` fit as the same estimate
 with an interval entitled to be believed under weaker conditions, not as a better estimate.**
+
+Which is also why the verdict does not say "the estimated efficient score equation" as a plain
+fit's does. **Validity is not efficiency.** Under misspecification the efficient influence
+function at the true law is still `D*`; the curve this fit reports is
+`D = D* - D*_Q - D*_g`, the *estimator's* asymptotic influence function at the limits its
+nuisances converge to, and the estimator is generally **not** efficient there. So `DRTMLE`
+buys an interval that stays valid where a plain TMLE's stops being valid — **not** a narrower
+one, and not an efficient one. When both nuisances are consistent the two corrections vanish
+row by row, the curves coincide, and this is the ordinary efficient estimator; that is exactly
+the case the variant is not for. Do not read the smaller standard error above as the general
+case: it is one draw, and 0.06828 against 0.06850 is well inside what a different seed moves.
 
 `guard=` says which extra equations to solve, in `drtmle`'s vocabulary, and it is **crossed**:
 `"Q"` guards against a misspecified *outcome regression* and adds the equation that fluctuates

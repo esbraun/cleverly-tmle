@@ -21,9 +21,11 @@ class ValidationSuite:
     Reached as ``result.validation``.  Run in increasing order of cost:
 
     ``score_check()``
-        Free.  Did targeting solve the estimated efficient score equation?  If this
-        fails, nothing else is worth reading -- though passing it is necessary rather
-        than sufficient, for the reason set out in :mod:`cleverly.validation.score`.
+        Free.  Did targeting solve the score equations this fit posed -- the estimated
+        efficient one, or a doubly-robust fit's own three?  If this fails, nothing else is
+        worth reading -- though passing it is necessary rather than sufficient, for the
+        reason set out in :mod:`cleverly.validation.score`.  Also reached as
+        ``result.score_verdict``, which is what ``result.summary()`` reports from.
     ``nuisance()``
         Free.  How good are the initial fits, and are their probabilities calibrated?
     ``refute()``
@@ -38,7 +40,12 @@ class ValidationSuite:
         self._result = result
 
     def score_check(self, *, tolerance: float = DEFAULT_TOLERANCE) -> ScoreCheck:
-        """Verify that the targeting step solved the estimated efficient score equation."""
+        """Verify that the targeting step solved the score equations this fit posed.
+
+        The estimated efficient score equation on an ordinary fit; a doubly-robust fit's
+        own three, whose solution leaves the corrected curve rather than the efficient
+        one -- see :mod:`cleverly.validation.score`.
+        """
         return score_check(self._result, tolerance=tolerance)
 
     def nuisance(self) -> NuisanceDiagnostics:
