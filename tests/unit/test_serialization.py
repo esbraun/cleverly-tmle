@@ -356,6 +356,160 @@ class TestTheReducedRegressionsSurvive:
         assert reloaded.nuisance.reduced is None
 
 
+class TestTheTargetingHalvesSurvive:
+    """Format version 10: the records a targeting step with more than one equation hangs.
+
+    Grafted rather than fitted, for the reason the class above grafts: a hand-built record
+    can carry a value no fit here produces -- a failure, a capped exit, a non-zero
+    ill-conditioning count -- so no default can masquerade as a round trip.  Each test
+    walks ``dataclasses.fields`` rather than a list written out here, because the failure
+    mode is a *field* left unwritten and a hand-written list is exactly as likely to
+    forget it as the writer was.
+
+    What makes this worth a test rather than an argument is in
+    :data:`~cleverly.estimators.serialize.FORMAT_VERSION`'s note: ``score_check`` reads
+    these three, so losing one narrows the check rather than the record.
+    """
+
+    @staticmethod
+    def _reduced(nuisance):  # type: ignore[no-untyped-def]
+        from cleverly.estimators.reduced import ReducedSet
+
+        n, k = nuisance.n, len(nuisance.arms)
+        rng = np.random.default_rng(1)
+        return ReducedSet(
+            qr=rng.normal(size=(n, k)),
+            gr1=rng.uniform(0.2, 0.8, size=(n, k)),
+            gr2=rng.normal(size=(n, k)),
+            arms=nuisance.arms,
+            g_bounds=(0.01, 0.99),
+        )
+
+    @staticmethod
+    def _graft(result, **halves):  # type: ignore[no-untyped-def]
+        from dataclasses import replace
+
+        fluctuations = dict(result.repeats[0].fluctuations)
+        group = next(iter(fluctuations))
+        fluctuations[group] = replace(fluctuations[group], **halves)
+        repeat = replace(result.repeats[0], fluctuations=fluctuations)
+        return replace(result, repeats=(repeat,)), group
+
+    @staticmethod
+    def _assert_fields_match(before, after) -> None:  # type: ignore[no-untyped-def]
+        from dataclasses import fields
+
+        assert after is not None
+        for spec in fields(before):
+            original, restored = getattr(before, spec.name), getattr(after, spec.name)
+            if isinstance(original, np.ndarray):
+                np.testing.assert_array_equal(restored, original)
+            elif spec.name in {"reduced", "folds"}:
+                continue  # checked by their own assertions below
+            else:
+                assert restored == original, spec.name
+
+    def test_the_mechanism_tilt_returns_every_field(self, result) -> None:  # type: ignore[no-untyped-def]
+        from cleverly.fluctuation.mechanism import MechanismFluctuation
+
+        rng = np.random.default_rng(2)
+        mechanism = MechanismFluctuation(
+            propensity=rng.uniform(0.1, 0.9, size=result.data.n),
+            epsilon=rng.normal(size=2),
+            score=rng.normal(size=2),
+            score_scale=rng.uniform(1.0, 2.0, size=2),
+            score_initial=rng.normal(size=2),
+            converged=False,
+            n_iter=7,
+            epsilon_std_error=rng.uniform(size=2),
+            hessian_condition=1.5e9,
+            loglik=-123.25,
+            failure="max_iter_reached",
+            trace=((0, 1.0, 2.0, -3.0), (1, 0.5, 1.0, -2.0)),
+        )
+        grafted, group = self._graft(result, mechanism=mechanism)
+        back = loads(dumps(grafted)).repeats[0].fluctuations[group].mechanism
+        self._assert_fields_match(mechanism, back)
+
+    def test_the_projection_returns_every_field(self, result) -> None:  # type: ignore[no-untyped-def]
+        from cleverly.estimators.targeting import ProjectionFluctuation
+
+        rng = np.random.default_rng(3)
+        fold = ProjectionFluctuation(beta=rng.normal(size=3), trace=((0, 1e-3, 1e-4),))
+        projection = ProjectionFluctuation(
+            beta=rng.normal(size=3),
+            trace=((0, 1e-2, 1e-1), (1, 1e-4, 1e-5)),
+            converged=False,
+            failure="max_iter_reached",
+            folds=(fold,),
+        )
+        grafted, group = self._graft(result, projection=projection)
+        back = loads(dumps(grafted)).repeats[0].fluctuations[group].projection
+        self._assert_fields_match(projection, back)
+        assert back is not None and len(back.folds) == 1
+        self._assert_fields_match(fold, back.folds[0])
+
+    def test_the_reduction_record_returns_every_field(self, result) -> None:  # type: ignore[no-untyped-def]
+        from cleverly.estimators.targeting import ReductionFluctuation
+
+        rng = np.random.default_rng(4)
+        reduced = self._reduced(result.nuisance)
+        reduction = ReductionFluctuation(
+            reduced=reduced,
+            guard=("Q", "g"),
+            bounds=(0.02, 0.98),
+            epsilon=rng.normal(size=2),
+            score=rng.normal(size=2),
+            score_scale=rng.uniform(1.0, 2.0, size=2),
+            score_initial=rng.normal(size=2),
+            names=("h_qr", "h_gr"),
+            trace=((0, 1.0, 2.0, 3.0, -4.0),),
+            rounds=13,
+            converged=False,
+            failure="max_iter_reached",
+            exit_reason="cap",
+            closing_capped=True,
+            ill_conditioned=3,
+            closing=2,
+        )
+        grafted, group = self._graft(result, reduction=reduction)
+        back = loads(dumps(grafted)).repeats[0].fluctuations[group].reduction
+        self._assert_fields_match(reduction, back)
+        assert back is not None
+        for name in ("qr", "gr1", "gr2"):
+            np.testing.assert_array_equal(getattr(back.reduced, name), getattr(reduced, name))
+        assert back.reduced.g_bounds == reduced.g_bounds
+
+    def test_the_refit_reductions_are_not_the_nuisances_own(self, result) -> None:  # type: ignore[no-untyped-def]
+        """The record carries the alternation's refit, which the nuisances never hold.
+
+        Both slots take a ``ReducedSet`` through one writer, so this is what says the two
+        are still distinct payloads rather than one written twice.
+        """
+        from cleverly.estimators.targeting import ReductionFluctuation
+
+        reduced = self._reduced(result.nuisance)
+        reduction = ReductionFluctuation(
+            reduced=reduced,
+            guard=("Q",),
+            bounds=(0.01, 0.99),
+            epsilon=np.zeros(1),
+            score=np.zeros(1),
+            score_scale=np.ones(1),
+            score_initial=np.zeros(1),
+        )
+        grafted, group = self._graft(result, reduction=reduction)
+        back = loads(dumps(grafted))
+        assert back.nuisance.reduced is None
+        assert back.repeats[0].fluctuations[group].reduction is not None
+
+    def test_a_fit_with_none_of_them_still_reloads_as_none(self, result, reloaded) -> None:  # type: ignore[no-untyped-def]
+        for group, fluctuation in reloaded.repeats[0].fluctuations.items():
+            assert fluctuation.mechanism is None, group
+            assert fluctuation.projection is None, group
+            assert fluctuation.reduction is None, group
+
+
 class TestProvenance:
     def test_identical_data_gives_an_identical_fingerprint(self) -> None:
         assert _fit().provenance.data_fingerprint == _fit().provenance.data_fingerprint

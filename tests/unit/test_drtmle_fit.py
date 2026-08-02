@@ -231,6 +231,29 @@ class TestItSurvivesARoundTrip:
             )
         assert back.nuisance.reduced is not None
 
+    def test_the_score_check_is_the_same_check_after_a_round_trip(self, fit, tmp_path) -> None:
+        """A reloaded fit answers the same question, not a narrower one.
+
+        ``score_check`` reads ``Fluctuation.mechanism`` and ``.reduction``, so a file that
+        dropped them reported **one** fluctuation row where this fit solves three -- and a
+        verdict computed from one equation can pass where the verdict computed from three
+        failed.  That was the state until format version 10, and the round-trip test above
+        could not see it: what it round-tripped was the estimates, and the estimates were
+        always fine.
+        """
+        back = load(fit.save(tmp_path / "verdict.npz"))
+
+        live, after = fit.validation.score_check(), back.validation.score_check()
+        assert [row.name for row in after.rows] == [row.name for row in live.rows]
+        assert [row.score for row in after.rows] == [row.score for row in live.rows]
+        assert after.passed == live.passed
+
+        reduction = back.repeats[0].fluctuations["mean"].reduction
+        assert reduction is not None
+        np.testing.assert_array_equal(
+            reduction.reduced.qr, fit.repeats[0].fluctuations["mean"].reduction.reduced.qr
+        )
+
 
 class TestTheAlternationCanBeIllConditioned:
     r"""Equation (10) is not always solvable to machine precision, and the reason is structural.
