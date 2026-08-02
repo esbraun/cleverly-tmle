@@ -1,3 +1,16 @@
+# An external review of the DRTMLE plan
+
+**Kept verbatim as received**, including its own truncated final sentence, so that what
+[the roadmap](roadmap.md#what-is-still-open) adjudicates can be read against what was
+actually said. It is an input to that plan and not itself the plan: where the two differ,
+the roadmap says so and gives its reason — three of the claims below were checked against
+the code and are narrower than stated (§1's terminology charge, §3's monotonicity charge,
+and §7.1's on weights), and the roadmap records each along with what survives of it.
+
+Its numbering is its own and is unrelated to the roadmap's numbered items.
+
+---
+
 Review of the cleverly-tmle / “causly-tmle” DRTMLE Roadmap
 
 Executive assessment
