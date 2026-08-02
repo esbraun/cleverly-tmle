@@ -44,10 +44,19 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       on every row it clips.  A single clipped row of 600 is enough.  It is not the
       conditioning of item 4 -- ``ill_conditioned`` never fires on that process -- and it is
       *not* a stale array: recomputing the recorded score from the returned state reproduces
-      it bit for bit.  Until ``docs/roadmap.md``'s piece B1a lands, read a ``DRTMLE``
-      standard error as provisional on every process and check ``res.score_verdict``.  Which
-      convention replaces it is piece B1b's and waits on the theorem: there are more than
-      two candidates, and the theorem's own algorithm truncates nothing at all.
+      it bit for bit.
+
+      **A fit in this state now says so, per arm and by name.**
+      :func:`~cleverly.validation.drtmle.correction_check` recomputes each arm's
+      :math:`P_n[w D^*_g]` and :math:`P_n[w D^*_Q]` from the exact returned state, reports
+      the identity residuals against the scores the targeting step recorded and the exact
+      clipping bias :math:`B_{clip}` that explains them, and ``score_check`` marks such a
+      fit invalid in words that name a defect rather than a convergence failure.  That is
+      ``docs/roadmap.md``'s piece B1a, and it is an instrument and not a remedy: read a
+      ``DRTMLE`` standard error as provisional wherever ``res.score_verdict`` says so.
+      Which convention replaces the current one is piece B1b's and waits on the theorem:
+      there are more than two candidates, and the theorem's own algorithm truncates nothing
+      at all.
 
 Every interval this package reports is valid when the second-order remainder is negligible,
 and for a plain TMLE that remainder is the product

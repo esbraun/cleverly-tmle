@@ -74,6 +74,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ..estimators.base import format_table
+from .drtmle import CorrectionCheck, correction_check
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -146,11 +147,36 @@ class ScoreCheck:
     #: was the one place the package asserted the thing
     #: :func:`~cleverly.inference.influence.reduced_corrections` exists to deny.
     corrected: bool = False
+    #: The per-arm corrections behind this check's ``identity`` and ``correction`` rows,
+    #: for a reader who wants the recomputation itself rather than the verdict on it.
+    #: ``None`` on a check built by hand; empty rows on any fit that reports no
+    #: corrections, which is every fit but a guarded :class:`~cleverly.DRTMLE` one.
+    corrections: CorrectionCheck | None = None
 
     @property
     def passed(self) -> bool:
         """True when every row is within tolerance."""
         return all(row.passed for row in self.rows)
+
+    @property
+    def identity_failures(self) -> tuple[ScoreCheckRow, ...]:
+        """Failures that are software defects rather than unsolved equations.
+
+        A row here says the score the targeting step recorded and the term the reported
+        curve carries are not the same functional of the state the fit returned --
+        ``docs/roadmap.md``'s item 20.  Iterating longer cannot fix one, which is why it is
+        worded apart from every other failure this class reports.
+        """
+        return tuple(row for row in self.failures if row.kind == "identity")
+
+    @property
+    def passed_apart_from_identities(self) -> bool:
+        """Whether every failure here is a state identity rather than an unsolved equation.
+
+        Not a softer :attr:`passed` -- a fit in this state is still not one to report from.
+        It is what lets a verdict name one cause where there is one cause.
+        """
+        return all(row.kind == "identity" for row in self.failures)
 
     def __bool__(self) -> bool:
         return self.passed
@@ -198,12 +224,34 @@ class ScoreCheck:
             [
                 f"score check: FAIL -- {len(failures)} of {len(self.rows)} not solved.",
                 f"  {named}",
+                *self._identity_lines(),
                 "  The standard errors above are read off an influence curve whose mean is",
                 "  not zero, so they do not describe this estimate.  See",
                 "  res.validation.score_check() for the table and cleverly.validation.score",
                 "  for the usual causes.",
             ]
         )
+
+    def _identity_lines(self) -> list[str]:
+        """The state-identity failures, said as what they are and not as a convergence one.
+
+        An unsolved equation is a fit that did not get there; a broken identity is a fit
+        that solved something else.  Reporting the second in the first's words -- "try
+        one_step, lower the step size" -- would send a reader looking for a numerical
+        problem that is not there, which is precisely what happened for two revisions while
+        the loop reported ``1e-11`` and the curve was out by ``2e-04``.
+        """
+        failures = self.identity_failures
+        if not failures:
+            return []
+        return [
+            f"  {len(failures)} of those {'is' if len(failures) == 1 else 'are'} a state "
+            "identity, not an unsolved equation: the score the targeting",
+            "  step recorded and the term the reported curve carries are not the same",
+            "  functional of the state this fit returned.  That is a defect in the",
+            "  implementation (docs/roadmap.md item 20) and iterating longer will not fix",
+            "  it.  See res.validation.correction_check().",
+        ]
 
     def _worst_ratio(self) -> float:
         ratios = [row.ratio for row in self.rows if np.isfinite(row.ratio)]
@@ -216,6 +264,27 @@ class ScoreCheck:
                 "errors this fit reports do not describe this estimate. See the module "
                 "docstring for the usual causes."
             )
+            if self.identity_failures:
+                # Named as its own thing and *first*, because the other failing rows on
+                # such a fit are usually this one's consequence: a curve built from an
+                # expression the loop did not solve is not centred, so the correction rows
+                # and the per-estimand rows go with it. Which rows failed is in the table
+                # above; what a reader cannot get from the table is that iterating longer
+                # is not the remedy.
+                verdict = "\n".join(
+                    [
+                        "FAIL: a state identity does not hold -- the score the targeting "
+                        "step recorded and the",
+                        "term the reported curve carries are not the same functional of "
+                        "the state this fit",
+                        "returned. That is a defect in the implementation "
+                        "(docs/roadmap.md item 20) rather than",
+                        "a fit that failed to converge, and the standard errors do not "
+                        "describe this estimate.",
+                        "See res.validation.correction_check() for the recomputation and "
+                        "the clipping bias.",
+                    ]
+                )
         elif self.corrected:
             # Not "the efficient score equation": this fit solved *its own* equations, and
             # the curve they leave is the estimator's influence function at the nuisance
@@ -267,7 +336,10 @@ class ScoreCheck:
         notes: list[str] = []
         for row in self.rows:
             if row.failure:
-                notes.append(f"  {row.name}: targeting stopped -- {row.failure}")
+                # A recomputed row's `failure` is a statement about the fit's arithmetic
+                # rather than about a solver that gave up, so it is not introduced as one.
+                stopped = "" if row.kind in ("correction", "identity") else "targeting stopped -- "
+                notes.append(f"  {row.name}: {stopped}{row.failure}")
             if row.folds_converged is not None:
                 good, total = row.folds_converged
                 if good < total:
@@ -407,6 +479,15 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
                     )
                 )
 
+    # Each arm's corrections, recomputed from the state its draw returned. Two kinds of row
+    # and they are two different failures: an ``identity`` row says the solver and the curve
+    # are not evaluating one expression, which is a software defect; a ``correction`` row
+    # says the term the curve subtracts is not negligible, which is an unsolved equation.
+    # `cleverly.validation.drtmle` derives both, and returns nothing at all for a fit that
+    # reports no corrections -- so no ordinary report gains a row.
+    corrections = correction_check(result, tolerance=tolerance, std_error=float(reference_se))
+    rows.extend(_correction_rows(corrections, n_repeats=result.n_repeats))
+
     for name, estimate in result.estimates.items():
         threshold = tolerance * estimate.std_error / np.sqrt(n)
         score = abs(estimate.score)
@@ -437,4 +518,61 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
             for repeat in result.repeats
             for fluctuation in repeat.fluctuations.values()
         ),
+        corrections=corrections,
     )
+
+
+def _correction_rows(check: CorrectionCheck, *, n_repeats: int) -> list[ScoreCheckRow]:
+    """One row per arm per equation, and a second where there is an identity to check.
+
+    The draw index goes into the name only when there is more than one, exactly as the
+    fluctuation rows do it, so an ordinary doubly-robust report reads as one fit's table.
+    """
+    rows: list[ScoreCheckRow] = []
+    for row in check.rows:
+        suffix = "" if n_repeats == 1 else f"[draw {row.draw}]"
+        rows.append(
+            ScoreCheckRow(
+                name=f"{row.name}{suffix}",
+                kind="correction",
+                score=row.reported,
+                threshold=check.threshold,
+                std_error=check.std_error,
+                passed=bool(abs(row.reported) <= check.threshold),
+                converged=True,
+                n_iter=0,
+                method="recomputed",
+                failure=(
+                    ""
+                    if row.solved
+                    else "the reported curve subtracts this and the fit solved no equation "
+                    "for it -- check the guard= this fit was given"
+                ),
+            )
+        )
+        if not np.isfinite(row.residual):
+            # No stored score to compare against is the *absence* of a check, not a pass,
+            # and the `failure` above is what says so.
+            continue
+        rows.append(
+            ScoreCheckRow(
+                name=f"{row.name} identity{suffix}",
+                kind="identity",
+                score=row.residual,
+                threshold=check.identity_threshold,
+                std_error=check.std_error,
+                passed=bool(abs(row.residual) <= check.identity_threshold),
+                converged=True,
+                n_iter=0,
+                method="recomputed",
+                failure=(
+                    ""
+                    if abs(row.residual) <= check.identity_threshold
+                    else f"the mechanism truncation binds on {row.clipped} row(s) and "
+                    f"absorbs B_clip = {row.clip_bias:.3e} of this equation"
+                    if np.isfinite(row.clip_bias)
+                    else "the solved score and the reported term are different expressions"
+                ),
+            )
+        )
+    return rows

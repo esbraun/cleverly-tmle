@@ -65,6 +65,7 @@ from .cluster import influence_variance
 from .delta import log_odds_ratio_influence, log_ratio_influence, normal_ci, two_sided_pvalue
 
 __all__ = [
+    "CorrectionParts",
     "ICParts",
     "ParameterEstimate",
     "Scale",
@@ -77,6 +78,7 @@ __all__ = [
     "make_estimate",
     "msm_coefficients",
     "ratio_estimates",
+    "reduced_correction_parts",
     "reduced_corrections",
     "regime_means",
     "shift_means",
@@ -471,6 +473,11 @@ def reduced_corrections(
     makes running one example through both the cheapest outstanding check on this whole
     variant.  ``docs/roadmap.md`` lists it under *What is still open* beside the theorem.
 
+    **The two terms are built by** :func:`reduced_correction_parts` **and added here**, so
+    that :func:`~cleverly.validation.drtmle.correction_check` takes each one's empirical
+    mean from this expression rather than from a second copy of it.  A second copy is how
+    an identity check comes to agree with a curve neither of them is.
+
     Parameters
     ----------
     targeted, propensity:
@@ -485,26 +492,107 @@ def reduced_corrections(
     bounds:
         The same mechanism truncation the clever covariates divided by.
     """
+    return reduced_correction_parts(
+        outcome,
+        targeted,
+        treatment,
+        reduced,
+        propensity,
+        bounds=bounds,
+        observed=observed,
+    ).total()
+
+
+@dataclass(frozen=True)
+class CorrectionParts:
+    r"""The two corrections kept apart, plus what the mechanism truncation absorbed.
+
+    :func:`reduced_corrections` is the sum of the first two and is what the reported curve
+    subtracts.  They are built here rather than there so that
+    :func:`~cleverly.validation.drtmle.correction_check` can take each one's empirical mean
+    **from the same expression the curve carries** -- an identity checked against a second
+    implementation of the same formula is not an identity, and this is the one class of
+    defect that check exists to catch.
+
+    Attributes
+    ----------
+    d_g, d_q:
+        Rowwise :math:`D^*_g(a)` and :math:`D^*_Q(a)` per arm, on the ``[0, 1]`` scaled
+        outcome that :math:`Q_r` and the fluctuation's residual both live on.
+    clip_bias:
+        Rowwise :math:`Q_r(a, W)/g^b(a|W)\,\{g(a|W) - g^b(a|W)\}` per arm -- the
+        :math:`B_{clip}` of ``docs/drtmle-validation-plan.md``, in that document's
+        orientation.  It is **exactly** the difference between the mechanism score the
+        alternation solves, at the raw tilted :math:`g^*`, and the mean of the
+        :math:`D^*_g` above, which truncates :math:`g^*` in its residual as well as in its
+        denominator -- *negated*, since the residual is
+        :math:`1_a - g` in one and :math:`1_a - g^b` in the other:
+
+        .. math::
+
+            P_n[w\,D^*_g] - S_g^{\text{stored}} = P_n[w\,B_{clip}]
+
+        Zero on every row the bound leaves alone, so its mean is zero whenever nothing
+        clips.  It is a diagnostic and not a
+        correction: nothing subtracts it, and under whatever convention
+        ``docs/roadmap.md``'s piece B1b selects it goes on measuring how much of equation
+        (9) the bound is absorbing.
+    clipped:
+        Which rows the mechanism truncation binds on.  On record because "the identity
+        holds" is uninformative on a draw where the bound never bites -- the degeneracy
+        that hid this for two revisions.
+    """
+
+    d_g: dict[float, FloatArray]
+    d_q: dict[float, FloatArray]
+    clip_bias: dict[float, FloatArray]
+    clipped: BoolArray
+
+    def total(self) -> dict[float, FloatArray]:
+        """:math:`D^*_Q + D^*_g` per arm, which is what the curve subtracts."""
+        return {arm: np.asarray(self.d_g[arm] + self.d_q[arm], dtype=float) for arm in self.d_g}
+
+
+def reduced_correction_parts(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    treatment: FloatArray,
+    reduced: Any,
+    propensity: FloatArray,
+    *,
+    bounds: tuple[float, float],
+    observed: BoolArray | None = None,
+) -> CorrectionParts:
+    """:func:`reduced_corrections`' two terms before they are added, and the clipping bias.
+
+    Every argument means what it means there.  The sum is formed in :meth:`
+    ~cleverly.inference.influence.CorrectionParts.total` in the same association the single
+    expression used, so the reported curve is unchanged to the last bit.
+    """
     y = np.asarray(outcome, dtype=float).reshape(-1)
     a = np.asarray(treatment, dtype=float).reshape(-1)
-    g1 = bound(np.asarray(propensity, dtype=float).reshape(-1), float(bounds[0]), float(bounds[1]))
+    raw1 = np.asarray(propensity, dtype=float).reshape(-1)
+    g1 = bound(raw1, float(bounds[0]), float(bounds[1]))
     mechanism = {reduced.arms[0]: 1.0 - g1, reduced.arms[1]: g1}
+    # The complement rather than a separately clipped array, exactly as `Propensity.bounded`
+    # and `reduced_mechanism_covariate` take it -- so the raw and bounded mechanisms differ
+    # on the same rows at both arms and `clipped` describes one event.
+    untruncated = {reduced.arms[0]: 1.0 - raw1, reduced.arms[1]: raw1}
     ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)
     keep = np.ones(y.shape[0]) if observed is None else np.asarray(observed, dtype=float)
 
-    out: dict[float, FloatArray] = {}
+    d_g: dict[float, FloatArray] = {}
+    d_q: dict[float, FloatArray] = {}
+    clip_bias: dict[float, FloatArray] = {}
     for j, arm in enumerate(reduced.arms):
         indicator = (a == float(arm)).astype(float)
-        d_g = (
-            np.asarray(reduced.qr, dtype=float)[:, j]
-            / mechanism[arm]
-            * (indicator - mechanism[arm])
-        )
+        qr = np.asarray(reduced.qr, dtype=float)[:, j]
+        d_g[arm] = qr / mechanism[arm] * (indicator - mechanism[arm])
         # The outcome residual is at the arm this row took, so the indicator already puts it
         # at `arm`; `keep` is the missing-outcome mask every residual here carries.
-        d_q = indicator * keep * ratio[:, j] * (y - targeted.observed)
-        out[arm] = np.asarray(d_g + d_q, dtype=float)
-    return out
+        d_q[arm] = indicator * keep * ratio[:, j] * (y - targeted.observed)
+        clip_bias[arm] = qr / mechanism[arm] * (untruncated[arm] - mechanism[arm])
+    return CorrectionParts(d_g, d_q, clip_bias, np.asarray(raw1 != g1, dtype=bool))
 
 
 def shift_means(

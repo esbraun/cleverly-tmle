@@ -167,6 +167,55 @@ extreme, and that is the point: no amount of solving the first equation bounds t
   the tilted `g*` leaves the bounds — but the cap binds on 94 of 96 fits while the curve is
   uncentred on a quarter of them, so the cap cannot be what selects them.
 
+### What B1a measured when it landed
+
+The patch is described in [the roadmap](roadmap.md#what-b1a-landed); what belongs here are the
+numbers it produced, because they are what the diagnosis above is now checked against on every
+fit rather than once by hand.
+
+On the module fixture — `nonlinear_dgp`, `n = 600`, seed 3, `glm` on both nuisances, `n_folds=5`,
+`learner_folds=3`, reported on the **outcome** scale rather than the scaled one, so a factor of
+`range = 15.13` against the figures in [the measurements](#the-measurements):
+
+| draw | rows clipped | arm | `Δ_g` | `B_clip` | `Δ_Q` |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 0 / 600 | 0 | `5.5e-19` | `0` | `−1.1e-18` |
+| 0 | 0 / 600 | 1 | `1.4e-18` | `0` | `0` |
+| 1 | 5 / 600 | 0 | `3.410e-03` | `−3.410e-03` | `3.3e-19` |
+| 1 | 5 / 600 | 1 | `−2.449e-04` | `2.449e-04` | `−9.0e-19` |
+
+Three things in that table are the point. `Δ_g = −B_clip` **to every digit**, per arm, which is
+the diagnosis reproducing itself as a number. `Δ_Q` is roundoff on every row, which is the control:
+nothing truncates on equation (10)'s side, so an instrument that fired there would be broken rather
+than informative. And the two draws differ, so the same fit carries both the case that binds and
+the case that does not — a fixture with only one of them is [lesson
+2](#what-the-sizings-got-wrong) waiting to happen.
+
+The gap either side of the bar is what makes `IDENTITY_TOLERANCE = 1e-12` a threshold rather than
+a guess: seven orders above the arithmetic, four below the smallest real failure seen (`7e-08`, on
+an unseeded draw at `n = 400`).
+
+**A clipping row does not by itself produce a large residual**, which is worth recording against
+the obvious reading of item 20. `Δ_g` is `Q_r`-weighted at the clipped rows, so draw 1's two arms
+differ by a factor of fourteen on the same five rows, and an unseeded `n = 400` draw with two
+clipped rows came back at `6.9e-08`. "The bound binds" is the precondition; the magnitude is a
+separate question, and a test that asserted the first while meaning the second would pass on draws
+it should fail.
+
+### What B1a found that was not item 20
+
+The instrument's first run against a `guard=("g",)` fit reported a correction of `2.8e-03` on the
+outcome scale at arm 1 with **zero clipped rows** and no equation (9) anywhere in the fit — which
+is [item 23](roadmap.md#what-is-still-open), a single-guard fit subtracting a correction it never
+solved for. It is a different defect from item 20 in cause, in magnitude and in which fits it
+touches, and nothing here would have seen it: no test in this repository fits a partial guard end
+to end, and the default `guard=("Q", "g")` cannot be in this state.
+
+That is [lesson 8](#what-the-sizings-got-wrong) arriving from the other side. Item 20 was found by
+recomputing a recorded number from the returned state on one fit; this was found by the same
+recomputation, once it was a permanent fixture of every doubly-robust fit rather than thirty lines
+in a scratch file.
+
 ## How the alternation exits
 
 96 fits: four processes by two sizes by twelve seeds, `glm` on both nuisances, `n_folds=5`,

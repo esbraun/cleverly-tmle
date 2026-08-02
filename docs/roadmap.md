@@ -95,11 +95,15 @@ registry.
     defect and it is not confined to poor overlap. [The investigation
     log](drtmle-investigation-log.md#item-20-from-discovery-to-cause) carries the measurements.
 
-  So **until [B1a](#b1a--the-identity-and-safety-patch) lands and item 21 is adjudicated, a
-  `DRTMLE` standard error should be read as provisional on every process.** The second defect is
-  caught, on the influence-curve rows: `res.score_verdict` says so and `summary()` prints it,
-  which is the only reason it was found at all. The first is caught by nothing here, and could
-  not have been.
+  So **until item 21 is adjudicated and [B1b](#b1b--the-theorem-conforming-targeting-decision)
+  chooses a convention, a `DRTMLE` standard error should be read as provisional on every
+  process.** The second defect is now caught *by name*:
+  [B1a](#b1a--the-identity-and-safety-patch) has landed, so `res.validation.correction_check()`
+  recomputes each arm's `Pn[w D*_g]` and `Pn[w D*_Q]` from the exact returned state, reports the
+  residual against the score the loop recorded and the `B_clip` that explains it, and
+  `score_check` marks such a fit invalid in words that say *defect* rather than *did not
+  converge*. Before it, the only witness was the influence-curve rows being uncentred, which was
+  how it was found at all. The first defect is caught by nothing here, and could not be.
 
   Beyond those: **the influence curve is transcribed from R's `drtmle`, not derived** — the
   working paper closes most of that gap and the published article closes the rest; nothing here
@@ -142,7 +146,9 @@ while another fails:
    truncation applied to one of them on the way into two different expressions. "Built from the
    same state" is necessary and it is not sufficient; the checkable form of this link is an
    **identity between each recorded score and a recomputation of the term the curve carries**,
-   which is [piece B1a](#b1a--the-identity-and-safety-patch).
+   which is [piece B1a](#b1a--the-identity-and-safety-patch) and **has landed**. The link is
+   still broken — the identity fails wherever the bound binds, which is what B1b decides — but it
+   is now measured per arm on the face of every fit rather than inferred from an uncentred curve.
 5. **Inferential usefulness** — coverage in a regime where the plain interval fails. Item 3.
 
 The first review's summary of this is exactly right and worth keeping in its words: none of the
@@ -173,9 +179,9 @@ The numbered items the pieces below close keep the numbering they have had since
 opened, because `benchmarks/bench_drtmle.py`, `.github/workflows/drtmle-convergence.yml`,
 `estimators/targeting.py` and `tests/unit/test_drtmle_fit.py` all cite them by number. **The first
 review's items are therefore 13 to 19 rather than a renumbering**, item **20** — found while
-closing item 18 — is 20 for the same reason, and the third review's two are **21** and **22**,
-which is why the most important item on the page has the highest number. The pieces are lettered
-so the two cannot be confused.
+closing item 18 — is 20 for the same reason, the third review's two are **21** and **22**, which is
+why the most important item on the page has the highest number, and **23** was found by piece
+B1a's own instrument on its first run. The pieces are lettered so the two cannot be confused.
 
 ### The work, in four pieces and seven pull requests
 
@@ -185,7 +191,7 @@ sweep answers all of them — not where the subject matter merely rhymes.
 
 | PR | what it lands | new artefacts |
 | --- | --- | --- |
-| **B1a** | the score/correction identities, the clipping diagnostic, and invalidation when either fails | tests in `tests/unit/test_drtmle_fit.py`, `test_influence_drtmle.py`; `Δ_g`, `Δ_Q`, `B_clip` on the result |
+| **B1a** — *landed* | the score/correction identities, the clipping diagnostic, and invalidation when either fails | `cleverly/validation/drtmle.py`; `res.validation.correction_check()`; `identity` and `correction` rows on `score_check`; tests in `tests/unit/test_drtmle_fit.py` and `test_influence_drtmle.py` |
 | **A1** | items 1, 15, 21 and 22: the theorem read, mapped, graded, and the sign adjudicated | closes out [`docs/drtmle-theorem-concordance.md`](drtmle-theorem-concordance.md) |
 | **A2** | item 2: `drtmle` parity, component by component | `tools/r_reference/export_drtmle_fixture.R`, `tests/reference/drtmle/*.json`, `tests/unit/test_drtmle_reference_parity.py`, `docs/drtmle-r-reference.md` |
 | **B1b** | items 11 and 20: the targeting convention, chosen on theorem fidelity rather than parity | the chosen submodel or solver at the `DRTMLE` call sites; the variant comparison table |
@@ -362,7 +368,8 @@ a convention decision and its tests — which is why this is now three pull requ
 
 ##### B1a — the identity and safety patch
 
-*Opens the closure of items 11 and 20; blocked by nothing.*
+*Opens the closure of items 11 and 20; blocked by nothing.* **Landed.** What it shipped, and
+what it deliberately did not, is [at the end of this section](#what-b1a-landed).
 
 The cause of item 20 is located and is not what either of the first two readings supposed. The
 execution plan's reading — "at least one recorded score is evaluated at a different state from the
@@ -417,6 +424,54 @@ fixture pass":
 That patch is valid under every eventual theoretical convention. It gives A1 and A2 clean evidence
 to decide the final targeting algorithm with, and it prevents B2 or C from producing apparently
 authoritative results through an internally inconsistent curve.
+
+###### What B1a landed
+
+`cleverly/validation/drtmle.py` — `correction_check()`, reached as
+`res.validation.correction_check()` and folded into `score_check` as two new row kinds. Per draw
+and **per arm**, from the exact returned state: each equation's stored score, the mean of the term
+the reported curve subtracts, their difference, `B_clip`, and how many rows the bound binds on.
+
+Four decisions in it are worth having written down, because each was a fork:
+
+- **Derived, never stored**, exactly as `score_verdict` is. Nothing is added to
+  `ReductionFluctuation` and there is **no format bump** — the records format version 10 already
+  serialises are enough, so a fit read back from disk answers with its own arrays. A flag written
+  at fit time would be one nothing could check afterwards, on a diagnostic whose whole subject is
+  a disagreement between what a fit recorded and what it reports.
+- **The curve's own arithmetic, not a second copy of it.** `reduced_corrections` was split into
+  `reduced_correction_parts`, which returns `D*_g` and `D*_Q` apart, and the check takes their
+  means. An identity checked against a re-derivation of the same formula is not an identity —
+  which is not hypothetical: the first version of the test that compared `parts.total()` against
+  `reduced_corrections` survived turning the sum into a difference, because by then one called the
+  other. `estimators/tmle.py::correction_parts` is likewise module level so that the reported curve
+  and the check select the same mechanism.
+- **Two failures, worded apart.** An identity residual is a *software defect* and iterating longer
+  cannot fix it; a correction score above `tolerance · se/√n` is a *fit that did not solve its
+  equations*. `score_check`'s verdict names the first where it applies, because "the score
+  equation was not solved" sends a reader to `one_step` and a smaller step size for a fit whose
+  solver did its job — which is what happened for two revisions.
+- **One scale.** Everything is reported on the outcome's own scale. `Q_r` and the fluctuation's
+  residual live on the `[0, 1]` scaled outcome and the reported curve carries `scaler.range`, so a
+  correction and `se/√n` are otherwise a factor of `range` apart —
+  [lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong)'s pattern in a second place.
+  Dropping the factor was one of the seven mutations run, and it fails a test.
+
+**The sign in the plan was one orientation out and the plan's is kept.** `B_clip` is defined there
+with `g_raw − g_b`, and the residual the check reports is `stored − reported`, so the two are
+*negatives* of one another: `Pn[w D*_g] − S_g^stored = Pn[w B_clip]`. It reproduces to floating
+point, per arm, which is what makes `B_clip` a check on item 20's diagnosis rather than a new
+column.
+
+`IDENTITY_TOLERANCE = 1e-12`, absolute, on the outcome scale and deliberately not relative to the
+score: the quantity is a difference between two evaluations of one expression and its right value
+is zero. Measured on `nonlinear_dgp`, a holding identity sits at `2e-19` and the smallest real
+failure seen at `7e-08`, so the bar has seven orders of headroom below and four above.
+
+**It is an instrument and not a remedy.** The identity still fails on a clipping draw, which is
+the state B1b decides. Nothing about a fit's `psi`, `se` or curve moved; what changed is that such
+a fit now says which arm, which equation, and that the cause is an expression rather than a
+solver.
 
 ##### B1b — the theorem-conforming targeting decision
 
@@ -553,7 +608,30 @@ lesson is [lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong).
 `score_check` **does** catch it, on the *influence-curve* rows, which are computed from the curve
 rather than from what the solver recorded — so a fit in this state now says so on its own report
 rather than printing an interval like any other. That is item 16 arriving on the first case nobody
-constructed for it, and it is the only reason this was seen.
+constructed for it, and it is the only reason this was seen. Since
+[B1a](#b1a--the-identity-and-safety-patch) it is caught *as itself* as well: per arm, per
+equation, against the score the loop stored, with `B_clip` reproducing the discrepancy to floating
+point and the verdict saying **defect** rather than **did not converge**. The item is still open —
+being measured is not being fixed, and which convention replaces the current one is B1b's.
+
+**23. A single-guard fit subtracts a correction whose equation it never solved.** Found by B1a's
+instrument on its first run against a `guard=("g",)` fit, which is what an instrument is for.
+`reduced_corrections` does not branch on `guard` and neither does its caller, so a fit guarding one
+nuisance still subtracts **both** `D*_g` and `D*_Q` while solving one of the two extra equations —
+and the unsolved one's mean is whatever it happens to be. Measured on `nonlinear_dgp` at `n=400`
+with `glm` on both nuisances and **zero clipped rows**, so this is not item 20 wearing a different
+hat: `Pn[w D*_g]` at arm 1 is `2.8e-03` on the outcome scale against a `7.7e-06` bar, and `ey1`'s
+reported curve is off by exactly that. The default `guard=("Q", "g")` is unaffected, which is why
+nothing here saw it: no test in this repository fits a partial guard end to end.
+
+What makes it a defect rather than a question is that the derivation is already written down in
+this repository. `tests/unit/test_remainder_drtmle.py::_expansion` adds `d_g` **only** when `"Q"`
+is guarded and `d_q` only when `"g"` is, one correction per equation the fit actually solves, and
+[the module's own finding](#limitations-recorded-rather-than-fixed) — that one guard removes the
+whole first-order remainder and two over-correct — is stated in exactly those terms. So the fix is
+small and it is *not* B1a's: B1a chooses nothing, and which corrections belong in the curve under a
+partial guard is a claim about the curve that wants its own test against that oracle. It is
+independent of A1, A2 and B1b, and it should not queue behind them.
 
 #### C. The demonstration
 
@@ -712,11 +790,12 @@ behind **A1** — the reading — rather than beside it.
   `requires_binary_treatment` and has never needed one.
 
 **The order to work in**, revised again, and it follows from what blocks what rather than from
-effort. Piece **0** was first and has landed; what is left is:
+effort. Piece **0** was first and has landed, and so now has **B1a**; what is left is:
 
-1. **B1a**, because it is the only piece that changes a number every other piece reads, because it
-   is valid under every convention A1 and A2 might select, and because it is a patch plus its
-   tests rather than a study.
+1. ~~**B1a**~~ — landed. It was first because it is the only piece that changes a number every
+   other piece reads, because it is valid under every convention A1 and A2 might select, and
+   because it is a patch plus its tests rather than a study. [What it
+   shipped](#what-b1a-landed).
 2. **A1**, and item 21 within it before anything else in it: a sign error in the variance survives
    every check this repository can run, and if it is real then work already landed is work to
    redo. **A2 in parallel**, since it needs neither the paper nor a decision.
@@ -725,6 +804,10 @@ effort. Piece **0** was first and has landed; what is left is:
 4. **B2**, on the corrected implementation, because poor overlap may be where the demonstration
    has to happen and because the exit distribution under the current rule is uncharacterised.
 5. **C**, which is the point.
+
+**Item 23 is outside that order**, like **D**: it is a small fix with an oracle already in the
+repository, it touches only the partial-guard path, and it should not wait on the theorem or on
+anything else here.
 
 Then the applied stress tests, which are generalisation checks and not substitutes for C: a Super
 Learner library, higher-dimensional and nonlinear processes, moderate near-positivity, binary as
@@ -746,7 +829,10 @@ a reader could check rather than as claims. The first is new and is the one curr
    22, if the order difference turns out to matter);
 3. R and Python disagree on a component with no written reason;
 4. a stored score and the term the curve carries are not the same functional of the same state —
-   this is item 20, and it is the one that was true and unnoticed;
+   this is item 20, it is the one that was true and unnoticed, and since
+   [B1a](#b1a--the-identity-and-safety-patch) it is true and **reported**: such a fit fails its
+   own score check with a verdict naming the arm and the equation. Caught is not fixed, and this
+   stays here until B1b closes it;
 5. a required score is not negligible under the predeclared validity rule;
 6. `√n · R_remaining` does not trend to zero in either off-diagonal cell, or does so only because
    the two appendix branches cancel;
