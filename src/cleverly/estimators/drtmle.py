@@ -207,6 +207,19 @@ class DRTMLE(TMLE):
     at two tilted laws and keeps the wrong transport as a test: reductions taken at the
     sampling law leave a first-order remainder a single guard no longer removes.
 
+    ``repeats=`` is supported and varies exactly one thing here: the *primary* split.  Each
+    draw fits its own reduced regressions against its own folds and runs its own
+    alternation, and the report is the mean of the draws with the curves averaged
+    elementwise.  ``_fit_reduced`` is deliberately unseeded so that a refit matches its fit
+    -- see its docstring -- which is what leaves the primary split as the only source of
+    draw-to-draw variation.  Two things to know.  ``result.extra["drtmle"]`` describes
+    **draw 0 only**, as every read-through attribute on a repeated result does.  And
+    checking this is what surfaced the centring defect
+    ``tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred`` records: on
+    roughly a quarter of splits the reported curve is not centred while all three
+    fluctuation rows report their scores solved.  That is a property of a *draw* and not of
+    the averaging, so it is a defect in the fit rather than a reason to refuse ``repeats=``.
+
     Where it stops is an **estimated** weight.  Nothing read here says what the reduced
     regressions of a random tilt are, and the ordinary answer -- that the interval conditions
     on the weights, as ``weights_estimated=`` declares -- is an argument about :math:`D^*`
