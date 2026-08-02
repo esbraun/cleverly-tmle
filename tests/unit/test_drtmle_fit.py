@@ -60,6 +60,21 @@ def ordinary():
     return TMLE(**SETTINGS).fit(frame(), outcome="Y", treatment="A").single()
 
 
+@pytest.fixture(scope="module")
+def repeated():
+    """Two draws, which is the whole marginal cost of item 18 and is enough for it.
+
+    ``repeats=`` costs one full fit per draw and a fit here is ~25s, so this fixture is the
+    most expensive thing in the module after ``fit``. Two rather than three deliberately:
+    the averaging *rule* -- mean of the estimates, elementwise mean of the curves, variance
+    recomputed from the average -- is already pinned on a plain TMLE in
+    ``tests/unit/test_repeated_crossfit.py``, and a third draw would re-pay for the same
+    claim. What is new here is that the doubly-robust *construction* survives being
+    averaged over draws, and two independent sets of three equations is what that needs.
+    """
+    return DRTMLE(**SETTINGS, repeats=2).fit(frame(), outcome="Y", treatment="A").single()
+
+
 class TestWhatItReports:
     def test_it_reports_the_mean_group_under_its_own_names(self, fit) -> None:
         """A different estimator behind the same parameters, exactly as ``CTMLE`` is."""
@@ -71,6 +86,33 @@ class TestWhatItReports:
 
         assert {"mean", "mean (mechanism)", "mean (reduced)"} <= names
         assert check.passed
+
+    def test_the_verdict_is_reachable_without_knowing_the_subsystem(self, fit) -> None:
+        """``res.score_verdict`` is the same object, derived rather than stored."""
+        assert fit.score_verdict.rows == fit.validation.score_check().rows
+        assert fit.score_verdict.passed
+
+    def test_a_passing_fit_adds_no_line_to_the_summary(self, fit) -> None:
+        """The verdict is silent on the common path; only a failure interrupts a reader."""
+        assert "score check" not in fit.summary()
+
+    def test_the_verdict_does_not_call_the_corrected_curve_efficient(self, fit, ordinary) -> None:
+        """Validity is not efficiency, and the sign-off is where the package said it was.
+
+        The pair is the test. A doubly-robust fit solves three equations, two of them the
+        corrections, and what they leave is the estimator's influence function at the
+        nuisance limits rather than the canonical gradient -- so signing it off as "the
+        estimated efficient score equation" asserted exactly what
+        ``reduced_corrections`` exists to deny. A plain fit's verdict is unchanged, word
+        for word, because there the phrase is right; ``README.md``'s transcript quotes it.
+        """
+        corrected = fit.validation.score_check()
+        plain = ordinary.validation.score_check()
+
+        assert corrected.corrected and not plain.corrected
+        assert "efficient" not in corrected.summary().lower().split("validity is not")[0]
+        assert "Validity is not efficiency" in corrected.summary()
+        assert "solved the estimated efficient score equation" in plain.summary()
 
     def test_the_alternation_terminated_on_its_own(self, fit) -> None:
         """On *this* process, and the qualification is the point.
@@ -168,6 +210,11 @@ class TestAnEmptyGuardIsAPlainTMLE:
         )
         assert fluctuation.reduction is None and fluctuation.mechanism is None
         assert bare.nuisance.reduced is None
+        # And in the *report* as well as in the arrays: `corrected` is read off the
+        # reduction records, so this fit gets a plain fit's verdict word for word.
+        check = bare.validation.score_check()
+        assert not check.corrected
+        assert "solved the estimated efficient score equation" in check.summary()
 
 
 class TestTheCurveReadsWhatTheAlternationLeft:
@@ -230,6 +277,29 @@ class TestItSurvivesARoundTrip:
                 back.estimates[name].influence_curve, fit.estimates[name].influence_curve
             )
         assert back.nuisance.reduced is not None
+
+    def test_the_score_check_is_the_same_check_after_a_round_trip(self, fit, tmp_path) -> None:
+        """A reloaded fit answers the same question, not a narrower one.
+
+        ``score_check`` reads ``Fluctuation.mechanism`` and ``.reduction``, so a file that
+        dropped them reported **one** fluctuation row where this fit solves three -- and a
+        verdict computed from one equation can pass where the verdict computed from three
+        failed.  That was the state until format version 10, and the round-trip test above
+        could not see it: what it round-tripped was the estimates, and the estimates were
+        always fine.
+        """
+        back = load(fit.save(tmp_path / "verdict.npz"))
+
+        live, after = fit.validation.score_check(), back.validation.score_check()
+        assert [row.name for row in after.rows] == [row.name for row in live.rows]
+        assert [row.score for row in after.rows] == [row.score for row in live.rows]
+        assert after.passed == live.passed
+
+        reduction = back.repeats[0].fluctuations["mean"].reduction
+        assert reduction is not None
+        np.testing.assert_array_equal(
+            reduction.reduced.qr, fit.repeats[0].fluctuations["mean"].reduction.reduced.qr
+        )
 
 
 class TestTheAlternationCanBeIllConditioned:
@@ -462,3 +532,140 @@ def _plain_curve(fit, data, fluctuation):
         data.observed,
     )
     return np.asarray(means[1.0].influence_curve)
+
+
+class TestEachDrawSolvesItsOwnEquations:
+    r"""``repeats=`` on a doubly-robust fit, which averages more than a plain one does.
+
+    Averaging influence curves over split draws is ordinary for a cross-fitted estimator.
+    What is not ordinary is that both of this variant's additions are split-dependent: each
+    draw fits its *own* reduced regressions against its own folds and runs its own
+    alternation.  ``_fit_reduced`` is deliberately unseeded so that a refit matches its fit,
+    which leaves the primary split as the only thing ``repeats=`` varies -- the right
+    design, and the reason this is a check rather than a bug report.
+
+    What the check found is in :class:`TestTheReportedCurveIsNotAlwaysCentred` below, and it
+    is not about ``repeats=``.
+
+    Note what the roadmap originally proposed as this row's mutation and why it is not used:
+    "drop a repeat and watch the averaged curve decentre" cannot fail.  A centred curve
+    carries its own :math:`-\psi_r`, so the mean of *any* subset of centred curves is
+    centred.  What a dropped draw moves is ``psi`` and the row count of the score check,
+    and that is what the tests below bite on.
+    """
+
+    def test_every_draw_gets_its_own_three_rows(self, repeated) -> None:
+        """Six fluctuation rows, not three -- each draw solved its own set, and solved it."""
+        check = repeated.validation.score_check()
+        rows = {row.name: row for row in check.rows}
+
+        for draw in (0, 1):
+            for stem in ("mean", "mean (mechanism)", "mean (reduced)"):
+                row = rows[f"{stem}[draw {draw}]"]
+                assert row.passed, row.name
+        assert sum(1 for row in check.rows if row.kind == "fluctuation") == 6
+
+    def test_the_reductions_follow_the_draw(self, repeated) -> None:
+        """The claim item 18 rests on: ``repeats=`` varies the reductions, not only the folds.
+
+        A draw's reduced regressions are fitted against *that* draw's folds, so two draws
+        hold two different ``Qr``. If they did not, the average would be over fits that
+        differed in the primary nuisances alone and the extra equations would be along for
+        the ride rather than being redrawn with everything else.
+        """
+        first, second = (repeated.repeats[i].fluctuations["mean"].reduction for i in (0, 1))
+
+        assert first is not None and second is not None
+        assert not np.array_equal(first.reduced.qr, second.reduced.qr)
+        assert not np.array_equal(
+            repeated.repeats[0].nuisance.folds.assignment,
+            repeated.repeats[1].nuisance.folds.assignment,
+        )
+
+    def test_the_report_is_the_mean_of_the_draws(self, repeated) -> None:
+        """And the mean is load-bearing: the two draws do not agree to begin with."""
+        for name in ESTIMANDS:
+            per_draw = [repeat.psi[name] for repeat in repeated.repeats]
+            assert per_draw[0] != per_draw[1]
+            assert repeated.estimates[name].psi == pytest.approx(float(np.mean(per_draw)))
+
+    def test_no_draw_is_silently_dropped(self, repeated) -> None:
+        """``average_estimates`` warns and drops a name missing from some draws.
+
+        That path is pinned on hand-built estimates in
+        ``tests/unit/test_repeated_crossfit.py``; what is checked here is that this
+        estimator never reaches it, which a stalled alternation returning a short report
+        would.
+        """
+        assert repeated.n_repeats == 2
+        for repeat in repeated.repeats:
+            assert set(repeat.psi) >= set(ESTIMANDS)
+
+
+class TestTheReportedCurveIsNotAlwaysCentred:
+    r"""What checking ``repeats=`` found, which is a defect in the *fit* and not in ``repeats=``.
+
+    On a quarter of splits the curve the interval is built from has a mean five or six
+    orders of magnitude above the bar, while all three fluctuation rows report their scores
+    solved to ``1e-11`` or better.  Measured over 24 draws -- twelve ``repeats=2`` fits on
+    this module's frame -- **six** leave :math:`P_n[D^*_Q + D^*_g]` above ``1e-8``, at
+    magnitudes from ``2e-05`` to ``7e-04``, every one of them exiting on ``"tolerance"``
+    with no failure recorded and no ill-conditioned round.
+
+    So the recorded score for equation (9) and the mean of the :math:`D^*_g` the curve
+    actually subtracts **disagree**: on this module's ``repeated`` fixture the first is
+    ``3.7e-11`` and the second ``-2.3e-04``.  One of the two is measured at arrays the other
+    is not, which is the class of defect
+    :class:`TestTheCurveReadsWhatTheAlternationLeft` exists for and which no test here
+    previously covered, because every test above reads one fit on one split.
+
+    ``repeats=`` is **not** the cause and refusing it would be misdiagnosing this: a draw of
+    a repeated fit is an ordinary fit, and the affected draws include first draws.  What
+    ``repeats=`` did was give the module more than one split to look at.
+
+    Not fixed here.  Which arrays the closing pass leaves the equations solved at is
+    [piece B]'s subject -- the loop's exit and the bar it is judged against -- and finding
+    it needs the component-by-component comparison piece A2 is for.  ``docs/roadmap.md``
+    carries it as a numbered limitation with these numbers.
+
+    The consolation, and it is a real one: ``score_check`` catches it, on the
+    *influence-curve* rows, which are computed from the curve rather than from a record of
+    what the solver reported.  So a fit in this state says so on its own report rather than
+    printing an interval like any other -- which is item 16, arriving on the first case
+    nobody constructed.
+    """
+
+    def test_the_score_check_catches_it_where_the_fluctuation_rows_do_not(self, repeated) -> None:
+        check = repeated.validation.score_check()
+
+        assert not check.passed
+        failures = {row.name for row in check.failures}
+        assert failures == set(ESTIMANDS), "only the influence-curve rows should fail"
+        assert all(row.passed for row in check.rows if row.kind == "fluctuation")
+
+    def test_and_the_summary_says_so(self, repeated) -> None:
+        """Item 16 on the first fit that needed it and was not built to need it."""
+        summary = repeated.summary()
+        assert "score check: FAIL" in summary
+        assert "do not describe this estimate" in summary
+
+    def test_the_averaged_curve_inherits_it_rather_than_causing_it(self, repeated) -> None:
+        """The average is exact, so the miss comes from a draw and not from averaging.
+
+        Stated as an identity rather than as a tolerance: whatever the draws' curves are,
+        the reported one is their elementwise mean, so its mean is the mean of theirs. A
+        centring failure therefore has to come from a draw -- which is why this is not a
+        ``repeats=`` defect.
+        """
+        offenders = [
+            abs(float(np.mean(fit_curve)))
+            for fit_curve in (repeated.estimates[name].influence_curve for name in ESTIMANDS)
+        ]
+        assert max(offenders) > 1e-5, "the fixture is the split this was measured on"
+        # And no fluctuation row is anywhere near it, which is the whole disagreement.
+        worst = max(
+            abs(row.score)
+            for row in repeated.validation.score_check().rows
+            if row.kind == "fluctuation"
+        )
+        assert worst < 1e-8

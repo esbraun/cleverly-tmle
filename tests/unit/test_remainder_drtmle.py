@@ -76,6 +76,8 @@ Scope: the ``mean`` submodel at two arms, which is what the variant is derived f
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 import pytest
 
@@ -109,6 +111,64 @@ BOTH = ("Q", "g")
 
 ESTIMANDS = ("ey1", "ey0", "ate")
 
+#: Copied verbatim from :mod:`tests.unit.test_weighted_estimand`, as the nuisance constants
+#: above are copied from :mod:`tests.unit.test_remainder`, so the two modules disagree about
+#: nothing except which expansion they take.  The first tilts on a baseline covariate alone,
+#: the second on the treatment and the outcome -- so the second moves ``G`` and ``Q`` and not
+#: merely ``P_W``, which is what makes the reduced regressions' conditioning law matter.
+WEIGHT_FUNCTIONS = {
+    "baseline": lambda w, a, y: 1.0 + 0.6 * w,
+    "treatment_and_outcome": lambda w, a, y: 1.0 + 0.5 * a + 0.8 * y,
+}
+
+
+class Law(NamedTuple):
+    r"""The law an expansion is taken at, and the row weights that reach it.
+
+    A weighted fit is TMLE run on :math:`P_{n,w}`, so its remainder is the ordinary
+    remainder with :math:`P_0` replaced by :math:`dP_w = w\,dP / E[w]` throughout -- the
+    marginal, the mechanism, the outcome regression and the truth.  Threading the law
+    rather than branching on a flag is what makes that statement checkable: every helper
+    below reads ``at`` and none of them knows whether it is weighted.
+
+    ``weights`` is normalised to mean one over the realised rows, which is what turns the
+    module's identity -- the sample realises the law exactly, so the sample mean of a curve
+    *is* its :math:`P_0` mean -- into the same statement at :math:`P_w`.
+    """
+
+    P_W: np.ndarray
+    G: np.ndarray
+    Q: np.ndarray
+    TRUTH: dict[str, float]
+    weights: np.ndarray
+
+
+#: The sampling law, at which every existing assertion in this module is taken.  Passing it
+#: multiplies the curves by an array of exact ``1.0``s, so those numbers are unchanged bit
+#: for bit -- which the first weighted test asserts rather than assumes.
+UNWEIGHTED = Law(law.P_W, law.G, law.Q, law.TRUTH, np.ones(law.N))
+
+
+def _tilted(label: str) -> Law:
+    """The tilted law of one of :data:`WEIGHT_FUNCTIONS`, with its own truth.
+
+    ``TRUTH`` comes from :func:`tests.discrete_law.weighted_functional`, which tilts the
+    cell probabilities and applies the identification formula longhand -- so the target the
+    remainder is measured against is stated without reference to any of this module's
+    arithmetic or to the library's.
+    """
+    cells = law.cell_weights(WEIGHT_FUNCTIONS[label])
+    probs = np.asarray(law.tilt(law.PROBS, cells), dtype=float)
+    marginal = probs.sum(axis=(1, 2))
+    rows = law.row_weights(cells)
+    return Law(
+        P_W=marginal,
+        G=probs.sum(axis=2)[:, 1] / marginal,
+        Q=probs[:, :, 1] / probs.sum(axis=2),
+        TRUTH={name: float(law.weighted_functional(law.PROBS, name, cells)) for name in ESTIMANDS},
+        weights=rows / rows.mean(),
+    )
+
 
 def _cells(values: np.ndarray) -> np.ndarray:
     """Which covariate cells share a value -- the partition a reduced regression pools over."""
@@ -117,30 +177,36 @@ def _cells(values: np.ndarray) -> np.ndarray:
 
 
 def _reduced(
-    g_hat: np.ndarray, q_hat: np.ndarray, arm: int
+    g_hat: np.ndarray, q_hat: np.ndarray, arm: int, at: Law = UNWEIGHTED
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    r"""``(Qr, gr1, gr2)`` per covariate cell, written out longhand at the true law.
+    r"""``(Qr, gr1, gr2)`` per covariate cell, written out longhand at ``at``.
 
     Each is a conditional expectation over the cells that *share a value* of the nuisance
     being conditioned on, weighted by the law.  ``Qr`` conditions on ``A = arm`` as well, so
     its weights carry the mechanism; the two reduced mechanisms do not, so theirs do not.
+
+    "Weighted by the law" is where item 17 lives: on a weighted fit these must be
+    conditional expectations under :math:`P_w`, and the mechanism they condition on and
+    divide by must be the :math:`P_w`-mechanism rather than :math:`g_0`.  Both come from
+    ``at``, so getting it wrong is one substitution away and
+    :class:`TestAWeightedFitTransportsToTheTiltedLaw` makes that substitution.
     """
     mechanism = g_hat if arm == 1 else 1.0 - g_hat
-    truth = law.G if arm == 1 else 1.0 - law.G
-    residual = law.Q[:, arm] - q_hat[:, arm]
+    truth = at.G if arm == 1 else 1.0 - at.G
+    residual = at.Q[:, arm] - q_hat[:, arm]
 
     qr = np.zeros(3)
     for cell in set(_cells(mechanism)):
         rows = _cells(mechanism) == cell
-        weight = law.P_W[rows] * truth[rows]
+        weight = at.P_W[rows] * truth[rows]
         qr[rows] = np.sum(weight * residual[rows]) / np.sum(weight)
 
     gr1, gr2 = np.zeros(3), np.zeros(3)
     for cell in set(_cells(q_hat[:, arm])):
         rows = _cells(q_hat[:, arm]) == cell
-        mass = np.sum(law.P_W[rows])
-        gr1[rows] = np.sum(law.P_W[rows] * truth[rows]) / mass
-        gr2[rows] = np.sum(law.P_W[rows] * (truth[rows] - mechanism[rows]) / mechanism[rows]) / mass
+        mass = np.sum(at.P_W[rows])
+        gr1[rows] = np.sum(at.P_W[rows] * truth[rows]) / mass
+        gr2[rows] = np.sum(at.P_W[rows] * (truth[rows] - mechanism[rows]) / mechanism[rows]) / mass
     return qr, gr1, gr2
 
 
@@ -153,7 +219,13 @@ GR2_DIRECTION = np.array([0.20, 0.10, -0.30])
 
 
 def _extra_curves(
-    g_hat: np.ndarray, q_hat: np.ndarray, arm: int, *, reduced_bias: float = 0.0
+    g_hat: np.ndarray,
+    q_hat: np.ndarray,
+    arm: int,
+    *,
+    reduced_bias: float = 0.0,
+    at: Law = UNWEIGHTED,
+    reductions_at: Law | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     r"""``(D*_g, D*_Q)`` at every row of the realised sample, built by hand.
 
@@ -162,13 +234,17 @@ def _extra_curves(
         D^*_g = \frac{Q_r(a, W)}{\hat g(a|W)}\,\{1_a - \hat g(a|W)\},
         \qquad
         D^*_Q = 1_a\,\frac{g_{r,2}(a|W)}{g_{r,1}(a|W)}\,\{Y - \hat{\bar Q}(a, W)\}
+
+    ``reductions_at`` takes the reductions at a *different* law from the one the expansion is
+    taken at.  There is no fit that does that; it is the wrong transport, kept as an argument
+    so that it can be run as a test rather than described.
     """
     frame = law.frame()
     covariate = frame["W"].to_numpy().astype(int)
     treatment = frame["A"].to_numpy(dtype=float)
     outcome = frame["Y"].to_numpy(dtype=float)
 
-    qr, gr1, gr2 = _reduced(g_hat, q_hat, arm)
+    qr, gr1, gr2 = _reduced(g_hat, q_hat, arm, at if reductions_at is None else reductions_at)
     qr = qr + reduced_bias * QR_DIRECTION
     gr2 = gr2 + reduced_bias * GR2_DIRECTION
     mechanism = (g_hat if arm == 1 else 1.0 - g_hat)[covariate]
@@ -186,12 +262,16 @@ def _expansion(
     guard: tuple[str, ...] = BOTH,
     sign: float = -1.0,
     reduced_bias: float = 0.0,
+    at: Law = UNWEIGHTED,
+    reductions_at: Law | None = None,
 ) -> dict[str, float]:
     r"""``R_2^{dr}`` for ``ey1``, ``ey0`` and ``ate`` at the given nuisance guesses.
 
     ``D^*`` is the library's, evaluated through :func:`counterfactual_means` at nuisances it
     did not fit and with no targeting step; the two extra terms are built here.  Because the
-    sample realises the law exactly, the sample mean of a curve *is* its :math:`P_0` mean.
+    sample realises the law exactly, the sample mean of a curve *is* its :math:`P_0` mean --
+    and with ``at.weights`` normalised to mean one, the weighted mean of a curve is its
+    :math:`P_w` mean, which is the whole of what a weighted expansion changes here.
 
     ``sign`` is the negative control for the combination: ``-1`` is what ``drtmle`` reports,
     and ``+1`` is the plausible transcription error that no Gateaux check can see.
@@ -207,23 +287,30 @@ def _expansion(
         arms={1.0: at_one, 0.0: at_zero},
     )
     submodel = submodel_for("mean", treatment, g_hat[covariate])
-    psi_one, ic_one, psi_zero, ic_zero = binary_means(outcome, initial, submodel, np.ones(law.N))
+    psi_one, ic_one, psi_zero, ic_zero = binary_means(outcome, initial, submodel, at.weights)
 
     remainders = {}
     for name, arm, psi, curve in (("ey1", 1, psi_one, ic_one), ("ey0", 0, psi_zero, ic_zero)):
-        d_g, d_q = _extra_curves(g_hat, q_hat, arm, reduced_bias=reduced_bias)
+        d_g, d_q = _extra_curves(
+            g_hat, q_hat, arm, reduced_bias=reduced_bias, at=at, reductions_at=reductions_at
+        )
         extra = np.zeros(law.N)
         if "Q" in guard:  # equation (9) -- the one that fluctuates g
             extra = extra + sign * d_g
         if "g" in guard:
             extra = extra + sign * d_q
-        remainders[name] = psi - law.TRUTH[name] + float(np.mean(np.asarray(curve) + extra))
+        # The library already carried `at.weights` into the curve it returned; the terms
+        # built here have to carry the same tilt, since the estimator subtracts them under
+        # the same empirical measure it solved everything else under.
+        remainders[name] = (
+            psi - at.TRUTH[name] + float(np.mean(np.asarray(curve) + at.weights * extra))
+        )
     remainders["ate"] = remainders["ey1"] - remainders["ey0"]
     return remainders
 
 
 def _product_form(
-    g_hat: np.ndarray, q_hat: np.ndarray, *, guard: tuple[str, ...] = BOTH
+    g_hat: np.ndarray, q_hat: np.ndarray, *, guard: tuple[str, ...] = BOTH, at: Law = UNWEIGHTED
 ) -> dict[str, float]:
     r"""``R_2^{dr}`` as theory says it must be, as an exact finite sum over the cells.
 
@@ -236,16 +323,16 @@ def _product_form(
     remainders = {}
     for name, arm in (("ey1", 1), ("ey0", 0)):
         mechanism = g_hat if arm == 1 else 1.0 - g_hat
-        truth = law.G if arm == 1 else 1.0 - law.G
+        truth = at.G if arm == 1 else 1.0 - at.G
         u = (mechanism - truth) / mechanism
-        v = q_hat[:, arm] - law.Q[:, arm]
+        v = q_hat[:, arm] - at.Q[:, arm]
 
-        qr, gr1, gr2 = _reduced(g_hat, q_hat, arm)
-        value = float(np.sum(law.P_W * u * v))
+        qr, gr1, gr2 = _reduced(g_hat, q_hat, arm, at)
+        value = float(np.sum(at.P_W * u * v))
         if "Q" in guard:
-            value -= float(np.sum(law.P_W * qr * (truth - mechanism) / mechanism))
+            value -= float(np.sum(at.P_W * qr * (truth - mechanism) / mechanism))
         if "g" in guard:
-            value -= float(np.sum(law.P_W * (gr2 / gr1) * truth * (-v)))
+            value -= float(np.sum(at.P_W * (gr2 / gr1) * truth * (-v)))
         remainders[name] = value
     remainders["ate"] = remainders["ey1"] - remainders["ey0"]
     return remainders
@@ -582,3 +669,128 @@ class TestItVanishesWhenEitherNuisanceIsRight:
             qr, _, gr2 = _reduced(law.G, law.Q, arm)
             np.testing.assert_allclose(qr, 0.0, atol=1e-15, rtol=0)
             np.testing.assert_allclose(gr2, 0.0, atol=1e-15, rtol=0)
+
+
+class TestAWeightedFitTransportsToTheTiltedLaw:
+    r"""``weights=`` on a ``DRTMLE`` fit, checked rather than assumed.
+
+    The docstring used to say that ``weights=`` "needs nothing said about it: the reduced
+    regressions are fitted by weighted loss and every score equation here is weighted".  Both
+    halves of that are true of the code, and neither is the claim that needed making.  The
+    derivation was read at an *unweighted* law, and transporting it to
+    :math:`dP_w = w\,dP / E[w]` needs two things: the reduced regressions to be conditional
+    expectations under :math:`P_w`, which weighted loss gives; and the mechanism they
+    condition on and divide by to be the :math:`P_w`-mechanism rather than :math:`g_0`, which
+    holds because ``nuisance.propensity`` *is* the weighted fit.  Very likely fine, which is
+    exactly the sort of thing this module exists to stop asserting -- and no test anywhere
+    passed a non-uniform weight to a ``DRTMLE`` fit before this one.
+
+    The instrument is the exact law rather than a fitted run, deliberately.  Transport is an
+    identity about which conditional expectations the reductions are; a fitted weighted
+    comparison would measure the noise in three extra learners and could not distinguish a
+    wrong conditioning law from a bad draw.  What is *not* closed here is the applied stress
+    test of a fitted weighted fit; ``docs/roadmap.md`` keeps that separate.
+    """
+
+    @pytest.mark.parametrize("name", ESTIMANDS)
+    def test_uniform_weights_reproduce_the_unweighted_expansion(self, name: str) -> None:
+        """Threading the law changed nothing at the law it was already taken at.
+
+        A vector of exact ``1.0``s multiplies bit for bit, so this is an equality and not an
+        approximation -- which is what says the class below measures the tilt and not the
+        rewrite that let it be measured.
+        """
+        assert (
+            _expansion(WRONG_G, WRONG_Q, at=UNWEIGHTED)[name] == _expansion(WRONG_G, WRONG_Q)[name]
+        )
+
+    @pytest.mark.parametrize("label", sorted(WEIGHT_FUNCTIONS))
+    @pytest.mark.parametrize("guard", [("Q",), ("g",)])
+    @pytest.mark.parametrize("name", ESTIMANDS)
+    def test_a_single_guard_leaves_nothing_at_the_tilted_law(
+        self, label: str, guard: tuple[str, ...], name: str
+    ) -> None:
+        """The claim: the derivation holds at ``P_w`` with ``P_0`` swapped out throughout."""
+        at = _tilted(label)
+        assert _expansion(WRONG_G, WRONG_Q, guard=guard, at=at)[name] == pytest.approx(
+            0.0, abs=1e-12
+        )
+
+    @pytest.mark.parametrize("label", sorted(WEIGHT_FUNCTIONS))
+    @pytest.mark.parametrize("name", ESTIMANDS)
+    def test_the_unguarded_remainder_is_not_already_zero_there(self, label: str, name: str) -> None:
+        """Otherwise the test above would hold of an estimator that solved nothing."""
+        assert abs(_expansion(WRONG_G, WRONG_Q, guard=(), at=_tilted(label))[name]) > 1e-3
+
+    @pytest.mark.parametrize("label", sorted(WEIGHT_FUNCTIONS))
+    def test_the_tilt_moves_the_remainder(self, label: str) -> None:
+        """Otherwise every assertion here would hold of code that ignored the weights.
+
+        Over the estimands rather than per estimand, and the qualification is arithmetic
+        rather than caution: under the baseline tilt ``ey0``'s remainder moves by 7e-06,
+        because ``u * v`` happens to be nearly flat across the three cells and reweighting
+        their masses therefore barely touches the sum.  A per-estimand threshold would be
+        pinning that coincidence.
+        """
+        at = _tilted(label)
+        moved = max(
+            abs(
+                _expansion(WRONG_G, WRONG_Q, guard=(), at=at)[name]
+                - _expansion(WRONG_G, WRONG_Q, guard=())[name]
+            )
+            for name in ESTIMANDS
+        )
+        assert moved > 1e-3
+
+    def test_only_one_of_the_two_tilts_moves_the_conditionals(self) -> None:
+        """Which tilt is load-bearing, said out loud rather than discovered later.
+
+        A weight that is a function of ``W`` alone is a covariate shift: it moves the
+        marginal and leaves ``P(A | W)`` and ``E[Y | A, W]`` exactly where they were.  So
+        under ``baseline`` the reduced regressions' *targets* are unchanged and only their
+        pooling masses differ -- and with ``WRONG_G`` taking three distinct values there is
+        nothing to pool, so ``_reduced`` returns the same numbers at either law and the
+        mutation below is invisible.  ``treatment_and_outcome`` moves both conditionals,
+        which is why it is the one that mutation runs under.
+        """
+        baseline, both = _tilted("baseline"), _tilted("treatment_and_outcome")
+
+        np.testing.assert_allclose(baseline.G, UNWEIGHTED.G, atol=1e-12, rtol=0)
+        np.testing.assert_allclose(baseline.Q, UNWEIGHTED.Q, atol=1e-12, rtol=0)
+        assert not np.allclose(baseline.P_W, UNWEIGHTED.P_W)
+        assert not np.allclose(both.G, UNWEIGHTED.G)
+        assert not np.allclose(both.Q, UNWEIGHTED.Q)
+
+    @pytest.mark.parametrize("guard", [("Q",), ("g",)])
+    @pytest.mark.parametrize("name", ESTIMANDS)
+    def test_reductions_taken_at_the_sampling_law_no_longer_remove_it(
+        self, guard: tuple[str, ...], name: str
+    ) -> None:
+        """The mutation, kept as a test: the transport is what the reductions condition on.
+
+        Everything is weighted except the reductions, which are taken at ``P_0`` -- what a
+        fit whose reduced regressions ignored ``sample_weight`` would compute, and what one
+        that divided by ``g_0`` rather than the weighted mechanism would compute too, since
+        both come off the same law here.  A first-order remainder survives, so the
+        transport is a claim with content rather than a restatement.
+
+        Under ``treatment_and_outcome`` only, for the reason the test above spells out: a
+        covariate-shift tilt leaves every conditional alone and this mutation is a no-op
+        there.  Running it under both labels is what found that.
+        """
+        at = _tilted("treatment_and_outcome")
+        left = _expansion(WRONG_G, WRONG_Q, guard=guard, at=at, reductions_at=UNWEIGHTED)[name]
+        assert abs(left) > 1e-3
+
+    @pytest.mark.parametrize("label", sorted(WEIGHT_FUNCTIONS))
+    @pytest.mark.parametrize("guard", [(), ("Q",), ("g",), BOTH])
+    @pytest.mark.parametrize("name", ESTIMANDS)
+    def test_the_closed_form_still_matches_at_the_tilted_law(
+        self, label: str, guard: tuple[str, ...], name: str
+    ) -> None:
+        """The library's ``D*`` and the longhand product form agree at ``P_w`` as at ``P_0``."""
+        at = _tilted(label)
+        expected = _product_form(WRONG_G, WRONG_Q, guard=guard, at=at)[name]
+        assert _expansion(WRONG_G, WRONG_Q, guard=guard, at=at)[name] == pytest.approx(
+            expected, abs=1e-12
+        )

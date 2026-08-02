@@ -1,4 +1,12 @@
-r"""Estimands and their efficient influence curves.
+r"""Estimands and the influence curves their estimates are reported from.
+
+Efficient influence curves, everywhere but one: :func:`reduced_corrections` builds the two
+terms a doubly-robust fit *subtracts* from :math:`D^*`, and the difference is the
+estimator's own asymptotic influence function at the nuisance limits rather than the
+canonical gradient at :math:`P_0`.  The distinction is set out there and in
+:mod:`cleverly.estimators.drtmle`; it is called out in this first line because a reader who
+knows that TMLE's curve is the efficient one has no other reason to think this module holds
+anything else.
 
 Every estimate the library reports is built the same way: a point estimate as a
 weighted mean of targeted predictions, plus an influence curve whose sample
@@ -426,6 +434,16 @@ def reduced_corrections(
     carries the sign as a negative control at deliberately wrong nuisances, which is the
     only place it is visible: at the truth :math:`Q_r` and :math:`g_{r,2}` vanish row by row
     and the reported curve *equals* :math:`D^*` array for array.
+
+    **Validity is not efficiency.**  Under misspecification the canonical gradient at
+    :math:`P_0` is still :math:`D^*`; what this subtraction leaves is the **estimator's**
+    asymptotic influence function at the nuisance limits, and the estimator is generally not
+    efficient there.  So a doubly-robust interval is one entitled to be believed under weaker
+    conditions -- not a narrower one, and not an efficient one.  When both nuisances are
+    consistent :math:`Q_r` and :math:`g_{r,2}` vanish row by row, the two curves coincide, and
+    the fit is the ordinary efficient estimator; that is the case the variant is *not* for.
+    Worth saying explicitly because the numbers invite the opposite reading -- in the guide's
+    own worked example the corrected standard error is the smaller of the two.
 
     **This is a fidelity claim about** ``drtmle``, **not a theoretical result.**  The form
     above is read off that package's implementation.  Theorem 1 of Benkeser et al. (2017) is

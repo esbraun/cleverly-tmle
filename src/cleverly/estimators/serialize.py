@@ -44,6 +44,7 @@ from .._typing import FloatArray
 from ..data.causal_data import CategoricalEncoding, CausalData
 from ..data.weighting import WeightSpec
 from ..fluctuation.iterative import Fluctuation, FoldFluctuation, InitialFit
+from ..fluctuation.mechanism import MechanismFluctuation
 from ..inference.influence import ParameterEstimate
 from ..interventions import IPSISet, RegimeSet, ShiftSet
 from ..learners.crossfit import CrossFitPlan, Folds
@@ -55,7 +56,7 @@ from ._nuisance import NuisanceEstimates, Propensity, RepeatFit
 from .base import TMLEConfig, TMLEResult
 from .recipe import TMLERecipe
 from .reduced import ReducedSet
-from .targeting import TargetingSpec
+from .targeting import ProjectionFluctuation, ReductionFluctuation, TargetingSpec
 
 __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save"]
 
@@ -106,7 +107,19 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: interval under a doubly-robust name, with nothing in the parameter's name to say so.
 #: That is the same reason version 5 could not default the working model, and it is why
 #: the bump lands with the arrays rather than with the estimator that will read them.
-FORMAT_VERSION = 9
+#:
+#: ``10`` records the three halves a targeting step can have *beside* the outcome
+#: fluctuation: ``Fluctuation.mechanism``, ``.projection`` and ``.reduction``.  Version 9
+#: stored the reduced regressions on the nuisances and stopped there, and what it left
+#: behind was not record-keeping but a *diagnostic*:
+#: :func:`~cleverly.validation.score_check` reads these records, so a reloaded ``DRTMLE``
+#: fit reported **one** fluctuation row where the live fit reported three, and answered a
+#: strictly weaker question under the same name -- one that can pass where the live check
+#: failed.  A diagnostic that silently narrows on a round trip is worse than one that is
+#: absent.  The same omission cost every ``ipsi`` fit its mechanism tilt and every linked
+#: ``msm`` fit its projection; the three are siblings on ``Fluctuation`` and are written
+#: together so that a fourth is not forgotten in its turn.
+FORMAT_VERSION = 10
 
 _ARRAY_MARK = "__array__"
 
@@ -208,7 +221,141 @@ def _fluctuation_to(arrays: _Arrays, prefix: str, fl: Fluctuation) -> dict[str, 
             }
             for i, f in enumerate(fl.folds)
         ],
+        # The other halves of a targeting step that has more than one. `score_check` reads
+        # all three, so a file without them answers a narrower question than the fit did
+        # -- see the note on format version 10 above.
+        "mechanism": _mechanism_to(arrays, f"{prefix}.mechanism", fl.mechanism),
+        "projection": _projection_to(arrays, f"{prefix}.projection", fl.projection),
+        "reduction": _reduction_to(arrays, f"{prefix}.reduction", fl.reduction),
     }
+
+
+def _mechanism_to(arrays: _Arrays, prefix: str, mech: Any | None) -> dict[str, Any] | None:
+    """Store equation (9)'s half: the tilted mechanism and how its solve went."""
+    if mech is None:
+        return None
+    return {
+        "propensity": arrays.put(f"{prefix}.propensity", mech.propensity),
+        "epsilon": arrays.put(f"{prefix}.epsilon", mech.epsilon),
+        "score": arrays.put(f"{prefix}.score", mech.score),
+        "score_scale": arrays.put(f"{prefix}.score_scale", mech.score_scale),
+        "score_initial": arrays.put(f"{prefix}.score_initial", mech.score_initial),
+        "converged": bool(mech.converged),
+        "n_iter": int(mech.n_iter),
+        "epsilon_std_error": arrays.put(f"{prefix}.epsilon_se", mech.epsilon_std_error),
+        "hessian_condition": mech.hessian_condition,
+        "loglik": mech.loglik,
+        "failure": mech.failure,
+        "trace": [list(row) for row in mech.trace],
+    }
+
+
+def _mechanism_from(arrays: _Arrays, payload: dict[str, Any] | None) -> MechanismFluctuation | None:
+    if payload is None:
+        return None
+    return MechanismFluctuation(
+        propensity=arrays.get(payload["propensity"]),
+        epsilon=arrays.get(payload["epsilon"]),
+        score=arrays.get(payload["score"]),
+        score_scale=arrays.get(payload["score_scale"]),
+        score_initial=arrays.get(payload["score_initial"]),
+        converged=payload["converged"],
+        n_iter=payload["n_iter"],
+        epsilon_std_error=arrays.get(payload["epsilon_std_error"]),
+        hessian_condition=payload["hessian_condition"],
+        loglik=payload["loglik"],
+        failure=payload["failure"],
+        trace=tuple(tuple(row) for row in payload["trace"]),
+    )
+
+
+def _projection_to(arrays: _Arrays, prefix: str, proj: Any | None) -> dict[str, Any] | None:
+    """Store a linked working model's half: the coefficients the report is taken at.
+
+    Recursive in ``folds``, which under fold-wise targeting holds one of these per fold --
+    each a ``ProjectionFluctuation`` with an empty ``folds`` of its own.
+    """
+    if proj is None:
+        return None
+    return {
+        "beta": arrays.put(f"{prefix}.beta", proj.beta),
+        "trace": [list(row) for row in proj.trace],
+        "converged": bool(proj.converged),
+        "failure": proj.failure,
+        "folds": [
+            _projection_to(arrays, f"{prefix}.fold{i}", fold) for i, fold in enumerate(proj.folds)
+        ],
+    }
+
+
+def _projection_from(
+    arrays: _Arrays, payload: dict[str, Any] | None
+) -> ProjectionFluctuation | None:
+    if payload is None:
+        return None
+    folds = tuple(_projection_from(arrays, fold) for fold in payload["folds"])
+    return ProjectionFluctuation(
+        beta=arrays.get(payload["beta"]),
+        trace=tuple(tuple(row) for row in payload["trace"]),
+        converged=payload["converged"],
+        failure=payload["failure"],
+        folds=tuple(fold for fold in folds if fold is not None),
+    )
+
+
+def _reduction_to(arrays: _Arrays, prefix: str, red: Any | None) -> dict[str, Any] | None:
+    """Store equation (10)'s half, including the reductions it was finally solved against.
+
+    Those are the *refit*, not ``nuisance.reduced``, and the difference is the whole reason
+    this record exists: the influence curve is built from these, so a file that dropped
+    them could not say what the reported variance was computed at.
+    """
+    if red is None:
+        return None
+    return {
+        "reduced": _reduced_to(arrays, f"{prefix}.reduced", red.reduced),
+        "guard": list(red.guard),
+        "bounds": [float(value) for value in red.bounds],
+        "epsilon": arrays.put(f"{prefix}.epsilon", red.epsilon),
+        "score": arrays.put(f"{prefix}.score", red.score),
+        "score_scale": arrays.put(f"{prefix}.score_scale", red.score_scale),
+        "score_initial": arrays.put(f"{prefix}.score_initial", red.score_initial),
+        "names": list(red.names),
+        "trace": [list(row) for row in red.trace],
+        "rounds": int(red.rounds),
+        "converged": bool(red.converged),
+        "failure": red.failure,
+        "exit_reason": red.exit_reason,
+        "closing_capped": bool(red.closing_capped),
+        "ill_conditioned": int(red.ill_conditioned),
+        "closing": int(red.closing),
+    }
+
+
+def _reduction_from(arrays: _Arrays, payload: dict[str, Any] | None) -> ReductionFluctuation | None:
+    if payload is None:
+        return None
+    reduced = _reduced_from(arrays, payload["reduced"])
+    assert reduced is not None  # a reduction record without its regressions is not one
+    lower, upper = payload["bounds"]
+    return ReductionFluctuation(
+        reduced=reduced,
+        guard=tuple(payload["guard"]),
+        bounds=(float(lower), float(upper)),
+        epsilon=arrays.get(payload["epsilon"]),
+        score=arrays.get(payload["score"]),
+        score_scale=arrays.get(payload["score_scale"]),
+        score_initial=arrays.get(payload["score_initial"]),
+        names=tuple(payload["names"]),
+        trace=tuple(tuple(row) for row in payload["trace"]),
+        rounds=payload["rounds"],
+        converged=payload["converged"],
+        failure=payload["failure"],
+        exit_reason=payload["exit_reason"],
+        closing_capped=payload["closing_capped"],
+        ill_conditioned=payload["ill_conditioned"],
+        closing=payload["closing"],
+    )
 
 
 def _fluctuation_from(arrays: _Arrays, payload: dict[str, Any]) -> Fluctuation:
@@ -238,6 +385,9 @@ def _fluctuation_from(arrays: _Arrays, payload: dict[str, Any]) -> Fluctuation:
             )
             for f in payload["folds"]
         ),
+        mechanism=_mechanism_from(arrays, payload["mechanism"]),
+        projection=_projection_from(arrays, payload["projection"]),
+        reduction=_reduction_from(arrays, payload["reduction"]),
     )
 
 
@@ -416,18 +566,27 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
         # load would mean refitting three learners, which is the one thing `retarget`
         # promises never to do. `g_bounds` travels with them because it is the bound their
         # target was formed at, and a reader has to be able to find that out.
-        "reduced": (
-            None
-            if nuisance.reduced is None
-            else {
-                "qr": arrays.put(f"{prefix}.reduced.qr", nuisance.reduced.qr),
-                "gr1": arrays.put(f"{prefix}.reduced.gr1", nuisance.reduced.gr1),
-                "gr2": arrays.put(f"{prefix}.reduced.gr2", nuisance.reduced.gr2),
-                "arms": [float(arm) for arm in nuisance.reduced.arms],
-                "g_bounds": [float(value) for value in nuisance.reduced.g_bounds],
-                "reduction": str(nuisance.reduced.reduction),
-            }
-        ),
+        "reduced": _reduced_to(arrays, f"{prefix}.reduced", nuisance.reduced),
+    }
+
+
+def _reduced_to(arrays: _Arrays, prefix: str, reduced: ReducedSet | None) -> dict[str, Any] | None:
+    """Store a set of reduced regressions, wherever it hangs.
+
+    Two records carry one: the nuisances' initial fit, and the refit the alternation
+    finally solved against on :class:`~cleverly.estimators.targeting.ReductionFluctuation`.
+    One writer so the two cannot drift into different shapes -- they are read back by one
+    :func:`_reduced_from`.
+    """
+    if reduced is None:
+        return None
+    return {
+        "qr": arrays.put(f"{prefix}.qr", reduced.qr),
+        "gr1": arrays.put(f"{prefix}.gr1", reduced.gr1),
+        "gr2": arrays.put(f"{prefix}.gr2", reduced.gr2),
+        "arms": [float(arm) for arm in reduced.arms],
+        "g_bounds": [float(value) for value in reduced.g_bounds],
+        "reduction": str(reduced.reduction),
     }
 
 

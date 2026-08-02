@@ -2,7 +2,11 @@
 
 What each estimand *is*, the influence curve that makes it efficient, the second-order
 remainder that double robustness consists of, and — for every one of them — the test that
-fails when it is built wrong.
+fails when it is built wrong. One exception to the second of those, stated here because it
+is the sort of thing a reader is entitled to assume otherwise:
+[doubly-robust inference](#doubly-robust-inference-what-the-extra-equations-remove) reports
+a *corrected* curve that is the estimator's own influence function rather than the efficient
+one, and that section says what follows from it.
 
 The order is the [user guide](user-guide.md)'s: one section per algorithm, then [how this is
 validated](#how-this-is-validated) across all of them, then the taxonomy behind every refusal
@@ -516,6 +520,21 @@ onto that of `Qbar-hat` — and where both are all of `sigma(W)` either projecti
 whole of it, so the pair leaves exactly `-R_2`. That is arithmetic on a finite-support law
 rather than a defect: asymptotically at most one of the two errors fails to vanish, so at
 most one projection is non-negligible, which is why `drtmle` solves both by default.
+
+**Validity is not efficiency, and the corrected curve is not the efficient one.** Under
+misspecification the efficient influence function at `P_0` is still `D*`. What the three
+equations leave is `D = D* - D*_Q - D*_g`, the *estimator's* asymptotic influence function at
+the limits `ghat` and `Qbarhat` converge to, and the estimator is generally **not efficient**
+there — the union model it stays valid over is larger than the model it is efficient in. So
+what `DRTMLE` buys is an interval entitled to be believed under weaker conditions: **not** a
+narrower interval, and not an efficient one. When both nuisances are consistent, `Qr` and
+`gr2` vanish row by row, the corrected curve equals `D*` array for array, and the fit is the
+ordinary efficient estimator — which is the case the variant is not for. Two places this is
+easy to lose. The guide's worked example has the corrected standard error come out the
+*smaller* of the two, which is one draw and not a general narrowing. And `score_check` used to
+sign a doubly-robust fit off with "the targeting step solved the estimated efficient score
+equation" over three rows, two of which are the corrections; its verdict now branches on
+whether the fit is corrected and says which equations it solved.
 
 **The influence curve is a fidelity claim about `drtmle`, not a theoretical result.** The
 form above is what that package computes, read off its implementation. Theorem 1 of Benkeser

@@ -20,8 +20,12 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       near-singular on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so some draws exit at
       the outer cap and report ``failure = "max_iter_reached"``.  Over a 96-fit sweep 8 did
-      that, 86 stalled at a fixed point and 2 reached the tolerance.  Read
-      ``res.validation.score_check()`` on every fit rather than assuming.
+      that, 86 stalled at a fixed point and 2 reached the tolerance.  Which of those a
+      given fit did is on its own report: ``summary()`` ends with the score check whenever
+      the check fails, and ``res.score_verdict`` carries the verdict either way.  It used
+      to say "read ``res.validation.score_check()`` on every fit rather than assuming",
+      which was documentation standing in for reporting -- an unlicensed interval was
+      formatted exactly like a licensed one and the reader had to know to go looking.
    5. **Under weak overlap the fit does not solve its own score equation.**  On
       ``weak_overlap_dgp`` the score check fails on 23 of 24 swept fits, with the worst
       score at rough parity with ``se/sqrt(n)`` rather than the ``1e-7`` every other process
@@ -57,6 +61,19 @@ fluctuations move it -- the three empirical means are all driven to zero, so the
 cannot move :math:`\hat\Psi` and only move its variance.  Read a ``DRTMLE`` fit as the same
 estimate with an interval that is entitled to be believed under weaker conditions, not as a
 better estimate.
+
+**And it is not the efficient one.**  Under misspecification the canonical gradient at
+:math:`P_0` is still :math:`D^*`.  What the three equations leave is
+:math:`D = D^* - D^*_Q - D^*_g`, the *estimator's* asymptotic influence function at the
+nuisance limits, and the estimator is generally **not efficient** there -- so the interval is
+one that stays valid where a plain TMLE's stops being valid, and nothing more than that.
+When both nuisances are consistent the corrections vanish row by row, the two curves
+coincide, and this is the ordinary efficient estimator; that is exactly the case the variant
+is not for.  The distinction is easy to lose because the numbers point the other way: in the
+guide's worked example the corrected standard error is the **smaller** of the two, 0.06828
+against 0.06850, which is a fact about one draw and not a general narrowing.  A doubly-robust
+fit's ``score_check`` says so in its own verdict rather than signing the fit off as having
+solved the efficient score equation.
 
 **What it costs.**  Two further learner fits per arm per round, refitted *inside* the
 alternation, plus a mechanism fluctuation.  A truncation curve or an MNAR sweep on a
@@ -123,7 +140,7 @@ class ReducedFit:
 
 
 class DRTMLE(TMLE):
-    """TMLE with doubly-robust inference, for a binary point treatment.  **In progress.**
+    r"""TMLE with doubly-robust inference, for a binary point treatment.  **In progress.**
 
     Reports ``ey1``, ``ey0`` and ``ate`` under those names -- a different estimator behind
     the same parameters, exactly as :class:`~cleverly.CTMLE` is -- with an influence curve
@@ -176,9 +193,39 @@ class DRTMLE(TMLE):
       :math:`\\bar Q` is informative -- which is precisely the case this variant insures
       against.
 
-    ``weights=`` is supported and needs nothing said about it: the reduced regressions are
-    fitted by weighted loss and every score equation here is weighted, as they are on a plain
-    fit.
+    ``weights=`` is supported for **fixed analysis weights**, meaning what
+    :mod:`cleverly.data.weighting` says they mean: the estimand is the parameter of the
+    tilted law :math:`dP_w = w\,dP / E[w]`.  It once said the keyword "needs nothing said
+    about it", on the grounds that the reduced regressions are fitted by weighted loss and
+    every score equation here is weighted -- both true, and neither the claim that needed
+    making.  The derivation was read at an *unweighted* law, and transporting it to
+    :math:`P_w` needs two things beyond weighted losses: the reduced regressions must be
+    conditional expectations under :math:`P_w`, which weighted loss gives; and the mechanism
+    they condition on and divide by must be the :math:`P_w`-mechanism rather than
+    :math:`g_0`, which holds because they are built from ``nuisance.propensity`` and that
+    *is* the weighted fit.  ``tests/unit/test_remainder_drtmle.py`` runs the whole expansion
+    at two tilted laws and keeps the wrong transport as a test: reductions taken at the
+    sampling law leave a first-order remainder a single guard no longer removes.
+
+    ``repeats=`` is supported and varies exactly one thing here: the *primary* split.  Each
+    draw fits its own reduced regressions against its own folds and runs its own
+    alternation, and the report is the mean of the draws with the curves averaged
+    elementwise.  ``_fit_reduced`` is deliberately unseeded so that a refit matches its fit
+    -- see its docstring -- which is what leaves the primary split as the only source of
+    draw-to-draw variation.  Two things to know.  ``result.extra["drtmle"]`` describes
+    **draw 0 only**, as every read-through attribute on a repeated result does.  And
+    checking this is what surfaced the centring defect
+    ``tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred`` records: on
+    roughly a quarter of splits the reported curve is not centred while all three
+    fluctuation rows report their scores solved.  That is a property of a *draw* and not of
+    the averaging, so it is a defect in the fit rather than a reason to refuse ``repeats=``.
+
+    Where it stops is an **estimated** weight.  Nothing read here says what the reduced
+    regressions of a random tilt are, and the ordinary answer -- that the interval conditions
+    on the weights, as ``weights_estimated=`` declares -- is an argument about :math:`D^*`
+    rather than about :math:`Q_r`, :math:`g_{r,1}` and :math:`g_{r,2}`.  No **fitted**
+    weighted ``DRTMLE`` run exists here either; that is an applied stress test and
+    ``docs/roadmap.md`` keeps it open.
     """
 
     def __init__(
