@@ -29,6 +29,7 @@ import pytest
 
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.targeting import build_submodel
+from cleverly.estimators.tmle import correction_parts
 from cleverly.fluctuation.mechanism import mechanism_score
 from cleverly.fluctuation.reduced import reduced_mechanism_covariate
 from cleverly.inference.influence import (
@@ -40,7 +41,7 @@ from cleverly.inference.influence import (
 from tests import discrete_law as law
 from tests.unit.test_reduced_regressions import ARMS, INERT_BOUNDS, causal_data, nuisances
 from tests.unit.test_reduction_alternation import alternate
-from tests.unit.test_remainder_drtmle import WRONG_G, WRONG_Q, _extra_curves
+from tests.unit.test_remainder_drtmle import BOTH, WRONG_G, WRONG_Q, _extra_curves
 
 
 def solved(g_hat: np.ndarray = WRONG_G, q_hat: np.ndarray = WRONG_Q, *, max_outer: int = 50):
@@ -54,6 +55,9 @@ def solved(g_hat: np.ndarray = WRONG_G, q_hat: np.ndarray = WRONG_Q, *, max_oute
         fluctuation.reduction.reduced,
         fluctuation.mechanism.propensity,
         bounds=INERT_BOUNDS,
+        # Off the record the alternation left rather than written in, so this helper
+        # follows whatever guard its caller ran under -- which is what the fit does.
+        guard=fluctuation.reduction.guard,
         observed=data.observed,
     )
     return fluctuation, corrections
@@ -101,6 +105,134 @@ class TestTheTermsAreTheOnesTheSourceComputes:
         _, corrections = solved()
         for arm in ARMS:
             assert abs(float(np.mean(corrections[arm]))) < 1e-8
+
+
+class TestOnlyTheGuardedEquationsCorrectionIsInTheCurve:
+    """``docs/roadmap.md`` item 23, at the arrays, with no fit anywhere in it.
+
+    ``guard=`` is crossed: ``"Q"`` adds equation (9), which fluctuates ``g`` and whose
+    correction is ``D*_g``; ``"g"`` adds equation (10) and ``D*_Q``.  A fit that solves one
+    of them must subtract one term, and until item 23 closed it subtracted both -- so the
+    unsolved equation's mean, which nothing had driven anywhere, went into the reported
+    curve.
+
+    ``tests/unit/test_remainder_drtmle.py`` states the same rule twice, on the curve side
+    (``_expansion``) and on the theory side (``_product_form``), and its
+    ``TestOneGuardRemovesTheFirstOrderRemainder`` is what says the rule is the right one.
+    What is checked here is that the *library* obeys it, which is the claim nothing made.
+    """
+
+    def _terms(self):
+        """``d_g`` and ``d_q`` per arm from the longhand module, not from the library."""
+        return {arm: _extra_curves(WRONG_G, WRONG_Q, int(arm)) for arm in ARMS}
+
+    def _corrections(self, guard: tuple[str, ...]):
+        data = causal_data()
+        nuisance = nuisances(WRONG_G, WRONG_Q)
+        cell = law.frame()["W"].to_numpy().astype(int)
+        return reduced_corrections(
+            data.outcome,
+            nuisance.outcome,
+            data.treatment,
+            _reduced_set_from_longhand(),
+            WRONG_G[cell],
+            bounds=INERT_BOUNDS,
+            guard=guard,
+            observed=data.observed,
+        )
+
+    def test_the_fixture_is_not_degenerate(self) -> None:
+        """First, because every assertion below is vacuous at the truth.
+
+        At correct nuisances ``Q_r`` and ``g_{r,2}`` vanish row by row, so ``d_g`` and
+        ``d_q`` are both zero and *every* guard gives the same array -- lesson 2, in the
+        place it is easiest to walk into.  ``WRONG_G``/``WRONG_Q`` are what make the three
+        guards distinguishable, and this asserts they do.
+        """
+        terms = self._terms()
+        for arm in ARMS:
+            d_g, d_q = terms[arm]
+            assert np.max(np.abs(d_g)) > 1e-2
+            assert np.max(np.abs(d_q)) > 1e-2
+        both, only_q, only_g = (self._corrections(g) for g in (BOTH, ("Q",), ("g",)))
+        for arm in ARMS:
+            assert not np.allclose(both[arm], only_q[arm])
+            assert not np.allclose(both[arm], only_g[arm])
+            assert not np.allclose(only_q[arm], only_g[arm])
+
+    def test_the_q_guard_subtracts_the_mechanism_correction_alone(self) -> None:
+        corrections = self._corrections(("Q",))
+        for arm in ARMS:
+            d_g, _ = self._terms()[arm]
+            np.testing.assert_allclose(corrections[arm], d_g, rtol=0, atol=1e-14)
+
+    def test_the_g_guard_subtracts_the_outcome_correction_alone(self) -> None:
+        corrections = self._corrections(("g",))
+        for arm in ARMS:
+            _, d_q = self._terms()[arm]
+            np.testing.assert_allclose(corrections[arm], d_q, rtol=0, atol=1e-14)
+
+    def test_both_guards_subtract_both_and_are_unchanged(self) -> None:
+        """The regression side: the ordinary fit must not have moved by a bit."""
+        corrections = self._corrections(BOTH)
+        for arm in ARMS:
+            d_g, d_q = self._terms()[arm]
+            np.testing.assert_allclose(corrections[arm], d_g + d_q, rtol=0, atol=1e-14)
+
+    def test_an_empty_guard_is_refused_rather_than_answered_with_zeros(self) -> None:
+        """Such a fit fits no reductions at all and must not reach here.
+
+        Zeros would make ``guard=()`` the plain estimator recovered by a branch, which is
+        what ``DRTMLE._nuisances``' short circuit exists to avoid.
+        """
+        with pytest.raises(ValueError, match="at least one guard"):
+            self._corrections(())
+
+
+class TestTheGuardReachesTheCorrectionsThroughTheProductionPath:
+    """The wiring claim: the alternation's own record is what selects, on a real solve.
+
+    :func:`~cleverly.estimators.tmle.correction_parts` is the function both the reported
+    curve and :func:`~cleverly.validation.drtmle.correction_check` go through, so passing
+    it a fluctuation a partial guard actually produced is what says the two cannot select
+    differently.  Item 23 was exactly this call not reading ``reduction.guard`` while the
+    check one line later did.
+    """
+
+    @pytest.mark.parametrize("guard", [("Q",), ("g",), BOTH])
+    def test_the_parts_carry_the_guard_the_alternation_ran_under(
+        self, guard: tuple[str, ...]
+    ) -> None:
+        fluctuation = alternate(WRONG_G, WRONG_Q, guard=guard)
+        data = causal_data()
+        nuisance = nuisances(WRONG_G, WRONG_Q)
+        parts = correction_parts(data, nuisance, fluctuation, fluctuation.targeted, data.outcome)
+        assert parts.guard == guard
+        for arm in ARMS:
+            expected = np.zeros_like(parts.d_g[arm])
+            if "Q" in guard:
+                expected = expected + parts.d_g[arm]
+            if "g" in guard:
+                expected = expected + parts.d_q[arm]
+            np.testing.assert_allclose(parts.total()[arm], expected, rtol=0, atol=1e-15)
+
+    @pytest.mark.parametrize(
+        ("guard", "tilts_mechanism"), [(("Q",), True), (("g",), False), (BOTH, True)]
+    )
+    def test_solving_an_equation_and_storing_its_score_are_the_same_event(
+        self, guard: tuple[str, ...], tilts_mechanism: bool
+    ) -> None:
+        """The equivalence the whole report rests on, stated once.
+
+        For each equation, three things coincide: the guard names it, the alternation
+        stored a score for it, and the curve subtracts its correction.  ``correction_check``
+        reads the first and reports the second as ``stored``; if they could come apart, a
+        row would be judged against a score belonging to some other state.
+        """
+        fluctuation = alternate(WRONG_G, WRONG_Q, guard=guard)
+        assert (fluctuation.mechanism is not None) is tilts_mechanism
+        assert (fluctuation.mechanism is not None) is ("Q" in guard)
+        assert (np.asarray(fluctuation.reduction.score).size > 0) is ("g" in guard)
 
 
 class TestTheCurveIsMeanZeroEvenWhenTheLoopStopsEarly:
@@ -346,7 +478,14 @@ def parts_at(bounds=TIGHT_BOUNDS, qr_scale=(1.0, 1.0)):
     reduced, targeted, outcome = hand_built(qr_scale)
     return (
         reduced_correction_parts(
-            outcome, targeted, TREATMENT, reduced, RAW_G1, bounds=bounds, observed=None
+            outcome,
+            targeted,
+            TREATMENT,
+            reduced,
+            RAW_G1,
+            bounds=bounds,
+            guard=BOTH,
+            observed=None,
         ),
         reduced,
         targeted,
@@ -390,7 +529,14 @@ class TestTheCorrectionsSplitIntoTheTermsTheEquationsSolve:
         parts, reduced, targeted, outcome = parts_at()
         bounded = np.clip(RAW_G1, *TIGHT_BOUNDS)
         whole = reduced_corrections(
-            outcome, targeted, TREATMENT, reduced, RAW_G1, bounds=TIGHT_BOUNDS, observed=None
+            outcome,
+            targeted,
+            TREATMENT,
+            reduced,
+            RAW_G1,
+            bounds=TIGHT_BOUNDS,
+            guard=BOTH,
+            observed=None,
         )
 
         for j, arm in enumerate(ARMS):
@@ -510,6 +656,7 @@ def test_the_longhand_module_and_this_one_agree_about_the_terms() -> None:
         reduced_at_initial,
         WRONG_G[cell],
         bounds=INERT_BOUNDS,
+        guard=BOTH,
         observed=data.observed,
     )
     for arm in ARMS:
@@ -541,6 +688,7 @@ def test_the_mechanism_is_read_at_the_arm_it_belongs_to(arm: float) -> None:
         reduced,
         WRONG_G[cell],
         bounds=INERT_BOUNDS,
+        guard=BOTH,
         observed=data.observed,
     )
     j = ARMS.index(arm)

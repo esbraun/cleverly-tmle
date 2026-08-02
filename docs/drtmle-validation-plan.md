@@ -81,10 +81,17 @@ holds to floating point, per arm, on a draw that clips: `Δ_g = 3.410e-03` again
 ### What the fit then does
 
 Mark inference **invalid** whenever any identity residual exceeds numerical roundoff, or any final
-correction score exceeds the predeclared inferential tolerance, and say so on the face of
-`summary()` — the machinery is [item 16](roadmap.md#closed-since-this-list-opened)'s and already
-exists. The two conditions are different failures and must not be reported as one: the first is a
-software defect, the second is a fit that did not solve its equations.
+correction score **for an equation this fit's guard solves** exceeds the predeclared inferential
+tolerance, and say so on the face of `summary()` — the machinery is
+[item 16](roadmap.md#closed-since-this-list-opened)'s and already exists. The two conditions are
+different failures and must not be reported as one: the first is a software defect, the second is a
+fit that did not solve its equations.
+
+The qualification is [item 23](roadmap.md#closed-since-this-list-opened)'s and is not a loosening:
+a correction whose equation the fit never posed is not in that fit's curve, so it cannot invalidate
+an interval however large it is. It is still *reported*, as a third row kind (`diagnostic`) held to
+no threshold, because it is the only thing that says what a single guard did not buy — and because
+it is what found item 23.
 
 *"Numerical roundoff" is now a number*: `validation.drtmle.IDENTITY_TOLERANCE = 1e-12`, absolute,
 on the outcome scale, and deliberately not relative to the score — a difference between two
@@ -533,6 +540,9 @@ rather than being found afterwards.
 | cross-language | `drtmle` parity, component by component | perturb one component and watch only that row move |
 | integration | `guard=()` is `TMLE` bit for bit | route the empty guard through the reduction loop |
 | integration | each guard removes its own direction | cross the guard semantics |
+| unit | only the guarded equation's correction is **in the curve** (item 23) | **run**: drop the branch from `CorrectionParts.total()`, and cross it — `tests/unit/test_influence_drtmle.py::TestOnlyTheGuardedEquationsCorrectionIsInTheCurve`, whose fixture is checked at the exact law too, where all three guards agree and every array is zero |
+| unit | the guard *travels* to the corrections rather than being read twice | **run**: have `correction_parts` pass a literal `("Q", "g")` — fails the production-path tier and not the array tier, which is the separation |
+| integration | a partial-guard fit's unguarded correction is reported and **not judged** | **run**: hold it to the bar and watch a correct fit fail; and revert `total()` to the sum and watch the same fit's curve decentre — `TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor` |
 | integration | a failing score check is visible in `summary()` (item 16) | silence the verdict (already done, item 16) |
 | simulation | the drift coefficient is nonzero as designed | set `h_a` orthogonal to the misspecification weight and watch `TMLE` cover anyway |
 | simulation | slow `Q̄`, wrong `g` | `TMLE` must under-cover, or the regime was not entered |

@@ -659,6 +659,13 @@ class ReductionFluctuation:
         ``result.nuisance.reduced``, which stay the initial fit exactly as
         ``result.nuisance.propensity`` stays the initial mechanism.  The influence curve
         reads these.
+    guard:
+        Which extra equations this fluctuation solved, in ``ReductionSpec.guard``'s
+        vocabulary, carried on the record because it is also **which correction the
+        reported curve subtracts** -- :func:`~cleverly.estimators.tmle.correction_parts`
+        reads it off here, so a fit reloaded from disk selects the same terms its
+        estimator did.  It was on this record and read by the validation layer alone while
+        the curve subtracted both, which was ``docs/roadmap.md``'s item 23.
     epsilon, score, score_scale, score_initial, names:
         Equation (10)'s fluctuation, reported on the same footing as the outcome
         fluctuation's so the two can sit in one table.  ``epsilon`` is the **last round's**

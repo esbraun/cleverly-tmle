@@ -419,9 +419,10 @@ def reduced_corrections(
     propensity: FloatArray,
     *,
     bounds: tuple[float, float],
+    guard: tuple[str, ...],
     observed: BoolArray | None = None,
 ) -> dict[float, FloatArray]:
-    r""":math:`D^*_Q + D^*_g` per arm, the two terms doubly-robust inference subtracts.
+    r""":math:`D^*_Q + D^*_g` per arm, the terms doubly-robust inference subtracts.
 
     .. math::
 
@@ -479,6 +480,18 @@ def reduced_corrections(
     mean from this expression rather than from a second copy of it.  A second copy is how
     an identity check comes to agree with a curve neither of them is.
 
+    **One correction per equation the fit actually solved**, which is what ``guard`` selects
+    and is the crossing ``guard=`` has everywhere else: :math:`D^*_g` is equation (9)'s, the
+    one the ``"Q"`` guard adds, and :math:`D^*_Q` is equation (10)'s, the one ``"g"`` adds.
+    A fit guarding one nuisance subtracts one term.  Subtracting both was ``docs/roadmap.md``
+    item 23: the unsolved equation's mean is whatever it happens to be, measured at
+    :math:`2.8\times10^{-3}` on a ``guard=("g",)`` fit against a :math:`7.7\times10^{-6}` bar
+    with **no** row clipped, so it is not item 20 in another guise.  The derivation was
+    already in the repository -- ``tests/unit/test_remainder_drtmle.py`` adds each correction
+    only under the guard whose equation removes it, and shows that two guards over-correct on
+    an exact law; ``tests/unit/test_drtmle_fit.py`` fits one end to end.  ``DRTMLE``'s own
+    default is both guards, so the ordinary fit is unaffected.
+
     Parameters
     ----------
     targeted, propensity:
@@ -492,6 +505,11 @@ def reduced_corrections(
         free of :mod:`cleverly.estimators`, which imports it.
     bounds:
         The same mechanism truncation the clever covariates divided by.
+    guard:
+        Which of the two extra equations this fit solved, in ``DRTMLE.guard``'s vocabulary,
+        and so which corrections belong in its curve.  **Required, with no default**, which
+        is the point: item 23 was a caller not passing this, and a default of both would
+        make that caller's mistake the fallback for the next one.
     """
     return reduced_correction_parts(
         outcome,
@@ -501,6 +519,7 @@ def reduced_corrections(
         propensity,
         bounds=bounds,
         observed=observed,
+        guard=guard,
     ).total()
 
 
@@ -542,16 +561,53 @@ class CorrectionParts:
         Which rows the mechanism truncation binds on.  On record because "the identity
         holds" is uninformative on a draw where the bound never bites -- the degeneracy
         that hid this for two revisions.
+    guard:
+        Which equations the fit solved, and so which of the two terms :meth:`total` puts in
+        the curve.  **Both arrays are built whatever it says**, because the term a fit does
+        *not* subtract is exactly what
+        :func:`~cleverly.validation.drtmle.correction_check` reports as a diagnostic -- and
+        it has to come from this expression rather than from a second copy of it, for the
+        reason above.  It travels here rather than being read off the fluctuation twice, so
+        that :func:`~cleverly.estimators.tmle.correction_parts` is the one place the guard
+        is copied off the record and the curve and the check cannot select differently.
     """
 
     d_g: dict[float, FloatArray]
     d_q: dict[float, FloatArray]
     clip_bias: dict[float, FloatArray]
     clipped: BoolArray
+    guard: tuple[str, ...]
 
     def total(self) -> dict[float, FloatArray]:
-        """:math:`D^*_Q + D^*_g` per arm, which is what the curve subtracts."""
-        return {arm: np.asarray(self.d_g[arm] + self.d_q[arm], dtype=float) for arm in self.d_g}
+        """What the curve subtracts: one correction per equation :attr:`guard` solved.
+
+        :math:`D^*_Q + D^*_g` under both guards, and under both alone -- the ``"Q"`` guard
+        is what adds equation (9), so it is what puts :math:`D^*_g` here, and ``"g"`` adds
+        equation (10) and puts :math:`D^*_Q` here.  Membership rather than equality, since
+        ``DRTMLE`` validates the guard's contents and not its order.
+
+        The both-guards line below is character for character the single expression this
+        replaced.  Re-associating it -- through ``sum()``, or a comprehension over a list
+        of terms -- moves the last bit of every ordinary doubly-robust curve, for the
+        reason :func:`counterfactual_means` records about its own arithmetic.
+
+        An empty guard **raises**.  Such a fit fits no reduced regressions at all and never
+        reaches here; returning zeros would make it the plain estimator recovered by a
+        branch, which is the thing ``DRTMLE._nuisances``' short circuit exists to avoid.
+        """
+        has_q, has_g = "Q" in self.guard, "g" in self.guard
+        # Aliased rather than copied on the single-guard branches: nothing mutates what
+        # this returns -- the curve subtracts it and `_slice_fit`'s sibling indexing copies.
+        if has_q and has_g:
+            return {arm: np.asarray(self.d_g[arm] + self.d_q[arm], dtype=float) for arm in self.d_g}
+        if has_q:
+            return {arm: np.asarray(self.d_g[arm], dtype=float) for arm in self.d_g}
+        if has_g:
+            return {arm: np.asarray(self.d_q[arm], dtype=float) for arm in self.d_g}
+        raise ValueError(
+            "a doubly-robust curve needs at least one guard; an empty guard fits no "
+            "reduced regressions and must not reach the corrections at all"
+        )
 
 
 def reduced_correction_parts(
@@ -562,13 +618,15 @@ def reduced_correction_parts(
     propensity: FloatArray,
     *,
     bounds: tuple[float, float],
+    guard: tuple[str, ...],
     observed: BoolArray | None = None,
 ) -> CorrectionParts:
     """:func:`reduced_corrections`' two terms before they are added, and the clipping bias.
 
-    Every argument means what it means there.  The sum is formed in :meth:`
-    ~cleverly.inference.influence.CorrectionParts.total` in the same association the single
-    expression used, so the reported curve is unchanged to the last bit.
+    Every argument means what it means there.  Both terms are built whatever ``guard``
+    says; it is :meth:`~cleverly.inference.influence.CorrectionParts.total` that selects,
+    in the same association the single expression used, so the reported curve is unchanged
+    to the last bit.
     """
     y = np.asarray(outcome, dtype=float).reshape(-1)
     a = np.asarray(treatment, dtype=float).reshape(-1)
@@ -593,7 +651,7 @@ def reduced_correction_parts(
         # at `arm`; `keep` is the missing-outcome mask every residual here carries.
         d_q[arm] = indicator * keep * ratio[:, j] * (y - targeted.observed)
         clip_bias[arm] = qr / mechanism[arm] * (untruncated[arm] - mechanism[arm])
-    return CorrectionParts(d_g, d_q, clip_bias, np.asarray(raw1 != g1, dtype=bool))
+    return CorrectionParts(d_g, d_q, clip_bias, np.asarray(raw1 != g1, dtype=bool), tuple(guard))
 
 
 def shift_means(
@@ -974,7 +1032,10 @@ class ICParts(NamedTuple):
     residual: FloatArray
     plugin: FloatArray
     #: The doubly-robust correction, ``-(D*_Q + D*_g)``, for a fit that solved the extra
-    #: score equations; zeros for every other fit, which is what keeps ``total`` and
+    #: score equations -- or the one term of it a single-guard fit solved for, since this
+    #: is :meth:`CorrectionParts.total` negated and that selects.  **Not** the ``guard=``
+    #: tuple, which shares only the name; zeros for every other fit, which is what keeps
+    #: ``total`` and
     #: ``shares()`` reading exactly as they did before that variant existed.  It belongs to
     #: neither half above -- it is neither a positivity artefact nor outcome heterogeneity
     #: but the price of an interval that survives one bad nuisance -- and leaving it out

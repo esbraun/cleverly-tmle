@@ -196,7 +196,8 @@ opened, because `benchmarks/bench_drtmle.py`, `.github/workflows/drtmle-converge
 review's items are therefore 13 to 19 rather than a renumbering**, item **20** — found while
 closing item 18 — is 20 for the same reason, the third review's two are **21** and **22**, which is
 why the most important item on the page has the highest number, and **23** was found by piece
-B1a's own instrument on its first run. The pieces are lettered so the two cannot be confused.
+B1a's own instrument on its first run and is now closed. The pieces are lettered so the two cannot
+be confused.
 
 ### The work, in four pieces and seven pull requests
 
@@ -637,24 +638,8 @@ equation, against the score the loop stored, with `B_clip` reproducing the discr
 point and the verdict saying **defect** rather than **did not converge**. The item is still open —
 being measured is not being fixed, and which convention replaces the current one is B1b's.
 
-**23. A single-guard fit subtracts a correction whose equation it never solved.** Found by B1a's
-instrument on its first run against a `guard=("g",)` fit, which is what an instrument is for.
-`reduced_corrections` does not branch on `guard` and neither does its caller, so a fit guarding one
-nuisance still subtracts **both** `D*_g` and `D*_Q` while solving one of the two extra equations —
-and the unsolved one's mean is whatever it happens to be. Measured on `nonlinear_dgp` at `n=400`
-with `glm` on both nuisances and **zero clipped rows**, so this is not item 20 wearing a different
-hat: `Pn[w D*_g]` at arm 1 is `2.8e-03` on the outcome scale against a `7.7e-06` bar, and `ey1`'s
-reported curve is off by exactly that. The default `guard=("Q", "g")` is unaffected, which is why
-nothing here saw it: no test in this repository fits a partial guard end to end.
-
-What makes it a defect rather than a question is that the derivation is already written down in
-this repository. `tests/unit/test_remainder_drtmle.py::_expansion` adds `d_g` **only** when `"Q"`
-is guarded and `d_q` only when `"g"` is, one correction per equation the fit actually solves, and
-[the module's own finding](#limitations-recorded-rather-than-fixed) — that one guard removes the
-whole first-order remainder and two over-correct — is stated in exactly those terms. So the fix is
-small and it is *not* B1a's: B1a chooses nothing, and which corrections belong in the curve under a
-partial guard is a claim about the curve that wants its own test against that oracle. It is
-independent of A1, A2 and B1b, and it should not queue behind them.
+Item **23**, found by the same instrument on the same run, was in this section and is
+[closed](#closed-since-this-list-opened).
 
 #### C. The demonstration
 
@@ -831,9 +816,10 @@ effort. Piece **0** was first and has landed, and so now has **B1a**; what is le
    has to happen and because the exit distribution under the current rule is uncharacterised.
 5. **C**, which is the point.
 
-**Item 23 is outside that order**, like **D**: it is a small fix with an oracle already in the
-repository, it touches only the partial-guard path, and it should not wait on the theorem or on
-anything else here.
+**Item 23 was outside that order**, like **D**: a small fix with an oracle already in the
+repository, touching only the partial-guard path, which is why it did not wait on the theorem or on
+anything else here. It has [landed](#closed-since-this-list-opened), and **D** is what is left
+outside the order.
 
 Then the applied stress tests, which are generalisation checks and not substitutes for C: a Super
 Learner library, higher-dimensional and nonlinear processes, moderate near-positivity, binary as
@@ -953,6 +939,67 @@ available for reuse. Items 14, 16, 17 and 18 were **piece 0**, which is why its 
 from the list above: none of the four was research, all four were claims the package made that
 were wider than the evidence behind them, and what they protected a user from was being told
 something the fit had not earned while everything else here is open.
+
+**23. A single-guard fit no longer subtracts a correction whose equation it never solved.** Found
+by B1a's instrument on its first run against a `guard=("g",)` fit, which is what an instrument is
+for. `reduced_corrections` did not branch on `guard` and neither did its caller, so a fit guarding
+one nuisance subtracted **both** `D*_g` and `D*_Q` while solving one of the two extra equations —
+and the unsolved one's mean was whatever it happened to be. Measured on `nonlinear_dgp` with `glm`
+on both nuisances and **zero clipped rows**, so it was never item 20 wearing a different hat:
+`2.8e-03` at arm 1 on the `n=400` draw it was found on, and `1.2e-03` and `3.1e-04` against a
+`5.4e-06` bar — 225 and 58 times over — on the 600-row draw `tests/unit/test_drtmle_fit.py` fits
+everything else on, which is now the regression fixture. Each arm's reported curve was off by
+exactly its own number, and the two draws agreeing is what says this is the estimator and not a
+seed. The
+default `guard=("Q", "g")` was unaffected, which is why nothing here saw it: **no test in this
+repository fitted a partial guard end to end**, and now one does.
+
+The fix is where the guard already was. `ReductionFluctuation.guard` was on the record, serialised,
+and read by `correction_check` one call *after* the curve declined to read it — so the change is
+that `CorrectionParts` carries the guard and `total()` selects on it, `estimators/tmle.py`'s
+`correction_parts` threads `reduction.guard` through, and the two now select from one place rather
+than consulting the record twice. `guard` became a **required** keyword on `reduced_corrections`
+and `reduced_correction_parts` with no default, which is the point: a default of both would make
+the caller's mistake the fallback for the next one. `guard=()` raises there rather than returning
+zeros, since such a fit fits no reductions at all and must not reach the corrections.
+
+Three things fall out and each is worth having written down:
+
+- **A fit's report got wider, not narrower.** The unsolved equation's correction is still
+  recomputed and printed — as a new `diagnostic` row kind, held to no threshold, which is what
+  stops a correct single-guard fit failing a check for a term nothing subtracts
+  (`CorrectionCheck.correction_failures` gained one `row.solved`). Dropping the row would make a
+  partial-guard report quietly smaller than a full one, which is the failure item 16 was about. It
+  is also the number that *found* this.
+- **The verdict is derived rather than written out.** `score_check` hard-coded "the curve reported
+  is `D = D* - D*_Q - D*_g`", which is false under a single guard; it now composes the string from
+  which corrections are in the curve, so it cannot drift from what `total()` did. Such a fit reads
+  `D = D* - D*_Q`.
+- **No `psi` moved and nothing on the default path moved.** `counterfactual_means` computes the
+  estimate before the corrections enter, so this touches the curve, `se`, the interval, the bands
+  and `estimate.score` — on partial-guard fits alone. And **no format bump**: `guard` was already
+  serialised, so a reloaded fit selects what its estimator did. A pre-fix v10 file with a partial
+  guard would carry a stored curve built with both terms, and none exists, because no such fit was
+  ever run here — which is this item's own finding.
+
+Pinned in three tiers, each mutation watched to fail before the test was kept. At the arrays
+(`test_influence_drtmle.py`), against `test_remainder_drtmle.py`'s longhand terms at the
+*wrong-on-purpose* nuisances — checked at the exact law too, where all three guards agree and
+every array is exactly zero, so the fixture is load-bearing and lesson 2 is answered rather than
+assumed. At the production call (`correction_parts` on a real partial-guard alternation), which is the tier
+that fails when the guard stops travelling and the array tier does not. And end to end, on a
+`guard=("g",)` fit of this module's own draw — 1.8s, because a `"g"` fit refits no reductions at
+all. The mutations: revert `total()` to the sum (the curve equality, the centring, the report and
+the verdict all go red — before the fix this was a *failing* fit), cross the guard semantics, have
+`correction_parts` pass a literal `("Q", "g")`, drop the `row.solved` filter, and restore the
+hard-coded verdict string.
+
+The derivation was already in this repository, which is what made this a defect rather than a
+question: `tests/unit/test_remainder_drtmle.py::_expansion` adds `d_g` **only** when `"Q"` is
+guarded and `d_q` only when `"g"` is, and [the module's own
+finding](#limitations-recorded-rather-than-fixed) — that one guard removes the whole first-order
+remainder and two over-correct — is stated in exactly those terms. It was independent of A1, A2
+and B1b and did not queue behind them.
 
 **7. The relative-score exit criterion was a poor instrument — replaced.** The loop exited on
 `|score| / mean|h|` against `spec.tol = 1e-10`, and `mean|h|` is `1e-3` to `1e-2` for equation

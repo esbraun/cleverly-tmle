@@ -216,6 +216,14 @@ recomputing a recorded number from the returned state on one fit; this was found
 recomputation, once it was a permanent fixture of every doubly-robust fit rather than thirty lines
 in a scratch file.
 
+**Item 23 is now [closed](roadmap.md#closed-since-this-list-opened)**, and the measurement above is
+kept because it is the evidence rather than a symptom. The curve subtracts one correction per
+equation the guard asked for; the unsolved equation's mean is still reported, as a diagnostic held
+to no threshold, which is the row that found this. On the 600-row draw
+`tests/unit/test_drtmle_fit.py` fits everything else on, the two arms read `1.2e-03` and `3.1e-04`
+against a `5.4e-06` bar — the same finding on a second draw, and now the fixture of the first
+partial-guard fit this repository has ever run end to end.
+
 ## How the alternation exits
 
 96 fits: four processes by two sizes by twelve seeds, `glm` on both nuisances, `n_folds=5`,

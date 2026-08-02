@@ -39,9 +39,11 @@ On a doubly-robust fit it is not the efficient equation
 ---------------------------------------------------------
 
 Everything above is written for :math:`\hat D^*`, and a :class:`~cleverly.DRTMLE` fit
-solves three equations rather than one.  The extra two are not refinements of the
-efficient score equation: the curve their solution leaves is
-:math:`D = D^* - D^*_Q - D^*_g`, the **estimator's** asymptotic influence function at the
+solves up to three equations rather than one -- three under the default guard, and two
+under either guard alone.  The extra ones are not refinements of the efficient score
+equation: the curve their solution leaves is
+:math:`D = D^* - D^*_Q - D^*_g`, one correction per equation the guard asked for and so
+one term shorter under a single guard, the **estimator's** asymptotic influence function at the
 nuisance limits, and it is generally not the canonical gradient at :math:`P_0`.  When both
 nuisances are consistent the corrections vanish row by row and the two coincide -- which is
 precisely the case the variant is not for.  So the verdict here branches on
@@ -139,7 +141,8 @@ class ScoreCheck:
     tolerance: float
     n: int
     #: Whether this fit reports the **corrected** curve
-    #: :math:`D = D^* - D^*_Q - D^*_g` rather than :math:`D^*`.  True for a
+    #: :math:`D = D^* - D^*_Q - D^*_g` -- or the one term of it a single guard solves for,
+    #: which :meth:`_curve` derives from the rows -- rather than :math:`D^*`.  True for a
     #: :class:`~cleverly.DRTMLE` fit with a non-empty guard, and what the verdict branches
     #: on: the equations such a fit solves are its own three, and the curve they leave is
     #: the *estimator's* influence function at the nuisance limits, which is generally not
@@ -257,6 +260,21 @@ class ScoreCheck:
         ratios = [row.ratio for row in self.rows if np.isfinite(row.ratio)]
         return max(ratios) if ratios else float("nan")
 
+    def _curve(self) -> str:
+        """The corrected curve this fit reports, as its terms rather than as a constant.
+
+        ``D = D* - D*_Q - D*_g`` under both guards and one term shorter under either alone,
+        derived from which corrections are in the curve rather than written out here --
+        so it cannot drift from what
+        :meth:`~cleverly.inference.influence.CorrectionParts.total` did.  A hand-built
+        check carries no corrections and gets the both-guards wording, which is what every
+        such object meant before a partial guard was expressible.
+        """
+        if self.corrections is None or not self.corrections.rows:
+            return "D = D* - D*_Q - D*_g"
+        subtracted = {row.equation for row in self.corrections.rows if row.solved}
+        return "D = D*" + "".join(f" - {term}" for term in ("D*_Q", "D*_g") if term in subtracted)
+
     def summary(self) -> str:
         if not self.passed:
             verdict = (
@@ -296,7 +314,7 @@ class ScoreCheck:
                 [
                     f"PASS: the targeting step solved all {solved} estimated score equations "
                     "of the doubly-robust estimator.",
-                    "Validity is not efficiency: the curve reported is D = D* - D*_Q - D*_g, "
+                    f"Validity is not efficiency: the curve reported is {self._curve()}, "
                     "entitled to be believed",
                     "under weaker conditions than D* rather than efficient under them. See "
                     "cleverly.estimators.drtmle.",
@@ -318,8 +336,11 @@ class ScoreCheck:
                             f"{abs(row.score_initial):.3e}"
                             if np.isfinite(row.score_initial)
                             else "-",
-                            f"{row.threshold:.3e}",
-                            f"{row.ratio:.2e}",
+                            # A `diagnostic` row is held to no threshold, so it has none to
+                            # print. A `nan` beside a `yes` in the `ok` column reads as a
+                            # bug rather than as a row that is not being judged.
+                            f"{row.threshold:.3e}" if np.isfinite(row.threshold) else "-",
+                            f"{row.ratio:.2e}" if np.isfinite(row.ratio) else "-",
                             "yes" if row.passed else "NO",
                         ]
                         for row in self.rows
@@ -338,7 +359,11 @@ class ScoreCheck:
             if row.failure:
                 # A recomputed row's `failure` is a statement about the fit's arithmetic
                 # rather than about a solver that gave up, so it is not introduced as one.
-                stopped = "" if row.kind in ("correction", "identity") else "targeting stopped -- "
+                stopped = (
+                    ""
+                    if row.kind in ("correction", "identity", "diagnostic")
+                    else "targeting stopped -- "
+                )
                 notes.append(f"  {row.name}: {stopped}{row.failure}")
             if row.folds_converged is not None:
                 good, total = row.folds_converged
@@ -483,8 +508,10 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     # and they are two different failures: an ``identity`` row says the solver and the curve
     # are not evaluating one expression, which is a software defect; a ``correction`` row
     # says the term the curve subtracts is not negligible, which is an unsolved equation.
-    # `cleverly.validation.drtmle` derives both, and returns nothing at all for a fit that
-    # reports no corrections -- so no ordinary report gains a row.
+    # A third kind, ``diagnostic``, is neither and cannot fail: it is a term a single-guard
+    # fit does not subtract, on the table because it is what says what the guard left out.
+    # `cleverly.validation.drtmle` derives all three, and returns nothing at all for a fit
+    # that reports no corrections -- so no ordinary report gains a row.
     corrections = correction_check(result, tolerance=tolerance, std_error=float(reference_se))
     rows.extend(_correction_rows(corrections, n_repeats=result.n_repeats))
 
@@ -527,6 +554,11 @@ def _correction_rows(check: CorrectionCheck, *, n_repeats: int) -> list[ScoreChe
 
     The draw index goes into the name only when there is more than one, exactly as the
     fluctuation rows do it, so an ordinary doubly-robust report reads as one fit's table.
+
+    An equation the fit's guard does not solve gets kind ``"diagnostic"`` rather than
+    ``"correction"``: its term is not in the reported curve, so there is nothing for it to
+    invalidate and no threshold to hold it to.  It is on the table anyway because it is
+    what says which robustness the guard bought and which it did not.
     """
     rows: list[ScoreCheckRow] = []
     for row in check.rows:
@@ -534,19 +566,19 @@ def _correction_rows(check: CorrectionCheck, *, n_repeats: int) -> list[ScoreChe
         rows.append(
             ScoreCheckRow(
                 name=f"{row.name}{suffix}",
-                kind="correction",
+                kind="correction" if row.solved else "diagnostic",
                 score=row.reported,
-                threshold=check.threshold,
+                threshold=check.threshold if row.solved else float("nan"),
                 std_error=check.std_error,
-                passed=bool(abs(row.reported) <= check.threshold),
+                passed=bool(not row.solved or abs(row.reported) <= check.threshold),
                 converged=True,
                 n_iter=0,
                 method="recomputed",
                 failure=(
                     ""
                     if row.solved
-                    else "the reported curve subtracts this and the fit solved no equation "
-                    "for it -- check the guard= this fit was given"
+                    else "not among the equations this fit's guard= solves, so the reported "
+                    "curve does not subtract it -- held to nothing"
                 ),
             )
         )

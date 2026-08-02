@@ -188,6 +188,12 @@ class DRTMLE(TMLE):
         Which extra score equations to solve, in ``drtmle``'s vocabulary and **crossed** the
         way that package crosses it -- see :data:`GUARDS`.  Both by default.  An empty guard
         fits no reduced regressions and is a plain TMLE, bit for bit.
+
+        It also says which corrections the reported curve subtracts -- one per equation
+        solved, so ``guard=("g",)`` reports :math:`D = D^* - D^*_Q` and the score check's
+        verdict names that curve.  The other equation's correction is still recomputed and
+        reported, held to no threshold, because it is what says what the guard did not buy.
+        Subtracting both whatever the guard was is ``docs/roadmap.md``'s item 23.
     reduction:
         ``"univariate"`` (default) is Benkeser et al. (2017)'s three univariate regressions.
         ``"bivariate"`` -- van der Laan (2014)'s original single bivariate reduced mechanism
