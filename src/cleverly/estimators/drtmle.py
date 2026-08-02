@@ -26,12 +26,18 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       to say "read ``res.validation.score_check()`` on every fit rather than assuming",
       which was documentation standing in for reporting -- an unlicensed interval was
       formatted exactly like a licensed one and the reader had to know to go looking.
-   5. **Under weak overlap the fit does not solve its own score equation.**  On
+   5. **The reported curve is not centred wherever the mechanism truncation binds.**  On
       ``weak_overlap_dgp`` the score check fails on 23 of 24 swept fits, with the worst
       score at rough parity with ``se/sqrt(n)`` rather than the ``1e-7`` every other process
-      reports.  A score that size is first order in the quantity the interval is built from,
-      so do not use this estimator where overlap is poor until that is understood.  It is
-      not the conditioning of item 4 -- ``ill_conditioned`` never fires on that process.
+      reports -- and on roughly a quarter of *ordinary* splits it fails by ``2e-5`` to
+      ``7e-4``.  The cause is one defect and it is located: equation (9) is solved against
+      the raw tilted :math:`g^*` while the :math:`D^*_g` the curve subtracts reads the
+      truncated one, so the two agree on every row the bound leaves alone and part company
+      on every row it clips.  A single clipped row of 600 is enough.  It is not the
+      conditioning of item 4 -- ``ill_conditioned`` never fires on that process -- and it is
+      *not* a stale array: recomputing the recorded score from the returned state reproduces
+      it bit for bit.  Until ``docs/roadmap.md``'s piece B1 lands, read a ``DRTMLE``
+      standard error as provisional on every process and check ``res.score_verdict``.
 
 Every interval this package reports is valid when the second-order remainder is negligible,
 and for a plain TMLE that remainder is the product
