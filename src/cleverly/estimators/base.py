@@ -34,6 +34,7 @@ from .targeting import TargetingSpec
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..sensitivity.api import SensitivityAnalysis
     from ..validation.api import ValidationSuite
+    from ..validation.score import ScoreCheck
 
 __all__ = [
     "ALL_ESTIMANDS",
@@ -587,6 +588,25 @@ class TMLEResult:
 
         return ValidationSuite(self)
 
+    @cached_property
+    def score_verdict(self) -> ScoreCheck:
+        """This fit's own answer to whether its interval is licensed.
+
+        The same object ``result.validation.score_check()`` returns, at the default
+        tolerance, held here because :meth:`summary` reports it and because a caller
+        should not have to know which subsystem owns the question.  **Derived, never
+        stored**: it is recomputed from the fluctuations a result carries, so a fit
+        reloaded from disk answers with its own records rather than with a flag written
+        at fit time that nothing could check afterwards.  That only became true with
+        format version 10 -- see
+        :data:`~cleverly.estimators.serialize.FORMAT_VERSION` -- and the ordering was not
+        incidental: before it, a reloaded doubly-robust fit's records were two equations
+        short and this property would have been confidently wrong.
+
+        Free: it reads cached arrays and refits nothing.
+        """
+        return self.validation.score_check()
+
     # ---------------------------------------------------------------- output
 
     def save(self, path: Any) -> Any:
@@ -787,6 +807,16 @@ class TMLEResult:
                     f"  {name:<5s} se {estimate.bootstrap.std_error:.4g}  "
                     f"percentile CI [{low:.5g}, {high:.5g}]"
                 )
+        # Last, and only when it failed. An interval whose score equation is unsolved is
+        # not a wider interval, it is one the theory does not license, and until now the
+        # only way to find that out was to know that `validation.score_check()` existed --
+        # documentation standing in for reporting. Silent on a passing fit deliberately:
+        # every transcript in the README and the guide is a passing fit, and a line there
+        # would be noise on the common path and easier to stop reading.
+        verdict = self.score_verdict
+        if not verdict.passed:
+            parts.append("")
+            parts.append(verdict.one_line())
         return "\n".join(parts)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

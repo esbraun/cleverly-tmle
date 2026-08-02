@@ -148,13 +148,46 @@ class ScoreCheck:
             return data.frame_like(payload)
         return frame_from_dict(payload)
 
+    def one_line(self) -> str:
+        """The verdict as a block a report can append, without the table.
+
+        Phrased here rather than at the call site so that every place a verdict is spoken
+        -- this module's own report, and :meth:`cleverly.TMLEResult.summary` -- says the
+        same thing.  It names the failing rows, because "the check failed" without them
+        sends the reader back to the method call this line exists to spare them.
+        """
+        failures = self.failures
+        if not failures:
+            return (
+                f"score check: PASS -- all {len(self.rows)} within tolerance "
+                f"(worst |score| {self._worst_ratio():.2e} of its threshold)."
+            )
+        named = "; ".join(
+            f"{row.name} |score| {abs(row.score):.3e} against {row.threshold:.3e}"
+            for row in failures
+        )
+        return "\n".join(
+            [
+                f"score check: FAIL -- {len(failures)} of {len(self.rows)} not solved.",
+                f"  {named}",
+                "  The standard errors above are read off an influence curve whose mean is",
+                "  not zero, so they do not describe this estimate.  See",
+                "  res.validation.score_check() for the table and cleverly.validation.score",
+                "  for the usual causes.",
+            ]
+        )
+
+    def _worst_ratio(self) -> float:
+        ratios = [row.ratio for row in self.rows if np.isfinite(row.ratio)]
+        return max(ratios) if ratios else float("nan")
+
     def summary(self) -> str:
         verdict = (
             "PASS: the targeting step solved the estimated efficient score equation."
             if self.passed
             else "FAIL: the score equation was not solved -- the influence-curve standard "
-            "errors below do not describe this estimate. See the module docstring for the "
-            "usual causes."
+            "errors this fit reports do not describe this estimate. See the module "
+            "docstring for the usual causes."
         )
         return "\n".join(
             [

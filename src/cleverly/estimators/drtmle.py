@@ -20,8 +20,12 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       near-singular on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so some draws exit at
       the outer cap and report ``failure = "max_iter_reached"``.  Over a 96-fit sweep 8 did
-      that, 86 stalled at a fixed point and 2 reached the tolerance.  Read
-      ``res.validation.score_check()`` on every fit rather than assuming.
+      that, 86 stalled at a fixed point and 2 reached the tolerance.  Which of those a
+      given fit did is on its own report: ``summary()`` ends with the score check whenever
+      the check fails, and ``res.score_verdict`` carries the verdict either way.  It used
+      to say "read ``res.validation.score_check()`` on every fit rather than assuming",
+      which was documentation standing in for reporting -- an unlicensed interval was
+      formatted exactly like a licensed one and the reader had to know to go looking.
    5. **Under weak overlap the fit does not solve its own score equation.**  On
       ``weak_overlap_dgp`` the score check fails on 23 of 24 swept fits, with the worst
       score at rough parity with ``se/sqrt(n)`` rather than the ``1e-7`` every other process

@@ -1061,8 +1061,16 @@ Why this is the right number, and how it is checked:
 > compared against that package's, and no study in this repository shows the interval it
 > reports is better than a plain TMLE's. The full list is in
 > [the roadmap](roadmap.md#what-is-still-open); the short version is at the end of this
-> section. Use it where you have a reason to think one nuisance is badly estimated, read
-> `res.validation.score_check()` on every fit, and do not treat the interval as settled.
+> section. Use it where you have a reason to think one nuisance is badly estimated, and do
+> not treat the interval as settled.
+
+What Theorem 1 licenses is an interval *conditional on* the score equations being solved to a
+negligible order, so a fit's own answer to that question is on the face of its report:
+`summary()` ends with the score check whenever the check fails, and `res.score_verdict`
+carries the verdict — the same object `res.validation.score_check()` returns — whether it
+passed or not. A passing fit says nothing extra. This matters here more than anywhere else in
+the package: under weak overlap the check fails on 23 of 24 swept fits, and every one of them
+returns a `psi`, an `se` and a confidence interval formatted like any other.
 
 TMLE is **doubly robust for consistency and singly robust for inference**. The estimate stays
 consistent if either nuisance is right, because the remainder is a *product* of the two

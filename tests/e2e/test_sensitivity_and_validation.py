@@ -328,6 +328,44 @@ class TestValidation:
         with pytest.raises(AssertionError, match="score equation was not solved"):
             strict.raise_if_failed()
 
+    def test_a_passing_fit_prints_no_verdict(self, good_overlap) -> None:
+        """Silent on the common path, which is what keeps every transcript untouched."""
+        assert good_overlap.score_verdict.passed
+        assert "score check" not in good_overlap.summary()
+
+    def test_a_failing_score_check_is_visible_in_the_summary(self, good_overlap) -> None:
+        """An unlicensed interval must not be formatted like any other.
+
+        The fit is grafted rather than found: `weak_overlap_dgp` fails this check 23 times
+        in 24 but costs a sweep to reach, and what is under test is the reporting rather
+        than the cause.  A score the targeting could not have left is exactly the state
+        item 11 describes arriving in practice.
+        """
+        fluctuation = good_overlap.repeats[0].fluctuations["mean"]
+        broken = dataclasses.replace(
+            good_overlap,
+            repeats=(
+                dataclasses.replace(
+                    good_overlap.repeats[0],
+                    fluctuations={
+                        "mean": dataclasses.replace(
+                            fluctuation, score=np.full_like(fluctuation.score, 0.5)
+                        )
+                    },
+                ),
+            ),
+        )
+
+        assert not broken.score_verdict.passed
+        summary = broken.summary()
+        assert "score check: FAIL" in summary
+        assert "mean" in summary.split("score check: FAIL")[1]
+        assert "do not describe this estimate" in summary
+        # The interval is still printed -- the line says it is not licensed, it does not
+        # withhold it. Predeclaring which regimes are refused outright needs piece B's
+        # evidence; see docs/roadmap.md.
+        assert "95% CI" in summary
+
     def test_nuisance_diagnostics_cover_every_model(self, good_overlap) -> None:
         diagnostics = good_overlap.validation.nuisance()
         names = {model.name for model in diagnostics.models}

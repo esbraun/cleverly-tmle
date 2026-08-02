@@ -72,6 +72,15 @@ class TestWhatItReports:
         assert {"mean", "mean (mechanism)", "mean (reduced)"} <= names
         assert check.passed
 
+    def test_the_verdict_is_reachable_without_knowing_the_subsystem(self, fit) -> None:
+        """``res.score_verdict`` is the same object, derived rather than stored."""
+        assert fit.score_verdict.rows == fit.validation.score_check().rows
+        assert fit.score_verdict.passed
+
+    def test_a_passing_fit_adds_no_line_to_the_summary(self, fit) -> None:
+        """The verdict is silent on the common path; only a failure interrupts a reader."""
+        assert "score check" not in fit.summary()
+
     def test_the_alternation_terminated_on_its_own(self, fit) -> None:
         """On *this* process, and the qualification is the point.
 
