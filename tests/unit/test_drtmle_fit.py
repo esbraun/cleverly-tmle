@@ -614,10 +614,27 @@ class TestTheReportedCurveIsNotAlwaysCentred:
 
     So the recorded score for equation (9) and the mean of the :math:`D^*_g` the curve
     actually subtracts **disagree**: on this module's ``repeated`` fixture the first is
-    ``3.7e-11`` and the second ``-2.3e-04``.  One of the two is measured at arrays the other
-    is not, which is the class of defect
+    ``3.7e-11`` and the second ``-2.3e-04``.  That is the class of defect
     :class:`TestTheCurveReadsWhatTheAlternationLeft` exists for and which no test here
     previously covered, because every test above reads one fit on one split.
+
+    **The cause is located and it is not two states.**  Recomputing the recorded score from
+    the returned ``fluctuation.mechanism.propensity`` and ``fluctuation.reduction.reduced``
+    reproduces it bit for bit; what differs is that the fluctuation solves
+    :math:`P_n[H_g (A - g^*)] = 0` at the *raw* tilted mechanism while
+    :func:`~cleverly.inference.influence.reduced_corrections` truncates :math:`g^*` inside
+    the residual too.  The two therefore agree on every row the bound leaves alone: on this
+    fixture draw 0 clips **0** of 600 rows and is centred at ``1e-11``, draw 1 clips **5**
+    and is off by ``2.3e-04``, and the reported curve's mean is ``-range`` times the score
+    at the truncated residual to three figures.  Six seeded single fits give the converse --
+    the five with no clipped row pass, the one with a single clipped row fails at
+    ``5.8e-04``.
+
+    So this class pins a *symptom* and the fixture is only in the failing state because its
+    draw 1 happens to clip.  When ``docs/roadmap.md``'s piece B1 lands, rewrite rather than
+    delete: the identity to assert is that the stored score equals ``mean(w * D*_g)`` at the
+    returned state, and it has to be asserted on a draw where the bound **binds**, or it
+    passes under either convention.
 
     ``repeats=`` is **not** the cause and refusing it would be misdiagnosing this: a draw of
     a repeated fit is an ordinary fit, and the affected draws include first draws.  What

@@ -1152,11 +1152,21 @@ def _close_at_frozen_reductions(
     discovering it.**  Equation (9)'s covariate is :math:`Q_r/g^*`: it reads the very
     mechanism it tilts, so one :func:`~cleverly.fluctuation.mechanism.solve_mechanism` call
     zeroes the score at the covariate built from the *pre-tilt* :math:`g^*` and leaves a
-    residual at the post-tilt one.  Iterating shrinks that; it does not remove it.  The
-    honest claim is that all three equations are solved at the arrays the curve is built
-    from, to the loop's tolerance, not exactly.  Whether that stage stopped on ``max_steps``
-    or on the tolerance is reported as ``capped``, so that a reader is not left to infer
-    convergence from a step count that has no other way of saying which it was.
+    residual at the post-tilt one.  Iterating shrinks that; it does not remove it.  Whether
+    that stage stopped on ``max_steps`` or on the tolerance is reported as ``capped``, so
+    that a reader is not left to infer convergence from a step count that has no other way
+    of saying which it was.
+
+    **And "all three equations are solved at the arrays the curve is built from" is the
+    claim this docstring used to make, which is measured and false.**  The arrays are the
+    same arrays; the *expressions* are not.  This stage solves
+    :math:`P_n[H_g (A - g^*)] = 0` at the raw tilted mechanism, while
+    :func:`~cleverly.inference.influence.reduced_corrections` truncates :math:`g^*` inside
+    its residual as well as in its denominator -- so the two coincide on every row the
+    truncation leaves alone and differ on every row it clips, and one clipped row of 600 is
+    enough to leave the reported curve uncentred by ``5.8e-4`` while this stage records
+    ``8e-11``.  That is item 20 in ``docs/roadmap.md``, it accounts for item 11 as well, and
+    which of the two conventions is right is that page's piece B1.
     """
     steps = 0
     if "Q" in guard:
