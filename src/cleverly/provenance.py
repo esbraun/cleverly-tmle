@@ -23,7 +23,7 @@ import hashlib
 import platform
 import sys
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -145,7 +145,7 @@ def build(
         cleverly_version=__version__,
         python_version=sys.version.split()[0],
         platform=platform.platform(terse=True),
-        created_utc=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        created_utc=datetime.now(UTC).isoformat(timespec="seconds"),
         n=n,
         n_covariates=n_covariates,
         n_clusters=n_clusters,
