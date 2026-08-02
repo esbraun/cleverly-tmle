@@ -836,7 +836,8 @@ def solve_with_reduction(
     :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
 
     **Swept over 96 fits** -- four processes by two sizes by twelve seeds, the table under
-    *How the alternation exits* -- which replaced the six-fit claim that stood here.  It
+    *How the alternation exits* in ``docs/drtmle-investigation-log.md`` -- which replaced the
+    six-fit claim that stood here.  It
     said the loop "converged in 15 to 45 rounds" on six seeded draws of *one* process, and
     so ran to the cap only on a minority.  Running out of rounds is a minority (8 of 96),
     but converging is rarer: **2 of 96 reached the tolerance and 86 stalled**.  The
@@ -1165,8 +1166,10 @@ def _close_at_frozen_reductions(
     its residual as well as in its denominator -- so the two coincide on every row the
     truncation leaves alone and differ on every row it clips, and one clipped row of 600 is
     enough to leave the reported curve uncentred by ``5.8e-4`` while this stage records
-    ``8e-11``.  That is item 20 in ``docs/roadmap.md``, it accounts for item 11 as well, and
-    which of the two conventions is right is that page's piece B1.
+    ``8e-11``.  That is item 20 in ``docs/roadmap.md`` -- measurements in
+    ``docs/drtmle-investigation-log.md`` -- it accounts for item 11 as well, and which
+    convention is right is piece B1b's, there being **more than two** of them and the
+    theorem's own algorithm truncating nothing at all.
     """
     steps = 0
     if "Q" in guard:

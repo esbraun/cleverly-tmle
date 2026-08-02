@@ -315,8 +315,8 @@ class TestTheAlternationCanBeIllConditioned:
     wrong.**  Six seeded fits at ``n = 800`` on this one process reported no ill-conditioned
     solve and a worst score of ``1e-9``, which read as a minority behaviour of particular
     draws.  A 96-fit sweep -- four processes by two sizes by twelve seeds, tabulated in
-    ``docs/roadmap.md`` under *How the alternation exits* -- says otherwise: the solve is
-    ill-conditioned on 5 of 12 ``linear`` draws at ``n = 600`` and 9 of 12 at ``n = 1,200``,
+    ``docs/drtmle-investigation-log.md`` under *How the alternation exits* -- says otherwise:
+    the solve is ill-conditioned on 5 of 12 ``linear`` draws at ``n = 600`` and 9 of 12 at ``n = 1,200``,
     and highest exactly where the mechanism is easiest to get right, which is what the
     paragraph above predicts and what sweeping only hard processes would have hidden.  A fit
     that hits it reports ``failure = "max_iter_reached"`` and ``score_check`` says NO, and
@@ -392,7 +392,8 @@ class TestAnEquationStopsOnEitherRuler:
     Asserting ``exit_reason == "tolerance"`` on a fitted result would be the other candidate,
     and it is rejected for the reason the class above rejects it: which exit fires is a
     property of the draw, and six fits are not enough to make it a property of the estimator.
-    The sweep in ``docs/roadmap.md`` had 2 of 96 reach the tolerance under the *old* rule and
+    The sweep in ``docs/drtmle-investigation-log.md`` had 2 of 96 reach the tolerance under
+    the *old* rule and
     the new rule has not been swept, so pinning it here would pin a seed.
 
     The magnitudes are the measured ones.  On a 400-row ``linear`` fit the round the loop
@@ -631,10 +632,11 @@ class TestTheReportedCurveIsNotAlwaysCentred:
     ``5.8e-04``.
 
     So this class pins a *symptom* and the fixture is only in the failing state because its
-    draw 1 happens to clip.  When ``docs/roadmap.md``'s piece B1 lands, rewrite rather than
+    draw 1 happens to clip.  When ``docs/roadmap.md``'s piece B1a lands, rewrite rather than
     delete: the identity to assert is that the stored score equals ``mean(w * D*_g)`` at the
     returned state, and it has to be asserted on a draw where the bound **binds**, or it
-    passes under either convention.
+    passes under every convention.  B1a is the patch that asserts the identity without
+    choosing a convention; B1b is where the convention is chosen, and it waits on the theorem.
 
     ``repeats=`` is **not** the cause and refusing it would be misdiagnosing this: a draw of
     a repeated fit is an ordinary fit, and the affected draws include first draws.  What
