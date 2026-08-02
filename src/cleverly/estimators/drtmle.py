@@ -7,10 +7,18 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
    thing is right at all.  The full list, with what each would change, is in
    ``docs/roadmap.md`` under *What is still open*.  The five a caller's numbers depend on:
 
-   1. **Theorem 1 of Benkeser et al. (2017) has not been read.**  The influence curve --
-      which is the whole of what this variant buys -- is read off the R package ``drtmle``'s
-      implementation rather than derived.  See
-      :func:`~cleverly.inference.influence.reduced_corrections`.
+   1. **The influence curve is transcribed rather than derived, and where it has now been
+      checked against a statement of Theorem 1 it disagrees -- on a sign.**  The curve is
+      the whole of what this variant buys and it is read off the R package ``drtmle``'s
+      implementation.  The 2016 working-paper version of Benkeser et al. defines
+      :math:`D_A = -(Q_r/g)(A - g)` and *subtracts* it, so its net mechanism-side
+      contribution is :math:`+(Q_r/g)(A - g)`, where this package and ``drtmle`` alike
+      compute a positive :math:`D^*_g` and subtract that.  Nothing that reports a point
+      estimate can see it -- all three empirical means are driven to zero -- and what it
+      moves is the variance.  Open pending the *published* 2017 article, which is
+      authoritative and is not in hand; that is item 21, and
+      ``docs/drtmle-theorem-concordance.md`` carries the objects and the acceptance test.
+      See :func:`~cleverly.inference.influence.reduced_corrections`.
    2. **No number here has been compared against ``drtmle``'s output.**  The cheapest check
       on item 1, and it has not been done.
    3. **Nothing demonstrates that the interval is better.**  A coverage study over the
@@ -36,8 +44,10 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       on every row it clips.  A single clipped row of 600 is enough.  It is not the
       conditioning of item 4 -- ``ill_conditioned`` never fires on that process -- and it is
       *not* a stale array: recomputing the recorded score from the returned state reproduces
-      it bit for bit.  Until ``docs/roadmap.md``'s piece B1 lands, read a ``DRTMLE``
-      standard error as provisional on every process and check ``res.score_verdict``.
+      it bit for bit.  Until ``docs/roadmap.md``'s piece B1a lands, read a ``DRTMLE``
+      standard error as provisional on every process and check ``res.score_verdict``.  Which
+      convention replaces it is piece B1b's and waits on the theorem: there are more than
+      two candidates, and the theorem's own algorithm truncates nothing at all.
 
 Every interval this package reports is valid when the second-order remainder is negligible,
 and for a plain TMLE that remainder is the product

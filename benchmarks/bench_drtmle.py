@@ -12,8 +12,8 @@ exists so the numbers stop living as prose in a docstring.  It is the same reaso
 ``bench_tmle.py`` states for keeping its rows: a comparison nobody can rerun becomes
 folklore.
 
-**It has been run, and the table is in ``docs/roadmap.md`` under *How the alternation
-exits*.**  What it found is worth knowing before running it again.  Item 4's "minority
+**It has been run, and the table is in ``docs/drtmle-investigation-log.md`` under *How the
+alternation exits*.**  What it found is worth knowing before running it again.  Item 4's "minority
 behaviour rather than the norm" named the wrong minority: 8 of 96 fits ran out of rounds,
 but only **2 reached the tolerance** and **86 stalled**.  Item 6 held exactly (94 of 96).
 Item 7's disagreement showed on 68 of 96 and the criterion was changed on the strength of

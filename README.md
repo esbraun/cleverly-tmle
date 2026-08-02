@@ -320,7 +320,7 @@ python benchmarks/bench_tmle.py
 `ruff` is pinned exactly, in `pyproject.toml`'s `dev` extra and in `.github/workflows/ci.yml`,
 and it formats the Python blocks inside Markdown as well as the source — so run it over the
 whole tree, not just `src` and `tests`. `noxfile.py` wraps the same steps
-(`nox -s lint typecheck tests`), and the fast tier runs on Python 3.10–3.13 in CI.
+(`nox -s lint typecheck tests`), and the fast tier runs on Python 3.11–3.13 in CI.
 
 ## Citing
 
