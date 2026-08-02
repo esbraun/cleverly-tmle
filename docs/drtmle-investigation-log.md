@@ -363,7 +363,7 @@ code, three of [the first review](drtmle-review.md)'s charges came back narrower
 so it decays at the rate claims with no instrument decay. **The cheapest instrument for a prose
 claim is a reader who has the source open**, and one pass of that over this page cost less than
 any item on it. The second review is the same lesson arriving with the *source itself* attached,
-and it found [item 21](roadmap.md#a1--the-theoretical-audit) — a sign — which no reader without
+and it found [item 21](roadmap.md#a1a--the-theoretical-audit) — a sign — which no reader without
 the theorem could have found and no test in this repository would ever have failed against.
 
 **7. A test can pin the wrong half of what it is named for, and then it decays like a prose
@@ -434,3 +434,32 @@ was not knowable from here. Parity with a reference implementation has the same 
 spot in the same place, and by construction: R and Python descend from one source, so agreement
 is evidence about the transcription and not about the derivation. **Two checks that cannot fail
 against the same class of error are one check**, however different their machinery.
+
+**11. Before building an oracle, check whether the quantity collapses onto one already here — at
+the value the check has to be taken at.** [A1a](roadmap.md#a1a--the-theoretical-audit) was sized
+as a further `discrete_law*` module carrying the whole DRTMLE limit as an analytic functional:
+initial nuisances, three reduced regressions, the alternation, differentiated by complex step.
+That is a few hundred lines, it re-encodes the algorithm rather than the derivation, and it would
+have had to reproduce a loop [limitation 4](roadmap.md#limitations-recorded-rather-than-fixed)
+says does not reliably converge.
+
+None of it was needed. The check has to be taken **in the union model**, because that is where
+Theorem 1 applies — and there, at saturated reductions, the corrected curve collapses onto the
+ordinary efficient influence function: `1/g_1 − g_{r,2}/g_{r,1} = 1/g_0` on the mechanism side,
+and on the outcome side the `Q̄*` in `D*` cancels against the one inside `Q_r = Q̄_0 − Q̄*`. The
+right-hand side was therefore already in the repository — `tests/discrete_law.py`'s `eif`, written
+years earlier for the plain estimator — and what had to be written was the left. The module is one
+file with no functional in it, it runs in under a second, and it closes to `1e-15` from a real fit.
+
+The sizing error was not effort, it was **reading the plan's instrument as the requirement**. "Pin
+the decomposition the way the `test_influence_gateaux*` modules do" was taken to mean *build what
+those modules build*; what it meant was *compare against a derivative*. The general form: when a
+plan names a technique, re-derive what the technique is for before costing it — the constraint
+that makes the work necessary (here, the union model) is often the one that makes it small.
+
+Two riders, because the collapse is not free. It holds only at **saturated** reductions, so the
+module is silent about the pooled cross-fitting construction by construction — [stop-ship
+14](roadmap.md#stop-ship) exists so that silence is not later read as agreement. And it made three
+mutations invisible, each found by running it and watching it *pass*. That half of the record is
+the one that is never kept: a suite documents what it caught, and what it cannot catch is what a
+later reader mistakes for coverage.
