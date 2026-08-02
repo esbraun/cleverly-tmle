@@ -225,6 +225,7 @@ class TestTheImplementationComputesTheTheoremsTerms:
             reduced_at(WRONG_G, WRONG_Q),
             WRONG_G[covariate],
             bounds=(1e-6, 1.0 - 1e-6),
+            guard=("Q", "g"),
             observed=None,
         )
         u, v = positive_terms(arm)

@@ -426,15 +426,19 @@ a selector hard-wired to select nothing, so it is not evidence that the search
 discriminates between covariates. The claim that it does is tested where selecting nothing
 is *wrong* — with the outcome model reduced to a constant, the search includes the
 confounder in every seed and still leaves the instrument out, while a do-nothing selector
-is biased by 0.81 against 0.037. Second, there is no cross-language check: R's `ctmle` is
-not compared against here or in CI. `cleverly.estimators.ctmle` sets both out in full.
+is biased by 0.81 against 0.037. Second, there is no cross-language check and there will not be: R's `ctmle` is not compared
+against here or in CI, by [decision](roadmap.md#closed-since-this-list-opened) rather than for
+want of effort. `cleverly.estimators.ctmle` sets both out in full.
 
 ## Doubly-robust inference: what the extra equations remove
 
 **`DRTMLE` is in progress**, and this section describes what it computes rather than what has
-been established about it: the influence curve below is transcribed from R's `drtmle` rather
-than derived, and nothing here has been compared against that package's numbers. The
-roadmap's [What is still open](roadmap.md#what-is-still-open) is the full list.
+been established about it: the influence curve below was transcribed from R's `drtmle` rather
+than derived, and has since been checked against Theorem 1. Nothing here has been compared
+against that package's *numbers* and nothing will be — a
+[decision](roadmap.md#closed-since-this-list-opened) rather than a gap, since agreement between
+two transcriptions of one source is evidence about the transcription. The roadmap's [What is
+still open](roadmap.md#what-is-still-open) is the full list.
 
 `TMLE` is **doubly robust for consistency and singly robust for inference**, and the
 distinction is the whole of what `DRTMLE` is for. The second-order remainder is a product,
@@ -474,8 +478,10 @@ in the software paper's numbering, are
 | (10) | `Pn[ 1_a * gr2(a\|W) / gr1(a\|W) * (Y - Qbar*(a, W)) ] = 0` | `Qbar`, a second covariate |
 
 and the reported influence curve is `D = D* - D*_Q - D*_g` with `D*_g` and `D*_Q` the
-left-hand sides above, row by row. All three empirical means are zero after targeting, so
-the subtraction **cannot move the point estimate**; it moves only the variance.
+left-hand sides above, row by row — **one term per equation the guard asked for**, so a
+single-guard fit reports one of the two and a shorter curve. All three empirical means are
+zero after targeting, so the subtraction **cannot move the point estimate**; it moves only
+the variance.
 
 Four things about this are easy to get wrong, and each has an instrument.
 
@@ -484,6 +490,16 @@ adds equation (9), which fluctuates `g`; `guard="g"` guards against a misspecifi
 *mechanism* and adds equation (10), which fluctuates `Qbar`. The keyword names the nuisance
 you are worried about, not the one the equation it adds moves. An empty guard fits no
 reduced regressions at all and is bit-for-bit a plain TMLE.
+
+The crossing runs all the way through to the **curve**, and for two revisions it did not:
+the correction a guard's equation solves for is the one the curve subtracts, so `guard=("g",)`
+reports `D = D* - D*_Q` and never poses equation (9) at all. Subtracting a term whose equation
+a fit never solved leaves an arbitrary number in the curve — `1.2e-03` on the outcome scale
+against a `5.4e-06` bar on the measured case, with no truncation anywhere near it. That was
+roadmap item 23, and the derivation ruling on it was already in
+`tests/unit/test_remainder_drtmle.py`, which adds each correction under the guard whose
+equation removes it. The unsolved equation's correction is still *reported*, as a diagnostic
+held to no threshold.
 
 **The three equations are solved at the arrays the curve is built from.** That is not
 automatic and it is what makes the reported curve mean-zero, which is in turn what makes the
@@ -523,7 +539,8 @@ most one projection is non-negligible, which is why `drtmle` solves both by defa
 
 **Validity is not efficiency, and the corrected curve is not the efficient one.** Under
 misspecification the efficient influence function at `P_0` is still `D*`. What the three
-equations leave is `D = D* - D*_Q - D*_g`, the *estimator's* asymptotic influence function at
+equations leave is `D = D* - D*_Q - D*_g` (one term shorter under a single guard, as above),
+the *estimator's* asymptotic influence function at
 the limits `ghat` and `Qbarhat` converge to, and the estimator is generally **not efficient**
 there — the union model it stays valid over is larger than the model it is efficient in. So
 what `DRTMLE` buys is an interval entitled to be believed under weaker conditions: **not** a
@@ -692,8 +709,11 @@ push, in both a comfortable-overlap and a weak-overlap version — and the two d
 is the point of having both.
 
 Two things this does **not** include, stated plainly because their absence is easy to miss.
-There is no comparison against another implementation: not R's `tmle`, not `tmle3`, not
-`ctmle`. And `score_check()` passing is not evidence that the equation was the right one —
+There is no comparison against another implementation — not R's `tmle`, not `tmle3`, not
+`ctmle` — and that is a standing decision: agreement with a second implementation is evidence
+about a transcription, and what is checked here instead is that each method produces what its
+derivation predicts. [The roadmap's item 2](roadmap.md#closed-since-this-list-opened) carries
+the reasoning. And `score_check()` passing is not evidence that the equation was the right one —
 see below.
 
 ## How to read a refusal

@@ -5,7 +5,7 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
    **This variant is in progress.**  The code is written and its tests pass; that is not the
    same as finished, and two of the outstanding items are the kind that decide whether the
    thing is right at all.  The full list, with what each would change, is in
-   ``docs/roadmap.md`` under *What is still open*.  The five a caller's numbers depend on:
+   ``docs/roadmap.md`` under *What is still open*.  The four a caller's numbers depend on:
 
    1. **The influence curve was transcribed rather than derived, and it has now been checked
       against Theorem 1 and agrees.**  The curve is the whole of what this variant buys and
@@ -19,13 +19,14 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       variance formula then reads exactly as this package computes it.  The argument, and the
       two further sign slips in the same document, are in
       ``docs/drtmle-theorem-concordance.md`` §4; ``tests/unit/test_theorem_drtmle.py`` pins
-      it.  See :func:`~cleverly.inference.influence.reduced_corrections`.
-   2. **No number here has been compared against ``drtmle``'s output.**  The cheapest check
-      on item 1, and it has not been done.
-   3. **Nothing demonstrates that the interval is better.**  A coverage study over the
+      it, at a **nonzero** :math:`Q_r`, which is the only place a sign is visible.  What is
+      *not* planned is a comparison against that package's numbers: both descend from one
+      source, so agreement would be evidence about the transcription and blind to exactly
+      this error.  See :func:`~cleverly.inference.influence.reduced_corrections`.
+   2. **Nothing demonstrates that the interval is better.**  A coverage study over the
       off-diagonal of the misspecification grid found no gap for this variant to close at
       the sizes it could reach; the regime it is for is out of reach of a nightly budget.
-   4. **The alternation does not reliably converge.**  Equation (10)'s covariate is
+   3. **The alternation does not reliably converge.**  Equation (10)'s covariate is
       near-singular on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so some draws exit at
       the outer cap and report ``failure = "max_iter_reached"``.  Over a 96-fit sweep 8 did
@@ -35,7 +36,7 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       to say "read ``res.validation.score_check()`` on every fit rather than assuming",
       which was documentation standing in for reporting -- an unlicensed interval was
       formatted exactly like a licensed one and the reader had to know to go looking.
-   5. **The reported curve is not centred wherever the mechanism truncation binds.**  On
+   4. **The reported curve is not centred wherever the mechanism truncation binds.**  On
       ``weak_overlap_dgp`` the score check fails on 23 of 24 swept fits, with the worst
       score at rough parity with ``se/sqrt(n)`` rather than the ``1e-7`` every other process
       reports -- and on roughly a quarter of *ordinary* splits it fails by ``2e-5`` to
@@ -43,7 +44,7 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       the raw tilted :math:`g^*` while the :math:`D^*_g` the curve subtracts reads the
       truncated one, so the two agree on every row the bound leaves alone and part company
       on every row it clips.  A single clipped row of 600 is enough.  It is not the
-      conditioning of item 4 -- ``ill_conditioned`` never fires on that process -- and it is
+      conditioning of item 3 -- ``ill_conditioned`` never fires on that process -- and it is
       *not* a stale array: recomputing the recorded score from the returned state reproduces
       it bit for bit.
 
@@ -174,10 +175,12 @@ class DRTMLE(TMLE):
     consistently estimated.
 
     **Read the module docstring's warning before using this in anger.**  The curve it
-    reports is transcribed from the R package rather than derived, nothing has been compared
-    against that package's numbers, and no study here demonstrates the interval is better
-    than a plain TMLE's.  What the module docstring says about what this does and does not
-    buy is not hedging: it is the current state of the evidence.
+    reports was transcribed from the R package rather than derived -- it has since been
+    checked against Theorem 1 and agrees, and nothing has been compared against that
+    package's *numbers*, which is a decision rather than a gap -- and no study here
+    demonstrates the interval is better than a plain TMLE's.  What the module docstring says
+    about what this does and does not buy is not hedging: it is the current state of the
+    evidence.
 
     Every :class:`~cleverly.TMLE` keyword is accepted and behaves identically except the
     ones listed under *Notes*, which are refused rather than approximated.
@@ -188,6 +191,12 @@ class DRTMLE(TMLE):
         Which extra score equations to solve, in ``drtmle``'s vocabulary and **crossed** the
         way that package crosses it -- see :data:`GUARDS`.  Both by default.  An empty guard
         fits no reduced regressions and is a plain TMLE, bit for bit.
+
+        It also says which corrections the reported curve subtracts -- one per equation
+        solved, so ``guard=("g",)`` reports :math:`D = D^* - D^*_Q` and the score check's
+        verdict names that curve.  The other equation's correction is still recomputed and
+        reported, held to no threshold, because it is what says what the guard did not buy.
+        Subtracting both whatever the guard was is ``docs/roadmap.md``'s item 23.
     reduction:
         ``"univariate"`` (default) is Benkeser et al. (2017)'s three univariate regressions.
         ``"bivariate"`` -- van der Laan (2014)'s original single bivariate reduced mechanism

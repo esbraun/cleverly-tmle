@@ -1057,8 +1057,8 @@ Why this is the right number, and how it is checked:
 ## Doubly-robust inference
 
 > **In progress.** `DRTMLE` is written and tested, and it is not finished. Its influence
-> curve is transcribed from R's `drtmle` rather than derived, no number here has been
-> compared against that package's, and no study in this repository shows the interval it
+> curve was transcribed from R's `drtmle` rather than derived — it has since been checked
+> against Theorem 1 and agrees — and no study in this repository shows the interval it
 > reports is better than a plain TMLE's. The full list is in
 > [the roadmap](roadmap.md#what-is-still-open); the short version is at the end of this
 > section. Use it where you have a reason to think one nuisance is badly estimated, and do
@@ -1137,7 +1137,10 @@ solve its equations, an `identity` row says the solver and the curve are not eva
 expression, which is a defect that iterating longer will not fix. Per arm and not only on the
 `ate`, because errors in the two arms cancel in a difference. `res.validation.correction_check()`
 is the recomputation itself, with the clipping bias `B_clip` that explains an identity failure when
-the mechanism truncation is what caused it.
+the mechanism truncation is what caused it. A third kind, `diagnostic`, appears only on a
+single-guard fit and is neither: it is the correction for the equation that fit does **not** solve,
+reported because it says what the guard left out, and held to no threshold because nothing
+subtracts it.
 
 And what changed is the interval, not the estimate — on this
 fit `ate` is 1.5348 against a plain TMLE's 1.5292, a twelfth of a standard error apart, while
@@ -1162,11 +1165,20 @@ Both by default; `guard=()` fits no reduced regressions at all and is bit-for-bi
 TMLE. `reduced_outcome_learner=` and `reduced_treatment_learner=` take the reduced
 regressions' learners, defaulting to the primary ones.
 
-**Use one guard alone with care**: the curve currently subtracts *both* corrections whatever
-`guard=` says, so a single-guard fit subtracts a term whose equation it never solved and its
-interval is not licensed. Such a fit says so — its score check fails with a `correction` row
-naming the arm, and the note names `guard=` — and it is
-[item 23](roadmap.md#what-is-still-open), open. The default is unaffected.
+**A single guard reports a shorter curve, and the report says which.** One correction per
+equation the guard asks for: `guard=("g",)` solves equation (10) and reports
+`D = D* - D*_Q`, and the verdict names that rather than the both-guards curve. The other
+equation's correction is still recomputed and printed, as a `diagnostic` row held to no
+threshold — it is what says what the guard did not buy — and it cannot fail a check, because
+nothing subtracts it. Until [item 23](roadmap.md#closed-since-this-list-opened) closed, the
+curve subtracted both terms whatever `guard=` said, so a single-guard fit carried a term
+whose equation it had never posed; measured at `1.2e-03` on the outcome scale against a
+`5.4e-06` bar, with the mechanism truncation binding on no row at all.
+
+What *is* worth care is the statistical reading, which is unchanged: one guard insures
+against the one nuisance it names and nothing else. And two guards are not strictly better
+— on a law where both conditioning sets are saturated they over-correct, which is arithmetic
+rather than a defect and is what `tests/unit/test_remainder_drtmle.py` shows.
 
 It costs real time — two further learner fits per arm on every round of an alternation,
 refitted *inside* the loop as the source does. One consequence is worth knowing: `retarget`
@@ -1185,9 +1197,12 @@ been checked against Theorem 1 — in the 2016 working-paper version, kept at
 `docs/viewcontent.cgi.pdf` — and it agrees, though the paper's own display of one correction
 prints a sign its appendices contradict, so the check took an argument rather than a glance
 ([the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)).
-There is still no cross-check against `drtmle`'s own numbers. A coverage study on the off-diagonal
-of the misspecification grid found *no gap for this variant to close* at the sizes it could
-reach: the regime it is for needs an adaptive good nuisance converging more slowly than
+There is no cross-check against `drtmle`'s own *numbers* and there will not be: both
+implementations descend from one source, so agreement would be evidence about the transcription
+and blind to exactly the sign above — [the roadmap's item
+2](roadmap.md#closed-since-this-list-opened) is that decision and its reasoning. A coverage study
+on the off-diagonal of the misspecification grid found *no gap for this variant to close* at the
+sizes it could reach: the regime it is for needs an adaptive good nuisance converging more slowly than
 `n^(-1/4)`, which is beyond what a nightly budget can simulate. And the alternation does not
 reliably converge — equation (10)'s covariate is near-singular on exactly the fits anybody
 wants, so some fold draws exit at the outer cap, which is what the score check is for.

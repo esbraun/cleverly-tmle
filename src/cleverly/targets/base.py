@@ -273,7 +273,10 @@ class TargetContext:
     reference: float = 0.0
     #: ``(n, K, R)`` regime densities, for the ``regime`` fluctuation; ``None`` otherwise.
     regimes: FloatArray | None = None
-    #: The doubly-robust corrections per arm, ``D*_Q + D*_g``, for a fit that solved the
+    #: The doubly-robust corrections per arm, ``D*_Q + D*_g`` -- or whichever of the two a
+    #: single-guard fit solved for, since
+    #: :meth:`~cleverly.inference.influence.CorrectionParts.total` selects on the guard --
+    #: for a fit that solved the
     #: extra score equations; ``None`` for every other fit.  Subtracted from the ``mean``
     #: group's curves and reaching nothing else -- the other groups have no reduced-
     #: dimension derivation, and a fit declaring one is refused before it gets here.

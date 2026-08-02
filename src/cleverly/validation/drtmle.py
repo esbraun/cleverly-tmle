@@ -31,12 +31,19 @@ further iteration would fix it because the loop is not posing the equation the c
 *A correction score* -- :math:`P_n[w D^*_g]` or :math:`P_n[w D^*_Q]` above the inferential
 tolerance -- is a **fit that did not solve its equations**, which is the ordinary thing
 :mod:`cleverly.validation.score` is about, reported per arm and per equation so that a
-reader can see which one.  It also catches a case nothing else here does: a fit guarding
-only one nuisance subtracts *both* corrections while solving only one equation, so the
-unsolved one's mean is whatever it happens to be.
+reader can see which one.
 
 Both are reported through :class:`~cleverly.validation.score.ScoreCheck`, which is what
 ``summary()`` prints from, and each keeps its own wording there.
+
+*And a row that is neither.*  A fit guarding one nuisance solves one of the two extra
+equations, so its curve subtracts one correction -- and the other term is still reported
+here, marked :attr:`~CorrectionRow.solved` ``False``, as the diagnostic saying what is
+**not** in this curve.  Such a row is not a failure and cannot be one: nothing subtracts
+it.  This is where item 23 was found and it is the wrong way round from how it read then.
+The instrument's first run against a ``guard=("g",)`` fit reported :math:`2.8\times10^{-3}`
+at arm 1 with **no** row clipped and no equation (9) anywhere in the fit -- and at the time
+the curve subtracted that term anyway.  It no longer does; the row that found it stays.
 
 What this does **not** do is choose a convention.  Which mechanism equation (9) ought to be
 solved against is a derivation -- there are more than two candidates and the theorem's own
@@ -102,7 +109,10 @@ class CorrectionRow:
         below is a statement about two expressions rather than about two states.
     reported:
         :math:`P_n[w D^*]` for the same arm, recomputed from the returned state through the
-        very expression the reported curve subtracts.
+        very expression the reported curve subtracts -- or, where :attr:`solved` is
+        ``False``, would subtract if the fit had solved for it.  Built by
+        :func:`~cleverly.inference.influence.reduced_correction_parts`, which forms both
+        terms whatever the guard is precisely so this row exists.
     clip_bias:
         :math:`B_{clip}(a) = P_n[w\\,Q_r/g^b\\,(g - g^b)]` for the ``"D*_g"`` row, ``nan``
         for the other.  On the current implementation it reproduces **minus**
@@ -115,8 +125,12 @@ class CorrectionRow:
         How many rows the mechanism truncation binds on in this draw.  Zero means the
         identity is uninformative -- it holds under every convention there.
     solved:
-        Whether this fit solved the equation the correction comes from.  ``False`` on a
-        single-guard fit, which subtracts both corrections and solves one.
+        Whether this fit solved the equation the correction comes from -- which, since
+        item 23, is the same question as whether the term is in the reported curve, because
+        :meth:`~cleverly.inference.influence.CorrectionParts.total` selects on the same
+        guard.  ``False`` on a single-guard fit's other equation, and such a row is
+        informational: :meth:`CorrectionCheck.correction_failures` does not read it, since
+        a term nothing subtracts cannot make an interval wrong however large it is.
     """
 
     draw: int
@@ -150,6 +164,13 @@ class CorrectionCheck:
 
     Empty -- and :attr:`passed` -- for any fit that reports no corrections, which is every
     fit but :class:`~cleverly.DRTMLE` with a non-empty guard.
+
+    A guarded fit gets ``2 * arms`` rows whatever its guard is, of which ``len(guard)`` per
+    arm are *judged*: the rest are the terms this fit's curve does not subtract, reported
+    because they are the only thing that says what the guard left on the table.  Three
+    things coincide on every row, and it is worth stating as one fact rather than three:
+    the equation was solved, :attr:`CorrectionRow.stored` is finite, and the term is in the
+    curve.
     """
 
     rows: tuple[CorrectionRow, ...]
@@ -180,8 +201,16 @@ class CorrectionCheck:
         )
 
     def correction_failures(self) -> tuple[CorrectionRow, ...]:
-        """Rows whose correction is not negligible at the state the fit returned."""
-        return tuple(row for row in self.rows if abs(row.reported) > self.threshold)
+        """Rows whose correction is not negligible at the state the fit returned.
+
+        Only the rows the curve actually subtracts.  A term a fit did not solve for is not
+        in its curve and cannot make its interval wrong however large it is, so an
+        unsolved row is reported and judged against nothing -- see
+        :attr:`CorrectionRow.solved`.  Dropping the ``row.solved`` here fails a correct
+        single-guard fit, which is one of the mutations item 23's tests were watched
+        against.
+        """
+        return tuple(row for row in self.rows if row.solved and abs(row.reported) > self.threshold)
 
     @property
     def passed(self) -> bool:
@@ -207,6 +236,9 @@ class CorrectionCheck:
             "residual": [row.residual for row in self.rows],
             "clip_bias": [row.clip_bias for row in self.rows],
             "clipped": [row.clipped for row in self.rows],
+            # Which rows `reported` is being judged on. Without it a partial-guard frame
+            # carries a large number in a column of small ones and says nothing about why.
+            "solved": [row.solved for row in self.rows],
         }
         if data is not None:
             return data.frame_like(payload)
@@ -250,8 +282,9 @@ class CorrectionCheck:
         unsolved = {row.equation for row in self.rows if not row.solved}
         if unsolved:
             notes.append(
-                f"  {', '.join(sorted(unsolved))} is subtracted by the reported curve and this "
-                "fit solved no such equation -- see the guard= it was given"
+                f"  {', '.join(sorted(unsolved))} is not among the equations this fit's guard= "
+                "solves, so the reported curve does not subtract it; the mean above is a "
+                "diagnostic and is held to nothing"
             )
         return [*notes, ""]
 
@@ -341,7 +374,10 @@ def correction_check(
                         reported=scale * float(np.mean(weights * parts.d_g[arm])),
                         clip_bias=scale * float(np.mean(weights * parts.clip_bias[arm])),
                         clipped=clipped,
-                        solved="Q" in reduction.guard,
+                        # `parts.guard` rather than `reduction.guard`: the selection has to
+                        # come from the object the curve selected with, for the same reason
+                        # the means come from the arrays the curve carries.
+                        solved="Q" in parts.guard,
                     )
                 )
                 rows.append(
@@ -357,7 +393,7 @@ def correction_check(
                         ),
                         reported=scale * float(np.mean(weights * parts.d_q[arm])),
                         clipped=clipped,
-                        solved="g" in reduction.guard,
+                        solved="g" in parts.guard,
                     )
                 )
     return CorrectionCheck(

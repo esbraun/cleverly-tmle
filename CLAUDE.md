@@ -83,6 +83,49 @@ cores, dropping it to `n_jobs=1` made the e2e tier **35% slower** (75.7s → 102
 three xdist workers idling while the longest test ran twice as long. Nesting here is
 load-balancing the tail, not contending for cores.
 
+## Correctness is shown against a derivation, not against another implementation
+
+**No R in this repository and none in CI.** No `.R` file, no `Rscript`, no `setup-r` step, no
+committed fixture exported from another package, no parity test. This is a decision and not a
+gap, it applies to `drtmle`, `tmle`, `tmle3`, `ctmle` and anything else, and "it would only be
+one file" does not reopen it. `docs/roadmap.md`'s item 2 is the retired piece and carries the
+whole reasoning.
+
+**Why**, in one line: *two checks that cannot fail against the same class of error are one
+check.* Two worked examples, both from this repository:
+
+- **item 21**, the sign of the mechanism correction. Python and R descend from one source, so
+  agreement between them is evidence about a **transcription** and not about a derivation. A
+  parity run could not have caught a sign that both sides read off the same display — reading
+  the paper's appendices did.
+- **item 20**, the uncentred curve. Two revisions filed it behind a cross-language fixture on
+  the reasoning that a divergence between two arrays is what a component comparison locates.
+  The premise was wrong and the check that settled it was thirty lines, one fit, and no R:
+  recompute the recorded number from the returned state **in the same process**.
+
+**What to write instead**, in the order to reach for it:
+
+1. an **exact identity** — that targeting solves the score equation, that `IC_ate == IC_ey1 -
+   IC_ey0`, that a recorded score equals a recomputation of the term the curve carries;
+2. an **oracle law where the truth is known** — `tests/discrete_law*.py`, or the finite-support
+   laws in `tests/unit/test_remainder_drtmle.py`, where every term is an exact finite sum;
+3. a check **against the source's own theorem**, at values where the quantity does not vanish —
+   `tests/unit/test_theorem_drtmle.py` is the worked example;
+4. a **simulation**, last, with a Monte Carlo standard error attached and the replication count
+   sized to the gap being resolved.
+
+**Step 3 is not optional padding after step 2**, and this is the trap the retirement was most
+at risk of rebuilding: an exact-law instrument goes blind wherever a quantity vanishes at the
+truth, which is where a parity check is blind too. At correct nuisances `Q_r` and `g_{r,2}` are
+zero row by row, so every `test_influence_gateaux*` module passes against a flipped sign.
+"Agrees with an exact law" is the parity check's blind spot under a new name unless something is
+anchored to the derivation at a value that does not vanish.
+
+Referring to another implementation **in prose** is fine and is worth doing: recording that a
+formula was read off `drtmle`'s source, or that the R source names `gr1` and `gr2` the other way
+round from the paper, is how the next reader traces where the code came from. What is refused is
+*running* it, or making its agreement the evidence.
+
 ## Layout
 
 | directory | contents |

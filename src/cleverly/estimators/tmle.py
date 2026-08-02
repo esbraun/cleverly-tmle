@@ -2263,6 +2263,12 @@ def correction_parts(
     reported curve and :func:`~cleverly.validation.drtmle.correction_check`'s identity both
     come through here, so neither can end up describing a different state from the other.
     A result read back from disk has no estimator to ask, which is the other reason.
+
+    ``guard`` comes off the record too, and is what says which corrections belong in the
+    curve at all: a fit guarding one nuisance solves one of the two extra equations and
+    subtracts one term.  It was read here by
+    :func:`~cleverly.validation.drtmle.correction_check` and not by the curve, which is
+    ``docs/roadmap.md``'s item 23.
     """
     reduction = fluctuation.reduction
     if reduction is None:
@@ -2280,6 +2286,7 @@ def correction_parts(
         mechanism,
         bounds=reduction.bounds,
         observed=data.observed,
+        guard=tuple(reduction.guard),
     )
 
 

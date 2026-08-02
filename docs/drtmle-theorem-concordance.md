@@ -1,7 +1,11 @@
 # DRTMLE: the theorem concordance
 
-What the sources derive, what this package computes, what `drtmle` computes, and where the three
-disagree. This is [piece A1](roadmap.md#a1--the-theoretical-audit)'s artefact and it is **open**,
+What the sources derive, what this package computes, and where the two disagree — with what
+`drtmle` computes recorded beside them as **provenance**, since that is where several of these
+formulae were read from. It is provenance and not a target: comparing against that package's
+numbers is [retired by decision](roadmap.md#closed-since-this-list-opened) and no R enters this
+repository or CI. This is [piece A1](roadmap.md#a1--the-theoretical-audit)'s artefact and it is
+**open**,
 though less so than it was: the working paper is now in the repository and read first-hand, and
 the stop-ship discrepancy it appeared to carry — [the sign of the mechanism
 correction](#4-the-sign-discrepancy-item-21--resolved) — is **resolved in favour of the implementation**, on
@@ -18,7 +22,7 @@ says where it came from. A row with no source is not a row.
 | Benkeser, Carone, van der Laan & Gilbert (2016), the Berkeley working paper, UCB Biostatistics paper 356 | **yes**, `docs/viewcontent.cgi.pdf` — it was transcribed by the second review before the document itself was in hand | Theorem 1, `D_A`, `D_Y`, `D^{*,#}`, the variance formula, the recursive algorithm, appendix A's bivariate remainder, appendix B's univariate remainder and its sufficient conditions, appendix C on unnecessary one-step corrections |
 | Benkeser, Carone, van der Laan & Gilbert (2017), Biometrika 104(4):863–880, PMC5793673 | **no** | the *published* Theorem 1, which is authoritative wherever the working paper and it differ |
 | van der Laan (2014), IJB 10(1):29–57, Theorem 3 | **no** | the bivariate construction's regularity conditions |
-| `benkeser/drtmle` 1.1.2 source | **yes**, read | what the reference implementation actually computes |
+| `benkeser/drtmle` 1.1.2 source | **yes**, read | where several formulae here were transcribed from, and the names they carry there — provenance, not a check |
 
 Two consequences, and they are the reason this file exists rather than a paragraph:
 
@@ -323,17 +327,20 @@ hypotheses are conditions on the returned collection rather than on the route. T
 the difference licensed rather than merely unchecked.
 
 What is *not* settled by reading is whether the two orders reach the same fixed point on real
-data, which is a numerical claim and belongs to
-[A2](roadmap.md#a2--reference-and-independent-validation): compare the paper's order, R's order,
-Python's order, the fixed point each reaches, and the final three theorem-defined scores at each.
-The instrument for the last of those now exists — `res.validation.correction_check()` reports each
+data, which is a numerical claim and belongs to [A1](roadmap.md#a1--the-theoretical-audit):
+implement the paper's order beside this one, **both here and against the same nuisances**, and
+compare the fixed point each reaches and the final three theorem-defined scores at each. The
+instrument for the last of those now exists — `res.validation.correction_check()` reports each
 score at the returned state, per arm — so the comparison is a run rather than a construction.
+A third implementation reaching a third fixed point would have answered a different question, which
+is one reason this stopped being the parity piece's.
 
 **Do not compare fluctuation coefficients across algorithms unless the submodels and the update
-order are identical.** R's `epsilon` and this package's are different quantities already, for a
-different reason ([§9](#9-six-traps-for-reading-the-r-source-alongside-the-paper)); adding an
-order difference makes a coefficient comparison meaningless twice over. The scores are what must
-agree.
+order are identical.** R tilts each arm's mechanism in its own one-column `glm` where this package
+solves one two-column tilt, so its `epsilon` and this package's are different quantities already
+([§12](#12-multi-valued-treatment-and-the-simplex)); adding an order difference makes a coefficient
+comparison meaningless twice over. The scores are what must agree — and since the two orders being
+compared are now **both run here**, the rule bites on the comparison this file actually asks for.
 
 ## 7. Truncation is not in the theorem's algorithm
 
@@ -397,45 +404,52 @@ Both tracks stay live: a proof or expansion for the pooled construction, **and**
 nested/per-outer-fold reference estimator. The nested version need not become the default; it
 provides a construction with clearer conditional independence, an empirical comparator for the
 cheap one, and a way to see whether the pooled dependence changes bias, variance or remainder
-rates. **Agreement with R is not evidence here** — that package predates this construction — so
-this is A1's work and not A2's.
+rates. **Agreement with R would not have been evidence here** — that package predates this
+construction — which is one of several reasons the parity piece was never going to earn its keep.
+This is A1's work.
 
-## 9. Six traps for reading the R source alongside the paper
+## 9. What was read out of the R source, and what is still owed
 
-All read out of `benkeser/drtmle` at **version 1.1.2** (`R/drtmle.R`, `R/estimate.R`,
-`R/fluctuate.R`, `R/inf_functions.R`) rather than recalled.
+This section used to be *six traps for reading the R source alongside the paper* — advice for a
+parity run. There will be no parity run: it is [retired by
+decision](roadmap.md#closed-since-this-list-opened), no R enters this repository or CI, and four of
+the six traps were only ever about how to compare two implementations without fooling yourself.
 
-- **`grn1` there is the paper's `gr2` and `grn2` is the paper's `gr1`.** `eval_Dstar_Q`'s
-  univariate branch is `1{A=a}/gr$grn2 * gr$grn1 * (Y − Q)`: `grn2` is the denominator and `grn1`
-  the signed numerator. The roles are swapped between the two sources, so a formula transcribed
-  from one and checked against the other is inverted and still plausible.
-- **R's internal signs are confirmed** and they are what this package computes — which is now
-  [§4](#4-the-sign-discrepancy-item-21--resolved)'s problem rather than its reassurance.
-- **R tilts each arm's mechanism separately** — `fluctuateG` is a `mapply` over `a_0`, each a
-  one-column `glm` with offset `trimLogit(g_a)` — where this package solves *one* two-column tilt
-  of `g(a_1|W)` and expresses the lower arm's equation against the same residual. The two solve
-  the same pair of equations by different parameterisations, so **`epsilon` will not match and the
-  scores must**; a fixture comparing coefficients across the two is comparing different
-  quantities. It also means R's targeted `g*(1|W)` and `g*(0|W)` need not sum to one — see
-  [§12](#12-multi-valued-treatment-and-the-simplex).
-- **R's stopping rule is `tolIC = 1/n` on the mean of the *reported* correction terms**, tested
-  against `max|c(PnDnoStar, PnDQnStar, PnDgnStar)|` where each is `mean()` of the array
-  `eval_Dstar*` returns, and capped at `maxIter = 3`. Two things follow. The absolute branch
-  [item 7](roadmap.md#closed-since-this-list-opened) added here — `_NEGLIGIBLE / n` — is the same
-  shape as R's rule and not an invention. And R's convergence test is defined *on the curve it
-  reports*, where this package's is defined on what the solver recorded — which is the difference
+Two of the six are not advice. They are **facts recorded once** and they survive here, because
+nothing else in this repository writes them down. Both were read out of `benkeser/drtmle` at
+**version 1.1.2** (`R/drtmle.R`, `R/estimate.R`, `R/fluctuate.R`, `R/inf_functions.R`) rather than
+recalled; the naming inversion the deleted first trap described lives on in
+[§13](#13-the-object-concordance)'s `(swapped)` markers and in
+`src/cleverly/estimators/reduced.py`.
+
+- **`_NEGLIGIBLE / n` is R-shaped and not an invention.** R's stopping rule is `tolIC = 1/n` on the
+  mean of the *reported* correction terms, tested against `max|c(PnDnoStar, PnDQnStar, PnDgnStar)|`
+  where each is `mean()` of the array `eval_Dstar*` returns, and capped at `maxIter = 3`. The
+  absolute branch [item 7](roadmap.md#closed-since-this-list-opened) added here is the same shape.
+  Worth keeping precisely because it is the *weaker* claim: it says where the constant came from,
+  not that it is right — and [piece B2](roadmap.md#b2--the-sweep-on-the-corrected-implementation)
+  is where the loop's bar stops being a proxy for the reported one at all. Note also that R's
+  convergence test is defined *on the curve it reports* where this package's is defined on what the
+  solver recorded, which is the difference
   [item 20](drtmle-investigation-log.md#item-20-from-discovery-to-cause) lives in.
-- **`nuisance_drtmle$grnStar` holds the *initial* `grn`**, not the starred one: `drtmle.R` assigns
-  `grnStar = grn` into the returned list while the influence curve is evaluated at the local
-  `grnStar`. A parity fixture that reads the returned object rather than the arrays the curve was
-  built from will compare the wrong reduction and report a spurious mismatch.
-- **R masks `D*_g` by the missing-outcome indicator and this package does not.** `eval_Dstar_g` is
-  `Qr/g · (1{A = a, DeltaA = 1, DeltaY = 1} − g)`; `reduced_corrections` applies `observed` to
-  `D*_Q` and not to `D*_g`. It is not a live difference — `DRTMLE` refuses `delta=`, so no fit it
-  accepts has a missing outcome, and every fixture will agree — which makes it the kind of
-  difference a parity run *cannot* adjudicate and A1 has to. It is also the thing to settle before
-  that refusal is ever lifted; see
-  [lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong).
+- **`D*_g` and the missing-outcome indicator, which is an open derivation question and not a
+  difference.** R's `eval_Dstar_g` is `Qr/g · (1{A = a, DeltaA = 1, DeltaY = 1} − g)`;
+  `reduced_corrections` applies `observed` to `D*_Q` and **not** to `D*_g`. It is not live —
+  `DRTMLE` refuses `delta=`, so no fit it accepts has a missing outcome — but it is the thing to
+  settle *before* that refusal is lifted, and it has to be settled from the derivation. This is the
+  cleanest small example of why the parity piece was retired: every fixture would have agreed, on
+  every draw, because the quantity that distinguishes the two conventions is identically absent
+  from the fits either package accepts. A check that cannot fail is not a check
+  ([lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong)). It is carried as a row in
+  the assumption matrix below.
+
+The other three deleted traps were: that R's internal signs are confirmed and are what this package
+computes (now [§4](#4-the-sign-discrepancy-item-21--resolved)'s subject and settled from the
+appendices, not from R); that R tilts each arm's mechanism separately, so its `epsilon` and this
+package's are different quantities and only the *scores* were ever comparable — kept in
+[§12](#12-multi-valued-treatment-and-the-simplex) where the simplex question lives; and that
+`nuisance_drtmle$grnStar` holds the *initial* `grn`, which was a warning about how to read a
+returned object in a fixture nobody will now write.
 
 ## 10. The bivariate construction
 
@@ -528,21 +542,31 @@ coherent joint covariance construction whether or not each arm mean is targeted 
 The permanent table. **Rows marked `TODO` are what A1 has left to do**, and a status column with
 no `unverified` in it has been filled in from the code rather than from the paper.
 
-| theorem object | Python | R | conditions on | sign | denominator / truncation | initial or starred | arm-specific | consumed by |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `Ψ` | `counterfactual_means` | GCOMP estimate | — | + | — | starred `Q̄` | yes | the report |
-| `D*` | ordinary curve, `influence.py` | `eval_Dstar` | `A`, `W` | + | `g*`, bounded | starred | yes | eq (8), `D_DR` |
-| `Q̄_n`, `g_n` | initial cross-fitted predictions | `estimateQ`, `estimateG` | `W` | — | `g` bounded at use | initial | yes | every reduction's design |
-| `Q̄_{0,r}` / `Q_r` | `ReducedSet.qr` | `estimateQrn` | `A = a`, `g_n(W)` | + | — | starred in eqs | yes | eq (9), `D_A`/`D*_g` |
-| `g_{1,0,r}` | `ReducedSet.gr1` | `grn2` **(swapped)** | `Q̄_n(W)` | + | `bounded_gr1` | starred in eqs | yes | eq (10-uni), `D_Y` |
-| `g_{2,0,r}` | `ReducedSet.gr2` | `grn1` **(swapped)** | `Q̄_n(W)` | signed | fixed at fit time (limitation 9) | starred in eqs | yes | eq (10-uni), `D_Y` |
-| `D_A` | `D*_g`, **sign under dispute** | `eval_Dstar_g` | `A`, `W` | **§4** | `g*`; truncation convention open | starred | yes | `D_DR`, eq (9)'s check |
-| `D_Y` | `D*_Q` | `eval_Dstar_Q` univariate branch | `A`, `W`, `Y` | + | `g_{r,1}` bounded | starred | yes | `D_DR`, eq (10)'s check |
-| `D^{*,#}` | `D = D* − D*_Q − D*_g` | `DnoStar − DnQoStar − DngoStar` | — | **§4** | — | starred | rowwise per arm; ATE is the rowwise difference | the variance |
-| `B_n`, `B_{A,n}`, `B_{Y,n}` | the three recorded scores | `PnDnoStar` etc. | — | — | **the identity B1a pins** | starred | yes | the stopping rule and `score_check` |
-| `R_{Q,n}`, `R_{g,n}` | not computed | not computed | — | — | — | — | — | item 13, `TODO` |
-| `σ̂²_n` | `influence_covariance` | `drtmle` covariance block | — | — | — | — | — | the interval |
-| the probability limits `Q̄_1`, `g_1` | only in tests | — | — | — | — | — | — | `TODO` |
+The **R** column is *provenance*: it records where each formula in this package was read from, and
+the two `(swapped)` markers are the single easiest thing here to transcribe backwards. It is not a
+target. Comparing against that package's numbers is [retired by
+decision](roadmap.md#closed-since-this-list-opened) and there is no R in this repository or in CI.
+
+The **evidence** column is what that retirement was traded for: which test pins the row *against
+its derivation*. It is the checklist item 2 used to be, restated as tests to write. A row reading
+`TODO` has no such test — not "probably fine"; and a column with no `TODO`s on first pass has been
+filled in from optimism, exactly as §15's `unverified` column says of itself.
+
+| theorem object | Python | R (provenance) | conditions on | sign | denominator / truncation | initial or starred | arm-specific | consumed by | evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `Ψ` | `counterfactual_means` | GCOMP estimate | — | + | — | starred `Q̄` | yes | the report | `test_reduction_alternation.py` (at the truth it is plain `TMLE` array for array) |
+| `D*` | ordinary curve, `influence.py` | `eval_Dstar` | `A`, `W` | + | `g*`, bounded | starred | yes | eq (8), `D_DR` | the `test_influence_gateaux*` modules, for the *plain* curve |
+| `Q̄_n`, `g_n` | initial cross-fitted predictions | `estimateQ`, `estimateG` | `W` | — | `g` bounded at use | initial | yes | every reduction's design | `TODO` — no component check at the initial predictions |
+| `Q̄_{0,r}` / `Q_r` | `ReducedSet.qr` | `estimateQrn` | `A = a`, `g_n(W)` | + | — | starred in eqs | yes | eq (9), `D_A`/`D*_g` | `test_reduced_regressions.py`, against `test_remainder_drtmle.py`'s longhand |
+| `g_{1,0,r}` | `ReducedSet.gr1` | `grn2` **(swapped)** | `Q̄_n(W)` | + | `bounded_gr1` | starred in eqs | yes | eq (10-uni), `D_Y` | `test_reduced_regressions.py`; the inversion trap at `test_reduced_submodel.py::test_but_gr1_does_not_vanish` |
+| `g_{2,0,r}` | `ReducedSet.gr2` | `grn1` **(swapped)** | `Q̄_n(W)` | signed | fixed at fit time (limitation 9) | starred in eqs | yes | eq (10-uni), `D_Y` | as above |
+| `D_A` | `D*_g` | `eval_Dstar_g` | `A`, `W` | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | `g*`; truncation convention open | starred | yes | `D_DR`, eq (9)'s check | `test_theorem_drtmle.py`, **at nonzero `Q_r`** — the one instrument here an exact law cannot supply |
+| `D_Y` | `D*_Q` | `eval_Dstar_Q` univariate branch | `A`, `W`, `Y` | + | `g_{r,1}` bounded | starred | yes | `D_DR`, eq (10)'s check | `test_theorem_drtmle.py`; `test_influence_drtmle.py` for the longhand |
+| `D^{*,#}` | `D = D* − D*_Q − D*_g` | `DnoStar − DnQoStar − DngoStar` | — | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | — | starred | rowwise per arm; ATE is the rowwise difference | the variance | `test_influence_drtmle.py` (difference not sum; per-guard membership). **`TODO`**: no Gateaux-style pin of the decomposition against a perturbation of the law |
+| `B_n`, `B_{A,n}`, `B_{Y,n}` | the three recorded scores | `PnDnoStar` etc. | — | — | **the identity B1a pins** | starred | yes | the stopping rule and `score_check` | `test_drtmle_fit.py` and `validation/drtmle.py`'s `correction_check` |
+| `R_{Q,n}`, `R_{g,n}` | not computed | not computed | — | — | — | — | — | item 13, `TODO` | `TODO` — piece C's column |
+| `σ̂²_n` | `influence_covariance` | `drtmle` covariance block | — | — | — | — | — | the interval | `TODO` — pinned only through the curve it is built from |
+| the probability limits `Q̄_1`, `g_1` | only in tests | — | — | — | — | — | — | `TODO` | `TODO` |
 
 ## 14. What the sources supply and what they do not
 
@@ -586,9 +610,9 @@ statuses below are the state on the day this file was seeded, not a result.
 | arm-level means / ATE contrast | Thm 1 + adaptation | the reported parameters | rowwise difference of arm curves | — | met; the adaptation is stated, not cited |
 | hard truncation of `ĝ` | **nowhere** | the implementation as written | applied, inconsistently | item 20 | **not covered by the source** — [§7](#7-truncation-is-not-in-the-theorems-algorithm) |
 | the mechanism correction's sign | Thm 1 | the variance | the appendices' orientation | [§4](#4-the-sign-discrepancy-item-21--resolved), `test_theorem_drtmle.py` | **met**; the §3.1 display disagrees and its own appendices contradict it — item 21, closed |
-| the update order | Thm 1's algorithm | nothing, if the fixed point is the same | different order | [§6](#6-the-recursive-algorithm-item-22) | **met under a stated restriction**: the paper's step 7 states its own exit as the three scores, so the order is not prescriptive; whether the fixed points coincide numerically is A2's — item 22 |
+| the update order | Thm 1's algorithm | nothing, if the fixed point is the same | different order | [§6](#6-the-recursive-algorithm-item-22) | **met under a stated restriction**: the paper's step 7 states its own exit as the three scores, so the order is not prescriptive; whether the fixed points coincide numerically is A1's, both orders run here — item 22 |
 | fixed weights | **nowhere** | item 17's claim | weighted loss throughout | `test_remainder_drtmle.py` | met for a **fixed** weight; estimated weights not covered |
 | repeated sample splitting | **nowhere** | item 18's claim | mean over draws | `test_drtmle_fit.py` | met arithmetically; not covered by the source |
 | `K` arms | **nowhere** | piece D | binary only | — | **not covered by the source** — [§12](#12-multi-valued-treatment-and-the-simplex) |
-| missing outcomes | `drtmle` masks `D*_g` | a lifted `delta=` | refused | — | **not covered**; latent difference with R |
+| missing outcomes | **nowhere**; `drtmle` masks `D*_g` and this package does not | a lifted `delta=` | refused, so the two conventions never differ on a fit either package accepts | [§9](#9-what-was-read-out-of-the-r-source-and-what-is-still-owed) | **not covered by the source** — settle from the derivation *before* lifting the refusal; no run could ever have settled it |
 | composition with `CTMLE` | **nowhere** | — | refused | — | **not covered by the source** |

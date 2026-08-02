@@ -24,7 +24,7 @@ from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.serialize import load
 from cleverly.estimators.targeting import _solved, build_submodel
-from cleverly.estimators.tmle import DEFAULT_NUISANCE_BOUND
+from cleverly.estimators.tmle import DEFAULT_NUISANCE_BOUND, correction_parts
 from cleverly.inference.influence import counterfactual_means, reduced_corrections
 from cleverly.validation.drtmle import correction_check
 from cleverly.validation.score import DEFAULT_TOLERANCE
@@ -241,6 +241,7 @@ class TestTheCurveReadsWhatTheAlternationLeft:
             reduction.reduced,
             fluctuation.mechanism.propensity,
             bounds=reduction.bounds,
+            guard=reduction.guard,
             observed=data.observed,
         )
         at_initial = reduced_corrections(
@@ -250,6 +251,7 @@ class TestTheCurveReadsWhatTheAlternationLeft:
             reduction.reduced,
             fit.nuisance.propensity.arm(1.0),
             bounds=reduction.bounds,
+            guard=reduction.guard,
             observed=data.observed,
         )
         assert np.max(np.abs(at_targeted[1.0] - at_initial[1.0])) > 1e-6
@@ -363,6 +365,136 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 
         assert after.rows == before.rows
         assert after.passed
+
+
+@pytest.fixture(scope="module")
+def single_guard():
+    """``guard=("g",)`` on this module's own draw -- the first partial-guard fit anywhere here.
+
+    **1.8s measured**, against ~25s for the default-guard ``fit``, and the difference is
+    structural rather than luck: ``reduction.refit`` is called only inside the ``"Q"``
+    branches of the alternation, so this fit runs no reduced refits at all. That is why the
+    cheap direction is the one taken end to end and ``guard=("Q",)`` is left to
+    ``tests/unit/test_influence_drtmle.py``, where a solve on the exact law costs
+    milliseconds.
+
+    ``frame()`` rather than a fresh draw for three reasons: no second sample to fit, the
+    same draw as ``fit`` so the two are comparable, and -- decisively -- this draw is
+    already known to clip **zero** rows, which is the precondition that makes what follows
+    item 23 and not item 20 wearing a different hat.
+    """
+    return DRTMLE(guard=("g",), **SETTINGS).fit(frame(), outcome="Y", treatment="A").single()
+
+
+class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
+    """``docs/roadmap.md`` item 23, end to end, which is where it was never checked.
+
+    ``guard=`` is crossed, so a fit guarding ``"g"`` solves equation (10) and subtracts
+    ``D*_Q``, and never poses equation (9) at all.  It used to subtract ``D*_g`` anyway --
+    a term whose mean nothing had driven anywhere.  Nothing here saw it because no test in
+    this repository fitted a partial guard end to end; B1a's instrument found it on its
+    first run against one.
+    """
+
+    def test_the_preconditions_this_reads_as_item_23_under(self, single_guard) -> None:
+        """Asserted rather than assumed, because each one is how it could be a different bug.
+
+        Zero clipped rows is what separates this from item 20, whose whole mechanism is the
+        truncation.  No mechanism fluctuation is what says equation (9) was never posed --
+        so ``D*_g``'s mean here is not a solver's residual but an arbitrary number.
+        """
+        check = single_guard.validation.correction_check()
+        fluctuation = single_guard.repeats[0].fluctuations["mean"]
+
+        assert check.clipped == 0
+        assert fluctuation.mechanism is None
+
+    def test_the_unsolved_correction_is_large_enough_to_matter(self, single_guard) -> None:
+        """The negative control: without it every assertion below could hold vacuously.
+
+        Measured at ``1.2e-03`` and ``3.1e-04`` on the outcome scale against a ``5.4e-06``
+        bar -- 225 and 58 times over, on the *good*-overlap draw this module fits
+        everything else on.  Before item 23 closed, these went into the reported curve.
+        """
+        check = single_guard.validation.correction_check()
+        unsolved = [row for row in check.rows if row.equation == "D*_g"]
+
+        assert len(unsolved) == 2
+        for row in unsolved:
+            assert abs(row.reported) > 20 * check.threshold, row.name
+
+    def test_the_reported_curve_subtracts_the_solved_term_and_only_it(self, single_guard) -> None:
+        """The claim itself, against the arrays rather than against a summary of them."""
+        data = CausalData.from_frame(frame(), outcome="Y", treatment="A", covariates=None)
+        fluctuation = single_guard.repeats[0].fluctuations["mean"]
+        parts = correction_parts(
+            data,
+            single_guard.nuisance,
+            fluctuation,
+            fluctuation.targeted,
+            single_guard.nuisance.scaler.scale(data.outcome),
+        )
+        plain = _plain_curve(single_guard, data, fluctuation)
+        reported = (
+            np.asarray(single_guard.estimates["ey1"].influence_curve)
+            / single_guard.nuisance.scaler.range
+        )
+
+        np.testing.assert_allclose(reported, plain - parts.d_q[1.0], rtol=0, atol=1e-12)
+        # And it is materially not what it was: the sum is a different curve, which is the
+        # whole of what this item moved.
+        assert np.max(np.abs(reported - (plain - parts.d_q[1.0] - parts.d_g[1.0]))) > 1e-6
+
+    def test_every_estimand_s_curve_is_centred(self, single_guard) -> None:
+        """The consequence a reader cares about, and the one that used to fail."""
+        for name, estimate in single_guard.estimates.items():
+            assert abs(float(np.mean(estimate.influence_curve))) < 1e-8, name
+
+    def test_the_report_says_which_equation_it_left_out(self, single_guard) -> None:
+        """Reported rather than dropped: a partial-guard report must not be quietly smaller.
+
+        The ``D*_g`` rows are the only thing that says what the guard did not buy, so they
+        stay -- as ``diagnostic`` rows, held to no threshold, which is what stops a correct
+        fit failing for a term nothing subtracts.
+        """
+        check = single_guard.validation.score_check()
+        kinds = {row.name: row.kind for row in check.rows}
+
+        assert check.passed
+        assert kinds["mean (D*_g)[0]"] == kinds["mean (D*_g)[1]"] == "diagnostic"
+        assert kinds["mean (D*_Q)[0]"] == kinds["mean (D*_Q)[1]"] == "correction"
+        # Equation (9) was never posed, so there is no fluctuation row for it either.
+        assert "mean (mechanism)" not in kinds
+        assert not check.identity_failures
+        assert not check.corrections.correction_failures()
+
+    def test_the_verdict_names_the_curve_this_fit_actually_reports(self, single_guard) -> None:
+        """Derived from the rows, so it cannot go on claiming a term the curve dropped."""
+        summary = single_guard.validation.score_check().summary()
+
+        assert "D = D* - D*_Q," in summary
+        assert "D*_g" not in summary.split("Validity is not efficiency")[1]
+
+    def test_it_survives_a_round_trip(self, single_guard, tmp_path) -> None:
+        """``guard`` is already on the serialised record, so no format bump was needed.
+
+        Compared field by field rather than by row equality, which the default-guard
+        sibling can use and this one cannot: an unsolved row's ``stored`` is ``nan``, and
+        ``nan != nan`` would make this pass for the wrong reason on any two objects.
+        """
+        back = load(single_guard.save(tmp_path / "single.npz"))
+        after, before = (fit.validation.correction_check().rows for fit in (back, single_guard))
+
+        assert len(after) == len(before) == 4
+        for new, old in zip(after, before, strict=True):
+            assert (new.arm, new.equation, new.solved) == (old.arm, old.equation, old.solved)
+            assert new.reported == old.reported
+            assert np.isnan(new.stored) == np.isnan(old.stored)
+        assert {row.equation for row in after if not row.solved} == {"D*_g"}
+        np.testing.assert_array_equal(
+            back.estimates["ey1"].influence_curve,
+            single_guard.estimates["ey1"].influence_curve,
+        )
 
 
 class TestItSurvivesARoundTrip:
@@ -613,7 +745,15 @@ def _plain_curve(fit, data, fluctuation):
     """``ey1``'s influence curve without the two extra terms, at the same targeted pair."""
     from dataclasses import replace
 
-    g1 = np.asarray(fluctuation.mechanism.propensity, dtype=float)
+    # The same fallback `correction_parts` takes: without the `"Q"` guard no mechanism was
+    # tilted, and the initial one is what the fit's other equation was solved beside. A
+    # bare `.mechanism.propensity` here is an `AttributeError` on a single-guard fit.
+    g1 = np.asarray(
+        fluctuation.mechanism.propensity
+        if fluctuation.mechanism is not None
+        else fit.nuisance.propensity.arm(1.0),
+        dtype=float,
+    )
     nuisance = replace(
         fit.nuisance, propensity=Propensity(np.column_stack([1.0 - g1, g1]), fit.nuisance.arms)
     )
