@@ -214,6 +214,26 @@ def _difference_against_reference(ctx: TargetContext, stem: str) -> list[Paramet
     ]
 
 
+def _level_per_code(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
+    """``E[Y^{g}]`` for every code the fit's means are keyed by.
+
+    The level-side counterpart of :func:`_difference_against_reference`, and shared by
+    ``ey_regime``, ``ey_ipsi`` and ``ey_shift`` for the same reason: they are the same
+    functional of whatever :attr:`~cleverly.targets.TargetContext.means` is keyed by, and
+    what differs is one level down, in which mean function that property calls.  The stem
+    is a parameter only because a reported name has to say which axis it came from.
+    """
+    return [
+        ctx.finish(
+            parameter_name(stem, arm=ctx.label(code)),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+        )
+        for code, mean in sorted(ctx.means.items())
+    ]
+
+
 def _ate(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y(a)] - E[Y(ref)]``, once per non-reference arm."""
     return _difference_against_reference(ctx, "ate")
@@ -221,15 +241,7 @@ def _ate(ctx: TargetContext) -> list[ParameterEstimate]:
 
 def _ey_regime(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y^{g*}]`` for every declared regime."""
-    return [
-        ctx.finish(
-            parameter_name("ey_regime", arm=ctx.label(code)),
-            mean.psi,
-            mean.influence_curve,
-            "level",
-        )
-        for code, mean in sorted(ctx.means.items())
-    ]
+    return _level_per_code(ctx, "ey_regime")
 
 
 def _ate_regime(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -239,15 +251,7 @@ def _ate_regime(ctx: TargetContext) -> list[ParameterEstimate]:
 
 def _ey_ipsi(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y^{q_delta}]`` for every declared tilt of the treatment mechanism."""
-    return [
-        ctx.finish(
-            parameter_name("ey_ipsi", arm=ctx.label(code)),
-            mean.psi,
-            mean.influence_curve,
-            "level",
-        )
-        for code, mean in sorted(ctx.means.items())
-    ]
+    return _level_per_code(ctx, "ey_ipsi")
 
 
 def _ate_ipsi(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -262,15 +266,7 @@ def _ey_shift(ctx: TargetContext) -> list[ParameterEstimate]:
     :attr:`~cleverly.targets.TargetContext.means` can be keyed by.  What differs is one
     level down, in which mean function that property calls -- see its docstring.
     """
-    return [
-        ctx.finish(
-            parameter_name("ey_shift", arm=ctx.label(code)),
-            mean.psi,
-            mean.influence_curve,
-            "level",
-        )
-        for code, mean in sorted(ctx.means.items())
-    ]
+    return _level_per_code(ctx, "ey_shift")
 
 
 def _ate_shift(ctx: TargetContext) -> list[ParameterEstimate]:
