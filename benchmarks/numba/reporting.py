@@ -242,6 +242,27 @@ def summarise(rows: Sequence[Row], environment: Any) -> str:
     if not any_headroom:
         lines.append("| - | - | none measured | - |")
 
+    amortised = [row for row in rows if row.amortised]
+    if amortised:
+        lines.append("\n## Amortisation: seconds per call at k repeated calls\n")
+        lines.append(
+            "The curve a repeated workload sees.  It converges on the warm time from "
+            "above, and how fast says how much of the first call was setup -- for a "
+            "compiled kernel, the compilation.  Only kernels a repeated workload actually "
+            "calls repeatedly are measured this way (`KernelSpec.amortise`), and only "
+            "under `--amortise`, because the 1,000-call column costs a thousand calls.\n"
+        )
+        counts = sorted({int(k) for row in amortised for k in row.amortised})
+        header = " | ".join(f"k={c}" for c in counts)
+        lines.append(f"| kernel | implementation | n | {header} |")
+        lines.append("| --- | --- | ---: |" + " ---: |" * len(counts))
+        for row in amortised:
+            cells = " | ".join(
+                f"{row.amortised[str(c)] * 1e3:.3f} ms" if str(c) in row.amortised else "-"
+                for c in counts
+            )
+            lines.append(f"| `{row.operation}` | {row.implementation} | {row.n} | {cells} |")
+
     failures = [row for row in rows if not row.correct and not row.skipped_reason]
     lines.append("\n## Correctness\n")
     if failures:
