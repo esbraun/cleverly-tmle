@@ -32,7 +32,11 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "scikit-learn>=1.3",
-    "narwhals>=1.9",
+    # 2.x, not the 1.9 this used to floor at: the arrow-backed and nullable dtypes are a
+    # tested configuration now, and `nw.DataFrame.schema`/`Series.cast`/`Series.is_null`
+    # behaving as the ingestion path assumes is 2.x behaviour. A floor fifteen minor
+    # versions below the locked version is not a floor, it is a guess.
+    "narwhals>=2.0",
     "joblib>=1.3",
     "threadpoolctl>=3.1",
 ]

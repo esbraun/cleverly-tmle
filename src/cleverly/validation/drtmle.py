@@ -218,6 +218,10 @@ class CorrectionCheck:
     #: The outcome scale the rows are reported on, so a reader can get back to the
     #: ``[0, 1]`` quantities the equations were solved in.
     scale: float = 1.0
+    #: Name of the dataframe backend the fit's data arrived in, so that
+    #: :meth:`to_frame` honours "results come back in the backend you passed in"
+    #: without a caller having to thread the container back in by hand.
+    backend: str | None = None
 
     @property
     def threshold(self) -> float:
@@ -285,7 +289,7 @@ class CorrectionCheck:
             # carries a large number in a column of small ones and says nothing about why.
             "solved": [row.solved for row in self.rows],
         }
-        return emit_frame(payload, data)
+        return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
         if not self.rows:
@@ -455,6 +459,7 @@ def correction_check(
         n=int(data.n),
         std_error=reference,
         scale=float(result.nuisance.scaler.range),
+        backend=result.data.backend,
     )
 
 

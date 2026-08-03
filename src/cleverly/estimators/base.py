@@ -26,6 +26,7 @@ from ..inference.multiplier import SimultaneousBands
 from ..learners.crossfit import CrossFitPlan
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
+from ..utils.frames import emit_frame
 from ..utils.text import format_pvalue, format_table
 from ._nuisance import NuisanceEstimates, RepeatFit
 from .direct_effect import describe as describe_direct_effect
@@ -281,6 +282,9 @@ class CVTargeting:
     pooled: dict[str, ParameterEstimate] = field(default_factory=dict)
     canonical: dict[str, ParameterEstimate] = field(default_factory=dict)
     repeats: int = 1
+    #: Name of the dataframe backend the fit's data arrived in, as on every other
+    #: report here.
+    backend: str | None = None
 
     @property
     def std_error(self) -> dict[str, float]:
@@ -304,9 +308,7 @@ class CVTargeting:
                 for name in names
             ],
         }
-        if data is None:
-            return payload
-        return data.frame_like(payload)
+        return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
         """A printable report of the fold-level targeting."""

@@ -86,6 +86,10 @@ class SupportReport:
 
     regimes: dict[str, RegimeSupport] = field(default_factory=dict)
     n: int = 0
+    #: Name of the dataframe backend the fit's data arrived in, so that
+    #: :meth:`to_frame` honours "results come back in the backend you passed in"
+    #: without a caller having to thread the container back in by hand.
+    backend: str | None = None
 
     @property
     def worst(self) -> RegimeSupport | None:
@@ -103,7 +107,7 @@ class SupportReport:
             "effective_n": [item.effective_sample_size for item in self.regimes.values()],
             "unsupported": [item.unsupported for item in self.regimes.values()],
         }
-        return emit_frame(payload, data)
+        return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
         """A short human-readable table."""
@@ -134,12 +138,18 @@ def check_support(
     propensity: FloatArray,
     *,
     thresholds: tuple[float, ...] = _THRESHOLDS,
+    backend: str | None = None,
 ) -> SupportReport:
     """Overlap diagnostics for each regime, from the untruncated mechanism.
 
     ``propensity`` is the ``(n, K)`` mechanism as estimated, *before* truncation: the
     question this answers is what the data supports, and a bound chosen to control
     variance would answer it by construction.
+
+    ``backend`` names the dataframe library the fit's data arrived in, so that
+    :meth:`SupportReport.to_frame` returns it -- which is what this function's caller
+    already promised in prose and did not deliver.  This takes arrays rather than a
+    container, so it has to be told.
     """
     a = np.asarray(treatment, dtype=float).reshape(-1)
     g = np.asarray(propensity, dtype=float)
@@ -175,4 +185,4 @@ def check_support(
             },
             unsupported=int(np.sum(np.any(mass & (g <= 0.0), axis=1))),
         )
-    return SupportReport(out, n)
+    return SupportReport(out, n, backend=backend)

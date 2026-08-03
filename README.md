@@ -5,7 +5,8 @@ validation diagnostics treated as first-class parts of the estimator, not aftert
 
 `cleverly` is a Python counterpart to the R targeted-learning ecosystem (`tmle`, `tlverse`/`tmle3`).
 It takes **pandas or polars** dataframes interchangeably (via [narwhals](https://narwhals-dev.github.io/narwhals/)),
-returns results in whichever backend you handed it, and every estimator ships with:
+returns results in whichever backend you handed it — arrow-backed pandas
+(`dtype_backend="pyarrow"`) and a bare `pyarrow.Table` included — and every estimator ships with:
 
 - **influence-curve based inference**, plus cluster-robust variance, targeted bootstrap, and
   simultaneous (max-t) confidence intervals across estimands;
@@ -41,6 +42,11 @@ pip install "cleverly[all] @ git+https://github.com/esbraun/cleverly-tmle.git"
 The core depends only on numpy, scipy, scikit-learn, narwhals and joblib. The `all` extra adds
 pandas, polars, lightgbm and matplotlib. Once the package is published the first line becomes
 `pip install cleverly`.
+
+One thing the backend promise does *not* cover: results are built from numpy, so a frame handed
+in with `dtype_backend="pyarrow"` comes back as pandas but as **numpy-backed** pandas. Every
+column a fit emits is a dense float with no nulls in it, so nothing an arrow dtype carries is
+lost — but the promise is about the dataframe library, not about the dtype backend.
 
 ## Quickstart
 

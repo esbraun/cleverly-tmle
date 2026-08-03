@@ -84,6 +84,10 @@ class RefutationResult:
 
     tests: tuple[RefutationTest, ...]
     estimand: str
+    #: Name of the dataframe backend the fit's data arrived in, so that
+    #: :meth:`to_frame` honours "results come back in the backend you passed in"
+    #: without a caller having to thread the container back in by hand.
+    backend: str | None = None
 
     @property
     def passed(self) -> bool:
@@ -108,7 +112,7 @@ class RefutationResult:
             "expectation": [test.expectation for test in self.tests],
             "passed": [test.passed for test in self.tests],
         }
-        return emit_frame(payload, data)
+        return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
         lines = [
@@ -304,4 +308,4 @@ def refute(
                 f"{['placebo', 'random_common_cause', 'subset', 'negative_control_outcome']}"
             )
 
-    return RefutationResult(tests=tuple(outcomes), estimand=estimand)
+    return RefutationResult(tests=tuple(outcomes), estimand=estimand, backend=result.data.backend)

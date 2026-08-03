@@ -1578,6 +1578,7 @@ class TMLE:
                 fold_epsilon=fold_epsilon,
                 pooled=_in_report_order(pooled_report, requested),
                 canonical=_in_report_order(canonical_report, requested),
+                backend=data.backend,
             )
             if indices
             else None

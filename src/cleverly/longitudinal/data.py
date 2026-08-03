@@ -67,7 +67,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 
-import narwhals as nw
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
@@ -82,7 +81,14 @@ from ..data.weighting import (
     warn_if_counts,
 )
 from ..exceptions import DataError
-from ..utils.frames import as_frame, frame_from_dict, is_dataframe, matrix_from_columns
+from ..utils.frames import (
+    as_frame,
+    backend_of,
+    column_array,
+    frame_from_dict,
+    is_dataframe,
+    matrix_from_columns,
+)
 
 __all__ = ["Assignment", "LongitudinalData", "assignment_matrix"]
 
@@ -175,7 +181,9 @@ class LongitudinalData:
     weights_name: str | None = None
     weight_spec: WeightSpec = field(default_factory=WeightSpec)
     dropped_covariates: tuple[str, ...] = field(default_factory=tuple)
-    _template: Any = None
+    #: Name of the dataframe backend the data arrived in; see
+    #: :attr:`cleverly.data.CausalData.backend`, which this mirrors exactly.
+    backend: str | None = None
 
     # ------------------------------------------------------------------ build
 
@@ -314,16 +322,14 @@ class LongitudinalData:
         _refuse_duplicates(wanted)
 
         return cls._build(
-            outcome=None if survival else frame[outcome_names[0]].to_numpy(),
+            outcome=None if survival else column_array(frame, outcome_names[0]),
             # ``(n, T, J)``: a node axis and a cause axis, with ``J = 1`` for a single
             # absorbing event.  One shape rather than two keeps the validating sweep and
             # every mask below written once.
             event=(
                 np.stack(
                     [
-                        np.column_stack(
-                            [np.asarray(frame[name].to_numpy(), dtype=float) for name in block]
-                        )
+                        np.column_stack([column_array(frame, name) for name in block])
                         for block in event_blocks
                     ],
                     axis=2,
@@ -335,29 +341,25 @@ class LongitudinalData:
             cause_labels=cause_labels,
             baseline=matrix_from_columns(frame, baseline_names) if baseline_names else None,
             baseline_names=baseline_names,
-            treatment=np.column_stack(
-                [np.asarray(frame[name].to_numpy(), dtype=float) for name in treatment_names]
-            ),
+            treatment=np.column_stack([column_array(frame, name) for name in treatment_names]),
             treatment_names=treatment_names,
             censoring=(
                 None
                 if censoring is None
-                else np.column_stack(
-                    [np.asarray(frame[name].to_numpy(), dtype=float) for name in censor_names]
-                )
+                else np.column_stack([column_array(frame, name) for name in censor_names])
             ),
             censoring_names=censor_names,
             time_varying=[matrix_from_columns(frame, block) if block else None for block in blocks],
             time_varying_names=blocks,
             cluster=None if id is None else frame[id].to_numpy(),
             cluster_name=id,
-            weights=None if weights is None else frame[weights].to_numpy(),
+            weights=None if weights is None else column_array(frame, weights),
             weights_type=weights_type,
             weights_estimated=weights_estimated,
             weights_name=weights,
             outcome_name=outcome_names[-1],
             family=family,
-            template=frame,
+            backend=backend_of(frame),
         )
 
     @classmethod
@@ -384,7 +386,7 @@ class LongitudinalData:
         weights_name: str | None = None,
         outcome_name: str,
         family: str,
-        template: Any,
+        backend: str | None,
     ) -> LongitudinalData:
         survival = event is not None
         if survival:
@@ -565,7 +567,7 @@ class LongitudinalData:
             weights_name=weights_name,
             weight_spec=spec,
             dropped_covariates=tuple(dropped),
-            _template=template,
+            backend=backend,
         )
 
     # ------------------------------------------------------------- properties
@@ -632,12 +634,6 @@ class LongitudinalData:
         fit is a survival fit, so :attr:`is_survival` is true of it too.
         """
         return bool(self.cause_labels)
-
-    @property
-    def backend(self) -> str | None:
-        if self._template is None:
-            return None
-        return str(nw.get_native_namespace(self._template).__name__)
 
     # ------------------------------------------------------------------ masks
 
@@ -881,7 +877,7 @@ class LongitudinalData:
 
     def frame_like(self, payload: dict[str, Any]) -> Any:
         """Build a dataframe of ``payload`` in the backend this data came from."""
-        return frame_from_dict(payload, like=self._template)
+        return frame_from_dict(payload, backend=self.backend)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         parts = [

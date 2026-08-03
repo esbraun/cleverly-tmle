@@ -457,6 +457,115 @@ class TestBackends:
         assert {"Y", "A", "W1", "w", "cl"} <= set(out.columns)
 
 
+class TestArrowBackedDtypes:
+    """``dtype_backend="pyarrow"``, on the dtypes where it is not merely float64.
+
+    The all-float parity test above cannot see any of this: ingestion casts numeric
+    columns inside narwhals, and everything interesting happens where a column is *not*
+    numeric, or where a null makes ``to_numpy`` hand back ``object``.
+    """
+
+    @staticmethod
+    def _arrow(frame: pd.DataFrame) -> pd.DataFrame:
+        return frame.convert_dtypes(dtype_backend="pyarrow")
+
+    def test_arrow_and_numpy_dtypes_produce_identical_arrays(self) -> None:
+        frame = _frame()
+        # Left as integers rather than cast to float, so `convert_dtypes` produces
+        # `int64[pyarrow]` and the cast in `column_array` has something to do.
+        frame["W2"] = frame["W2"].astype(int)
+        numpy_backed = CausalData.from_frame(frame, outcome="Y", treatment="A")
+        arrow = CausalData.from_frame(self._arrow(frame), outcome="Y", treatment="A")
+        assert np.array_equal(numpy_backed.covariates, arrow.covariates)
+        assert np.array_equal(numpy_backed.outcome, arrow.outcome)
+        assert np.array_equal(numpy_backed.treatment, arrow.treatment)
+        assert numpy_backed.covariate_names == arrow.covariate_names
+        assert arrow.backend == "pandas"
+
+    @pytest.mark.parametrize("dtype", ["bool", "boolean", "bool[pyarrow]"])
+    def test_a_boolean_covariate_stays_one_column_under_every_spelling(self, dtype: str) -> None:
+        """A characterisation, and deliberately not claimed as a guard.
+
+        All three spellings already came out the same before ``_encode_covariates`` read
+        ``nw.Boolean`` off the schema instead of the materialised numpy dtype -- checked by
+        mutating the branch back and watching this pass.  Narwhals hands back a numpy
+        ``bool`` array for each of them *when there are no nulls*, which is the only case
+        that reaches here now that the null guard runs first.
+
+        It is worth pinning anyway: what it says is that a boolean covariate is one column
+        under its own name rather than an indicator named ``flag__True``, which is what the
+        categorical path below would produce if the branch were dropped rather than
+        respelled.
+        """
+        frame = _frame()
+        frame["flag"] = pd.Series(np.resize([True, False], len(frame))).astype(dtype)
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A")
+        baseline = CausalData.from_frame(
+            frame.assign(flag=frame["flag"].astype(bool)), outcome="Y", treatment="A"
+        )
+        assert "flag" in data.covariate_names
+        assert data.covariate_names == baseline.covariate_names
+        assert np.array_equal(data.covariates, baseline.covariates)
+
+    def test_a_null_boolean_covariate_is_refused_and_not_a_numpy_traceback(self) -> None:
+        """It used to raise ``TypeError: boolean value of NA is ambiguous`` from numpy.
+
+        Both spellings of the same data reach the same refusal, which is the point: the
+        guard reads the column's logical type through narwhals rather than asking which
+        library produced it.
+        """
+        frame = _frame()
+        frame["flag"] = np.resize([True, False], len(frame)).astype(object)
+        frame.loc[3, "flag"] = None
+        for variant in (frame, self._arrow(frame)):
+            with pytest.raises(DataError, match="contains missing values and is not numeric"):
+                CausalData.from_frame(variant, outcome="Y", treatment="A")
+
+    def test_a_null_numeric_covariate_still_gets_the_impute_message(self) -> None:
+        """A cast turns the null into ``nan``, so the existing refusal is what fires."""
+        frame = _frame()
+        frame.loc[3, "W1"] = np.nan
+        for variant in (frame, self._arrow(frame)):
+            with pytest.raises(DataError, match="missing or non-finite"):
+                CausalData.from_frame(variant, outcome="Y", treatment="A")
+
+    def test_a_missing_outcome_with_delta_survives_the_cast(self) -> None:
+        """The one role a null is *allowed* in, and the case arrow makes fragile.
+
+        ``float64[pyarrow]`` with a null gives an ``object`` array from a bare
+        ``to_numpy``; the cast is what makes it ``nan`` and so readable against ``delta``.
+        """
+        frame = _frame()
+        frame["Delta"] = 1.0
+        frame.loc[:9, "Y"] = np.nan
+        frame.loc[:9, "Delta"] = 0.0
+        numpy_backed = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", delta="Delta", covariates=["W1", "W2"]
+        )
+        arrow = CausalData.from_frame(
+            self._arrow(frame), outcome="Y", treatment="A", delta="Delta", covariates=["W1", "W2"]
+        )
+        assert int(numpy_backed.observed.sum()) == len(frame) - 10
+        assert np.array_equal(numpy_backed.observed, arrow.observed)
+        assert np.array_equal(numpy_backed.outcome, arrow.outcome)
+
+    def test_a_string_treatment_keeps_its_labels(self) -> None:
+        frame = _frame()
+        frame["A"] = np.where(frame["A"] > 0, "high", "low")
+        numpy_backed = CausalData.from_frame(frame, outcome="Y", treatment="A")
+        arrow = CausalData.from_frame(self._arrow(frame), outcome="Y", treatment="A")
+        assert numpy_backed.treatment_levels == ("high", "low")
+        assert arrow.treatment_levels == numpy_backed.treatment_levels
+        assert np.array_equal(arrow.treatment, numpy_backed.treatment)
+
+    def test_a_null_treatment_is_refused_rather_than_becoming_an_arm(self) -> None:
+        frame = _frame()
+        frame["A"] = np.where(frame["A"] > 0, "high", "low").astype(object)
+        frame.loc[5, "A"] = None
+        with pytest.raises(DataError, match="contains missing values and is not numeric"):
+            CausalData.from_frame(self._arrow(frame), outcome="Y", treatment="A")
+
+
 def _continuous_frame(n: int = 200, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     w1 = rng.normal(size=n)

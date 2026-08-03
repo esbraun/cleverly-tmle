@@ -39,7 +39,7 @@ from scipy import stats
 
 from .._typing import Backend, FloatArray
 from ..utils.bounds import expit
-from ..utils.frames import as_frame, column_array, frame_from_dict
+from ..utils.frames import as_frame, backend_of, column_array, frame_from_dict
 
 __all__ = [
     "DGP",
@@ -867,7 +867,7 @@ def make_biased_sample(
     )
     truth["n_population"] = float(n_population)
     truth["n_selected"] = float(selected.sum())
-    return frame_from_dict(payload, like=population), truth
+    return frame_from_dict(payload, backend=backend_of(population)), truth
 
 
 @dataclass(frozen=True)

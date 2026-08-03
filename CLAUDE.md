@@ -146,6 +146,33 @@ round from the paper, is how the next reader traces where the code came from. Wh
 
 - **Dataframes**: everything user-facing goes through narwhals; results are returned in
   the backend the caller passed in. Never branch on pandas vs polars.
+  **The promise is about the library, not the dtype backend.** A frame read with
+  `dtype_backend="pyarrow"` comes back as *numpy-backed* pandas, because results are built
+  from numpy through `nw.from_dict`, which has no `dtype_backend` knob. Nothing is lost —
+  every emitted column is a dense float with no nulls — but say so rather than letting a
+  reader assume otherwise. Arrow-backed *input* is a tested configuration, and
+  `pyarrow.Table` is a declared third backend.
+  Two things make that hold rather than happen to hold, and neither is optional.
+  **The containers keep a backend *name*, not the frame.** `CausalData.backend` and
+  `LongitudinalData.backend` are `str | None`; they once held the whole input frame, which
+  pinned it in memory for the life of every result derived from the fit even though the only
+  thing ever read off it was the namespace — and which `load()` could not restore, so a saved
+  polars fit came back emitting pandas. A name serialises; do not reintroduce a frame here.
+  Every report class carries the same field for the same reason: `emit_frame`'s `data=`
+  argument defaulted to `None` and *nothing in the package ever passed it*, so six
+  `to_frame()`s returned pandas for a polars fit while `RegimeSupport.to_frame` documented
+  the opposite.
+  **The numeric roles are cast inside narwhals, in `column_array`.** `Series.to_numpy()`
+  picks its dtype from the values a column happens to hold — `object` carrying `pd.NA` as
+  soon as one is null — so the arrow path used to be correct only via narwhals' internal
+  dtype-mapping tables. `cast(Float64)` states the intent instead, and a null arrives as the
+  `nan` the validation layer already knows how to reject. The treatment is deliberately
+  *not* cast: `encode_treatment` reads `dtype.kind` to tell a numeric arm from a categorical
+  one. What guards the columns that cannot be cast is `_reject_null_labels`, which branches
+  on the *column's* logical type read through narwhals — never on which library produced it.
+  A nullable boolean covariate used to raise `TypeError: boolean value of NA is ambiguous`
+  from inside numpy; under `dtype_backend="pyarrow"` every boolean column is nullable, so
+  that was the easy way to reach it.
 - **New estimands**: construct a `Target` and call `targets.register`. If it needs a score
   equation no existing group solves, write the clever-covariate builder and call
   `fluctuation.register_submodel` first — `register` refuses a target whose group has no
