@@ -4,7 +4,7 @@ What the sources derive, what this package computes, and where the two disagree 
 `drtmle` computes recorded beside them as **provenance**, since that is where several of these
 formulae were read from. It is provenance and not a target: comparing against that package's
 numbers is [retired by decision](roadmap.md#closed-since-this-list-opened) and no R enters this
-repository or CI. This is [piece A1](roadmap.md#a1--the-theoretical-audit)'s artefact and it is
+repository or CI. This is [piece A1](roadmap.md#a1a--the-theoretical-audit)'s artefact and it is
 **open**,
 though less so than it was: the working paper is now in the repository and read first-hand, and
 the stop-ship discrepancy it appeared to carry — [the sign of the mechanism
@@ -279,7 +279,7 @@ the estimated `D_Y` to its limit. Appendix A gives the analogous examples for `R
 the reduced outcome regression's approximation error, its fitted error, the primary propensity
 error, and a Donsker plus `L_2` condition for `D_A`.
 
-**Consequence for item 13**, which [A1](roadmap.md#a1--the-theoretical-audit) opens and
+**Consequence for item 13**, which [A1](roadmap.md#a1a--the-theoretical-audit) opens and
 [C](roadmap.md#c-the-demonstration) closes. The single diagnostic
 
 ```text
@@ -327,7 +327,7 @@ hypotheses are conditions on the returned collection rather than on the route. T
 the difference licensed rather than merely unchecked.
 
 What is *not* settled by reading is whether the two orders reach the same fixed point on real
-data, which is a numerical claim and belongs to [A1](roadmap.md#a1--the-theoretical-audit):
+data, which is a numerical claim and belongs to [A1](roadmap.md#a1a--the-theoretical-audit):
 implement the paper's order beside this one, **both here and against the same nuisances**, and
 compare the fixed point each reaches and the final three theorem-defined scores at each. The
 instrument for the last of those now exists — `res.validation.correction_check()` reports each
@@ -343,6 +343,28 @@ comparison meaningless twice over. The scores are what must agree — and since 
 compared are now **both run here**, the rule bites on the comparison this file actually asks for.
 
 ## 7. Truncation is not in the theorem's algorithm
+
+**This section is A1a's answer to the question [B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision)
+waits on, and it is stated here as a finding rather than left as a reading.** The roadmap sends
+B1b here "once A1 has said which mechanism the theorem's `D_g` is evaluated at". It says:
+
+> **The theorem's `D_g` is evaluated at the same `g*` its score is solved at, and that `g*` is
+> not truncated anywhere.** There is one mechanism in the theorem, produced by an unconstrained
+> `expit` fluctuation, appearing identically in equation (9)'s covariate, in equation (9)'s
+> residual and in `D_A`. Boundedness is an *assumption about `g_0`*, not an operation on `ĝ`.
+
+Two consequences, and the second is the one that changes what B1b is:
+
+1. the current hybrid — bounded denominator, raw residual — is **not** a convention the theorem
+   offers, and neither is R's post-fit clip. The theorem has no third array to choose between:
+   it has one;
+2. so B1b is not adjudicating between two readings of the source. It is choosing a **finite-sample
+   rendering of a step the theorem states without one**, and its criterion is which rendering
+   leaves a final score that is the theorem-defined score of the estimator being declared. That is
+   a design decision with a stated bar, not a transcription question, and nothing in the sources
+   will settle it — which is why no further document is owed here.
+
+The reasoning follows.
 
 The theorem assumes `g_0 > δ > 0` and defines every mechanism-side object at the **same** `g`. Its
 mechanism update is
@@ -406,7 +428,22 @@ provides a construction with clearer conditional independence, an empirical comp
 cheap one, and a way to see whether the pooled dependence changes bias, variance or remainder
 rates. **Agreement with R would not have been evidence here** — that package predates this
 construction — which is one of several reasons the parity piece was never going to earn its keep.
-This is A1's work.
+
+**This is [A1b](roadmap.md#a1b--the-cross-fitting-construction)'s work and it is the only part of
+piece A that is.** A1a closed the rest of this file without touching it, which is what the split
+was for: every other row here was a test to write or a reading to record, and this one is a proof
+to find or a second estimator to build. Nothing on the critical path to
+[B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) or to
+[C](roadmap.md#c-the-demonstration) waits on it; [gate 1](roadmap.md#c-the-demonstration) does.
+
+One thing A1a settled that narrows it. The comparison in
+`tests/unit/test_influence_gateaux_drtmle.py` runs at **saturated** reductions, where the pooled
+construction and any nested one return the same arrays — each conditioning cell is a singleton, so
+there is no fold-borrowing left to differ about. That is why the decomposition check closed without
+this item: it says nothing about the pooled construction either way, and it is worth writing down
+so the agreement is not read as evidence here. What separates the constructions is a reduction
+that genuinely **pools**, which is `tests/unit/test_remainder_drtmle.py`'s `TIED_G` / `TIED_Q`
+territory and where a nested reference estimator would first be measured.
 
 ## 9. What was read out of the R source, and what is still owed
 
@@ -539,8 +576,17 @@ coherent joint covariance construction whether or not each arm mean is targeted 
 
 ## 13. The object concordance
 
-The permanent table. **Rows marked `TODO` are what A1 has left to do**, and a status column with
-no `unverified` in it has been filled in from the code rather than from the paper.
+The permanent table. **`TODO` is gone from the `evidence` column and that is A1a's deliverable**,
+so what a row now records is which test pins it and — where nothing here does — which piece owns
+it and why. A status column with no `unverified` in it has been filled in from the code rather
+than from the paper.
+
+Two rows are still open and neither is a gap in this piece. `R_{Q,n}`/`R_{g,n}` is item 13, which
+A1 *opens* and [piece C](roadmap.md#c-the-demonstration) closes, because only that study knows
+`ψ_0`. And the reduced regressions' cross-fitting is [§8](#8-cross-fitting-is-not-covered-item-15),
+which is [A1b](roadmap.md#a1b--the-cross-fitting-construction). Writing "open, owned by C" where a
+row used to read `TODO` is not a downgrade of the bar: `TODO` said *nobody has looked*, and these
+two say *this is whose it is*.
 
 The **R** column is *provenance*: it records where each formula in this package was read from, and
 the two `(swapped)` markers are the single easiest thing here to transcribe backwards. It is not a
@@ -556,17 +602,17 @@ filled in from optimism, exactly as §15's `unverified` column says of itself.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `Ψ` | `counterfactual_means` | GCOMP estimate | — | + | — | starred `Q̄` | yes | the report | `test_reduction_alternation.py` (at the truth it is plain `TMLE` array for array) |
 | `D*` | ordinary curve, `influence.py` | `eval_Dstar` | `A`, `W` | + | `g*`, bounded | starred | yes | eq (8), `D_DR` | the `test_influence_gateaux*` modules, for the *plain* curve |
-| `Q̄_n`, `g_n` | initial cross-fitted predictions | `estimateQ`, `estimateG` | `W` | — | `g` bounded at use | initial | yes | every reduction's design | `TODO` — no component check at the initial predictions |
+| `Q̄_n`, `g_n` | initial cross-fitted predictions | `estimateQ`, `estimateG` | `W` | — | `g` bounded at use | initial | yes | every reduction's design | `test_influence_gateaux_drtmle.py`, whose `Misspecified` shim *declares* both and asserts one is exact in the sample and the other off by `>0.1`; `test_drtmle_fit.py::TestTheReportedNuisancesAreTheFittedOnes` for a fitted pair |
 | `Q̄_{0,r}` / `Q_r` | `ReducedSet.qr` | `estimateQrn` | `A = a`, `g_n(W)` | + | — | starred in eqs | yes | eq (9), `D_A`/`D*_g` | `test_reduced_regressions.py`, against `test_remainder_drtmle.py`'s longhand |
 | `g_{1,0,r}` | `ReducedSet.gr1` | `grn2` **(swapped)** | `Q̄_n(W)` | + | `bounded_gr1` | starred in eqs | yes | eq (10-uni), `D_Y` | `test_reduced_regressions.py`; the inversion trap at `test_reduced_submodel.py::test_but_gr1_does_not_vanish` |
 | `g_{2,0,r}` | `ReducedSet.gr2` | `grn1` **(swapped)** | `Q̄_n(W)` | signed | fixed at fit time (limitation 9) | starred in eqs | yes | eq (10-uni), `D_Y` | as above |
-| `D_A` | `D*_g` | `eval_Dstar_g` | `A`, `W` | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | `g*`; truncation convention open | starred | yes | `D_DR`, eq (9)'s check | `test_theorem_drtmle.py`, **at nonzero `Q_r`** — the one instrument here an exact law cannot supply |
-| `D_Y` | `D*_Q` | `eval_Dstar_Q` univariate branch | `A`, `W`, `Y` | + | `g_{r,1}` bounded | starred | yes | `D_DR`, eq (10)'s check | `test_theorem_drtmle.py`; `test_influence_drtmle.py` for the longhand |
-| `D^{*,#}` | `D = D* − D*_Q − D*_g` | `DnoStar − DnQoStar − DngoStar` | — | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | — | starred | rowwise per arm; ATE is the rowwise difference | the variance | `test_influence_drtmle.py` (difference not sum; per-guard membership). **`TODO`**: no Gateaux-style pin of the decomposition against a perturbation of the law |
+| `D_A` | `D*_g` | `eval_Dstar_g` | `A`, `W` | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | the theorem's is untruncated ([§7](#7-truncation-is-not-in-the-theorems-algorithm)); the rendering is B1b's | starred | yes | `D_DR`, eq (9)'s check | `test_theorem_drtmle.py`, **at nonzero `Q_r`**; `test_influence_gateaux_drtmle.py`'s `g_right` cell, where it is the live correction |
+| `D_Y` | `D*_Q` | `eval_Dstar_Q` univariate branch | `A`, `W`, `Y` | + | `g_{r,1}` bounded | starred | yes | `D_DR`, eq (10)'s check | `test_theorem_drtmle.py`; `test_influence_drtmle.py` for the longhand; `test_influence_gateaux_drtmle.py`'s `q_right` cell, where it is the live correction |
+| `D^{*,#}` | `D = D* − D*_Q − D*_g` | `DnoStar − DnQoStar − DngoStar` | — | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | — | starred | rowwise per arm; ATE is the rowwise difference | the variance | `test_influence_drtmle.py` (difference not sum; per-guard membership) **and `test_influence_gateaux_drtmle.py`**, which is the Gateaux pin of the decomposition this row wanted: in each off-diagonal cell the corrected curve equals `tests/discrete_law.py`'s complex-step EIF, row for row, from a real fit as well as longhand |
 | `B_n`, `B_{A,n}`, `B_{Y,n}` | the three recorded scores | `PnDnoStar` etc. | — | — | **the identity B1a pins** | starred | yes | the stopping rule and `score_check` | `test_drtmle_fit.py` and `validation/drtmle.py`'s `correction_check` |
-| `R_{Q,n}`, `R_{g,n}` | not computed | not computed | — | — | — | — | — | item 13, `TODO` | `TODO` — piece C's column |
-| `σ̂²_n` | `influence_covariance` | `drtmle` covariance block | — | — | — | — | — | the interval | `TODO` — pinned only through the curve it is built from |
-| the probability limits `Q̄_1`, `g_1` | only in tests | — | — | — | — | — | — | `TODO` | `TODO` |
+| `R_{Q,n}`, `R_{g,n}` | not computed | not computed | — | — | — | — | — | item 13 | **open, and [piece C](roadmap.md#c-the-demonstration)'s** — a column on that study rather than a test here, since only it knows `ψ_0`. [§5](#5-the-remaining-remainder-terms) has the terms |
+| `σ̂²_n` | `influence_covariance` | `drtmle` covariance block | — | — | — | — | — | the interval | `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` — the interval built from the package's own corrections is the one Theorem 1's terms give, the uncentred `P_n{D}²` differs from the reported variance by exactly `(P_n D)²`, and the contrast reads the covariance rather than the sum |
+| the probability limits `Q̄_1`, `g_1` | declared in tests; a fit has estimates, not limits | — | `W` | — | — | the limit the starred arrays converge to | yes | Theorem 1's conclusion, and `D^{*,#}` is evaluated **at them** | `test_influence_gateaux_drtmle.py`, the first fixture here to *have* limits: the misspecified nuisance is a constant, so it is its own limit, and the union model is entered by construction rather than by a rate |
 
 ## 14. What the sources supply and what they do not
 
@@ -592,27 +638,37 @@ filled in from optimism, exactly as §15's `unverified` column says of itself.
 
 ## 15. Assumptions, and which the implementation meets
 
-One row per condition. **`unverified` is a permitted answer and is the point of the column.** The
-statuses below are the state on the day this file was seeded, not a result.
+One row per condition. **`unverified` is a permitted answer and is the point of the column.**
+
+The statuses below were the state on the day this file was seeded; **A1a filled the six empty
+`evidence` cells and corrected one status, and the count of `unverified` rows did not fall** —
+which is what the column is for. What changed is that a row now says *what would settle it* rather
+than nothing at all, and one row that read **violated** now reads violated-and-measured, because
+[B1a](roadmap.md#b1a--the-identity-and-safety-patch) landed an instrument for it.
 
 | condition | source | required for | what the implementation does | evidence | status |
 | --- | --- | --- | --- | --- | --- |
-| `Q̄ = Q̄_0` **or** `g = g_0` | Thm 1 | the whole conclusion | assumed, not checked | — | met by assumption; the union model is the point |
+| `Q̄ = Q̄_0` **or** `g = g_0` | Thm 1 | the whole conclusion | assumed, not checked | `test_influence_gateaux_drtmle.py` enters each half of the union **by construction** — one nuisance exact in the sample, the other a declared constant | met by assumption; the union model is the point, and it is now the fixture rather than a hope |
 | `g_0 > δ > 0` (true mechanism) | Thm 1 | boundedness | assumed; a *fitted* `g` is truncated instead | positivity warning | **unverified** — the theorem bounds `g_0`, the code bounds `ĝ` |
 | `B_n = o_p(n^(−1/2))` | Thm 1 | eq (8) | solved to `1e-11` relative or `_NEGLIGIBLE/n` absolute | sweep | met, under a numerical proxy for `o_p` |
-| `B_{A,n} = o_p(n^(−1/2))` | Thm 1 | eq (9) | solved at the **raw** residual; the curve reads the truncated one | item 20 | **violated** until B1 lands |
+| `B_{A,n} = o_p(n^(−1/2))` | Thm 1 | eq (9) | solved at the **raw** residual; the curve reads the truncated one | item 20; `correction_check`'s `identity` rows and `B_clip`, per arm | **violated wherever the bound binds, and now measured on the face of the fit.** B1a made it visible; [B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) closes it, on [§7](#7-truncation-is-not-in-the-theorems-algorithm)'s finding |
 | `B_{Y,n} = o_p(n^(−1/2))` | Thm 1 | eq (10) | solved exactly | tests | met |
-| `R_{Q,n} = o_p(n^(−1/2))` | app. A | asymptotic linearity | unmeasured | — | **unverified** — item 13 |
-| `R_{g,n} = o_p(n^(−1/2))` | app. B | asymptotic linearity | unmeasured | — | **unverified** — item 13 |
-| Donsker / `L_2` for `D_A`, `D_Y` | app. A/B | the empirical-process terms | cross-fitting, pooled | `fit_reduced` docstring | **unverified** — item 15 |
-| reduced regressions consistent | Thm 1 | the corrections' limits | estimated, unmeasured rates | — | **unverified** |
+| `R_{Q,n} = o_p(n^(−1/2))` | app. A | asymptotic linearity | unmeasured | `test_remainder_drtmle.py` has the *arithmetic* at saturated reductions; the empirical rate is [piece C](roadmap.md#c-the-demonstration)'s column | **unverified** — item 13 |
+| `R_{g,n} = o_p(n^(−1/2))` | app. B | asymptotic linearity | unmeasured | as above, and the two branches must be reported **apart** — [§5](#5-the-remaining-remainder-terms) | **unverified** — item 13 |
+| Donsker / `L_2` for `D_A`, `D_Y` | app. A/B | the empirical-process terms | cross-fitting, pooled | `fit_reduced` docstring | **unverified** — item 15, and [A1b](roadmap.md#a1b--the-cross-fitting-construction)'s whole content |
+| reduced regressions consistent | Thm 1 | the corrections' limits | estimated, unmeasured rates | `test_reduced_regressions.py` shows a **saturated** learner recovers them exactly on the exact law; that is consistency at one learner on one law and not a rate | **unverified** |
 | exact zeros vs `o_p(n^(−1/2))` | Thm 1 | the stopping rule | numerical criterion | item 12 | met under a stated restriction |
-| arm-level means / ATE contrast | Thm 1 + adaptation | the reported parameters | rowwise difference of arm curves | — | met; the adaptation is stated, not cited |
+| arm-level means / ATE contrast | Thm 1 + adaptation | the reported parameters | rowwise difference of arm curves | `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` — the contrast's variance is the difference's, not the sum of the arms' | met; the adaptation is stated, not cited |
 | hard truncation of `ĝ` | **nowhere** | the implementation as written | applied, inconsistently | item 20 | **not covered by the source** — [§7](#7-truncation-is-not-in-the-theorems-algorithm) |
 | the mechanism correction's sign | Thm 1 | the variance | the appendices' orientation | [§4](#4-the-sign-discrepancy-item-21--resolved), `test_theorem_drtmle.py` | **met**; the §3.1 display disagrees and its own appendices contradict it — item 21, closed |
 | the update order | Thm 1's algorithm | nothing, if the fixed point is the same | different order | [§6](#6-the-recursive-algorithm-item-22) | **met under a stated restriction**: the paper's step 7 states its own exit as the three scores, so the order is not prescriptive; whether the fixed points coincide numerically is A1's, both orders run here — item 22 |
 | fixed weights | **nowhere** | item 17's claim | weighted loss throughout | `test_remainder_drtmle.py` | met for a **fixed** weight; estimated weights not covered |
 | repeated sample splitting | **nowhere** | item 18's claim | mean over draws | `test_drtmle_fit.py` | met arithmetically; not covered by the source |
-| `K` arms | **nowhere** | piece D | binary only | — | **not covered by the source** — [§12](#12-multi-valued-treatment-and-the-simplex) |
+| `K` arms | **nowhere** | piece D | binary only, refused by name | `reduced_mechanism_covariate` raises above two arms rather than generalising the tilt | **not covered by the source** — [§12](#12-multi-valued-treatment-and-the-simplex) |
 | missing outcomes | **nowhere**; `drtmle` masks `D*_g` and this package does not | a lifted `delta=` | refused, so the two conventions never differ on a fit either package accepts | [§9](#9-what-was-read-out-of-the-r-source-and-what-is-still-owed) | **not covered by the source** — settle from the derivation *before* lifting the refusal; no run could ever have settled it |
-| composition with `CTMLE` | **nowhere** | — | refused | — | **not covered by the source** |
+| composition with `CTMLE` | **nowhere** | — | refused | `test_drtmle_fit.py::TestTheRefusals` | **not covered by the source** |
+
+**Four rows read *not covered by the source*** — hard truncation, `K` arms, missing outcomes and
+composition with `CTMLE` — and five read `unverified`. A page elsewhere that counts three of the
+first has not been updated since missing outcomes was added; [the roadmap](roadmap.md) is the one
+that said so and no longer does.

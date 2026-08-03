@@ -1058,7 +1058,8 @@ Why this is the right number, and how it is checked:
 
 > **In progress.** `DRTMLE` is written and tested, and it is not finished. Its influence
 > curve was transcribed from R's `drtmle` rather than derived — it has since been checked
-> against Theorem 1 and agrees — and no study in this repository shows the interval it
+> against Theorem 1's appendices *and* against the Gateaux derivative of the parameter, and
+> agrees with both — and no study in this repository shows the interval it
 > reports is better than a plain TMLE's. The full list is in
 > [the roadmap](roadmap.md#what-is-still-open); the short version is at the end of this
 > section. Use it where you have a reason to think one nuisance is badly estimated, and do
@@ -1197,6 +1198,11 @@ been checked against Theorem 1 — in the 2016 working-paper version, kept at
 `docs/viewcontent.cgi.pdf` — and it agrees, though the paper's own display of one correction
 prints a sign its appendices contradict, so the check took an argument rather than a glance
 ([the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)).
+It has since also been checked against a *perturbation of the law*, which is the check every
+other estimand here gets and which this one could not have until the fixture was made wrong on
+purpose: with one nuisance consistent, the corrected curve a fit reports is the efficient
+influence function row for row, and a flipped sign misses by half a unit or more against a
+`1e-12` window.
 There is no cross-check against `drtmle`'s own *numbers* and there will not be: both
 implementations descend from one source, so agreement would be evidence about the transcription
 and blind to exactly the sign above — [the roadmap's item

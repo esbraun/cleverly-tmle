@@ -175,12 +175,13 @@ class DRTMLE(TMLE):
     consistently estimated.
 
     **Read the module docstring's warning before using this in anger.**  The curve it
-    reports was transcribed from the R package rather than derived -- it has since been
-    checked against Theorem 1 and agrees, and nothing has been compared against that
-    package's *numbers*, which is a decision rather than a gap -- and no study here
-    demonstrates the interval is better than a plain TMLE's.  What the module docstring says
-    about what this does and does not buy is not hedging: it is the current state of the
-    evidence.
+    reports was transcribed from the R package rather than derived -- that is its
+    *provenance*, and its *evidence* is that it has since been checked against Theorem 1's
+    appendices and against the Gateaux derivative of the parameter, and agrees with both;
+    nothing has been compared against that package's *numbers*, which is a decision rather
+    than a gap -- and no study here demonstrates the interval is better than a plain
+    TMLE's.  What the module docstring says about what this does and does not buy is not
+    hedging: it is the current state of the evidence.
 
     Every :class:`~cleverly.TMLE` keyword is accepted and behaves identically except the
     ones listed under *Notes*, which are refused rather than approximated.

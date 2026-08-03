@@ -7,7 +7,7 @@ it judges exists.
 
 Four sections match four pieces of work: [B1a](#1-the-invariants-piece-b1a) is the identity patch,
 [B1b](#2-the-targeting-candidates-piece-b1b) is the targeting decision,
-[A1](#3-the-component-checklist-piece-a1) is the component checklist,
+[A1a](#3-the-component-checklist-piece-a1a) is the component checklist,
 [B2](#4-the-sweep-piece-b2) is the convergence and overlap sweep, and
 [C](#5-the-controlled-study-piece-c) is the demonstration. [The mutation
 table](#6-what-each-new-test-has-to-be-watched-to-fail) is what makes any of it evidence.
@@ -172,7 +172,13 @@ In order:
 
 1. **Theorem fidelity** — which mechanism appears consistently in equation (9), in `D_A`, and in
    the appendix-B terms? [The concordance's §7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)
-   is where this is answered, and its present answer is that the theorem clips nothing at all.
+   answers it, and A1a promoted that answer from a reading to a stated finding: **one mechanism,
+   untruncated, the same in the score and in the influence function.** So this criterion does not
+   rank the four variants against a convention the theorem holds — it has none. It asks which of
+   them is a finite-sample rendering whose *final* score is the theorem-defined score of the
+   estimator being declared, which is criterion 2 made into a design requirement rather than a
+   check. Two of the four cannot satisfy it by construction, and saying which is B1b's first
+   paragraph.
 2. **Exact final-score validity** — does the returned state satisfy the exact equation the
    reported correction uses, to the declared statistical tolerance?
 3. **Numerical stability** — how does it behave as the clipped share rises?
@@ -224,7 +230,7 @@ to implement**, rather than treating today's `psi` as ground truth. A material m
 investigation; it does not automatically reject the candidate, and it may well reveal that the old
 estimate came from a different targeting path.
 
-## 3. The component checklist (piece A1)
+## 3. The component checklist (piece A1a)
 
 **This was `drtmle` parity and it is [retired](roadmap.md#closed-since-this-list-opened).** There
 is no R here and none in CI. What survives is the decomposition, because the decomposition was
@@ -290,12 +296,26 @@ finite-support quantities, `1e-8`-ish for deterministic GLM predictions and coef
 
 ### What is left, and it is a list of tests rather than a fixture to import
 
-The `TODO` rows of [the concordance's object
-table](drtmle-theorem-concordance.md#13-the-object-concordance). Plus the one gap the retired piece
-had correctly identified and that nothing else covers: **the reported curve's own decomposition,
-pinned against a perturbation of the law** the way the `test_influence_gateaux*` modules do
-elsewhere. Those modules cannot be reused here, derivably — everything the variant adds vanishes on
-an exact law — so whatever replaces them is written against a law that is wrong on purpose.
+**Nothing, and that is A1a's deliverable.** `TODO` is gone from [the concordance's object
+table](drtmle-theorem-concordance.md#13-the-object-concordance)'s `evidence` column; the two rows
+still open name their owner — item 13 is piece C's and cross-fitting is A1b's.
+
+The one gap the retired piece had correctly identified and that nothing else covered was **the
+reported curve's own decomposition, pinned against a perturbation of the law**. It is
+`tests/unit/test_influence_gateaux_drtmle.py`, and the shape it took is worth recording because it
+is not the shape planned. The plan was a further oracle carrying the whole DRTMLE limit as an
+analytic functional. It needs none: **in the union model at saturated reductions the corrected
+curve collapses onto the efficient influence function**, `1/g_1 − g_{r,2}/g_{r,1} = 1/g_0` on the
+mechanism side and a cancellation of `Q̄*` against `Q_r = Q̄_0 − Q̄*` on the outcome side. So the
+derivative already in the repository is the right-hand side and only the left had to be written.
+Two tiers close at `~1e-15` — this module's longhand, and a real `DRTMLE` fit, which is also the
+first fit here against a deliberately misspecified law.
+
+Its **blind spots are named in its own docstring**, each measured by running the mutation and
+watching it *pass*: item 23, equation (9)'s covariate sign, and a reduced regression's pooling
+weight — one degeneracy each time, a cell being blind to a term it sets to zero. That list is the
+deliverable as much as the assertions are, for the reason
+[lesson 9](drtmle-investigation-log.md#what-the-sizings-got-wrong) gives.
 
 ## 4. The sweep (piece B2)
 
@@ -552,6 +572,10 @@ rather than being found afterwards.
 | unit | a weighted fit transports (item 17) | reductions taken at the sampling law (already done, item 17) |
 | oracle | the drift decomposition | delete one correction term |
 | component | each object of the curve equals what the derivation gives for it, **at a value where it does not vanish** | perturb one component and watch only that row move; and evaluate the whole checklist at the *truth* instead, where every row passes and the check is vacuous — the mutation that says the law is misspecified on purpose |
+| unit | the corrected curve **is** the Gateaux derivative in each half of the union model (A1a) | **run**: negate `CorrectionParts.total()` under each guard separately — `g_right` goes red on one and `q_right` on the other, so the two cells are not one test twice; and swap `gr1`/`gr2` inside `fit_reduced`, which reddens `q_right` only |
+| unit | that comparison is not vacuous | **run, and it must *pass***: the same module at `law.G`, `law.Q`, where both corrections are zero row by row and every assertion holds under *either* sign. `TestTheControlsBite::test_at_the_truth_the_whole_comparison_is_vacuous` is that mutation kept as a test |
+| unit | the targeting step is what centres the curve | **run**: skip the equation-(8) fluctuation, and the corrected curve is the efficient one plus `0.11` at arm 0 and `0.125` at arm 1 — pinned from both sides, by asserting the targeted plug-in *is* the truth and the untargeted one is not |
+| unit | the reported interval is Theorem 1's `σ²_n`, not merely the curve (A1a) | **run**: negate one term inside `total()` and watch `TestTheReportedVarianceIsTheorem1s` go red while the array-level `test_the_parts_are_the_theorems_positive_terms` stays green — the separation that says the two tiers are different claims; and diagonalise `influence_covariance`, which reddens the contrast row alone |
 | integration | `guard=()` is `TMLE` bit for bit | route the empty guard through the reduction loop |
 | integration | each guard removes its own direction | cross the guard semantics |
 | unit | only the guarded equation's correction is **in the curve** (item 23) | **run**: drop the branch from `CorrectionParts.total()`, and cross it — `tests/unit/test_influence_drtmle.py::TestOnlyTheGuardedEquationsCorrectionIsInTheCurve`, whose fixture is checked at the exact law too, where all three guards agree and every array is zero |
@@ -570,5 +594,14 @@ rather than being found afterwards.
 
 **Two of these cannot be written against the exact law**, and the reason is derivable rather than
 empirical: everything the variant adds vanishes there row by row. The corrected-curve rows want
-nuisances that are wrong on purpose, which is what `tests/unit/test_remainder_drtmle.py` and
-`tests/unit/test_influence_drtmle.py` already do and what any new module here has to do too.
+nuisances that are wrong on purpose, which is what `tests/unit/test_remainder_drtmle.py`,
+`tests/unit/test_influence_drtmle.py` and `tests/unit/test_influence_gateaux_drtmle.py` all do.
+
+**And a mutation that must be watched to *pass* is worth as much as one watched to fail**, which
+is the row above about running the Gateaux module at the truth. A test suite records the mutations
+it caught; what it almost never records is the ones it cannot, and those are what a later reader
+mistakes for coverage. Four of them are named in that module's docstring — item 23, equation
+(9)'s covariate sign, a reduced regression's pooling weight, and the cross-fitting construction —
+the first two measured by running the mutation rather than reasoned about, and each with the
+module that *does* cover it, or with the piece that still owes it. Add to that list when a new instrument lands
+here; do not quietly narrow a parametrisation instead.

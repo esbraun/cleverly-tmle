@@ -48,6 +48,8 @@ would pass against either.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -76,6 +78,47 @@ def positive_terms(arm: int) -> tuple[np.ndarray, np.ndarray]:
     an equality of arrays rather than a table of names.
     """
     return _extra_curves(WRONG_G, WRONG_Q, arm)
+
+
+def library_parts() -> Any:
+    r"""The **package's** :math:`D^*_g` and :math:`D^*_Q` at the same wrong nuisances.
+
+    Split out of :class:`TestTheImplementationComputesTheTheoremsTerms` so that
+    :class:`TestTheReportedVarianceIsTheorem1s` reads the same arrays: the array
+    comparison and the interval comparison have to be about one object, or the second is
+    checking a second construction rather than the reported one.
+    """
+    from cleverly.inference.influence import reduced_correction_parts
+    from tests.unit.test_reduced_submodel import reduced_at
+
+    frame = law.frame()
+    covariate = frame["W"].to_numpy().astype(int)
+    treatment = frame["A"].to_numpy(dtype=float)
+    outcome = frame["Y"].to_numpy(dtype=float)
+    at_one, at_zero = WRONG_Q[covariate, 1], WRONG_Q[covariate, 0]
+    targeted = InitialFit(
+        observed=np.where(treatment == 1.0, at_one, at_zero),
+        arms={1.0: at_one, 0.0: at_zero},
+    )
+    return reduced_correction_parts(
+        outcome,
+        targeted,
+        treatment,
+        reduced_at(WRONG_G, WRONG_Q),
+        WRONG_G[covariate],
+        bounds=(1e-6, 1.0 - 1e-6),
+        guard=("Q", "g"),
+        observed=None,
+    )
+
+
+def library_corrections(arm: int) -> np.ndarray:
+    """What the reported curve subtracts for one arm, through the production selector.
+
+    :meth:`~cleverly.inference.influence.CorrectionParts.total` rather than
+    ``d_g + d_q``, so the guard branch item 23 added is on the path this reads.
+    """
+    return np.asarray(library_parts().total()[float(arm)], dtype=float)
 
 
 def plain_curve(arm: int) -> np.ndarray:
@@ -206,28 +249,7 @@ class TestTheImplementationComputesTheTheoremsTerms:
 
     @pytest.mark.parametrize("arm", ARMS)
     def test_the_parts_are_the_theorems_positive_terms(self, arm: int) -> None:
-        from cleverly.inference.influence import reduced_correction_parts
-        from tests.unit.test_reduced_submodel import reduced_at
-
-        frame = law.frame()
-        covariate = frame["W"].to_numpy().astype(int)
-        treatment = frame["A"].to_numpy(dtype=float)
-        outcome = frame["Y"].to_numpy(dtype=float)
-        at_one, at_zero = WRONG_Q[covariate, 1], WRONG_Q[covariate, 0]
-        targeted = InitialFit(
-            observed=np.where(treatment == 1.0, at_one, at_zero),
-            arms={1.0: at_one, 0.0: at_zero},
-        )
-        parts = reduced_correction_parts(
-            outcome,
-            targeted,
-            treatment,
-            reduced_at(WRONG_G, WRONG_Q),
-            WRONG_G[covariate],
-            bounds=(1e-6, 1.0 - 1e-6),
-            guard=("Q", "g"),
-            observed=None,
-        )
+        parts = library_parts()
         u, v = positive_terms(arm)
 
         np.testing.assert_allclose(parts.d_g[float(arm)], u, rtol=0, atol=1e-14)
@@ -272,3 +294,105 @@ class TestTheTwoSignsAreMateriallyDifferentVariances:
 
         difference = float(np.mean(curve + u + v)) - float(np.mean(curve - u - v))
         assert difference == pytest.approx(2.0 * float(np.mean(u + v)), abs=1e-14)
+
+
+class TestTheReportedVarianceIsTheorem1s:
+    r"""Theorem 1's :math:`\sigma_n^2 = P_n\{D^* - D_A - D_Y\}^2`, and what is reported.
+
+    Everything above this class is about the *curve*.  The theorem's last line is about
+    the **variance**, and until this class it was pinned only through the curve it is
+    built from -- which is not the same claim: the theorem's form is an *uncentred* second
+    moment, the package reports a centred one, and the interval a reader is shown is the
+    composition of the two with a contrast in between.  Three things, each of which can be
+    wrong on its own.
+
+    Fit-free, as the rest of this module is: the arrays are the oracle's longhand terms
+    and the only library code is the one function that turns a curve into an interval.
+    """
+
+    @pytest.mark.parametrize("arm", ARMS)
+    def test_the_interval_the_package_builds_is_the_theorems(self, arm: int) -> None:
+        r"""The variance built from the package's **own** corrections is the theorem's.
+
+        :class:`TestTheImplementationComputesTheTheoremsTerms` closes the loop at the
+        arrays; this closes it at the number a reader is shown.  The curve here is
+        :func:`~cleverly.inference.influence.reduced_correction_parts`' output subtracted
+        from :math:`D^*`, and the claim is that
+        :func:`~cleverly.inference.influence.make_estimate` then reports
+        :math:`\sigma_n^2/n` for :math:`\sigma_n^2` built out of the theorem's :math:`u`
+        and :math:`v` -- so a sign, a dropped term or a re-association in
+        :meth:`~cleverly.inference.influence.CorrectionParts.total` moves the interval and
+        this goes red.
+
+        The second assertion is the fixture's: an interval that did **not** move would
+        make the first one vacuous, and the corrections are the only product this variant
+        has.
+        """
+        from cleverly.inference.influence import make_estimate
+
+        curve = plain_curve(arm)
+        u, v = positive_terms(arm)
+        name = f"ey{arm}"
+
+        packaged = make_estimate(name, 0.0, curve - library_corrections(arm), n=law.N)
+        theorem = make_estimate(name, 0.0, curve - u - v, n=law.N)
+        ordinary = make_estimate(name, 0.0, curve, n=law.N)
+
+        assert packaged.variance == pytest.approx(theorem.variance, rel=1e-12)
+        assert packaged.ci == pytest.approx(theorem.ci, rel=1e-12)
+        assert abs(packaged.std_error / ordinary.std_error - 1.0) > 0.02
+
+    @pytest.mark.parametrize("arm", ARMS)
+    def test_the_theorems_uncentred_form_is_the_reported_one_once_the_score_is_zero(
+        self, arm: int
+    ) -> None:
+        r""":math:`P_n\{D\}^2` and :math:`\operatorname{Var}_n(D)` differ by
+        :math:`(P_n D)^2` -- **exactly**, and that is the whole of the difference between
+        what Theorem 1 writes and what the package reports.
+
+        So the theorem's variance is the reported one *conditional on the score equations
+        being solved*, which is the qualification
+        :mod:`cleverly.validation.score` exists to check and not an approximation to wave
+        through.  These nuisances are untargeted, so the gap is material here -- which is
+        what makes the second half of this test a statement rather than a tautology.
+        """
+        curve = plain_curve(arm)
+        u, v = positive_terms(arm)
+        corrected = curve - u - v
+
+        uncentred = float(np.mean(corrected**2))
+        centred = float(np.var(corrected))
+        score = float(np.mean(corrected))
+
+        assert uncentred - centred == pytest.approx(score**2, abs=1e-14)
+        assert abs(score) > 1e-3, "an untargeted fixture, or the gap below is not being shown"
+
+        solved = corrected - score  # what the targeting step delivers
+        assert float(np.mean(solved**2)) == pytest.approx(float(np.var(solved)), abs=1e-14)
+
+    def test_the_contrast_reads_the_covariance_rather_than_the_sum(self) -> None:
+        r"""``ate``'s variance is :math:`\operatorname{Var}(D_1 - D_0)`, not the sum.
+
+        The two arms' corrected curves are strongly dependent -- they share :math:`Y`,
+        :math:`A` and the same reduced regressions -- so a contrast that added the
+        diagonal would report an interval of the wrong width in a direction nothing else
+        here would catch.  Asserted through
+        :func:`~cleverly.inference.cluster.influence_covariance`, which is what the
+        delta method and the simultaneous bands read.
+        """
+        from cleverly.inference.cluster import influence_covariance
+
+        curves = []
+        for arm in ARMS:
+            u, v = positive_terms(arm)
+            curves.append(plain_curve(arm) - u - v)
+        matrix = influence_covariance(np.column_stack(curves))
+
+        contrast = np.array([-1.0, 1.0])  # ARMS is (0, 1), so ate = column 1 - column 0
+        through_covariance = float(contrast @ matrix @ contrast)
+        directly = float(np.var(curves[1] - curves[0], ddof=1) / law.N)
+
+        assert through_covariance == pytest.approx(directly, rel=1e-12)
+        assert through_covariance != pytest.approx(float(matrix[0, 0] + matrix[1, 1]), rel=1e-3), (
+            "the arms must covary here, or this fixture cannot tell a sum from a difference"
+        )

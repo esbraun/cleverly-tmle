@@ -433,12 +433,19 @@ want of effort. `cleverly.estimators.ctmle` sets both out in full.
 ## Doubly-robust inference: what the extra equations remove
 
 **`DRTMLE` is in progress**, and this section describes what it computes rather than what has
-been established about it: the influence curve below was transcribed from R's `drtmle` rather
-than derived, and has since been checked against Theorem 1. Nothing here has been compared
-against that package's *numbers* and nothing will be — a
+been established about it. Two different things are worth keeping apart about the influence curve
+below. Its **provenance** is that its form was read off R's `drtmle` rather than derived here. Its
+**evidence** is that it has since been checked twice against the derivation: against Theorem 1's
+own appendices, at a nonzero `Q_r` where a flipped sign would show
+([the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved));
+and against a *perturbation of the law*, where in each half of the union model the corrected curve
+is the efficient influence function row for row — from a real fit as well as longhand
+(`tests/unit/test_influence_gateaux_drtmle.py`). Nothing here has been compared against that
+package's *numbers* and nothing will be — a
 [decision](roadmap.md#closed-since-this-list-opened) rather than a gap, since agreement between
-two transcriptions of one source is evidence about the transcription. The roadmap's [What is
-still open](roadmap.md#what-is-still-open) is the full list.
+two transcriptions of one source is evidence about the transcription. What remains open is the
+*inference*, not the curve: the roadmap's [What is still
+open](roadmap.md#what-is-still-open) is the full list.
 
 `TMLE` is **doubly robust for consistency and singly robust for inference**, and the
 distinction is the whole of what `DRTMLE` is for. The second-order remainder is a product,

@@ -468,6 +468,26 @@ def reduced_corrections(
     The *published* 2017 article remains unread and no longer gates this: the adjudication is
     internal consistency plus exact-law arithmetic, and neither depends on the edition.
 
+    **And the decomposition is now pinned against a perturbation of the law**, which is the
+    check every other estimand in this package gets and the one this variant could not have
+    until a fixture was made wrong on purpose.  In each half of the union model -- one
+    nuisance consistent, the other a declared constant -- with the reduced regressions
+    saturated, the corrected curve *is* the efficient influence function row for row:
+
+    .. math::
+
+        \frac{1}{g_1} - \frac{g_{r,2}}{g_{r,1}} = \frac{1}{g_0},
+        \qquad
+        D^* (\bar Q^*, g_0) - D^*_g = D^*(\bar Q_0, g_0),
+
+    the second because the :math:`\bar Q^*` in the residual and the one inside
+    :math:`Q_r = \bar Q_0 - \bar Q^*` cancel.  That is what "an interval valid when only one
+    nuisance is consistent" means, written as an identity, and
+    ``tests/unit/test_influence_gateaux_drtmle.py`` checks it against
+    ``tests/discrete_law.py``'s complex-step derivative -- from a real fit as well as from
+    longhand, at ``rtol=0``.  A flipped sign misses by ``0.55`` to ``2.8`` against a
+    ``1e-12`` window, which was watched rather than argued.
+
     And note exactly what the reference to ``drtmle`` is: **no number this package produces
     has been compared against that package's, and none will be.**  There is no cross-language
     test here or in CI and none is planned.  So "what that package computes" is a statement
