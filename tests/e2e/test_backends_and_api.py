@@ -4,6 +4,13 @@ The promise the library makes is "pandas in, pandas out; polars in, polars out",
 *identical numbers* either way.  Identical, not merely close: the two paths differ only
 in how the data is unwrapped, so any numerical discrepancy would signal that one of them
 is quietly reordering or recasting something.
+
+The same standard applies to arrow-backed pandas, which is a third *dtype* backend rather
+than a third library.  It used to be tested nowhere -- ``pyarrow`` sat in the ``dev``
+extra and was imported by nothing -- and it worked only because narwhals happens to map
+arrow numerics onto ``float64``.  The ingestion path now casts inside narwhals instead, so
+what these tests pin is that the cast is exact and that a null reaches the same refusal
+whichever dtype carried it.
 """
 
 from __future__ import annotations
@@ -24,14 +31,25 @@ from tests.conftest import fast_tmle
 ESTIMANDS = ("ate", "att", "atc", "ey1", "ey0")
 
 
+def arrow_backed(frame: pd.DataFrame) -> pd.DataFrame:
+    """The same pandas frame with every column on an ``ArrowDtype``.
+
+    A helper rather than a generator option: ``backend=`` names the dataframe *library*,
+    and arrow-backed pandas is still pandas.  Which is the point -- the fit below has to
+    come out the same as the numpy-backed one, not merely close to it.
+    """
+    return frame.convert_dtypes(dtype_backend="pyarrow")
+
+
 @pytest.fixture(scope="module")
-def paired_fits() -> tuple[object, object]:
+def paired_fits() -> tuple[object, object, object]:
     pandas_frame, _ = make_linear_ate(n=900, seed=91, backend="pandas")
     polars_frame, _ = make_linear_ate(n=900, seed=91, backend="polars")
     columns = {"outcome": "Y", "treatment": "A"}
     return (
         fast_tmle(estimands=ESTIMANDS).fit(pandas_frame, **columns).single(),
         fast_tmle(estimands=ESTIMANDS).fit(polars_frame, **columns).single(),
+        fast_tmle(estimands=ESTIMANDS).fit(arrow_backed(pandas_frame), **columns).single(),
     )
 
 
@@ -43,14 +61,14 @@ class TestBackendParity:
 
     @pytest.mark.parametrize("estimand", ESTIMANDS)
     def test_estimates_are_bit_identical(self, paired_fits, estimand: str) -> None:
-        from_pandas, from_polars = paired_fits
+        from_pandas, from_polars, _ = paired_fits
         assert from_pandas.psi(estimand) == from_polars.psi(estimand)
         assert from_pandas[estimand].std_error == from_polars[estimand].std_error
         assert from_pandas[estimand].ci == from_polars[estimand].ci
         assert from_pandas[estimand].pvalue == from_polars[estimand].pvalue
 
     def test_influence_curves_are_identical(self, paired_fits) -> None:
-        from_pandas, from_polars = paired_fits
+        from_pandas, from_polars, _ = paired_fits
         for estimand in ESTIMANDS:
             assert np.array_equal(
                 from_pandas[estimand].influence_curve,
@@ -58,14 +76,14 @@ class TestBackendParity:
             )
 
     def test_results_come_back_in_the_input_backend(self, paired_fits) -> None:
-        from_pandas, from_polars = paired_fits
+        from_pandas, from_polars, _ = paired_fits
         assert isinstance(from_pandas.to_frame(), pd.DataFrame)
         assert isinstance(from_polars.to_frame(), pl.DataFrame)
         assert isinstance(from_pandas.influence_frame(), pd.DataFrame)
         assert isinstance(from_polars.influence_frame(), pl.DataFrame)
 
     def test_diagnostic_frames_follow_the_backend_too(self, paired_fits) -> None:
-        from_pandas, from_polars = paired_fits
+        from_pandas, from_polars, _ = paired_fits
         assert isinstance(
             from_pandas.sensitivity.truncation_curve([0.01], estimands=["ate"]), pd.DataFrame
         )
@@ -83,10 +101,51 @@ class TestBackendParity:
         The backend claim is about the numbers and the layout, not about the clock, so the
         timestamp is normalised out and asserted separately to be present.
         """
-        from_pandas, from_polars = paired_fits
+        from_pandas, from_polars, _ = paired_fits
         stamp = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+\d{2}:\d{2}")
         assert stamp.search(from_pandas.summary()), "the provenance line should carry a time"
         assert stamp.sub("<t>", from_pandas.summary()) == stamp.sub("<t>", from_polars.summary())
+
+    @pytest.mark.parametrize("estimand", ESTIMANDS)
+    def test_an_arrow_backed_fit_is_bit_identical(self, paired_fits, estimand: str) -> None:
+        """``dtype_backend="pyarrow"`` must be the same fit, not a nearby one.
+
+        Bit-for-bit is the right bar and not a strict one: the arrow column holds the same
+        float64 values, so the only way a digit could move is if the ingestion path took a
+        different route through them -- which is exactly what this is here to catch.
+        """
+        from_pandas, _, from_arrow = paired_fits
+        assert from_pandas.psi(estimand) == from_arrow.psi(estimand)
+        assert from_pandas[estimand].std_error == from_arrow[estimand].std_error
+        assert from_pandas[estimand].ci == from_arrow[estimand].ci
+        assert np.array_equal(
+            from_pandas[estimand].influence_curve, from_arrow[estimand].influence_curve
+        )
+
+    def test_an_arrow_backed_fit_reports_pandas_and_says_so(self, paired_fits) -> None:
+        """Arrow in, *numpy-backed* pandas out -- the documented limit of the promise.
+
+        The library is preserved; the dtype backend is not, because results are built from
+        numpy through ``nw.from_dict``, which has no ``dtype_backend`` knob.  Pinned rather
+        than left implicit so that changing it is a decision instead of a surprise.
+        """
+        _, _, from_arrow = paired_fits
+        frame = from_arrow.to_frame()
+        assert isinstance(frame, pd.DataFrame)
+        assert from_arrow.data.backend == "pandas"
+        assert not isinstance(frame["psi"].dtype, pd.ArrowDtype)
+
+    def test_a_pyarrow_table_is_a_declared_backend(self) -> None:
+        """``narwhals`` accepts one, so the choice was declaring it or half-supporting it."""
+        pa = pytest.importorskip("pyarrow")
+        pandas_frame, _ = make_linear_ate(n=300, seed=97, backend="pandas")
+        result = (
+            fast_tmle(estimands=("ate",))
+            .fit(pa.Table.from_pandas(pandas_frame), outcome="Y", treatment="A")
+            .single()
+        )
+        assert result.data.backend == "pyarrow"
+        assert isinstance(result.to_frame(), pa.Table)
 
     def test_a_polars_fit_with_every_role(self) -> None:
         frame, _ = make_missing_outcome(n=900, seed=93, backend="polars")
@@ -112,34 +171,93 @@ class TestBackendParity:
         assert result.validation.score_check().passed
 
 
+class TestEveryReportFollowsTheBackend:
+    """Not just the estimates: the diagnostics too, with nothing threaded in by hand.
+
+    Each of these ``to_frame()`` methods takes an optional container and used to fall back
+    to the *default* backend without one -- and nothing inside the package ever passed one,
+    so a polars fit's diagnostics all came back as pandas.  The reports carry the backend
+    name themselves now.  Called bare here on purpose: passing ``data=`` would test the
+    override rather than the default, which is the thing that was broken.
+    """
+
+    @pytest.fixture(scope="class")
+    def polars_fit(self):  # type: ignore[no-untyped-def]
+        frame, _ = make_linear_ate(n=400, seed=98, backend="polars")
+        return (
+            fast_tmle(estimands=("ate",), targeting_scheme="fold")
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+
+    def test_the_validation_reports(self, polars_fit) -> None:
+        assert isinstance(polars_fit.validation.score_check().to_frame(), pl.DataFrame)
+        assert isinstance(polars_fit.validation.nuisance().to_frame(), pl.DataFrame)
+        refutation = polars_fit.validation.refute(tests=["placebo"], n_replicates=2)
+        assert isinstance(refutation.to_frame(), pl.DataFrame)
+
+    def test_the_positivity_report(self, polars_fit) -> None:
+        assert isinstance(polars_fit.sensitivity.positivity().to_frame(), pl.DataFrame)
+
+    def test_the_fold_targeting_report(self, polars_fit) -> None:
+        """And it is a *frame*: this one alone used to hand back a bare ``dict``."""
+        frame = polars_fit.cv_targeting.to_frame()
+        assert isinstance(frame, pl.DataFrame)
+        assert "estimand" in frame.columns
+
+    def test_the_regime_support_report(self) -> None:
+        """``RegimeSupport.to_frame`` documented this behaviour before it had it."""
+        from cleverly.interventions import Static
+
+        frame, _ = make_linear_ate(n=400, seed=99, backend="polars")
+        result = (
+            fast_tmle(estimands=("ey_regime",), interventions=(Static(0), Static(1)))
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        assert isinstance(result.sensitivity.support().to_frame(), pl.DataFrame)
+
+    def test_a_saved_fit_remembers_its_backend(self, polars_fit, tmp_path: Path) -> None:
+        """The backend is a *name* now, so it survives the round trip -- it could not
+        while the container held the input frame itself."""
+        import cleverly
+
+        path = tmp_path / "polars-fit.npz"
+        polars_fit.save(path)
+        reloaded = cleverly.load(path)
+        assert reloaded.data.backend == "polars"
+        assert isinstance(reloaded.to_frame(), pl.DataFrame)
+        assert isinstance(reloaded.validation.score_check().to_frame(), pl.DataFrame)
+
+
 class TestResultApi:
     def test_mapping_style_access(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         assert "ate" in result
         assert set(result) == set(ESTIMANDS)
         assert result["ate"] is result.ate
         assert result.psi("ate") == result.ate.psi
 
     def test_an_unrequested_estimand_gives_a_helpful_error(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         with pytest.raises(KeyError, match="was not requested"):
             result["rr"]
 
     def test_the_tidy_frame_has_one_row_per_estimand(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         frame = nw.from_native(result.to_frame(), eager_only=True)
         assert len(frame) == len(ESTIMANDS)
         assert frame["estimand"].to_list() == list(ESTIMANDS)
         assert {"psi", "std_err", "ci_lower", "ci_upper", "p_value"} <= set(frame.columns)
 
     def test_the_influence_frame_has_one_column_per_estimand(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         frame = nw.from_native(result.influence_frame(), eager_only=True)
         assert set(frame.columns) == set(ESTIMANDS)
         assert len(frame) == result.n
 
     def test_the_summary_reports_the_configuration_actually_used(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         text = result.summary()
         assert "Targeted maximum likelihood estimation" in text
         assert "cross-fitted over 5 folds" in text
@@ -150,7 +268,7 @@ class TestResultApi:
             assert estimand in text
 
     def test_the_config_records_resolved_values(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         config = result.config
         assert config.family == "gaussian"
         assert config.estimands == ESTIMANDS
@@ -159,18 +277,18 @@ class TestResultApi:
         assert config.q_bounds is not None
 
     def test_the_score_property_is_the_mean_influence_curve(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         for estimand in ESTIMANDS:
             estimate = result[estimand]
             assert estimate.score == pytest.approx(float(estimate.influence_curve.mean()))
 
     def test_diagnostics_are_cached_across_calls(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         assert result.sensitivity is result.sensitivity
         assert result.validation is result.validation
 
     def test_estimates_expose_a_dict_form(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         row = result["ate"].to_dict()
         assert row["estimand"] == "ate"
         assert row["scale"] == "difference"
@@ -222,7 +340,7 @@ class TestResultApi:
         )
 
     def test_the_nuisance_fits_are_retained_for_reuse(self, paired_fits) -> None:
-        result, _ = paired_fits
+        result, _, _ = paired_fits
         nuisance = result.nuisance
         # One column per arm, even for a binary treatment, where column 0 is 1 - g1.
         assert nuisance.propensity.values.shape == (result.n, 2)

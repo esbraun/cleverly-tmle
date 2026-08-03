@@ -156,6 +156,10 @@ class ScoreCheck:
     #: ``None`` on a check built by hand; empty rows on any fit that reports no
     #: corrections, which is every fit but a guarded :class:`~cleverly.DRTMLE` one.
     corrections: CorrectionCheck | None = None
+    #: Name of the dataframe backend the fit's data arrived in, so that
+    #: :meth:`to_frame` honours "results come back in the backend you passed in"
+    #: without a caller having to thread the container back in by hand.
+    backend: str | None = None
 
     @property
     def passed(self) -> bool:
@@ -191,7 +195,7 @@ class ScoreCheck:
             "n_iter": [row.n_iter for row in self.rows],
             "method": [row.method for row in self.rows],
         }
-        return emit_frame(payload, data)
+        return emit_frame(payload, data, backend=self.backend)
 
     def one_line(self) -> str:
         """The verdict as a block a report can append, without the table.
@@ -534,6 +538,7 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
             for fluctuation in repeat.fluctuations.values()
         ),
         corrections=corrections,
+        backend=result.data.backend,
     )
 
 

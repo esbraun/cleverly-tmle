@@ -584,7 +584,9 @@ class MSMSet:
         which is a statement about the *design* being one vector's worth of directions and
         not about where the projection lands.
         """
-        return np.einsum("ijp,ijq,ij->pq", self.design, self.design, self.weights) / max(self.n, 1)
+        return np.einsum(
+            "ijp,ijq,ij->pq", self.design, self.design, self.weights, optimize=True
+        ) / max(self.n, 1)
 
     @property
     def weighted_design(self) -> FloatArray:
@@ -750,6 +752,16 @@ def solve_projection(
     if spec.is_identity:
         # The closed form, written exactly as it was before links existed so that an
         # identity-link fit is bit for bit the fit it was.
+        #
+        # These two einsums are deliberately **not** `optimize=True`, unlike every other
+        # one in this module.  Reassociating a contraction changes the summation order and
+        # so the last bits: applied here it moved `beta` by 3e-15 relative and turned
+        # `test_the_identity_link_is_the_closed_form_bit_for_bit` red, which is the test
+        # that says adding link support did not move this path.  The trade is not close --
+        # the whole projection is around 1% of a fit, so the ceiling on the win is a
+        # fraction of that, against a regression pin.  `_projection_state` is where the
+        # contraction actually repeats (once per Newton step and once per line-search
+        # trial), it is reached only under a non-identity link, and it takes the speed-up.
         weighted_design = phi * h[:, :, None]
         gram = np.einsum("ijp,ijq,ij,i->pq", phi, phi, h, w) / mass
         moment = np.einsum("ijp,ij,i->p", weighted_design, q, w) / mass
@@ -794,16 +806,28 @@ def _projection_state(
     the same dimensionless form :func:`cleverly.fluctuation._score.relative_score` puts
     the fluctuation's score in, so that one tolerance means the same thing on problems
     whose designs differ by orders of magnitude.
+
+    ``optimize=True`` on the contractions, because ``np.einsum`` defaults to ``False`` and
+    that means numpy's own nested-loop kernel for three or more operands rather than a
+    pairwise contraction through BLAS.  Measured at 8-16x on the four-operand Jacobian
+    term (``benchmarks/bench_tmle.py``, *Working-model projection*), which this pays once
+    per Newton step *and* once per line-search trial.  It is not free -- reassociating
+    moves the last bits -- so the identity-link closed form in
+    :func:`solve_projection` deliberately keeps the unoptimised spelling; see the comment
+    there.
     """
     m = np.asarray(link.inverse(np.einsum("ijp,p->ij", phi, beta)), dtype=float)
     residual = q - m
     slope = np.asarray(link.slope(m), dtype=float)
     curvature = np.asarray(link.curvature(m), dtype=float)
-    u = np.einsum("ijp,ij,i->p", phi, h * slope * residual, w) / mass
+    u = np.einsum("ijp,ij,i->p", phi, h * slope * residual, w, optimize=True) / mass
     jacobian = (
-        np.einsum("ijp,ijq,ij,i->pq", phi, phi, h * (slope**2 - residual * curvature), w) / mass
+        np.einsum(
+            "ijp,ijq,ij,i->pq", phi, phi, h * (slope**2 - residual * curvature), w, optimize=True
+        )
+        / mass
     )
-    scale = np.einsum("ijp,ij,i->p", np.abs(phi), h * np.abs(slope), w) / mass
+    scale = np.einsum("ijp,ij,i->p", np.abs(phi), h * np.abs(slope), w, optimize=True) / mass
     with np.errstate(divide="ignore", invalid="ignore"):
         relative = np.where(scale > 0.0, np.abs(u) / scale, 0.0)
     return u, jacobian, float(np.max(relative)) if relative.size else 0.0

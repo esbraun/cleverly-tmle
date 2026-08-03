@@ -136,6 +136,10 @@ class PositivityReport:
     #: their overlap is near identical in practice; when it is not, that is itself worth
     #: seeing rather than averaging away.
     n_repeats: int = 1
+    #: Name of the dataframe backend the fit's data arrived in, so that
+    #: :meth:`to_frame` honours "results come back in the backend you passed in"
+    #: without a caller having to thread the container back in by hand.
+    backend: str | None = None
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame."""
@@ -149,7 +153,7 @@ class PositivityReport:
             "quantile": [row[1] for row in rows],
             "propensity": [row[2] for row in rows],
         }
-        return emit_frame(payload, data)
+        return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
         """A printable overlap report."""
@@ -367,6 +371,7 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         mechanisms=_mechanism_overlap(result),
         nuisance_bound=result.config.missingness_bound,
         n_repeats=result.n_repeats,
+        backend=data.backend,
     )
 
 
@@ -449,6 +454,7 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         nuisance_bound=result.config.missingness_bound,
         simplex_deviation=float(np.max(np.abs(bounded.sum(axis=1) - 1.0))),
         n_repeats=result.n_repeats,
+        backend=data.backend,
     )
 
 

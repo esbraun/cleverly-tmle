@@ -43,7 +43,15 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import DataError
-from ..utils.frames import as_frame, frame_from_dict, is_dataframe, matrix_from_columns
+from ..utils.frames import (
+    as_frame,
+    backend_of,
+    column_array,
+    frame_from_dict,
+    has_nulls,
+    is_dataframe,
+    matrix_from_columns,
+)
 from .validate import (
     check_covariates,
     check_delta,
@@ -125,7 +133,13 @@ class CausalData:
     weight_spec: WeightSpec = field(default_factory=WeightSpec)
     dropped_covariates: tuple[str, ...] = ()
     encodings: tuple[CategoricalEncoding, ...] = ()
-    _template: Any = None
+    #: Name of the dataframe backend the data arrived in, or ``None`` for numpy input.
+    #: A *name* and not the frame it came from: this used to hold the whole input
+    #: frame, which pinned it in memory for the life of every result derived from the
+    #: fit even though the only thing ever read off it was its namespace -- and which
+    #: :func:`cleverly.load` had no way to restore, so a saved polars fit came back
+    #: emitting pandas.
+    backend: str | None = None
 
     # ------------------------------------------------------------------ build
 
@@ -213,13 +227,18 @@ class CausalData:
 
         w_matrix, w_names, encodings = _encode_covariates(frame, covariate_names)
 
+        for role, name in roles.items():
+            _reject_null_labels(frame, name, role)
+
         return cls._build(
-            outcome=frame[outcome].to_numpy(),
+            outcome=column_array(frame, outcome),
+            # Not cast: `encode_treatment` reads the dtype kind to tell a numeric arm
+            # from a categorical one, and a cast to float would erase that distinction.
             treatment=frame[treatment].to_numpy(),
             covariates=w_matrix,
             covariate_names=w_names,
-            delta=frame[delta].to_numpy() if delta is not None else None,
-            weights=frame[weights].to_numpy() if weights is not None else None,
+            delta=column_array(frame, delta) if delta is not None else None,
+            weights=column_array(frame, weights) if weights is not None else None,
             weights_type=weights_type,
             weights_estimated=weights_estimated,
             cluster=frame[id].to_numpy() if id is not None else None,
@@ -233,7 +252,7 @@ class CausalData:
             cluster_name=id,
             intermediate_name=intermediate,
             encodings=encodings,
-            template=frame,
+            backend=backend_of(frame),
         )
 
     @classmethod
@@ -287,7 +306,7 @@ class CausalData:
             cluster_name="id" if id is not None else None,
             intermediate_name="Z" if intermediate is not None else None,
             encodings=(),
-            template=None,
+            backend=None,
         )
 
     @classmethod
@@ -313,7 +332,7 @@ class CausalData:
         cluster_name: str | None,
         intermediate_name: str | None,
         encodings: Sequence[CategoricalEncoding],
-        template: Any,
+        backend: str | None,
     ) -> CausalData:
         n = len(outcome)
         if n < _MIN_OBSERVATIONS:
@@ -395,7 +414,7 @@ class CausalData:
             weight_spec=spec,
             dropped_covariates=tuple(dropped),
             encodings=retained_encodings,
-            _template=template,
+            backend=backend,
         )
 
     # ------------------------------------------------------------- properties
@@ -551,13 +570,6 @@ class CausalData:
         check against the code rather than inherit.
         """
         return self.n_arms == 2
-
-    @property
-    def backend(self) -> str | None:
-        """Name of the dataframe backend the data came from, if any."""
-        if self._template is None:
-            return None
-        return str(nw.get_native_namespace(self._template).__name__)
 
     # ----------------------------------------------------------------- design
 
@@ -723,7 +735,6 @@ class CausalData:
             observed=self.observed[idx],
             cluster=None if cluster is None else np.asarray(cluster, dtype=np.int64),
             intermediate=None if self.intermediate is None else self.intermediate[idx],
-            _template=None if self._template is None else self._template[:1],
         )
 
     def with_treatment(self, treatment: FloatArray) -> CausalData:
@@ -792,7 +803,7 @@ class CausalData:
         Every result object routes its tabular output through here, which is what
         makes "pandas in, pandas out; polars in, polars out" hold throughout.
         """
-        return frame_from_dict(payload, like=self._template)
+        return frame_from_dict(payload, backend=self.backend)
 
     def to_frame(self) -> Any:
         """Round-trip the validated data back into a dataframe.
@@ -815,7 +826,7 @@ class CausalData:
             payload[self.cluster_name or "id"] = self.cluster
         if self.intermediate is not None:
             payload[self.intermediate_name or "Z"] = self.intermediate
-        return frame_from_dict(payload, like=self._template)
+        return frame_from_dict(payload, backend=self.backend)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         parts = [
@@ -839,6 +850,31 @@ class CausalData:
         return f"CausalData({', '.join(parts)})"
 
 
+def _reject_null_labels(frame: nw.DataFrame[Any], name: str, role: str) -> None:
+    """Refuse a null in a column that will not be cast to float.
+
+    A numeric column can carry one: :func:`~cleverly.utils.frames.column_array` casts
+    it and the null arrives downstream as ``nan``, where :mod:`cleverly.data.validate`
+    either rejects it with a message about *that* role or -- for the outcome -- reads it
+    against ``delta``.  A non-numeric one cannot: ``to_numpy`` on a nullable or
+    arrow-backed column hands back an ``object`` array carrying ``pd.NA``, and the first
+    comparison made on it raises ``TypeError: boolean value of NA is ambiguous`` from
+    inside numpy rather than anything a caller can act on.  A boolean column is the easy
+    way to reach that, because narwhals does not count ``Boolean`` as numeric and
+    ``dtype_backend="pyarrow"`` makes every such column nullable by construction.
+
+    The branch is on the *column's* logical type, read through narwhals -- not on which
+    dataframe library produced it, which stays something this package never asks.
+    """
+    if frame.schema[name].is_numeric() or not has_nulls(frame, name):
+        return
+    raise DataError(
+        f"{role} column {name!r} contains missing values and is not numeric. "
+        "Impute them, drop those rows, or encode the column yourself before "
+        "handing it to CausalData."
+    )
+
+
 def _encode_covariates(
     frame: nw.DataFrame[Any], names: Sequence[str]
 ) -> tuple[FloatArray, list[str], tuple[CategoricalEncoding, ...]]:
@@ -854,11 +890,18 @@ def _encode_covariates(
         if dtype.is_numeric():
             numeric.append(name)
             continue
-        values = frame[name].to_numpy()
-        if values.dtype == bool:
-            blocks.append(np.asarray(values, dtype=float).reshape(-1, 1))
+        _reject_null_labels(frame, name, "covariate")
+        # Read off the declared schema rather than off whatever dtype ``to_numpy`` chose.
+        # The two agree for every spelling of a boolean column that reaches here -- that
+        # was measured, not assumed, and ``test_a_boolean_covariate_stays_one_column_under_
+        # every_spelling`` says so rather than claiming to guard a bug -- but the schema is
+        # the thing actually being asked about, and not depending on narwhals' dtype
+        # inference is the whole point of the cast in ``column_array``.
+        if dtype == nw.Boolean:
+            blocks.append(column_array(frame, name).reshape(-1, 1))
             out_names.append(name)
             continue
+        values = frame[name].to_numpy()
         levels = tuple(np.unique(values).tolist())
         if len(levels) < 2:
             raise DataError(f"covariate {name!r} is constant")

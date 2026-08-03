@@ -87,6 +87,10 @@ class NuisanceDiagnostics:
     #: different split is a different model rather than another measurement of the same
     #: one.  Averaging their AUCs would report a number no model achieved.
     n_repeats: int = 1
+    #: Name of the dataframe backend the fit's data arrived in, so that
+    #: :meth:`to_frame` honours "results come back in the backend you passed in"
+    #: without a caller having to thread the container back in by hand.
+    backend: str | None = None
 
     def __getitem__(self, name: str) -> NuisanceModelReport:
         for model in self.models:
@@ -106,12 +110,12 @@ class NuisanceDiagnostics:
         }
         for key in keys:
             payload[key] = [model.metrics.get(key, float("nan")) for model in self.models]
-        return emit_frame(payload, data)
+        return emit_frame(payload, data, backend=self.backend)
 
     def calibration_frame(self, name: str, data: Any = None) -> Any:
         """Binned observed-vs-predicted table for one model."""
         payload = dict(self[name].calibration)
-        return emit_frame(payload, data)
+        return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
         lines = [
@@ -291,7 +295,9 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 mask=data.observed,
             )
         )
-    return NuisanceDiagnostics(models=tuple(models), n_repeats=result.n_repeats)
+    return NuisanceDiagnostics(
+        models=tuple(models), n_repeats=result.n_repeats, backend=result.data.backend
+    )
 
 
 def _aggregate_learner_info(

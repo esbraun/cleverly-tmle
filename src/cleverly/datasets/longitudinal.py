@@ -23,9 +23,9 @@ from typing import Any
 
 import numpy as np
 
-from .._typing import FloatArray
+from .._typing import Backend, FloatArray
 from ..utils.bounds import expit
-from ..utils.frames import frame_from_dict
+from ..utils.frames import as_frame, column_array, frame_from_dict
 
 __all__ = [
     "RULE_LABEL",
@@ -254,7 +254,7 @@ def make_longitudinal(
     seed: int | np.random.Generator | None = None,
     censoring: bool = True,
     cluster_size: int | None = None,
-    backend: str = "pandas",
+    backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
     """Two time points, a binary outcome and (optionally) monotone censoring.
 
@@ -354,7 +354,7 @@ def make_longitudinal_weighted(
     n: int = 2000,
     *,
     seed: int | np.random.Generator | None = None,
-    backend: str = "pandas",
+    backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
     r"""A *biased sample* of :func:`make_longitudinal`, with the design weights that undo it.
 
@@ -373,12 +373,17 @@ def make_longitudinal_weighted(
     something the design did not.
     """
     rng = np.random.default_rng(seed)
-    frame, truth = make_longitudinal(n=n, seed=rng, backend="pandas")
+    frame, truth = make_longitudinal(n=n, seed=rng, backend=backend)
     low, high = _SELECTION
-    keep_probability = np.where(np.asarray(frame["W1"], dtype=float) > 0.0, low, high)
+    source = as_frame(frame)
+    keep_probability = np.where(column_array(source, "W1") > 0.0, low, high)
     selected = rng.random(n) < keep_probability
-    sampled = frame.loc[selected].reset_index(drop=True)
-    payload = {name: np.asarray(sampled[name], dtype=float) for name in sampled.columns}
+    # Subset the columns as numpy rather than the frame as a frame.  ``.loc`` and
+    # ``reset_index`` are pandas-only, and using them here meant this generator forced
+    # ``backend="pandas"`` above and then ignored what the caller asked for -- so on a
+    # polars-only install it raised ``ImportError`` no matter what.  Every column ends up
+    # numpy anyway one line later, so nothing is lost by masking it there.
+    payload = {name: column_array(source, name)[selected] for name in source.columns}
     payload["w"] = 1.0 / keep_probability[selected]
     return frame_from_dict(payload, backend=backend), truth
 
@@ -472,7 +477,7 @@ def make_longitudinal_survival(
     seed: int | np.random.Generator | None = None,
     censoring: bool = True,
     cluster_size: int | None = None,
-    backend: str = "pandas",
+    backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
     """Two time points, an **absorbing event at each**, and monotone censoring.
 
@@ -662,7 +667,7 @@ def make_longitudinal_competing(
     *,
     seed: int | np.random.Generator | None = None,
     censoring: bool = True,
-    backend: str = "pandas",
+    backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
     """Two time points, **two competing absorbing causes** at each, monotone censoring.
 

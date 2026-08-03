@@ -88,7 +88,10 @@ class SensitivityAnalysis:
                 "arm-level report."
             )
         return check_support(
-            regimes, self._result.data.treatment, self._result.nuisance.propensity.values
+            regimes,
+            self._result.data.treatment,
+            self._result.nuisance.propensity.values,
+            backend=self._result.data.backend,
         )
 
     def shift_support(self) -> dict[str, ShiftSupport]:

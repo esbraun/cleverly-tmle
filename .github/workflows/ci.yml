@@ -54,3 +54,26 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pytest -m "not slow" -q -n auto
+
+  # One backend at a time, which the `tests` job above cannot check: it installs `.[dev]`,
+  # which pulls pandas *and* polars, so the single-backend and neither-installed branches of
+  # `cleverly.utils.frames` had never executed anywhere. That is how `make_longitudinal_weighted`
+  # came to hard-code `backend="pandas"` and call `.loc` -- unusable on a polars-only install,
+  # and invisible to a suite that always had both.
+  #
+  # The test suite itself imports pandas and polars freely, so it cannot be the check here.
+  # What runs instead is the import and a fit end to end through the one backend present.
+  minimal-install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [pandas, polars]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.11"
+          extra: ${{ matrix.backend }}
+      - name: A fit, its reports and the generators, on one backend
+        run: python scripts/smoke_backend.py ${{ matrix.backend }}

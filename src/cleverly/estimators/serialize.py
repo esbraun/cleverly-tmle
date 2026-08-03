@@ -403,6 +403,10 @@ def _data_to(arrays: _Arrays, data: CausalData) -> dict[str, Any]:
         "outcome_name": data.outcome_name,
         "treatment_name": data.treatment_name,
         "treatment_levels": list(data.treatment_levels),
+        # The backend is a name, so it survives a round trip. It could not while the
+        # container held the input frame itself: a saved polars fit reloaded with no
+        # way to know it was one, and every `to_frame()` on it came back as pandas.
+        "backend": data.backend,
         # Declared, never inferred -- exactly as on the way in. A continuous treatment
         # has no levels, so a reader recovering the kind from an empty level list would
         # be guessing, and would guess "discrete" for a dose.
@@ -446,6 +450,9 @@ def _data_from(arrays: _Arrays, payload: dict[str, Any]) -> CausalData:
         treatment_name=payload["treatment_name"],
         treatment_levels=tuple(payload["treatment_levels"]),
         treatment_kind=payload["treatment_kind"],
+        # `.get` rather than `[...]`: a file written before the backend was recorded
+        # still loads, and lands on the default backend as it always did.
+        backend=payload.get("backend"),
         delta_name=payload["delta_name"],
         cluster=None if cluster is None else cluster.astype(np.int64),
         cluster_name=payload["cluster_name"],
