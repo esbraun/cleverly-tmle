@@ -4,6 +4,26 @@ The recommendation half of the investigation whose profile is
 [`candidate_inventory.md`](candidate_inventory.md). Read that first — it is what the work
 was sized against, and three of the things it is natural to expect turn out to be false.
 
+> ### Superseded in four places — read this first
+>
+> Acting on this document produced [`production_plan.md`](production_plan.md) and four
+> changes, and each of them contradicts something below. The measurements here are
+> reproducible; several of the **conclusions** are not what they should have been, because
+> the numpy baseline they were measured against was the shipped implementation rather than
+> a competent one.
+>
+> | below | now | where |
+> | --- | --- | --- |
+> | `multiplier_bootstrap`: **adopt numba parallel**, 2.4–2.5× serial | The numpy path is now **3.4–3.9×** faster than it was and allocates a fixed 32 MB at any `n`. The cost was never the draw (2%) but the float64 expansion (89%). A compiled kernel must beat *that*; the one measured for the plan does not. **Unresolved.** | [`bootstrap_numpy.md`](bootstrap_numpy.md) |
+> | `cluster_sums`: **adopt numba**, 5.5–10.2× serial | Measured against the codes production actually passes — the container densifies them once — the compiled kernel is **1.02× at five estimands and 0.74× at a million rows**. The 5.5–10.2× was mostly an `np.unique` the package no longer runs. **Retain numpy** below ~20 estimands. | [`cluster_integration.md`](cluster_integration.md) |
+> | `ltmle_backward_recursion`: fix the masks, then **adopt numba parallel** | The mask fix is made and is `O(T²n)` → `O(Tn)`, 8.7× on the mask term at `T = 20`. In a **fit** it is 0.06% of the runtime at every `T` up to 40. The recursion's whole package-owned arithmetic is 1.5% of a `glm` fit; `inference` is 20%. | [`longitudinal_masks.md`](longitudinal_masks.md) |
+> | §3.2's memory column and §6's thread limiter | `tracemalloc` **does** see numba's allocations, so the caveat under that table is wrong. And the thread limiter is fixed: 59× per entry, **49% of a DR-TMLE `retarget`**. | [`thread_limit_profile.md`](thread_limit_profile.md) |
+>
+> The pattern in the first three rows is one mistake made three times: **a ratio measured
+> against the shipped shape is not a ratio against numpy.** Two of the three largest
+> "adopt numba" recommendations here dissolved when the numpy side was written properly,
+> and the third was a share of the wrong denominator.
+
 Everything here is **post-nuisance**: learner fits are outside every timed region. That is
 what makes `n = 1,000,000` a couple of seconds and the scaling questions answerable by
 direct measurement — and it is also why every speed-up below has to be multiplied by §5's
@@ -20,23 +40,26 @@ share before it means anything about a fit.
 
 ## 1. The answer in one table
 
-Speed-ups are against the shipped numpy path at one core, on the same input object.
-"Share" is the kernel's weight inside a `library="glm"` post-nuisance step — the *most
-favourable* denominator available (see §5).
+Both speed-up columns are **totals against the shipped numpy path at one core**, so the
+second is compilation *and* parallelism together and is not a scaling figure. Same-backend
+scaling — `T_candidate,1 / T_candidate,p` and its efficiency — is what
+`latest/summary.md`'s per-kernel tables report, and the two must not be quoted for each
+other. The `decision` column is the classification `production_plan.md` §1 argues for;
+where it differs from the one this table shipped with, the banner above says why.
 
-| kernel | serial | parallel (4 cores) | memory | decision |
+| kernel | serial vs numpy-1 | 4 cores vs numpy-1 | memory | classification |
 | --- | ---: | ---: | --- | --- |
-| `multiplier_bootstrap` | **2.4–2.5×** | **7.4–7.6×** | **427.6 MB → 1.6 MB per call** | **adopt numba parallel** |
-| `cluster_sums` | **5.5–10.2×** | **9.5–20.7×** | 1.22× (a hash table where numpy sorts) | **adopt numba** (parallel above ~10⁵ rows) |
-| `ltmle_backward_recursion` | **2.1–4.7×** | **7.9–15.2×** | 0.61× | **adopt numba parallel** — *after* the mask fix |
-| `survival_incidence` | **3.4×** | **9.5×** | 0.87× | **adopt numba parallel** |
-| `one_step_walk` | **2.6–3.0×** | **3.8–4.1×** | 0.50× | **fix the algorithm, then adopt** |
+| `multiplier_bootstrap` | 2.4–2.5× | 7.4–7.6× | 427.6 MB → 1.6 MB per call | **unresolved** — the numpy path is now 3.4–3.9× faster than the one measured here |
+| `cluster_sums` | 5.5–10.2× | 9.5–20.7× | 1.22× (a hash table where numpy sorts) | **retain numpy** below ~20 estimands — measured against densified codes it is 1.02× |
+| `ltmle_backward_recursion` | **2.1–4.7×** | **7.9–15.2×** | 0.61× | **promising prototype** — the region it speeds up is 1.5% of a fit |
+| `survival_incidence` | **3.4×** | **9.5×** | 0.87× | **promising prototype**; integrated gain unresolved |
+| `one_step_walk` | **2.6–3.0×** | **3.8–4.1×** | 0.50× | **semantic change first** — which estimator is intended when the shrink bound binds |
 | `ctmle_candidate_scores` | 2.5× | 9.2× | 0.37× | **defer** — 11 ms of a 199 s fit |
-| `msm_gram` *(control)* | **2.9–3.2×** | n/a | **~0** (no intermediates) | **control that turned positive; see §3** |
+| `msm_gram` *(control)* | **2.9–3.2×** | n/a | **~0** (no intermediates) | **a layout result, not a numba one; see §3** |
 | `fused_influence_curves` | 1.3–3.0× | 2.6–4.8× | **2.00×** (a dense `(7, n)` output) | **retain numpy** — the share is a tenth of a tenth |
-| `drtmle_reduction_rounds` | 0.97–1.00× | 1.8–1.9× | 0.31× | **retain numpy** — §6 is where its time is |
+| `drtmle_reduction_rounds` | 0.97–1.00× | 1.8–1.9× | 0.31× | **retain numpy** — §6 is where its time is, and §6 is now fixed |
 | `newton_targeting` *(control)* | 1.1–1.4× | n/a | ~0 | **retain numpy**, as expected |
-| `cvtmle_fold_targeting` | 1.4–3.9× | **2.8–13.4×** | 0.25–0.50× | **adopt numba parallel over folds** |
+| `cvtmle_fold_targeting` | 1.4–3.9× | **2.8–13.4×** | 0.25–0.50× | **promising prototype** — task parallelism over the production solver first |
 
 **These verdicts are not always `latest/summary.md`'s, and the difference is deliberate.**
 That file is generated: it applies the plan's continuation bars (1.25× serial, 1.5× parallel,
@@ -50,13 +73,20 @@ And the one that is not a compilation question at all:
 
 | finding | magnitude | decision |
 | --- | --- | --- |
-| `cleverly.learners.thread_limit` builds a fresh `ThreadpoolController` per learner fit | **1.44 ms per entry**; 57% of a DR-TMLE `retarget`, 40% of an LTMLE fit | **fix in numpy-land**, in its own change |
+| `cleverly.learners.thread_limit` builds a fresh `ThreadpoolController` per learner fit | **1.44 ms per entry**; 57% of a DR-TMLE `retarget`, 40% of an LTMLE fit | ✅ **fixed** — 59× per entry, 49% of a `retarget` removed (§6) |
 
 ---
 
 ## 2. Kernel by kernel
 
-### 2.1 The Rademacher multiplier bootstrap — the clearest adoption
+### 2.1 The Rademacher multiplier bootstrap — the clearest adoption, and it was numpy's
+
+> **The cost is not the draw.** Split at `n = 100,000`: `rng.integers` 3.5 ms (2%),
+> `np.unpackbits` 1.7 ms (1%), expanding those bits into a 205 MB float64 array 159 ms
+> (**89%**), the `dgemm` 12.6 ms (7%). Expanding in place into a reused buffer, with the
+> block sized by bytes, is **3.4–3.9×** in numpy alone and holds a fixed 32 MB at any `n` —
+> faster than the compiled kernel below is here, with no dependency and the seeded stream
+> untouched. See [`bootstrap_numpy.md`](bootstrap_numpy.md).
 
 `docs/roadmap.md` already records that this is 92–95% multiplier *generation*, and the
 package already took the cheap half of that (packing bits instead of drawing float64
@@ -101,8 +131,14 @@ what the package *can* do rather than how fast it does it.
 
 (Process peak RSS is not the instrument for this and the harness does not use it: it is a
 high-water mark that never falls, so once the first implementation has touched the pages
-every later one reads a delta of zero. The numbers above are per-call Python-level
-allocation, taken in an untimed pass.)
+every later one reads a delta of zero. The numbers above are per-call allocation, taken in
+an untimed pass with `tracemalloc` — which sees numba's NRT allocations as well as numpy's;
+see §3.2.)
+
+**And the numpy figure has since fallen to a fixed 32 MB budget at any `n` without a
+compiler**, which is what makes this row *unresolved* rather than an adoption: see
+[`bootstrap_numpy.md`](bootstrap_numpy.md). The capability claim in the paragraph above
+survives; what does not is the attribution of it to compilation.
 
 **Reproducibility is by construction, not by luck.** The draw is a splitmix64 hash of
 `(seed, replicate index)`, so a replicate's multipliers do not depend on which thread ran
@@ -112,11 +148,21 @@ statistic against signs reconstructed in numpy from the same counter, because th
 cross-generator quantile gate is a Monte Carlo one and would pass a kernel that dropped a
 column and got lucky.
 
-### 2.2 `cluster_sums` — the largest ratio in the suite, mostly from serial numba
+### 2.2 `cluster_sums` — the largest ratio in the suite, and most of it was a sort
 
 Two costs, and only one of them is about compilation. `np.unique` **sorts** to densify
 labels that only need hashing, and then one `np.bincount` per estimand re-reads the same
 index vector `m` times.
+
+> **The diagnosis was right and the conclusion was not.** The sort was already paid for
+> somewhere else: `encode_clusters` densifies the identifiers when the *container* is
+> built, so a raw `id` column never reaches this function and the `np.unique` here was
+> re-deriving an encoding it had been given. The fixture below feeds it sparse labels on
+> the explicit reasoning that "a fixture of `0..C-1` would hide that sort's cost" — which
+> is the internal contract inverted. Against densified codes the compiled kernel is
+> **1.02× at five estimands and 0.74× at a million rows**; what survives is the estimand
+> axis, 10.5× at `m = 20`. See [`cluster_integration.md`](cluster_integration.md); the
+> numbers in this section are correct for the labels they were measured on.
 
 | n | m | shape | numpy | numba | numba, 4 threads |
 | ---: | ---: | --- | ---: | ---: | ---: |
@@ -143,6 +189,14 @@ skewed design (a handful of clusters hold most of the rows, so one thread runs l
 the others are idle) — which is why `shape` is a swept dimension and not a fixture detail.
 
 ### 2.3 The LTMLE backward recursion — where the algorithm matters more than the compiler
+
+> **The mask fix is made, and it is 0.06% of a fit.** The ratios below are of the
+> *cached-nuisance recursion*, which excludes the learner fits by construction. Measured
+> through the API with explicit phase timing, mask construction is 0.06–0.13% of a `glm`
+> longitudinal fit at every `T` from 2 to 40, and the recursion's whole package-owned
+> arithmetic is 1.5%. The fix is still right — `O(T²n)` → `O(Tn)`, 8.7× on the mask term at
+> `T = 20` — and it is not a fit-level speed-up.
+> See [`longitudinal_masks.md`](longitudinal_masks.md).
 
 | n | T | numpy | numpy, prefix masks | numba | numba, 4 threads |
 | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -360,6 +414,14 @@ kernels whose *time* is a wash or does not matter.
 **Allocation is unchanged where the output dominates** — the recursions carry a targeted
 prediction per node per regimen either way.
 
+**The instrument sees both sides.** `tracemalloc` traces all three CPython allocator
+domains and numba's NRT allocates through one of them, so a compiled kernel's scratch is
+counted here exactly as numpy's is — including a `prange` kernel's per-thread block, which
+`numba_cluster_sums_threadlocal` shows directly: 40.0 MB at `C = 50,000, m = 20` on four
+threads against the serial kernel's 9.99 MB, a difference of 30 MB against a 32 MB
+thread-local accumulator. An earlier revision of this section said the opposite, on the
+strength of a docstring in `timing.py` that was wrong; both are corrected.
+
 **Allocation goes up in two kernels, and both are honest costs rather than defects.**
 `cluster_sums`'s hash table is `2n` int64 slots where `np.unique` sorts in place, so the
 compiled kernel trades 1.2× the memory for 5–10× the speed. `fused_influence_curves`
@@ -470,50 +532,67 @@ walks every shared object the process has loaded (`dl_iterate_phdr`). Measured:
 - **LTMLE fit**: 0.84 s of 2.07 s — 40%, against 0.043 s in the actual loss gradients.
 
 No compiled kernel addresses this and no parallel axis helps. The fix is to build the
-controller once rather than per fit. It is deliberately **not** done here: changing when
-thread limits are applied is a change to the library's runtime behaviour with its own
-correctness surface (`set_thread_limit(None)`, nested fits, joblib workers), and it belongs
-in its own change with its own tests. `benchmarks/numba/kernels/drtmle.py` carries
-`thread_limit_overhead()` so the number is one call away.
+controller once rather than per fit.
+
+**Since done**, in its own change with its own tests, as this section said it should be:
+0.759 ms per entry against 0.0129 ms reusing one — **59×** — and through the API a DR-TMLE
+`retarget` 5.206 s → 2.674 s, **49% of it removed**. The 57% and 40% above are cProfile
+figures and were overstated by the profiler's per-call overhead, which falls hardest on the
+code making the most calls; the wall-clock numbers are in
+[`thread_limit_profile.md`](thread_limit_profile.md), along with the one real hazard a
+cached controller has (a pool loaded later — LightGBM is imported lazily) and how it is
+handled. `benchmarks/numba/kernels/drtmle.py` carries `thread_limit_overhead()` so the
+before-number is still one call away.
 
 ---
 
 ## 7. Recommendation
 
-**The first two steps need no new dependency and should happen regardless of what is
-decided about numba.**
+**As issued, and then what acting on it found.** Steps 1 and 2 were right and are done;
+steps 3 and 4 were the ones that did not survive being built, for a reason worth keeping on
+the record rather than editing away.
 
-1. **Fix `thread_limit`** (§6). Not numba, largest effect, cheapest change: 57% of a
-   DR-TMLE `retarget` and 40% of an LTMLE fit.
+1. **Fix `thread_limit`** (§6). Not numba, largest effect, cheapest change. ✅ **Done** —
+   59× per entry, 49% of a DR-TMLE `retarget`
+   ([`thread_limit_profile.md`](thread_limit_profile.md)).
 2. **Fix the LTMLE mask construction** (§2.3) and **defer the one-step arm updates**
-   (§2.5). Pure numpy, 1.7–2.4× and 1.5–1.7×, no compilation. The second needs a decision
-   about which estimator is intended when the shrink bound binds, so it is a change with a
-   question in it rather than a pure refactor.
+   (§2.5). Pure numpy, no compilation. ✅ **Mask fix done** — `O(T²n)` → `O(Tn)`, 8.7× on
+   the mask term at `T = 20` and **0.06% of a fit**
+   ([`longitudinal_masks.md`](longitudinal_masks.md)). The one-step decision is still open
+   and still a decision, not a refactor.
 
-**Then, if `numba` is to become a runtime dependency** — a real cost, and the reason the
-order below is by value rather than by ratio:
+**Then, if `numba` is to become a runtime dependency** — and the answer, after building the
+numpy side of both candidates, is **not yet**:
 
-3. **`cluster_sums`** and the **multiplier bootstrap** (§2.1–2.2). The two with both a
-   large ratio and a real share, and the bootstrap's memory behaviour is a capability
-   change rather than a speed-up: 32 KB of working set at any `n`, against an allocation
-   the roadmap already names as one of the two that break first at scale.
-4. **The LTMLE and survival recursions** (§2.3–2.4), parallel over regimens and horizons,
-   and **the CV-TMLE fold loop** (§2.6) parallel over folds. The largest absolute savings
-   in the package — and only after (2), or the compiled kernel is a fast version of
-   redundant work.
+3. ~~**`cluster_sums`** and the **multiplier bootstrap** (§2.1–2.2)~~. Both were rewritten
+   in numpy first, as the plan's own rule required, and both ratios collapsed. The
+   bootstrap's numpy path is now 3.4–3.9× faster than the one measured here and allocates a
+   fixed 32 MB at any `n` — so the capability change is had without the dependency, and a
+   compiled kernel now has to beat *that*. `cluster_sums` against the codes the container
+   actually produces is 1.02× at five estimands and 0.74× at a million rows; its 5.5–10.2×
+   was mostly an `np.unique` the package no longer runs.
+   ([`bootstrap_numpy.md`](bootstrap_numpy.md), [`cluster_integration.md`](cluster_integration.md))
+4. **The LTMLE and survival recursions** (§2.3–2.4) and **the CV-TMLE fold loop** (§2.6)
+   remain the largest *compiled* opportunities, and the denominator is now measured rather
+   than inferred: the whole backward recursion's package-owned arithmetic — fluctuations,
+   clever covariates, masks, pseudo-outcomes — is **1.5% of a `glm` longitudinal fit**,
+   where `inference` is 20%. A 10× on 1.5% is not a dependency.
 
-**Retain numpy** for the targeting Newton, the fused influence curves, and the DR-TMLE
-alternation arithmetic.
+**Retain numpy** for the targeting Newton, the fused influence curves, the DR-TMLE
+alternation arithmetic, and — added by the work above — cluster aggregation below about
+twenty estimands.
 
 **Defer** the CTMLE candidate scoring until candidates are cheap enough for it to be
 visible, and the MSM Gram until something else makes the projection matter.
 
-**Do not** adopt numba wholesale. Three of the twelve kernels here do not clear the plan's
-continuation bar at all, two of the clearest wins are numpy rewrites rather than
-compilations, the obvious task-parallel arm (threads over numpy fold bodies) *regresses*
-past two cores, and the single largest package-owned cost in two flavours is a context
-manager. The plan's own expected shape — "not numba everywhere or numba nowhere" — is what
-the measurement returned.
+**Do not** adopt numba wholesale, and the case for adopting it at all is now weaker than
+this document concluded. Three of the twelve kernels do not clear the continuation bar at
+all; the obvious task-parallel arm (threads over numpy fold bodies) *regresses* past two
+cores; the single largest package-owned cost in two flavours was a context manager, and is
+gone. What is left, after the numpy work the two clearest "wins" turned out to be, is one
+open question rather than a plan: **can a compiled kernel consume numpy's packed multiplier
+bytes and beat the blocked expansion?** Nothing else in this suite currently clears a bar
+that is worth a runtime dependency.
 
 ---
 

@@ -95,7 +95,8 @@ from ..fluctuation.iterative import Fluctuation, InitialFit, solve_fluctuation
 from ..fluctuation.submodel import Submodel
 from ..learners.crossfit import Folds
 from ..utils.bounds import OutcomeScaler, bound
-from .data import LongitudinalData
+from ..utils.phases import phase
+from .data import LongitudinalData, RegimenMasks
 from .regimen import Plan, Regimen, RegimenSpec
 
 __all__ = [
@@ -330,23 +331,28 @@ def fit_mechanism(
     """
     treatment: list[dict[str, FloatArray]] = []
     censoring: list[dict[str, FloatArray]] = []
+    # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
+    # unused here and the all-true assignment makes that explicit rather than implicit.
+    with phase("mask_construction"):
+        fit_masks = data.regimen_masks(data.treatment)
     for time in range(1, data.n_times + 1):
-        at_risk = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+        at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
         designs = {plan.label: data.history_design(time, treatment=plan.values) for plan in plans}
-        predictions, _ = cross_fit_predictions(
-            treatment_learner,
-            data.history_design(time),
-            arm,
-            data.weights,
-            folds,
-            task="classification",
-            predict_designs=designs,
-            fit_mask=at_risk,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            n_jobs=n_jobs,
-        )
+        with phase("mechanism_fit"):
+            predictions, _ = cross_fit_predictions(
+                treatment_learner,
+                data.history_design(time),
+                arm,
+                data.weights,
+                folds,
+                task="classification",
+                predict_designs=designs,
+                fit_mask=at_risk,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+            )
         treatment.append(predictions)
 
         if not data.censoring_names:
@@ -357,19 +363,20 @@ def fit_mechanism(
             plan.label: data.history_design(time, treatment=plan.values, include_current=True)
             for plan in plans
         }
-        predictions, _ = cross_fit_predictions(
-            censoring_learner,
-            data.history_design(time, include_current=True),
-            stayed,
-            data.weights,
-            folds,
-            task="classification",
-            predict_designs=censor_designs,
-            fit_mask=at_risk,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            n_jobs=n_jobs,
-        )
+        with phase("mechanism_fit"):
+            predictions, _ = cross_fit_predictions(
+                censoring_learner,
+                data.history_design(time, include_current=True),
+                stayed,
+                data.weights,
+                folds,
+                task="classification",
+                predict_designs=censor_designs,
+                fit_mask=at_risk,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+            )
         censoring.append(predictions)
     return Mechanism(tuple(treatment), tuple(censoring))
 
@@ -400,6 +407,7 @@ def prepare_node(
     pseudo_learner: Learner,
     folds: Folds,
     cause: str | None = None,
+    masks: RegimenMasks | None = None,
     n_jobs: int = 1,
 ) -> NodeInputs:
     """One node's masks, pseudo-outcome, regression and clever covariate.
@@ -409,9 +417,18 @@ def prepare_node(
     so has to hold every plan's regression at a node before any of them is updated.
     :func:`fit_regimen` calls this and fluctuates immediately, which is the recursion it
     always was.
+
+    ``masks`` is this plan's prefix scans, built **once per regimen** by the caller.
+    Rebuilding them here would be :math:`O(T^2 n)` over the pass, and on a survival fit
+    that again per horizon; they are the same arrays either way, which is what
+    ``tests/unit/test_longitudinal_masks.py`` checks and what makes the default -- build
+    them for this one node -- a convenience rather than a second code path.
     """
-    at_risk = data.at_risk(plan.values, time)
-    trained_on = data.following(plan.values, time)
+    with phase("mask_construction"):
+        if masks is None:
+            masks = data.regimen_masks(plan.values)
+        at_risk = masks.at_risk(time)
+        trained_on = masks.following(time)
     if not trained_on.any():
         raise LongitudinalError(
             f"no unit followed regimen {plan.label!r} through time {time} while "
@@ -420,6 +437,47 @@ def prepare_node(
             + _risk_set_hint(data, plan, time)
             + _rule_hint(plan, at_risk, time)
         )
+    with phase("pseudo_outcome"):
+        next_outcome = _pseudo_outcome(data, carried, time, cause)
+    design = data.covariate_history(time)
+    learner = outcome_learner if time == horizon else pseudo_learner
+    task = "classification" if time == horizon and data.family == "binomial" else "regression"
+    if task == "classification":
+        _check_outcome_varies(data, next_outcome, trained_on, plan, time, horizon, cause)
+    with phase("outcome_learner_fit"):
+        predictions, _ = cross_fit_predictions(
+            learner,
+            design,
+            next_outcome,
+            data.weights,
+            folds,
+            task=task,  # type: ignore[arg-type]
+            predict_designs={"history": design},
+            fit_mask=trained_on,
+            groups=data.cluster,
+            clip=(0.0, 1.0),
+            n_jobs=n_jobs,
+        )
+    with phase("clever_covariate"):
+        initial = np.where(at_risk, predictions["history"], _FILLER)
+        denominator = np.where(at_risk, cumulative[:, time - 1], 1.0)
+        counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
+        clever = np.where(trained_on, counterfactual, 0.0)
+    return NodeInputs(
+        time=time,
+        at_risk=at_risk,
+        trained_on=trained_on,
+        pseudo_outcome=next_outcome,
+        initial=initial,
+        counterfactual=counterfactual,
+        clever=clever,
+    )
+
+
+def _pseudo_outcome(
+    data: LongitudinalData, carried: FloatArray, time: int, cause: str | None
+) -> FloatArray:
+    """What node ``time`` regresses: the carried prediction, composed with the event."""
     if data.is_survival:
         # The numerator is *this* cause's event and the survival factor is
         # **all-cause**: a unit that left through a competing cause contributes a zero
@@ -429,62 +487,43 @@ def prepare_node(
         # wrong by exactly the mass that left through the other causes.  With one
         # cause the two calls return the same array and this is the line it was.
         failed = data.event_by(time, cause)
-        next_outcome = failed + (1.0 - data.event_by(time)) * carried
-    else:
-        next_outcome = carried
-    design = data.covariate_history(time)
-    learner = outcome_learner if time == horizon else pseudo_learner
-    task = "classification" if time == horizon and data.family == "binomial" else "regression"
-    if task == "classification":
-        seen = np.unique(next_outcome[trained_on])
-        if seen.size < 2:
-            raise LongitudinalError(
-                f"every unit following regimen {plan.label!r} through time {time} has "
-                f"the same outcome ({seen.tolist()}), so the regression there has "
-                "nothing to separate. "
-                + (
-                    (
-                        f"The incidence of {cause!r} at horizon {horizon} is not "
-                        "estimable from this sample: no unit following the regimen was "
-                        f"observed to leave through {cause!r}. A rare cause reaches "
-                        "this well before a common one does, so it is refused per "
-                        "cause rather than for the fit as a whole."
-                    )
-                    if cause is not None
-                    else (
-                        f"The risk at horizon {horizon} is not estimable from this "
-                        "sample: no event was observed among the regimen's followers."
-                    )
-                    if data.is_survival
-                    else "The outcome does not vary among the regimen's followers."
-                )
-            )
-    predictions, _ = cross_fit_predictions(
-        learner,
-        design,
-        next_outcome,
-        data.weights,
-        folds,
-        task=task,  # type: ignore[arg-type]
-        predict_designs={"history": design},
-        fit_mask=trained_on,
-        groups=data.cluster,
-        clip=(0.0, 1.0),
-        n_jobs=n_jobs,
-    )
-    initial = np.where(at_risk, predictions["history"], _FILLER)
+        return np.asarray(failed + (1.0 - data.event_by(time)) * carried)
+    return carried
 
-    denominator = np.where(at_risk, cumulative[:, time - 1], 1.0)
-    counterfactual = np.where(at_risk, 1.0 / denominator, 0.0)
-    clever = np.where(trained_on, counterfactual, 0.0)
-    return NodeInputs(
-        time=time,
-        at_risk=at_risk,
-        trained_on=trained_on,
-        pseudo_outcome=next_outcome,
-        initial=initial,
-        counterfactual=counterfactual,
-        clever=clever,
+
+def _check_outcome_varies(
+    data: LongitudinalData,
+    next_outcome: FloatArray,
+    trained_on: BoolArray,
+    plan: Plan,
+    time: int,
+    horizon: int,
+    cause: str | None,
+) -> None:
+    """Refuse a classification with nothing to separate, saying which case it is."""
+    seen = np.unique(next_outcome[trained_on])
+    if seen.size >= 2:
+        return
+    raise LongitudinalError(
+        f"every unit following regimen {plan.label!r} through time {time} has "
+        f"the same outcome ({seen.tolist()}), so the regression there has "
+        "nothing to separate. "
+        + (
+            (
+                f"The incidence of {cause!r} at horizon {horizon} is not "
+                "estimable from this sample: no unit following the regimen was "
+                f"observed to leave through {cause!r}. A rare cause reaches "
+                "this well before a common one does, so it is refused per "
+                "cause rather than for the fit as a whole."
+            )
+            if cause is not None
+            else (
+                f"The risk at horizon {horizon} is not estimable from this "
+                "sample: no event was observed among the regimen's followers."
+            )
+            if data.is_survival
+            else "The outcome does not vary among the regimen's followers."
+        )
     )
 
 
@@ -538,6 +577,9 @@ def fit_regimen(
         raise LongitudinalError(f"horizon {horizon} is outside 1..{data.n_times}")
     cumulative = mechanism.cumulative(data, plan, g_bounds)
     carried = seed_carried(data, scaler)
+    # Once per regimen, not once per node: the masks are prefix scans of one conjunction,
+    # and rebuilding them at every node is what made this pass quadratic in T.
+    masks = data.regimen_masks(plan.values)
 
     steps: list[SequentialStep] = []
     for time in range(horizon, 0, -1):
@@ -552,23 +594,25 @@ def fit_regimen(
             pseudo_learner=pseudo_learner,
             folds=folds,
             cause=cause,
+            masks=masks,
             n_jobs=n_jobs,
         )
-        fluctuation = solve_fluctuation(
-            node.pseudo_outcome,
-            InitialFit(node.initial, {_REGIMEN_ARM: node.initial}),
-            Submodel(
-                node.clever.reshape(-1, 1),
-                {_REGIMEN_ARM: node.counterfactual.reshape(-1, 1)},
-                (f"h[{plan.label}, t={time}]",),
-                "sequential",
-            ),
-            data.weights,
-            node.trained_on,
-            alpha=alpha,
-            max_iter=max_iter,
-            tol=tol,
-        )
+        with phase("fluctuation"):
+            fluctuation = solve_fluctuation(
+                node.pseudo_outcome,
+                InitialFit(node.initial, {_REGIMEN_ARM: node.initial}),
+                Submodel(
+                    node.clever.reshape(-1, 1),
+                    {_REGIMEN_ARM: node.counterfactual.reshape(-1, 1)},
+                    (f"h[{plan.label}, t={time}]",),
+                    "sequential",
+                ),
+                data.weights,
+                node.trained_on,
+                alpha=alpha,
+                max_iter=max_iter,
+                tol=tol,
+            )
         targeted = fluctuation.targeted.arms[_REGIMEN_ARM]
         steps.append(
             SequentialStep(

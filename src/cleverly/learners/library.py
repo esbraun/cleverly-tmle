@@ -45,6 +45,7 @@ from sklearn.preprocessing import SplineTransformer, StandardScaler
 
 from .._typing import Learner
 from ._fitting import Task
+from ._threads import refresh_thread_pools
 
 __all__ = ["LIBRARY_PRESETS", "has_lightgbm", "resolve_library"]
 
@@ -57,12 +58,28 @@ _SPLINE_MAX_FEATURES = 25
 
 
 def has_lightgbm() -> bool:
-    """Whether the optional LightGBM extra is installed."""
-    try:  # pragma: no cover - depends on installed extras
-        import lightgbm  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    """Whether the optional LightGBM extra is installed.
+
+    Importing LightGBM loads an OpenMP runtime, which is a thread pool the fits are
+    supposed to be limiting.  :mod:`cleverly.learners._threads` caches its controller
+    across calls -- see that module for why -- so the import has to say that the set of
+    loaded pools has changed; nothing else in the package loads one lazily.
+    """
+    global _LIGHTGBM
+    if _LIGHTGBM is None:
+        try:  # pragma: no cover - depends on installed extras
+            import lightgbm  # noqa: F401
+        except ImportError:
+            _LIGHTGBM = False
+        else:
+            _LIGHTGBM = True
+            refresh_thread_pools()
+    return _LIGHTGBM
+
+
+#: Tri-state: unknown, then True or False once the import has been attempted.  The
+#: refresh above must happen on the import and not on every call.
+_LIGHTGBM: bool | None = None
 
 
 def _glm(task: Task) -> Learner:

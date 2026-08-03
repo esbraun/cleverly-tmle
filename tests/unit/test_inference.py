@@ -18,6 +18,9 @@ band in the library rests on that one formula being right.
 
 from __future__ import annotations
 
+import tracemalloc
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
@@ -39,13 +42,18 @@ from cleverly.inference import (
     log_odds_ratio_influence,
     log_ratio_influence,
     make_estimate,
+    multiplier,
     multiplier_critical_value,
     normal_ci,
     ratio_estimates,
     simultaneous_bands,
     two_sided_pvalue,
 )
-from cleverly.inference.multiplier import _multipliers
+from cleverly.inference.multiplier import (
+    _block_size,
+    _fill_multipliers,
+    _multipliers,
+)
 from cleverly.utils.bounds import OutcomeScaler, expit
 from tests.conftest import binary_means
 
@@ -342,6 +350,87 @@ class TestParameterEstimate:
         assert np.isnan(estimate.pvalue)
 
 
+class TestClusterAggregationIsIndependentOfTheLabels:
+    """``cluster_sums`` skips ``np.unique`` when the codes are already contiguous.
+
+    They usually are: :func:`cleverly.data.validate.encode_clusters` densifies the
+    identifiers once, when the container is built, so the sort that used to run here was
+    re-deriving an encoding it had already been given.  Skipping it is only safe if the
+    *output* is untouched, so what is tested is exactly that -- against the shape it used
+    to be computed with, on every kind of label a caller can pass, including the ones that
+    must still take the slow path.
+
+    The gap case is the one that would break a naive fast path: labels ``{0..49, 51}``
+    have a maximum below ``n`` and a minimum of zero, and are still not contiguous.
+    ``np.unique`` gives one row per *observed* label where ``np.bincount`` would give one
+    per slot, and the empty row would go on to change a variance.
+    """
+
+    @staticmethod
+    def _by_unique(ic: np.ndarray, codes: np.ndarray) -> np.ndarray:
+        """The previous implementation, verbatim."""
+        unique, inverse = np.unique(codes, return_inverse=True)
+        inverse = inverse.reshape(-1)
+        if ic.ndim == 1:
+            return np.bincount(inverse, weights=ic, minlength=unique.size).astype(float)
+        return np.column_stack(
+            [
+                np.bincount(inverse, weights=ic[:, column], minlength=unique.size)
+                for column in range(ic.shape[1])
+            ]
+        ).astype(float)
+
+    @staticmethod
+    def _labels(name: str, rng: np.random.Generator, n: int) -> np.ndarray:
+        base = rng.integers(0, 50, size=n)
+        return {
+            "contiguous": base,
+            "one cluster per row": np.arange(n),
+            "sparse integers": rng.integers(0, 10**9, size=n),
+            "negative": rng.integers(-50, 50, size=n),
+            "a gap in the codes": np.where(base == 7, 51, base),
+            "float labels": base.astype(float),
+            "string labels": np.array([f"c{code}" for code in base]),
+        }[name]
+
+    @pytest.mark.parametrize(
+        "labels",
+        [
+            "contiguous",
+            "one cluster per row",
+            "sparse integers",
+            "negative",
+            "a gap in the codes",
+            "float labels",
+            "string labels",
+        ],
+    )
+    @pytest.mark.parametrize("ndim", [1, 2])
+    def test_the_sums_are_what_sorting_the_labels_gave(self, labels: str, ndim: int) -> None:
+        rng = np.random.default_rng(4)
+        n = 400
+        codes = self._labels(labels, rng, n)
+        ic = rng.normal(size=n) if ndim == 1 else rng.normal(size=(n, 3))
+        np.testing.assert_array_equal(cluster_sums(ic, codes), self._by_unique(ic, codes))
+
+    def test_a_gap_still_reports_one_row_per_observed_cluster(self) -> None:
+        """The failure mode the contiguity check exists to avoid, stated as a number."""
+        ic = np.ones((6, 1))
+        codes = np.array([0, 0, 2, 2, 2, 5])
+        sums = cluster_sums(ic, codes)
+        assert sums.shape == (3, 1)
+        np.testing.assert_array_equal(sums.reshape(-1), [2.0, 3.0, 1.0])
+
+    def test_the_variance_does_not_depend_on_how_the_clusters_are_labelled(self) -> None:
+        """The user-facing consequence: relabelling a cluster is not a modelling choice."""
+        rng = np.random.default_rng(9)
+        n = 300
+        ic = rng.normal(size=n)
+        contiguous = rng.integers(0, 30, size=n)
+        relabelled = contiguous * 1_000 + 7
+        assert influence_variance(ic, relabelled) == influence_variance(ic, contiguous)
+
+
 class TestClusterVariance:
     def test_singleton_clusters_reproduce_the_independent_case(self) -> None:
         rng = np.random.default_rng(0)
@@ -578,9 +667,130 @@ class TestSimultaneousBands:
         draws = _multipliers(np.random.default_rng(0), (64, 37), "rademacher")
         assert draws.shape == (64, 37)
         assert set(np.unique(draws)) <= {-1.0, 1.0}
-        # Reproducible from a seed, which the chunked loop relies on.
+        # Reproducible from a seed, which the blocked loop relies on.
         repeat = _multipliers(np.random.default_rng(0), (64, 37), "rademacher")
         np.testing.assert_array_equal(draws, repeat)
+
+    @pytest.mark.parametrize("kind", ["rademacher", "mammen", "normal"])
+    def test_filling_in_place_draws_what_allocating_drew(self, kind: str) -> None:
+        """The buffer the critical value reuses holds what the allocating draw returned.
+
+        :func:`_fill_multipliers` is what the hot path calls, and it writes over a buffer
+        that outlives the block.  Nothing about that may change a value: ``+-1`` and
+        Mammen's two points are exactly representable, so widening in place is the same
+        arithmetic and not an approximation of it.
+        """
+        allocated = _multipliers(np.random.default_rng(3), (17, 53), kind)  # type: ignore[arg-type]
+        buffer = np.full((17, 53), np.nan)
+        _fill_multipliers(np.random.default_rng(3), buffer, kind)  # type: ignore[arg-type]
+        np.testing.assert_array_equal(buffer, allocated)
+
+    @pytest.mark.parametrize("kind", ["rademacher", "mammen"])
+    @pytest.mark.parametrize("n_replicates", [500, 997])
+    def test_the_block_size_does_not_change_the_multipliers(
+        self, kind: str, n_replicates: int
+    ) -> None:
+        """Replicate ``b`` gets the same multipliers wherever the block boundaries fall.
+
+        The block is derived from a byte budget, so it varies with ``n`` -- which would be
+        a silent change to a reported number if the draw depended on it.  It does not:
+        ``rng.integers(..., uint8)`` fills from buffered 32-bit words, so a block that is a
+        multiple of four consumes whole words and leaves the stream where the next block
+        picks it up.  That is a property of numpy's filling rather than a promise it makes,
+        which is why it is pinned here rather than asserted in a docstring; the replicate
+        count is parametrized so that the *last* block is a partial one in one case.
+
+        Checked on the multipliers themselves rather than on the critical value, because
+        that is where the claim is exact -- see
+        :meth:`test_the_block_size_moves_the_answer_only_by_rounding`.
+        """
+        n = 53
+
+        def stream(block: int) -> np.ndarray:
+            rng = np.random.default_rng(3)
+            buffer = np.empty((block, n))
+            out = np.empty((n_replicates, n))
+            done = 0
+            while done < n_replicates:
+                size = min(block, n_replicates - done)
+                view = buffer[:size]
+                _fill_multipliers(rng, view, kind)  # type: ignore[arg-type]
+                out[done : done + size] = view
+                done += size
+            return out
+
+        reference = stream(4)
+        for block in (8, 16, 40, 64, 256):
+            np.testing.assert_array_equal(stream(block), reference)
+
+    @pytest.mark.parametrize("n_replicates", [500, 997])
+    def test_the_block_size_moves_the_answer_only_by_rounding(self, n_replicates: int) -> None:
+        """And the critical value follows, to rounding rather than exactly.
+
+        The multipliers are identical (above), but ``xi @ centred`` is a ``dgemm`` whose
+        blocking depends on its operand shape, so the sum over ``n`` can be accumulated in
+        a different order at a different block and the last bits move with it.  Measured at
+        a relative 1e-15; the bar here is 1e-12, which is far below anything a Monte Carlo
+        quantile means and far above the noise.
+
+        Worth stating rather than asserting equality and hoping: the equality *does* hold
+        in most configurations, and a test that pins it would be pinning OpenBLAS's
+        blocking heuristics.
+        """
+        rng = np.random.default_rng(2)
+        n = 4_000
+        ic = rng.standard_normal((n, 4))
+        se = ic.std(axis=0) / np.sqrt(n)
+
+        values = []
+        for block in (4, 16, 40, 64, 256):
+            with patch.object(multiplier, "_block_size", lambda *_, b=block: b):
+                values.append(
+                    multiplier_critical_value(
+                        ic, se, n=n, n_replicates=n_replicates, random_state=11
+                    )
+                )
+        np.testing.assert_allclose(values[1:], values[:-1], rtol=1e-12, atol=0.0)
+
+    def test_the_block_is_a_byte_budget_and_stays_a_multiple_of_four(self) -> None:
+        """Bounded above by the budget, below by the floor, and always word-aligned."""
+        for n in (10, 1_000, 20_000, 100_000, 1_000_000, 5_000_000):
+            block = _block_size(n, 10_000)
+            assert block % 4 == 0
+            assert 4 <= block <= 256
+            # Either the budget is what bound it, or a clamp was.
+            assert block * n * 8 <= multiplier._BLOCK_BYTES or block in (4, 256)
+        # A replicate count below the block does not make the buffer bigger than the run.
+        assert _block_size(1_000, 3) == 4
+
+    def test_the_multiplier_buffer_does_not_grow_with_the_replicate_count(self) -> None:
+        """The allocation that used to break first at scale is now bounded by the block.
+
+        ``docs/roadmap.md`` names the ``(chunk, n)`` multiplier matrix as one of the two
+        allocations that break before any arithmetic does.  What replaced it is one buffer
+        of ``block x n`` doubles, reused, so ten times the replicates allocate the same
+        memory rather than ten times as much -- which is the property to pin, since the
+        *speed* of the same change is a measurement on a shared box and this is not.
+        """
+        rng = np.random.default_rng(0)
+        n = 20_000
+        ic = rng.standard_normal((n, 3))
+        se = ic.std(axis=0) / np.sqrt(n)
+
+        def peak(n_replicates: int) -> int:
+            multiplier_critical_value(ic, se, n=n, n_replicates=n_replicates, random_state=0)
+            tracemalloc.start()
+            try:
+                multiplier_critical_value(ic, se, n=n, n_replicates=n_replicates, random_state=0)
+                _, high = tracemalloc.get_traced_memory()
+            finally:
+                tracemalloc.stop()
+            return high
+
+        small, large = peak(200), peak(2_000)
+        # Ten times the replicates, and the only thing that grows by ten is the statistics
+        # vector: 2,000 doubles against a buffer measured in tens of megabytes.
+        assert large < small * 1.1
 
     @pytest.mark.parametrize("kind", ["rademacher", "mammen", "normal"])
     def test_multipliers_are_mean_zero_and_unit_variance(self, kind: str) -> None:

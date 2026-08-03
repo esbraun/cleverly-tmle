@@ -90,7 +90,7 @@ from ..utils.frames import (
     matrix_from_columns,
 )
 
-__all__ = ["Assignment", "LongitudinalData", "assignment_matrix"]
+__all__ = ["Assignment", "LongitudinalData", "RegimenMasks", "assignment_matrix"]
 
 _MIN_OBSERVATIONS = 10
 
@@ -702,6 +702,40 @@ class LongitudinalData:
             & _event_free(self.event, time - 1)
         )
 
+    def regimen_masks(self, assignment: Assignment) -> RegimenMasks:
+        """Every node's masks for one regimen, scanned once.
+
+        :meth:`at_risk` and :meth:`following` each rebuild a prefix from scratch --
+        ``uncensored[:, :t].all(axis=1)`` and a loop of ``t`` comparisons -- so calling
+        them at every node costs :math:`O(T^2 n)` per regimen, and a survival fit pays
+        that once per horizon on top.  The masks are *prefix scans of a conjunction*, so
+        carrying them down the nodes computes the same arrays in :math:`O(T n)`.
+
+        Invisible at the ``T = 2`` this package's own fixtures use and 2.4x of the
+        recursion at ``T = 20`` (``benchmarks/results/longitudinal_masks.md``).  The two
+        methods stay, answer the same thing, and are what a caller wanting one node should
+        use; this is what the recursion uses.
+        """
+        matches = self.treatment == assignment_matrix(assignment, self.n, self.n_times)
+        return RegimenMasks(
+            uncensored=_prefix_all(self.uncensored),
+            followed=_prefix_all(matches),
+            event_free=self._event_free_prefix(),
+        )
+
+    def _event_free_prefix(self) -> BoolArray:
+        """``(n, T+1)`` "no event through ``t``", ``t = 0`` being everybody.
+
+        A column read rather than a scan, because :attr:`event` is stored cumulatively --
+        so unlike the other two this was never quadratic, and it is assembled here only so
+        that one object carries all three.
+        """
+        if self.event is None:
+            return np.ones((self.n, self.n_times + 1), dtype=bool)
+        out = np.ones((self.n, self.n_times + 1), dtype=bool)
+        out[:, 1:] = ~self.event
+        return out
+
     def event_free_through(self, time: int) -> BoolArray:
         """Had not yet had the event after every node up to and including ``time``.
 
@@ -898,6 +932,59 @@ class LongitudinalData:
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
         return f"LongitudinalData({', '.join(parts)})"
+
+
+def _prefix_all(indicator: BoolArray) -> BoolArray:
+    """``(n, T+1)`` cumulative AND: column ``t`` is "held at every node up to ``t``".
+
+    Column 0 is all-true -- no node has been passed yet -- which is what makes the scan
+    the same statement the per-node rebuild made, rather than an off-by-one of it.
+    """
+    n, times = indicator.shape
+    out = np.ones((n, times + 1), dtype=bool)
+    np.logical_and.accumulate(indicator, axis=1, out=out[:, 1:])
+    return out
+
+
+@dataclass(frozen=True)
+class RegimenMasks:
+    """One regimen's node masks, as prefix scans rather than as repeated rebuilds.
+
+    Three ``(n, T+1)`` boolean matrices, each holding "this held at every node up to and
+    including ``t``" with ``t = 0`` meaning everybody.  :meth:`at_risk` and
+    :meth:`following` read a column each; they answer exactly what
+    :meth:`LongitudinalData.at_risk` and :meth:`LongitudinalData.following` answer, and
+    ``tests/unit/test_longitudinal_masks.py`` checks that node by node rather than
+    trusting the derivation.
+
+    The memory is ``3 n (T + 1)`` bytes -- 78 MB at ``n = 10^6, T = 25``, against the
+    ``(n, T)`` float64 arrays the container already holds at eight times that.
+    """
+
+    uncensored: BoolArray
+    followed: BoolArray
+    event_free: BoolArray
+
+    def at_risk(self, time: int) -> BoolArray:
+        """:math:`H_t` observed, regimen-consistent and event-free: reads ``time - 1``."""
+        index = max(0, time - 1)
+        return np.asarray(
+            self.uncensored[:, index] & self.followed[:, index] & self.event_free[:, index]
+        )
+
+    def following(self, time: int) -> BoolArray:
+        """Still on the regimen and observed *after* ``time`` -- and event-free *before*.
+
+        Note the two indices: ``time`` for the censoring and follow factors, ``time - 1``
+        for the event.  A unit that had the event at ``time`` **is** in this node's
+        regression -- it is the observation that the event happened -- and
+        ``at_risk(t + 1) == following(t) & event-free at t`` is the closure identity that
+        generalises rather than breaks.  Tidying the asymmetry away is the single easiest
+        mistake to make here.
+        """
+        return np.asarray(
+            self.uncensored[:, time] & self.followed[:, time] & self.event_free[:, max(0, time - 1)]
+        )
 
 
 def _through(uncensored: BoolArray, time: int) -> BoolArray:

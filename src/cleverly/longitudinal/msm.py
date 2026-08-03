@@ -450,6 +450,10 @@ def fit_regimens_msm(
     if missing:  # pragma: no cover - LTMLE.fit builds the cells from these very plans
         raise DataError(f"the working model names regimens the fit did not declare: {missing}")
     cumulative = {plan.label: mechanism.cumulative(data, plan, g_bounds) for plan in plans}
+    # Once per regimen for the whole alternation, not once per node per round: a link
+    # costs a further backward pass per round, so rebuilding the masks inside `one_pass`
+    # would multiply the quadratic term by the round count as well.
+    masks = {plan.label: data.regimen_masks(plan.values) for plan in plans}
 
     def one_pass(beta: FloatArray | None) -> tuple[list[list[SequentialStep]], list[Fluctuation]]:
         covariate = model.weighted_design_at(beta)
@@ -470,6 +474,7 @@ def fit_regimens_msm(
                     pseudo_learner=pseudo_learner,
                     folds=folds,
                     cause=cause,
+                    masks=masks[model.cells[k].label],
                     n_jobs=n_jobs,
                 )
                 for k in live
