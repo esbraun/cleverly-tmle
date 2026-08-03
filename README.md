@@ -28,7 +28,7 @@ reason, rather than approximated.
 | --- | --- |
 | [User guide](https://github.com/esbraun/cleverly-tmle/blob/main/docs/user-guide.md) | one runnable recipe per capability — multi-arm treatments, dynamic and stochastic regimes, continuous doses, incremental interventions, marginal structural models, longitudinal and survival fits, C-TMLE, cross-fitting, weights |
 | [Technical appendix](https://github.com/esbraun/cleverly-tmle/blob/main/docs/methodology.md) | per algorithm: the estimand, its efficient influence curve, the second-order remainder, and the test that fails when it is built wrong |
-| [Roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) | what has landed, what is worth building next, and why native acceleration is not |
+| [Roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) | what has landed, what is worth building next, and where native acceleration does and does not pay |
 
 ## Install
 
@@ -322,8 +322,16 @@ ruff check . && ruff format --check .
 mypy src/cleverly
 pytest -m "not slow" -q     # fast tier, ~3 minutes
 pytest -m slow -q           # statistical validation tier (nightly in CI, ~1 hour)
-python benchmarks/bench_tmle.py
+python benchmarks/bench_tmle.py                         # where a whole fit's time goes
+python -m benchmarks.numba.cli --config benchmarks/configs/sandbox.json
 ```
+
+The second benchmark answers a narrower question than the first and answers it properly:
+with the nuisance fits excluded from every timed region, does compiling or parallelising
+the package's own arithmetic help? Its write-ups are
+[the profile](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/candidate_inventory.md)
+and [the recommendation](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/findings.md).
+Neither is "numba everywhere" nor "numba nowhere".
 
 `ruff` and `mypy` are both pinned exactly, and in three places that have to move together:
 `pyproject.toml`'s `dev` extra, `.github/workflows/ci.yml`, and `noxfile.py`. `ruff` formats

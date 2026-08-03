@@ -55,6 +55,34 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pytest -m "not slow" -q -n auto
 
+  # The numba benchmark's *correctness* tier. It lives in `tests/unit/` and would
+  # therefore run in the `tests` job above -- except that `tests` installs `.[dev]`, which
+  # deliberately does not carry numba, so the module `importorskip`s and the tier passes by
+  # not running. A skipped correctness check reads exactly like a passing one in the log,
+  # which is the failure mode this job exists to remove.
+  #
+  # `.[bench]` rather than adding numba to `dev`: numba is a compiler toolchain and a
+  # hundred megabytes, and nothing under `src/` imports it. One job pays for it.
+  numba-correctness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.11"
+          extra: bench
+          # Unpinned and unbounded on purpose: the composite action interpolates this
+          # into an unquoted shell word, so a `>=` here would be parsed as a redirect and
+          # install nothing while reporting success. The floors that matter are in the
+          # `dev` extra; this job only needs pytest to exist.
+          packages: pytest pytest-xdist
+      # Two threads, not one: the property most worth checking here is that a parallel
+      # kernel's answer does not move with the thread count, and a single-threaded runner
+      # cannot check it. `-p no:randomly` is not needed -- the module sets the count itself.
+      - run: pytest tests/unit/test_numba_benchmark.py -q
+        env:
+          NUMBA_NUM_THREADS: "2"
+
   # One backend at a time, which the `tests` job above cannot check: it installs `.[dev]`,
   # which pulls pandas *and* polars, so the single-backend and neither-installed branches of
   # `cleverly.utils.frames` had never executed anywhere. That is how `make_longitudinal_weighted`

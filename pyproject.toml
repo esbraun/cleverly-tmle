@@ -47,10 +47,17 @@ polars = ["polars>=0.20"]
 boost = ["lightgbm>=4.0"]
 plot = ["matplotlib>=3.7"]
 all = ["cleverly[pandas,polars,boost,plot]"]
-# Benchmarking only, and deliberately not part of `all`. `numba` is here so that
-# `benchmarks/bench_tmle.py` can measure a compiled targeting kernel against the numpy
-# one; nothing under `src/` imports it, and on the measurement it is not close to worth
-# taking as a runtime dependency -- see docs/roadmap.md, *On native acceleration*.
+# Benchmarking only, and deliberately not part of `all`. `numba` is here for the two
+# instruments that measure it: `benchmarks/bench_tmle.py`, which times one compiled
+# targeting kernel against the numpy one, and `benchmarks/numba/`, which asks the same
+# question of every post-nuisance kernel in the package with the learner fits excluded.
+# Nothing under `src/` imports it. Whether it is worth taking as a runtime dependency is
+# kernel-by-kernel rather than package-wide -- benchmarks/results/findings.md is the
+# answer and docs/roadmap.md, *On native acceleration*, is the summary.
+#
+# `tests/unit/test_numba_benchmark.py` needs this extra, which is why CI has a job that
+# installs it: under `dev` that module skips, and a skipped correctness check reads like a
+# passing one.
 bench = ["cleverly[all]", "numba>=0.60"]
 dev = [
     "cleverly[all]",
