@@ -345,7 +345,7 @@ compared are now **both run here**, the rule bites on the comparison this file a
 ## 7. Truncation is not in the theorem's algorithm
 
 **This section is A1a's answer to the question [B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision)
-waits on, and it is stated here as a finding rather than left as a reading.** The roadmap sends
+waited on, and it is stated here as a finding rather than left as a reading.** The roadmap sent
 B1b here "once A1 has said which mechanism the theorem's `D_g` is evaluated at". It says:
 
 > **The theorem's `D_g` is evaluated at the same `g*` its score is solved at, and that `g*` is
@@ -358,11 +358,20 @@ Two consequences, and the second is the one that changes what B1b is:
 1. the current hybrid — bounded denominator, raw residual — is **not** a convention the theorem
    offers, and neither is R's post-fit clip. The theorem has no third array to choose between:
    it has one;
-2. so B1b is not adjudicating between two readings of the source. It is choosing a **finite-sample
-   rendering of a step the theorem states without one**, and its criterion is which rendering
+2. so B1b was not adjudicating between two readings of the source. It chose a **finite-sample
+   rendering of a step the theorem states without one**, on the criterion of which rendering
    leaves a final score that is the theorem-defined score of the estimator being declared. That is
    a design decision with a stated bar, not a transcription question, and nothing in the sources
-   will settle it — which is why no further document is owed here.
+   would have settled it — which is why no further document was owed here.
+
+**What it chose, and how this section's own preference fared.** B1b landed the constrained
+estimating equation — `clip` inside `F`, solved for a root, so the final score *is* the declared
+estimator's — rather than the smooth bounded submodel the last paragraph of this section reads as
+preferring. The preference is stated *against a projection applied after an unconstrained
+optimisation*, which is a different candidate, and the smooth submodel was fitted before being set
+aside: it is a different submodel on **every** fit rather than on the clipping ones, so at inert
+bounds it moves a fit whose bound never binds. The measurements are in [the investigation
+log](drtmle-investigation-log.md#what-the-b1b-prototype-measured).
 
 The reasoning follows.
 
@@ -609,7 +618,7 @@ filled in from optimism, exactly as §15's `unverified` column says of itself.
 | `D_A` | `D*_g` | `eval_Dstar_g` | `A`, `W` | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | the theorem's is untruncated ([§7](#7-truncation-is-not-in-the-theorems-algorithm)); the rendering is B1b's | starred | yes | `D_DR`, eq (9)'s check | `test_theorem_drtmle.py`, **at nonzero `Q_r`**; `test_influence_gateaux_drtmle.py`'s `g_right` cell, where it is the live correction |
 | `D_Y` | `D*_Q` | `eval_Dstar_Q` univariate branch | `A`, `W`, `Y` | + | `g_{r,1}` bounded | starred | yes | `D_DR`, eq (10)'s check | `test_theorem_drtmle.py`; `test_influence_drtmle.py` for the longhand; `test_influence_gateaux_drtmle.py`'s `q_right` cell, where it is the live correction |
 | `D^{*,#}` | `D = D* − D*_Q − D*_g` | `DnoStar − DnQoStar − DngoStar` | — | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | — | starred | rowwise per arm; ATE is the rowwise difference | the variance | `test_influence_drtmle.py` (difference not sum; per-guard membership) **and `test_influence_gateaux_drtmle.py`**, which is the Gateaux pin of the decomposition this row wanted: in each off-diagonal cell the corrected curve equals `tests/discrete_law.py`'s complex-step EIF, row for row, from a real fit as well as longhand |
-| `B_n`, `B_{A,n}`, `B_{Y,n}` | the three recorded scores | `PnDnoStar` etc. | — | — | **the identity B1a pins** | starred | yes | the stopping rule and `score_check` | `test_drtmle_fit.py` and `validation/drtmle.py`'s `correction_check` |
+| `B_n`, `B_{A,n}`, `B_{Y,n}` | the three recorded scores | `PnDnoStar` etc. | — | — | **the identity B1a pins and B1b makes hold** | starred | yes | the stopping rule and `score_check` | `test_drtmle_fit.py`, `test_bounded_mechanism.py`, and `validation/drtmle.py`'s `correction_check` |
 | `R_{Q,n}`, `R_{g,n}` | not computed | not computed | — | — | — | — | — | item 13 | **open, and [piece C](roadmap.md#c-the-demonstration)'s** — a column on that study rather than a test here, since only it knows `ψ_0`. [§5](#5-the-remaining-remainder-terms) has the terms |
 | `σ̂²_n` | `influence_covariance` | `drtmle` covariance block | — | — | — | — | — | the interval | `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` — the interval built from the package's own corrections is the one Theorem 1's terms give, the uncentred `P_n{D}²` differs from the reported variance by exactly `(P_n D)²`, and the contrast reads the covariance rather than the sum |
 | the probability limits `Q̄_1`, `g_1` | declared in tests; a fit has estimates, not limits | — | `W` | — | — | the limit the starred arrays converge to | yes | Theorem 1's conclusion, and `D^{*,#}` is evaluated **at them** | `test_influence_gateaux_drtmle.py`, the first fixture here to *have* limits: the misspecified nuisance is a constant, so it is its own limit, and the union model is entered by construction rather than by a rate |
@@ -651,7 +660,7 @@ than nothing at all, and one row that read **violated** now reads violated-and-m
 | `Q̄ = Q̄_0` **or** `g = g_0` | Thm 1 | the whole conclusion | assumed, not checked | `test_influence_gateaux_drtmle.py` enters each half of the union **by construction** — one nuisance exact in the sample, the other a declared constant | met by assumption; the union model is the point, and it is now the fixture rather than a hope |
 | `g_0 > δ > 0` (true mechanism) | Thm 1 | boundedness | assumed; a *fitted* `g` is truncated instead | positivity warning | **unverified** — the theorem bounds `g_0`, the code bounds `ĝ` |
 | `B_n = o_p(n^(−1/2))` | Thm 1 | eq (8) | solved to `1e-11` relative or `_NEGLIGIBLE/n` absolute | sweep | met, under a numerical proxy for `o_p` |
-| `B_{A,n} = o_p(n^(−1/2))` | Thm 1 | eq (9) | solved at the **raw** residual; the curve reads the truncated one | item 20; `correction_check`'s `identity` rows and `B_clip`, per arm | **violated wherever the bound binds, and now measured on the face of the fit.** B1a made it visible; [B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) closes it, on [§7](#7-truncation-is-not-in-the-theorems-algorithm)'s finding |
+| `B_{A,n} = o_p(n^(−1/2))` | Thm 1 | eq (9) | solved at the **truncated** residual, which is the one the curve reads | item 20; `correction_check`'s `identity` rows, per arm, on four fixtures including one where 375 rows clip | **met**, under the stated restriction that the mechanism is the truncated one and not the theorem's untruncated `g*` — [§7](#7-truncation-is-not-in-the-theorems-algorithm) is why that is a rendering rather than a departure. It read *violated wherever the bound binds*: B1a made it visible and [B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) closed it, at `1e-17` on the identity and `1e-10` on the score |
 | `B_{Y,n} = o_p(n^(−1/2))` | Thm 1 | eq (10) | solved exactly | tests | met |
 | `R_{Q,n} = o_p(n^(−1/2))` | app. A | asymptotic linearity | unmeasured | `test_remainder_drtmle.py` has the *arithmetic* at saturated reductions; the empirical rate is [piece C](roadmap.md#c-the-demonstration)'s column | **unverified** — item 13 |
 | `R_{g,n} = o_p(n^(−1/2))` | app. B | asymptotic linearity | unmeasured | as above, and the two branches must be reported **apart** — [§5](#5-the-remaining-remainder-terms) | **unverified** — item 13 |

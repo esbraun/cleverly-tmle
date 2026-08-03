@@ -67,7 +67,10 @@ B_clip(a) = Pn[ w · Q_r(a, W)/g_b(a|W) · { g_raw(a|W) − g_b(a|W) } ]
 On the current implementation this must reproduce the mechanism score/correction mismatch to
 floating-point, which is what makes it a check on the diagnosis and not only a new column. It
 stays useful afterwards: under any convention it measures how much of the mechanism equation the
-bound is absorbing.
+bound is absorbing — though **not as a fixture selector**, because after
+[B1b](#2-the-targeting-candidates-piece-b1b) it is zero at the exit of every fit that carries the
+bounded array forward. What it says then is that the fix took; what it can no longer say is that
+this draw was a hard one.
 
 **It does, and the sign above is one orientation out from the residual it explains.** With
 `B_clip` carrying `g_raw − g_b` as written here and the residual defined as
@@ -108,27 +111,45 @@ real failure at `7e-08`. The inferential tolerance is `score_check`'s own
 appear in `score_check` as their own row kinds (`identity`, `correction`), which is what puts them
 in `summary()`; `res.validation.correction_check()` is the recomputation behind them.
 
-`tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred` pins the defect's numbers
-today and must be **rewritten rather than deleted** — after B1a its fixture is the regression test
-that the bounds still bind on that draw, which is the thing every later assertion needs. It was:
-the class now asserts the identity rather than the symptom, and holds both halves of the claim in
-one fit, since its draw 0 clips **0** rows of 600 and its draw 1 clips **5**. A fixture chosen for
-passing would prove nothing and one chosen for failing would prove little more.
+`tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred` pinned the defect's numbers
+and was to be **rewritten rather than deleted** — its fixture is the regression test that the bound
+still binds on that draw, which is the thing every later assertion needs. It has been rewritten
+twice: by B1a, to assert the identity rather than the symptom, and by B1b, which made the identity
+hold and renamed the class for what it now says. Both halves of the claim still live in one fit,
+its draw 0 having been the one where the bound never bit and its draw 1 the one where it did. A
+fixture chosen for passing would prove nothing and one chosen for failing would prove little more.
 
 ## 2. The targeting candidates (piece B1b)
 
-**There are more than two conventions and the current defect can be removed under any of them.**
+**Landed, and D is what was selected.** [The roadmap](roadmap.md#what-b1b-landed) says what
+shipped and which four decisions inside it were forks; this section is the specification it was
+executed from, kept as written except where the prototype corrected it — the candidate table's
+axis, and the fixture witness at the end.
+
+**There were more than two conventions and the defect could be removed under any of them.**
 This is the correction the second review is most insistent on and it is right: matching R would
 make the recorded score and the reported correction refer to one expression, and it would *not*
 make hard clipping after a logistic fluctuation solve that expression's score equation.
 
-| variant | residual | denominator | update | what it is for |
-| --- | --- | --- | --- | --- |
-| **current** | raw | bounded | logistic | the baseline defect |
-| **A — post-fit clip** | bounded | bounded | logistic, then clip, then iterate | one array, internally consistent |
-| **B — raw throughout** | raw | raw | logistic | the literal unbounded score |
-| **C — hybrid** | raw | bounded | logistic | the score Python actually solves today |
-| **D — direct bounded** | bounded | bounded | root / Z-solve | the exact bounded equation |
+| variant | residual | denominator | update | what it is for | measured |
+| --- | --- | --- | --- | --- | --- |
+| **current** | raw | bounded | logistic | the baseline defect | `Δ_g` up to `3.7e-03` |
+| **A — post-fit clip** | bounded | bounded | logistic, then clip, then iterate | one array, internally consistent | identity holds; final score `6.8e-06` where the bound binds at the fixed point |
+| **B — raw throughout** | raw | raw | logistic | the literal unbounded score | not run — unusable as a default |
+| **C — hybrid** | raw | bounded | logistic | the score Python actually solves today | **current** with the curve made to follow it |
+| **D — direct bounded** | bounded | bounded | root / Z-solve | the exact bounded equation | **selected**: identity holds; final score `2.1e-10` on the same fit |
+
+**A column, and two rows that are one solver.** The measurements are [the prototype's in the
+investigation log](drtmle-investigation-log.md#what-the-b1b-prototype-measured), and two things
+came back that this table did not anticipate. **C and current pose the same equation** — the rows
+are identical across the first three columns, and what would change in adopting C is the *curve*,
+made to read the raw residual so that it follows the solver. That is a real option and it is the
+one criterion 1 rules out first, since a `D_g` whose residual and denominator sit at two different
+mechanisms is not a term any theorem here derives. And the axis this table is organised by, which
+mechanism each expression reads, is not the axis that carries the defect: that is **which array the
+alternation carries forward**, since `targeted_g` is the raw tilted mechanism and the next round
+offsets from its `logit`. Carrying the bounded array forward makes the identity hold at the exit
+under both A and D, because at a fixed point `ε → 0` and the two arrays coincide there.
 
 **A — post-fit clipping, as `drtmle` does it.** `fluctuateG` applies `pred[pred < tolg] <- tolg`
 to the fitted values and returns *that* as `gnStar`, so R has one array and cannot be in the
@@ -165,6 +186,21 @@ inference actually uses and separates theorem conformity from R's numerical conv
 it: hard clipping makes the map non-smooth, a zero need not exist inside the bounded set, and a
 smooth submodel needs a fresh derivation and may no longer be a standard likelihood fluctuation.
 
+**The four routes in that sentence are not four candidates**, and the prototype narrowed them to
+two, measured them against each other, and **D-hard is what landed** — `clip` inside `F`, the
+pinned rows contributing nothing to the Jacobian, the root found by `scipy.optimize.root`'s `hybr`
+with this package's own convergence verdict on top. **D-smooth** —
+`g_ε = lo + (hi − lo)·expit(logit((ĝ − lo)/(hi − lo)) + εH_g)`, so the mechanism cannot leave the
+bounds and nothing is projected — is what [the concordance's
+§7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm) reads as
+preferring, and it lost on both criteria that separate them. It is a *different submodel on every
+fit*: at inert bounds of `1e-6` it moved a no-clip fixture's `psi` by `2.7e-03` standard errors
+where D-hard moves it by zero, which would break the `1e-12` window of the one module whose point
+is that tolerance. And where the bound binds it left the final score at `1.5e-07` against
+`2.1e-10`, its derivative `(hi − lo)·u(1 − u)` collapsing near the bounds. §7's preference is an
+argument against a projection applied *after* an unconstrained optimisation, which is candidate A;
+D-hard puts the clip inside the equation, so the stated reason does not reach it.
+
 ### The decision hierarchy
 
 **Do not select from taste, and do not select from what another implementation happens to do.**
@@ -178,7 +214,12 @@ In order:
    them is a finite-sample rendering whose *final* score is the theorem-defined score of the
    estimator being declared, which is criterion 2 made into a design requirement rather than a
    check. Two of the four cannot satisfy it by construction, and saying which is B1b's first
-   paragraph.
+   paragraph. **They are C and B**, and for opposite reasons: C evaluates the residual and the
+   denominator at two different mechanisms, so it is no theorem's `D_g` whatever it is the
+   first-order condition of; B *is* the theorem's own step, and stays the definition of the
+   estimator wherever the bound is slack, but a fitted `g*` is not bounded away from zero the way
+   the theorem's `g_0` is assumed to be, so it cannot be the default. A and D survive to criterion
+   2, which separates them.
 2. **Exact final-score validity** — does the returned state satisfy the exact equation the
    reported correction uses, to the declared statistical tolerance?
 3. **Numerical stability** — how does it behave as the clipped share rises?
@@ -200,6 +241,32 @@ number of rounds; cap/stall status; and the objective value where one exists.
 Acceptance: score/correction identity by construction; final reported score below the predeclared
 validity threshold; **no silent success when a constrained root does not exist**; and the
 concordance row marked *met* or *met under a stated restriction*.
+
+**The fixtures, now that the prototype has said which ones separate anything**, and these are the
+ones B1b was accepted on. Three, and each is there for a claim the other two cannot make: `nonlinear` seed 3 — the module fixture, no clipped
+rows — for the regression surface, where the selected convention must reproduce today's `psi`,
+`se` and stored scores; `nonlinear` seed 2 — one clipped row of 600 — for the ordinary-draw
+identity, since one row is enough; and `weak_overlap` seed 0 **at a forced `g_bounds=(0.15,
+0.85)`** for the separation, because at the `auto` bound A and D are one fit and the table above
+would report a tie. The forced bound is the point rather than a stress setting: it is the only
+configuration run so far in which the bound binds *at the fixed point*, which is the only place
+the candidates differ.
+
+**And "fraction clipped" stopped being a witness the moment this landed.** It is measured at the
+exit, and a convention that carries the bounded array forward exits with `ε → 0` and so with
+nothing clipped — 0 on the draw where 375 rows clipped before. Report it still, since zero is what
+says the fix took; but a *fixture* has to be selected on something else. This is
+[B1a's fifth condition](#1-the-invariants-piece-b1a) needing a new witness rather than a new
+intent, and it is [stop-ship 14](roadmap.md#stop-ship)'s shape arriving in a second place.
+
+**The replacement is not the initial mechanism's clipped share**, which this document proposed and
+which is **zero on the draw item 20 was found on**: nothing about that fit's initial mechanism
+leaves the bounds, and what clipped was the tilt. It is `CorrectionRow.margin`, how close the
+targeted mechanism comes to either bound as a fraction of the interval — `1.2e-06` on that draw
+against `0.14` on its sibling, because a constrained root sits *against* the boundary of the
+feasible set. Nothing derivable from the returned arrays proves the constraint was active, since
+the trajectory is not on the record; what this is is a property separating the two draws by five
+orders that the fix cannot manufacture.
 
 ### Two acceptance criteria that were wrong and are now stated correctly
 

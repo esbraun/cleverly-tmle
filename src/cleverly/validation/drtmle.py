@@ -11,15 +11,25 @@ the same statement about the same state, and they were not:
     equation (9), as solved     Pn[ H_g (A - g*) ]        g* RAW,       from solve_mechanism
     D*_g, as reported           Qr/g-bar* (1_a - g-bar*)  g* TRUNCATED, from reduced_corrections
 
-Both read one array.  Only one truncates it in the *residual*, and the covariate's
-denominator is truncated in both -- so the two expressions are identical on every row the
-bound leaves alone and differ on every row it clips.  A single clipped row of 600 was enough
-to leave the reported curve uncentred at ``2e-04`` while all three fluctuation rows reported
-their scores solved to ``1e-11``.  That is ``docs/roadmap.md``'s item 20, it accounts for
-item 11, and this module is the instrument that makes it impossible to hide: it recomputes
-each correction's empirical mean **from the exact returned state**, compares it with the
-score the solver recorded, and reports the discrepancy as :math:`\Delta_g` and
-:math:`\Delta_Q` alongside the exact clipping bias :math:`B_{clip}` that explains it.
+Both read one array.  Only one truncated it in the *residual*, and the covariate's
+denominator was truncated in both -- so the two expressions were identical on every row the
+bound left alone and differed on every row it clipped.  A single clipped row of 600 was
+enough to leave the reported curve uncentred at ``2e-04`` while all three fluctuation rows
+reported their scores solved to ``1e-11``.  That was ``docs/roadmap.md``'s item 20, it
+accounted for item 11, and this module is the instrument that made it impossible to hide: it
+recomputes each correction's empirical mean **from the exact returned state**, compares it
+with the score the solver recorded, and reports the discrepancy as :math:`\Delta_g` and
+:math:`\Delta_Q` alongside the clipping bias :math:`B_{clip}` that explained it.
+
+**Both items are closed and this module is why they could be.**  Piece B1b replaced the
+solver at the ``DRTMLE`` call sites with
+:func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism`, which solves the score at
+the *truncated* tilt -- the expression the second line above carries -- and the alternation
+now carries that truncated array forward.  The two lines are one line, :math:`\Delta` is at
+roundoff on every fit, and :math:`B_{clip}` is zero because there is no longer a second array
+for it to measure the distance to.  **Nothing here was weakened to make that true**: every
+threshold, tolerance and condition below is what it was when the identity failed, which is
+the only reason the rows are worth reading now.
 
 Two failures, and they are not the same failure
 -----------------------------------------------
@@ -45,10 +55,12 @@ The instrument's first run against a ``guard=("g",)`` fit reported :math:`2.8\ti
 at arm 1 with **no** row clipped and no equation (9) anywhere in the fit -- and at the time
 the curve subtracted that term anyway.  It no longer does; the row that found it stays.
 
-What this does **not** do is choose a convention.  Which mechanism equation (9) ought to be
-solved against is a derivation -- there are more than two candidates and the theorem's own
-algorithm truncates nothing at all -- and it is piece B1b of ``docs/roadmap.md``, waiting on
-the published statement of Theorem 1.  Every identity here is valid under all of them.
+What this does **not** do is choose a convention, and it did not need to: every identity here
+is valid under all four candidates, which is what let it land a piece ahead of the one that
+chose.  Which mechanism equation (9) ought to be solved against was a derivation rather than
+a taste -- the theorem's own algorithm truncates nothing at all, so there was no convention
+in the source to match and no document to wait for -- and it is piece B1b, whose reasoning is
+on :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism`.
 
 Five conditions on how the identity is checked, each ruling out a way of passing for the
 wrong reason, and all five are in the code below rather than in this docstring's good
@@ -64,8 +76,13 @@ intentions:
   **outcome's own scale**, so that a correction score and ``se / sqrt(n)`` are comparable
   numbers rather than two quantities a factor of ``range`` apart -- which is the same trap
   in a second place;
-* on a fixture where the truncation **binds**.  That one belongs to the tests, and
-  :attr:`CorrectionRow.clipped` is what lets them assert it rather than assume it.
+* on a fixture where the truncation **binds**.  That one belongs to the tests, and the
+  witness is :attr:`CorrectionRow.margin` -- **not** :attr:`CorrectionRow.clipped`, which B1b
+  emptied.  The alternation carries the truncated array forward, so a converged fit clips
+  nothing at the exit however hard the draw was, and a fixture selected on the exit count
+  would now be selected from nothing at all: ``docs/roadmap.md``'s stop-ship 14, a check
+  agreeing where it could not have disagreed, arriving in a second place.  What a constrained
+  root does instead is sit *against* the boundary, and the margin is how that shows.
 """
 
 from __future__ import annotations
@@ -115,15 +132,33 @@ class CorrectionRow:
         terms whatever the guard is precisely so this row exists.
     clip_bias:
         :math:`B_{clip}(a) = P_n[w\\,Q_r/g^b\\,(g - g^b)]` for the ``"D*_g"`` row, ``nan``
-        for the other.  On the current implementation it reproduces **minus**
-        :attr:`residual` to floating point -- the sign is the orientation
-        ``docs/drtmle-validation-plan.md`` defines it in, and the two differ because one
-        residual reads :math:`1_a - g` and the other :math:`1_a - g^b`.  Reproducing it at
-        all is what makes this a check on item 20's diagnosis rather than merely a new
-        column.
+        for the other.  Before B1b it reproduced **minus** :attr:`residual` to floating
+        point, which is what made it a check on item 20's diagnosis rather than merely a new
+        column; the sign is the orientation ``docs/drtmle-validation-plan.md`` defines it
+        in, and the two differed because one residual read :math:`1_a - g` and the other
+        :math:`1_a - g^b`.  It is **zero now**, on every fit, because there is no longer a
+        raw tilted mechanism for it to measure the distance to.
     clipped:
-        How many rows the mechanism truncation binds on in this draw.  Zero means the
-        identity is uninformative -- it holds under every convention there.
+        How many rows the truncation binds on *at the exit*.  Zero on every fit since B1b,
+        and that is the point rather than a defect in the column: the alternation carries
+        the truncated array forward, so at a fixed point :math:`\\epsilon \\to 0` and the raw
+        and truncated tilts coincide.  What it says now is that the fix took.  Use
+        :attr:`margin` to ask whether the draw was a hard one.
+    margin:
+        The closest the targeted mechanism comes to either bound, as a fraction of the
+        interval between them: ``min_i min(g*_i - lo, hi - g*_i) / (hi - lo)``.  This is the
+        witness that replaces :attr:`clipped`, and it says what that column used to say --
+        **whether the truncation had anything to do on this draw** -- in the only form that
+        survives B1b.  A constrained root sits *at* the boundary of the feasible set, so a
+        draw whose unconstrained tilt wanted to leave the bounds comes back with the
+        mechanism pressed against one: measured at ``1.2e-06`` on the draw item 20 was found
+        on, against ``0.14`` on its sibling that never clipped.  Five orders, and no
+        threshold inside the column -- a test picks its own.
+
+        It is not a proof that the constraint was active, and nothing derivable from the
+        returned arrays is: the trajectory that got there is not on the record.  What it is
+        is a property that separates the two draws by five orders and cannot be manufactured
+        by the fix, which is what a fixture's precondition has to be.
     solved:
         Whether this fit solved the equation the correction comes from -- which, since
         item 23, is the same question as whether the term is in the reported curve, because
@@ -142,6 +177,7 @@ class CorrectionRow:
     clipped: int
     solved: bool
     clip_bias: float = float("nan")
+    margin: float = float("nan")
 
     @property
     def residual(self) -> float:
@@ -221,8 +257,17 @@ class CorrectionCheck:
 
     @property
     def clipped(self) -> int:
-        """The largest per-draw count of rows the mechanism truncation binds on."""
+        """The largest per-draw count of rows the truncation binds on at the exit.
+
+        Zero on every fit since B1b; :attr:`margin` is what says whether the bound had
+        anything to do on this draw.
+        """
         return max((row.clipped for row in self.rows), default=0)
+
+    @property
+    def margin(self) -> float:
+        """The closest any draw's targeted mechanism comes to its bounds, as a fraction."""
+        return min((row.margin for row in self.rows), default=float("nan"))
 
     def to_frame(self, data: Any = None) -> Any:
         from ..utils.frames import frame_from_dict
@@ -236,6 +281,7 @@ class CorrectionCheck:
             "residual": [row.residual for row in self.rows],
             "clip_bias": [row.clip_bias for row in self.rows],
             "clipped": [row.clipped for row in self.rows],
+            "margin": [row.margin for row in self.rows],
             # Which rows `reported` is being judged on. Without it a partial-guard frame
             # carries a large number in a column of small ones and says nothing about why.
             "solved": [row.solved for row in self.rows],
@@ -276,8 +322,9 @@ class CorrectionCheck:
         notes = [
             f"  scores on the outcome scale (x{self.scale:.4g} from the fitting scale); "
             f"tolerance {self.threshold:.2e}, identity {self.identity_threshold:.2e}",
-            f"  the mechanism truncation binds on up to {self.clipped} row(s) of {self.n} in "
-            "any one draw; the per-draw counts are in to_frame()",
+            f"  the truncation binds on up to {self.clipped} row(s) of {self.n} at the exit "
+            f"of any one draw, and the targeted mechanism comes within {self.margin:.2g} of "
+            "a bound; the per-draw figures are in to_frame()",
         ]
         unsolved = {row.equation for row in self.rows if not row.solved}
         if unsolved:
@@ -353,6 +400,12 @@ def correction_check(
                 continue
             clipped = int(np.count_nonzero(parts.clipped))
             mechanism = fluctuation.mechanism
+            margin = _margin(
+                mechanism.propensity
+                if mechanism is not None
+                else repeat.nuisance.propensity.arm(reduction.reduced.arms[1]),
+                reduction.bounds,
+            )
             stored_g = np.asarray(mechanism.score) if mechanism is not None else np.zeros(0)
             stored_q = np.asarray(reduction.score)
             for column, arm in enumerate(reduction.reduced.arms):
@@ -374,6 +427,7 @@ def correction_check(
                         reported=scale * float(np.mean(weights * parts.d_g[arm])),
                         clip_bias=scale * float(np.mean(weights * parts.clip_bias[arm])),
                         clipped=clipped,
+                        margin=margin,
                         # `parts.guard` rather than `reduction.guard`: the selection has to
                         # come from the object the curve selected with, for the same reason
                         # the means come from the arrays the curve carries.
@@ -393,6 +447,7 @@ def correction_check(
                         ),
                         reported=scale * float(np.mean(weights * parts.d_q[arm])),
                         clipped=clipped,
+                        margin=margin,
                         solved="g" in parts.guard,
                     )
                 )
@@ -404,6 +459,22 @@ def correction_check(
         std_error=reference,
         scale=float(result.nuisance.scaler.range),
     )
+
+
+def _margin(mechanism: Any, bounds: tuple[float, float]) -> float:
+    """How close ``mechanism`` comes to either bound, as a fraction of the interval.
+
+    Small means the constrained root is pressed against the feasible set's boundary, which
+    is what "the truncation binds" looks like once the solve is constrained: no row is
+    outside the bounds -- that is the point of the constraint -- so a count of rows outside
+    them says nothing, and this says what the count used to.  Zero when a row sits exactly on
+    a bound, which the bounded solve permits and the unconstrained one never produced.
+    """
+    lower, upper = float(bounds[0]), float(bounds[1])
+    values = np.asarray(mechanism, dtype=float).reshape(-1)
+    if values.size == 0 or not upper > lower:  # pragma: no cover - a fit always has both
+        return float("nan")
+    return float(np.min(np.minimum(values - lower, upper - values)) / (upper - lower))
 
 
 def _reference_se(result: TMLEResult) -> float:

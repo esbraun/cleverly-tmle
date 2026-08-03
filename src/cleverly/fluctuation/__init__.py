@@ -16,6 +16,7 @@ from .mechanism import (
     mechanism_covariate,
     needs_mechanism,
     register_mechanism,
+    solve_bounded_mechanism,
     solve_mechanism,
 )
 from .one_step import solve_one_step
@@ -63,6 +64,7 @@ __all__ = [
     "register_mechanism",
     "register_submodel",
     "restrict",
+    "solve_bounded_mechanism",
     "solve_fluctuation",
     "solve_mechanism",
     "solve_one_step",
