@@ -478,6 +478,15 @@ Stated so a reader does not mistake a gap for a covered case.
   axes a process pool would have to pickle a slice of every array per task, and on this box
   that transfer is larger than the task; on a machine where it is not, the GIL result in
   §2.6 is the reason to try it.
+- **The nonparametric bootstrap is not benchmarked, and that is a scope decision rather
+  than an omission.** `cleverly.inference.run_bootstrap` refits the whole estimator on each
+  resample, so it is nuisance-fitting-bound by construction — the plan's own rule puts
+  learner fits out of scope, and a compiled kernel cannot reach inside a LightGBM fit. What
+  *is* covered is the two package-owned halves that a cluster bootstrap composes:
+  `cluster_sums` for the aggregation and `multiplier_bootstrap` for the resampling, and a
+  clustered multiplier bootstrap is the first applied to the influence curves followed by
+  the second applied to the result. Neither the composition nor its index generation has a
+  kernel of its own, because neither adds arithmetic to what those two already measure.
 - **Core counts stop at four**, because the box has four. Several kernels are still above
   0.7 efficiency there and their curves have not turned over.
 - **`n` stops at 10⁶** for the row-indexed kernels and lower for the recursions, which is
