@@ -201,13 +201,25 @@ class TestResultApi:
         assert "99% CI" in wide.summary()
 
     def test_causal_data_can_be_passed_directly(self) -> None:
+        """Passing a built container must be the same fit as passing the frame.
+
+        Asserted as an equality against the frame-based fit rather than as a coverage
+        check on the truth.  The claim here is about *plumbing* -- that ``fit`` accepts a
+        ``CausalData`` and routes it to the same place -- and a single-fit interval covers
+        the truth only 95% of the time by construction, so the old assertion was a coin
+        flip standing in for something exactly checkable.
+        """
         from cleverly import CausalData
 
-        frame, truth = make_linear_ate(n=800, seed=96)
+        frame, _ = make_linear_ate(n=800, seed=96)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A")
-        result = fast_tmle(estimands=("ate",)).fit(data).single()
-        low, high = result["ate"].ci
-        assert low <= truth["ate"] <= high
+        via_container = fast_tmle(estimands=("ate",)).fit(data).single()
+        via_frame = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
+        assert via_container["ate"].psi == via_frame["ate"].psi
+        assert via_container["ate"].std_error == via_frame["ate"].std_error
+        np.testing.assert_array_equal(
+            via_container["ate"].influence_curve, via_frame["ate"].influence_curve
+        )
 
     def test_the_nuisance_fits_are_retained_for_reuse(self, paired_fits) -> None:
         result, _ = paired_fits

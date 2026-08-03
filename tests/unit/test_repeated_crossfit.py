@@ -248,6 +248,7 @@ class TestTheAveragedReportStaysCoherent:
         np.testing.assert_allclose(
             repeated["ate"].influence_curve,
             repeated["ey1"].influence_curve - repeated["ey0"].influence_curve,
+            rtol=0,
             atol=1e-12,
         )
 

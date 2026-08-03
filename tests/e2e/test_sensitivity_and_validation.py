@@ -294,7 +294,16 @@ class TestMissingnessTilt:
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
-        assert np.all(np.diff(values) > 0) or np.all(np.diff(values) < 0)
+        # The direction, not just that there is one.  `all(diff > 0) or all(diff < 0)`
+        # accepted either, so a flipped gamma passed it -- and CLAUDE.md's item 21 is a
+        # worked example of exactly that error surviving a sign-blind check.
+        #
+        # Which direction is read off the derivation rather than off a run.  The tilt is
+        # Q_miss = expit(logit(Q*) + gamma), mixed in at weight (1 - pi_a), and the module
+        # docstring states what positive gamma means: the unobserved outcomes were
+        # systematically *higher*.  So E[Y^1] increases with gamma, strictly, wherever
+        # any row is unobserved -- which the `missing_fit` fixture guarantees.
+        assert np.all(np.diff(values) > 0), values
 
     def test_the_tipping_point_is_reported_or_absent(self, missing_fit) -> None:
         tipping = missing_fit.sensitivity.tipping_gamma("ate")

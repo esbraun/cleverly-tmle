@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 import pytest
 from sklearn.dummy import DummyRegressor
@@ -540,7 +542,9 @@ class TestLibrary:
         sizes = [
             len(resolve_library(name, "regression")) for name in ("glm", "fast", "default", "rich")
         ]
-        assert sizes == sorted(sizes)
+        # Strictly, not `sizes == sorted(sizes)`: that is also true when all four presets
+        # resolve to the *same* library, which is the way this can actually break.
+        assert all(a < b for a, b in pairwise(sizes)), sizes
 
     def test_bare_estimators_get_names(self) -> None:
         library = resolve_library([LinearRegression(), DummyRegressor()], "regression")

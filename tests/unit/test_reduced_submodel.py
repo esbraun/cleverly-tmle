@@ -73,7 +73,7 @@ class TestTheOutcomeCovariate:
 
         for j, arm in enumerate(ARMS):
             expected = (treatment == arm) * reduced.gr2[:, j] / reduced.gr1[:, j]
-            np.testing.assert_allclose(submodel.observed[:, j], expected, atol=1e-14)
+            np.testing.assert_allclose(submodel.observed[:, j], expected, rtol=0, atol=1e-14)
 
     def test_the_counterfactual_columns_do_not(self) -> None:
         """The update is applied at the counterfactual covariate; the score is not.
@@ -88,7 +88,7 @@ class TestTheOutcomeCovariate:
 
         for j, arm in enumerate(ARMS):
             ratio = reduced.gr2[:, j] / reduced.gr1[:, j]
-            np.testing.assert_allclose(submodel.arms[arm][:, j], ratio, atol=1e-14)
+            np.testing.assert_allclose(submodel.arms[arm][:, j], ratio, rtol=0, atol=1e-14)
             other = 1 - j
             np.testing.assert_array_equal(submodel.arms[arm][:, other], np.zeros(law.N))
             assert not np.allclose(submodel.arms[arm][:, j], submodel.observed[:, j])
@@ -143,9 +143,11 @@ class TestTheMechanismCovariate:
         mechanism = WRONG_G[cell]
         covariate = reduced_mechanism_covariate(reduced, mechanism, bounds=INERT)
 
-        np.testing.assert_allclose(covariate[:, 1], reduced.qr[:, 1] / mechanism, atol=1e-14)
         np.testing.assert_allclose(
-            covariate[:, 0], -reduced.qr[:, 0] / (1.0 - mechanism), atol=1e-14
+            covariate[:, 1], reduced.qr[:, 1] / mechanism, rtol=0, atol=1e-14
+        )
+        np.testing.assert_allclose(
+            covariate[:, 0], -reduced.qr[:, 0] / (1.0 - mechanism), rtol=0, atol=1e-14
         )
 
     def test_the_signs_make_the_score_the_per_arm_equations(self) -> None:
@@ -169,7 +171,7 @@ class TestTheMechanismCovariate:
             arm_mechanism = mechanism if arm == 1.0 else 1.0 - mechanism
             indicator = (treatment == arm).astype(float)
             longhand = np.mean(reduced.qr[:, j] / arm_mechanism * (indicator - arm_mechanism))
-            np.testing.assert_allclose(score[j], longhand, atol=1e-14)
+            np.testing.assert_allclose(score[j], longhand, rtol=0, atol=1e-14)
 
         assert np.max(np.abs(score)) > 1e-3, "a zero score would make the check vacuous"
 
@@ -182,8 +184,10 @@ class TestTheMechanismCovariate:
         covariate = reduced_mechanism_covariate(reduced, mechanism, bounds=bounds)
 
         clipped = np.clip(mechanism, *bounds)
-        np.testing.assert_allclose(covariate[:, 1], reduced.qr[:, 1] / clipped, atol=1e-14)
-        np.testing.assert_allclose(covariate[:, 0], -reduced.qr[:, 0] / (1.0 - clipped), atol=1e-14)
+        np.testing.assert_allclose(covariate[:, 1], reduced.qr[:, 1] / clipped, rtol=0, atol=1e-14)
+        np.testing.assert_allclose(
+            covariate[:, 0], -reduced.qr[:, 0] / (1.0 - clipped), rtol=0, atol=1e-14
+        )
 
     def test_more_than_two_arms_is_refused_by_name(self) -> None:
         reduced = reduced_at(WRONG_G, WRONG_Q)

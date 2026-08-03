@@ -54,17 +54,17 @@ class TestTheCleverCovariate:
         #   a = 3 -> g(2)/g(3), plus 1 because 3 > 2 and the cap holds that row back
         shifts = _shifts(Shift(1.0, cap=3.0))
         expected = [0.0, G[0] / G[1], G[1] / G[2], G[2] / G[3] + 1.0]
-        np.testing.assert_allclose(shifts.ratio[:4, 0], expected, atol=1e-14)
+        np.testing.assert_allclose(shifts.ratio[:4, 0], expected, rtol=0, atol=1e-14)
 
     def test_the_natural_course_is_identically_one(self) -> None:
         # delta = 0 makes h = g(a)/g(a) = 1, so the influence curve collapses to Y - psi,
         # which is the influence curve of E[Y]. The estimand really is the mean outcome.
-        np.testing.assert_allclose(_shifts(Shift(0.0, cap=3.0)).ratio, 1.0, atol=1e-14)
+        np.testing.assert_allclose(_shifts(Shift(0.0, cap=3.0)).ratio, 1.0, rtol=0, atol=1e-14)
 
     def test_a_shift_nobody_can_take_is_identically_one(self) -> None:
         # Every row is capped back to its own dose, so the policy is the natural course
         # under another name and must report the same covariate.
-        np.testing.assert_allclose(_shifts(Shift(99.0, cap=3.0)).ratio, 1.0, atol=1e-14)
+        np.testing.assert_allclose(_shifts(Shift(99.0, cap=3.0)).ratio, 1.0, rtol=0, atol=1e-14)
 
     def test_a_tight_cap_removes_the_ratio_term_above_it(self) -> None:
         # The regression test for a bug the loose cap could not see. A unit can only have
@@ -76,7 +76,7 @@ class TestTheCleverCovariate:
         # g^d = (0, g0, g1 + g2, g3) and h = g^d / g:
         shifts = _shifts(Shift(1.0, cap=2.0))
         expected = [0.0, G[0] / G[1], (G[1] + G[2]) / G[2], 1.0]
-        np.testing.assert_allclose(shifts.ratio[:4, 0], expected, atol=1e-14)
+        np.testing.assert_allclose(shifts.ratio[:4, 0], expected, rtol=0, atol=1e-14)
 
     def test_an_uncapped_shift_drops_the_indicator(self) -> None:
         with warnings.catch_warnings():
@@ -85,7 +85,7 @@ class TestTheCleverCovariate:
         # Same ratio as the capped version everywhere except the top dose, where the
         # capped one adds 1 and this one does not.
         expected = [0.0, G[0] / G[1], G[1] / G[2], G[2] / G[3]]
-        np.testing.assert_allclose(uncapped.ratio[:4, 0], expected, atol=1e-14)
+        np.testing.assert_allclose(uncapped.ratio[:4, 0], expected, rtol=0, atol=1e-14)
 
     def test_a_row_with_no_estimated_density_contributes_nothing(self) -> None:
         # A zero denominator is a support failure, not a large weight. Reporting infinity

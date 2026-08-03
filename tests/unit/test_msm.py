@@ -349,7 +349,9 @@ class TestSolvingTheProjection:
         w = np.ones(n)
         q = rng.uniform(0.2, 0.8, size=(n, 3))
         fit = solve_projection(phi, h, q, w, "logit")
-        np.testing.assert_allclose(1.0 / (1.0 + np.exp(-fit.beta)), q.mean(axis=0), atol=1e-10)
+        np.testing.assert_allclose(
+            1.0 / (1.0 + np.exp(-fit.beta)), q.mean(axis=0), rtol=0, atol=1e-10
+        )
 
     def test_a_solve_that_cannot_converge_says_so_rather_than_raising(self) -> None:
         """One Newton step is not enough here, and the answer comes back labelled."""
