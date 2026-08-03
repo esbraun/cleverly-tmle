@@ -314,18 +314,3 @@ def tilted_nuisances(weights: Any) -> tuple[np.ndarray, np.ndarray]:
     tilted = np.asarray(tilt(PROBS, weights), dtype=float)
     joint = tilted[:, :, 0] + tilted[:, :, 1]
     return joint / joint.sum(axis=1, keepdims=True), tilted[:, :, 1] / joint
-
-
-class DiscreteShiftLaw:
-    """The law, duck-typed as a data-generating process for the oracle learners."""
-
-    def outcome_mean(self, covariates: np.ndarray, dose: np.ndarray) -> np.ndarray:
-        """``Qbar(a, w)`` at a dose per row."""
-        w = np.asarray(covariates, dtype=float).reshape(-1).astype(int)
-        a = np.rint(np.asarray(dose, dtype=float).reshape(-1)).astype(int)
-        return np.asarray(Q[w, a], dtype=float)
-
-    def bin_probabilities(self, covariates: np.ndarray) -> np.ndarray:
-        """``g(. | w)`` as the ``(n, 4)`` matrix a ``ConditionalDensity`` carries."""
-        w = np.asarray(covariates, dtype=float).reshape(-1).astype(int)
-        return np.asarray(G[w], dtype=float)

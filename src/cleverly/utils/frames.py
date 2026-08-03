@@ -16,7 +16,6 @@ import numpy as np
 from .._typing import Backend, FloatArray
 
 __all__ = [
-    "DEFAULT_BACKEND",
     "as_frame",
     "available_backends",
     "column_array",
@@ -47,9 +46,6 @@ def _default_backend() -> str:
             "no dataframe backend found; install cleverly[pandas] or cleverly[polars]"
         )
     return backends[0]
-
-
-DEFAULT_BACKEND = "pandas"
 
 
 def resolve_backend(backend: Backend | str | None) -> str:

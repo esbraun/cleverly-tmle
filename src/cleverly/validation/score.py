@@ -172,15 +172,6 @@ class ScoreCheck:
         """
         return tuple(row for row in self.failures if row.kind == "identity")
 
-    @property
-    def passed_apart_from_identities(self) -> bool:
-        """Whether every failure here is a state identity rather than an unsolved equation.
-
-        Not a softer :attr:`passed` -- a fit in this state is still not one to report from.
-        It is what lets a verdict name one cause where there is one cause.
-        """
-        return all(row.kind == "identity" for row in self.failures)
-
     def __bool__(self) -> bool:
         return self.passed
 

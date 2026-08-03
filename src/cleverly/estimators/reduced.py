@@ -270,7 +270,7 @@ def fit_reduced(
     score equation removes.
     """
     if reduction != "univariate":
-        refuse_unsupported("bivariate" if reduction == "bivariate" else reduction)
+        refuse_unsupported(reduction)
     if data.is_continuous_treatment:
         refuse_unsupported("continuous")
     if data.n_arms != 2:

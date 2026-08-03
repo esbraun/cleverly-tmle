@@ -17,7 +17,6 @@ import numpy as np
 
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
-from ..exceptions import CleverlyError
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
 from ..inference.cluster import influence_covariance
@@ -1015,7 +1014,3 @@ def attach_bootstrap(result: TMLEResult, bootstrap: BootstrapResult) -> TMLEResu
         for name, estimate in result.estimates.items()
     }
     return replace(result, estimates=estimates, bootstrap=bootstrap)
-
-
-class EstimationError(CleverlyError):
-    """Raised when a fit cannot proceed for a statistical (not user-input) reason."""
