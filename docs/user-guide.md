@@ -1070,13 +1070,16 @@ negligible order, so a fit's own answer to that question is on the face of its r
 `summary()` ends with the score check whenever the check fails, and `res.score_verdict`
 carries the verdict — the same object `res.validation.score_check()` returns — whether it
 passed or not. A passing fit says nothing extra. This matters here more than anywhere else in
-the package: under weak overlap the check fails on 23 of 24 swept fits, and every one of them
-returns a `psi`, an `se` and a confidence interval formatted like any other.
+the package, because such a fit returns a `psi`, an `se` and a confidence interval formatted like
+any other. The one measured rate of failure — 23 of 24 fits on `weak_overlap_dgp` — predates a
+fix to the targeting convention that accounts for it, and the sweep has not been rerun, so treat
+that number as history rather than as the rate you should expect.
 
 The check goes further on a doubly-robust fit than on any other, because there is more that can
 be wrong: it recomputes each arm's corrections from the state the fit returned and compares them
 with the scores the targeting step recorded, so a curve built from an expression the fit did not
-solve is reported as such rather than inferred from an uncentred estimand. See the table below.
+solve is reported as such rather than inferred from an uncentred estimand. That check is what
+caught the convention above, on a fit whose three fluctuation rows all read `1e-11`.
 
 TMLE is **doubly robust for consistency and singly robust for inference**. The estimate stays
 consistent if either nuisance is right, because the remainder is a *product* of the two

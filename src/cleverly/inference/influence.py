@@ -575,14 +575,21 @@ class CorrectionParts:
             P_n[w\,D^*_g] - S_g^{\text{stored}} = P_n[w\,B_{clip}]
 
         Zero on every row the bound leaves alone, so its mean is zero whenever nothing
-        clips.  It is a diagnostic and not a
-        correction: nothing subtracts it, and under whatever convention
-        ``docs/roadmap.md``'s piece B1b selects it goes on measuring how much of equation
-        (9) the bound is absorbing.
+        clips.  It is a diagnostic and not a correction: nothing subtracts it.
+
+        **It is now zero on every fit**, and that is the fix rather than a broken column.
+        ``docs/roadmap.md``'s piece B1b put
+        :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` at the ``DRTMLE``
+        call sites, so the mechanism the alternation carries forward is already truncated
+        and there is no second array left for this to measure the distance to.  What still
+        varies between draws, and what a fixture is chosen on, is
+        :attr:`~cleverly.validation.drtmle.CorrectionRow.margin`.
     clipped:
-        Which rows the mechanism truncation binds on.  On record because "the identity
-        holds" is uninformative on a draw where the bound never bites -- the degeneracy
-        that hid this for two revisions.
+        Which rows the mechanism truncation binds on.  Empty on every fit since B1b, for the
+        same reason: a converged bounded tilt lies inside the bounds.  On record because
+        "the identity holds" was uninformative on a draw where the bound never bit -- the
+        degeneracy that hid item 20 for two revisions -- and because zero here is now the
+        assertion that the convention is the one that landed.
     guard:
         Which equations the fit solved, and so which of the two terms :meth:`total` puts in
         the curve.  **Both arrays are built whatever it says**, because the term a fit does

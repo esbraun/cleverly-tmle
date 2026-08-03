@@ -3,9 +3,9 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
 .. warning::
 
    **This variant is in progress.**  The code is written and its tests pass; that is not the
-   same as finished, and two of the outstanding items are the kind that decide whether the
-   thing is right at all.  The full list, with what each would change, is in
-   ``docs/roadmap.md`` under *What is still open*.  The four a caller's numbers depend on:
+   same as finished, and what is left is a demonstration rather than a defect.  The full
+   list, with what each would change, is in ``docs/roadmap.md`` under *What is still open*.
+   The four a caller's numbers depend on, of which the first and the last are now closed:
 
    1. **The influence curve was transcribed rather than derived, and it has now been checked
       against Theorem 1 and agrees.**  The curve is the whole of what this variant buys and
@@ -36,29 +36,31 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       to say "read ``res.validation.score_check()`` on every fit rather than assuming",
       which was documentation standing in for reporting -- an unlicensed interval was
       formatted exactly like a licensed one and the reader had to know to go looking.
-   4. **The reported curve is not centred wherever the mechanism truncation binds.**  On
-      ``weak_overlap_dgp`` the score check fails on 23 of 24 swept fits, with the worst
-      score at rough parity with ``se/sqrt(n)`` rather than the ``1e-7`` every other process
-      reports -- and on roughly a quarter of *ordinary* splits it fails by ``2e-5`` to
-      ``7e-4``.  The cause is one defect and it is located: equation (9) is solved against
-      the raw tilted :math:`g^*` while the :math:`D^*_g` the curve subtracts reads the
-      truncated one, so the two agree on every row the bound leaves alone and part company
-      on every row it clips.  A single clipped row of 600 is enough.  It is not the
-      conditioning of item 3 -- ``ill_conditioned`` never fires on that process -- and it is
-      *not* a stale array: recomputing the recorded score from the returned state reproduces
-      it bit for bit.
+   4. **The reported curve was not centred wherever the mechanism truncation binds, and it
+      is now.**  Equation (9) used to be solved against the raw tilted :math:`g^*` while the
+      :math:`D^*_g` the curve subtracts reads the truncated one, so the two agreed on every
+      row the bound left alone and parted company on every row it clipped -- a single
+      clipped row of 600 was enough to leave the curve uncentred at ``5.8e-04`` while the
+      solver recorded ``1e-09``.  On ``weak_overlap_dgp`` the score check failed on 23 of 24
+      swept fits and on roughly a quarter of *ordinary* splits, at ``2e-5`` to ``7e-4``.  It
+      was never the conditioning of item 3 and never a stale array: recomputing the recorded
+      score from the returned state reproduced it bit for bit.
 
-      **A fit in this state now says so, per arm and by name.**
-      :func:`~cleverly.validation.drtmle.correction_check` recomputes each arm's
-      :math:`P_n[w D^*_g]` and :math:`P_n[w D^*_Q]` from the exact returned state, reports
-      the identity residuals against the scores the targeting step recorded and the exact
-      clipping bias :math:`B_{clip}` that explains them, and ``score_check`` marks such a
-      fit invalid in words that name a defect rather than a convergence failure.  That is
-      ``docs/roadmap.md``'s piece B1a, and it is an instrument and not a remedy: read a
-      ``DRTMLE`` standard error as provisional wherever ``res.score_verdict`` says so.
-      Which convention replaces the current one is piece B1b's, and it waits on no document:
-      the theorem's own algorithm truncates nothing at all, so there is no convention there
-      to match and the choice is a finite-sample rendering against a stated bar.
+      **What closed it** is piece B1b:
+      :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` solves the score at the
+      *truncated* tilt, which is the expression the curve carries, and the alternation now
+      carries that truncated array forward.  Measured on the four fixtures the defect was
+      characterised on -- including ``weak_overlap`` at a forced ``g_bounds=(0.15, 0.85)``,
+      where 375 rows clipped -- every state identity holds at ``1e-17`` or better and every
+      final correction score is ``1e-10`` against a bar near ``5e-06``.  A fit whose bound
+      never binds is bit for bit what it was.
+
+      **The instrument that found it stays**, and is why the fix is checkable rather than
+      asserted: :func:`~cleverly.validation.drtmle.correction_check` recomputes each arm's
+      :math:`P_n[w D^*_g]` and :math:`P_n[w D^*_Q]` from the exact returned state and reports
+      the residual against the score the targeting step recorded, per arm and per equation,
+      on every doubly-robust fit.  That is piece B1a, and no threshold in it was loosened to
+      make these rows pass.
 
 Every interval this package reports is valid when the second-order remainder is negligible,
 and for a plain TMLE that remainder is the product

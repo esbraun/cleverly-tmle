@@ -6,6 +6,13 @@ What has landed, what is open, and why native acceleration is not worth building
 tested and not finished. [What is still open](#what-is-still-open) is the list, grouped into
 pieces of work, each of which is a pull request rather than an errand.
 
+**No known defect is live.** The last one — the reported curve was not centred wherever the
+mechanism truncation bound — closed with
+[B1b](#b1b--the-theorem-conforming-targeting-decision), and what is left is a sweep, a
+demonstration, a cross-fitting construction and a widening of scope. That is a different kind of
+list from the one this page opened with, and it does not lower the bar: *done* still means a
+demonstration that the interval attains nominal coverage where a plain `TMLE`'s does not.
+
 That grouping and its order are a revision, three times over. An [external
 review](drtmle-review.md) of this page and the code behind it read the plan against Theorem 1 of
 Benkeser et al. (2017) and found the definition of done right and the route to it short by two
@@ -117,17 +124,19 @@ registry.
     defect and it is not confined to poor overlap. [The investigation
     log](drtmle-investigation-log.md#item-20-from-discovery-to-cause) carries the measurements.
 
-  So **until [B1b](#b1b--the-theorem-conforming-targeting-decision) lands a convention, a
-  `DRTMLE` standard error should be read as provisional wherever `res.score_verdict` says so.**
-  B1b is no longer a decision to take: a fitted prototype has eliminated two of its four candidates
-  by construction and separated the other two by measurement, and what is left is [what to
-  build](#what-the-prototype-settled-and-what-is-left-to-build).
-  The live defect is now caught *by name*: [B1a](#b1a--the-identity-and-safety-patch) has landed,
-  so `res.validation.correction_check()` recomputes each arm's `Pn[w D*_g]` and `Pn[w D*_Q]` from
-  the exact returned state, reports the residual against the score the loop recorded and the
-  `B_clip` that explains it, and `score_check` marks such a fit invalid in words that say
-  *defect* rather than *did not converge*. Before it, the only witness was the influence-curve
-  rows being uncentred, which was how it was found at all. Item 21 was caught by nothing here and
+  **[B1b](#b1b--the-theorem-conforming-targeting-decision) has landed and closed it.**
+  `solve_bounded_mechanism` solves equation (9)'s score at the truncated tilt — the expression the
+  curve carries — and the alternation carries that truncated array forward, so the two are one
+  expression at one state. Measured on all four fixtures the defect was characterised on,
+  including `weak_overlap` at a forced `g_bounds=(0.15, 0.85)` where 375 rows clipped: every
+  identity at `1e-17` or better, every final score `1e-10` against a bar near `5e-06`, every score
+  check passing. A fit whose bound never binds is bit for bit what it was.
+  It was caught *by name* first, which is why the fix is checkable rather than asserted:
+  [B1a](#b1a--the-identity-and-safety-patch) made `res.validation.correction_check()` recompute
+  each arm's `Pn[w D*_g]` and `Pn[w D*_Q]` from the exact returned state and report the residual
+  against the score the loop recorded, and no threshold in it was loosened to make those rows
+  pass. Before it, the only witness was the influence-curve rows being uncentred, which was how it
+  was found at all. Item 21 was caught by nothing here and
   could not have been — it took the source, and the source only settled it because its
   appendices could be checked against arithmetic this repository already had.
 
@@ -189,9 +198,14 @@ while another fails:
    truncation applied to one of them on the way into two different expressions. "Built from the
    same state" is necessary and it is not sufficient; the checkable form of this link is an
    **identity between each recorded score and a recomputation of the term the curve carries**,
-   which is [piece B1a](#b1a--the-identity-and-safety-patch) and **has landed**. The link is
-   still broken — the identity fails wherever the bound binds, which is what B1b decides — but it
-   is now measured per arm on the face of every fit rather than inferred from an uncentred curve.
+   which is [piece B1a](#b1a--the-identity-and-safety-patch). **This link is now closed apart
+   from item 12's second half.** B1a made the identity a reported number per arm on the face of
+   every fit rather than something inferred from an uncentred curve, and
+   [B1b](#b1b--the-theorem-conforming-targeting-decision) made it hold: the score is solved at the
+   truncated tilt the curve reads, and items 11 and 20 close together because they were always one
+   failure. What the instrument bought is that the closure is a *measurement* — the same rows, the
+   same `1e-12` bar, verdicts the other way up — rather than an argument that the new expression
+   must be right.
 4. **Inferential usefulness** — coverage in a regime where the plain interval fails. Item 3.
 
 The first review's summary of this is exactly right and worth keeping in its words: none of the
@@ -247,8 +261,8 @@ be confused.
 
 ### The work, in four pieces and seven pull requests
 
-A and B are each split into halves, so the four pieces are seven pull requests: **B1a** and
-**A1a** have landed, and **A1b**, **B1b**, **B2**, **C** and **D** are open. Small items are
+A and B are each split into halves, so the four pieces are seven pull requests: **B1a**, **A1a**
+and **B1b** have landed, and **A1b**, **B2**, **C** and **D** are open. Small items are
 grouped where the *evidence* is shared — piece B2 is five items because one dispatch of the same
 sweep answers all of them — not where the subject matter merely rhymes; and the two splits are
 that same rule applied to a piece rather than to an item.
@@ -258,7 +272,7 @@ that same rule applied to a piece rather than to an item.
 | **B1a** — *landed* | the score/correction identities, the clipping diagnostic, and invalidation when either fails | `cleverly/validation/drtmle.py`; `res.validation.correction_check()`; `identity` and `correction` rows on `score_check`; tests in `tests/unit/test_drtmle_fit.py` and `test_influence_drtmle.py` |
 | **A1a** — *landed* | items 1 and 21, and item 22's theoretical half: the theorem read, mapped, graded, the sign adjudicated, every object pinned to the test that derives it, and the decomposition pinned against a perturbation of the law. Item 22's *numerical* half — both orders on real data — went to B2, whose dispatch it shares | `tests/unit/test_influence_gateaux_drtmle.py`; `TestTheReportedVarianceIsTheorem1s`; closes out [`docs/drtmle-theorem-concordance.md`](drtmle-theorem-concordance.md) — its object table's `evidence` column, its assumption matrix, and §7's finding for B1b |
 | **A1b** | item 15: a construction satisfying the empirical-process conditions, and whether fold reuse is one | a proof for the pooled construction, or a nested reference estimator to measure it against; [the concordance's §8](drtmle-theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) |
-| **B1b** | items 11 and 20: the targeting convention, chosen on theorem fidelity — **planned against a fitted prototype**, which eliminated two candidates by construction and separated the other two by measurement | a bounded mechanism solve at the `DRTMLE` call sites, the bounded array carried forward, a named failure where no constrained root exists; the variant comparison table; a replacement for B1a's clipped-row fixture witness |
+| **B1b** — *landed* | items 11 and 20: the targeting convention, chosen on theorem fidelity against a fitted prototype that eliminated two candidates by construction and separated the other two by measurement | `solve_bounded_mechanism`, called from the two `DRTMLE` sites, with the truncated array carried forward and `"bounds_pinned"` where no constrained root exists; `tests/unit/test_bounded_mechanism.py`; `CorrectionRow.margin` in place of B1a's now-vacuous clipped-row witness |
 | **B2** | items 12, 19 and item 22's numerical half, re-measures 4 and 6, decides the overlap policy | columns on `benchmarks/bench_drtmle.py`, the paper's update order run beside this one, a dispatch of `drtmle-convergence.yml` |
 | **C** | items 3 and 13: the demonstration | `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, `docs/drtmle-coverage-study.md`, per-replicate results |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
@@ -275,14 +289,17 @@ rhymes* — applied to a piece rather than to an item.
 **The dependency order is the plan, and it is not the reading order below.**
 
 ```text
-B1a  identity + safety patch ─────────────────────┐
+B1a  identity + safety patch ─────────────────────┐   landed
                                                   ├─> B2  sweep ──> C  demonstration
-A1a theorem concordance ──> B1b  targeting  ──────┘
+A1a theorem concordance ──> B1b  targeting  ──────┘   all three landed
                                  convention
 
 A1b cross-fitting construction   blocks nothing; gate 1 requires it
 D   independent of all of it, and gated on A1a alone
 ```
+
+**Everything upstream of B2 has landed**, so what is left of the graph is B2, then C, with A1b and
+D outside it.
 
 **B1a first**, because every number B2 and C produce is read *through* the reported curve, and
 until it lands a share of every cell's fits report a curve the fit did not solve for. It is also
@@ -621,9 +638,14 @@ solver.
 
 ##### B1b — the theorem-conforming targeting decision
 
-*Closes items 11 and 20.*
+*Closes items 11 and 20.* **Landed.** `cleverly.fluctuation.mechanism.solve_bounded_mechanism`
+solves equation (9)'s score at the **truncated** tilt — the expression the reported curve
+carries — and the alternation carries that truncated array forward, so the stored score and the
+term the curve subtracts are one evaluation of one expression at the returned state. [What it
+shipped](#what-b1b-landed) is at the end of this section; the reasoning it was chosen on is
+below, and none of it changed on contact with the implementation.
 
-The current defect can be removed under **more than one** targeting design, and an earlier
+The defect could be removed under **more than one** targeting design, and an earlier
 revision of this page said there were exactly two. There are at least four, and the difference
 matters because matching `drtmle`'s convention would make the recorded score and the reported
 correction refer to one expression and would **not** make hard clipping after a logistic
@@ -648,9 +670,9 @@ regression surface: **the change belongs at the `DRTMLE` call sites, not in that
 if a bounded convention is adopted, [limitation 6](#limitations-recorded-rather-than-fixed) gets
 *worse* rather than better, since a truncated residual is not the canonical logistic score.
 
-###### What the prototype settled, and what is left to build
+###### What the prototype settled, and it is what the implementation followed
 
-**The piece is now sized against a fitted prototype rather than against the candidate table**, and
+**The piece was sized against a fitted prototype rather than against the candidate table**, and
 the first thing that run settled is that the table's axis is not the discriminating one. Two hooks
 on `targeting`'s module namespace, nothing in the library moved, three draws and a forced bound,
 three conventions; the numbers are in [the investigation
@@ -685,7 +707,7 @@ this section.
   stored scores agree with today's fit to every digit printed — expected rather than lucky, since
   with the clip slack on every row D's equation *is* the logistic score.
 
-**So the recommendation is D, and what is left to adjudicate is which D.** [The concordance's
+**So the choice is D, and the remaining question was which D.** [The concordance's
 §7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm) had already said
 this without the numbers: if a finite bound is required in practice it wants *a bounded submodel
 or a constrained estimating equation whose final score is the theorem-defined score* — **not a
@@ -694,74 +716,104 @@ that the difference is `6.8e-06` against `2.1e-10` rather than a matter of princ
 also says a **smooth** bounded submodel is likely preferable to hard clipping, and the prototype
 ran the hard one:
 
-- **D-hard**, measured: `clip` inside the estimating equation, solved by damped Newton on a
-  piecewise-smooth `F`. The final score is exactly the declared estimator's, and the
-  non-smoothness lands on the *solver* rather than on the score's validity — but a root can fail
-  to exist, and rows pinned at the bound contribute nothing to the Jacobian.
-- **D-smooth**, unmeasured: fluctuate inside the bounds — `g_ε = lo + (hi − lo)·expit(logit((ĝ −
-  lo)/(hi − lo)) + εH_g)` — so the mechanism cannot leave them and no projection is applied at
-  all. `F` is then smooth, a root exists under mild conditions, and criterion 4 is easier to
-  argue. Against it: it is a different submodel and therefore a different declared estimator, its
-  limit is a mechanism that approaches the bound rather than one pinned at it, and nothing here
-  has fitted one.
+- **D-hard**, which is what landed: `clip` inside the estimating equation. The final score is
+  exactly the declared estimator's and the non-smoothness lands on the *solver* rather than on the
+  score's validity — but a root can fail to exist, and rows pinned at the bound contribute nothing
+  to the Jacobian, which is why the failure path is named rather than inferred.
+- **D-smooth**, and it was measured before being rejected: fluctuate inside the bounds — `g_ε =
+  lo + (hi − lo)·expit(logit((ĝ − lo)/(hi − lo)) + εH_g)` — so the mechanism cannot leave them and
+  no projection is applied at all. `F` is then smooth and criterion 4 is easier to argue. It
+  **loses twice**, and the first of the two is the decisive one: it is a *different submodel on
+  every fit*, not only on the clipping ones, so at inert bounds of `1e-6` it moved the no-clip
+  fixture's `psi` by `2.7e-03` standard errors where D-hard moves it by zero — which would break
+  `tests/unit/test_influence_gateaux_drtmle.py`'s `1e-12` window on the module whose whole point
+  is that tolerance. And where the bound does bind it left the final score at `1.5e-07` against
+  D-hard's `2.1e-10`, because its derivative `(hi − lo)·u(1 − u)` collapses near the bounds.
 
-**Measure D-smooth against D-hard on the same three fixtures before choosing**, on criteria 2 and
-4 — that is the one comparison this plan leaves open, and it is a day's work rather than a study.
-Everything below is the same either way; only the definition of `F` changes.
+**The comparison this section promised was run before anything was written**, on the three
+fixtures below plus the forced bound, and the [investigation
+log](drtmle-investigation-log.md#what-the-b1b-prototype-measured) has both tables. §7's preference
+for a smooth submodel is an argument *against a projection applied after an unconstrained
+optimisation*, which is candidate A; D-hard puts the clip inside the equation, so the stated
+reason does not reach it.
 
-What to build, in the order it has to happen:
+###### What B1b landed
 
-1. a bounded mechanism solve at the `DRTMLE` call sites — solve
-   `F(ε) = Pn[ w H_g · (1_a − g_ε) ] = 0` by damped Newton, at whichever bounded `g_ε` the
-   comparison above selects; under D-hard the pinned rows contribute zero to the Jacobian because
-   the clip is flat there. `solve_mechanism` itself does not move;
-2. the bounded array carried forward, in both the alternation and the closing pass, so that later
-   outcome targeting, the reduction refits and the final regression all read one mechanism;
-3. **a root need not exist**, and the acceptance criterion is that this is never silent: under
-   D-hard, with every row pinned the Jacobian is singular and no `ε` solves `F`. It gets a
-   `TargetingFailure` of its own name, which `score_check` already surfaces, rather than the last
-   iterate returned as though it were a solution. Under D-smooth this is rarer and is not
-   impossible, so the failure path is written either way;
-4. the identity tests, on a fixture where the bound binds *during the iteration* — and see the
-   condition below, because the fixture selector this repository has does not survive the change;
-5. `tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred` **rewritten rather than
-   deleted**, as [B1a](#b1a--the-identity-and-safety-patch) already says: it pins the defect's
-   numbers today, and afterwards its draw is the regression test that the *initial* mechanism
-   still leaves the bounds on that draw and the identity holds anyway.
+`cleverly.fluctuation.mechanism.solve_bounded_mechanism`, called from the two `DRTMLE` sites in
+`solve_with_reduction` and `_close_at_frozen_reductions`. `solve_mechanism` itself does not move —
+it is `ipsi`'s, and that is a regression surface.
 
-The mutations each test is watched to fail against are the two the prototype already ran: **carry
-the raw array forward** — the identity goes red on both clipping fixtures — and **substitute A's
-solve for D's**, which moves the weak-overlap-at-`0.15` final score from `1e-10` to `6.8e-06`,
-above the inferential bar at the worst arm. A test that cannot tell A from D is testing the
-carried array and not the convention, and should say so in its own name.
+Four things in it are decisions rather than transcription:
 
-**Two things this does not close, and neither should be claimed for it.**
+- **The unconstrained solve runs first and is returned untouched when nothing clips.** Not an
+  optimisation: where the clip is slack on every row it is the identity, so the unconstrained root
+  *is* the bounded root, and a draw whose bound never binds comes back bit for bit — down to
+  `hessian_condition` and `loglik`. That is what makes every module fitting at inert bounds a
+  surface **by construction** rather than by measurement. The case that makes it load-bearing
+  rather than a shortcut is a plain solve that *failed*: without it the bounded branch would go
+  looking for the root with a different solver and find it, which is a better answer to a
+  different question, and `tests/unit/test_bounded_mechanism.py` pins exactly that.
+- **The root finder is `scipy.optimize.root`'s `hybr` and the *verdict* is this package's.** `F`
+  is only piecewise smooth, so a step taken with one active set can land in another; a hand-rolled
+  damped Newton stalled at `1.9e-04` on a fixture where a root exists at `1e-17`. The solver
+  proposes an iterate and the score decides whether it is a solution, so there is one definition
+  of converged here rather than two — which is the reason `mechanism.py` gives for sharing
+  `_newton_logistic`, applied where it still can be.
+- **A root need not exist, and that is never silent.** Pin every row and the clip is flat
+  everywhere, so no `ε` moves `F` at all. Such a fit reports `failure = "bounds_pinned"`, which is
+  an existing `TargetingFailure` whose wording already says exactly this, and `score_check`
+  surfaces it. The trap the tests pin is the *near* case: at a bound one notch tighter than the
+  fixture's the score is a small `1e-05` and there is still no root, so a threshold on the score
+  alone would call it converged.
+- **The carried array is the truncated one**, in the alternation and the closing pass, so every
+  later step — the reduction refits, equation (8)'s covariate, the final regression and
+  `correction_parts` — reads one mechanism. This is the half the prototype found to be
+  load-bearing, and reverting it alone puts the identity back at `1.6e-06`.
+
+**Measured on the four fixtures the defect was characterised on**, against a threshold of
+`4e-06` to `6e-06`: every state identity holds at `1e-17` or better, every final correction score
+is `1e-09` to `1e-10`, and all four pass their score check — including `weak_overlap` seed 0 at
+both the `auto` bound and a forced `g_bounds=(0.15, 0.85)`, where 167 and 375 rows clipped. `psi`
+moves by `0` on the no-clip fixture, `0.003·se` on the one-clipped-row draw, `0.06·se` on
+`weak_overlap` at `auto` and `0.69·se` at the forced bound — the last two being exactly the case
+the acceptance criterion below describes, a different mechanism carried into every later step.
+
+**Two things it does not close, and neither is claimed for it.**
 [Limitation 5](#limitations-recorded-rather-than-fixed) — equation (9)'s covariate reads the very
-mechanism it tilts, so one solve leaves a residual at the post-tilt covariate — is untouched: the
-prototype's final scores sit at the same `1e-09` to `1e-10` as today's, because the outer loop is
-still what makes the direction self-consistent. And
-[limitation 6](#limitations-recorded-rather-than-fixed) is priced above as getting *worse* under a
-bounded convention; the prototype neither confirms nor refutes that, since it did not instrument
-the closing pass's cap. Both belong in [B2](#b2--the-sweep-on-the-corrected-implementation)'s
-re-measurement rather than in this piece's claims.
+mechanism it tilts, so one solve leaves a residual at the post-tilt covariate — is untouched, and
+measured to be: the final scores sit at the same `1e-09` to `1e-10` they did before, because the
+outer loop is still what makes the direction self-consistent.
+[Limitation 6](#limitations-recorded-rather-than-fixed) was priced above as getting *worse* under
+a bounded convention. It does not, on these four: the closing pass's mechanism stage binds on its
+cap on all of them, exactly as it bound on 94 of 96 before. Four fits are not 96 and
+[B2](#b2--the-sweep-on-the-corrected-implementation) re-measures, but the prediction is
+unconfirmed and should stop being repeated as though it were a finding.
 
-**One of B1a's five conditions has to be replaced, and this is the only place that will notice.**
-Its fifth is that an identity be checked *on a fixture where the bound binds*, witnessed by
-`CorrectionRow.clipped`. Under any convention that carries the bounded array forward that witness
-goes **vacuous**: `clipped` is 0 at the exit on every draw measured, including the one where 375
-rows clip today. So a test selecting its fixture on `clipped > 0` selects the empty set after this
-piece lands, and one asserting `clipped > 0` asserts something that can no longer happen — which
-is [stop-ship 14](#stop-ship)'s shape, a check agreeing where it could not have disagreed, in a
-second place. The replacement witness is the clipped share of the **initial** mechanism: a
-property of the draw rather than of the convention, and therefore still true after the fix.
+**One of B1a's five conditions had to be replaced, and this is the only place that noticed.** Its
+fifth is that an identity be checked *on a fixture where the bound binds*, witnessed by
+`CorrectionRow.clipped`. That witness is now **vacuous**: a converged bounded tilt lies inside the
+bounds, so `clipped` is 0 on every fit, including the draws where 5 and 375 rows clipped before. A
+test selecting its fixture on `clipped > 0` would select the empty set, which is
+[stop-ship 14](#stop-ship)'s shape — a check agreeing where it could not have disagreed — in a
+second place.
+
+**The replacement is not the one this page proposed, and the correction is worth keeping.** The
+plan said the witness should be the *initial* mechanism's clipped share, on the reasoning that it
+is a property of the draw. It is a property of the draw and it is **zero on the draw item 20 was
+found on**: nothing about that fit's initial mechanism leaves the bounds, and what clipped was the
+*tilt*. The witness that works is `CorrectionRow.margin`, how close the targeted mechanism comes
+to either bound as a fraction of the interval — `1.2e-06` on that draw against `0.14` on its
+sibling, because a constrained root sits *against* the boundary of the feasible set. It is not a
+proof that the constraint was active, and nothing derivable from the returned arrays is, since the
+trajectory is not on the record; what it is is a property that separates the two draws by five
+orders and that the fix cannot manufacture.
 
 **And it moves what [B2](#b2--the-sweep-on-the-corrected-implementation) should expect.** The
-`weak_overlap` seed-0 draw fails its score check today with a verdict saying the standard errors
-do not describe the estimate; under both candidates it comes back passing, with its worst final
-score at `5.6e-07` under A and `6.6e-10` under D against a threshold near `6e-06`. One draw is not
-the 24 that motivated a weak-overlap refusal and B2 re-measures all of
-them — but the standing instruction not to predeclare that refusal now has a measurement behind it
-rather than only a caution.
+`weak_overlap` seed-0 draw used to fail its score check with a verdict saying the standard errors
+do not describe the estimate, and now passes with its worst final score at `6.6e-10`. One draw is
+not the 24 that motivated a weak-overlap refusal and B2 re-measures all of them — but the standing
+instruction not to predeclare that refusal now has a measurement behind it rather than only a
+caution.
 
 Two acceptance criteria were stated wrongly in the previous revision and are corrected in the
 validation plan; both corrections came from the third review and both are right.
@@ -857,8 +909,11 @@ estimating-equation iteration with empirical convergence diagnostics, keep the m
 for what it does buy (termination, and the reason not to restart from `Q̄⁰`), and drop the
 implication that stalling is a numerical disappointment rather than the expected exit.
 
-**20. The reported curve is not centred wherever the mechanism truncation binds, and the
-fluctuation rows say it is.** Found by checking item 18 and not by looking for it. Over 24 draws —
+**20. The reported curve was not centred wherever the mechanism truncation binds, and the
+fluctuation rows said it was — [closed](#closed-since-this-list-opened) by B1b.** Kept here in
+full, because the whole of this section's diagnosis is what B1b was chosen against and a closed
+item that deletes its own evidence is one the next reader has to rediscover. Found by checking
+item 18 and not by looking for it. Over 24 draws —
 twelve `repeats=2` fits on `nonlinear_dgp` at `n=600` with `glm` on both nuisances, `n_folds=5`,
 `learner_folds=3` — **six** leave `Pn[D*_Q + D*_g]` above `1e-8`, at magnitudes from `2e-05` to
 `7e-04` on the scaled outcome, every one exiting on `"tolerance"` with no failure recorded and no
@@ -882,14 +937,22 @@ with the record, which is what pointed at the expression rather than at the stat
 lesson is [lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong); the specific one is
 part of why that piece is now [retired](#closed-since-this-list-opened).
 
-`score_check` **does** catch it, on the *influence-curve* rows, which are computed from the curve
-rather than from what the solver recorded — so a fit in this state now says so on its own report
+`score_check` **did** catch it, on the *influence-curve* rows, which are computed from the curve
+rather than from what the solver recorded — so a fit in this state said so on its own report
 rather than printing an interval like any other. That is item 16 arriving on the first case nobody
-constructed for it, and it is the only reason this was seen. Since
-[B1a](#b1a--the-identity-and-safety-patch) it is caught *as itself* as well: per arm, per
+constructed for it, and it is the only reason this was seen. From
+[B1a](#b1a--the-identity-and-safety-patch) it was caught *as itself* as well: per arm, per
 equation, against the score the loop stored, with `B_clip` reproducing the discrepancy to floating
-point and the verdict saying **defect** rather than **did not converge**. The item is still open —
-being measured is not being fixed, and which convention replaces the current one is B1b's.
+point and the verdict saying **defect** rather than **did not converge**.
+
+**[B1b](#b1b--the-theorem-conforming-targeting-decision) closed it**, and items 11 and 20 close
+together because they were always one failure — the loud version under weak overlap and the quiet
+one on a quarter of ordinary splits. Equation (9) is now solved at the truncated tilt the curve
+reads, and the alternation carries that array forward. What makes the closure a measurement rather
+than an argument is that B1a's rows are unchanged: the same `1e-12` bar, the same per-arm
+recomputation, the verdicts the other way up. The three fixtures this section's numbers came from
+report identities at `1e-17` or better and final scores at `1e-10`, and so does a
+`weak_overlap` fit at a forced `g_bounds=(0.15, 0.85)` where 375 rows clipped.
 
 Item **23**, found by the same instrument on the same run, was in this section and is
 [closed](#closed-since-this-list-opened).
@@ -1051,7 +1114,8 @@ behind **A1a** — the reading — rather than beside it.
   `requires_binary_treatment` and has never needed one.
 
 **The order to work in**, revised again, and it follows from what blocks what rather than from
-effort. Piece **0** was first and has landed, and so now has **B1a**; what is left is:
+effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a** and **B1b**; what is
+left is:
 
 1. ~~**B1a**~~ — landed. It was first because it is the only piece that changes a number every
    other piece reads, because it is valid under every convention A1a might select, and
@@ -1063,16 +1127,12 @@ effort. Piece **0** was first and has landed, and so now has **B1a**; what is le
    §7's finding for B1b, and the decomposition test the `test_influence_gateaux*` modules could
    not supply. None of it needed a document that is not in hand and none of it needed another
    implementation.
-3. **B1b**, and A1a has said which mechanism the theorem's `D_g` is evaluated at: [the
-   concordance's §7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)
-   now records it as a finding. It used to wait on R's numbers as well; it does not, and the
-   theorem clips nothing, so there was never an implementation whose convention could settle this
-   — and no document left to wait for either, which makes B1b a design decision against a stated
-   bar rather than a reading. **It is now a plan rather than a decision to take**: a prototype has
-   eliminated two of the four candidates by construction, separated the remaining two by
-   measurement, and named [what to
-   build](#what-the-prototype-settled-and-what-is-left-to-build). What is left is the
-   implementation, its tests, and the variant table on more than three draws.
+3. ~~**B1b**~~ — landed. A1a had said which mechanism the theorem's `D_g` is evaluated at ([the
+   concordance's §7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)),
+   and since the theorem clips nothing there was no implementation whose convention could settle
+   this and no document left to wait for — so it was a design decision against a stated bar rather
+   than a reading, taken against a fitted prototype rather than against the candidate table.
+   [What it shipped](#what-b1b-landed).
 4. **B2**, on the corrected implementation, because poor overlap may be where the demonstration
    has to happen and because the exit distribution under the current rule is uncharacterised.
 5. **C**, which is the point.
@@ -1115,10 +1175,12 @@ instrument is how this variant has gone wrong twice:
    then A1's, which was right about the subject and wrong about the evidence: it is a second
    alternation over a sweep of draws, which is B2's dispatch and nothing A1a could share with;
 3. a stored score and the term the curve carries are not the same functional of the same state —
-   this is item 20, it is the one that was true and unnoticed, and since
-   [B1a](#b1a--the-identity-and-safety-patch) it is true and **reported**: such a fit fails its
-   own score check with a verdict naming the arm and the equation. Caught is not fixed, and this
-   stays here until B1b closes it;
+   this was item 20, the one that was true and unnoticed, and it is **closed**:
+   [B1a](#b1a--the-identity-and-safety-patch) made it reported and
+   [B1b](#b1b--the-theorem-conforming-targeting-decision) made it false, by solving the score at
+   the truncated tilt the curve reads. It stays on this list as a thing a reader can check rather
+   than as an open item, and the check is `res.validation.correction_check()` on any fit —
+   including one whose bound binds, which is the case the numbers used to come from;
 4. a required score is not negligible under the predeclared validity rule;
 5. `√n · R_remaining` does not trend to zero in either off-diagonal cell, or does so only because
    the two appendix branches cancel;
@@ -1171,8 +1233,12 @@ fitted one — and does not remove it. Equations (8) and (10) *are* exact, so th
 keeping the reported curve's mean off machine zero. **This limitation is bounded, and it is not
 item 20.** The two looked like one story — "four to five orders worse on a quarter of draws" — and
 are not: the `1e-9` here is the equation the loop poses, measured at the arrays the loop leaves,
-and it stays `1e-9` on the uncentred draws too. What is `2e-04` on those draws is a *different*
-expression of the same arrays, which is item 20 and closes in B1.
+and it stayed `1e-9` on the uncentred draws too. What was `2e-04` on those draws was a *different*
+expression of the same arrays, which was item 20 and is
+[closed](#closed-since-this-list-opened). **B1b left this exactly where it was**, measured rather
+than assumed: the final scores on all four of that piece's fixtures sit at the same `1e-09` to
+`1e-10`, because what makes the covariate's direction self-consistent is still the outer loop and
+not the solve.
 
 **6. The closing pass's mechanism stage stops on its cap, not on its tolerance.** It settles
 around `1e-9` rather than reaching `spec.tol = 1e-10`, on **94 of 96** swept fits. Harmless *at
@@ -1183,8 +1249,12 @@ enough together to be one story" — was a guess and has been checked: they are 
 The stage does bind on the mechanism, and the uncentred draws are the ones where the tilted `g*`
 leaves the bounds, but the cap binds on 94 of 96 fits while the curve is uncentred on a quarter of
 them, so the cap cannot be what selects them. The two fits that stopped otherwise are both
-`weak-overlap`. If B1b adopts a bounded-residual convention this entry gets *worse* rather than
-better — a truncated residual is not the canonical logistic score — and that cost is priced there.
+`weak-overlap`. This entry used to predict that a bounded-residual convention would make it
+*worse*, on the reasoning that a truncated residual is not the canonical logistic score. **B1b
+adopted one and it did not**: the stage binds on its cap on all four of that piece's fixtures,
+which is what it did on 94 of 96 before. Four fits are not 96, so the prediction is unconfirmed
+rather than refuted and [B2](#b2--the-sweep-on-the-corrected-implementation) re-measures — but it
+should stop being repeated as though it were a finding.
 
 **8. `retarget` is no longer arithmetic on cached arrays.** The reductions are refitted inside the
 alternation, so a truncation curve or an MNAR sweep costs about a fit per point rather than a
@@ -1215,6 +1285,31 @@ available for reuse. Items 14, 16, 17 and 18 were **piece 0**, which is why its 
 from the list above: none of the four was research, all four were claims the package made that
 were wider than the evidence behind them, and what they protected a user from was being told
 something the fit had not earned while everything else here is open.
+
+**11 and 20. The reported curve is centred wherever the truncation binds, and the two items were
+always one failure.** The full diagnosis stays where it was written, in
+[piece B2's section](#b2--the-sweep-on-the-corrected-implementation), because it is the evidence
+B1b was chosen against; what closed it is [B1b](#b1b--the-theorem-conforming-targeting-decision).
+Equation (9) is solved at the **truncated** tilt — the expression the curve subtracts — and the
+alternation carries that array forward, so the stored score and the reported term are one
+evaluation of one expression at one state. The identity holds at `1e-17` or better and the final
+scores at `1e-10` on all four fixtures the defect was characterised on, weak overlap at a forced
+bound included.
+
+Three things about the closure are worth keeping and each was a fork:
+
+- **It is a measurement rather than an argument.** B1a's rows, its `1e-12` bar and its per-arm
+  recomputation are untouched; what changed is the verdicts. A convention adopted *and* a
+  threshold relaxed would have been two changes and no evidence.
+- **A fit whose bound never binds is bit for bit what it was**, because the bounded solve returns
+  the unconstrained one untouched where the clip is slack on every row. That is what keeps
+  `test_influence_gateaux_drtmle.py`'s `1e-12` window, and every `ipsi` fit, a surface by
+  construction rather than by measurement.
+- **`psi` moved where the convention changed which mechanism later steps read**, by `0.003·se` on
+  an ordinary clipping draw and `0.69·se` on a weak-overlap fit at a forced bound. The validation
+  plan predeclared that as something to investigate rather than to reject a candidate for, and the
+  investigation is the paragraph above: a different targeted state, not a different answer to the
+  same one.
 
 **1. The curve is labelled by its evidence now, not by its provenance.** The charge was that
 `D = D* − D*_Q − D*_g` was *read off `drtmle`'s implementation rather than derived*, and that

@@ -63,10 +63,11 @@ per-iteration trace, because a loop that stalls should be visible in
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy import optimize
 from scipy.special import expit, logit
 
 from .._typing import FloatArray
@@ -83,6 +84,7 @@ __all__ = [
     "mechanism_score",
     "needs_mechanism",
     "register_mechanism",
+    "solve_bounded_mechanism",
     "solve_mechanism",
 ]
 
@@ -268,5 +270,169 @@ def solve_mechanism(
         epsilon_std_error=detail.epsilon_std_error,
         hessian_condition=detail.hessian_condition,
         loglik=detail.loglik,
+        failure=failure,
+    )
+
+
+#: Share of rows pinned against the truncation past which an *unsolved* bounded mechanism
+#: equation is called ``"bounds_pinned"`` rather than ``"max_iter_reached"``.  The same 1%
+#: :func:`~cleverly.fluctuation.iterative._classify` uses on the outcome side, and
+#: for the same reason: below it, a state with a few rows at the boundary is one a solver
+#: could still have moved, so the failure is the solver's rather than the geometry's.
+_PINNED_SHARE = 0.01
+
+
+def solve_bounded_mechanism(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    covariate: FloatArray,
+    weights: FloatArray,
+    *,
+    bounds: tuple[float, float],
+    max_iter: int = 50,
+    tol: float = 1e-12,
+) -> MechanismFluctuation:
+    r"""Tilt ``propensity`` until the score **at the truncated mechanism** is zero.
+
+    :func:`solve_mechanism` solves :math:`P_n[H_g(A - g^*)] = 0` at the raw
+    :math:`\operatorname{expit}` tilt.  This solves
+
+    .. math::
+
+        F(\epsilon) = P_n\bigl[w\,H_g\,\{1_a - \bar g_\epsilon\}\bigr] = 0,
+        \qquad
+        \bar g_\epsilon = \operatorname{clip}
+            \bigl(\operatorname{expit}(\operatorname{logit}\hat g + H_g\epsilon),\;
+                  \text{lo},\,\text{hi}\bigr),
+
+    which is a different equation on exactly the rows the bound clips.  **That difference is
+    the whole reason this function exists**: :math:`\bar g_\epsilon` is the mechanism
+    :func:`~cleverly.inference.influence.reduced_correction_parts` divides by *and* subtracts,
+    so :math:`F` **is** the pair of per-arm correction means and a root makes the reported
+    curve's centring an identity rather than a second thing to check.  Solving the raw score
+    instead leaves the two agreeing on every row the bound leaves alone and parting company on
+    every row it clips -- one clipped row of 600 was enough to leave a curve uncentred at
+    ``5.8e-04`` while the solver recorded ``1e-09``.  That was ``docs/roadmap.md``'s item 20,
+    and this is piece B1b.
+
+    **The unconstrained solve is tried first and returned untouched when nothing clips**, which
+    is not an optimisation but the guarantee that this changes no fit it should not.  Where the
+    clip is slack on every row it is the identity, so the unconstrained root *is* the bounded
+    root -- and a draw where the bound never binds therefore comes back bit for bit what
+    :func:`solve_mechanism` gives, down to ``hessian_condition`` and ``loglik``.  Every module
+    that fits at inert bounds (``tests/unit/test_influence_gateaux_drtmle.py`` at ``1e-12``
+    with ``rtol=0``, and ``tests/unit/test_theorem_drtmle.py``) is on that branch by
+    construction rather than by measurement.
+
+    **Why not fluctuate inside the bounds instead.**  A smooth bounded submodel --
+    :math:`\text{lo} + (\text{hi} - \text{lo})\operatorname{expit}(\operatorname{logit} u_0 +
+    H_g\epsilon)` -- never leaves the bounds and needs no projection, and
+    ``docs/drtmle-theorem-concordance.md`` §7 prefers it *to post-fit clipping*.  It was
+    prototyped and it loses twice.  It is a **different submodel on every fit**, not only on
+    the clipping ones: at inert bounds of ``1e-6`` it moved a no-clip fixture's ``psi`` by
+    ``2.7e-03`` standard errors where this function moves it by zero.  And where the bound does
+    bind it left the final score at ``1.5e-07`` against this branch's ``2.1e-10``, because its
+    derivative :math:`(\text{hi} - \text{lo})u(1 - u)` collapses near the bounds.  §7's stated
+    reason -- that a projection applied *after* an unconstrained optimisation does not solve
+    the clipped state's first-order condition -- is an argument against clipping afterwards,
+    which is what this function does not do.
+
+    **A root need not exist**, and that is reported rather than approximated.  With every row
+    pinned, :math:`\partial\bar g_\epsilon/\partial\epsilon` is zero everywhere and no
+    :math:`\epsilon` moves :math:`F` at all; the failure is ``"bounds_pinned"``, whose existing
+    wording in :mod:`cleverly.fluctuation.iterative` already says exactly this.  Returning the
+    last iterate as though it were a solution is the one outcome this must not have.
+
+    Parameters
+    ----------
+    bounds:
+        The ``g_bounds`` truncation, the same pair
+        :func:`~cleverly.fluctuation.reduced.reduced_mechanism_covariate` built ``covariate``'s
+        denominator at and :func:`~cleverly.inference.influence.reduced_correction_parts`
+        reads.  Passing a different pair here would put the residual and the denominator at two
+        mechanisms again, which is the defect rather than a variant of it.
+
+    Notes
+    -----
+    Not used by ``ipsi``, which calls :func:`solve_mechanism` through
+    :func:`~cleverly.estimators.targeting.solve_with_mechanism`.  That estimand is a functional
+    of :math:`g` itself and truncating it would move :math:`\Psi(\delta)` rather than
+    regularise a denominator, so ``g_bounds`` is refused there outright -- and that path is a
+    regression surface, which is why this is a sibling function rather than a keyword on that
+    one.
+    """
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    h = np.asarray(covariate, dtype=float)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    lower, upper = float(bounds[0]), float(bounds[1])
+    if not 0.0 < lower < upper < 1.0:
+        raise ValueError(f"the mechanism truncation must satisfy 0 < lo < hi < 1; got {bounds}")
+
+    plain = solve_mechanism(a, propensity, h, w, max_iter=max_iter, tol=tol)
+    raw = np.asarray(plain.propensity, dtype=float)
+    if not np.any((raw < lower) | (raw > upper)):
+        return plain
+
+    g = np.asarray(propensity, dtype=float).reshape(-1)
+    offset = logit(np.clip(g, _LOGIT_GUARD, 1.0 - _LOGIT_GUARD))
+    everywhere = np.ones(a.size, dtype=bool)
+
+    def at(epsilon: FloatArray) -> tuple[FloatArray, FloatArray]:
+        """``(raw tilt, truncated tilt)`` at ``epsilon``."""
+        tilt = np.asarray(expit(offset + h @ epsilon), dtype=float)
+        return tilt, np.clip(tilt, lower, upper)
+
+    def residual(epsilon: FloatArray) -> FloatArray:
+        return score_columns(a, at(epsilon)[1], h, w, everywhere)
+
+    warm = np.asarray(plain.epsilon, dtype=float)
+    if warm.size == 0 or float(np.max(np.abs(residual(warm)))) <= tol:
+        # Already a root of the bounded equation, which is not a rare case: an all-zero
+        # covariate is one -- `Q_r` vanishes row by row wherever the outcome regression is
+        # right -- and it must not be handed to a root finder with no derivative to work
+        # with.  The mechanism still comes back *truncated*, since that is the array the
+        # curve reads.
+        return replace(
+            plain,
+            propensity=at(warm)[1],
+            score=residual(warm),
+            converged=True,
+            failure=None,
+        )
+
+    # Warm-started from the unconstrained root, which is the nearest thing to the answer
+    # already paid for: the two equations differ only on the clipped rows.  `hybr` is
+    # MINPACK's Powell hybrid, a trust region rather than a plain Newton, which is what this
+    # equation wants: `F` is only piecewise smooth, so a step taken with one active set can
+    # land in another, and a hand-rolled damped Newton stalled at `1.9e-04` on a fixture
+    # where a root exists at `1e-17`.  The *verdict* below is still this module's own -- the
+    # solver proposes an iterate and the score decides whether it is a solution -- so there
+    # is one definition of converged here rather than two.
+    solved = optimize.root(residual, np.asarray(plain.epsilon, dtype=float), method="hybr")
+    epsilon = np.asarray(solved.x, dtype=float)
+    score = residual(epsilon)
+    converged = bool(score.size == 0 or np.max(np.abs(score)) <= tol)
+
+    tilt, truncated = at(epsilon)
+    failure: TargetingFailure | None = None
+    if not converged:
+        # Named from the endpoint, as `iterative._classify` names the outcome
+        # side's: a state whose rows are pinned against the bound is one no epsilon can move,
+        # since the clip is flat there and contributes nothing to the derivative.  A pinned
+        # share is only a failure *given* an unsolved score -- under this convention rows sit
+        # at the bound on ordinary fits whose equation is solved exactly.
+        pinned = float(np.mean((tilt <= lower) | (tilt >= upper)))
+        failure = "bounds_pinned" if pinned > _PINNED_SHARE else "max_iter_reached"
+    return MechanismFluctuation(
+        propensity=truncated,
+        epsilon=epsilon,
+        score=score,
+        score_scale=score_scale(h, w, everywhere),
+        score_initial=plain.score_initial,
+        converged=converged,
+        n_iter=max_iter,
+        epsilon_std_error=plain.epsilon_std_error,
+        hessian_condition=plain.hessian_condition,
+        loglik=plain.loglik,
         failure=failure,
     )

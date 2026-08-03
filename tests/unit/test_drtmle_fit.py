@@ -842,53 +842,47 @@ class TestEachDrawSolvesItsOwnEquations:
             assert set(repeat.psi) >= set(ESTIMANDS)
 
 
-class TestTheReportedCurveIsNotAlwaysCentred:
-    r"""What checking ``repeats=`` found, which is a defect in the *fit* and not in ``repeats=``.
+class TestTheReportedCurveIsCentredWhereTheBoundBinds:
+    r"""The draw that found item 20, kept as the regression test that it is fixed.
 
-    On a quarter of splits the curve the interval is built from has a mean five or six
-    orders of magnitude above the bar, while all three fluctuation rows report their scores
-    solved to ``1e-11`` or better.  Measured over 24 draws -- twelve ``repeats=2`` fits on
-    this module's frame -- **six** leave :math:`P_n[D^*_Q + D^*_g]` above ``1e-8``, at
-    magnitudes from ``2e-05`` to ``7e-04``, every one of them exiting on ``"tolerance"``
-    with no failure recorded and no ill-conditioned round.
+    **What this fixture was.**  On a quarter of splits the curve the interval is built from
+    had a mean five or six orders of magnitude above the bar, while all three fluctuation
+    rows reported their scores solved to ``1e-11`` or better.  Measured over 24 draws --
+    twelve ``repeats=2`` fits on this module's frame -- **six** left
+    :math:`P_n[D^*_Q + D^*_g]` above ``1e-8``, at magnitudes from ``2e-05`` to ``7e-04``,
+    every one exiting on ``"tolerance"`` with no failure recorded and no ill-conditioned
+    round.  On this ``repeated`` fixture the recorded score for equation (9) was ``3.7e-11``
+    and the mean of the :math:`D^*_g` the curve subtracted was ``-2.3e-04``.
 
-    So the recorded score for equation (9) and the mean of the :math:`D^*_g` the curve
-    actually subtracts **disagree**: on this module's ``repeated`` fixture the first is
-    ``3.7e-11`` and the second ``-2.3e-04``.  That is the class of defect
-    :class:`TestTheCurveReadsWhatTheAlternationLeft` exists for and which no test here
-    previously covered, because every test above reads one fit on one split.
-
-    **The cause is located and it is not two states.**  Recomputing the recorded score from
-    the returned ``fluctuation.mechanism.propensity`` and ``fluctuation.reduction.reduced``
-    reproduces it bit for bit; what differs is that the fluctuation solves
+    **The cause was never two states.**  Recomputing the recorded score from the returned
+    ``fluctuation.mechanism.propensity`` and ``fluctuation.reduction.reduced`` reproduced it
+    bit for bit; what differed is that the fluctuation solved
     :math:`P_n[H_g (A - g^*)] = 0` at the *raw* tilted mechanism while
     :func:`~cleverly.inference.influence.reduced_corrections` truncates :math:`g^*` inside
-    the residual too.  The two therefore agree on every row the bound leaves alone: on this
-    fixture draw 0 clips **0** of 600 rows and is centred at ``1e-11``, draw 1 clips **5**
-    and is off by ``2.3e-04``, and the reported curve's mean is ``-range`` times the score
-    at the truncated residual to three figures.  Six seeded single fits give the converse --
-    the five with no clipped row pass, the one with a single clipped row fails at
-    ``5.8e-04``.
+    the residual too -- so the two agreed on every row the bound left alone and parted
+    company on every row it clipped.  Draw 0 clipped **0** of 600 and was centred at
+    ``1e-11``; draw 1 clipped **5** and was off by ``2.3e-04``.
 
-    **Rewritten by piece B1a, and it is no longer a class about a symptom.**  It used to pin
-    the defect's numbers -- an uncentred curve beside three solved fluctuation rows --
-    because that was all the package could see.  What it asserts now is the *identity*: that
-    the score the solver stored and the mean of the term the curve subtracts are one
-    evaluation of one expression at the returned state, per arm, weighted, on one outcome
-    scale, and on a draw where the bound **binds**.  That last condition is why this fixture
-    is kept rather than replaced with a better-behaved seed: draw 1 clips five rows of 600
-    and draw 0 clips none, so both halves of the claim live in one fit.
+    **What closed it, and what this class asserts now.**  Piece B1b put
+    :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` at the ``DRTMLE`` call
+    sites: the score is solved at the truncated tilt, which is the expression the curve
+    carries, and the alternation carries that truncated array forward.  So the identity
+    **holds** on the draw it used to fail on, and the assertions below are the ones B1a
+    wrote, unchanged in tolerance -- per arm, before the contrast, weighted, on one outcome
+    scale -- with their verdicts the other way up.  Nothing here was loosened to make them
+    pass, which is the only reason they are worth reading.
 
-    The identity still **fails** here, and that is the point.  B1a is the instrument and not
-    the remedy: which mechanism equation (9) ought to be solved against is a derivation with
-    more than two candidates -- the theorem's own algorithm truncates nothing at all -- and
-    it is piece B1b, waiting on the published Theorem 1.  Every assertion below is valid
-    under each of those conventions; what changes when one is adopted is that these rows
-    pass.
+    **This fixture is still the right one and the witness had to change.**  The condition
+    B1a states is that the identity be checked where the bound *binds*, and
+    ``CorrectionRow.clipped`` -- the count at the exit -- is now **zero on every fit by
+    construction**, since a converged tilt sits inside the bounds.  Selecting a fixture on
+    it would select nothing at all: ``docs/roadmap.md``'s stop-ship 14 in a second place.
+    ``initial_clipped`` is a property of the *draw* rather than of the convention, and it is
+    what says draw 1 is still the hard one.
 
-    ``repeats=`` is **not** the cause and refusing it would be misdiagnosing this: a draw of
-    a repeated fit is an ordinary fit, and the affected draws include first draws.  What
-    ``repeats=`` did was give the module more than one split to look at.
+    ``repeats=`` was **not** the cause and refusing it would have been misdiagnosing this: a
+    draw of a repeated fit is an ordinary fit, and the affected draws included first draws.
+    What ``repeats=`` did was give the module more than one split to look at.
 
     ``score_check`` caught this before B1a, on the *influence-curve* rows, which are
     computed from the curve rather than from a record of what the solver reported -- item
@@ -898,42 +892,40 @@ class TestTheReportedCurveIsNotAlwaysCentred:
     not there.
     """
 
-    def test_the_identity_fails_on_the_draw_that_clips_and_holds_on_the_one_that_does_not(
+    def test_the_identity_holds_on_the_draw_that_clips_as_well_as_the_one_that_does_not(
         self, repeated
     ) -> None:
         """Both halves in one test, because either alone is misleading.
 
-        A draw where nothing clips satisfies the identity under every convention, so a
-        fixture chosen for passing would prove nothing; a draw where it fails is only
-        evidence if a sibling draw of the same fit passes.
+        A draw where the bound never bit satisfies the identity under every convention, so a
+        fixture chosen for that would prove nothing.  What makes draw 1 evidence is that its
+        *initial* mechanism leaves the bounds -- the precondition item 20 needed and the one
+        thing here the targeting convention cannot have moved.
         """
         rows = repeated.validation.correction_check().rows
         by_draw = {draw: [row for row in rows if row.draw == draw] for draw in (0, 1)}
 
-        assert all(row.clipped == 0 for row in by_draw[0])
-        assert all(row.clipped == 5 for row in by_draw[1]), "the bound must still bind here"
-        for row in by_draw[0]:
-            assert abs(row.residual) < 1e-15, row.name
-        offenders = [row for row in by_draw[1] if abs(row.residual) > 1e-8]
-        assert {row.equation for row in offenders} == {"D*_g"}
-        assert {row.arm for row in offenders} == {0.0, 1.0}
+        assert all(row.margin > 1e-2 for row in by_draw[0])
+        assert all(row.margin < 1e-4 for row in by_draw[1]), "the bound must still bind"
+        for draw in (0, 1):
+            for row in by_draw[draw]:
+                assert abs(row.residual) < 1e-15, row.name
 
-    def test_the_clipping_bias_accounts_for_the_whole_of_it(self, repeated) -> None:
-        """`B_clip` is the diagnosis, so it has to reproduce the discrepancy and not merely rhyme.
+    def test_the_targeted_mechanism_no_longer_leaves_the_bounds_at_all(self, repeated) -> None:
+        """Which is *why* the identity holds, and why ``B_clip`` is now zero rather than small.
 
-        Sign per ``docs/drtmle-validation-plan.md``: the residual is the stored score minus
-        the reported mean, and :math:`B_{clip}` carries :math:`g - g^b`, so the two are
-        negatives of one another.
+        The alternation carries the truncated tilt forward, so at a fixed point there is no
+        raw array left for the clipping bias to measure a distance to.  Asserting it is
+        exactly zero rather than negligible is the point: a small non-zero here would mean a
+        row still sitting outside the bounds at the exit, which is the state item 20 was.
         """
-        rows = [
-            row
-            for row in repeated.validation.correction_check().rows
-            if row.draw == 1 and row.equation == "D*_g"
-        ]
-        assert len(rows) == 2
-        for row in rows:
-            assert abs(row.clip_bias) > 1e-5, "or the fixture stopped exercising this"
-            np.testing.assert_allclose(row.residual, -row.clip_bias, rtol=0, atol=1e-15)
+        check = repeated.validation.correction_check()
+
+        assert check.clipped == 0
+        assert check.margin < 1e-4, "on a fixture where the bound had something to do"
+        for row in check.rows:
+            if row.equation == "D*_g":
+                assert row.clip_bias == 0.0
 
     def test_equation_ten_is_the_control_and_holds_on_every_draw(self, repeated) -> None:
         """Nothing truncates on that side, so an instrument that fired there would be broken."""
@@ -941,42 +933,44 @@ class TestTheReportedCurveIsNotAlwaysCentred:
             if row.equation == "D*_Q":
                 assert abs(row.residual) < 1e-15, row.name
 
-    def test_the_score_check_catches_it_where_the_fluctuation_rows_do_not(self, repeated) -> None:
-        """And now names it: the fluctuation rows still pass, and the identity rows do not."""
+    def test_the_score_check_passes_on_every_kind_of_row(self, repeated) -> None:
+        """The rows that used to fail, named, so a regression names itself rather than a count.
+
+        The two identity rows below are the ones item 20 broke, and the estimand rows were
+        the only witness before B1a existed.  Asserting the *names* rather than
+        ``check.passed`` alone is what makes this fail loudly on the draw it was written for
+        rather than quietly somewhere else.
+        """
         check = repeated.validation.score_check()
 
-        assert not check.passed
-        assert all(row.passed for row in check.rows if row.kind == "fluctuation")
-        assert {row.name for row in check.identity_failures} == {
-            "mean (D*_g)[0] identity[draw 1]",
-            "mean (D*_g)[1] identity[draw 1]",
+        assert check.passed
+        assert not check.identity_failures
+        assert {"mean (D*_g)[0] identity[draw 1]", "mean (D*_g)[1] identity[draw 1]"} <= {
+            row.name for row in check.rows
         }
-        # The estimand rows are the consequence, and they were the only witness before B1a.
-        assert set(ESTIMANDS) <= {row.name for row in check.failures}
+        assert all(row.passed for row in check.rows)
 
-    def test_and_the_summary_says_a_defect_rather_than_a_convergence_failure(
-        self, repeated
-    ) -> None:
-        """Item 16's machinery, carrying B1a's distinction.
+    def test_and_the_summary_says_nothing_because_there_is_nothing_to_say(self, repeated) -> None:
+        """Item 16's machinery, from the other side.
 
-        "The score equation was not solved" is the wrong advice here -- it sends a reader
-        to ``one_step`` and a smaller step size for a fit whose solver did its job. The
-        wording has to name the state identity, and the two failures must not be reported
-        as one.
+        A passing fit prints no extra line -- which is item 16's narrower half, and is why
+        every transcript in the README and the guide is unchanged.  The three phrases below
+        are the defect wording B1a introduced, and none of them belongs on this fit now.
         """
         summary = repeated.summary()
-        assert "score check: FAIL" in summary
-        assert "state identity" in summary
-        assert "iterating longer will not fix" in summary
-        assert "do not describe this estimate" in summary
+        assert "score check: FAIL" not in summary
+        assert "state identity" not in summary
+        assert "iterating longer will not fix" not in summary
+        assert "do not describe this estimate" not in summary
 
-    def test_the_curve_a_defect_produces_is_the_arms_own(self, repeated) -> None:
-        r"""Which arm is wrong, by how much, and on one outcome scale.
+    def test_the_curve_is_still_the_arms_own(self, repeated) -> None:
+        r"""Which arm contributes what, and on one outcome scale.
 
         The reported curve's mean is minus the mean of the corrections it subtracts,
-        averaged over the draws -- so this ties each estimand's miss to a *named arm's*
-        correction rather than to a fit-level number, and it is what fails if the rows are
-        reported on the fitting scale instead of the outcome's.
+        averaged over the draws.  It was written when both sides were large enough to see;
+        it is an *identity* rather than a statement about a defect, so it holds now that
+        both sides are ``1e-10`` -- and it is still what fails if the rows are reported on
+        the fitting scale instead of the outcome's.
         """
         rows = repeated.validation.correction_check().rows
         per_arm = {
@@ -990,23 +984,25 @@ class TestTheReportedCurveIsNotAlwaysCentred:
             -(per_arm[1.0] - per_arm[0.0]), abs=1e-9
         )
 
-    def test_the_averaged_curve_inherits_it_rather_than_causing_it(self, repeated) -> None:
-        """The average is exact, so the miss comes from a draw and not from averaging.
+    def test_the_averaged_curve_is_centred_and_agrees_with_the_fluctuation_rows(
+        self, repeated
+    ) -> None:
+        """The two numbers that used to disagree by five orders, now on the same side.
 
-        Stated as an identity rather than as a tolerance: whatever the draws' curves are,
-        the reported one is their elementwise mean, so its mean is the mean of theirs. A
-        centring failure therefore has to come from a draw -- which is why this is not a
-        ``repeats=`` defect.
+        The curve's mean was ``2e-04`` on this fixture while every fluctuation row reported
+        ``1e-11``, and the gap between them *was* item 20 -- the reported curve and the
+        solver's record describing different expressions.  Both are read here rather than
+        only the first, because a curve that is centred while the rows are not, or the
+        reverse, is the state this piece closed and neither number alone would say so.
         """
-        offenders = [
-            abs(float(np.mean(fit_curve)))
-            for fit_curve in (repeated.estimates[name].influence_curve for name in ESTIMANDS)
+        curves = [
+            abs(float(np.mean(repeated.estimates[name].influence_curve))) for name in ESTIMANDS
         ]
-        assert max(offenders) > 1e-5, "the fixture is the split this was measured on"
-        # And no fluctuation row is anywhere near it, which is the whole disagreement.
         worst = max(
             abs(row.score)
             for row in repeated.validation.score_check().rows
             if row.kind == "fluctuation"
         )
+
+        assert max(curves) < 1e-8
         assert worst < 1e-8

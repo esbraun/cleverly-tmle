@@ -42,6 +42,7 @@ from ..fluctuation.mechanism import (
     MechanismFluctuation,
     mechanism_covariate,
     mechanism_score,
+    solve_bounded_mechanism,
     solve_mechanism,
 )
 from ..fluctuation.one_step import solve_one_step
@@ -908,13 +909,18 @@ def solve_with_reduction(
 
     for outer in range(1, max_outer + 1):
         if "Q" in guard:
-            mechanism = solve_mechanism(
+            mechanism = solve_bounded_mechanism(
                 indicator,
                 targeted_g,
                 reduced_mechanism_covariate(reduced, targeted_g, bounds=bounds),
                 weights,
+                bounds=bounds,
                 tol=spec.tol,
             )
+            # The **truncated** tilt, which is what makes the next round's offset, every
+            # later covariate and the reported correction read one array. Carrying the raw
+            # one forward is what left a clipped row outside the bounds for the rest of the
+            # fit, and it was the load-bearing half of item 20.
             targeted_g = mechanism.propensity
             current = _retargeted_mechanism(nuisance, targeted_g, arms)
             reduced = reduction.refit(_reduction_inputs(current, fluctuation.targeted, targeted_g))
@@ -1165,34 +1171,42 @@ def _close_at_frozen_reductions(
     that a reader is not left to infer convergence from a step count that has no other way
     of saying which it was.
 
-    **And "all three equations are solved at the arrays the curve is built from" is the
-    claim this docstring used to make, which is measured and false.**  The arrays are the
-    same arrays; the *expressions* are not.  This stage solves
-    :math:`P_n[H_g (A - g^*)] = 0` at the raw tilted mechanism, while
+    **"All three equations are solved at the arrays the curve is built from" is true, and it
+    is worth recording that it was false until piece B1b.**  The arrays were always the
+    same arrays; the *expressions* were not.  This stage used to solve
+    :math:`P_n[H_g (A - g^*)] = 0` at the **raw** tilted mechanism, while
     :func:`~cleverly.inference.influence.reduced_corrections` truncates :math:`g^*` inside
-    its residual as well as in its denominator -- so the two coincide on every row the
-    truncation leaves alone and differ on every row it clips, and one clipped row of 600 is
-    enough to leave the reported curve uncentred by ``5.8e-4`` while this stage records
-    ``8e-11``.  That is item 20 in ``docs/roadmap.md`` -- measurements in
-    ``docs/drtmle-investigation-log.md`` -- it accounts for item 11 as well, and which
-    convention is right is piece B1b's, there being **more than two** of them and the
-    theorem's own algorithm truncating nothing at all.
+    its residual as well as in its denominator -- so the two coincided on every row the
+    truncation left alone and differed on every row it clipped, and one clipped row of 600
+    was enough to leave the reported curve uncentred by ``5.8e-4`` while this stage recorded
+    ``8e-11``.  That was item 20 in ``docs/roadmap.md``, it accounted for item 11 as well,
+    and the measurements are in ``docs/drtmle-investigation-log.md``.
 
-    What has landed is the *instrument*:
-    :func:`~cleverly.validation.drtmle.correction_check` recomputes the mean of the term
-    the curve carries from the state this function returns and reports its difference from
-    the score recorded here, per arm, so the gap can no longer be reported as ``8e-11``
-    without also being reported as itself.  It changes nothing this function does.
+    :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` is what closed it: it
+    solves the score at the **truncated** tilt, which is the expression the reported curve
+    carries, and this stage carries that truncated array forward.  Two things about the fix
+    are easy to undo and both were measured before being written down.  Carrying
+    ``mechanism.propensity`` forward is not incidental -- the raw array's clipped rows used
+    to stay outside the bounds for the rest of the fit, which is *how* the disagreement
+    persisted -- and clipping *after* an unconstrained solve is not the same fix: it makes
+    the two expressions agree while solving neither, at ``6.8e-06`` against a bar near
+    ``4e-06`` where the bound binds at the fixed point.
+
+    :func:`~cleverly.validation.drtmle.correction_check` is the instrument that showed it,
+    and it stays: it recomputes the mean of the term the curve carries from the state this
+    function returns and reports its difference from the score recorded here, per arm.  What
+    changed is that the difference is now zero to roundoff rather than reported as itself.
     """
     steps = 0
     if "Q" in guard:
         for _ in range(max_steps):
             steps += 1
-            solved = solve_mechanism(
+            solved = solve_bounded_mechanism(
                 indicator,
                 targeted_g,
                 reduced_mechanism_covariate(reduced, targeted_g, bounds=bounds),
                 weights,
+                bounds=bounds,
                 tol=spec.tol,
             )
             targeted_g = solved.propensity

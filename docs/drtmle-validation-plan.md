@@ -111,16 +111,22 @@ real failure at `7e-08`. The inferential tolerance is `score_check`'s own
 appear in `score_check` as their own row kinds (`identity`, `correction`), which is what puts them
 in `summary()`; `res.validation.correction_check()` is the recomputation behind them.
 
-`tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred` pins the defect's numbers
-today and must be **rewritten rather than deleted** — after B1a its fixture is the regression test
-that the bounds still bind on that draw, which is the thing every later assertion needs. It was:
-the class now asserts the identity rather than the symptom, and holds both halves of the claim in
-one fit, since its draw 0 clips **0** rows of 600 and its draw 1 clips **5**. A fixture chosen for
-passing would prove nothing and one chosen for failing would prove little more.
+`tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred` pinned the defect's numbers
+and was to be **rewritten rather than deleted** — its fixture is the regression test that the bound
+still binds on that draw, which is the thing every later assertion needs. It has been rewritten
+twice: by B1a, to assert the identity rather than the symptom, and by B1b, which made the identity
+hold and renamed the class for what it now says. Both halves of the claim still live in one fit,
+its draw 0 having been the one where the bound never bit and its draw 1 the one where it did. A
+fixture chosen for passing would prove nothing and one chosen for failing would prove little more.
 
 ## 2. The targeting candidates (piece B1b)
 
-**There are more than two conventions and the current defect can be removed under any of them.**
+**Landed, and D is what was selected.** [The roadmap](roadmap.md#what-b1b-landed) says what
+shipped and which four decisions inside it were forks; this section is the specification it was
+executed from, kept as written except where the prototype corrected it — the candidate table's
+axis, and the fixture witness at the end.
+
+**There were more than two conventions and the defect could be removed under any of them.**
 This is the correction the second review is most insistent on and it is right: matching R would
 make the recorded score and the reported correction refer to one expression, and it would *not*
 make hard clipping after a logistic fluctuation solve that expression's score equation.
@@ -131,7 +137,7 @@ make hard clipping after a logistic fluctuation solve that expression's score eq
 | **A — post-fit clip** | bounded | bounded | logistic, then clip, then iterate | one array, internally consistent | identity holds; final score `6.8e-06` where the bound binds at the fixed point |
 | **B — raw throughout** | raw | raw | logistic | the literal unbounded score | not run — unusable as a default |
 | **C — hybrid** | raw | bounded | logistic | the score Python actually solves today | **current** with the curve made to follow it |
-| **D — direct bounded** | bounded | bounded | root / Z-solve | the exact bounded equation | identity holds; final score `2.1e-10` on the same fit |
+| **D — direct bounded** | bounded | bounded | root / Z-solve | the exact bounded equation | **selected**: identity holds; final score `2.1e-10` on the same fit |
 
 **A column, and two rows that are one solver.** The measurements are [the prototype's in the
 investigation log](drtmle-investigation-log.md#what-the-b1b-prototype-measured), and two things
@@ -181,13 +187,19 @@ it: hard clipping makes the map non-smooth, a zero need not exist inside the bou
 smooth submodel needs a fresh derivation and may no longer be a standard likelihood fluctuation.
 
 **The four routes in that sentence are not four candidates**, and the prototype narrowed them to
-two worth measuring against each other. **D-hard** — `clip` inside `F`, damped Newton, the pinned
-rows contributing nothing to the Jacobian — is what was run, and it is the row measured in the
-table above. **D-smooth** — `g_ε = lo + (hi − lo)·expit(logit((ĝ − lo)/(hi − lo)) + εH_g)`, so the
-mechanism cannot leave the bounds and nothing is projected — is what [the concordance's
-§7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm) says it would
-prefer, and nothing here has fitted one. Run it on the same three fixtures against criteria 2 and
-4 before choosing; the rest of the piece is the same under either.
+two, measured them against each other, and **D-hard is what landed** — `clip` inside `F`, the
+pinned rows contributing nothing to the Jacobian, the root found by `scipy.optimize.root`'s `hybr`
+with this package's own convergence verdict on top. **D-smooth** —
+`g_ε = lo + (hi − lo)·expit(logit((ĝ − lo)/(hi − lo)) + εH_g)`, so the mechanism cannot leave the
+bounds and nothing is projected — is what [the concordance's
+§7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm) reads as
+preferring, and it lost on both criteria that separate them. It is a *different submodel on every
+fit*: at inert bounds of `1e-6` it moved a no-clip fixture's `psi` by `2.7e-03` standard errors
+where D-hard moves it by zero, which would break the `1e-12` window of the one module whose point
+is that tolerance. And where the bound binds it left the final score at `1.5e-07` against
+`2.1e-10`, its derivative `(hi − lo)·u(1 − u)` collapsing near the bounds. §7's preference is an
+argument against a projection applied *after* an unconstrained optimisation, which is candidate A;
+D-hard puts the clip inside the equation, so the stated reason does not reach it.
 
 ### The decision hierarchy
 
@@ -230,8 +242,8 @@ Acceptance: score/correction identity by construction; final reported score belo
 validity threshold; **no silent success when a constrained root does not exist**; and the
 concordance row marked *met* or *met under a stated restriction*.
 
-**The fixtures, now that the prototype has said which ones separate anything.** Three, and each is
-there for a claim the other two cannot make: `nonlinear` seed 3 — the module fixture, no clipped
+**The fixtures, now that the prototype has said which ones separate anything**, and these are the
+ones B1b was accepted on. Three, and each is there for a claim the other two cannot make: `nonlinear` seed 3 — the module fixture, no clipped
 rows — for the regression surface, where the selected convention must reproduce today's `psi`,
 `se` and stored scores; `nonlinear` seed 2 — one clipped row of 600 — for the ordinary-draw
 identity, since one row is enough; and `weak_overlap` seed 0 **at a forced `g_bounds=(0.15,
@@ -240,13 +252,21 @@ would report a tie. The forced bound is the point rather than a stress setting: 
 configuration run so far in which the bound binds *at the fixed point*, which is the only place
 the candidates differ.
 
-**And "fraction clipped" stops being a witness the moment this lands.** It is measured at the
-exit, and every convention that carries the bounded array forward exits with `ε → 0` and so with
-nothing clipped — 0 on the draw where 375 rows clip today. Report it still, since it is what says
-the fix took; but a *fixture* must be selected on the clipped share of the **initial** mechanism,
-which is a property of the draw. This is [B1a's fifth condition](#1-the-invariants-piece-b1a)
-needing a new witness rather than a new intent, and it is
-[stop-ship 14](roadmap.md#stop-ship)'s shape arriving in a second place.
+**And "fraction clipped" stopped being a witness the moment this landed.** It is measured at the
+exit, and a convention that carries the bounded array forward exits with `ε → 0` and so with
+nothing clipped — 0 on the draw where 375 rows clipped before. Report it still, since zero is what
+says the fix took; but a *fixture* has to be selected on something else. This is
+[B1a's fifth condition](#1-the-invariants-piece-b1a) needing a new witness rather than a new
+intent, and it is [stop-ship 14](roadmap.md#stop-ship)'s shape arriving in a second place.
+
+**The replacement is not the initial mechanism's clipped share**, which this document proposed and
+which is **zero on the draw item 20 was found on**: nothing about that fit's initial mechanism
+leaves the bounds, and what clipped was the tilt. It is `CorrectionRow.margin`, how close the
+targeted mechanism comes to either bound as a fraction of the interval — `1.2e-06` on that draw
+against `0.14` on its sibling, because a constrained root sits *against* the boundary of the
+feasible set. Nothing derivable from the returned arrays proves the constraint was active, since
+the trajectory is not on the record; what this is is a property separating the two draws by five
+orders that the fix cannot manufacture.
 
 ### Two acceptance criteria that were wrong and are now stated correctly
 

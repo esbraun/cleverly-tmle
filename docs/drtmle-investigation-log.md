@@ -226,8 +226,9 @@ partial-guard fit this repository has ever run end to end.
 
 ### What the B1b prototype measured
 
-Sizing for [piece B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision), and it is a
-scratch prototype rather than a deliverable: two hooks on `estimators/targeting.py`'s module
+Sizing for [piece B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision), which has since
+landed on exactly the candidate this run selected. A scratch prototype rather than a deliverable:
+two hooks on `estimators/targeting.py`'s module
 namespace — the covariate builder, to capture the bounds, and `solve_mechanism`, to substitute a
 candidate — so that a convention can be *fitted* rather than argued about. Nothing in the library
 moved. The candidates are the validation plan's, and the first thing the run settled is that its
@@ -289,11 +290,27 @@ behind it rather than only a caution.
 condition is that an identity be checked *on a fixture where the bound binds*, witnessed by
 `CorrectionRow.clipped`. Under any convention that carries the bounded array forward that witness
 goes **vacuous** — `clipped` is 0 at the exit on every draw run above, including the one where 375
-rows clip today. A test selecting its fixture on `clipped > 0` would be selecting the empty set
-after B1b, and one asserting `clipped > 0` would be asserting something that can no longer happen.
-That is [stop-ship 14](roadmap.md#stop-ship)'s shape — a check agreeing where it could not have
-disagreed — arriving in a second place, and the replacement witness is the clipped share of the
-**initial** mechanism, which is a property of the draw rather than of the convention.
+rows clipped before. A test selecting its fixture on `clipped > 0` would be selecting the empty
+set, and one asserting `clipped > 0` would be asserting something that can no longer happen. That
+is [stop-ship 14](roadmap.md#stop-ship)'s shape — a check agreeing where it could not have
+disagreed — arriving in a second place.
+
+**And the replacement this run proposed was wrong, which the implementation found.** The clipped
+share of the *initial* mechanism is a property of the draw, which is the right kind of thing, and
+it is **zero on the draw item 20 was found on**: nothing about that fit's initial mechanism leaves
+the bounds, and what clipped was the tilt. What works is `CorrectionRow.margin`, how close the
+targeted mechanism comes to either bound as a fraction of the interval — `1.2e-06` on that draw
+against `0.14` on its sibling, because a constrained root sits *against* the boundary of the
+feasible set. It is not a proof that the constraint was active, and nothing derivable from the
+returned arrays is, since the trajectory is not on the record.
+
+**What the implementation then measured**, on the four fixtures above, against a threshold of
+`4e-06` to `6e-06`: every state identity at `1e-17` or better, every final correction score at
+`1e-09` to `1e-10`, and all four passing their score check. `psi` moved by `0` on the no-clip
+fixture, `0.003·se` on `nonlinear` seed 2, `0.06·se` on `weak_overlap` at the `auto` bound and
+`0.69·se` at the forced one — larger than the prototype's own figures at the same fixtures, since
+the library's root finder and the prototype's hand-rolled Newton land on different iterates of the
+same equation, and that difference is itself why the library does not use a hand-rolled one.
 
 ## How the alternation exits
 
