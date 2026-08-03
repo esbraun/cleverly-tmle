@@ -389,6 +389,26 @@ deliverable as much as the assertions are, for the reason
 One dispatch of `benchmarks/bench_drtmle.py`, **after B1**, because every conclusion it could draw
 today is read through a curve that a share of fits have wrong.
 
+**The piece split into B2a and B2b, and this section is what B2a was executed from.** The dispatch
+this section describes could not happen until the script recorded what the section asks for, and
+the paper's update order did not exist to be run at all — so the instrument is one pull request
+([B2a](roadmap.md#b2a--the-sweep-instrument), landed) and the dispatch and its reading are the
+next ([B2b](roadmap.md#b2b--the-dispatch-and-what-it-decides)). That is the same split B1 took and
+for the same reason: one half precedes the other and depends on it.
+
+**One instruction here could not be executed as written, and the correction is B2a's.** This
+section asks whether the failures persist "when the reductions are handed the **oracle** values",
+on the grounds that it "costs nothing because the datasets already know their truth". The datasets
+know `Q̄₀` and `g₀`; they do not know the reductions. A reduction is a conditional expectation
+given a **fitted** object — `Q_r(a, W) = E[Q̄₀ − Q̄* | ĝ(a|W)]` and the two `g_r` given `Q̄̂(a, W)` —
+so its truth is a property of the estimator's own arrays and not of the process, and no closed form
+or fresh draw from the DGP supplies it. What is available at the same cost, and answers the same
+question — *is a failure a noisy reduction or a wrong equation?* — is to vary the **reduced
+learners** and see whether the failures move: `--reduced-learner` is that arm, and it is labelled
+as what it is rather than as an oracle. Building a genuine one would mean evaluating the fitted
+nuisances on a large auxiliary draw, which needs the fitted learners exposed for out-of-sample
+prediction and is a construction rather than a column.
+
 **The diagnosis stays widened even though the cause is found.** `1/g` in equation (8) is one of
 *five* places weak overlap enters, and B1 accounts for the score failure without saying the other
 four are harmless: equation (9)'s covariate is `Q_r/g`; `g_{r,2}`'s own *target* is a quotient by
@@ -403,9 +423,24 @@ effective `n`; the high quantiles of every clever covariate; the distributions o
 `g_{r,1}`, `g_{r,2}` and their ratio; the share of each score carried by the top 1%, 5% and 10% of
 rows; the Hessian condition numbers; the scores either side of truncation; `psi` and `se` across a
 truncation grid; the identity residual and `B_clip` from [B1a](#1-the-invariants-piece-b1a); and
-whether the failures persist when the reductions are handed the **oracle** values. The
-oracle-reduction run is what separates a noisy reduction from a wrong equation, and it costs
-nothing because the datasets already know their truth.
+whether the failures persist when the reductions are fitted by a different learner — the
+substitute for the oracle run this section originally asked for, above.
+
+**All of that is in the script as of B2a**, in three tables — *How the alternation exited*, which
+is what the first sweep printed; *Where weak overlap enters*, one column per place; and *What the
+reported curve rests on*, which is B1a's identity, the standardised scores and the concentration.
+Two of the columns above had to change their definition on contact with the code, and both changes
+are the same lesson B1b learned about `clipped`:
+
+- **the clipped-row share is read at the *initial* mechanism**, not at the targeted one. Since B1b
+  the alternation carries the truncated tilt forward, so a converged fit clips nothing at the exit
+  however hard the draw was — a column read there would be zero on every row of the table, which
+  is [stop-ship 14](roadmap.md#stop-ship)'s shape. `margin` sits beside it as the witness that the
+  bound had something to do;
+- **equation (9)'s Hessian condition number does not exist to be reported.** The bounded solve is
+  a root find rather than a Newton step ([B1b](roadmap.md#what-b1b-landed)), so there is no Hessian
+  at that call site. The outcome fluctuation's is reported and describes the closing pass's *joint*
+  solve over (8) and (10); `ill` carries equation (10)'s conditioning, as it always did.
 
 A valid **truncation curve** for `DRTMLE` has to refit any reduced regression whose target moves
 with the bound. One that moves the denominators and holds the quotient regression's target fixed

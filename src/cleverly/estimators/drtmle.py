@@ -129,10 +129,17 @@ from ._nuisance import NuisanceEstimates
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .ctmle import CTMLE
 from .reduced import REDUCTIONS, ReducedSet, fit_reduced, refuse_unsupported
-from .targeting import ReductionSpec
+from .targeting import ReductionOrder, ReductionSpec
 from .tmle import TMLE
 
 __all__ = ["DRTMLE", "ReducedFit"]
+
+#: The two routes through a round, in ``update_order=``'s vocabulary -- see
+#: :data:`~cleverly.estimators.targeting.ReductionOrder`.  ``"paper"`` exists to be measured
+#: against ``"cleverly"`` rather than to be chosen: the theorem's exit is a fixed point and
+#: not a route, so the two are the same estimator if they land in the same place, which is
+#: what ``docs/roadmap.md``'s item 22 asks and ``benchmarks/bench_drtmle.py`` answers.
+UPDATE_ORDERS = ("cleverly", "paper")
 
 #: The two guards, in ``drtmle``'s vocabulary.  **Crossed**, and the commonest thing to
 #: transcribe backwards: ``"Q"`` guards against a misspecified *outcome regression* and adds
@@ -204,6 +211,26 @@ class DRTMLE(TMLE):
         ``"univariate"`` (default) is Benkeser et al. (2017)'s three univariate regressions.
         ``"bivariate"`` -- van der Laan (2014)'s original single bivariate reduced mechanism
         -- is derived but not written, and is refused by name.
+    update_order:
+        Which route a round of the alternation takes, ``"cleverly"`` (default) or
+        ``"paper"``.  **A diagnostic keyword rather than a tuning one**, and the reason is
+        the whole of ``docs/roadmap.md``'s item 22: the 2016 working paper's step 7 states
+        its own termination as the three empirical means being approximately zero, so its
+        six-step order is one route to a fixed point rather than something Theorem 1
+        assumes about the collection returned.  ``"paper"`` implements that order beside
+        this package's -- equation (8), then :math:`g_{r,1}` and :math:`g_{r,2}` at the
+        **once-updated** outcome regression, then equation (10), then :math:`Q_r` at the
+        **twice-updated** one, then equation (9) -- so that *whether the two reach the same
+        fixed point on real data* is something a sweep measures rather than something a
+        document asserts.  Both share the stopping rule, the stall test and the closing
+        pass, deliberately: what is in question is the route.
+
+        Two cautions carry over from
+        ``docs/drtmle-theorem-concordance.md`` §6.  Compare the **scores and the estimates**,
+        never the fluctuation coefficients: the submodels a round passes through differ, so
+        an ``epsilon`` from one is not an ``epsilon`` from the other.  And compare the two at
+        the **same nuisances** -- the same data, the same ``random_state`` -- since the
+        initial fits are all either route has in common.
     reduced_outcome_learner, reduced_treatment_learner:
         Learners for the reduced-dimension regressions, defaulting to the specifications the
         primary nuisances use.  Two rather than one because the tasks differ:
@@ -273,6 +300,7 @@ class DRTMLE(TMLE):
         reduction: str = "univariate",
         reduced_outcome_learner: Any = None,
         reduced_treatment_learner: Any = None,
+        update_order: ReductionOrder = "cleverly",
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -280,6 +308,7 @@ class DRTMLE(TMLE):
         self.reduction = reduction
         self.reduced_outcome_learner = reduced_outcome_learner
         self.reduced_treatment_learner = reduced_treatment_learner
+        self.update_order = update_order
         self._validate_drtmle_settings()
 
     def _validate_drtmle_settings(self) -> None:
@@ -293,6 +322,14 @@ class DRTMLE(TMLE):
             )
         if len(set(self.guard)) != len(self.guard):
             raise ValueError(f"guard names a guard twice: {list(self.guard)}")
+        if self.update_order not in UPDATE_ORDERS:
+            raise ValueError(
+                f"update_order must be one of {list(UPDATE_ORDERS)}; got "
+                f"{self.update_order!r}. 'cleverly' is this package's alternation and the "
+                "default; 'paper' is the 2016 working paper's six-step recursion, which is "
+                "here so that the two routes to the theorem's stated exit can be compared "
+                "on real data (docs/roadmap.md item 22) rather than argued about."
+            )
         if self.reduction not in REDUCTIONS:
             raise ValueError(f"reduction must be one of {list(REDUCTIONS)}; got {self.reduction!r}")
         if self.reduction != "univariate":
@@ -366,7 +403,7 @@ class DRTMLE(TMLE):
         def refit(current: NuisanceEstimates) -> ReducedSet:
             return self._fit_reduced(data, current, bounds)[0]
 
-        return ReductionSpec(refit=refit, guard=self.guard)
+        return ReductionSpec(refit=refit, guard=self.guard, order=self.update_order)
 
     def _fit_reduced(
         self,

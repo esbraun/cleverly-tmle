@@ -1169,6 +1169,17 @@ Both by default; `guard=()` fits no reduced regressions at all and is bit-for-bi
 TMLE. `reduced_outcome_learner=` and `reduced_treatment_learner=` take the reduced
 regressions' learners, defaulting to the primary ones.
 
+`update_order=` is a **diagnostic** keyword rather than a tuning one, and it is here because a
+question about this estimator is open rather than because there is a choice to make. The source's
+own algorithm states six steps in a particular order; this package's alternation is not a
+transcription of them, and the source's termination condition is the three score equations rather
+than the route — so the two orders are the same estimator if they land in the same place, and
+`update_order="paper"` exists so that "if" can be measured instead of assumed. Leave it at
+`"cleverly"` unless you are running that comparison. What is measured so far is two draws, on
+which the estimates agree to within a fifth of a standard error and the *standard errors* differ
+by up to 2.3%; the sweep that would say whether that is typical is
+[still open](roadmap.md#b2b--the-dispatch-and-what-it-decides).
+
 **A single guard reports a shorter curve, and the report says which.** One correction per
 equation the guard asks for: `guard=("g",)` solves equation (10) and reports
 `D = D* - D*_Q`, and the verdict names that rather than the both-guards curve. The other

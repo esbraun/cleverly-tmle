@@ -58,6 +58,7 @@ __all__ = [
     "ProjectionFluctuation",
     "ReductionExit",
     "ReductionFluctuation",
+    "ReductionOrder",
     "ReductionSpec",
     "TargetingSpec",
     "build_submodel",
@@ -141,6 +142,24 @@ def _solved(relative: float, absolute: float, tol: float, negligible: float) -> 
 #: score magnitude rather than about how the loop ended -- see
 #: :attr:`ReductionFluctuation.exit_reason`.
 ReductionExit = Literal["tolerance", "stall", "cap"]
+
+#: Which order the three equations are solved in within a round.  Two routes to one stated
+#: exit rather than two estimators: the 2016 working paper's step 7 states its own
+#: termination as the three empirical means being approximately zero, so the order it writes
+#: down is one way of reaching a fixed point and not part of what Theorem 1 assumes about the
+#: collection returned.  That is ``docs/roadmap.md``'s item 22, whose theoretical half closed
+#: on reading the paper and whose numerical half -- *do the two routes reach the same fixed
+#: point on real data* -- is a measurement, and needs the second route to exist here.
+#:
+#: ``"cleverly"`` is this package's own and the default, bit for bit what it always was:
+#: equation (9), refit, equation (10), equation (8), refit.  ``"paper"`` is
+#: ``docs/drtmle-theorem-concordance.md`` §6's steps 2 to 6 -- equation (8), refit
+#: :math:`g_{r,1}` and :math:`g_{r,2}` at the **once-updated** outcome regression, equation
+#: (10), refit :math:`Q_r` at the **twice-updated** one, equation (9).  Neither the exit
+#: test, the stall rule nor the closing pass differs between them, deliberately: what is in
+#: question is the route, and running one arm of the comparison under a different stopping
+#: rule or a different reporting convention would confound the two.
+ReductionOrder = Literal["cleverly", "paper"]
 
 
 @dataclass(frozen=True)
@@ -634,6 +653,11 @@ class ReductionSpec:
 
     refit: Callable[[NuisanceEstimates], ReducedSet]
     guard: tuple[str, ...] = ("Q", "g")
+    #: Which route through the round the alternation takes -- see :data:`ReductionOrder`.
+    #: It rides here rather than being a keyword of :func:`solve_with_reduction` because it
+    #: is the *estimator's* declaration, exactly as ``guard`` is, and because that keeps
+    #: :meth:`~cleverly.TMLE._solve_reduction` free of a setting only one subclass has.
+    order: ReductionOrder = "cleverly"
 
 
 @dataclass(frozen=True)
@@ -794,6 +818,17 @@ def solve_with_reduction(
             Qbar* <- fluctuate along 1_a/g*                         (equation 8)
             re-evaluate all three scores at the pair the round exits at
 
+    **That is one of two routes to the same stated exit, and the other is the working
+    paper's own.**  ``reduction.order`` selects between them -- see :data:`ReductionOrder`.
+    The paper's step 7 states its termination as the three empirical means being
+    approximately zero, so its six-step order is one way of reaching a fixed point rather
+    than something Theorem 1 assumes about the collection returned; ``"paper"`` implements
+    it beside this one so that *whether the two reach the same fixed point on real data* is
+    a run rather than an argument (``docs/roadmap.md``'s item 22).  What the second route
+    does **not** get is a second stopping rule, a second stall test or a second closing pass:
+    it shares all three, because the question is the route and a comparison in which two
+    things differ answers nothing.
+
     Three things about that shape are decisions rather than transcription.
 
     **The outcome fluctuation continues from** :math:`\bar Q^*` **rather than restarting from**
@@ -871,6 +906,7 @@ def solve_with_reduction(
             "NuisanceEstimates has none"
         )
     guard = tuple(reduction.guard)
+    order = reduction.order
     if not guard:
         raise ValueError(
             "an empty guard solves no extra equation and is a plain TMLE; such a fit must "
@@ -907,51 +943,114 @@ def solve_with_reduction(
     # rather than a fourth case to detect after the loop.
     exit_reason: ReductionExit = "cap"
 
+    # The latest targeted outcome regression, which is not always ``fluctuation.targeted``:
+    # under the paper's order equation (10) is solved *after* equation (8), so the round
+    # ends on ``extra``'s. One variable rather than the two orders each reading a different
+    # field, since the tail below and the closing pass both need "the current Qbar".
+    targeted_q = fluctuation.targeted
+
     for outer in range(1, max_outer + 1):
-        if "Q" in guard:
-            mechanism = solve_bounded_mechanism(
-                indicator,
-                targeted_g,
-                reduced_mechanism_covariate(reduced, targeted_g, bounds=bounds),
+        if order == "paper":
+            # Steps 2 to 6 of the working paper's recursion, in its order --
+            # `docs/drtmle-theorem-concordance.md` §6. The two refits are the paper's own
+            # steps 3 and 5 and they are what the order is *about*: the reductions are
+            # taken at two different vintages of the outcome regression, the mechanism
+            # half at the once-updated one and Qr at the twice-updated one, where this
+            # package's order refits all three together twice a round.
+            submodel = build_submodel(
+                data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
+            )
+            fluctuation = solve_submodel(  # step 2: equation (8), along H_1(g^k)
+                scaled, targeted_q, submodel, weights, observed, spec, warn=False
+            )
+            targeted_q = fluctuation.targeted
+            if "g" in guard:
+                # Step 3, at g^k and the once-updated Qbar. `replace` rather than the whole
+                # set: Qr is step 5's and must not arrive early, which is the difference
+                # between the two orders rather than an optimisation.
+                once = reduction.refit(_reduction_inputs(current, targeted_q, targeted_g))
+                reduced = replace(reduced, gr1=once.gr1, gr2=once.gr2)
+                extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
+                extra = solve_submodel(  # step 4: equation (10), along H_2
+                    scaled, targeted_q, extra_submodel, weights, observed, spec, warn=False
+                )
+                targeted_q = extra.targeted
+                if first_initial is None:
+                    first_initial = np.asarray(extra.score_initial)
+                if extra.failure is not None:
+                    ill_conditioned += 1
+            if "Q" in guard:
+                twice = reduction.refit(  # step 5, at g^k and the twice-updated Qbar
+                    _reduction_inputs(current, targeted_q, targeted_g)
+                )
+                reduced = replace(reduced, qr=twice.qr)
+                mechanism = solve_bounded_mechanism(  # step 6: equation (9), along H_3
+                    indicator,
+                    targeted_g,
+                    reduced_mechanism_covariate(reduced, targeted_g, bounds=bounds),
+                    weights,
+                    bounds=bounds,
+                    tol=spec.tol,
+                )
+                targeted_g = mechanism.propensity
+                current = _retargeted_mechanism(nuisance, targeted_g, arms)
+            submodel = build_submodel(
+                data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
+            )
+            fluctuation = _restated_outcome_score(
+                fluctuation,
+                scaled=scaled,
+                targeted=targeted_q,
+                submodel=submodel,
+                weights=weights,
+                mask=mask,
+            )
+        else:
+            if "Q" in guard:
+                mechanism = solve_bounded_mechanism(
+                    indicator,
+                    targeted_g,
+                    reduced_mechanism_covariate(reduced, targeted_g, bounds=bounds),
+                    weights,
+                    bounds=bounds,
+                    tol=spec.tol,
+                )
+                # The **truncated** tilt, which is what makes the next round's offset, every
+                # later covariate and the reported correction read one array. Carrying the
+                # raw one forward is what left a clipped row outside the bounds for the rest
+                # of the fit, and it was the load-bearing half of item 20.
+                targeted_g = mechanism.propensity
+                current = _retargeted_mechanism(nuisance, targeted_g, arms)
+                reduced = reduction.refit(_reduction_inputs(current, targeted_q, targeted_g))
+
+            if "g" in guard:
+                extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
+                extra = solve_submodel(
+                    scaled, targeted_q, extra_submodel, weights, observed, spec, warn=False
+                )
+                if first_initial is None:
+                    first_initial = np.asarray(extra.score_initial)
+                if extra.failure is not None:
+                    ill_conditioned += 1
+
+            submodel = build_submodel(
+                data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
+            )
+            fluctuation = solve_submodel(
+                scaled,
+                targeted_q if extra is None else extra.targeted,
+                submodel,
                 weights,
-                bounds=bounds,
-                tol=spec.tol,
+                observed,
+                spec,
+                warn=False,
             )
-            # The **truncated** tilt, which is what makes the next round's offset, every
-            # later covariate and the reported correction read one array. Carrying the raw
-            # one forward is what left a clipped row outside the bounds for the rest of the
-            # fit, and it was the load-bearing half of item 20.
-            targeted_g = mechanism.propensity
-            current = _retargeted_mechanism(nuisance, targeted_g, arms)
-            reduced = reduction.refit(_reduction_inputs(current, fluctuation.targeted, targeted_g))
-
-        if "g" in guard:
-            extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
-            extra = solve_submodel(
-                scaled, fluctuation.targeted, extra_submodel, weights, observed, spec, warn=False
-            )
-            if first_initial is None:
-                first_initial = np.asarray(extra.score_initial)
-            if extra.failure is not None:
-                ill_conditioned += 1
-
-        submodel = build_submodel(
-            data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
-        )
-        fluctuation = solve_submodel(
-            scaled,
-            fluctuation.targeted if extra is None else extra.targeted,
-            submodel,
-            weights,
-            observed,
-            spec,
-            warn=False,
-        )
-        if "Q" in guard:
-            # Qr is a regression of the outcome residual, so the step just taken moved its
-            # target. Refit before the score below is read, or the loop tests equation (9)
-            # at a covariate the exiting pair no longer implies.
-            reduced = reduction.refit(_reduction_inputs(current, fluctuation.targeted, targeted_g))
+            targeted_q = fluctuation.targeted
+            if "Q" in guard:
+                # Qr is a regression of the outcome residual, so the step just taken moved
+                # its target. Refit before the score below is read, or the loop tests
+                # equation (9) at a covariate the exiting pair no longer implies.
+                reduced = reduction.refit(_reduction_inputs(current, targeted_q, targeted_g))
 
         reduced_score = 0.0
         reduced_absolute = 0.0
@@ -963,7 +1062,7 @@ def solve_with_reduction(
             # rows by two orders of magnitude before this was written down.
             extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
             settled = score_columns(
-                scaled, fluctuation.targeted.observed, extra_submodel.observed, weights, mask
+                scaled, targeted_q.observed, extra_submodel.observed, weights, mask
             )
             scale = score_scale(extra_submodel.observed, weights, mask)
             assert extra is not None
@@ -1024,6 +1123,13 @@ def solve_with_reduction(
         previous_joint = joint
 
     rounds = len(trace)
+    if order == "paper":
+        # The paper's round ends on equation (10)'s update of Qbar, so the state the loop
+        # left is `targeted_q` and not the outcome fluctuation's own field. The closing pass
+        # starts from `fluctuation.targeted`, so hand it the former. Guarded on the order
+        # rather than done unconditionally because under the other the two are one object
+        # and the default path is a regression surface.
+        fluctuation = replace(fluctuation, targeted=targeted_q)
     closing = _close_at_frozen_reductions(
         data,
         nuisance,
@@ -1087,6 +1193,40 @@ def solve_with_reduction(
         closing_capped=closing.capped,
     )
     return submodel, replace(fluctuation, mechanism=mechanism, reduction=record)
+
+
+def _restated_outcome_score(
+    fluctuation: Fluctuation,
+    *,
+    scaled: FloatArray,
+    targeted: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    mask: BoolArray,
+) -> Fluctuation:
+    """Equation (8)'s score, re-read at the pair a paper-order round exits at.
+
+    Under that order equation (8) is solved **first**, and steps 4 and 6 then move both the
+    regression it fluctuated and the mechanism its covariate divides by -- so the score the
+    solve left behind describes a state that is gone by the time the exit test reads it.
+    Under this package's own order equation (8) is solved last and no such restatement is
+    needed, which is why this is called from one branch rather than from both.
+
+    **A function rather than four lines inline, because the mutation is invisible
+    otherwise.**  Deleting the restatement lets the loop exit on a stale score, and it was
+    deleted and measured: **68 of ``tests/unit/test_drtmle_fit.py``'s 69 tests still pass**,
+    the one exception being the call-site pin written for this.
+    :func:`_close_at_frozen_reductions` re-solves all three equations at the reductions the
+    record carries, so the reported fit is the same either way and only the *route* to it was
+    wrong -- ``docs/roadmap.md`` item 12's shape exactly, a change no assertion about a
+    reported fit can see.  A structural pin is therefore the right instrument here, as it is
+    wherever both variants are consistent and the edit would otherwise be silent.
+    """
+    return replace(
+        fluctuation,
+        score=score_columns(scaled, targeted.observed, submodel.observed, weights, mask),
+        score_scale=score_scale(submodel.observed, weights, mask),
+    )
 
 
 @dataclass(frozen=True)

@@ -356,6 +356,45 @@ about it.
 the bound binds, not a per-process property. B2 re-runs the whole table with a clipped-row share
 beside it.
 
+## What the B2a smoke runs measured
+
+Four fits at `n = 400` on `nonlinear`, which is the most of this that belongs in a small container
+([`CLAUDE.md`](../CLAUDE.md)), plus the two module fixtures the tests fit. They are here because
+three of them are what [B2b](roadmap.md#b2b--the-dispatch-and-what-it-decides) will have to explain
+if the sweep reproduces them, and because a smoke run whose numbers are thrown away has to be
+rerun by the next person.
+
+**The two update orders do not always agree as closely as "the same fixed point" suggests.**
+Paired on the draw, the same data and the same fold seed:
+
+| draw | `\|Δψ\|` in units of `se` | `se` ratio (paper / this) | both score checks | rounds |
+| --- | --- | --- | --- | --- |
+| `nonlinear`, n=600, module fixture | 9e-03 | 0.977 | pass | 8 → 22 |
+| `nonlinear`, n=400, sweep seed | 0.22 | 0.980 | pass | 15 → 15 |
+| `nonlinear`, n=400, seed 3 | 7e-04 | 1.0006 | pass | 4 → 11 |
+
+Every one of those fits solves all three equations at its returned state — `1e-09` to `1e-10`,
+identities at `1e-18` — so none is unconverged and none is a defect. **It is what the paper's step
+7 does not say**: the exit condition constrains three empirical *means*, and two states satisfying
+them can differ in both `ψ` and `σ²_n`. The variance difference has a visible mechanism — the
+routes exit holding reductions of different vintages, measured at `sd(g_{r,2})` of `0.024` against
+`0.031` on the 600-row draw — and the `ψ` difference is the ordinary `o_p(n^{-1/2})` gap between
+two asymptotically linear estimators of one parameter. **So the column to read at scale is
+`|Δψ|/se` by size**: if both routes are asymptotically linear with the same curve it must shrink
+with `n`, which is a claim with a direction rather than a reassurance, and one draw at each of two
+sizes cannot see it.
+
+**Two arms behaved exactly as their controls required**, which is what says the plumbing is
+measuring the arm rather than the noise. `--reduced-learner glm` — the same learner the fit already
+uses — reproduces the base fit to `0.0000` of a standard error and an `se` ratio of `1.0000`
+exactly. `--truncation 0.02` on a draw whose smallest `g` is `0.128` is likewise *exactly* inert,
+and `--truncation 0.25` on the same draw moves `ψ` by `0.078·se` and `se` by 0.9%. A truncation arm
+that moved something where the bound cannot bind would have been reporting refit noise.
+
+**Cost, which is what decides the dispatch.** 71s a fit at `jobs=1` in this container against the
+42.6s a runner measured, and the paper's order took 22 rounds against 8 on the draw both were run
+on — so `--order paper` should be budgeted at rather more than a doubling, not at one.
+
 ## What one runner could and could not reach
 
 Kept here rather than in the roadmap because it is a property of one execution environment on one

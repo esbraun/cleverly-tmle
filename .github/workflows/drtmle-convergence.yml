@@ -27,6 +27,21 @@ on:
         description: "also print every individual fit, not just the per-cell summary"
         type: boolean
         default: true
+      # The three arms below each refit every draw, so each roughly doubles the run --
+      # `order` more than doubles it, since the paper's route took 22 rounds against 8 on
+      # the draw the two were first compared on. Off by default for that reason, and
+      # because the base sweep is what items 4, 6, 7 and 12 are read from; these answer
+      # questions of their own.
+      order:
+        description: "also fit each draw under the working paper's update order (item 22)"
+        type: boolean
+        default: false
+      reduced_learner:
+        description: "also fit each draw with this learner for the reduced regressions, e.g. fast"
+        default: ""
+      truncation:
+        description: "also refit each draw at these lower g_bounds, space-separated, e.g. 0.01 0.025"
+        default: ""
 
 jobs:
   characterise:
@@ -56,10 +71,15 @@ jobs:
           SEEDS: ${{ inputs.seeds }}
           JOBS: ${{ inputs.jobs }}
           ROWS: ${{ inputs.rows && '--rows' || '' }}
+          ORDER: ${{ inputs.order && '--order paper' || '' }}
+          # An empty string would become a bare `--reduced-learner` with no value, which
+          # argparse rejects, so the flag and its value travel together or not at all.
+          REDUCED: ${{ inputs.reduced_learner && format('--reduced-learner {0}', inputs.reduced_learner) || '' }}
+          TRUNCATION: ${{ inputs.truncation && format('--truncation {0}', inputs.truncation) || '' }}
         run: >
           python benchmarks/bench_drtmle.py
           --processes $PROCESSES
           --sizes $SIZES
           --seeds "$SEEDS"
           --jobs "$JOBS"
-          $ROWS
+          $ROWS $ORDER $REDUCED $TRUNCATION

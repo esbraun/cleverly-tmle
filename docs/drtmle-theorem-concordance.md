@@ -327,13 +327,33 @@ hypotheses are conditions on the returned collection rather than on the route. T
 the difference licensed rather than merely unchecked.
 
 What is *not* settled by reading is whether the two orders reach the same fixed point on real
-data, which is a numerical claim and belongs to [A1](roadmap.md#a1a--the-theoretical-audit):
+data, which is a numerical claim and belongs to [B2](roadmap.md#b2--the-sweep-on-the-corrected-implementation):
 implement the paper's order beside this one, **both here and against the same nuisances**, and
 compare the fixed point each reaches and the final three theorem-defined scores at each. The
 instrument for the last of those now exists — `res.validation.correction_check()` reports each
 score at the returned state, per arm — so the comparison is a run rather than a construction.
 A third implementation reaching a third fixed point would have answered a different question, which
 is one reason this stopped being the parity piece's.
+
+**The second route is now written and the comparison is a dispatch.** `DRTMLE(update_order="paper")`
+is the six steps above, sharing this package's stopping rule, stall test and closing pass — the
+question is the route, and a comparison in which two things differ answers nothing.
+`benchmarks/bench_drtmle.py --order paper` fits every draw both ways and reports `|Δψ|/se` and the
+ratio of the two standard errors, paired on the draw.
+
+**On the two draws it has been run on, the routes agree on `ψ` and *not quite* on `σ²_n`**, and the
+second half of that is worth having in advance of the sweep. At `n = 600` on `nonlinear_dgp` the
+`ate` estimates differ by `9e-03` of a standard error while the standard errors themselves differ
+by 2.3% — `0.13231` against `0.12929` — with both fits solving all three equations at their
+returned state (`1e-09` and `6e-10`), so neither is unconverged. At `n = 400` the same ratio was
+`1.0006`. **This is not a contradiction of step 7 and it is what step 7 does not say**: the exit
+condition constrains the three empirical *means*, and the reported variance is the second moment of
+a curve built from the reductions, which the two routes leave at different vintages by construction
+— measured at `sd(g_{r,2})` of `0.024` against `0.031` and `sd(g_{r,2}/g_{r,1})` of `0.058` against
+`0.042` on the same draw. Whether a couple of per cent is what that gap always is, or whether it
+opens up under weak overlap, is a distribution over draws and is the sweep's.
+`tests/unit/test_drtmle_fit.py::TestBothUpdateOrdersReachTheTheoremsExit` pins the one-draw
+statement, including the control that the two are genuinely two routes.
 
 **Do not compare fluctuation coefficients across algorithms unless the submodels and the update
 order are identical.** R tilts each arm's mechanism in its own one-column `glm` where this package
@@ -670,7 +690,7 @@ than nothing at all, and one row that read **violated** now reads violated-and-m
 | arm-level means / ATE contrast | Thm 1 + adaptation | the reported parameters | rowwise difference of arm curves | `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` — the contrast's variance is the difference's, not the sum of the arms' | met; the adaptation is stated, not cited |
 | hard truncation of `ĝ` | **nowhere** | the implementation as written | applied, inconsistently | item 20 | **not covered by the source** — [§7](#7-truncation-is-not-in-the-theorems-algorithm) |
 | the mechanism correction's sign | Thm 1 | the variance | the appendices' orientation | [§4](#4-the-sign-discrepancy-item-21--resolved), `test_theorem_drtmle.py` | **met**; the §3.1 display disagrees and its own appendices contradict it — item 21, closed |
-| the update order | Thm 1's algorithm | nothing, if the fixed point is the same | different order | [§6](#6-the-recursive-algorithm-item-22) | **met under a stated restriction**: the paper's step 7 states its own exit as the three scores, so the order is not prescriptive; whether the fixed points coincide numerically is A1's, both orders run here — item 22 |
+| the update order | Thm 1's algorithm | nothing, if the fixed point is the same | different order | [§6](#6-the-recursive-algorithm-item-22) | **met under a stated restriction**: the paper's step 7 states its own exit as the three scores, so the order is not prescriptive; whether the fixed points coincide numerically is B2's, and both orders are now **runnable** here (`update_order=`), agreeing on `ψ` and differing by 2.3% in `se` on the one draw compared so far — item 22 |
 | fixed weights | **nowhere** | item 17's claim | weighted loss throughout | `test_remainder_drtmle.py` | met for a **fixed** weight; estimated weights not covered |
 | repeated sample splitting | **nowhere** | item 18's claim | mean over draws | `test_drtmle_fit.py` | met arithmetically; not covered by the source |
 | `K` arms | **nowhere** | piece D | binary only, refused by name | `reduced_mechanism_covariate` raises above two arms rather than generalising the tilt | **not covered by the source** — [§12](#12-multi-valued-treatment-and-the-simplex) |

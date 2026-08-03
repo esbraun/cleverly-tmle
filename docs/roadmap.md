@@ -259,12 +259,12 @@ why the most important item on the page has the highest number, and **23** was f
 B1a's own instrument on its first run and is now closed. The pieces are lettered so the two cannot
 be confused.
 
-### The work, in four pieces and seven pull requests
+### The work, in four pieces and eight pull requests
 
-A and B are each split into halves, so the four pieces are seven pull requests: **B1a**, **A1a**
-and **B1b** have landed, and **A1b**, **B2**, **C** and **D** are open. Small items are
-grouped where the *evidence* is shared — piece B2 is five items because one dispatch of the same
-sweep answers all of them — not where the subject matter merely rhymes; and the two splits are
+A and B are each split, so the four pieces are eight pull requests: **B1a**, **A1a**, **B1b** and
+**B2a** have landed, and **A1b**, **B2b**, **C** and **D** are open. Small items are
+grouped where the *evidence* is shared — B2 is five items because one dispatch of the same
+sweep answers all of them — not where the subject matter merely rhymes; and the three splits are
 that same rule applied to a piece rather than to an item.
 
 | PR | what it lands | new artefacts |
@@ -273,7 +273,8 @@ that same rule applied to a piece rather than to an item.
 | **A1a** — *landed* | items 1 and 21, and item 22's theoretical half: the theorem read, mapped, graded, the sign adjudicated, every object pinned to the test that derives it, and the decomposition pinned against a perturbation of the law. Item 22's *numerical* half — both orders on real data — went to B2, whose dispatch it shares | `tests/unit/test_influence_gateaux_drtmle.py`; `TestTheReportedVarianceIsTheorem1s`; closes out [`docs/drtmle-theorem-concordance.md`](drtmle-theorem-concordance.md) — its object table's `evidence` column, its assumption matrix, and §7's finding for B1b |
 | **A1b** | item 15: a construction satisfying the empirical-process conditions, and whether fold reuse is one | a proof for the pooled construction, or a nested reference estimator to measure it against; [the concordance's §8](drtmle-theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) |
 | **B1b** — *landed* | items 11 and 20: the targeting convention, chosen on theorem fidelity against a fitted prototype that eliminated two candidates by construction and separated the other two by measurement | `solve_bounded_mechanism`, called from the two `DRTMLE` sites, with the truncated array carried forward and `"bounds_pinned"` where no constrained root exists; `tests/unit/test_bounded_mechanism.py`; `CorrectionRow.margin` in place of B1a's now-vacuous clipped-row witness |
-| **B2** | items 12, 19 and item 22's numerical half, re-measures 4 and 6, decides the overlap policy | columns on `benchmarks/bench_drtmle.py`, the paper's update order run beside this one, a dispatch of `drtmle-convergence.yml` |
+| **B2a** — *landed* | the instrument the dispatch needs: the columns §4 asks for, the working paper's update order beside this one, and the comparison arms. Closes nothing on its own, which is why it is its own pull request rather than a first commit of B2 | `DRTMLE(update_order="paper")` and `ReductionSpec.order`; three tables on `benchmarks/bench_drtmle.py` in place of one; `--order`, `--reduced-learner` and `--truncation` arms with workflow inputs; `TestBothUpdateOrdersReachTheTheoremsExit` |
+| **B2b** | items 12, 19 and item 22's numerical half, re-measures 4 and 6, decides the overlap policy | a dispatch of `drtmle-convergence.yml`, and its tables in the investigation log |
 | **C** | items 3 and 13: the demonstration | `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, `docs/drtmle-coverage-study.md`, per-replicate results |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
@@ -290,16 +291,16 @@ rhymes* — applied to a piece rather than to an item.
 
 ```text
 B1a  identity + safety patch ─────────────────────┐   landed
-                                                  ├─> B2  sweep ──> C  demonstration
-A1a theorem concordance ──> B1b  targeting  ──────┘   all three landed
-                                 convention
+                                                  ├─> B2a ──> B2b ──> C  demonstration
+A1a theorem concordance ──> B1b  targeting  ──────┘  instrument  sweep
+                                 convention          landed      dispatch
 
 A1b cross-fitting construction   blocks nothing; gate 1 requires it
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Everything upstream of B2 has landed**, so what is left of the graph is B2, then C, with A1b and
-D outside it.
+**Everything upstream of B2b has landed**, so what is left of the graph is the dispatch, then C,
+with A1b and D outside it.
 
 **B1a first**, because every number B2 and C produce is read *through* the reported curve, and
 until it lands a share of every cell's fits report a curve the fit did not solve for. It is also
@@ -843,6 +844,15 @@ and 6, and decides the weak-overlap product policy.* One dispatch of `benchmarks
 produces the evidence for all of it, and it must run **after** B1a at the least: every conclusion
 it could draw today is read through a curve that a share of fits have wrong.
 
+**This piece split in two, and the reason is B1's rather than A1's.** B1 split because one half
+preceded the other and depended on it; so does this. "One dispatch" was written as though the
+script already recorded what [the validation plan's §4](drtmle-validation-plan.md#4-the-sweep-piece-b2)
+asks it to record, and it recorded three columns of the eleven — and item 22's numerical half asks
+for a comparison against an update order that **did not exist in this repository at all**. So the
+instrument is [B2a](#b2a--the-sweep-instrument), which has landed, and the dispatch and its reading
+are [B2b](#b2b--the-dispatch-and-what-it-decides). Nothing about the questions changed; what
+changed is that they are now answerable by a run.
+
 **Item 22's numerical half arrived here from A1a**, and the move is the grouping rule rather than
 a demotion. The theoretical half is closed — the paper prescribes a fixed point, not a route — and
 what is left is whether the paper's order and this one land on the same one *in practice*. That is
@@ -851,10 +861,87 @@ with a document audit. Add it as a column here, not as a study of its own, and r
 [A1a](#a1a--the-theoretical-audit)'s two cautions with it — both orders run in this repository,
 and **no comparison of fluctuation coefficients across algorithms**.
 
+###### B2a — the sweep instrument
+
+*Lands the columns, the second update order and the comparison arms; closes nothing on its own.*
+**Landed.** It is the half of B2 that had to precede the dispatch, and this section is what it
+shipped.
+
+**`DRTMLE(update_order="paper")`** is [the concordance's §6](drtmle-theorem-concordance.md#6-the-recursive-algorithm-item-22)
+recursion implemented beside this package's: equation (8), then `g_{r,1}` and `g_{r,2}` at the
+**once-updated** outcome regression, then equation (10), then `Q_r` at the **twice-updated** one,
+then equation (9). Four things about it are decisions rather than transcription.
+
+- **It shares the stopping rule, the stall test and the closing pass**, because the question is the
+  *route*. An arm of a comparison that also carried its own convergence criterion would answer
+  nothing about either.
+- **The two orders are one function with a branch**, not two implementations. `ReductionSpec.order`
+  carries the declaration, exactly as `guard` does, so `TMLE._solve_reduction` stays free of a
+  setting one subclass has and nothing is duplicated that could drift.
+- **Equation (8)'s score is restated before the exit test**, and this is the one place the paper's
+  order needs something this package's does not. Solved first, it is stale by the end of the round —
+  steps 4 and 6 move both the regression it fluctuated and the mechanism it divides by — so the
+  loop would otherwise stop on a number for a state that is gone. **Deleting that restatement was
+  run and 68 of the module's 69 tests still passed** — the exception being the call-site pin
+  written for it — because the closing pass re-solves all three equations and makes the *reported*
+  fit identical either way. That is item 12's shape in a second place, so the call site is pinned
+  structurally rather than through a fitted result.
+- **The default path is a regression surface and was measured as one**: 111 tests across
+  `test_drtmle_fit.py`, `test_influence_drtmle.py` and `test_bounded_mechanism.py` pass unchanged,
+  and the restatement is called from the one branch rather than from both.
+
+**The sweep now prints three tables** where it printed one — the exits as before, *Where weak
+overlap enters* (the clipped-row share, the margin, the smallest `g`, the per-arm effective `n`,
+and the 99th percentiles of all three clever covariates and of `Q_r`, `g_{r,1}` and `g_{r,2}`), and
+*What the reported curve rests on* (B1a's identity residual and `B_clip`, the standardised score
+`|P_n S_j|/sd̂(S_j)` reported **beside** the stopping rule rather than folded into it, the share of
+the worst score carried by its top 1%, 5% and 10% of rows, and the Hessian conditioning). Two
+column definitions had to change on contact with the code and [the validation
+plan](drtmle-validation-plan.md#4-the-sweep-piece-b2) carries both: the clipped-row share is read
+at the **initial** mechanism, since a converged bounded tilt clips nothing and a column read at the
+exit would be zero on every row — stop-ship 14's shape again; and equation (9) has no Hessian to
+report at all, because B1b made that solve a root find rather than a Newton step.
+
+**And one instruction in the plan could not be executed as written.** The oracle-reduction run was
+sized as costing nothing "because the datasets already know their truth". They know `Q̄₀` and `g₀`;
+they do not know the reductions, which are conditional expectations given **fitted** objects and so
+have no truth the process can supply. `--reduced-learner` is the substitute — vary the reduction's
+learner and see whether the failures move, which is the same question — and it is labelled as that
+rather than as an oracle. A genuine one is a construction, not a column, and it is recorded as owed
+rather than quietly dropped.
+
+**What the arms cost, since that decides what B2b dispatches.** Each refits every draw, so each
+roughly doubles the run; `--order paper` more than doubles it, having taken 22 rounds against 8 on
+the first draw the two were compared on. All three are off by default and are workflow inputs.
+
+**One number came out of the smoke runs that B2b should expect to have to explain.** On a 400-row
+`nonlinear` draw the two routes' `ate` differed by **0.22 of a standard error**, with both fits
+passing their score and identity checks; on the 600-row module fixture the same difference was
+`9e-03` of one and the *standard errors* differed by 2.3%. Neither is a defect and both are
+consistent with the theorem — step 7 constrains three empirical means, and two states satisfying
+them can differ — but "the two routes agree" is not what one draw showed, and the sweep should
+report `|Δψ|/se` **by size**: if both routes are asymptotically linear with the same curve, that
+number has to shrink with `n`, and it is a claim with a direction rather than a reassurance.
+
+###### B2b — the dispatch, and what it decides
+
+*Closes items 12, 19 and item 22's numerical half, re-measures items 4 and 6, and decides the
+weak-overlap product policy.* **Open, and it is a run rather than a patch.** Dispatch
+`.github/workflows/drtmle-convergence.yml`, read the tables out of the job log, and put them in
+[the investigation log](drtmle-investigation-log.md#how-the-alternation-exits) beside the first
+sweep's — which measured a criterion that has since changed and an implementation that has since
+been fixed, so it is a *record* rather than a baseline to reproduce.
+
+What it has to come back with, and the rest of this section is the reasoning for each: the exit
+distribution under the current rule; whether the closing cap still binds on 94 of 96; whether
+`weak-overlap`'s 23-of-24 score-check failures survive B1b; `|Δψ|/se` between the update orders and
+whether it shrinks with `n`; and the overlap columns that say *which* of the five places a
+surviving failure came from.
+
 **The diagnosis stays widened even though the cause is found.** `1/g` in equation (8) is one of
 *five* places weak overlap enters, and B1 accounts for the score failure without saying the other
 four are harmless. The five places, the columns the sweep must add — the clipped-row share first
-among them — the oracle-reduction run that separates a noisy reduction from a wrong equation, and
+among them — the run that separates a noisy reduction from a wrong equation, and
 the truncation-curve caveat are in [the validation
 plan](drtmle-validation-plan.md#4-the-sweep-piece-b2).
 
@@ -1133,10 +1220,15 @@ left is:
    this and no document left to wait for — so it was a design decision against a stated bar rather
    than a reading, taken against a fitted prototype rather than against the candidate table.
    [What it shipped](#what-b1b-landed).
-4. **B2**, on the corrected implementation, because poor overlap may be where the demonstration
-   has to happen and because the exit distribution under the current rule is uncharacterised.
-5. **C**, which is the point.
-6. **A1b**, anywhere: nothing waits on it and [gate 1](#c-the-demonstration) does not open
+4. ~~**B2a**~~ — landed. The dispatch could not measure what [the validation
+   plan's §4](drtmle-validation-plan.md#4-the-sweep-piece-b2) asks for until the script recorded
+   it, and item 22's numerical half asks for a comparison against an update order that did not
+   exist here. [What it shipped](#b2a--the-sweep-instrument).
+5. **B2b**, on the corrected implementation, because poor overlap may be where the demonstration
+   has to happen and because the exit distribution under the current rule is uncharacterised. It
+   is a dispatch and a reading rather than a patch.
+6. **C**, which is the point.
+7. **A1b**, anywhere: nothing waits on it and [gate 1](#c-the-demonstration) does not open
    without it. Ordered last because it blocks nothing, not because it matters least.
 
 **Item 23 was outside that order**, like **D**: a small fix with an oracle already in the
@@ -1173,7 +1265,13 @@ instrument is how this variant has gone wrong twice:
    used to say the numerical half was the parity piece's, which was never right — a second
    implementation reaching a third fixed point would have answered a different question — and
    then A1's, which was right about the subject and wrong about the evidence: it is a second
-   alternation over a sweep of draws, which is B2's dispatch and nothing A1a could share with;
+   alternation over a sweep of draws, which is B2's dispatch and nothing A1a could share with.
+   **The second alternation now exists** — `DRTMLE(update_order="paper")`, landed with
+   [B2a](#b2a--the-sweep-instrument) — so what is left of this item is
+   [B2b](#b2b--the-dispatch-and-what-it-decides) reading it over a sweep. The two draws run so far
+   agree on `psi` to `9e-03` of a standard error at `n = 600` and differ by `0.22` of one at
+   `n = 400`, both fits solving all three equations, which is a spread to explain rather than a
+   result;
 3. a stored score and the term the curve carries are not the same functional of the same state —
    this was item 20, the one that was true and unnoticed, and it is **closed**:
    [B1a](#b1a--the-identity-and-safety-patch) made it reported and
