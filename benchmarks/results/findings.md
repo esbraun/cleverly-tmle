@@ -27,16 +27,24 @@ favourable* denominator available (see §5).
 | kernel | serial | parallel (4 cores) | memory | decision |
 | --- | ---: | ---: | --- | --- |
 | `multiplier_bootstrap` | **2.4–2.5×** | **7.4–7.6×** | **427.6 MB → 1.6 MB per call** | **adopt numba parallel** |
-| `cluster_sums` | **5.4–10.6×** | **9.3–20.6×** | unchanged | **adopt numba** (parallel above ~10⁵ rows) |
-| `ltmle_backward_recursion` | **2.1–4.8×** | **8.2–16.1×** | unchanged | **adopt numba parallel** — *after* the mask fix |
-| `survival_incidence` | **3.7×** | **10.2×** | unchanged | **adopt numba parallel** |
-| `one_step_walk` | **2.8×** | **4.1–5.7×** | fewer temporaries | **fix the algorithm, then adopt** |
-| `ctmle_candidate_scores` | 2.6× | 9.7× | unchanged | **defer** — 11 ms of a 190 s fit |
-| `msm_gram` *(control)* | **3.1–3.4×** | n/a | unchanged | **control that turned positive; see §3** |
-| `fused_influence_curves` | 1.1–2.8× | 1.6–4.1× | unchanged | **retain numpy** — the share is a tenth of a tenth |
-| `drtmle_reduction_rounds` | 0.93–1.04× | 1.6–1.9× | unchanged | **retain numpy** |
-| `newton_targeting` *(control)* | 1.2–1.4× | n/a | unchanged | **retain numpy**, as expected |
-| `cvtmle_fold_targeting` | 1.5–4.1× | **3.2–14.3×** | unchanged | **adopt numba parallel over folds** |
+| `cluster_sums` | **5.5–10.2×** | **9.5–20.7×** | 1.22× (a hash table where numpy sorts) | **adopt numba** (parallel above ~10⁵ rows) |
+| `ltmle_backward_recursion` | **2.1–4.7×** | **7.9–15.2×** | 0.61× | **adopt numba parallel** — *after* the mask fix |
+| `survival_incidence` | **3.4×** | **9.5×** | 0.87× | **adopt numba parallel** |
+| `one_step_walk` | **2.6–3.0×** | **3.8–4.1×** | 0.50× | **fix the algorithm, then adopt** |
+| `ctmle_candidate_scores` | 2.5× | 9.2× | 0.37× | **defer** — 11 ms of a 199 s fit |
+| `msm_gram` *(control)* | **2.9–3.2×** | n/a | **~0** (no intermediates) | **control that turned positive; see §3** |
+| `fused_influence_curves` | 1.3–3.0× | 2.6–4.8× | **2.00×** (a dense `(7, n)` output) | **retain numpy** — the share is a tenth of a tenth |
+| `drtmle_reduction_rounds` | 0.97–1.00× | 1.8–1.9× | 0.31× | **retain numpy** — §6 is where its time is |
+| `newton_targeting` *(control)* | 1.1–1.4× | n/a | ~0 | **retain numpy**, as expected |
+| `cvtmle_fold_targeting` | 1.4–3.9× | **2.8–13.4×** | 0.25–0.50× | **adopt numba parallel over folds** |
+
+**These verdicts are not always `latest/summary.md`'s, and the difference is deliberate.**
+That file is generated: it applies the plan's continuation bars (1.25× serial, 1.5× parallel,
+25% memory) to each kernel's own ratios and nothing else. This table multiplies by §5's
+share first. So `drtmle_reduction_rounds` clears the parallel bar mechanically and is
+retained here anyway, because 1.9× of an arithmetic step that is a minority of a `retarget`
+whose majority is a context manager is not worth a dependency. Where the two disagree, the
+generated file is the measurement and this one is the judgement.
 
 And the one that is not a compilation question at all:
 
@@ -61,8 +69,13 @@ A fused kernel never forms it. Each row draws its bit and is added to or subtrac
 
 | n | numpy | numba | numba, 4 threads |
 | ---: | ---: | ---: | ---: |
-| 10,000 | 53.1 ms | 21.0 ms (2.5×) | 7.2 ms (7.4×) |
-| 100,000 | 448.6 ms | 184.6 ms (2.4×) | 59.0 ms (7.6×) |
+| 10,000 | 53.1 ms | 19.8 ms (2.7×) | 7.1 ms (7.4×) |
+| 100,000 | 448.6 ms | 174.5 ms (2.6×) | 51.1 ms (8.8×) |
+
+(These are the second of two independent sweeps; the first read 2.5× and 7.6× at
+`n = 100,000`. The two agree to within the run-to-run spread of a shared four-core box,
+which is itself worth knowing — a ratio quoted to two figures here is not a ratio to two
+figures.)
 
 **Blocking is the whole difference and is worth naming**, because the obvious version of
 this kernel *loses*. One replicate at a time reads the whole `(n, m)` array once per
@@ -313,6 +326,48 @@ to hold. The projection is still ~1% of a fit, so this is not an adoption recomm
 it is a correction to the inventory's reasoning, and a note that the identity-link closed
 form's bit-for-bit regression pin (`test_the_identity_link_is_the_closed_form_bit_for_bit`)
 would have to be reckoned with before anything moved.
+
+---
+
+## 3.2 Memory, across the whole suite
+
+Per-call Python-level allocation, best compiled implementation against the shipped numpy
+path. The bootstrap is the outlier and the rest are not uniform, which is the point of
+reporting the column rather than one row of it.
+
+| kernel | n | numpy | best numba | ratio |
+| --- | ---: | ---: | ---: | ---: |
+| `multiplier_bootstrap` | 100,000 | 427.55 MB | 1.62 MB | **0.004×** |
+| `msm_gram` | 100,000 | 25.61 MB | ~0 | **0.00×** |
+| `newton_targeting` | 100,000 | 4.00 MB | ~0 | **0.00×** |
+| `cvtmle_fold_targeting` | 100,000 | 9.66 MB | 2.40 MB | 0.25× |
+| `drtmle_reduction_rounds` | 100,000 | 10.41 MB | 3.20 MB | 0.31× |
+| `ctmle_candidate_scores` | 50,000 | 3.26 MB | 1.20 MB | 0.37× |
+| `one_step_walk` | 100,000 | 9.61 MB | 4.80 MB | 0.50× |
+| `ltmle_backward_recursion` | 100,000 | 33.42 MB | 20.50 MB | 0.61× |
+| `survival_incidence` | 20,000 | 11.33 MB | 9.80 MB | 0.87× |
+| `cluster_sums` | 100,000 | 4.11 MB | 4.99 MB | **1.22×** |
+| `fused_influence_curves` | 100,000 | 3.20 MB | 6.40 MB | **2.00×** |
+
+Three groups, and the third is the one a reader should not miss.
+
+**Allocation falls where the numpy path materialises intermediates it consumes once** — the
+bootstrap's multiplier matrix, the Gram contraction's einsum intermediates, the walk's
+per-step arrays. `newton_targeting` and `msm_gram` reaching ~0 is the fused loop
+accumulating into a `(p, p)` scratch and nothing else; that is real, and it is also the two
+kernels whose *time* is a wash or does not matter.
+
+**Allocation is unchanged where the output dominates** — the recursions carry a targeted
+prediction per node per regimen either way.
+
+**Allocation goes up in two kernels, and both are honest costs rather than defects.**
+`cluster_sums`'s hash table is `2n` int64 slots where `np.unique` sorts in place, so the
+compiled kernel trades 1.2× the memory for 5–10× the speed. `fused_influence_curves`
+allocates a dense `(7, n)` output where the numpy path builds only the estimands asked for
+— at seven estimands that is 2×, and it is the fusion's own design: computing every curve
+in one traversal means allocating every curve. Neither is a reason to reject the kernel;
+both are reasons the column is reported per kernel and not summarised into a claim that
+compiled code allocates less.
 
 ---
 
