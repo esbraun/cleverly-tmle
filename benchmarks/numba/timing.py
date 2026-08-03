@@ -25,6 +25,7 @@ import gc
 import random
 import statistics
 import time
+import tracemalloc
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -38,6 +39,7 @@ __all__ = [
     "break_even_calls",
     "measure",
     "measure_amortised",
+    "peak_allocation",
     "shuffled",
     "speedup_interval",
 ]
@@ -55,6 +57,14 @@ class Measurement:
     cpu_seconds: float
     peak_rss_bytes: int
     rss_delta_bytes: int
+    #: Largest Python-level allocation held at any moment during one *untimed* call, from
+    #: :mod:`tracemalloc`.  This is the memory number that means something here: peak RSS
+    #: is a process high-water mark that never falls, so once the interpreter has touched
+    #: a page it counts forever and every implementation after the first reads zero.  What
+    #: a caller wants to know is what *this call* allocates -- the multiplier bootstrap's
+    #: ``(chunk, n)`` array against a fused kernel's ``block x m`` accumulator -- and that
+    #: is a per-call peak, not a process one.
+    peak_alloc_bytes: int = 0
 
     @property
     def median(self) -> float:
@@ -102,6 +112,7 @@ def measure(
     min_total_seconds: float = 0.0,
     max_repeats: int = 10_000,
     cold: Callable[[], Any] | None = None,
+    measure_memory: bool = True,
 ) -> Measurement:
     """Time ``call``, warm, with the statistics this package reports.
 
@@ -118,6 +129,10 @@ def measure(
         much.  A kernel that runs in 40 microseconds needs hundreds of repetitions before
         the clock's own resolution stops dominating; one that runs in four seconds needs
         none.  This is what lets one setting serve both.
+    measure_memory:
+        Take a :mod:`tracemalloc` pass after the timed region.  On by default; it costs
+        one extra call and roughly doubles that call's runtime, which is why it is one
+        call and not part of the loop.
     cold:
         Called *once, first*, and timed separately.  Pass a callable that forces a fresh
         compilation (a freshly built kernel, cache disabled) to get a compile time; pass
@@ -163,7 +178,32 @@ def measure(
         cpu_seconds=cpu_used / max(1, len(samples)),
         peak_rss_bytes=rss_after,
         rss_delta_bytes=max(0, rss_after - rss_before),
+        peak_alloc_bytes=peak_allocation(call) if measure_memory else 0,
     )
+
+
+def peak_allocation(call: Callable[[], Any]) -> int:
+    """Largest Python-level allocation held at once during one call to ``call``.
+
+    Taken **outside** the timed region and in its own call, because
+    :mod:`tracemalloc` traces every allocation and roughly doubles the runtime of an
+    allocation-heavy kernel.  Timing under it would measure the tracer.
+
+    It sees numpy arrays -- numpy allocates through the CPython allocator hooks
+    ``tracemalloc`` installs -- which is what makes it the right instrument for the
+    question this package asks about memory.  It does *not* see allocations a compiled
+    kernel makes on numba's own side of the boundary, so a ``prange`` kernel's per-thread
+    scratch is invisible here and has to be reasoned about from the code; where that
+    matters (the thread-local cluster accumulator) the kernel's docstring says so.
+    """
+    gc.collect()
+    tracemalloc.start()
+    try:
+        call()
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return int(peak)
 
 
 def measure_amortised(

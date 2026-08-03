@@ -51,6 +51,10 @@ class Row:
     cpu_seconds: float
     peak_rss_bytes: int
     rss_delta_bytes: int
+    #: Per-call peak Python-level allocation. The memory column reports *this*, not
+    #: `peak_rss_bytes`: a process high-water mark never falls, so after the first
+    #: implementation has touched the pages every later one reads a delta of zero.
+    peak_alloc_bytes: int
     correct: bool
     max_abs_error: float
     max_rel_error: float
@@ -212,7 +216,9 @@ def summarise(rows: Sequence[Row], environment: Any) -> str:
         if not scaling:
             continue
         lines.append(f"\n### `{name}` -- {label}\n")
-        lines.append("| implementation | cores | seconds | speed-up | efficiency | peak RSS (MB) |")
+        lines.append(
+            "| implementation | cores | seconds | speed-up | efficiency | alloc/call (MB) |"
+        )
         lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
         lines.extend(scaling)
 
@@ -347,12 +353,22 @@ def _verdict(group: Sequence[Row]) -> dict[str, str]:
             "decision": "not measured",
         }
     best = min(usable, key=lambda row: row.warm_seconds)
+    # By *implementation*, not by the thread count it happened to run at. A `prange`
+    # kernel pinned to one thread is running serially, but crediting its ratio to the
+    # "serial" column would answer "what does compilation alone buy" with a number taken
+    # from the parallel kernel -- which is a different kernel, with a different loop.
     serial_rows = [
         row
         for row in usable
-        if row.numba_threads == 1 and row.workers == 1 and row.implementation != "numpy"
+        if "parallel" not in row.implementation
+        and row.implementation not in ("numpy", "numpy_threads", "numpy_threaded_blas")
     ]
-    parallel_rows = [row for row in usable if row.numba_threads > 1 or row.workers > 1]
+    parallel_rows = [
+        row
+        for row in usable
+        if ("parallel" in row.implementation or row.implementation == "numpy_threads")
+        and (row.numba_threads > 1 or row.workers > 1)
+    ]
     serial_gain = (
         max(reference.warm_seconds / row.warm_seconds for row in serial_rows)
         if serial_rows
@@ -363,9 +379,10 @@ def _verdict(group: Sequence[Row]) -> dict[str, str]:
         if parallel_rows
         else float("nan")
     )
+    # Per-call allocation, not process RSS: see `Row.peak_alloc_bytes`.
     memory_ratio = (
-        min(row.rss_delta_bytes for row in usable) / reference.rss_delta_bytes
-        if reference.rss_delta_bytes
+        min(row.peak_alloc_bytes for row in usable) / reference.peak_alloc_bytes
+        if reference.peak_alloc_bytes
         else float("nan")
     )
 
@@ -391,6 +408,7 @@ def _verdict(group: Sequence[Row]) -> dict[str, str]:
     if best.implementation.startswith("numpy") and best.implementation not in (
         "numpy",
         "numpy_threads",
+        "numpy_threaded_blas",
     ):
         decision = f"improve numpy instead ({best.implementation})"
     return {
@@ -416,7 +434,7 @@ def _algorithmic_headroom(group: Sequence[Row]) -> tuple[str | None, float]:
         row
         for row in group
         if row.implementation.startswith("numpy")
-        and row.implementation not in ("numpy", "numpy_threads")
+        and row.implementation not in ("numpy", "numpy_threads", "numpy_threaded_blas")
         and row.correct
         and not row.skipped_reason
     ]
@@ -450,6 +468,6 @@ def _scaling_table(group: Sequence[Row]) -> list[str]:
             lines.append(
                 f"| {name} | {row.num_cores_requested} | {row.warm_seconds:.4f} | "
                 f"{speedup:.2f}x | {speedup / row.num_cores_requested:.2f} | "
-                f"{row.peak_rss_bytes / 1e6:.0f}{flag} |"
+                f"{row.peak_alloc_bytes / 1e6:.2f}{flag} |"
             )
     return lines

@@ -26,7 +26,7 @@ favourable* denominator available (see §4).
 
 | kernel | serial | parallel (4 cores) | memory | decision |
 | --- | ---: | ---: | --- | --- |
-| `multiplier_bootstrap` | **2.4–2.5×** | **7.4–7.6×** | never forms the `(chunk, n)` array | **adopt numba parallel** |
+| `multiplier_bootstrap` | **2.4–2.5×** | **7.4–7.6×** | **427.6 MB → 1.6 MB per call** | **adopt numba parallel** |
 | `cluster_sums` | **5.4–10.6×** | **9.3–20.6×** | unchanged | **adopt numba** (parallel above ~10⁵ rows) |
 | `ltmle_backward_recursion` | **2.1–4.8×** | **8.2–16.1×** | unchanged | **adopt numba parallel** — *after* the mask fix |
 | `survival_incidence` | **3.7×** | **10.2×** | unchanged | **adopt numba parallel** |
@@ -71,10 +71,25 @@ against numpy's 393. Accumulating 64 replicates per pass reuses each loaded row 
 and takes it to 188 ms. That is a blocked `dgemm`, done where the sign draw can be fused
 into it.
 
-**The memory argument is separate and may matter more than the speed.** The roadmap names
-this array as one of two allocations that break before any arithmetic does — ≈9.5 GB at
-`n = 5,000,000`. The fused kernel's working set is `block × m` doubles: **32 KB, at any
-`n`.**
+**The memory argument is separate and may matter more than the speed.** Measured per call
+with `tracemalloc` at `n = 100,000`, `B = 500`:
+
+| implementation | allocated per call |
+| --- | ---: |
+| numpy (the shipped path) | **427.6 MB** |
+| numba, serial or parallel | **1.6 MB** |
+
+A **264× reduction**, and it does not grow with `n`: the fused kernel's working set is
+`block × m` doubles — 32 KB — and the 1.6 MB is the statistics array and the resampled
+standard error the correctness gate needs, neither of which the kernel is responsible for.
+The roadmap already names the numpy array as one of two allocations that break before any
+arithmetic does, at ≈9.5 GB at `n = 5,000,000`. This is the one result here that changes
+what the package *can* do rather than how fast it does it.
+
+(Process peak RSS is not the instrument for this and the harness does not use it: it is a
+high-water mark that never falls, so once the first implementation has touched the pages
+every later one reads a delta of zero. The numbers above are per-call Python-level
+allocation, taken in an untimed pass.)
 
 **Reproducibility is by construction, not by luck.** The draw is a splitmix64 hash of
 `(seed, replicate index)`, so a replicate's multipliers do not depend on which thread ran

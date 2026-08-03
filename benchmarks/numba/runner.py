@@ -198,6 +198,7 @@ def _run_one(
                 repeats=config.repeats,
                 min_total_seconds=config.min_total_seconds,
                 cold=None,
+                measure_memory=config.memory,
             )
             output = call()
             amortised = measure_amortised(call) if config.amortise and spec.amortise else {}
@@ -282,6 +283,7 @@ def _skipped(spec, name, size, cores, plan, dimensions, environment, reason) -> 
         cpu_seconds=float("nan"),
         peak_rss_bytes=0,
         rss_delta_bytes=0,
+        peak_alloc_bytes=0,
         correct=False,
         max_abs_error=float("nan"),
         max_rel_error=float("nan"),
@@ -312,6 +314,7 @@ def _row(
         cpu_seconds=measurement.cpu_seconds,
         peak_rss_bytes=measurement.peak_rss_bytes,
         rss_delta_bytes=measurement.rss_delta_bytes,
+        peak_alloc_bytes=measurement.peak_alloc_bytes,
         cold_compile_seconds=measurement.cold_seconds,
         correct=bool(verdict) if verdict is not None else True,
         max_abs_error=verdict.max_abs_error if verdict else 0.0,
