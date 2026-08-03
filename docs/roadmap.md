@@ -1751,6 +1751,14 @@ page because a plan is not a history. In one line each:
 
 ## On native acceleration
 
+**The instrument had stopped running, and this section was folklore until it was fixed.**
+`benchmarks/bench_tmle.py:102` built an `InitialFit` positionally, as `(observed, at_one, at_zero)`;
+that dataclass has taken two fields — `observed` and an `arms` dict — since counterfactual
+quantities were keyed by arm. `bench_targeting` is the first section `main()` evaluates, so
+`python benchmarks/bench_tmle.py` and `nox -s bench` both died on a `TypeError` before timing
+anything. Every number below the profile table dates from before that, and could not be
+reproduced by anyone who tried. It runs again, and the re-measurement is at the end.
+
 A Rust extension for the numerical kernels was planned. `benchmarks/bench_tmle.py` says it is not
 worth building. Profiling a full fit by module (`cProfile`, total time):
 
@@ -1801,7 +1809,100 @@ are a natural fit for a native extension — R's `hal9001` ships a C++ backend f
 EP-learner benefits *through* HAL rather than on its own; its other cost is targeting a
 *k*-dimensional score with *k* = basis size, which is BLAS-bound and already fine. Longitudinal
 and survival TMLE are weaker cases: the loop over timepoints is Python, but each body is a
-nuisance fit, so they stay scikit-learn-bound. That remains a prediction rather than a measurement
-— `benchmarks/bench_tmle.py` has no `LTMLE` case, so profile one before acting on it.
+nuisance fit, so they stay scikit-learn-bound.
 
-The measurement is reproducible — rerun the benchmark before revisiting this.
+### The re-measurement, and what numba answers
+
+`bench_tmle.py` now covers the kernels that grew since it was written, and the longitudinal
+prediction above is a measurement rather than a prediction. Shares of one full fit, n=2,000,
+four cores:
+
+| | `library="glm"` | `library="default"` |
+| --- | --- | --- |
+| full fit | 0.354 s | 8.28 s |
+| targeting (Newton) | 0.31% | 0.01% |
+| the whole dataframe boundary, every backend in and out | 1.51% | 0.06% |
+| an `LTMLE` fit's four node fluctuations, as a share of that fit | 0.22% | 0.01% |
+
+Three conclusions, and the middle one answers a question that used to be settled by assertion.
+
+- **numba buys nothing, at any size.** The targeting Newton is the most favourable kernel in the
+  package for a compiler — neither BLAS-bound nor scikit-learn-bound, just `(n, K)` passes and
+  per-trial temporaries — and a hand-fused `njit` version of its loop and line search agrees with
+  numpy to `2.8e-17` and runs **1.2× faster at n=2,000**. That speed-up is per-*call* overhead
+  and does not grow: measured directly, the ratio is 1.07× at n=2,000, 0.67× at n=20,000, 1.02×
+  at n=200,000 and 1.05× at n=2,000,000 — a wash, on top of a 4-second one-off compile. Which is
+  the expected answer once stated: the numpy loop is already `x @ eps`, `x.T @ (…)` and a
+  vectorised `exp`, so its inner work *is* compiled BLAS and SIMD, and a scalar loop has nothing
+  left to remove. A compiler pays where the interpreter is in the inner loop, and here it is not.
+  The arm lives in the benchmark (`--skip numba` to leave it out, `pip install -e '.[bench]'` to
+  include it) so the next person to ask gets a number instead of an argument. Nothing under
+  `src/` imports numba.
+- **The dataframe boundary is not a bottleneck, so the internals stay numpy.** Ingestion and
+  emission across pandas, polars and arrow-backed pandas together are 1.5% of the cheapest fit
+  and 0.06% of a realistic one — and, per the next section, **1.5% and 0.04% asymptotically**,
+  so this is not a small-*n* artefact. There is no share here for a columnar engine to win, and
+  scikit-learn takes contiguous numpy regardless: the internals are numpy because that is what
+  the arithmetic and the estimators both want, not by omission. Worth stating in those terms
+  because "use polars internally, it is faster" is a reasonable thing to assume and wrong for
+  this shape of work — polars wins at joins, group-bys and IO, none of which is on this path.
+- **Longitudinal TMLE is scikit-learn-bound, as predicted.** Its node fluctuations are 0.22% of
+  a `glm` fit. The loop over timepoints is Python and each body is a nuisance fit.
+
+### At several million rows
+
+A share measured at n=2,000 does not transfer, and not for the reason one might guess. A full fit
+carries a few hundred milliseconds of fold setup that a kernel timed on its own does not, so at
+small *n* **every kernel looks cheaper than it asymptotically is**. `bench_tmle.py` therefore fits
+`seconds ≈ fixed + per_row · n` per kernel and reports `per_row` as a share of the fit's — the
+limit each share tends to. (Fitting a plain power law instead is a trap worth naming: it charges
+the per-call overhead to the exponent, which then reads `n^0.18` for a full `glm` fit and, worse,
+inverts the numba comparison outright.) Nothing is run at these sizes; `--project` sets them.
+
+Per-row costs, fitted over n = 2,000…100,000, as a share of one fit's per-row cost:
+
+| kernel | share of a `glm` fit | share of a `default` fit |
+| --- | --- | --- |
+| `solve_one_step` (the universal least-favourable walk) | **82%** | 2.2% |
+| multiplier bootstrap, `kind="rademacher"` | 17% | 0.46% |
+| `solve_projection`, identity link | 17% | 0.44% |
+| gram einsum at `optimize=False` | 9.1% | 0.24% |
+| targeting (Newton) | 7.4% | 0.20% |
+| the whole dataframe boundary | 1.5% | 0.04% |
+| multiplier bootstrap, `kind="normal"` | 0.69% | 0.02% |
+
+A `default` fit costs **37×** more per row than a `glm` one, which is the whole of the difference
+between those two columns. So the verdict holds where it matters: with a real learner library
+nothing cleverly-authored reaches 3% of a fit even at five million rows.
+
+**The one scenario that inverts, and it is not fixed with a compiler.** `library="glm"` at
+millions of rows is a legitimate production choice, and there `solve_one_step` asymptotically
+*dominates the fit* — 82%, against 7.4% for the Newton solver that answers the same question. The
+gap is algorithmic: the one-step walk takes up to 20,000 Python iterations, each doing a full
+multi-arm `apply_logistic` and `score_columns`. Anyone hitting that should reach for
+`targeting="newton"` first, which is 11× cheaper per row and already the default. Likewise
+`multiplier_kind="normal"` is 25× cheaper per row than the resampling default and its closed form
+never allocates — though `"rademacher"` stays the default for the reason above: `"normal"` cannot
+see the leverage a `1/g(W)` covariate produces under weak overlap.
+
+**And time is not what breaks first.** Two allocations grow faster than `n`: the multiplier
+bootstrap's `(256, n)` chunk and the conditional-density learner's `≈ n·bins/2` long design. At
+n=5,000,000 each is around **9.5 GB**. That is the binding constraint on this library at scale, it
+arrives well before any arithmetic does, and no amount of native code addresses it — `kind="normal"`
+avoids the first by never forming the array at all.
+
+One change came out of it. `np.einsum` defaults to `optimize=False`, which for three or more
+operands means numpy's own nested-loop kernel rather than a pairwise contraction through BLAS —
+so the four-operand Jacobian term in the MSM projection, `"ijp,ijq,ij,i->pq"`, was **14× slower
+than the same arithmetic reshaped into one `dgemm`**. `_projection_state` now passes
+`optimize=True`; it runs once per Newton step *and* once per line-search trial under a
+non-identity link. The identity-link closed form in `solve_projection` deliberately keeps the
+unoptimised spelling: reassociating moves the last bits, which turned
+`test_the_identity_link_is_the_closed_form_bit_for_bit` red, and the whole projection is around
+1% of a fit — a fraction of a fraction, against a regression pin. Do not "finish the job" there.
+
+**HAL remains the trigger**, unchanged and untouched by any of this.
+
+The measurements are reproducible — rerun the benchmark before revisiting this, with
+`--library default`, since `glm` is the cheapest preset available and inflates every other line's
+share several-fold.

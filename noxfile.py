@@ -55,7 +55,14 @@ def slow(session: nox.Session) -> None:
 
 @nox.session
 def bench(session: nox.Session) -> None:
-    session.install("-e", ".[all]")
+    """Where the time goes, and whether a compiled kernel would change that.
+
+    ``.[bench]`` rather than ``.[all]``: it adds ``numba``, which the *Compiled kernels*
+    section times a jitted Newton loop against numpy with.  The section prints a note and
+    skips itself when numba is absent, so this still runs without it -- but then it
+    answers one fewer question than it claims to.
+    """
+    session.install("-e", ".[bench]")
     session.run("python", "benchmarks/bench_tmle.py", *session.posargs)
 
 

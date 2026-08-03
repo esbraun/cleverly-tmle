@@ -223,7 +223,9 @@ class RegimenMSM:
         matrix the estimate inverts is built inside :func:`cleverly.msm.solve_projection`
         and carries the observation weights and, under a link, a curvature term.
         """
-        return np.einsum("ikp,ikq,ik->pq", self.design, self.design, self.weights) / max(self.n, 1)
+        return np.einsum(
+            "ikp,ikq,ik->pq", self.design, self.design, self.weights, optimize=True
+        ) / max(self.n, 1)
 
     def weighted_design_at(self, beta: FloatArray | None) -> FloatArray:
         r""":math:`h\,(dm/d\eta)\,\varphi`, the ``(n, C, p)`` numerator of the covariate.

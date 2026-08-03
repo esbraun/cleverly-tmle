@@ -21,6 +21,12 @@ or on a developer machine with cores to spare.
 pytest -m "not slow" -q        # the only tier to run in the sandbox
 ```
 
+**`benchmarks/bench_tmle.py` is fine here at a reduced size, and is the one to reach for.**
+Its defaults are `--library default` end-to-end fits up to n=20,000, which is too much for this
+box; `--library glm --sizes 2000 --skip ltmle` is seconds, and `--library default --sizes 2000`
+is a couple of minutes and is the run whose numbers belong in a document. Never quote a `glm`
+share as a verdict — it is the cheapest preset available and inflates every other line several-fold.
+
 **`benchmarks/bench_drtmle.py` is the same kind of thing without the marker to say so.**
 It is not a test, so no selection excludes it, and at its defaults it is ~96 `DRTMLE` fits
 of tens of seconds each — measured at 57s per fit on 400 rows here. Dispatch
