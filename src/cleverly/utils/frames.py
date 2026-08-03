@@ -19,6 +19,7 @@ __all__ = [
     "as_frame",
     "available_backends",
     "column_array",
+    "emit_frame",
     "frame_from_dict",
     "is_dataframe",
     "matrix_from_columns",
@@ -102,6 +103,25 @@ def frame_from_dict(
         for key, value in data.items()
     }
     return nw.from_dict(payload, backend=namespace).to_native()
+
+
+def emit_frame(payload: Mapping[str, Any], data: Any = None) -> Any:
+    """A result table, in the backend the fit's data arrived in where there is one.
+
+    The tail every ``to_frame(data=None)`` in the package ends with.  ``data`` is a
+    container carrying a ``frame_like`` -- a :class:`~cleverly.data.CausalData` or a
+    :class:`~cleverly.longitudinal.LongitudinalData` -- and passing it is what makes
+    "pandas in, pandas out" hold for a diagnostic as well as for an estimate.  Without
+    one the default backend is used, which is the right answer for a report built from
+    arrays rather than from a fit.
+
+    The ``hasattr`` is deliberate rather than defensive: several of these methods are
+    reachable with a plain result object in ``data``, and one of the seven call sites
+    this replaces already guarded for it while the other six would have raised.
+    """
+    if data is not None and hasattr(data, "frame_like"):
+        return data.frame_like(payload)
+    return frame_from_dict(payload)
 
 
 def column_array(frame: nw.DataFrame[Any], name: str, *, dtype: Any = float) -> FloatArray:

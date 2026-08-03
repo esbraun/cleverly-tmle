@@ -75,7 +75,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..estimators.base import format_table
+from ..utils.frames import emit_frame
+from ..utils.text import format_table
 from .drtmle import CorrectionCheck, correction_check
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -180,8 +181,6 @@ class ScoreCheck:
         return tuple(row for row in self.rows if not row.passed)
 
     def to_frame(self, data: Any = None) -> Any:
-        from ..utils.frames import frame_from_dict
-
         payload = {
             "name": [row.name for row in self.rows],
             "kind": [row.kind for row in self.rows],
@@ -192,9 +191,7 @@ class ScoreCheck:
             "n_iter": [row.n_iter for row in self.rows],
             "method": [row.method for row in self.rows],
         }
-        if data is not None:
-            return data.frame_like(payload)
-        return frame_from_dict(payload)
+        return emit_frame(payload, data)
 
     def one_line(self) -> str:
         """The verdict as a block a report can append, without the table.

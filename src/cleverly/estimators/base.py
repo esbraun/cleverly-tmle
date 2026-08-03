@@ -26,6 +26,7 @@ from ..inference.multiplier import SimultaneousBands
 from ..learners.crossfit import CrossFitPlan
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
+from ..utils.text import format_pvalue, format_table
 from ._nuisance import NuisanceEstimates, RepeatFit
 from .direct_effect import describe as describe_direct_effect
 from .targeting import TargetingSpec
@@ -43,7 +44,6 @@ __all__ = [
     "TMLEConfig",
     "TMLEResult",
     "TMLEResultSet",
-    "format_table",
     "resolve_estimands",
 ]
 
@@ -764,7 +764,7 @@ class TMLEResult:
                     f"{estimate.psi:.5g}",
                     f"{estimate.std_error:.4g}",
                     f"[{low:.5g}, {high:.5g}]",
-                    _format_pvalue(estimate.pvalue),
+                    format_pvalue(estimate.pvalue),
                 ]
             )
         table = format_table(["estimand", "psi", "std_err", f"{level} CI", "p_value"], rows)
@@ -973,33 +973,6 @@ def _arm_shares(data: CausalData) -> str:
 
     shares = [f"{data.arm_label(arm)}={share(arm):.3g}" for arm in data.arm_codes]
     return f"arm shares: {', '.join(shares)}"
-
-
-def format_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
-    """Render a fixed-width table without pulling in a dataframe dependency."""
-    columns: list[Sequence[str]] = (
-        list(zip(*([list(headers)] + [list(row) for row in rows]), strict=True))
-        if rows
-        else [[header] for header in headers]
-    )
-    widths = [max(len(str(cell)) for cell in column) for column in columns]
-    lines = [
-        "  ".join(str(header).ljust(width) for header, width in zip(headers, widths, strict=True)),
-        "  ".join("-" * width for width in widths),
-    ]
-    for row in rows:
-        lines.append(
-            "  ".join(str(cell).ljust(width) for cell, width in zip(row, widths, strict=True))
-        )
-    return "\n".join(lines)
-
-
-def _format_pvalue(pvalue: float) -> str:
-    if not np.isfinite(pvalue):
-        return "nan"
-    if pvalue < 1e-4:
-        return "<1e-4"
-    return f"{pvalue:.4f}"
 
 
 def attach_bootstrap(result: TMLEResult, bootstrap: BootstrapResult) -> TMLEResult:

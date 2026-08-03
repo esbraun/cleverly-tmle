@@ -87,6 +87,7 @@ import numpy as np
 
 from .._typing import FloatArray
 from ..data.causal_data import CausalData
+from ..data.weighting import effective_sample_size
 from ..exceptions import DataError
 
 __all__ = ["IPSISet", "Incremental", "IncrementalSupport", "check_incremental_support"]
@@ -414,8 +415,7 @@ def check_incremental_support(
     for index, name in enumerate(tilts.names):
         delta = tilts.deltas[index]
         column = observed[:, index]
-        total = float(column.sum())
-        ess = float(total**2 / np.sum(column**2)) if np.any(column > 0) else 0.0
+        ess = effective_sample_size(column, on_degenerate=0.0)
         out[name] = IncrementalSupport(
             name=name,
             delta=delta,

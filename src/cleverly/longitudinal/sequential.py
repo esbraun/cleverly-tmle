@@ -88,6 +88,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, Learner
+from ..data.weighting import effective_sample_size
 from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import LongitudinalError
 from ..fluctuation.iterative import Fluctuation, InitialFit, solve_fluctuation
@@ -293,11 +294,7 @@ class RegimenFit:
         :math:`w / \\prod g` is taken into account.  A number far below ``n`` says the
         regimen is supported by few units, whatever the reported standard error.
         """
-        weights = self.leverage
-        total = float(np.sum(weights))
-        if total <= 0:
-            return 0.0
-        return float(total**2 / np.sum(weights**2))
+        return effective_sample_size(self.leverage, on_degenerate=0.0)
 
     @property
     def converged(self) -> bool:

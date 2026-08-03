@@ -52,11 +52,11 @@ import numpy as np
 from scipy import optimize, stats
 
 from .._typing import FloatArray
-from ..estimators.base import format_table
 from ..estimators.targeting import build_submodel
 from ..inference.cluster import influence_variance
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
+from ..utils.text import format_table
 from ._parameters import ArmParameter, arm_parameters
 
 if TYPE_CHECKING:  # pragma: no cover - typing only

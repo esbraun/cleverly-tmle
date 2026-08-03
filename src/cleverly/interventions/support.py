@@ -28,6 +28,9 @@ from typing import Any
 import numpy as np
 
 from .._typing import FloatArray
+from ..data.weighting import effective_sample_size
+from ..utils.frames import emit_frame
+from ..utils.text import format_table
 from .base import RegimeSet
 
 __all__ = ["RegimeSupport", "SupportReport", "check_support"]
@@ -93,8 +96,6 @@ class SupportReport:
 
     def to_frame(self, data: Any = None) -> Any:
         """One row per regime, in the backend the data came from."""
-        from ..utils.frames import frame_from_dict
-
         payload = {
             "regime": list(self.regimes),
             "min_propensity": [item.min_support_propensity for item in self.regimes.values()],
@@ -102,26 +103,29 @@ class SupportReport:
             "effective_n": [item.effective_sample_size for item in self.regimes.values()],
             "unsupported": [item.unsupported for item in self.regimes.values()],
         }
-        if data is not None and hasattr(data, "frame_like"):
-            return data.frame_like(payload)
-        return frame_from_dict(payload)
+        return emit_frame(payload, data)
 
     def summary(self) -> str:
         """A short human-readable table."""
         if not self.regimes:
             return "no regimes"
-        lines = [f"regime support (n = {self.n})", ""]
-        header = (
-            f"{'regime':<24}{'min g':>10}{'max ratio':>12}{'effective n':>14}{'unsupported':>13}"
+        rows = [
+            [
+                name,
+                f"{item.min_support_propensity:.4g}",
+                f"{item.max_ratio:.4g}",
+                f"{item.effective_sample_size:.1f}",
+                str(item.unsupported),
+            ]
+            for name, item in self.regimes.items()
+        ]
+        return "\n".join(
+            [
+                f"regime support (n = {self.n})",
+                "",
+                format_table(["regime", "min g", "max ratio", "effective n", "unsupported"], rows),
+            ]
         )
-        lines.append(header)
-        lines.append("-" * len(header))
-        for name, item in self.regimes.items():
-            lines.append(
-                f"{name:<24}{item.min_support_propensity:>10.4g}{item.max_ratio:>12.4g}"
-                f"{item.effective_sample_size:>14.1f}{item.unsupported:>13d}"
-            )
-        return "\n".join(lines)
 
 
 def check_support(
@@ -157,9 +161,7 @@ def check_support(
                 denominator > 0.0, numerator / np.where(denominator > 0.0, denominator, 1.0), np.inf
             )
         finite = ratio[np.isfinite(ratio)]
-        total = float(finite.sum())
-        squared = float(np.square(finite).sum())
-        ess = (total * total / squared) if squared > 0.0 else 0.0
+        ess = effective_sample_size(finite, on_degenerate=0.0)
         assigned = np.min(np.where(mass, g, np.inf), axis=1)
         out[regimes.label(code)] = RegimeSupport(
             name=regimes.label(code),

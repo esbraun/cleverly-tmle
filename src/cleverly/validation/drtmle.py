@@ -92,8 +92,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..estimators.base import format_table
 from ..estimators.tmle import correction_parts
+from ..utils.frames import emit_frame
+from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -270,8 +271,6 @@ class CorrectionCheck:
         return min((row.margin for row in self.rows), default=float("nan"))
 
     def to_frame(self, data: Any = None) -> Any:
-        from ..utils.frames import frame_from_dict
-
         payload = {
             "draw": [row.draw for row in self.rows],
             "arm": [row.label for row in self.rows],
@@ -286,9 +285,7 @@ class CorrectionCheck:
             # carries a large number in a column of small ones and says nothing about why.
             "solved": [row.solved for row in self.rows],
         }
-        if data is not None:
-            return data.frame_like(payload)
-        return frame_from_dict(payload)
+        return emit_frame(payload, data)
 
     def summary(self) -> str:
         if not self.rows:

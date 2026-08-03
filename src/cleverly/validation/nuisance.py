@@ -43,8 +43,9 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
-from ..estimators.base import format_table
 from ..utils.bounds import logit
+from ..utils.frames import emit_frame
+from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data.causal_data import CausalData
@@ -94,8 +95,6 @@ class NuisanceDiagnostics:
         raise KeyError(f"no nuisance model named {name!r}; have {[m.name for m in self.models]}")
 
     def to_frame(self, data: Any = None) -> Any:
-        from ..utils.frames import frame_from_dict
-
         keys: list[str] = []
         for model in self.models:
             for key in model.metrics:
@@ -107,18 +106,12 @@ class NuisanceDiagnostics:
         }
         for key in keys:
             payload[key] = [model.metrics.get(key, float("nan")) for model in self.models]
-        if data is not None:
-            return data.frame_like(payload)
-        return frame_from_dict(payload)
+        return emit_frame(payload, data)
 
     def calibration_frame(self, name: str, data: Any = None) -> Any:
         """Binned observed-vs-predicted table for one model."""
-        from ..utils.frames import frame_from_dict
-
         payload = dict(self[name].calibration)
-        if data is not None:
-            return data.frame_like(payload)
-        return frame_from_dict(payload)
+        return emit_frame(payload, data)
 
     def summary(self) -> str:
         lines = [

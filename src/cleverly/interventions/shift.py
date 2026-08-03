@@ -87,6 +87,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
+from ..data.weighting import effective_sample_size
 from ..exceptions import DataError, PositivityWarning
 from ..learners.density import ConditionalDensity, warn_if_unresolved
 
@@ -429,8 +430,7 @@ def check_shift_support(
     for index, name in enumerate(shifts.names):
         weight = shifts.ratio[:, index] / denominator
         finite = weight[np.isfinite(weight)]
-        total = float(finite.sum())
-        ess = float(total**2 / np.sum(finite**2)) if np.any(finite > 0) else 0.0
+        ess = effective_sample_size(finite, on_degenerate=0.0)
         out[name] = ShiftSupport(
             name=name,
             delta=shifts.deltas[index],
