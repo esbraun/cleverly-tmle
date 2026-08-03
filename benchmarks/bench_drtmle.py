@@ -93,9 +93,17 @@ from cleverly.utils.parallel import map_parallel
 #: way to see whether the conditioning is a property of the sample size at all.
 DEFAULT_SIZES = (600, 1200)
 
-#: Fits per cell.  Twelve is not a coverage study -- nothing here needs a Monte Carlo
-#: standard error -- it is enough draws to say whether an exit is the norm or the exception,
-#: which is the only claim items 4 and 6 make.
+#: Fits per cell.  Twelve is enough draws to say whether an exit is the norm or the
+#: exception, which is the only claim items 4 and 6 make.
+#:
+#: It used to say "nothing here needs a Monte Carlo standard error", and the ``--order`` arm
+#: is where that stopped being true: comparing two update orders is a claim about a
+#: *distribution* of paired differences, not about whether an exit is common.  Twelve is
+#: still what it is, and the response is the instrument rather than the count -- the
+#: route-against-reseed table reports a distribution-free **count** of pairs, which is honest
+#: at twelve, and a mean with ``sd/sqrt(M)`` beside the median rather than a Monte Carlo
+#: interval on a median, which this repository has no estimator for.  Raise it for that arm
+#: rather than reading its median as though it were a coverage number.
 DEFAULT_SEEDS = 12
 
 
@@ -673,12 +681,81 @@ def comparison_rows(results: list[Exit], variant: str) -> list[list[str]]:
     return rows
 
 
-def _payloads(args: argparse.Namespace, seeds: list[tuple[int, int]]) -> list[Payload]:
-    """Every fit the requested arms ask for, base first so a failure is visible early."""
+def _shifts(results: list[Exit], variant: str) -> dict[tuple[str, int], list[tuple[Exit, float]]]:
+    """``|dpsi|/se`` against ``base`` for one arm, per cell, keyed so two arms can be paired."""
+    base = {
+        (r.process, r.n, r.data_seed): r for r in results if r.variant == "base" and not r.error
+    }
+    out: dict[tuple[str, int], list[tuple[Exit, float]]] = {}
+    for process, n, cell in _cells(results, variant):
+        out[(process, n)] = [
+            (r, abs(r.psi - base[r.draw].psi) / base[r.draw].se) for r in cell if r.draw in base
+        ]
+    return out
+
+
+def route_rows(results: list[Exit]) -> list[list[str]]:
+    r"""The update-order difference against the yardstick of a different fold split.
+
+    Item 22's numerical half asks whether the two routes reach the same fixed point.  On its
+    own ``|dpsi|/se`` cannot answer that, because it has no scale: ``0.22`` was measured on
+    one draw, and until something says what a *different split of the same order* moves,
+    that number is equally consistent with "the routes disagree" and with "this is what any
+    refit does".  The ``reseed`` arm is that something, and this table is where the two are
+    read together.
+
+    Three columns carry the reading.  The two medians are the paired quantity per arm.  The
+    **count** is distribution-free and is the one to trust at twelve draws: in how many of
+    them the route moved ``psi`` further than the reseed did.  Around half is the null --
+    the routes are doing what a split does -- and a count near the pair count is a route
+    difference that is *not* split noise, whichever way the medians happen to fall.
+
+    The mean and ``sd/sqrt(M)`` are reported beside the median for continuity with
+    :attr:`~cleverly.validation.simulation.EstimandSummary.bias_se`, which is the form this
+    repository already uses for "is this real?".  There is no median-based Monte Carlo
+    standard error here or anywhere in the package, which is why the count exists.
+    """
+    route, noise = _shifts(results, "paper"), _shifts(results, "reseed")
+    rows = []
+    for key in sorted(set(route) & set(noise)):
+        by_draw = {fit.draw: value for fit, value in noise[key]}
+        paired = [(value, by_draw[fit.draw]) for fit, value in route[key] if fit.draw in by_draw]
+        if not paired:
+            continue
+        ours = [value for value, _ in paired]
+        theirs = [value for _, value in paired]
+        spread = float(np.std(ours, ddof=1)) if len(ours) > 1 else float("nan")
+        rows.append(
+            [
+                key[0],
+                f"{key[1]:,}",
+                str(len(paired)),
+                f"{_median(ours):.2e}",
+                f"{_median(theirs):.2e}",
+                f"{sum(1 for a, b in paired if a > b)}/{len(paired)}",
+                f"{float(np.mean(ours)):.2e} +/- {spread / np.sqrt(len(ours)):.1e}",
+            ]
+        )
+    return rows
+
+
+def _payloads(args: argparse.Namespace, seeds: list[tuple[int, int, int]]) -> list[Payload]:
+    """Every fit the requested arms ask for, base first so a failure is visible early.
+
+    An arm is ``(variant, settings, reseed)``.  ``reseed`` is what makes the control arm
+    possible: it changes the **fold** seed and nothing else, where every other arm changes a
+    setting and holds the fold seed fixed.  Both kinds pair against ``base`` on
+    ``(process, n, data_seed)``, so one comparison machinery serves both.
+    """
     payloads = []
-    arms: list[tuple[str, tuple[tuple[str, object], ...]]] = [("base", ())]
+    arms: list[tuple[str, tuple[tuple[str, object], ...], bool]] = [("base", (), False)]
     if args.order:
-        arms.append(("paper", (("update_order", args.order),)))
+        arms.append(("paper", (("update_order", args.order),), False))
+    if args.order_control:
+        # Same estimator, same data, one different fold split. Without it `|dpsi|/se`
+        # between the two update orders has no yardstick: a route difference and a split
+        # difference are the same number until something says which is which.
+        arms.append(("reseed", (), True))
     if args.reduced_learner:
         arms.append(
             (
@@ -687,15 +764,25 @@ def _payloads(args: argparse.Namespace, seeds: list[tuple[int, int]]) -> list[Pa
                     ("reduced_outcome_learner", args.reduced_learner),
                     ("reduced_treatment_learner", args.reduced_learner),
                 ),
+                False,
             )
         )
     for lower in args.truncation:
-        arms.append((f"trunc={lower:g}", (("g_bounds", (lower, 1.0 - lower)),)))
-    for variant, settings in arms:
+        arms.append((f"trunc={lower:g}", (("g_bounds", (lower, 1.0 - lower)),), False))
+    for variant, settings, reseed in arms:
         for process in args.processes:
             for n in args.sizes:
-                for data_seed, fold_seed in seeds:
-                    payloads.append(Payload(process, n, data_seed, fold_seed, variant, settings))
+                for data_seed, fold_seed, control_seed in seeds:
+                    payloads.append(
+                        Payload(
+                            process,
+                            n,
+                            data_seed,
+                            control_seed if reseed else fold_seed,
+                            variant,
+                            settings,
+                        )
+                    )
     return payloads
 
 
@@ -714,6 +801,12 @@ def main() -> None:
         help="also fit every draw under the working paper's update order (item 22)",
     )
     parser.add_argument(
+        "--order-control",
+        action="store_true",
+        help="also fit every draw at a different fold seed, as the yardstick the update-order "
+        "comparison is read against",
+    )
+    parser.add_argument(
         "--reduced-learner",
         default=None,
         help="also fit every draw with this learner for the reduced regressions",
@@ -728,13 +821,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Both seeds vary, and the second is the point: the one pathological fit on record was
-    # "a fit whose fold split was drawn unseeded", so a sweep holding `random_state` at
-    # FAST_KWARGS's 0 would sweep straight past the thing it is measuring.
-    drawn = np.random.SeedSequence(args.seed).generate_state(2 * args.seeds)
+    # Three streams, and the first two are what they always were: `generate_state` is
+    # prefix-stable, so drawing a third block leaves every earlier run's data and fold seeds
+    # bit for bit unchanged and the tables stay comparable. The second stream varies because
+    # the one pathological fit on record was "a fit whose fold split was drawn unseeded", so
+    # a sweep holding `random_state` at FAST_KWARGS's 0 would sweep straight past the thing
+    # it is measuring; the third is the control arm's, and is only read when it is asked for.
+    drawn = np.random.SeedSequence(args.seed).generate_state(3 * args.seeds)
     seeds = [
-        (int(data), int(fold))
-        for data, fold in zip(drawn[: args.seeds], drawn[args.seeds :], strict=True)
+        (int(data), int(fold), int(control))
+        for data, fold, control in zip(
+            drawn[: args.seeds],
+            drawn[args.seeds : 2 * args.seeds],
+            drawn[2 * args.seeds :],
+            strict=True,
+        )
     ]
 
     payloads = _payloads(args, seeds)
@@ -858,6 +959,32 @@ def main() -> None:
                 ],
                 comparison_rows(results, variant),
             )
+        )
+
+    if {"paper", "reseed"} <= set(arms):
+        title = "The update-order difference, against what a different fold split moves"
+        print(f"\n{title}")
+        print("=" * len(title))
+        print(
+            format_table(
+                [
+                    "process",
+                    "n",
+                    "pairs",
+                    "med route |dpsi|/se",
+                    "med reseed |dpsi|/se",
+                    "route > reseed",
+                    "mean route +/- se",
+                ],
+                route_rows(results),
+            )
+        )
+        print(
+            "\n  Read the count first and the medians second. Around half the pairs is the null:\n"
+            "  the two routes move psi about as much as a different split of one route does, so\n"
+            "  what looked like a route difference is what any refit does. A count near the pair\n"
+            "  count is a route difference the split cannot account for -- and the rule it is\n"
+            "  judged against is in docs/drtmle-validation-plan.md section 4, predeclared."
         )
 
     print("\nReading the numbers")

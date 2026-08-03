@@ -36,6 +36,10 @@ on:
         description: "also fit each draw under the working paper's update order (item 22)"
         type: boolean
         default: false
+      order_control:
+        description: "also fit each draw at a different fold seed -- the yardstick `order` is read against"
+        type: boolean
+        default: false
       reduced_learner:
         description: "also fit each draw with this learner for the reduced regressions, e.g. fast"
         default: ""
@@ -72,6 +76,7 @@ jobs:
           JOBS: ${{ inputs.jobs }}
           ROWS: ${{ inputs.rows && '--rows' || '' }}
           ORDER: ${{ inputs.order && '--order paper' || '' }}
+          ORDER_CONTROL: ${{ inputs.order_control && '--order-control' || '' }}
           # An empty string would become a bare `--reduced-learner` with no value, which
           # argparse rejects, so the flag and its value travel together or not at all.
           REDUCED: ${{ inputs.reduced_learner && format('--reduced-learner {0}', inputs.reduced_learner) || '' }}
@@ -82,4 +87,4 @@ jobs:
           --sizes $SIZES
           --seeds "$SEEDS"
           --jobs "$JOBS"
-          $ROWS $ORDER $REDUCED $TRUNCATION
+          $ROWS $ORDER $ORDER_CONTROL $REDUCED $TRUNCATION

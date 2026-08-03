@@ -279,6 +279,7 @@ that same rule applied to a piece rather than to an item.
 | **A1b** | item 15: a construction satisfying the empirical-process conditions, and whether fold reuse is one | a proof for the pooled construction, or a nested reference estimator to measure it against; [the concordance's §8](drtmle-theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) |
 | **B1b** — *landed* | items 11 and 20: the targeting convention, chosen on theorem fidelity against a fitted prototype that eliminated two candidates by construction and separated the other two by measurement | `solve_bounded_mechanism`, called from the two `DRTMLE` sites, with the truncated array carried forward and `"bounds_pinned"` where no constrained root exists; `tests/unit/test_bounded_mechanism.py`; `CorrectionRow.margin` in place of B1a's now-vacuous clipped-row witness |
 | **B2a** — *landed* | the instrument the dispatch needs: the columns §4 asks for, the working paper's update order beside this one, and the comparison arms. Closes nothing on its own, which is why it is its own pull request rather than a first commit of B2 | `DRTMLE(update_order="paper")` and `ReductionSpec.order`; three tables on `benchmarks/bench_drtmle.py` in place of one; `--order`, `--reduced-learner` and `--truncation` arms with workflow inputs; `TestBothUpdateOrdersReachTheTheoremsExit` |
+| **B2a′** — *landed* | the three things B2a left as prose rather than as something a run settles: the oracle reduction built where it exists, a **control** for the update-order difference, and the branch that hid a mutation deleted rather than guarded | `tests/unit/test_oracle_reductions.py` and item 24; the `reseed` arm, the route-against-noise table and [a frozen rule](drtmle-validation-plan.md#the-update-order-rule-frozen-before-the-dispatch); `_restated_outcome_score` made unconditional, `tests/unit/test_fluctuation_score.py`, and [lesson 12](drtmle-investigation-log.md#what-the-sizings-got-wrong) |
 | **B2b** | items 12, 19 and item 22's numerical half, re-measures 4 and 6, decides the overlap policy | a dispatch of `drtmle-convergence.yml`, and its tables in the investigation log |
 | **C** | items 3 and 13: the demonstration | `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, `docs/drtmle-coverage-study.md`, per-replicate results |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
@@ -883,14 +884,21 @@ then equation (9). Four things about it are decisions rather than transcription.
 - **The two orders are one function with a branch**, not two implementations. `ReductionSpec.order`
   carries the declaration, exactly as `guard` does, so `TMLE._solve_reduction` stays free of a
   setting one subclass has and nothing is duplicated that could drift.
-- **Equation (8)'s score is restated before the exit test**, and this is the one place the paper's
-  order needs something this package's does not. Solved first, it is stale by the end of the round —
-  steps 4 and 6 move both the regression it fluctuated and the mechanism it divides by — so the
-  loop would otherwise stop on a number for a state that is gone. **Deleting that restatement was
-  run and 68 of the module's 69 tests still passed** — the exception being the call-site pin
-  written for it — because the closing pass re-solves all three equations and makes the *reported*
-  fit identical either way. That is item 12's shape in a second place, so the call site is pinned
-  structurally rather than through a fitted result.
+- **Equation (8)'s score is restated before the exit test**, unconditionally. Under the paper's
+  order it is solved first and steps 4 and 6 then move both the regression it fluctuated and the
+  mechanism it divides by, so the loop would otherwise stop on a number for a state that is gone;
+  under this package's it is solved last and the restatement is a **bit-for-bit no-op**, which was
+  measured rather than assumed — `solve_fluctuation` computes the score it returns *after* its
+  loop, by that same expression at the iterate it returns.
+
+  It shipped conditional on the order and is now unconditional, and the reason is
+  [lesson 12](drtmle-investigation-log.md#what-the-sizings-got-wrong). **Deleting the restatement
+  was run and 68 of the module's 69 tests still passed** — the closing pass re-solves all three
+  equations and makes the *reported* fit identical either way, which is item 12's shape in a second
+  place. A branch that only one order exercises is exactly what that lesson says to remove rather
+  than to guard, so there is now one call, the invariant it rests on is pinned one level down in
+  `tests/unit/test_fluctuation_score.py`, and the call-site test carries a single expectation
+  instead of one per order.
 - **The default path is a regression surface and was measured as one**: 111 tests across
   `test_drtmle_fit.py`, `test_influence_drtmle.py` and `test_bounded_mechanism.py` pass unchanged,
   and the restatement is called from the one branch rather than from both.
@@ -910,10 +918,21 @@ report at all, because B1b made that solve a root find rather than a Newton step
 **And one instruction in the plan could not be executed as written.** The oracle-reduction run was
 sized as costing nothing "because the datasets already know their truth". They know `Q̄₀` and `g₀`;
 they do not know the reductions, which are conditional expectations given **fitted** objects and so
-have no truth the process can supply. `--reduced-learner` is the substitute — vary the reduction's
-learner and see whether the failures move, which is the same question — and it is labelled as that
-rather than as an oracle. A genuine one is a construction, not a column, and it is recorded as owed
-rather than quietly dropped.
+have no truth the process can supply. `--reduced-learner` is the substitute on the continuous
+processes — vary the reduction's learner and see whether the failures move — and it is labelled as
+that rather than as an oracle; what a genuine one would take there is **item 24**.
+
+**Where the oracle does exist it has since been built, and it answers more than the sweep asked.**
+On the exact law the conditional expectations are finite sums, so
+`tests/unit/test_oracle_reductions.py` injects them through `ReductionSpec.refit` — recomputed at
+the current targeted pair every round — and runs a real alternation on them. What it found is that
+**with the reductions exactly right the fit recovers the truth while both primary nuisances are
+wrong on purpose**, to `3.6e-08` and to `1e-12` where no mechanism equation is solved; that the
+saturated learner reproduces the oracle to `1e-14` over a whole alternation, which is the control;
+and that **a wrong reduction moves `psi` by 0.36 to 0.80 of a standard error while leaving every
+score solved.** The last of those inverts the question this arm was written to answer: a fit whose
+*scores* fail is not a fit whose reductions were noisy, because a bad reduction does not show there
+at all — it damages the estimate silently, which is the case an interval cannot see.
 
 **What the arms cost, since that decides what B2b dispatches.** Each refits every draw, so each
 roughly doubles the run; `--order paper` more than doubles it, having taken 22 rounds against 8 on
@@ -927,6 +946,18 @@ consistent with the theorem — step 7 constrains three empirical means, and two
 them can differ — but "the two routes agree" is not what one draw showed, and the sweep should
 report `|Δψ|/se` **by size**: if both routes are asymptotically linear with the same curve, that
 number has to shrink with `n`, and it is a claim with a direction rather than a reassurance.
+
+**That number had no yardstick, and the remediation gave it one.** A route difference and a *fold
+split* difference are the same number until something separates them, so the sweep gained a
+`reseed` arm — same estimator, same data, one different fold seed — paired the way the paper arm is,
+and a table that reads the two together. At smoke scale, **two draws and therefore not a finding**,
+the medians are `9.97e-02` for the route against `8.23e-02` for the reseed. On present evidence the
+0.22 is what a refit does rather than what the route does, which is the opposite of what this
+paragraph was written expecting. The rule that decides it, written before the dispatch that will
+judge it, is [in the validation
+plan](drtmle-validation-plan.md#the-update-order-rule-frozen-before-the-dispatch), and it hangs on
+a **count** rather than an interval because twelve draws do not support a Monte Carlo interval on a
+median and this package has no estimator for one.
 
 ###### B2b — the dispatch, and what it decides
 
@@ -942,9 +973,32 @@ been fixed, so it is a *record* rather than a baseline to reproduce.
 
 What it has to come back with, and the rest of this section is the reasoning for each: the exit
 distribution under the current rule; whether the closing cap still binds on 94 of 96; whether
-`weak-overlap`'s 23-of-24 score-check failures survive B1b; `|Δψ|/se` between the update orders and
-whether it shrinks with `n`; and the overlap columns that say *which* of the five places a
-surviving failure came from.
+`weak-overlap`'s 23-of-24 score-check failures survive B1b; `|Δψ|/se` between the update orders,
+whether it shrinks with `n`, and how it compares with what a different fold split moves; and the
+overlap columns that say *which* of the five places a surviving failure came from.
+
+**It is two dispatches, not one.** The main sweep keeps four processes at two sizes with the arms
+off. The update-order question is its own — two processes, **three** sizes, the paper arm and the
+reseed control — because a rate needs three sizes and three sizes across four processes and three
+arms does not fit the runner. Both configurations, the rule the second is judged by, and what would
+falsify it are [in the validation
+plan](drtmle-validation-plan.md#the-update-order-rule-frozen-before-the-dispatch).
+
+**24. An oracle reduction on the continuous processes needs the fitted learners, and nothing here
+keeps them.** A reduced regression conditions on `ĝ(a|W)` and `Q̄̂(a, W)` — *fitted* objects — so its
+truth is not something a DGP can supply, and evaluating it on a large auxiliary draw would mean
+predicting those nuisances at rows the fit never saw. `cross_fit_predictions` discards every
+per-fold model and `NuisanceEstimates` carries arrays only, deliberately: everything reached
+through `retarget` must target what the fit declared without a learner being refitted. So this is a
+source change with a derivation attached rather than a column on a sweep, and the derivation is the
+one `fit_reduced`'s docstring already circles — *which* fold's model is `ĝ` off-sample, given that
+per-fold designs trade a second-order dependence for a first-order covariate shift.
+
+Two things stop it being a gap in the evidence. On the **exact law** the oracle exists and is built
+(above), and it is where the question has an answer rather than an approximation. On the continuous
+processes `--reduced-learner` measures the same *effect* — whether a different reduction moves the
+fit — without claiming to be a truth. What is genuinely unavailable is the magnitude of a
+continuous-process reduction's error, and no number in this repository should be read as one.
 
 **The diagnosis stays widened even though the cause is found.** `1/g` in equation (8) is one of
 *five* places weak overlap enters, and B1 accounts for the score failure without saying the other
@@ -1228,10 +1282,13 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
    this and no document left to wait for — so it was a design decision against a stated bar rather
    than a reading, taken against a fitted prototype rather than against the candidate table.
    [What it shipped](#what-b1b-landed).
-4. ~~**B2a**~~ — landed. The dispatch could not measure what [the validation
+4. ~~**B2a**~~ — landed, in two passes. The dispatch could not measure what [the validation
    plan's §4](drtmle-validation-plan.md#4-the-sweep-piece-b2) asks for until the script recorded
    it, and item 22's numerical half asks for a comparison against an update order that did not
-   exist here. [What it shipped](#b2a--the-sweep-instrument).
+   exist here. [What it shipped](#b2a--the-sweep-instrument). The second pass closed the three
+   things the first left as prose: the oracle reduction is built where it exists and **item 24**
+   says what it would take elsewhere, the update-order difference has a control and a rule frozen
+   before the dispatch that judges it, and the branch that let a mutation hide is gone.
 5. **B2b**, on the corrected implementation, because poor overlap may be where the demonstration
    has to happen and because the exit distribution under the current rule is uncharacterised. It
    is a dispatch and a reading rather than a patch.
@@ -1659,7 +1716,7 @@ carried forward as an item of its own.
 
 ## What the sizings got wrong
 
-Eleven lessons, and they now live in [the investigation
+Twelve lessons, and they now live in [the investigation
 log](drtmle-investigation-log.md#what-the-sizings-got-wrong) with the rest of the record. They are
 kept because the only thing a retrospective is for is the next sizing, and they are not on this
 page because a plan is not a history. In one line each:
@@ -1685,7 +1742,12 @@ page because a plan is not a history. In one line each:
 11. before building an oracle, check whether the quantity collapses onto one already here **at the
     value the check has to be taken at** — A1a's was sized as a whole analytic DRTMLE functional
     and turned out to be a comparison against an EIF written years earlier, because the union
-    model is where the theorem applies and the corrections vanish into `1/g_0` there.
+    model is where the theorem applies and the corrections vanish into `1/g_0` there;
+12. the closing pass is an **anaesthetic** — when a stage downstream of a loop recomputes what the
+    loop was supposed to establish, no test of the output can test the loop, which is why item 12
+    and B2a's stale-score restatement were both invisible to whole suites. Remove the asymmetry,
+    then pin the invariant one level down; a structural pin is the third choice and reads like the
+    first two.
 
 ## On native acceleration
 

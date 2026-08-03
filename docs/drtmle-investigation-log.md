@@ -376,7 +376,19 @@ Paired on the draw, the same data and the same fold seed:
 Every one of those fits solves all three equations at its returned state — `1e-09` to `1e-10`,
 identities at `1e-18` — so none is unconverged and none is a defect. **It is what the paper's step
 7 does not say**: the exit condition constrains three empirical *means*, and two states satisfying
-them can differ in both `ψ` and `σ²_n`. The variance difference has a visible mechanism — the
+them can differ in both `ψ` and `σ²_n`.
+
+**And the 0.22 had no yardstick, which is the first thing the remediation fixed.** A route
+difference and a *split* difference are the same number until something says which is which, so the
+sweep gained a `reseed` arm — the same estimator, the same data, one different fold seed, paired on
+the draw exactly as the paper arm is. At smoke scale on `nonlinear` at `n = 400`, which is **two
+draws and resolves nothing**, the medians are `9.97e-02` for the route against `8.23e-02` for the
+reseed, and the route moved `psi` further in 1 of the 2 pairs. That is the null this arm was built
+to state: on present evidence the two update orders move `ψ` about as much as refitting one of them
+on a different split does, and the "0.22 of a standard error" above is a draw of that distribution
+rather than a property of the route. The dispatch that would settle it is
+[the rule in §4](drtmle-validation-plan.md#the-update-order-rule-frozen-before-the-dispatch)'s, and
+the rule was written before it ran. The variance difference has a visible mechanism — the
 routes exit holding reductions of different vintages, measured at `sd(g_{r,2})` of `0.024` against
 `0.031` on the 600-row draw — and the `ψ` difference is the ordinary `o_p(n^{-1/2})` gap between
 two asymptotically linear estimators of one parameter. **So the column to read at scale is
@@ -394,6 +406,47 @@ that moved something where the bound cannot bind would have been reporting refit
 **Cost, which is what decides the dispatch.** 71s a fit at `jobs=1` in this container against the
 42.6s a runner measured, and the paper's order took 22 rounds against 8 on the draw both were run
 on — so `--order paper` should be budgeted at rather more than a doubling, not at one.
+
+## What the oracle reductions measured
+
+The sweep's oracle arm could not be built as specified — a reduction conditions on *fitted*
+objects, so no DGP supplies its truth — but on the exact law it can, and
+`tests/unit/test_oracle_reductions.py` is that: the law's own conditional expectations injected
+through `ReductionSpec.refit`, recomputed at the current targeted pair every round as the fitted
+ones are, with both primary nuisances **wrong on purpose** (`WRONG_G`, `WRONG_Q`) so that nothing
+here is taken at the value where `Q_r` and `g_{r,2}` vanish.
+
+| fit | reductions | `ey1` | `ey0` | `ate` | worst score | identity |
+| --- | --- | --- | --- | --- | --- | --- |
+| oracle | the law's own | `0.66000000` | `0.38000000` | `0.28000000` | `2.1e-11` | `2e-16` |
+| saturated | `CellMeans` | agrees to `1e-9` | agrees | agrees | `2.1e-11` | `2e-16` |
+| glm | linear in the design | `0.678434` | `0.387663` | `0.290771` | `7.0e-18` | `1.4e-16` |
+| — | *the law's truth* | `0.66` | `0.38` | `0.28` | | |
+
+Three readings, and the third is the one that changes what the arm is for.
+
+**With the reductions exactly right the estimator recovers the truth**, to `3.6e-08` — with *both*
+primary nuisances wrong, where a plain TMLE has no guarantee at all because its remainder is a
+product of two errors and neither is zero. Under `guard=("g",)`, where no mechanism equation is
+solved, it is exact to `1e-12`; that pair of numbers locates the `3.6e-08` at
+[limitation 5](roadmap.md#limitations-recorded-rather-than-fixed) — equation (9) is never solved
+exactly, because its covariate reads the mechanism it tilts — rather than at the oracle being
+approximate or the law being realised imperfectly. This is `test_remainder_drtmle.py`'s expansion
+arriving at the other end of the estimator: that module shows *on paper* that one guard removes the
+whole first-order remainder at exact reductions, and this is the production alternation doing it.
+
+**The saturated learner reproduces the oracle to `1e-14`, over a whole alternation**, which is a
+stronger statement than `test_reduced_regressions.py`'s one-call comparison: each round's
+reductions decide the next round's covariates, so agreement at the exit says the two fits took the
+same trajectory. It is the control — without it the injection could be computing something else
+smooth and nothing would say so.
+
+**A wrong reduction costs 0.36 to 0.80 of a standard error of *bias*, and leaves every score
+solved.** The `glm` fit's worst correction score is `7e-18` — better-behaved than the oracle's —
+while its `ate` sits `0.36·se` from a truth the oracle hits. So the discrimination this arm was
+wanted for runs the *opposite* way from how §4 framed it: a sweep fit whose scores fail is not a
+fit whose reductions were noisy, because a bad reduction does not show up in the scores at all. It
+damages the estimate silently, which is the one failure an interval cannot report.
 
 **The workflow was dispatched with all three new inputs before B2a was called landed**, at
 `--processes nonlinear --sizes 400 --seeds 1 --order paper --reduced-learner glm --truncation 0.25`
@@ -428,7 +481,7 @@ this measurement**, and prefer a checked-in copy to either.
 
 ## What the sizings got wrong
 
-Eight lessons, distilled from the per-item retrospectives that used to run to several hundred
+Twelve lessons, distilled from the per-item retrospectives that used to run to several hundred
 lines. They are kept and the retrospectives are not, because the only thing a retrospective is
 for is the next sizing — the full pre-work read of what `drtmle` would touch, the per-seam record
 of what each cost, and the six landed refusals' own notes are in git history, last carried in full
@@ -601,3 +654,31 @@ module is silent about the pooled cross-fitting construction by construction —
 mutations invisible, each found by running it and watching it *pass*. That half of the record is
 the one that is never kept: a suite documents what it caught, and what it cannot catch is what a
 later reader mistakes for coverage.
+
+**12. The closing pass is an anaesthetic, so a defect in how the loop *exits* has to be caught at
+the loop.** `_close_at_frozen_reductions` re-solves all three equations at the reductions the
+record carries, and it is the last thing that runs — so whatever state the alternation exits in,
+the *reported* fit is the state that pass leaves. Every assertion about `psi`, `se`, the curve, the
+score check and the correction identities is therefore downstream of an operation that repairs the
+thing they would have detected.
+
+This has now happened twice and the second time was found only because the mutation was run.
+[Item 12](roadmap.md#closed-since-this-list-opened) was the first: the exit criterion changed and
+"the whole 61-test `drtmle` suite passed identically before and after, because every assertion in
+it is about the *reported* fit". The second is [B2a](roadmap.md#b2a--the-sweep-instrument)'s
+stale-score restatement — deleting it let the paper-order loop exit on a score for a state two
+later steps had moved, and **68 of the module's 69 tests still passed**.
+
+The general form, and it is a rule about where to put an instrument rather than about this loop:
+*when a stage downstream of a loop recomputes what the loop was supposed to establish, no test of
+the output can test the loop.* The three responses, in the order to reach for them: **remove the
+asymmetry** so there is nothing to get wrong — which is what B2a's remediation did, making the
+restatement unconditional once it was measured to be a bit-for-bit no-op on the default path;
+**pin the invariant the repair rests on**, one level down, where it is still visible
+(`tests/unit/test_fluctuation_score.py`); and only then **pin the call site structurally**, which
+is what `tests/unit/test_sequential_design.py` does for a case where both variants are consistent
+and no derivation separates them.
+
+The trap in the third is that a structural pin *reads* like the other two. It says the code is
+shaped a particular way, not that the shape is right, and a reader who finds one where an
+invariant would have fitted will believe more than was checked.

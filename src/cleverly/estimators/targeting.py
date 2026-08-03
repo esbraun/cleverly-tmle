@@ -994,17 +994,6 @@ def solve_with_reduction(
                 )
                 targeted_g = mechanism.propensity
                 current = _retargeted_mechanism(nuisance, targeted_g, arms)
-            submodel = build_submodel(
-                data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
-            )
-            fluctuation = _restated_outcome_score(
-                fluctuation,
-                scaled=scaled,
-                targeted=targeted_q,
-                submodel=submodel,
-                weights=weights,
-                mask=mask,
-            )
         else:
             if "Q" in guard:
                 mechanism = solve_bounded_mechanism(
@@ -1051,6 +1040,25 @@ def solve_with_reduction(
                 # its target. Refit before the score below is read, or the loop tests
                 # equation (9) at a covariate the exiting pair no longer implies.
                 reduced = reduction.refit(_reduction_inputs(current, targeted_q, targeted_g))
+
+        # Equation (8)'s score, at the pair the round *exits* at rather than the pair it was
+        # solved at. Under this package's order those are the same state and this is a
+        # bit-for-bit no-op; under the paper's, equation (8) is solved first and steps 4 and
+        # 6 then move both the regression it fluctuated and the mechanism it divides by. One
+        # call rather than a branch, so that the docstring's "re-evaluate all three scores at
+        # the pair the round exits at" is structurally true of all three rather than true of
+        # equation (8) by accident of where it sits.
+        submodel = build_submodel(
+            data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
+        )
+        fluctuation = _restated_outcome_score(
+            fluctuation,
+            scaled=scaled,
+            targeted=targeted_q,
+            submodel=submodel,
+            weights=weights,
+            mask=mask,
+        )
 
         reduced_score = 0.0
         reduced_absolute = 0.0
@@ -1204,23 +1212,42 @@ def _restated_outcome_score(
     weights: FloatArray,
     mask: BoolArray,
 ) -> Fluctuation:
-    """Equation (8)'s score, re-read at the pair a paper-order round exits at.
+    r"""Equation (8)'s score, re-read at the pair the round exits at rather than solved at.
 
-    Under that order equation (8) is solved **first**, and steps 4 and 6 then move both the
-    regression it fluctuated and the mechanism its covariate divides by -- so the score the
-    solve left behind describes a state that is gone by the time the exit test reads it.
-    Under this package's own order equation (8) is solved last and no such restatement is
-    needed, which is why this is called from one branch rather than from both.
+    The other two equations are already restated in the round's tail -- equation (10) at the
+    final reductions and equation (9) at the final mechanism -- and this makes the third the
+    same, so that :func:`solve_with_reduction`'s *"re-evaluate all three scores at the pair
+    the round exits at"* is a property of the loop rather than of where equation (8) happens
+    to sit in it.
 
-    **A function rather than four lines inline, because the mutation is invisible
-    otherwise.**  Deleting the restatement lets the loop exit on a stale score, and it was
-    deleted and measured: **68 of ``tests/unit/test_drtmle_fit.py``'s 69 tests still pass**,
-    the one exception being the call-site pin written for this.
-    :func:`_close_at_frozen_reductions` re-solves all three equations at the reductions the
-    record carries, so the reported fit is the same either way and only the *route* to it was
-    wrong -- ``docs/roadmap.md`` item 12's shape exactly, a change no assertion about a
-    reported fit can see.  A structural pin is therefore the right instrument here, as it is
-    wherever both variants are consistent and the edit would otherwise be silent.
+    **Called unconditionally, and under the default order that is a bit-for-bit no-op.**
+    :func:`~cleverly.fluctuation.iterative.solve_fluctuation` computes the ``score`` it
+    returns *after* its loop, by this very expression at the iterate it returns as
+    ``.targeted`` (and :func:`~cleverly.fluctuation.one_step.solve_one_step` and the linear
+    branch do the same) -- so re-evaluating it at the same submodel, weights and mask returns
+    the identical float64 array.  Under this package's order equation (8) is solved last and
+    nothing moves after it, so the restatement recovers what was already there; under the
+    paper's it is solved **first** and steps 4 and 6 then move both the regression it
+    fluctuated and the mechanism its covariate divides by.
+
+    That the two cases can share one call is what removes the hazard rather than guarding it.
+    While this was conditional on the order, deleting it was a change **no assertion about a
+    reported fit could see**: it was run, and 68 of ``tests/unit/test_drtmle_fit.py``'s 69
+    tests still passed, because :func:`_close_at_frozen_reductions` re-solves all three
+    equations at the reductions the record carries and makes the reported fit identical
+    either way.  That is ``docs/roadmap.md`` item 12's shape in a second place, and it is
+    lesson 12 of the investigation log: the closing pass is an anaesthetic, so a defect in
+    how the loop *exits* has to be caught at the loop rather than at the fit.  What keeps the
+    no-op a no-op is
+    ``tests/unit/test_fluctuation_score.py``, which pins the solver-side identity this rests
+    on -- a mid-loop score recorded in place of the post-loop one would break it, and that
+    mutation is one line away in :mod:`cleverly.fluctuation.iterative`.
+
+    **Not applicable to the closing pass.**  That stage builds its fluctuation from a
+    *four-column joint* solve over equations (8) and (10) and then overwrites ``score`` with
+    the two-column submodel's, so its ``score`` is deliberately not this expression at the
+    submodel the solve ran along, and restating it there would change a number rather than
+    recover one.
     """
     return replace(
         fluctuation,

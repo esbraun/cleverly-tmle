@@ -1178,24 +1178,26 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         assert seen[0] == "eq8"
         assert seen[1:4] == expected
 
-    @pytest.mark.parametrize(("order", "restated"), [("cleverly", False), ("paper", True)])
-    def test_the_stale_outcome_score_is_restated_under_the_paper_order_only(
-        self, monkeypatch, order, restated
+    @pytest.mark.parametrize("order", ["cleverly", "paper"])
+    def test_every_round_reads_equation_eight_at_the_state_it_exits_at(
+        self, monkeypatch, order
     ) -> None:
-        """A call-site pin, and it is here because nothing else in this file can see it.
+        """One expectation for both orders, which is what deleting the branch bought.
 
-        Under the paper's order equation (8) is solved first and steps 4 and 6 then move the
-        state its score describes, so the loop must re-read that score before the exit test
-        or it stops on a number for a state that is gone.  **Deleting the re-read was run,
-        and the whole module passed**: :func:`_close_at_frozen_reductions` re-solves all
-        three equations at the reductions the record carries, so the *reported* fit is
-        identical and only the route to it was wrong -- ``docs/roadmap.md``'s item 12 in a
-        second place, where a change no assertion about a fitted result can reach.
+        Equation (8)'s score has to describe the pair the round *exits* at, as the other two
+        already do.  Under this package's order it is solved last and the restatement is a
+        bit-for-bit no-op; under the paper's it is solved first and steps 4 and 6 move both
+        the regression it fluctuated and the mechanism it divides by.  One unconditional call
+        covers both, so there is no longer a branch that could be right for one order and
+        wrong for the other -- which is the state the call used to be in, and it was
+        invisible: deleting the restatement then left **68 of this module's 69 tests
+        passing**, because :func:`_close_at_frozen_reductions` re-solves all three equations
+        and makes the reported fit identical either way.
 
-        So the instrument is structural, exactly as ``tests/unit/test_sequential_design.py``
-        is for the design a node's regression is handed.  Both directions are asserted: the
-        restatement must *not* happen under this package's order, where equation (8) is
-        solved last and re-reading it would be four lines pretending to be an invariant.
+        What that leaves here is a call-site pin with a single expectation. The claim it
+        rests on -- that recomputing a fluctuation's score at its returned state reproduces
+        the recorded one exactly -- is ``tests/unit/test_fluctuation_score.py``'s, which is
+        where the mutation for *that* lives.
         """
         from cleverly.estimators import targeting
 
@@ -1208,9 +1210,9 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
 
         monkeypatch.setattr(targeting, "_restated_outcome_score", counted)
         small, _ = nonlinear_dgp().sample(200, seed=11)
-        DRTMLE(**SETTINGS, update_order=order).fit(small, outcome="Y", treatment="A")
+        fit = DRTMLE(**SETTINGS, update_order=order).fit(small, outcome="Y", treatment="A").single()
 
-        assert bool(calls) is restated
+        assert len(calls) == fit.repeats[0].fluctuations["mean"].reduction.rounds
 
     def test_an_unknown_order_is_refused_by_name(self) -> None:
         """Both names in the message, since the wrong one is the interesting case."""
