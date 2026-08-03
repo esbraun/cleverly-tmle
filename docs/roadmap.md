@@ -1,6 +1,6 @@
 # Roadmap
 
-What has landed, what is open, and why native acceleration is not worth building.
+What has landed, what is open, and where native acceleration does and does not pay.
 
 **One thing is open**: `DRTMLE`, the doubly-robust-inference variant, which is written and
 tested and not finished. [What is still open](#what-is-still-open) is the list, grouped into
