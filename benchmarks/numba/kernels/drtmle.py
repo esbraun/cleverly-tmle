@@ -8,8 +8,9 @@ what ``numpy_reduction_round`` measures and what the compiled arms are compared 
 
 **But that is not where a DR-TMLE ``retarget`` spends its time, and the profile is worth
 recording here rather than only in the inventory.**  At ``n = 20,000`` with ``glm``
-learners, ``DRTMLE.retarget`` measures **16.1 s against a 7.3 s full fit** -- more than
-twice the fit it is supposed to be a cheap re-run of.  Of the 72 s spent in three such
+learners, ``DRTMLE.retarget`` measures **16.1 s against a fit of 7.3-10.5 s** -- 1.5 to 2.2
+times the fit it is supposed to be a cheap re-run of, the spread being the fit's own
+variance on a shared box rather than the ``retarget``'s.  Of the 72 s spent in three such
 calls, **41 s is inside :mod:`threadpoolctl`**: ``_make_controller_from_path`` is entered
 3.1 million times and ``_find_libraries_with_dl_iterate_phdr`` 12,432 times.
 

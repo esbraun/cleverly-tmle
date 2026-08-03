@@ -36,7 +36,7 @@ favourable* denominator available (see §4).
 | `fused_influence_curves` | 1.1–2.8× | 1.6–4.1× | unchanged | **retain numpy** — the share is a tenth of a tenth |
 | `drtmle_reduction_rounds` | 0.93–1.04× | 1.6–1.9× | unchanged | **retain numpy** |
 | `newton_targeting` *(control)* | 1.2–1.4× | n/a | unchanged | **retain numpy**, as expected |
-| `cvtmle_fold_targeting` | see §2.6 | see §2.6 | unchanged | see §2.6 |
+| `cvtmle_fold_targeting` | 1.5–4.1× | **3.2–14.3×** | unchanged | **adopt numba parallel over folds** |
 
 And the one that is not a compilation question at all:
 
@@ -187,19 +187,37 @@ Rows are the only parallel axis: each step's direction is the score at the fit t
 step produced. Efficiency is poor (4.1× on four cores at `n = 10⁵`) because each step ends
 in a cross-thread reduction over a `p`-vector, and `p` is two.
 
-### 2.6 CV-TMLE's fold loop — the task-parallel axis
+### 2.6 CV-TMLE's fold loop — task parallelism, and the arm that regressed
 
 `TMLE._solve_by_fold` is a serial Python `for` over folds that are independent by
 construction: a fold's `epsilon` is fitted only against rows whose nuisance predictions came
-from models that never saw them. Four arms measure the two parallelisms against each other —
-the fold loop over a thread pool, and `prange` over folds — because folds cut each task's
-rows by `1/F` while giving the task axis more tasks, and where those cross is a property of
-the machine rather than of the algorithm.
+from models that never saw them. Folds cut each task's rows by `1/F` while giving the task
+axis more tasks, so within-fold and across-fold parallelism cross somewhere, and where is a
+property of the machine rather than of the algorithm. Both were run.
 
-See `latest/summary.md` for the table at 2, 10 and 20 folds. The headline is that the
-**per-fold body is the Newton solve**, which §3 shows is the one kernel here that
-compilation does not help — so this axis is about *scheduling*, and its ceiling is the
-serial stitch that every arm still has to do.
+| n | folds | numpy | `numpy_threads` @4 | numba | `numba_parallel` @4 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 2 | — | — | 1.83× | 3.57× |
+| 100,000 | 2 | — | — | 1.65× | 3.21× |
+| 10,000 | 10 | — | — | 3.03× | 9.54× |
+| 100,000 | 10 | 64.2 ms | 54.6 ms (1.18×) | 1.69× | 9.7 ms (**6.30×**) |
+| 10,000 | 20 | — | — | 4.12× | 14.25× |
+| 100,000 | 20 | — | — | 1.47× | 4.98× |
+
+**The thread-pool arm is the finding.** Running the *unchanged numpy* fold bodies over a
+`ThreadPoolExecutor` reaches 1.46× on two cores and then **regresses to 1.18× on four** —
+the GIL, held by the Python between the BLAS calls, which at these fold sizes is most of the
+per-fold time. Task parallelism over numpy bodies is not the cheap win it looks like. The
+compiled `prange` over folds, whose bodies hold no GIL at all, reaches 3.82× at **0.95
+efficiency** on the same configuration.
+
+The other thing the sweep shows is that the fold count is not monotone: the compiled
+parallel gain peaks around ten to twenty folds at small `n` and falls at `n = 100,000, F =
+20`, where each fold is large enough that the serial stitch — `O(n)` fancy-indexing that
+every arm still has to do — starts to bound the whole thing.
+
+Note what this axis is *not* about. The per-fold body is the Newton solve, which §3 confirms
+compilation does not help on its own; the gain here is scheduling, not arithmetic.
 
 ### 2.7 CTMLE and DR-TMLE — measured, and deferred
 
@@ -234,13 +252,36 @@ identity `IC_ate == IC_ey1 - IC_ey0` survives fusion, which it does exactly.
 
 ---
 
-## 3. The negative controls, one of which was not
+## 3. The controls: one that held, one that did not, and one that makes the rest mean anything
+
+### 3.0 Threaded BLAS — the arm that attributes the speed-ups
+
+A parallel speed-up is only a statement about the *kernel* if the reference is known not to
+get one from the same cores. So the numpy reference is re-run unchanged with BLAS given
+every core (`numpy_threaded_blas`), and at `n = 100,000`:
+
+| kernel | numpy, BLAS=1 | BLAS=2 | BLAS=4 |
+| --- | ---: | ---: | ---: |
+| `fused_influence_curves` (7 estimands) | 7.11 ms | 7.51 ms | 6.95 ms |
+| `cluster_sums` (m=5, balanced) | 5.36 ms | 5.55 ms | 5.39 ms |
+
+**Flat, to within the noise.** These kernels are ufunc and indexing work, not `dgemm` work,
+so BLAS has nothing to thread. Every parallel number elsewhere in this document is therefore
+attributable to the compiled kernel rather than to the cores it was given — which is the
+whole reason this arm exists, and why a run that omitted it would be quoting a ratio it had
+not earned.
+
+### 3.1 The negative controls, one of which was not
+
+#### `newton_targeting`
 
 `newton_targeting` behaves exactly as `benchmarks/bench_tmle.py` said it would: **1.4× at
 `n = 10⁴`, 1.18× at `n = 10⁵`**, falling with size and below the 1.25× continuation bar at
 the larger one. Its inner work is `x @ eps`, `x.T @ (w r)` and `x.T @ (x v)` — BLAS calls —
 plus one vectorised `expit`. A compiler pays where the interpreter is in the inner loop, and
 here it is not. **Retain numpy**, confirmed on this harness rather than quoted from another.
+
+#### `msm_gram`
 
 `msm_gram` was included on the same reasoning and **the reasoning was wrong**. The
 four-operand `einsum('ijp,ijq,ij,i->pq', …, optimize=True)` is **3.1–3.4× slower than a
@@ -260,18 +301,83 @@ would have to be reckoned with before anything moved.
 
 ---
 
+## 3a. Compilation is not free, and the break-even is the number to quote
+
+Measured in a fresh process per kernel (`--cold-compile`), because numba caches a compiled
+signature for the life of the process and "the first call" is only the first call once.
+
+| kernel | implementation | compile | break-even calls |
+| --- | --- | ---: | ---: |
+| `survival_incidence` | `numba_parallel` | 4.62 s | **18** |
+| `ctmle_candidate_scores` | `numba_parallel` | 1.54 s | **56** |
+| `multiplier_bootstrap` | `numba_parallel` | 2.02 s | **136** |
+| `one_step_walk` | `numba_deferred_arms` | 3.09 s | **251** |
+| `ltmle_backward_recursion` | `numba` | 2.56 s | **306** |
+| `drtmle_reduction_rounds` | `numba` | 1.35 s | 807 |
+| `cvtmle_fold_targeting` | `numba_parallel` | 9.33 s | 2,087 |
+| `msm_gram` | `numba` | 0.89 s | 2,780 |
+| `fused_influence_curves` | `numba` | 0.85 s | 5,684 |
+| `cluster_sums` | `numba` | 1.34 s | 12,732 |
+| `newton_targeting` | `numba` | 6.17 s | 34,691 |
+
+**Break-even is at the *small* fixture (n = 2,000) and is therefore an upper bound**: the
+saving grows with `n` and the compilation does not. Read it as a ranking rather than as a
+count — `survival_incidence` pays for itself in eighteen calls at two thousand rows and in
+far fewer at a hundred thousand, while `newton_targeting`'s thirty-five thousand is another
+way of saying the control is a control.
+
+The practical consequence: **compilation is amortised by the repeated workloads and by them
+alone.** A single fit calls each of these once or a few times and would pay 1–9 seconds for
+it. A sensitivity sweep, a simulation study, a bootstrap or a survival curve calls them
+hundreds of times, and there the compile is invisible. That is the same conclusion §4
+reaches from the other end.
+
+Two compile times are worth flagging on their own. `cvtmle_fold_targeting` at 9.3 s and
+`newton_targeting` at 6.2 s are the two kernels that call `np.linalg.solve` inside a jitted
+function, which drags numba's LAPACK bindings into the compilation.
+
+---
+
 ## 4. The denominator: what any of this is worth
 
-`benchmarks/results/latest/pipelines.md` carries the measured shares. The shape of the
-answer:
+Measured through the shipped API at `n = 20,000`, `library="glm"`, with the fit outside the
+timed region (`benchmarks/results/latest/pipelines.md`):
 
-- A `glm` fit's post-nuisance half is **2–6%** of it under Newton targeting and **31%**
-  under the one-step walk.
-- A `default` fit costs **≈37× more per row**, so the same shares are **0.06–0.17%** and
-  **0.8%**.
-- The exceptions are the *repeated* workloads, and they are the whole case for adopting
-  anything: a 25-point truncation sweep is **97% of a `glm` fit** because it retargets 25
-  times against one set of nuisances; a DR-TMLE `retarget` is **220%** of its own fit.
+| scenario | fit | post-nuisance | share of the fit |
+| --- | ---: | ---: | ---: |
+| `tmle_iterative` (Newton, 7 estimands) | 0.489 s | 25.8 ms | **5.3%** |
+| `tmle_one_step` (the universal walk) | 0.614 s | 181.7 ms | **29.6%** |
+| `cvtmle_10folds` | 1.694 s | 111.3 ms | **6.6%** |
+| `ltmle` (2 nodes, 2 regimens)¹ | 1.992 s | 1.147 s | **57.6%** |
+| `survival` (per-horizon passes)¹ | 2.366 s | 1.331 s | **56.2%** |
+| `sensitivity_grid25` (one fit, 25 retargets) | 0.427 s | 0.639 s | **149.7%** |
+| `drtmle` (one `retarget`) | 10.519 s | 16.193 s | **153.9%** |
+| `ctmle` (post-selection `retarget`) | 199.457 s | 11.0 ms | **0.01%** |
+
+¹ `LTMLE` refuses a `retarget` by design — `g_bounds` enters every earlier node's
+pseudo-outcome through the recursion — so its post-nuisance half cannot be *called*, only
+separated inside a profile. The figure is the fit net of scikit-learn, LightGBM, joblib,
+scipy and threadpoolctl, which is why it is large: the biggest single line inside it is the
+Rademacher multiplier draw at 14% of the whole fit, and §5's thread limiter is *excluded*
+from it by that same split.
+
+The range is four orders of magnitude — 0.01% to 154% — which is the single most important
+thing in this document. **There is no package-wide answer to "how much of a fit is
+post-nuisance work", and any recommendation that does not say which flavour and which
+workload it is about is not a recommendation.**
+
+Three things follow.
+
+- **`library="glm"` is the most favourable denominator there is.** A `default` fit costs
+  ≈37× more per row (`docs/roadmap.md`), so the Newton column above is ≈0.14% of a
+  realistic fit and the one-step column ≈0.8%. On a single fit with a real learner library,
+  none of this is visible — which is the roadmap's existing conclusion, unchanged.
+- **The repeated workloads invert it, and they are the whole case for adopting anything.** A
+  25-point truncation sweep is **150% of a `glm` fit** because it retargets 25 times against
+  one set of nuisances; that ratio does *not* shrink by 37× under a real library, because
+  the sweep's numerator is post-nuisance work all the way down. This is also exactly where
+  §3a's compilation cost amortises.
+- **DR-TMLE's `retarget` costing 1.5× its own fit is not an arithmetic problem.** §5 is.
 
 So the honest summary is:
 
@@ -304,17 +410,27 @@ in its own change with its own tests. `benchmarks/numba/kernels/drtmle.py` carri
 
 ## 6. Recommendation
 
-**Adopt, in this order**, each behind the `bench` extra becoming a runtime dependency —
-which is a real cost and the reason the order is by value and not by ratio:
+**The first two steps need no new dependency and should happen regardless of what is
+decided about numba.**
 
-1. **Fix `thread_limit`** (§5). Not numba, largest effect, cheapest change.
+1. **Fix `thread_limit`** (§5). Not numba, largest effect, cheapest change: 57% of a
+   DR-TMLE `retarget` and 40% of an LTMLE fit.
 2. **Fix the LTMLE mask construction** (§2.3) and **defer the one-step arm updates**
-   (§2.5). Pure numpy, 1.7–2.4× and 1.5–1.7×, no new dependency, no compilation.
-3. **`cluster_sums`** and the **multiplier bootstrap** (§2.1–2.2) as compiled kernels.
-   These are the two with both a large ratio and a real share, and the bootstrap's memory
-   behaviour is a capability change rather than a speed-up.
-4. **The LTMLE and survival recursions** (§2.3–2.4), parallel over regimens and horizons.
-   The largest absolute savings in the package, and only after (2).
+   (§2.5). Pure numpy, 1.7–2.4× and 1.5–1.7×, no compilation. The second needs a decision
+   about which estimator is intended when the shrink bound binds, so it is a change with a
+   question in it rather than a pure refactor.
+
+**Then, if `numba` is to become a runtime dependency** — a real cost, and the reason the
+order below is by value rather than by ratio:
+
+3. **`cluster_sums`** and the **multiplier bootstrap** (§2.1–2.2). The two with both a
+   large ratio and a real share, and the bootstrap's memory behaviour is a capability
+   change rather than a speed-up: 32 KB of working set at any `n`, against an allocation
+   the roadmap already names as one of the two that break first at scale.
+4. **The LTMLE and survival recursions** (§2.3–2.4), parallel over regimens and horizons,
+   and **the CV-TMLE fold loop** (§2.6) parallel over folds. The largest absolute savings
+   in the package — and only after (2), or the compiled kernel is a fast version of
+   redundant work.
 
 **Retain numpy** for the targeting Newton, the fused influence curves, and the DR-TMLE
 alternation arithmetic.
@@ -322,13 +438,42 @@ alternation arithmetic.
 **Defer** the CTMLE candidate scoring until candidates are cheap enough for it to be
 visible, and the MSM Gram until something else makes the projection matter.
 
-**Do not** adopt numba wholesale. Six of the eleven kernels here do not clear the plan's
-continuation bar, two of the wins are numpy rewrites rather than compilations, and the
-single largest package-owned cost in two flavours is a context manager.
+**Do not** adopt numba wholesale. Three of the twelve kernels here do not clear the plan's
+continuation bar at all, two of the clearest wins are numpy rewrites rather than
+compilations, the obvious task-parallel arm (threads over numpy fold bodies) *regresses*
+past two cores, and the single largest package-owned cost in two flavours is a context
+manager. The plan's own expected shape — "not numba everywhere or numba nowhere" — is what
+the measurement returned.
 
 ---
 
-## 7. What would change these numbers
+## 7. What this run does not answer
+
+Stated so a reader does not mistake a gap for a covered case.
+
+- **Hybrid `w × t` splits are not measured.** The mode exists in
+  `implementations/numpy_reference.py` and resolves a plan, but no kernel here accepts a
+  worker-count *and* a thread-count: the compiled kernels take one `prange` axis and the
+  thread-pool arm takes one worker count. The one kernel with a genuine two-level
+  structure is `cvtmle_fold_targeting` (folds × rows), and measuring it properly means
+  giving it a nested form rather than a flag. On four cores the only splits available are
+  2×2 and the two degenerate ones, which is not enough to see a trend, so it was left for
+  a machine where it could be answered.
+- **Process-level parallelism is not measured**, only threads. For the fold and regimen
+  axes a process pool would have to pickle a slice of every array per task, and on this box
+  that transfer is larger than the task; on a machine where it is not, the GIL result in
+  §2.6 is the reason to try it.
+- **Core counts stop at four**, because the box has four. Several kernels are still above
+  0.7 efficiency there and their curves have not turned over.
+- **`n` stops at 10⁶** for the row-indexed kernels and lower for the recursions, which is
+  where a `numpy` reference at `T = 20` reaches four seconds a call. Nothing here is
+  extrapolated past what was run.
+- **The `default` learner preset is measured for the pipelines only**, not for every
+  scenario, because a `default` fit is tens of seconds and the pipeline table needs one per
+  flavour. The 37×-per-row ratio the shares are scaled by is the roadmap's, re-measured
+  where it was cheap to.
+
+## 8. What would change these numbers
 
 - **A machine with more cores.** Efficiency is measured to four here; several kernels are
   still above 0.7 at four threads and would be worth re-measuring at 16.

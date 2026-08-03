@@ -54,6 +54,11 @@ _MODE_FOR = {
     "numpy_threads": "task_parallel",
 }
 
+#: The threaded-BLAS control's row name.  Not an entry in any kernel's
+#: ``implementations``: it is the numpy reference run under a different thread plan, and
+#: giving it a name of its own is what keeps the two rows distinguishable in the report.
+_THREADED_BLAS = "numpy_threaded_blas"
+
 
 def _plan_for(implementation: str, cores: int) -> tuple[ThreadPlan, bool]:
     """The thread plan and whether this implementation varies with the core count.
@@ -62,6 +67,8 @@ def _plan_for(implementation: str, cores: int) -> tuple[ThreadPlan, bool]:
     rather than once per core count. Re-measuring it would produce a flat curve that reads
     as a finding about parallelism instead of the tautology it is.
     """
+    if implementation == _THREADED_BLAS:
+        return resolve_plan("numpy_threaded", cores), True
     mode = _MODE_FOR.get(implementation)
     if mode is None:
         return resolve_plan("numpy_serial", cores), False
@@ -127,9 +134,19 @@ def _run_one(
     for name in wanted:
         _, scales = _plan_for(name, 1)
         jobs.extend((name, cores) for cores in (config.num_cores if scales else (1,)))
+    # The threaded-BLAS control: the numpy reference again, unchanged, with BLAS given
+    # every core. It is the arm that makes a numba-parallel speed-up attributable to numba
+    # rather than to the cores -- without it, "the compiled kernel got 8x on four cores" is
+    # only a claim about the kernel if numpy is known not to have got anything.
+    #
+    # Most kernels here barely reach BLAS at all, so this is expected to read ~1.0x. That
+    # is the finding, not a gap in the sweep.
+    jobs.extend(("numpy_threaded_blas", cores) for cores in config.num_cores if cores > 1)
 
     for name, cores in shuffled(jobs, config.seed + size + len(spec.name)):
-        implementation = spec.implementations[name]
+        # The control runs the *numpy* callable under a different thread plan, so it is
+        # looked up by the implementation it aliases rather than by its own name.
+        implementation = spec.implementations["numpy" if name == _THREADED_BLAS else name]
         plan, _ = _plan_for(name, cores)
         if plan.numba_threads > available or plan.workers > available:
             rows.append(

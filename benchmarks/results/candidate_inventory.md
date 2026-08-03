@@ -133,8 +133,11 @@ wrong about what is being repeated.
 
 ### 2.5 DR-TMLE — the largest single finding, and it is not about numba
 
-`DRTMLE.retarget` at n = 20,000, `glm`, three estimands: **16.1 s, against a 7.3 s fit.**
-A `retarget` that costs more than twice the fit it is meant to be a cheap re-run of.
+`DRTMLE.retarget` at n = 20,000, `glm`, three estimands: **16.1 s.** Against a fit that
+measured 7.3 s in the first profile and 10.5 s in the reproducible pipeline run — the fit
+time is the noisy half of that ratio on a shared box; the `retarget` is 16.1–16.2 s in both.
+Either way it is a `retarget` that costs 1.5–2.2× the fit it is meant to be a cheap re-run
+of. Reproduce with `python -m benchmarks.numba.cli --pipelines drtmle`.
 
 The alternation legitimately refits its reduced regressions — `g_{r,2}` is a functional of
 the mechanism being tilted, so `ReductionSpec.refit` is correct. What is not legitimate is
