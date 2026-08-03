@@ -13,6 +13,11 @@ demonstration, a cross-fitting construction and a widening of scope. That is a d
 list from the one this page opened with, and it does not lower the bar: *done* still means a
 demonstration that the interval attains nominal coverage where a plain `TMLE`'s does not.
 
+**The sweep is now a dispatch rather than a piece of work**: its instrument landed with
+[B2a](#b2a--the-sweep-instrument), which built the columns
+[§4](drtmle-validation-plan.md#4-the-sweep-piece-b2) asks for and the second update order item 22
+needs, and verified the workflow on a four-fit run.
+
 That grouping and its order are a revision, three times over. An [external
 review](drtmle-review.md) of this page and the code behind it read the plan against Theorem 1 of
 Benkeser et al. (2017) and found the definition of done right and the route to it short by two
@@ -1204,8 +1209,8 @@ behind **A1a** — the reading — rather than beside it.
   `requires_binary_treatment` and has never needed one.
 
 **The order to work in**, revised again, and it follows from what blocks what rather than from
-effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a** and **B1b**; what is
-left is:
+effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, **B1b** and
+**B2a**; what is left is:
 
 1. ~~**B1a**~~ — landed. It was first because it is the only piece that changes a number every
    other piece reads, because it is valid under every convention A1a might select, and
