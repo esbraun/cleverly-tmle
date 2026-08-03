@@ -459,6 +459,12 @@ the *faster* box: 36.0s a fit against 46s here at the same `jobs=2`. The point o
 smoke run rather than trusting the file is that this workflow has a history of being written while
 every install step in the repository was broken, and dispatching it is what found that out.
 
+The `order_control` input was verified the same way once it existed ([run
+30807033826](https://github.com/esbraun/cleverly-tmle/actions/runs/30807033826) — six fits, 146s,
+green), and it reproduced this container's `9.97e-02`, `8.23e-02` and `1/2` exactly. So the control
+arm is deterministic across machines too, which is what lets its numbers be read against a later
+dispatch's rather than only against themselves.
+
 ## What one runner could and could not reach
 
 Kept here rather than in the roadmap because it is a property of one execution environment on one
