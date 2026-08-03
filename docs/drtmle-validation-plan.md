@@ -389,6 +389,45 @@ deliverable as much as the assertions are, for the reason
 One dispatch of `benchmarks/bench_drtmle.py`, **after B1**, because every conclusion it could draw
 today is read through a curve that a share of fits have wrong.
 
+**The piece split into B2a and B2b, and this section is what B2a was executed from.** The dispatch
+this section describes could not happen until the script recorded what the section asks for, and
+the paper's update order did not exist to be run at all — so the instrument is one pull request
+([B2a](roadmap.md#b2a--the-sweep-instrument), landed) and the dispatch and its reading are the
+next ([B2b](roadmap.md#b2b--the-dispatch-and-what-it-decides)). That is the same split B1 took and
+for the same reason: one half precedes the other and depends on it.
+
+**One instruction here could not be executed as written, and the correction is B2a's.** This
+section asks whether the failures persist "when the reductions are handed the **oracle** values",
+on the grounds that it "costs nothing because the datasets already know their truth". The datasets
+know `Q̄₀` and `g₀`; they do not know the reductions. A reduction is a conditional expectation
+given a **fitted** object — `Q_r(a, W) = E[Q̄₀ − Q̄* | ĝ(a|W)]` and the two `g_r` given `Q̄̂(a, W)` —
+so its truth is a property of the estimator's own arrays and not of the process, and no closed form
+or fresh draw from the DGP supplies it. On these processes the arm is therefore
+`--reduced-learner`, which varies the reduction's learner and sees whether the failures move; it is
+labelled as a proxy rather than as an oracle. A genuine one here needs the fitted learners exposed
+for out-of-sample prediction — `cross_fit_predictions` discards every per-fold model — and is a
+construction with its own derivation attached (*which* fold's model is `ĝ` off-sample), which is
+**item 24**.
+
+**Where the oracle *does* exist it is now built, and it answered more than the question.** On the
+exact law the conditioning variables take three values and the conditional expectations are finite
+sums, so `tests/unit/test_oracle_reductions.py` injects them through
+`ReductionSpec.refit` — recomputed at the current targeted pair every round, as the real ones are —
+and runs a real alternation on them. Three findings, each with its measurement:
+
+- **with the reductions exactly right, the fit recovers the truth while *both* primary nuisances
+  are wrong on purpose**: `0.66`, `0.38` and `0.28` to `3.6e-08`, and to `1e-12` under
+  `guard=("g",)` where no mechanism equation is solved — which locates that residual at
+  [limitation 5](roadmap.md#limitations-recorded-rather-than-fixed) rather than at the oracle. It is
+  `test_remainder_drtmle.py`'s expansion arriving at the other end of the estimator;
+- **the saturated learner reproduces the oracle to `1e-14`**, over a whole alternation rather than
+  one call, which is the control that says the injection computes the reduction and not something
+  else;
+- **a wrong reduction moves `psi` by 0.36 to 0.80 of a standard error and leaves every score
+  solved.** That is the discrimination this arm was wanted for, and it points the opposite way from
+  the phrasing above: a sweep fit whose **scores** fail is not a fit whose reductions were noisy,
+  because a bad reduction does not show up there at all. What it damages is the estimate, silently.
+
 **The diagnosis stays widened even though the cause is found.** `1/g` in equation (8) is one of
 *five* places weak overlap enters, and B1 accounts for the score failure without saying the other
 four are harmless: equation (9)'s covariate is `Q_r/g`; `g_{r,2}`'s own *target* is a quotient by
@@ -403,13 +442,78 @@ effective `n`; the high quantiles of every clever covariate; the distributions o
 `g_{r,1}`, `g_{r,2}` and their ratio; the share of each score carried by the top 1%, 5% and 10% of
 rows; the Hessian condition numbers; the scores either side of truncation; `psi` and `se` across a
 truncation grid; the identity residual and `B_clip` from [B1a](#1-the-invariants-piece-b1a); and
-whether the failures persist when the reductions are handed the **oracle** values. The
-oracle-reduction run is what separates a noisy reduction from a wrong equation, and it costs
-nothing because the datasets already know their truth.
+whether the failures persist when the reductions are fitted by a different learner — the
+substitute for the oracle run this section originally asked for, above.
+
+**All of that is in the script as of B2a**, in three tables — *How the alternation exited*, which
+is what the first sweep printed; *Where weak overlap enters*, one column per place; and *What the
+reported curve rests on*, which is B1a's identity, the standardised scores and the concentration.
+Two of the columns above had to change their definition on contact with the code, and both changes
+are the same lesson B1b learned about `clipped`:
+
+- **the clipped-row share is read at the *initial* mechanism**, not at the targeted one. Since B1b
+  the alternation carries the truncated tilt forward, so a converged fit clips nothing at the exit
+  however hard the draw was — a column read there would be zero on every row of the table, which
+  is [stop-ship 14](roadmap.md#stop-ship)'s shape. `margin` sits beside it as the witness that the
+  bound had something to do;
+- **equation (9)'s Hessian condition number does not exist to be reported.** The bounded solve is
+  a root find rather than a Newton step ([B1b](roadmap.md#what-b1b-landed)), so there is no Hessian
+  at that call site. The outcome fluctuation's is reported and describes the closing pass's *joint*
+  solve over (8) and (10); `ill` carries equation (10)'s conditioning, as it always did.
 
 A valid **truncation curve** for `DRTMLE` has to refit any reduced regression whose target moves
 with the bound. One that moves the denominators and holds the quotient regression's target fixed
 is *partial* and must be labelled so.
+
+### The update-order rule, frozen before the dispatch
+
+Item 22's numerical half asks whether the two routes reach the same fixed point. This is the rule
+it is judged by, and it is written here before the sweep runs for the reason [§5's
+rules](#the-decision-rules-frozen-before-the-dispatch) are: **it may be changed before the dispatch
+with a written reason, and not after it.**
+
+The theory that makes it falsifiable: both routes drive the same three empirical means to zero, so
+if both are asymptotically linear with the same influence curve then
+`ψ_paper − ψ_cleverly = o_p(n^(−1/2))` and `|Δψ|/se → 0`. That is a **claim with a direction**, not
+a reassurance — and the direction is the whole of what a single cell cannot show.
+
+> **The two update orders reach the same fixed point if:**
+>
+> 1. the median `|Δψ|/se` **decreases across the three sizes** in both processes;
+> 2. the **count** of draws in which the route difference exceeds the *reseed* difference is
+>    compatible with half the pairs at the largest size — the routes moving `psi` no further than a
+>    different fold split of one route does;
+> 3. the median `se` ratio is inside `[0.95, 1.05]` at the largest size in both processes;
+> 4. no fit in either arm fails its score check or its state identity.
+>
+> The **primary** evidence is clause 1's slope, not any single cell: two sizes are suggestive and
+> three carry a rate, which is why this arm runs at three. Clause 2 is the one that can fail while
+> every other passes, and it is the clause the control arm exists for.
+
+**What would falsify it**, stated so that the answer is not chosen after the numbers: a route
+difference that **does not shrink** while the reseed difference does. That combination says the two
+routes are converging to different limits, and item 22's theoretical half — that the paper
+prescribes a fixed point rather than a route — would not survive it. A route difference that is
+large but shrinks at the same rate as the reseed's is the *opposite* finding, and is the expected
+one.
+
+**Why a count rather than an interval.** `comparison_rows` reports a median, and this repository has
+no Monte Carlo standard error for a median — `EstimandSummary.bias_se` is a mean's. At twelve draws
+a distribution-free paired count is honest where an invented interval would not be, so clause 2 is
+stated on the count and the mean with `sd/√M` is reported beside it for continuity. Raising `--seeds`
+for this arm is the way to sharpen it; reading its median as though it were a coverage number is not.
+
+**The dispatch it is judged from** is its own, because three sizes across four processes and three
+arms does not fit the runner:
+
+```text
+processes: nonlinear weak-overlap    sizes: 600 1200 2400    seeds: 12
+order: true    order_control: true
+```
+
+2 processes × 3 sizes × 12 seeds × 3 arms = 216 fits, ≈ 100 minutes at `jobs: 2` against the
+180-minute cap, with the paper arm's longer route allowed for. The main four-process sweep keeps its
+two sizes and runs with the arms **off**.
 
 **Stopping and validity are two questions and the sweep must report them separately.**
 Asymptotic linearity asks for `P_n D = o_p(n^(−1/2))`; the honest finite-sample rendering of `o`
@@ -636,6 +740,10 @@ rather than being found afterwards.
 | unit | the split into `D*_g` and `D*_Q` did not move the curve | **run**: return their difference from `total()`. Watched first against a test comparing `total()` with `reduced_corrections` — which **passed**, because the second calls the first, so that test was replaced with one comparing each half against longhand |
 | unit | an identity failure reaches the report (item 16's machinery) | **run**: mark the identity rows passed, and both the verdict and the summary go quiet |
 | unit | the stopping rule accepts either ruler | delete the absolute branch (already done, item 12) |
+| unit | an oracle reduction tracks the **targeted** pair, not the initial one | **run**: have the injected `refit` close over the initial nuisances and ignore its argument — six tests red, including the truth recovery, because the reductions stop being the ones equations (9) and (10) are stated at |
+| unit | the oracle reduction *is* what the saturated learner estimates | **structural**: the two are compared array for array at the exit of two independently run alternations, so an oracle computing something else smooth cannot agree by luck |
+| unit | a fluctuation's recorded `score` **is** `score_columns` at the state it returned | **run**: score on the *weighted fit* submodel rather than the scoring one — reddens only the `target_weights=True` cases, which is why they are parametrised. The obvious mutation, recording the loop's in-loop score, was run and is **inert**: it is taken after the step, at the iterate the loop returns |
+| unit | every round reads equation (8) at the state it **exits** at, not the state it was solved at | **run**: delete the restatement — before it was made unconditional this reddened nothing but its own call-site pin, 68 of 69 tests passing, which is [lesson 12](drtmle-investigation-log.md#what-the-sizings-got-wrong) |
 | unit | a weighted fit transports (item 17) | reductions taken at the sampling law (already done, item 17) |
 | oracle | the drift decomposition | delete one correction term |
 | component | each object of the curve equals what the derivation gives for it, **at a value where it does not vanish** | perturb one component and watch only that row move; and evaluate the whole checklist at the *truth* instead, where every row passes and the check is vacuous — the mutation that says the law is misspecified on purpose |

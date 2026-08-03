@@ -1006,3 +1006,215 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
 
         assert max(curves) < 1e-8
         assert worst < 1e-8
+
+
+@pytest.fixture(scope="module")
+def paper(fit):
+    """The same draw and the same nuisances, reached by the working paper's own order.
+
+    ``fit``'s settings and ``fit``'s frame, changing exactly one thing, which is what makes
+    the comparison below about the *route*: the initial nuisances are a deterministic
+    function of the data and ``random_state``, so both fits enter their alternation from
+    one pair and every later difference is the order's.  It is declared a dependent of
+    ``fit`` rather than merely built the same way so that the two cannot drift apart
+    silently if the shared settings above are edited.
+    """
+    del fit  # the dependency is the point; the object is refit here under the other order
+    return (
+        DRTMLE(**SETTINGS, update_order="paper").fit(frame(), outcome="Y", treatment="A").single()
+    )
+
+
+class TestBothUpdateOrdersReachTheTheoremsExit:
+    r"""Item 22's numerical half, at one draw: two routes, one stated fixed point.
+
+    The 2016 working paper states a six-step recursion (`docs/drtmle-theorem-concordance.md`
+    §6) and this package's alternation is not a transcription of it.  Reading the paper
+    settled the *theoretical* half -- its step 7 states termination as the three empirical
+    means being approximately zero, so the order is one way of reaching a fixed point rather
+    than something Theorem 1 assumes about the collection returned -- and left the numerical
+    half: whether the two routes land in the same place on real data.
+
+    **What is checkable here is one draw, and the distribution is
+    [B2b](../../docs/roadmap.md)'s.**  A single fit cannot say the two orders agree
+    *generally*; what it can say is that the second route exists, exits where the theorem
+    asks, and does not move this fit's estimate -- and that is the precondition for the
+    sweep being worth dispatching at all.  The numbers below were measured before they were
+    asserted, with the tolerances set an order clear of what was seen rather than at it.
+
+    Two rules from the concordance are obeyed rather than restated.  The comparison is of
+    **scores and estimates, never fluctuation coefficients**: the submodels a round passes
+    through differ between the orders, so an ``epsilon`` from one is not an ``epsilon`` from
+    the other.  And it is taken at the **same nuisances**, which is what the shared frame and
+    ``random_state`` buy.
+    """
+
+    def test_the_paper_order_exits_where_step_seven_says_it_should(self, paper) -> None:
+        """The three empirical means, at the state this fit returned.
+
+        This is the paper's own termination condition read off the returned collection, and
+        it is the whole of what Theorem 1 asks about the route.  ``correction_check`` is what
+        makes it a statement about the *reported* state rather than about what a solver
+        recorded, which is the distinction items 20 and 23 were both found in.
+        """
+        check = paper.validation.correction_check()
+
+        assert check.passed, check.summary()
+        assert paper.validation.score_check().passed
+        for row in check.rows:
+            assert abs(row.residual) < 1e-15, row.name
+
+    def test_the_two_routes_agree_on_the_estimate(self, fit, paper) -> None:
+        """The comparison item 22 asks for, in the units it has to be read in.
+
+        A difference between two fixed points is only meaningful beside the standard error
+        of the thing being estimated, so the bar is a share of ``se`` rather than an absolute
+        one.  Measured at ``9e-03`` of a standard error on ``ate`` here and ``7e-04`` on a
+        400-row draw, and asserted at ``0.05`` -- headroom of half an order, not two, because
+        what would be worth knowing is a disagreement of a *fraction* of ``se``.
+        """
+        for name in ESTIMANDS:
+            reference = fit.estimates[name]
+            difference = abs(paper.estimates[name].psi - reference.psi)
+            assert difference < 0.05 * reference.std_error, name
+
+    def test_but_not_exactly_on_the_reported_variance_and_that_is_the_finding(
+        self, fit, paper
+    ) -> None:
+        r"""The routes agree on :math:`\hat\Psi` and disagree slightly on :math:`\sigma^2_n`.
+
+        **Measured rather than expected**: the ``ate`` standard error is ``0.13231`` under
+        this package's order and ``0.12929`` under the paper's, a ratio of ``0.977``, while
+        the point estimates agree to ``9e-03`` of one.  On a 400-row draw the same ratio was
+        ``1.0006``.  Both fits solve all three equations at their returned state -- ``1e-09``
+        and ``6e-10`` -- so neither is unconverged, and this is not a tolerance to tighten.
+
+        **Why it is not a contradiction of the test above.**  Step 7 constrains the three
+        *empirical means*, and the reported variance is the second moment of a curve built
+        from ``reduction.reduced``, which step 7 says nothing about.  The two routes refit the
+        reductions at different vintages of the outcome regression by construction -- the
+        paper's :math:`g_{r,1}` and :math:`g_{r,2}` come from the once-updated regression and
+        its :math:`Q_r` from the twice-updated one -- and they exit holding visibly different
+        ones: ``sd(g_{r,2})`` of ``0.024`` against ``0.031``, and ``sd(g_{r,2}/g_{r,1})`` of
+        ``0.058`` against ``0.042``.  Different reductions, same three means, different
+        corrections subtracted, and so a different :math:`\sigma^2_n`.
+
+        So the bar here is deliberately wide and deliberately *not* a pass mark: whether a
+        couple of per cent is what this gap always is, or whether it opens up under weak
+        overlap, is a distribution over draws and is the sweep's -- ``docs/roadmap.md``'s
+        piece B2b, whose paper-order arm reports exactly this ratio.  What one draw can pin
+        is that the gap is in the variance rather than in the estimate, which is the thing a
+        reader would otherwise assume the other way round.
+        """
+        ratio = paper.estimates["ate"].std_error / fit.estimates["ate"].std_error
+
+        assert 0.9 < ratio < 1.1, "a route difference of more than a tenth is a different claim"
+
+    def test_and_they_are_genuinely_two_routes_rather_than_one(self, fit, paper) -> None:
+        """The control, without which the agreement above proves nothing.
+
+        Two fits that ran the *same* code would agree exactly, so an agreement test alone
+        passes most loudly when the branch it is about has been deleted.  What separates them
+        is the trace: the paper's order solves equation (8) first and refits the reductions at
+        two different vintages of the outcome regression, so it reaches the fixed point by a
+        different number of rounds through different intermediate states.
+
+        Asserting *inequality* rather than a particular round count, because how many rounds
+        either route takes is a property of the draw and pinning it would make this a test of
+        the seed.
+        """
+        ours = fit.repeats[0].fluctuations["mean"].reduction
+        theirs = paper.repeats[0].fluctuations["mean"].reduction
+
+        assert theirs.rounds != ours.rounds or theirs.trace[0][1:] != ours.trace[0][1:]
+
+    @pytest.mark.parametrize(
+        ("order", "expected"),
+        [
+            ("cleverly", ["eq9", "eq10", "eq8"]),
+            ("paper", ["eq8", "eq10", "eq9"]),
+        ],
+    )
+    def test_the_round_solves_the_equations_in_the_declared_order(
+        self, monkeypatch, order, expected
+    ) -> None:
+        """The structural pin, and the one thing here that adjudicates *which* route ran.
+
+        Every other test in this class reads a fitted result, and a result is a poor witness
+        for an order: the two routes reach nearly the same place, so a paper-order fit that
+        had quietly run this package's order would pass all of them but the trace control --
+        and that one is a comparison of two numbers that could coincide.  This reads the
+        sequence of *solves* instead, which is what the order is.
+
+        Two hooks on the targeting module's namespace and nothing in the library moved,
+        which is how ``docs/drtmle-investigation-log.md`` records B1b's prototype being run.
+        The first round is all that is asserted: a round is the unit the order is defined
+        over, and later rounds repeat it.
+        """
+        from cleverly.estimators import targeting
+
+        seen: list[str] = []
+        mechanism, submodel = targeting.solve_bounded_mechanism, targeting.solve_submodel
+
+        def record_mechanism(*args, **kwargs):
+            seen.append("eq9")
+            return mechanism(*args, **kwargs)
+
+        def record_submodel(scaled, initial, model, *args, **kwargs):
+            # Equation (10)'s columns are named `h_dr<arm>` by `reduced_outcome_submodel`
+            # and equation (8)'s are the `mean` group's own, so the submodel says which
+            # equation this solve is without the hook counting calls or knowing the order
+            # it is checking.
+            seen.append("eq10" if any(name.startswith("h_dr") for name in model.names) else "eq8")
+            return submodel(scaled, initial, model, *args, **kwargs)
+
+        monkeypatch.setattr(targeting, "solve_bounded_mechanism", record_mechanism)
+        monkeypatch.setattr(targeting, "solve_submodel", record_submodel)
+        small, _ = nonlinear_dgp().sample(200, seed=11)
+        DRTMLE(**SETTINGS, update_order=order).fit(small, outcome="Y", treatment="A")
+
+        # The priming equation-(8) solve happens before the loop under both orders, so the
+        # round starts at the second entry.
+        assert seen[0] == "eq8"
+        assert seen[1:4] == expected
+
+    @pytest.mark.parametrize("order", ["cleverly", "paper"])
+    def test_every_round_reads_equation_eight_at_the_state_it_exits_at(
+        self, monkeypatch, order
+    ) -> None:
+        """One expectation for both orders, which is what deleting the branch bought.
+
+        Equation (8)'s score has to describe the pair the round *exits* at, as the other two
+        already do.  Under this package's order it is solved last and the restatement is a
+        bit-for-bit no-op; under the paper's it is solved first and steps 4 and 6 move both
+        the regression it fluctuated and the mechanism it divides by.  One unconditional call
+        covers both, so there is no longer a branch that could be right for one order and
+        wrong for the other -- which is the state the call used to be in, and it was
+        invisible: deleting the restatement then left **68 of this module's 69 tests
+        passing**, because :func:`_close_at_frozen_reductions` re-solves all three equations
+        and makes the reported fit identical either way.
+
+        What that leaves here is a call-site pin with a single expectation. The claim it
+        rests on -- that recomputing a fluctuation's score at its returned state reproduces
+        the recorded one exactly -- is ``tests/unit/test_fluctuation_score.py``'s, which is
+        where the mutation for *that* lives.
+        """
+        from cleverly.estimators import targeting
+
+        calls: list[int] = []
+        original = targeting._restated_outcome_score
+
+        def counted(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(targeting, "_restated_outcome_score", counted)
+        small, _ = nonlinear_dgp().sample(200, seed=11)
+        fit = DRTMLE(**SETTINGS, update_order=order).fit(small, outcome="Y", treatment="A").single()
+
+        assert len(calls) == fit.repeats[0].fluctuations["mean"].reduction.rounds
+
+    def test_an_unknown_order_is_refused_by_name(self) -> None:
+        """Both names in the message, since the wrong one is the interesting case."""
+        with pytest.raises(ValueError, match="update_order must be one of"):
+            DRTMLE(update_order="benkeser")
