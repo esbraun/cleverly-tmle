@@ -12,4 +12,9 @@ venv/
 .coverage
 htmlcov/
 target/
-benchmarks/results/
+# Benchmark *runs* are machine-specific and are not committed; the written-up
+# findings that live beside them are. A `results.jsonl` from a four-core sandbox
+# would read as a fact about the package rather than about that box.
+benchmarks/results/*
+!benchmarks/results/*.md
+!benchmarks/results/.gitkeep

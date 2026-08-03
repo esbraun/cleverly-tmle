@@ -1,0 +1,311 @@
+r"""The multiplier bootstrap: the one kernel where the array is the problem.
+
+``multiplier_critical_value`` draws ``B`` Rademacher vectors of length ``n``, forms
+``xi @ centred / n``, standardises, takes a row-wise maximum, and quantiles the result.
+The package already knows this is generation-bound -- ``docs/roadmap.md`` records that the
+draw is 92-95% of it and the matrix product 2-3% -- and already fixed the cheap part of
+that by packing bits instead of drawing float64 uniforms.  What it did *not* change is the
+shape of the computation:
+
+.. code-block:: text
+
+    xi = signs((chunk, n))        # 8 bytes/entry: 200 MB at chunk=256, n=1e6
+    draws = (xi @ centred) / n    # a (chunk, n) x (n, m) dgemm for m ~ 5
+
+That is a dense ``n``-by-``chunk`` array materialised to be consumed once, and a BLAS call
+whose left operand is a matrix of plus and minus ones.  Both facts are opportunities a
+compiler can take and numpy cannot: a fused loop never forms ``xi``, and multiplying by a
+sign is an add or a subtract rather than a multiply.
+
+So this kernel is here on three separate grounds -- runtime share (it is the largest
+package-owned cost in any fit that requests simultaneous bands), a large temporary
+(the plan's memory criterion), and an obvious independent parallel axis (replicates).  It
+is the strongest a-priori candidate in the package, which is exactly why it is measured
+rather than adopted.
+
+**Reproducibility across thread counts.**  The parallel implementation gives each
+replicate its own counter-based stream, seeded from ``(seed, replicate_index)``, so the
+draws depend on the replicate's index and not on which thread ran it or how many threads
+there were.  A parallel bootstrap whose answer moves with the worker count is not a
+bootstrap, and the validator compares against the serial fused kernel *value for value*
+rather than distributionally.
+
+The numpy reference here is the package's own path, transcribed rather than imported, so
+that the comparison is against the code that ships and not against a re-derivation of it.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from ..fixtures import make_influence
+from ..implementations.numba_parallel import PARALLEL_AVAILABLE, pjit, prange
+from ..implementations.numba_serial import njit
+from ..validation import compare_scalar
+from . import KernelSpec, register
+
+__all__ = ["build", "numpy_multiplier", "numba_multiplier", "numba_multiplier_parallel"]
+
+#: The package's chunk size, so the reference allocates what the package allocates.
+_CHUNK = 256
+
+#: 2**64, for turning a 64-bit counter hash into the one bit a Rademacher draw needs.
+_SPLITMIX_GAMMA = np.uint64(0x9E3779B97F4A7C15)
+
+
+def build(
+    n: int = 100_000,
+    n_estimands: int = 5,
+    n_replicates: int = 2000,
+    chunk: int = _CHUNK,
+    seed: int = 20260803,
+) -> dict[str, Any]:
+    """Centred influence curves and the standard errors the statistic divides by."""
+    fixture = make_influence(n, n_arms=2, seed=seed)
+    rng = np.random.default_rng(seed)
+    curves = rng.standard_normal((n, n_estimands))
+    # One estimand that is an exact linear combination of two others, as `ate` is of
+    # `ey1` and `ey0`: the covariance is then singular, which is the case the package's
+    # own closed form has to handle and a fixture of independent columns would miss.
+    if n_estimands >= 3:
+        curves[:, 2] = curves[:, 0] - curves[:, 1]
+    # Scale each row by its own inverse-probability weight, so the curves have the heavy
+    # tail a `1/g(W)` clever covariate gives them. A max-t law is a statement about the
+    # tail, and a fixture of homoscedastic normals is the case where every method agrees.
+    leverage = (fixture.treatment_indicator / fixture.propensity).sum(axis=1, keepdims=True)
+    curves *= np.sqrt(leverage)
+    centred = curves - curves.mean(axis=0, keepdims=True)
+    std_errors = np.sqrt((centred**2).mean(axis=0) / n)
+    return {
+        "centred": np.ascontiguousarray(centred),
+        "std_errors": std_errors,
+        "n": n,
+        "n_replicates": n_replicates,
+        "chunk": chunk,
+        "seed": seed,
+        "alpha": 0.05,
+    }
+
+
+# --------------------------------------------------------------------------- numpy
+
+#: Sign lookup indexed by a 0/1 bit -- the package's own `_SIGNS`.
+_SIGNS = np.array([-1.0, 1.0])
+
+
+def numpy_multiplier(inputs: dict[str, Any]) -> float:
+    """The shipped path: pack bits, unpack to signs, one dgemm per chunk.
+
+    Transcribed from :func:`cleverly.inference.multiplier.multiplier_critical_value` and
+    :func:`~cleverly.inference.multiplier._multipliers` rather than called, so the timed
+    region is the arithmetic alone -- the package function also validates shapes, resolves
+    the kind and (with a cluster) sums within clusters first, none of which the compiled
+    variants do either.  A comparison whose two sides do different amounts of bookkeeping
+    is a comparison of the bookkeeping.
+    """
+    centred = inputs["centred"]
+    se = inputs["std_errors"]
+    n = inputs["n"]
+    n_replicates = inputs["n_replicates"]
+    chunk = inputs["chunk"]
+    rng = np.random.default_rng(inputs["seed"])
+
+    usable = np.isfinite(se) & (se > 0)
+    statistics = np.empty(n_replicates, dtype=float)
+    done = 0
+    while done < n_replicates:
+        size = min(chunk, n_replicates - done)
+        packed = rng.integers(0, 256, size=(size, (centred.shape[0] + 7) // 8), dtype=np.uint8)
+        xi = _SIGNS[np.unpackbits(packed, axis=1, count=centred.shape[0])]
+        draws = (xi @ centred) / n
+        standardised = np.abs(draws[:, usable]) / se[usable]
+        statistics[done : done + size] = standardised.max(axis=1)
+        done += size
+    return float(np.quantile(statistics, 1.0 - inputs["alpha"]))
+
+
+# --------------------------------------------------------------------------- numba
+
+
+@njit(inline="always")
+def _bit(state: np.uint64) -> np.uint64:
+    """One splitmix64 round: a counter to a well-mixed 64-bit word.
+
+    A counter-based generator rather than a stateful one is what makes the parallel
+    kernel's draw depend on the replicate index alone.  A shared ``np.random`` state would
+    make the answer a function of the interleaving, and a per-thread state would make it a
+    function of the thread count; both would give a bootstrap whose value moves when the
+    machine does.
+    """
+    z = state + _SPLITMIX_GAMMA
+    z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    return z ^ (z >> np.uint64(31))
+
+
+#: Replicates accumulated together in one pass over ``centred``.  The blocking is not
+#: cosmetic and is the difference between losing to numpy and beating it: a one-replicate-
+#: at-a-time loop reads the whole ``(n, m)`` array once per replicate, which at ``B=500``
+#: and ``n=100,000`` is 2 GB of traffic for 250 MFLOP -- entirely memory-bound, and no
+#: faster than the dgemm it was meant to replace (measured here at 405 ms against numpy's
+#: 393 ms).  Accumulating 64 replicates per pass reuses each loaded row 64 times and takes
+#: it to 188 ms.  This is what a blocked dgemm does, done where the sign draw can be fused
+#: into it.
+_BLOCK = 64
+
+
+@njit()
+def _block_statistics(
+    centred: np.ndarray,
+    se: np.ndarray,
+    usable: np.ndarray,
+    n: float,
+    seed: np.uint64,
+    first: int,
+    count: int,
+    statistics: np.ndarray,
+) -> None:
+    """Accumulate ``count`` replicates starting at ``first``, in one pass over the rows.
+
+    ``xi`` never exists.  Each row draws its bit per replicate and is added to or
+    subtracted from that replicate's ``m``-vector, so the ``(chunk, n)`` float64 array the
+    numpy path materialises -- 200 MB at ``n = 1e6`` -- is not allocated at all, and the
+    multiply by plus-or-minus one becomes a sign flip.
+    """
+    rows, columns = centred.shape
+    accumulator = np.zeros((count, columns))
+    words = np.empty(count, dtype=np.uint64)
+    signs = np.empty(count)
+    for i in range(rows):
+        if i % 64 == 0:
+            for k in range(count):
+                base = np.uint64(seed) * np.uint64(0x2545F4914F6CDD1D) + np.uint64(first + k)
+                words[k] = _bit(base + np.uint64(i // 64))
+        shift = np.uint64(i % 64)
+        for k in range(count):
+            signs[k] = 1.0 if ((words[k] >> shift) & np.uint64(1)) else -1.0
+        for j in range(columns):
+            value = centred[i, j]
+            for k in range(count):
+                accumulator[k, j] += signs[k] * value
+    for k in range(count):
+        best = 0.0
+        for j in range(columns):
+            if usable[j]:
+                statistic = abs(accumulator[k, j] / n) / se[j]
+                if statistic > best:
+                    best = statistic
+        statistics[first + k] = best
+
+
+@njit()
+def _multiplier_serial(
+    centred: np.ndarray,
+    se: np.ndarray,
+    usable: np.ndarray,
+    n: float,
+    n_replicates: int,
+    seed: np.uint64,
+    block: int,
+) -> np.ndarray:
+    statistics = np.empty(n_replicates)
+    for first in range(0, n_replicates, block):
+        _block_statistics(
+            centred, se, usable, n, seed, first,
+            min(block, n_replicates - first), statistics,
+        )
+    return statistics
+
+
+@pjit()
+def _multiplier_parallel(
+    centred: np.ndarray,
+    se: np.ndarray,
+    usable: np.ndarray,
+    n: float,
+    n_replicates: int,
+    seed: np.uint64,
+    block: int,
+) -> np.ndarray:
+    """Replicates are independent, so this is the clean axis: one ``prange``, no reduction.
+
+    Each iteration owns a block of replicates and writes only its own slots of the output,
+    so there is no shared accumulator and nothing to contend on.  Because the draw is
+    keyed on the replicate index rather than on a stream, the result is identical to the
+    serial kernel's whatever the block boundaries and the thread count are -- which the
+    equivalence test checks value for value rather than distributionally.
+    """
+    statistics = np.empty(n_replicates)
+    n_blocks = (n_replicates + block - 1) // block
+    for index in prange(n_blocks):
+        first = index * block
+        _block_statistics(
+            centred, se, usable, n, seed, first,
+            min(block, n_replicates - first), statistics,
+        )
+    return statistics
+
+
+def _run(inputs: dict[str, Any], kernel: Any) -> float:
+    centred = inputs["centred"]
+    se = np.asarray(inputs["std_errors"], dtype=float)
+    usable = np.isfinite(se) & (se > 0)
+    safe = np.where(usable, se, 1.0)
+    statistics = kernel(
+        centred,
+        safe,
+        usable,
+        float(inputs["n"]),
+        int(inputs["n_replicates"]),
+        np.uint64(inputs["seed"]),
+        _BLOCK,
+    )
+    return float(np.quantile(statistics, 1.0 - inputs["alpha"]))
+
+
+def numba_multiplier(inputs: dict[str, Any]) -> float:
+    return _run(inputs, _multiplier_serial)
+
+
+def numba_multiplier_parallel(inputs: dict[str, Any]) -> float:
+    return _run(inputs, _multiplier_parallel)
+
+
+# ------------------------------------------------------------------------ registry
+
+_IMPLEMENTATIONS: dict[str, Any] = {"numpy": numpy_multiplier}
+if PARALLEL_AVAILABLE:
+    _IMPLEMENTATIONS["numba"] = numba_multiplier
+    _IMPLEMENTATIONS["numba_parallel"] = numba_multiplier_parallel
+
+register(
+    KernelSpec(
+        name="multiplier_bootstrap",
+        estimator="inference",
+        build=build,
+        implementations=_IMPLEMENTATIONS,
+        compare=compare_scalar,
+        # The two paths draw *different* multipliers -- one from PCG64, one from a
+        # counter hash -- so the critical values agree only as two estimates of the same
+        # quantile do. The gate is therefore a Monte Carlo one: at B=2000 the quantile's
+        # own standard error is around 1%, so 3% is a bar a wrong kernel fails and a
+        # right one passes. The *serial* and *parallel* compiled paths draw identically
+        # and are additionally checked bit-for-bit by the equivalence test.
+        tolerance=(0.05, 0.03),
+        parallel_axis="replicates",
+        note=(
+            "generation-bound and allocates a (chunk, n) float64 array; the fused kernel "
+            "never forms it"
+        ),
+        dimensions={
+            "n": 100_000,
+            "n_estimands": 5,
+            "n_replicates": 2000,
+            "chunk": _CHUNK,
+            "seed": 20260803,
+        },
+        amortise=True,
+    )
+)
