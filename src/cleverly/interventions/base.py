@@ -255,10 +255,10 @@ class Stochastic:
 def refuse_unsupported(kind: str) -> None:
     """Raise for an intervention that is not a regime, and say where it went.
 
-    Called from the constructors a user would reach for.  Both kinds here are implemented
-    under keywords of their own, so both messages name that keyword; the ``ValueError``
-    rather than ``NotImplementedError`` says the difference is one of API rather than of
-    derivation.
+    Called from :func:`as_interventions`, which is where a ``Shift`` or an ``Incremental``
+    handed to ``interventions=`` arrives.  Both kinds here are implemented under keywords
+    of their own, so both messages name that keyword; the ``ValueError`` rather than
+    ``NotImplementedError`` says the difference is one of API rather than of derivation.
     """
     if kind == "ipsi":
         raise ValueError(
@@ -420,12 +420,27 @@ def as_interventions(value: Any) -> tuple[Intervention, ...]:
 
     A bare level is read as :class:`Static` on it, so ``interventions=(1, 0)`` means what
     it looks like it means; anything implementing :class:`Intervention` is taken as is.
+
+    A :class:`~cleverly.interventions.Shift` or
+    :class:`~cleverly.interventions.Incremental` is neither, and is sent to
+    :func:`refuse_unsupported` rather than falling through to ``Static``.  Both are
+    implemented, under keywords of their own, and the ``Static`` fallthrough would wrap
+    the object as though it were a treatment *level* -- giving a regime named
+    ``"always Shift(delta=0.5, ...)"`` and an error much further downstream, about
+    something else.
     """
+    from .incremental import Incremental
+    from .shift import Shift
+
     if value is None:
         return ()
     items = list(value) if isinstance(value, (list, tuple)) else [value]
     out: list[Intervention] = []
     for item in items:
+        if isinstance(item, Shift):
+            refuse_unsupported("shift")
+        if isinstance(item, Incremental):
+            refuse_unsupported("ipsi")
         if isinstance(item, Intervention) and not isinstance(item, (str, bytes)):
             out.append(item)
         else:

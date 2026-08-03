@@ -325,6 +325,18 @@ def average_estimates(
     return out
 
 
+def _expect(submodel: Submodel, group: str) -> None:
+    """Refuse a submodel from the wrong group.
+
+    Every curve here reads a fluctuation built for one score equation, and reading the
+    wrong one would not raise on its own -- the shapes line up and the arithmetic would
+    quietly answer for a different parameter.  Hence a guard at the top of each, and
+    hence one function rather than the eight copies of the same two lines it replaces.
+    """
+    if submodel.group != group:
+        raise ValueError(f"expected the {group!r} submodel; got {submodel.group!r}")
+
+
 def _residual(outcome: FloatArray, targeted: InitialFit, observed: BoolArray | None) -> FloatArray:
     r"""``Delta * (Y - Q*(A, W))`` on the scaled outcome scale."""
     y = np.asarray(outcome, dtype=float).reshape(-1)
@@ -381,8 +393,7 @@ def counterfactual_means(
     drove all three empirical means to zero; what it moves is the variance, which is the
     whole of what that variant buys.
     """
-    if submodel.group != "mean":
-        raise ValueError(f"expected the 'mean' submodel; got {submodel.group!r}")
+    _expect(submodel, "mean")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
 
@@ -741,8 +752,7 @@ def shift_means(
     bracket below is summed in the same association for the same reason the comment there
     gives.
     """
-    if submodel.group != "mtp":
-        raise ValueError(f"expected the 'mtp' submodel; got {submodel.group!r}")
+    _expect(submodel, "mtp")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
 
@@ -787,8 +797,7 @@ def regime_means(
     ``regime`` submodel even when the fluctuation was fit in weighted form, for the
     reason :func:`counterfactual_means` gives.
     """
-    if submodel.group != "regime":
-        raise ValueError(f"expected the 'regime' submodel; got {submodel.group!r}")
+    _expect(submodel, "regime")
     star = np.asarray(regimes, dtype=float)
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
@@ -868,8 +877,7 @@ def ipsi_means(
     did not use.  Carrying the mechanism on the same object as the density is what makes
     that impossible to get wrong rather than merely documented.
     """
-    if submodel.group != "ipsi":
-        raise ValueError(f"expected the 'ipsi' submodel; got {submodel.group!r}")
+    _expect(submodel, "ipsi")
     density = np.asarray(incremental.values, dtype=float)
     derivative = np.asarray(incremental.derivative, dtype=float)
     mechanism = np.asarray(incremental.propensity, dtype=float).reshape(-1)
@@ -911,10 +919,7 @@ def _raw_predictions(
     targeted: InitialFit, levels: tuple[float, ...], scaler: OutcomeScaler
 ) -> FloatArray:
     """``(n, K)`` targeted predictions on the *original* outcome scale, arms in order."""
-    stacked = np.column_stack([targeted.arms[level] for level in levels])
-    if scaler.is_identity:
-        return stacked
-    return np.asarray(scaler.lower + scaler.range * stacked, dtype=float)
+    return scaler.unscale_levels(np.column_stack([targeted.arms[level] for level in levels]))
 
 
 def msm_coefficients(
@@ -999,8 +1004,7 @@ def msm_coefficients(
     inference layer is written against arrays so that it does not depend on the objects
     that produced them.
     """
-    if submodel.group != "msm":
-        raise ValueError(f"expected the 'msm' submodel; got {submodel.group!r}")
+    _expect(submodel, "msm")
     phi = np.asarray(design, dtype=float)
     h = np.asarray(model_weights, dtype=float)
     w = np.asarray(weights, dtype=float).reshape(-1)
@@ -1114,8 +1118,7 @@ def counterfactual_mean_parts(
     whenever it was: this is meant to decompose *the* curve, and a decomposition missing a
     term the curve has is worse than no decomposition at all.
     """
-    if submodel.group != "mean":
-        raise ValueError(f"expected the 'mean' submodel; got {submodel.group!r}")
+    _expect(submodel, "mean")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
     return {
@@ -1143,8 +1146,7 @@ def att_estimate(
     One entry per non-reference arm, keyed by that arm -- a single entry, the classic
     ATT, when the treatment is binary.
     """
-    if submodel.group != "att":
-        raise ValueError(f"expected the 'att' submodel; got {submodel.group!r}")
+    _expect(submodel, "att")
     return _conditional_effects(
         outcome, targeted, submodel, treatment, weights, observed, reference, conditions_on_arm=True
     )
@@ -1161,8 +1163,7 @@ def atc_estimate(
     reference: float = 0.0,
 ) -> dict[float, ArmMean]:
     """The mirror image: each contrast among the *reference* arm's units."""
-    if submodel.group != "atc":
-        raise ValueError(f"expected the 'atc' submodel; got {submodel.group!r}")
+    _expect(submodel, "atc")
     return _conditional_effects(
         outcome,
         targeted,

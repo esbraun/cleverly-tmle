@@ -60,9 +60,13 @@ def test_the_shares_add_up_and_are_informative(result) -> None:  # type: ignore[
     shares = parts.shares()
     assert set(shares) == {"residual", "plugin"}
     assert all(value >= 0.0 for value in shares.values())
-    # Both terms carry real weight in an ordinary fit; if one were ~0 the
-    # decomposition would be telling us nothing.
     assert max(shares.values()) < 1.5
+    # Both terms carry real weight in an ordinary fit; if one were ~0 the decomposition
+    # would be telling us nothing.  That was the stated claim and nothing above asserts
+    # it -- a split of residual=1.0, plugin=0.0 passes every line of it.  Measured here
+    # at 0.79 and 0.11, so a floor of 0.05 is well clear of both while still failing a
+    # term that has collapsed.
+    assert min(shares.values()) > 0.05
 
 
 def test_the_residual_term_grows_as_truncation_is_loosened() -> None:

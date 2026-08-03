@@ -197,7 +197,7 @@ def _product_form(density: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) ->
 
 class TestThePremisesHold:
     def test_the_wrong_nuisances_really_are_wrong_and_admissible(self) -> None:
-        np.testing.assert_allclose(WRONG_G.sum(axis=1), 1.0, atol=1e-12)
+        np.testing.assert_allclose(WRONG_G.sum(axis=1), 1.0, rtol=0, atol=1e-12)
         assert np.min(WRONG_G) > 0.0
         for guess, truth in ((WRONG_PI, law.PI_EXACT), (WRONG_Q, law.QBAR_MARGINAL_EXACT)):
             assert np.all(np.abs(guess - truth) > 1e-3), "every entry must be wrong"

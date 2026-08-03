@@ -42,7 +42,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..estimators.base import format_table
+from ..utils.frames import emit_frame
+from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -98,8 +99,6 @@ class RefutationResult:
         raise KeyError(f"no test named {name!r}; have {[t.name for t in self.tests]}")
 
     def to_frame(self, data: Any = None) -> Any:
-        from ..utils.frames import frame_from_dict
-
         payload = {
             "test": [test.name for test in self.tests],
             "estimand": [test.estimand for test in self.tests],
@@ -109,9 +108,7 @@ class RefutationResult:
             "expectation": [test.expectation for test in self.tests],
             "passed": [test.passed for test in self.tests],
         }
-        if data is not None:
-            return data.frame_like(payload)
-        return frame_from_dict(payload)
+        return emit_frame(payload, data)
 
     def summary(self) -> str:
         lines = [

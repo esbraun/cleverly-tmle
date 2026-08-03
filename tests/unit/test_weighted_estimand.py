@@ -45,7 +45,7 @@ from cleverly.data import CausalData
 from cleverly.exceptions import DataError, WeightingWarning
 from tests import discrete_law as law
 from tests import discrete_law_mar as mar
-from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
+from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment, fast_tmle
 
 ESTIMANDS = ("ey1", "ey0", "ate", "att", "atc", "rr", "or")
 
@@ -95,7 +95,9 @@ class TestTheDerivationItself:
     def test_constant_weights_reproduce_the_unweighted_derivation(self) -> None:
         ones = np.ones(len(law.SUPPORT))
         for name in ESTIMANDS:
-            np.testing.assert_allclose(law.weighted_eif(name, ones), law.eif(name), atol=1e-12)
+            np.testing.assert_allclose(
+                law.weighted_eif(name, ones), law.eif(name), rtol=0, atol=1e-12
+            )
 
     def test_the_tilt_moves_the_estimand(self) -> None:
         # If Psi(P_w) equalled Psi(P) the comparisons below would hold for a fit that
@@ -242,9 +244,9 @@ class TestFrequencyWeightsAreRefused:
         rng = np.random.default_rng(0)
         frame = law.frame().assign(w=rng.integers(1, 5, size=law.N).astype(float))
         with pytest.warns(WeightingWarning, match="counts"):
-            TMLE(
-                outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0
-            ).fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w").single()
+            fast_tmle(cross_fit=False).fit(
+                frame, outcome="Y", treatment="A", covariates=["W"], weights="w"
+            ).single()
 
     def test_repeating_rows_is_not_the_same_as_weighting_them(self) -> None:
         """Why the refusal is not pedantry.
@@ -289,7 +291,7 @@ class TestTheReport:
         cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
         frame = law.frame().assign(w=law.row_weights(cells))
         result = (
-            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            fast_tmle(cross_fit=False)
             .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
             .single()
         )
@@ -305,7 +307,7 @@ class TestTheReport:
     def test_estimated_weights_are_declared_in_the_report(self) -> None:
         frame = law.frame().assign(w=1.0 + 0.5 * law.frame()["W"])
         result = (
-            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            fast_tmle(cross_fit=False)
             .fit(
                 frame,
                 outcome="Y",
@@ -380,7 +382,7 @@ class TestSampleSizeDependentSettings:
     def _bound(self, weights: np.ndarray | float) -> float:
         frame = law.frame().assign(w=weights)
         result = (
-            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            fast_tmle(cross_fit=False)
             .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
             .single()
         )
@@ -390,7 +392,7 @@ class TestSampleSizeDependentSettings:
         # Kish equals n exactly for constant weights, so an unweighted fit and a
         # uniformly weighted one must truncate identically.
         unweighted = (
-            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            fast_tmle(cross_fit=False)
             .fit(law.frame(), outcome="Y", treatment="A", covariates=["W"])
             .single()
         )
@@ -415,7 +417,7 @@ class TestSampleSizeDependentSettings:
         frame = law.frame()
         keep = np.asarray(frame["W"] != 2)
         dropped = (
-            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            fast_tmle(cross_fit=False)
             .fit(
                 frame.loc[keep].reset_index(drop=True), outcome="Y", treatment="A", covariates=["W"]
             )
@@ -429,7 +431,7 @@ class TestSampleSizeDependentSettings:
         cells = law.cell_weights(WEIGHT_FUNCTIONS["baseline"])
         frame = law.frame().assign(w=law.row_weights(cells))
         result = (
-            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            fast_tmle(cross_fit=False)
             .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
             .single()
         )
@@ -484,7 +486,7 @@ class TestSampleSizeDependentSettings:
         cells = np.ones(len(law.SUPPORT))
         frame = law.frame().assign(w=law.row_weights(cells))
         result = (
-            TMLE(outcome_learner="glm", treatment_learner="glm", cross_fit=False, random_state=0)
+            fast_tmle(cross_fit=False)
             .fit(frame, outcome="Y", treatment="A", covariates=["W"], weights="w")
             .single()
         )
@@ -560,9 +562,9 @@ class TestWeightsAndMissingOutcomesTogether:
         # the plug-in averages against.
         cells = mar.cell_weights(self.WEIGHT_FUNCTIONS["baseline"])
         tilted = mar.DiscreteLaw(mar.tilt(mar.PROBS, cells))
-        np.testing.assert_allclose(tilted.pi, mar.PI, atol=1e-12)
-        np.testing.assert_allclose(tilted.g, mar.G, atol=1e-12)
-        np.testing.assert_allclose(tilted.q, mar.Q, atol=1e-12)
+        np.testing.assert_allclose(tilted.pi, mar.PI, rtol=0, atol=1e-12)
+        np.testing.assert_allclose(tilted.g, mar.G, rtol=0, atol=1e-12)
+        np.testing.assert_allclose(tilted.q, mar.Q, rtol=0, atol=1e-12)
 
     def test_targeting_has_nothing_left_to_do(self, fit) -> None:
         result, _ = fit

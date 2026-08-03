@@ -152,7 +152,13 @@ class TestItReportsTheProjection:
         difference = result.contrast(
             lambda p: p[0] - p[1], ["msm_regimen[duration]", "msm_regimen[(intercept)]"]
         )
-        assert np.isfinite(difference.psi)
+        # The docstring's claim is that contrast() is where a difference of two
+        # coefficients comes from, so check it *is* that difference. `isfinite` alone was
+        # true of any number contrast() might have returned, including the wrong one.
+        assert difference.psi == pytest.approx(
+            result["msm_regimen[duration]"].psi - result["msm_regimen[(intercept)]"].psi,
+            rel=1e-12,
+        )
 
 
 class TestASaturatedModelIsThePerRegimenReport:

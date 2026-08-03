@@ -506,10 +506,7 @@ def _raw_arms(fit: InitialFit, arms: tuple[float, ...], scaler: OutcomeScaler) -
     factor, but ``m`` under a link is not: ``expit`` of a linear predictor is a
     probability, and a probability is not a scaled outcome.
     """
-    stacked = np.column_stack([fit.arms[level] for level in arms])
-    if scaler.is_identity:
-        return stacked
-    return np.asarray(scaler.lower + scaler.range * stacked, dtype=float)
+    return scaler.unscale_levels(np.column_stack([fit.arms[level] for level in arms]))
 
 
 def solve_with_mechanism(

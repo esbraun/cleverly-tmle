@@ -1,0 +1,54 @@
+name: Set up cleverly's environment
+description: >-
+  uv, a pinned interpreter, a virtual environment on PATH, and the package installed
+  editable.  The four jobs that need a working cleverly all did this identically.
+
+inputs:
+  python-version:
+    description: The interpreter to install and build the virtual environment against.
+    required: true
+  extra:
+    description: Which optional-dependency group to install; "dev" for anything running pytest.
+    required: false
+    default: dev
+  packages:
+    description: >-
+      Further requirements to install alongside the package, space-separated.  Used by the
+      typecheck job for its pinned mypy, and empty everywhere else.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v5
+
+    - run: uv python install "${PYTHON_VERSION}"
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+
+    # A virtual environment rather than `--system`, and the reason is not only that
+    # `--system` stopped working. `ubuntu-latest`'s Debian Python is marked externally
+    # managed (PEP 668), so `uv pip install --system` is now refused outright -- which
+    # turned every job in this repository except `lint` red, with no commit to blame, and
+    # kept them red while the merges went on. The scheduled and dispatched workflows failed
+    # the same way and more quietly still: a run that dies at its install step reports a
+    # failed tier rather than a missing one.
+    #
+    # But `--system` was the wrong instrument even while it worked: it installs into
+    # whichever interpreter `/usr` holds, *not* the one `uv python install` just placed, so
+    # the version named and the version tested were only ever the same by accident. Doing
+    # it here makes them the same by construction, which is what `ci.yml`'s matrix needs.
+    - run: |
+        uv venv --python "${PYTHON_VERSION}"
+        echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+
+    - run: uv pip install -e ".[${EXTRA}]" ${PACKAGES}
+      shell: bash
+      env:
+        EXTRA: ${{ inputs.extra }}
+        PACKAGES: ${{ inputs.packages }}

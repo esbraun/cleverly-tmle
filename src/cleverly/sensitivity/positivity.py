@@ -42,13 +42,15 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._typing import FloatArray
-from ..estimators.base import format_table
+from ..data.weighting import effective_sample_size
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
 from ..exceptions import DataError
 from ..inference.influence import average_estimates
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
+from ..utils.frames import emit_frame
+from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -137,8 +139,6 @@ class PositivityReport:
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame."""
-        from ..utils.frames import frame_from_dict
-
         rows: list[tuple[str, float, float]] = [
             (group, quantile, value)
             for group, quantiles in self.propensity_quantiles.items()
@@ -149,9 +149,7 @@ class PositivityReport:
             "quantile": [row[1] for row in rows],
             "propensity": [row[2] for row in rows],
         }
-        if data is not None:
-            return data.frame_like(payload)
-        return frame_from_dict(payload)
+        return emit_frame(payload, data)
 
     def summary(self) -> str:
         """A printable overlap report."""
@@ -516,14 +514,17 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
 
 
 def _kish_ess(weights: FloatArray) -> float:
-    """Kish's effective sample size, ``(sum w)^2 / sum w^2``."""
+    """Kish's ESS, answering ``nan`` for an arm with no rows rather than zero.
+
+    The distinction is this module's own and is why it still has a wrapper: an arm nothing
+    was selected for has no effective sample size to report, while an arm whose weights
+    sum to zero has one and it is zero.  The formula itself is
+    :func:`~cleverly.data.weighting.effective_sample_size`.
+    """
     w = np.asarray(weights, dtype=float)
     if w.size == 0:
         return float("nan")
-    total = w.sum()
-    if total <= 0:
-        return 0.0
-    return float(total**2 / np.sum(w**2))
+    return effective_sample_size(w, on_degenerate=0.0)
 
 
 def _top_share(weights: FloatArray, fraction: float) -> float:

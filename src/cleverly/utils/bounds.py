@@ -205,6 +205,23 @@ class OutcomeScaler:
         """Map a contrast of means back onto the original outcome scale."""
         return self.range * value
 
+    def unscale_levels(self, values: FloatArray) -> FloatArray:
+        """:meth:`unscale_level` applied elementwise to an array of predictions.
+
+        A matrix of counterfactual predictions -- one column per arm, regime or cell --
+        mapped back onto the outcome's own scale.  It is the same ``lower + range * v``
+        the scalar method is, and it exists because three call sites had written that
+        expression out rather than call a method annotated for one mean.
+
+        The identity scaler returns the array rather than rebuilding it.  That is an
+        allocation saved and not a difference: ``0.0 + 1.0 * v`` is ``v`` for every value
+        a prediction can take.
+        """
+        array = np.asarray(values, dtype=float)
+        if self.is_identity:
+            return array
+        return np.asarray(self.lower + self.range * array, dtype=float)
+
     def unscale_influence(self, ic: FloatArray) -> FloatArray:
         """Map an influence curve back onto the original outcome scale."""
         return np.asarray(self.range * np.asarray(ic, dtype=float), dtype=float)

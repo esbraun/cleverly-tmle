@@ -13,8 +13,10 @@ import pytest
 from cleverly.data import CausalData
 from cleverly.exceptions import DataError
 from cleverly.interventions import (
+    Incremental,
     RegimeSet,
     Rule,
+    Shift,
     Static,
     Stochastic,
     as_interventions,
@@ -166,6 +168,38 @@ def test_a_shift_is_redirected_to_its_own_keyword_rather_than_refused(kind: str)
     with pytest.raises(ValueError, match=r"TMLE\(shifts=") as raised:
         refuse_unsupported(kind)
     assert not isinstance(raised.value, NotImplementedError)
+
+
+@pytest.mark.parametrize(
+    ("declared", "keyword"),
+    [
+        (Shift(0.5, 5.0, name="up"), r"TMLE\(shifts="),
+        (Incremental(2.0, name="d2"), r"TMLE\(incremental="),
+    ],
+)
+def test_the_wrong_keyword_reaches_the_signpost_rather_than_falling_through(
+    declared: object, keyword: str
+) -> None:
+    """The two tests above call the refusal; this one arrives at it the way a user does.
+
+    Without this, ``refuse_unsupported`` has no call site in the library at all and those
+    tests only prove that a function raises when called.  ``as_interventions`` used to send
+    both of these to ``Static``, which wrapped the object as though it were a treatment
+    *level* -- so the fit failed much later, about something else, having first built a
+    regime named ``"always Shift(delta=0.5, cap=5.0, name='up')"``.
+    """
+    with pytest.raises(ValueError, match=keyword):
+        as_interventions(declared)
+    with pytest.raises(ValueError, match=keyword):
+        as_interventions([Static(0.0), declared])
+
+
+def test_a_regime_still_passes_through_as_interventions() -> None:
+    """The negative control for the check above: it must not catch a genuine regime."""
+    assert as_interventions((1, 0)) == (Static(1), Static(0))
+    static = Static(1.0, name="always")
+    assert as_interventions(static) == (static,)
+    assert as_interventions(None) == ()
 
 
 # ----------------------------------------------------------------- regime set

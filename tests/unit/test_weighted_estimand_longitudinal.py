@@ -135,7 +135,9 @@ class TestTheDerivationItself:
     def test_constant_weights_reproduce_the_unweighted_derivation(self) -> None:
         ones = np.ones(len(law.SUPPORT))
         for name in NAMES:
-            np.testing.assert_allclose(law.weighted_eif(name, ones), law.eif(name), atol=1e-12)
+            np.testing.assert_allclose(
+                law.weighted_eif(name, ones), law.eif(name), rtol=0, atol=1e-12
+            )
 
     @pytest.mark.parametrize("label", sorted(WEIGHT_FUNCTIONS))
     def test_the_tilt_moves_the_estimand(self, label: str) -> None:

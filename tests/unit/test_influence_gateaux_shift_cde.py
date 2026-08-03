@@ -149,7 +149,7 @@ class TestThePremisesHold:
         for w in range(3):
             rows = frame[frame["W"] == float(w)]
             counts = np.array([float((rows["A"] == dose).mean()) for dose in law.DOSES])
-            np.testing.assert_allclose(counts, law.G[w], atol=1e-15)
+            np.testing.assert_allclose(counts, law.G[w], rtol=0, atol=1e-15)
 
     def test_the_missingness_is_severe_and_moves_with_the_dose(self) -> None:
         # Both halves are load-bearing. Half the sample has no outcome, so a complete-case

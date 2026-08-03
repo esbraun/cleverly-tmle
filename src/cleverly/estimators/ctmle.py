@@ -221,8 +221,9 @@ from ..learners.crossfit import Folds, make_folds
 from ..learners.screeners import correlation_strength
 from ..learners.super_learner import resolve_learner
 from ..utils.bounds import OutcomeScaler
+from ..utils.text import format_table
 from ._nuisance import NuisanceEstimates, Propensity, _fit_with_groups, cross_fit_predictions
-from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, format_table, resolve_estimands
+from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
 

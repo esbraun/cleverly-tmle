@@ -891,18 +891,24 @@ def save(result: TMLEResult, path: str | Path) -> Path:
 def _write_npz(handle: Any, payload: dict[str, FloatArray]) -> None:
     """``savez_compressed`` with the arrays named by the manifest.
 
-    Wrapped because numpy's stubs declare the second positional parameter of
+    Wrapped because numpy's stubs have twice declared the second positional parameter of
     ``savez_compressed`` as ``compress: bool``, so splatting the payload as keywords --
     which is how the function is meant to be called, and what the runtime signature
-    ``(file, *args, **kwds)`` accepts -- does not type-check at the call site.
+    ``(file, *args, **kwds)`` accepts -- did not type-check at the call site.
 
-    This has now gone both ways.  A run of stubs described it correctly, the suppression
-    became an unused ignore, and it was removed; numpy 2.4 declares ``compress: bool``
-    again and the error came back.  ``warn_unused_ignores`` is what makes the round trip
-    visible rather than silent, so the ignore goes back with that history written down:
-    if a later numpy fixes the stubs, this line turns red and can be deleted again.
+    That went round three times.  Stubs described it correctly, the suppression became an
+    unused ignore and was deleted; numpy 2.4 declared ``compress: bool`` again and a
+    ``# type: ignore[arg-type]`` went back; 2.4.6 fixed the stubs and ``warn_unused_ignores``
+    turned the ignore itself red.  Since ``numpy`` is an unpinned dependency, *either*
+    state is one release away and whichever one this line is written for is the one CI
+    will eventually reject.
+
+    So the cast, rather than a fourth turn of the same handle: it is correct under both
+    versions of the stub because it does not describe ``savez_compressed`` at all, and
+    there is no suppression left to go stale.  The runtime call is unchanged.
     """
-    np.savez_compressed(handle, **payload)  # type: ignore[arg-type]
+    savez: Any = np.savez_compressed
+    savez(handle, **payload)
 
 
 def load(path: str | Path) -> TMLEResult:

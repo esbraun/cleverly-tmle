@@ -50,7 +50,7 @@ class TestAgainstTheClosedForm:
         assert contrast.psi == pytest.approx(ate.psi, abs=1e-14)
         assert contrast.variance == pytest.approx(ate.variance, rel=1e-9)
         # The central-difference gradient is the only source of error here.
-        np.testing.assert_allclose(contrast.influence_curve, ate.influence_curve, atol=1e-9)
+        np.testing.assert_allclose(contrast.influence_curve, ate.influence_curve, rtol=0, atol=1e-9)
 
     def test_an_analytic_gradient_is_exact(self, result) -> None:  # type: ignore[no-untyped-def]
         """With the gradient supplied there is no numerical error left at all."""
@@ -88,8 +88,13 @@ class TestCovariance:
         assert cov[1, 1] == pytest.approx(result["ey0"].variance, rel=1e-12)
 
     def test_is_symmetric(self, result) -> None:  # type: ignore[no-untyped-def]
+        # ``atol=0`` with no ``rtol`` was numpy's default 1e-7 relative -- five orders
+        # looser than anything this can plausibly be wrong by, on a quantity built from
+        # one Gram product.  Not asserted exact: ``np.cov`` reaches a threaded gemm, and
+        # whether C[i, j] and C[j, i] accumulate in the same order is a property of the
+        # BLAS rather than of this package.  It is bit-symmetric on the BLAS here.
         cov = result.covariance()
-        np.testing.assert_allclose(cov, cov.T, atol=0)
+        np.testing.assert_allclose(cov, cov.T, rtol=1e-12, atol=0)
 
     def test_ignoring_the_covariance_would_be_wrong(self, result) -> None:  # type: ignore[no-untyped-def]
         """The estimands are correlated; treating them as independent inflates var.

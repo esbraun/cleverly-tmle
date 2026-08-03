@@ -37,9 +37,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._typing import FloatArray
-from ..estimators.base import TMLEResultSet, format_table
+from ..estimators.base import TMLEResultSet
 from ..estimators.direct_effect import check_level
 from ..utils.parallel import map_parallel
+from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..datasets.synthetic import DGP

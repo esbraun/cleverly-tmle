@@ -67,7 +67,7 @@ from typing import Any
 import numpy as np
 
 from .._typing import FloatArray, GBounds, Learner
-from ..estimators.base import _format_pvalue, format_table
+from ..data.weighting import effective_sample_size
 from ..inference.cluster import influence_covariance
 from ..inference.delta import delta_method
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
@@ -78,6 +78,7 @@ from ..msm import MSM
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
+from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData
 from .msm import MSMRegimenFit, RegimenMSM, evaluate_regimen_msm, fit_regimens_msm
 from .regimen import DynamicRegimen, RegimenSpec, describe_plan, resolve_plans, resolve_regimens
@@ -493,7 +494,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         for fit in self.fits.values():
             for step in fit.steps:
                 weights = (fit.obs_weights * step.clever)[step.trained_on]
-                total = float(np.sum(weights))
                 assigned = fit.assignment[step.at_risk, step.time - 1]
                 rows["regimen"].append(fit.regimen.label)
                 if competing:
@@ -506,9 +506,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                     float(np.mean(assigned == 1.0)) if assigned.size else float("nan")
                 )
                 rows["max_weight"].append(float(np.max(weights)) if weights.size else float("nan"))
-                rows["effective_n"].append(
-                    float(total**2 / np.sum(weights**2)) if total > 0 else 0.0
-                )
+                rows["effective_n"].append(effective_sample_size(weights, on_degenerate=0.0))
                 for column, name in enumerate(epsilon_columns):
                     rows[name].append(float(step.fluctuation.epsilon[column]))
                 rows["converged"].append(bool(step.fluctuation.converged))
@@ -752,7 +750,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                     f"{estimate.psi:.4f}",
                     f"{estimate.std_error:.4f}",
                     f"[{low:.4f}, {high:.4f}]",
-                    _format_pvalue(estimate.pvalue),
+                    format_pvalue(estimate.pvalue),
                 ]
             )
         table = format_table(

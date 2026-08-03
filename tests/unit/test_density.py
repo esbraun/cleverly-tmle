@@ -64,7 +64,9 @@ class TestTheHazardProduct:
                 [0.9, 0.1 * 0.1, 0.1 * 0.9 * 0.5, 0.1 * 0.9 * 0.5],
             ]
         )
-        np.testing.assert_allclose(_probabilities_from_hazards(hazards), expected, atol=1e-14)
+        np.testing.assert_allclose(
+            _probabilities_from_hazards(hazards), expected, rtol=0, atol=1e-14
+        )
 
     def test_the_last_bin_needs_no_hazard(self) -> None:
         # A unit that survived every modelled bin is in the final one with probability
@@ -85,7 +87,7 @@ class TestTheHazardProduct:
         assert np.all(np.isfinite(probabilities))
 
     def test_a_fitted_density_integrates_to_one(self) -> None:
-        np.testing.assert_allclose(_fit().integrated(), 1.0, atol=1e-12)
+        np.testing.assert_allclose(_fit().integrated(), 1.0, rtol=0, atol=1e-12)
 
 
 class TestEvaluation:

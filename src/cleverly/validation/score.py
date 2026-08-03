@@ -75,7 +75,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..estimators.base import format_table
+from ..utils.frames import emit_frame
+from ..utils.text import format_table
 from .drtmle import CorrectionCheck, correction_check
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -172,15 +173,6 @@ class ScoreCheck:
         """
         return tuple(row for row in self.failures if row.kind == "identity")
 
-    @property
-    def passed_apart_from_identities(self) -> bool:
-        """Whether every failure here is a state identity rather than an unsolved equation.
-
-        Not a softer :attr:`passed` -- a fit in this state is still not one to report from.
-        It is what lets a verdict name one cause where there is one cause.
-        """
-        return all(row.kind == "identity" for row in self.failures)
-
     def __bool__(self) -> bool:
         return self.passed
 
@@ -189,8 +181,6 @@ class ScoreCheck:
         return tuple(row for row in self.rows if not row.passed)
 
     def to_frame(self, data: Any = None) -> Any:
-        from ..utils.frames import frame_from_dict
-
         payload = {
             "name": [row.name for row in self.rows],
             "kind": [row.kind for row in self.rows],
@@ -201,9 +191,7 @@ class ScoreCheck:
             "n_iter": [row.n_iter for row in self.rows],
             "method": [row.method for row in self.rows],
         }
-        if data is not None:
-            return data.frame_like(payload)
-        return frame_from_dict(payload)
+        return emit_frame(payload, data)
 
     def one_line(self) -> str:
         """The verdict as a block a report can append, without the table.

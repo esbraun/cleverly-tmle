@@ -262,7 +262,7 @@ class TestTheCurveReadsWhatTheAlternationLeft:
         plain_curve = _plain_curve(fit, data, fluctuation)
         reported = np.asarray(fit.estimates["ey1"].influence_curve) / fit.nuisance.scaler.range
         np.testing.assert_allclose(
-            reported, plain_curve - data.weights * at_targeted[1.0], atol=1e-12
+            reported, plain_curve - data.weights * at_targeted[1.0], rtol=0, atol=1e-12
         )
 
     def test_the_reported_curve_still_has_mean_zero(self, fit) -> None:

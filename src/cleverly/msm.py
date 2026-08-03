@@ -341,7 +341,11 @@ class MSM:
         if not callable(self.design):
             raise DataError("design= must be callable: (arm_label, covariate_frame) -> (n, p)")
         if self.weights is not None and not callable(self.weights):
-            refuse_unsupported("estimated_weights")
+            # Defensive, and deliberately kept: ``weights`` is annotated ``Callable | None``,
+            # so ``mypy --warn-unreachable`` calls this dead -- but an annotation is not a
+            # runtime guarantee, and the mistake this catches is a user passing the *array*
+            # of estimated weights, which is precisely what the message addresses.
+            refuse_unsupported("estimated_weights")  # pragma: no cover - a type violation
         object.__setattr__(self, "terms", terms)
 
     # ---------------------------------------------------------------- shorthand

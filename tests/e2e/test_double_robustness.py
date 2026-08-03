@@ -127,6 +127,10 @@ class TestDoubleRobustnessGrid:
         assert abs(summary.bias) > 4.0 * summary.bias_se
         assert abs(summary.bias) > 0.1
 
+    # 60 CoverageStudy fits, 30 of them at n=2000, to resolve a ratio to +/- 0.1.
+    # CLAUDE.md names root-n consistency as slow-tier content by name; the
+    # double-robustness grid above it is the sanctioned spending in this module.
+    @pytest.mark.slow
     def test_the_standard_error_shrinks_at_the_root_n_rate(self) -> None:
         small = _study("glm", "glm", n=500, reps=30)["ate"]
         large = _study("glm", "glm", n=2000, reps=30)["ate"]

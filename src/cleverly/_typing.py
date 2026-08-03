@@ -11,7 +11,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 __all__ = [
-    "ArrayLike",
     "Backend",
     "BoolArray",
     "Estimand",
@@ -30,7 +29,6 @@ __all__ = [
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
 BoolArray = NDArray[np.bool_]
-ArrayLike = Any
 
 #: Anything implementing the scikit-learn ``fit``/``predict`` (or
 #: ``predict_proba``) protocol, including :class:`cleverly.SuperLearner`,

@@ -10,17 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-import pytest
 from sklearn.base import BaseEstimator
 
 from cleverly import TMLE
-from cleverly.datasets import (
-    binary_outcome_dgp,
-    linear_dgp,
-    make_linear_ate,
-    make_nonlinear_ate,
-    nonlinear_dgp,
-)
 
 #: Estimator settings for the fast tier: parametric nuisances, few folds, seeded.
 FAST_KWARGS: dict[str, Any] = {
@@ -295,7 +287,6 @@ def aipw_ate(
     propensity: Any,
     q_one: Any,
     q_zero: Any,
-    weights: Any = None,
     *,
     delta: Any = None,
     missingness: Any = None,
@@ -318,7 +309,6 @@ def aipw_ate(
     g = np.asarray(propensity, dtype=float)
     q1 = np.asarray(q_one, dtype=float)
     q0 = np.asarray(q_zero, dtype=float)
-    w = np.ones_like(y) if weights is None else np.asarray(weights, dtype=float)
     if delta is None:
         d, pi0, pi1 = np.ones_like(y), np.ones_like(y), np.ones_like(y)
     else:
@@ -334,34 +324,7 @@ def aipw_ate(
         + a * d / (g * pi1) * (residual - q1)
         - (1.0 - a) * d / ((1.0 - g) * pi0) * (residual - q0)
     )
-    return float(np.average(contribution, weights=w))
-
-
-@pytest.fixture
-def linear_frame() -> tuple[Any, dict[str, float]]:
-    """A moderate linear-DGP sample; both nuisance models are correctly specified."""
-    return make_linear_ate(n=800, seed=101)
-
-
-@pytest.fixture
-def nonlinear_frame() -> tuple[Any, dict[str, float]]:
-    """A nonlinear sample where a GLM is misspecified for both nuisances."""
-    return make_nonlinear_ate(n=800, seed=102)
-
-
-@pytest.fixture
-def linear_process() -> Any:
-    return linear_dgp()
-
-
-@pytest.fixture
-def nonlinear_process() -> Any:
-    return nonlinear_dgp()
-
-
-@pytest.fixture
-def binary_process() -> Any:
-    return binary_outcome_dgp()
+    return float(np.mean(contribution))
 
 
 def binary_means(*args: Any, **kwargs: Any) -> tuple[float, Any, float, Any]:

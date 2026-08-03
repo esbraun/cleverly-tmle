@@ -547,6 +547,9 @@ over the *whole* tree rather than `src` and `tests`, because `README.md` and eve
 under `docs/` are now formatted code too, and expect hand-aligned trailing comments in
 their examples to be collapsed.
 
-`noxfile.py` is a *third* place the toolchain is named, and it currently drifts: it installs
-`ruff>=0.6` and `mypy>=1.11`, so `nox -s lint` can pass against a formatter CI rejects. Move
-all three together, or fix the noxfile to install the pins.
+`noxfile.py` is a *third* place the toolchain is named, and all three now hold the same
+values — it installs the `RUFF` and `MYPY` constants at the top of the file rather than the
+`ruff>=0.6` / `mypy>=1.11` it used to, which let `nox -s lint` pass against a formatter CI
+rejects. **Move all three together.** The noxfile also now runs the test tiers under
+`-n auto` as CI does, since the `n_jobs=2` reasoning above is measured under xdist and a
+session without it is not the tier that was benchmarked.

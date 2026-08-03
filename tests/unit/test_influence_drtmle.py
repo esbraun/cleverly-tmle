@@ -88,7 +88,7 @@ class TestTheTermsAreTheOnesTheSourceComputes:
                 * (reduced.gr2[:, j] / reduced.gr1[:, j])
                 * (data.outcome - fluctuation.targeted.observed)
             )
-            np.testing.assert_allclose(corrections[arm], d_g + d_q, atol=1e-14)
+            np.testing.assert_allclose(corrections[arm], d_g + d_q, rtol=0, atol=1e-14)
 
     def test_both_terms_are_materially_non_zero(self) -> None:
         """Or every comparison above would be a comparison of zeros."""
@@ -282,6 +282,7 @@ class TestTheCurveIsMeanZeroEvenWhenTheLoopStopsEarly:
             np.testing.assert_allclose(
                 float(np.mean(corrections[arm])),
                 float(reduction.score[j]) + float(fluctuation.mechanism.score[j]),
+                rtol=0,
                 atol=1e-14,
             )
             assert abs(combined) < 1e-8
@@ -312,7 +313,7 @@ class TestTheCombinationIsADifferenceNotASum:
         for arm in ARMS:
             plain = np.asarray(submodel_means[arm].influence_curve)
             reported = np.asarray(with_guard[arm].influence_curve)
-            np.testing.assert_allclose(reported, plain - corrections[arm], atol=1e-14)
+            np.testing.assert_allclose(reported, plain - corrections[arm], rtol=0, atol=1e-14)
             # The negative control: a sum is the plausible transcription error, and it is
             # a different array by a wide margin.
             assert np.max(np.abs(reported - (plain + corrections[arm]))) > 1e-2
@@ -661,7 +662,7 @@ def test_the_longhand_module_and_this_one_agree_about_the_terms() -> None:
     )
     for arm in ARMS:
         d_g, d_q = _extra_curves(WRONG_G, WRONG_Q, int(arm))
-        np.testing.assert_allclose(corrections[arm], d_g + d_q, atol=1e-14)
+        np.testing.assert_allclose(corrections[arm], d_g + d_q, rtol=0, atol=1e-14)
 
 
 def _reduced_set_from_longhand():
@@ -700,4 +701,4 @@ def test_the_mechanism_is_read_at_the_arm_it_belongs_to(arm: float) -> None:
         * (reduced.gr2[:, j] / reduced.gr1[:, j])
         * (data.outcome - nuisance.outcome.observed)
     )
-    np.testing.assert_allclose(corrections[arm], d_g + d_q, atol=1e-14)
+    np.testing.assert_allclose(corrections[arm], d_g + d_q, rtol=0, atol=1e-14)

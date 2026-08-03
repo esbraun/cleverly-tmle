@@ -160,7 +160,7 @@ class TestAllThreeEquationsAreSolved:
             data.weights,
             np.asarray(data.observed, dtype=bool),
         )
-        np.testing.assert_allclose(reduction.score, recomputed, atol=1e-14)
+        np.testing.assert_allclose(reduction.score, recomputed, rtol=0, atol=1e-14)
 
         indicator = (np.asarray(data.treatment, dtype=float) == 1.0).astype(float)
         covariate = reduced_mechanism_covariate(
@@ -172,7 +172,7 @@ class TestAllThreeEquationsAreSolved:
             * (indicator - fluctuation.mechanism.propensity)[:, None],
             axis=0,
         )
-        np.testing.assert_allclose(fluctuation.mechanism.score, mechanism_score, atol=1e-14)
+        np.testing.assert_allclose(fluctuation.mechanism.score, mechanism_score, rtol=0, atol=1e-14)
 
     def test_it_terminated_on_its_own(self) -> None:
         """Not on the outer cap, which would make the reported scores a truncation."""

@@ -411,17 +411,30 @@ def warn_if_counts(weights: FloatArray, name: str) -> None:
     )
 
 
-def effective_sample_size(weights: FloatArray) -> float:
+def effective_sample_size(weights: FloatArray, *, on_degenerate: float | None = None) -> float:
     """Kish's effective sample size, ``(sum w)^2 / sum w^2``.
 
     The size of the unweighted sample carrying the same information.  It is the sample
     size the estimator's asymptotics are really working from, which is why it -- and not
     the row count -- is what ``g_bounds="auto"`` is evaluated at.
+
+    ``on_degenerate`` says what to answer when the weights are empty or sum to zero, and
+    the two kinds of caller want different things.  For a *fit* that state has no
+    estimand at all, so the default is to raise.  For a *diagnostic* -- the per-arm and
+    per-shift overlap reports, which are handed whatever subset of rows their arm or
+    their mask selected -- an empty selection is a describable state and not an error, so
+    those pass ``0.0`` and report it.
+
+    This formula was written out six further times before it was one function, with three
+    different answers in the degenerate case; the argument is here so the difference stays
+    a stated choice rather than whichever copy a caller happened to reach for.
     """
     w = np.asarray(weights, dtype=float).reshape(-1)
     total = float(w.sum())
     if total <= 0:
-        raise DataError("weights sum to zero, so there is no effective sample size")
+        if on_degenerate is None:
+            raise DataError("weights sum to zero, so there is no effective sample size")
+        return on_degenerate
     return float(total**2 / float(np.square(w).sum()))
 
 

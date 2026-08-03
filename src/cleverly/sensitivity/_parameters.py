@@ -55,10 +55,6 @@ class ArmParameter:
     versus: float | None = None
 
     @property
-    def is_contrast(self) -> bool:
-        return self.versus is not None
-
-    @property
     def conditions_on(self) -> float | None:
         """The arm this parameter conditions on, or ``None`` when it conditions on none.
 

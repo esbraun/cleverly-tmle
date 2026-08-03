@@ -180,7 +180,7 @@ class TestThePremisesHold:
         for w in range(3):
             rows = frame[frame["W"] == float(w)]
             counts = np.array([float((rows["A"] == dose).mean()) for dose in law.DOSES])
-            np.testing.assert_allclose(counts, law.G[w], atol=1e-15)
+            np.testing.assert_allclose(counts, law.G[w], rtol=0, atol=1e-15)
 
 
 class TestTheInfluenceCurveIsTheEfficientOne:

@@ -597,10 +597,7 @@ def _raw_first(steps: Sequence[Sequence[SequentialStep]], scaler: OutcomeScaler)
     no single :class:`~cleverly.inference.Scale` to map back with, and under a link
     :math:`m` is a probability rather than a scaled outcome besides.
     """
-    # ``unscale_level`` is annotated for one mean; it is ``lower + range * value`` and so
-    # is the same expression row-wise, which is what a column of predictions needs.
-    columns = [scaler.lower + scaler.range * cell[0].targeted for cell in steps]
-    return np.asarray(np.column_stack(columns), dtype=float)
+    return scaler.unscale_levels(np.column_stack([cell[0].targeted for cell in steps]))
 
 
 def _project(
