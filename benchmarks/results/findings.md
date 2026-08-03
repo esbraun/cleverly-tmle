@@ -6,7 +6,7 @@ was sized against, and three of the things it is natural to expect turn out to b
 
 Everything here is **post-nuisance**: learner fits are outside every timed region. That is
 what makes `n = 1,000,000` a couple of seconds and the scaling questions answerable by
-direct measurement — and it is also why every speed-up below has to be multiplied by §4's
+direct measurement — and it is also why every speed-up below has to be multiplied by §5's
 share before it means anything about a fit.
 
 > **Provenance.** Four-core Intel Xeon @ 2.80 GHz container, OpenBLAS 0.3.31 (pthreads),
@@ -22,7 +22,7 @@ share before it means anything about a fit.
 
 Speed-ups are against the shipped numpy path at one core, on the same input object.
 "Share" is the kernel's weight inside a `library="glm"` post-nuisance step — the *most
-favourable* denominator available (see §4).
+favourable* denominator available (see §5).
 
 | kernel | serial | parallel (4 cores) | memory | decision |
 | --- | ---: | ---: | --- | --- |
@@ -248,7 +248,7 @@ that would compute a different path, and the benchmark does not.
 (0.93× at `n = 10⁴`, 1.04× at `n = 10⁵`). The rounds are strictly sequential — each reads
 the mechanism the last one tilted — so the only axis is the arms, which is two wide on a
 two-arm fit; 1.6–1.9× on two cores, nothing above. And the arithmetic is not where a
-DR-TMLE `retarget`'s time goes anyway: §5 is.
+DR-TMLE `retarget`'s time goes anyway: §6 is.
 
 ### 2.8 The fused multi-estimand influence curves — the plan's headline hypothesis, measured
 
@@ -316,7 +316,7 @@ would have to be reckoned with before anything moved.
 
 ---
 
-## 3a. Compilation is not free, and the break-even is the number to quote
+## 4. Compilation is not free, and the break-even is the number to quote
 
 Measured in a fresh process per kernel (`--cold-compile`), because numba caches a compiled
 signature for the life of the process and "the first call" is only the first call once.
@@ -344,7 +344,7 @@ way of saying the control is a control.
 The practical consequence: **compilation is amortised by the repeated workloads and by them
 alone.** A single fit calls each of these once or a few times and would pay 1–9 seconds for
 it. A sensitivity sweep, a simulation study, a bootstrap or a survival curve calls them
-hundreds of times, and there the compile is invisible. That is the same conclusion §4
+hundreds of times, and there the compile is invisible. That is the same conclusion §5
 reaches from the other end.
 
 Two compile times are worth flagging on their own. `cvtmle_fold_targeting` at 9.3 s and
@@ -353,7 +353,7 @@ function, which drags numba's LAPACK bindings into the compilation.
 
 ---
 
-## 4. The denominator: what any of this is worth
+## 5. The denominator: what any of this is worth
 
 Measured through the shipped API at `n = 20,000`, `library="glm"`, with the fit outside the
 timed region (`benchmarks/results/latest/pipelines.md`):
@@ -373,7 +373,7 @@ timed region (`benchmarks/results/latest/pipelines.md`):
 pseudo-outcome through the recursion — so its post-nuisance half cannot be *called*, only
 separated inside a profile. The figure is the fit net of scikit-learn, LightGBM, joblib,
 scipy and threadpoolctl, which is why it is large: the biggest single line inside it is the
-Rademacher multiplier draw at 14% of the whole fit, and §5's thread limiter is *excluded*
+Rademacher multiplier draw at 14% of the whole fit, and §6's thread limiter is *excluded*
 from it by that same split.
 
 The range is four orders of magnitude — 0.01% to 154% — which is the single most important
@@ -391,8 +391,8 @@ Three things follow.
   25-point truncation sweep is **150% of a `glm` fit** because it retargets 25 times against
   one set of nuisances; that ratio does *not* shrink by 37× under a real library, because
   the sweep's numerator is post-nuisance work all the way down. This is also exactly where
-  §3a's compilation cost amortises.
-- **DR-TMLE's `retarget` costing 1.5× its own fit is not an arithmetic problem.** §5 is.
+  §4's compilation cost amortises.
+- **DR-TMLE's `retarget` costing 1.5× its own fit is not an arithmetic problem.** §6 is.
 
 So the honest summary is:
 
@@ -404,7 +404,7 @@ So the honest summary is:
 
 ---
 
-## 5. The finding that is not about numba
+## 6. The finding that is not about numba
 
 `cleverly.learners.thread_limit` is entered once per learner fit and costs **1.44 ms** per
 entry, because `threadpoolctl.threadpool_limits` constructs a `ThreadpoolController` that
@@ -423,12 +423,12 @@ in its own change with its own tests. `benchmarks/numba/kernels/drtmle.py` carri
 
 ---
 
-## 6. Recommendation
+## 7. Recommendation
 
 **The first two steps need no new dependency and should happen regardless of what is
 decided about numba.**
 
-1. **Fix `thread_limit`** (§5). Not numba, largest effect, cheapest change: 57% of a
+1. **Fix `thread_limit`** (§6). Not numba, largest effect, cheapest change: 57% of a
    DR-TMLE `retarget` and 40% of an LTMLE fit.
 2. **Fix the LTMLE mask construction** (§2.3) and **defer the one-step arm updates**
    (§2.5). Pure numpy, 1.7–2.4× and 1.5–1.7×, no compilation. The second needs a decision
@@ -462,7 +462,7 @@ the measurement returned.
 
 ---
 
-## 7. What this run does not answer
+## 8. What this run does not answer
 
 Stated so a reader does not mistake a gap for a covered case.
 
@@ -487,8 +487,18 @@ Stated so a reader does not mistake a gap for a covered case.
   scenario, because a `default` fit is tens of seconds and the pipeline table needs one per
   flavour. The 37×-per-row ratio the shares are scaled by is the roadmap's, re-measured
   where it was cheap to.
+- **There is no coverage or bias comparison between the numpy and compiled paths, and
+  there could not be one yet.** These kernels are benchmark code: nothing under `src/`
+  calls them, so a simulation study of "the compiled estimator" would be a study of an
+  estimator that does not exist. What *is* checked is the layer below that, which is what
+  makes such a study unnecessary until adoption: the compiled implementations agree with
+  the shipped path to a stated tolerance on every kernel, agree on the algorithmic facts a
+  float comparison cannot see (iteration count, convergence flag, selected candidate), and
+  do not move with the thread count. When a kernel is adopted into `src/`, the statistical
+  tier it lands in is `pytest -m slow`, and the comparison to run there is coverage against
+  the *estimand*, not against the numpy path — because by then the numpy path is gone.
 
-## 8. What would change these numbers
+## 9. What would change these numbers
 
 - **A machine with more cores.** Efficiency is measured to four here; several kernels are
   still above 0.7 at four threads and would be worth re-measuring at 16.
