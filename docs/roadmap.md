@@ -926,7 +926,10 @@ number has to shrink with `n`, and it is a claim with a direction rather than a 
 ###### B2b — the dispatch, and what it decides
 
 *Closes items 12, 19 and item 22's numerical half, re-measures items 4 and 6, and decides the
-weak-overlap product policy.* **Open, and it is a run rather than a patch.** Dispatch
+weak-overlap product policy.* **Open, and it is a run rather than a patch.** The workflow has
+already been dispatched with every new input at a four-fit smoke configuration and came back green
+in 89 seconds, reproducing this container's numbers to every digit printed — so what is left is the
+real sweep and its reading, not a debugging round. Dispatch
 `.github/workflows/drtmle-convergence.yml`, read the tables out of the job log, and put them in
 [the investigation log](drtmle-investigation-log.md#how-the-alternation-exits) beside the first
 sweep's — which measured a criterion that has since changed and an implementation that has since

@@ -395,6 +395,17 @@ that moved something where the bound cannot bind would have been reporting refit
 42.6s a runner measured, and the paper's order took 22 rounds against 8 on the draw both were run
 on — so `--order paper` should be budgeted at rather more than a doubling, not at one.
 
+**The workflow was dispatched with all three new inputs before B2a was called landed**, at
+`--processes nonlinear --sizes 400 --seeds 1 --order paper --reduced-learner glm --truncation 0.25`
+— four fits, 89s, green ([run
+30801387115](https://github.com/esbraun/cleverly-tmle/actions/runs/30801387115)). Two things it
+established beyond "the YAML parses". The runner reproduced this container's numbers to every digit
+printed — `2.21e-01`, `0.9804`, `1.0000`, `0.9914` — so the arms are deterministic across machines
+and a sweep's numbers are a property of the seeds rather than of where it ran. And the runner is
+the *faster* box: 36.0s a fit against 46s here at the same `jobs=2`. The point of dispatching a
+smoke run rather than trusting the file is that this workflow has a history of being written while
+every install step in the repository was broken, and dispatching it is what found that out.
+
 ## What one runner could and could not reach
 
 Kept here rather than in the roadmap because it is a property of one execution environment on one
