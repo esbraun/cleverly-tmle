@@ -1891,6 +1891,16 @@ n=5,000,000 each is around **9.5 GB**. That is the binding constraint on this li
 arrives well before any arithmetic does, and no amount of native code addresses it — `kind="normal"`
 avoids the first by never forming the array at all.
 
+**The first of those two is now fixed, and the fix says the profile above pointed at the wrong
+thing.** "92–95% multiplier generation" reads as an argument about the random draw; split at
+n=100,000 it is 3.5 ms drawing the packed bits, 1.7 ms unpacking them, 12.6 ms in the `dgemm` —
+and **159 ms, 89%, expanding one bit per element into a 205 MB float64 array**. Expanding in
+place into a buffer sized by a byte budget rather than by a replicate count makes the path
+3.4–3.9× faster and caps its working set at **32 MB whatever `n` is**, with the seeded stream
+untouched and the critical value bit-identical. So the allocation that broke first at scale is
+gone without a compiler, and the remaining one — the density learner's long design — is now the
+binding constraint on its own. `benchmarks/results/bootstrap_numpy.md` has the measurement.
+
 One change came out of it. `np.einsum` defaults to `optimize=False`, which for three or more
 operands means numpy's own nested-loop kernel rather than a pairwise contraction through BLAS —
 so the four-operand Jacobian term in the MSM projection, `"ijp,ijq,ij,i->pq"`, was **14× slower
@@ -1919,7 +1929,19 @@ kernel in the package, core count as an explicit parameter, a correctness gate o
 The conclusion above **holds where it was measured and does not generalise**, which is the
 correction. Fused row-wise kernels, indexed accumulation and the compiled recursions are 2–12×,
 and the multiplier bootstrap's `(chunk, n)` array — named above as one of the two allocations
-that break first at scale — need not exist at all. Read
+that break first at scale — need not exist at all.
+
+**And then acting on that produced a second correction, in the other direction.** Two of those
+ratios were against the *shipped* numpy path rather than against a competent one, which is not
+the same baseline: the bootstrap's cost was the float64 expansion and not the draw, and
+`cluster_sums`'s was an `np.unique` re-deriving an encoding `encode_clusters` had already
+produced. Written properly in numpy, the bootstrap is 3.4–3.9× and the compiled kernel's
+advantage over cluster aggregation falls to 1.02× at five estimands and **0.74× at a million
+rows**. A third — the LTMLE mask fix — is real and `O(T²n)` → `O(Tn)`, and is 0.06% of a fit,
+because the ratio quoted for it was of a cached-nuisance region that excludes the learners by
+construction. `benchmarks/results/production_plan.md` is the adjudication and
+`findings.md`'s banner lists all four. **`numba` is still a benchmark-only dependency, and the
+case for changing that is weaker than the measurement first suggested.** Read
 `benchmarks/results/candidate_inventory.md` first: it is the profile the rest was sized against,
 and three of the things it is natural to expect turn out to be false. In particular the largest
 package-owned cost in a DR-TMLE `retarget` and in an LTMLE fit is **`threadpoolctl`**, entered

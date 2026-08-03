@@ -61,6 +61,7 @@ fluctuation is pooled across the regimens where the point-treatment one is not.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -78,6 +79,7 @@ from ..msm import MSM
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
+from ..utils.phases import PhaseProfile, phase, profile_phases
 from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData
 from .msm import MSMRegimenFit, RegimenMSM, evaluate_regimen_msm, fit_regimens_msm
@@ -954,6 +956,29 @@ class LTMLE:
                 "result.contrast()."
             )
 
+    @staticmethod
+    def profile_phases() -> AbstractContextManager[PhaseProfile]:
+        """Collect wall-clock timings of a fit's phases, for a benchmark or a profile.
+
+        .. code-block:: python
+
+            with LTMLE.profile_phases() as profile:
+                estimator.fit(data)
+            print(profile.summary())
+
+        A diagnostic, not part of a result: the shares depend on the box, the learner
+        library and the node count, so recording one on a fitted object would invite it
+        being compared across runs that are not comparable.  The phases are
+        ``mechanism_fit``, ``mask_construction``, ``pseudo_outcome``,
+        ``outcome_learner_fit``, ``clever_covariate``, ``fluctuation``,
+        ``influence_curve`` and ``inference``.
+
+        Off unless this is entered, and cheap when off -- see
+        :mod:`cleverly.utils.phases`.  It is a static method because it installs a
+        thread-global collector rather than instrumenting one estimator.
+        """
+        return profile_phases()
+
     def fit(
         self,
         data: Any,
@@ -1129,10 +1154,13 @@ class LTMLE:
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
         )
-        if model is None:
-            estimates, parameter_index = self._estimates(prepared, fits, scaler, reference)
-        else:
-            estimates, parameter_index = self._msm_estimates(prepared, msm_fits), None
+        with phase("influence_curve"):
+            if model is None:
+                estimates, parameter_index = self._estimates(prepared, fits, scaler, reference)
+            else:
+                estimates, parameter_index = self._msm_estimates(prepared, msm_fits), None
+        with phase("inference"):
+            bands = self._bands(estimates, prepared)
         return LongitudinalResult(
             estimates=estimates,
             fits=fits,
@@ -1141,7 +1169,7 @@ class LTMLE:
             scaler=scaler,
             mechanism=mechanism,
             provenance=self._provenance(prepared, folds),
-            simultaneous=self._bands(estimates, prepared),
+            simultaneous=bands,
             parameter_index=parameter_index,
             msm=model,
             msm_fits=msm_fits,

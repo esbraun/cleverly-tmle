@@ -1,5 +1,25 @@
 # Production plan: what to do with the numba investigation
 
+> ## Outcome — the plan was executed; Steps 0–5 and 7 are done, Step 6 is not
+>
+> | step | outcome |
+> | --- | --- |
+> | 1. `thread_limit` | ✅ **59× per entry**, 49% of a DR-TMLE `retarget` removed, 1.34× an LTMLE fit. [`thread_limit_profile.md`](thread_limit_profile.md) |
+> | 2. multiplier bootstrap in numpy | ✅ **3.4–3.9×**, allocation from 1,881 MB to 92 MB at `n = 10⁶`, seeded stream bit-identical. float32 measured (7.2×) and deliberately not taken. [`bootstrap_numpy.md`](bootstrap_numpy.md) |
+> | 3. cluster densification | ✅ **1.24–13.8×** on the kernel, 2.3–2.8× on `influence_covariance`, ~1.1× on a clustered `retarget` at `n = 10⁵` and nothing at `n = 20,000`. [`cluster_integration.md`](cluster_integration.md) |
+> | 4. phase timing | ✅ `LTMLE.profile_phases()`; the learners are **76%** of a `glm` longitudinal fit, `inference` 20%, the whole backward recursion 1.5%. |
+> | 5. prefix masks | ✅ `O(T²n)` → `O(Tn)`, **8.7× on the mask term at `T = 20`** and **0.06% of a fit**. [`longitudinal_masks.md`](longitudinal_masks.md) |
+> | 7. reprofile | ✅ DR-TMLE's `retarget` now costs 1.01× its fit; the largest arithmetic line is 2.9% and `threadpoolctl` is gone from the profile. A measured negative, not a deferral. |
+> | 6. `src/cleverly/_kernels/` | ❌ **not built, on purpose.** It was conditional on a kernel clearing Steps 2–3, and none does: the bootstrap's numpy path is now faster than the compiled kernel measured against the old one, and cluster aggregation is 1.02× at five estimands and 0.74× at a million rows. Building the seam now would be an abstraction with nothing to put in it. |
+>
+> **The through-line.** Every one of the three "adopt numba" recommendations this plan was
+> written to check turned out to be a numpy result: an expansion that did not need doing, a
+> sort that had already been done elsewhere, and a mask rebuild that was quadratic. The
+> largest single win in the whole investigation — 49% of a `retarget` — was a context
+> manager. `numba` remains a benchmark-only dependency and the open question is now exactly
+> one: §1.2's.
+
+
 The third document of the sequence. [`candidate_inventory.md`](candidate_inventory.md) is the
 profile, [`findings.md`](findings.md) is the measurement, and this is what to *build* — which
 is a different question, because a kernel that wins in a benchmark harness wins against

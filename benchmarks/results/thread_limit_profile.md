@@ -53,11 +53,38 @@ the profile overstated it, and 49% measured without a profiler attached is the n
 quote. The same correction applies to the 40% quoted for an LTMLE fit, where the
 wall-clock saving is 25%.
 
-`DRTMLE.retarget` still costs about half its own fit rather than being the cheap re-run it
-is meant to be. What is left is the alternation's genuine refitting of the reduced
-regressions, which is correct work — `g_{r,2}` is a functional of the mechanism being
-tilted — and `findings.md` §2.7's conclusion is unchanged by this: the remaining arithmetic
-is not where a compiled kernel would pay.
+## Reprofiling DR-TMLE, which is what the plan asked for next
+
+`candidate_inventory.md` §2.5 called `DRTMLE.retarget` "a `retarget` that costs 1.5–2.2× the
+fit it is meant to be a cheap re-run of". After this change, at `n = 5,000`, `glm`, three
+estimands: fit 7.341 s, `retarget` 7.445 s — **1.01×**. The alternation legitimately refits
+its reduced regressions (`g_{r,2}` is a functional of the mechanism being tilted), so
+costing about one fit is what it should cost, and the excess was the thread limiter.
+
+The plan's rule was to investigate a compiled kernel only if the replaceable arithmetic is
+at least 5% of the *corrected* runtime. The corrected profile (`tottime`, one `retarget`,
+6.33 s accounted):
+
+| line | tottime | share | calls |
+| --- | ---: | ---: | ---: |
+| `numpy.ufunc.reduce` | 0.184 s | 2.9% | 33,312 |
+| `inspect._signature_from_function` | 0.182 s | 2.9% | 9,856 |
+| `inspect._shadowed_dict` | 0.179 s | 2.8% | 108,768 |
+| `builtins.isinstance` | 0.164 s | 2.6% | 630,985 |
+| `sklearn.utils.validation.check_array` | 0.141 s | 2.2% | 7,480 |
+| `inspect.Signature.__init__` | 0.128 s | 2.0% | 57,376 |
+| `inspect._static_getmro` | 0.097 s | 1.5% | 181,280 |
+| `sklearn._loss.loss_gradient` | 0.064 s | 1.0% | 1,056 |
+
+`threadpoolctl` does not appear at all. What replaced it at the top is the *same shape of
+cost*: scikit-learn's per-call validation and introspection, paid thousands of times because
+the alternation fits thousands of tiny models. The largest arithmetic line is a ufunc
+reduction at 2.9%, and the actual gradient evaluation is 1.0%.
+
+So **DR-TMLE keeps numpy, and this is now a measured negative rather than a deferral.** No
+replaceable arithmetic reaches the 5% bar; `findings.md` §2.7's conclusion is unchanged and
+better supported. If this estimator is ever worth optimising again, the target is the number
+of scikit-learn calls, not what happens inside them.
 
 ## What the cache trades away, and how that is handled
 

@@ -57,8 +57,9 @@ class Measurement:
     cpu_seconds: float
     peak_rss_bytes: int
     rss_delta_bytes: int
-    #: Largest Python-level allocation held at any moment during one *untimed* call, from
-    #: :mod:`tracemalloc`.  This is the memory number that means something here: peak RSS
+    #: Largest allocation held at any moment during one *untimed* call, from
+    #: :mod:`tracemalloc` -- which sees numpy's allocations and numba's alike; see
+    #: :func:`peak_allocation`.  This is the memory number that means something here: peak RSS
     #: is a process high-water mark that never falls, so once the interpreter has touched
     #: a page it counts forever and every implementation after the first reads zero.  What
     #: a caller wants to know is what *this call* allocates -- the multiplier bootstrap's
@@ -191,10 +192,23 @@ def peak_allocation(call: Callable[[], Any]) -> int:
 
     It sees numpy arrays -- numpy allocates through the CPython allocator hooks
     ``tracemalloc`` installs -- which is what makes it the right instrument for the
-    question this package asks about memory.  It does *not* see allocations a compiled
-    kernel makes on numba's own side of the boundary, so a ``prange`` kernel's per-thread
-    scratch is invisible here and has to be reasoned about from the code; where that
-    matters (the thread-local cluster accumulator) the kernel's docstring says so.
+    question this package asks about memory.
+
+    **It sees numba's allocations too**, which this docstring used to deny.  numba's NRT
+    allocates through ``PyMem_RawMalloc``, and ``tracemalloc`` traces all three CPython
+    allocator domains, so an ``np.empty`` inside an ``@njit`` function is traced exactly as
+    the same call outside one is.  Measured on numba 0.66: 80 MB allocated inside a jitted
+    function reads a peak of 80,000,224 bytes, against 80,000,240 for the identical numpy
+    calls; and ``numba_cluster_sums_threadlocal`` at ``C = 50,000``, ``m = 20``, four
+    threads reads 40.0 MB against the serial kernel's 9.99 MB -- the 32 MB thread-local
+    block the old text called invisible is exactly what the difference is made of.
+
+    What it genuinely does not see is a library that calls ``malloc`` directly rather than
+    through CPython -- OpenBLAS scratch is the case that arises here -- and it is a
+    high-water mark of *allocation* rather than of resident memory, so it does not answer
+    "will this be killed".  For that, take an incremental peak RSS in a fresh process;
+    ``benchmarks/results/production_plan.md`` §1.3 says why that is a confirmation at one
+    configuration rather than a replacement for this column.
     """
     gc.collect()
     tracemalloc.start()

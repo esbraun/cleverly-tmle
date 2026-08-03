@@ -350,6 +350,87 @@ class TestParameterEstimate:
         assert np.isnan(estimate.pvalue)
 
 
+class TestClusterAggregationIsIndependentOfTheLabels:
+    """``cluster_sums`` skips ``np.unique`` when the codes are already contiguous.
+
+    They usually are: :func:`cleverly.data.validate.encode_clusters` densifies the
+    identifiers once, when the container is built, so the sort that used to run here was
+    re-deriving an encoding it had already been given.  Skipping it is only safe if the
+    *output* is untouched, so what is tested is exactly that -- against the shape it used
+    to be computed with, on every kind of label a caller can pass, including the ones that
+    must still take the slow path.
+
+    The gap case is the one that would break a naive fast path: labels ``{0..49, 51}``
+    have a maximum below ``n`` and a minimum of zero, and are still not contiguous.
+    ``np.unique`` gives one row per *observed* label where ``np.bincount`` would give one
+    per slot, and the empty row would go on to change a variance.
+    """
+
+    @staticmethod
+    def _by_unique(ic: np.ndarray, codes: np.ndarray) -> np.ndarray:
+        """The previous implementation, verbatim."""
+        unique, inverse = np.unique(codes, return_inverse=True)
+        inverse = inverse.reshape(-1)
+        if ic.ndim == 1:
+            return np.bincount(inverse, weights=ic, minlength=unique.size).astype(float)
+        return np.column_stack(
+            [
+                np.bincount(inverse, weights=ic[:, column], minlength=unique.size)
+                for column in range(ic.shape[1])
+            ]
+        ).astype(float)
+
+    @staticmethod
+    def _labels(name: str, rng: np.random.Generator, n: int) -> np.ndarray:
+        base = rng.integers(0, 50, size=n)
+        return {
+            "contiguous": base,
+            "one cluster per row": np.arange(n),
+            "sparse integers": rng.integers(0, 10**9, size=n),
+            "negative": rng.integers(-50, 50, size=n),
+            "a gap in the codes": np.where(base == 7, 51, base),
+            "float labels": base.astype(float),
+            "string labels": np.array([f"c{code}" for code in base]),
+        }[name]
+
+    @pytest.mark.parametrize(
+        "labels",
+        [
+            "contiguous",
+            "one cluster per row",
+            "sparse integers",
+            "negative",
+            "a gap in the codes",
+            "float labels",
+            "string labels",
+        ],
+    )
+    @pytest.mark.parametrize("ndim", [1, 2])
+    def test_the_sums_are_what_sorting_the_labels_gave(self, labels: str, ndim: int) -> None:
+        rng = np.random.default_rng(4)
+        n = 400
+        codes = self._labels(labels, rng, n)
+        ic = rng.normal(size=n) if ndim == 1 else rng.normal(size=(n, 3))
+        np.testing.assert_array_equal(cluster_sums(ic, codes), self._by_unique(ic, codes))
+
+    def test_a_gap_still_reports_one_row_per_observed_cluster(self) -> None:
+        """The failure mode the contiguity check exists to avoid, stated as a number."""
+        ic = np.ones((6, 1))
+        codes = np.array([0, 0, 2, 2, 2, 5])
+        sums = cluster_sums(ic, codes)
+        assert sums.shape == (3, 1)
+        np.testing.assert_array_equal(sums.reshape(-1), [2.0, 3.0, 1.0])
+
+    def test_the_variance_does_not_depend_on_how_the_clusters_are_labelled(self) -> None:
+        """The user-facing consequence: relabelling a cluster is not a modelling choice."""
+        rng = np.random.default_rng(9)
+        n = 300
+        ic = rng.normal(size=n)
+        contiguous = rng.integers(0, 30, size=n)
+        relabelled = contiguous * 1_000 + 7
+        assert influence_variance(ic, relabelled) == influence_variance(ic, contiguous)
+
+
 class TestClusterVariance:
     def test_singleton_clusters_reproduce_the_independent_case(self) -> None:
         rng = np.random.default_rng(0)

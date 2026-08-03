@@ -64,16 +64,23 @@ def build(
     n_clusters: int = 1000,
     n_estimands: int = 5,
     shape: str = "balanced",
+    labels: str = "encoded",
     seed: int = 20260803,
 ) -> dict[str, Any]:
     fixture = make_cluster(
-        n, n_clusters=n_clusters, n_estimands=n_estimands, shape=shape, seed=seed
+        n,
+        n_clusters=n_clusters,
+        n_estimands=n_estimands,
+        shape=shape,
+        labels=labels,  # type: ignore[arg-type]
+        seed=seed,
     )
     return {
         "influence": fixture.influence,
         "cluster": fixture.cluster,
         "n_clusters": fixture.n_clusters,
         "shape": shape,
+        "labels": labels,
     }
 
 
@@ -81,20 +88,17 @@ def build(
 
 
 def numpy_cluster_sums(inputs: dict[str, Any]) -> np.ndarray:
-    """The shipped path: ``np.unique`` then one ``np.bincount`` per column."""
-    ic = inputs["influence"]
-    codes = inputs["cluster"]
-    unique, inverse = np.unique(codes, return_inverse=True)
-    inverse = inverse.reshape(-1)
-    n_clusters = unique.size
-    if ic.ndim == 1:
-        return np.bincount(inverse, weights=ic, minlength=n_clusters).astype(float)
-    return np.column_stack(
-        [
-            np.bincount(inverse, weights=ic[:, column], minlength=n_clusters)
-            for column in range(ic.shape[1])
-        ]
-    ).astype(float)
+    """The shipped path, **called** rather than reproduced.
+
+    This used to be a copy of ``cleverly.inference.cluster.cluster_sums``'s body, and the
+    copy is how a benchmark tells its most durable lie: an improvement to the shipped path
+    leaves the reference untouched, so the compiled kernel goes on being compared against
+    the version that existed when the benchmark was written.  That happened here -- the
+    reference kept an ``np.unique`` the package had stopped needing.
+    """
+    from cleverly.inference.cluster import cluster_sums
+
+    return cluster_sums(inputs["influence"], inputs["cluster"])
 
 
 def numpy_cluster_sums_sorted(inputs: dict[str, Any]) -> np.ndarray:

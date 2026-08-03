@@ -329,9 +329,16 @@ python -m benchmarks.numba.cli --config benchmarks/configs/sandbox.json
 The second benchmark answers a narrower question than the first and answers it properly:
 with the nuisance fits excluded from every timed region, does compiling or parallelising
 the package's own arithmetic help? Its write-ups are
-[the profile](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/candidate_inventory.md)
-and [the recommendation](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/findings.md).
-Neither is "numba everywhere" nor "numba nowhere".
+[the profile](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/candidate_inventory.md),
+[the measurement](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/findings.md)
+and [what acting on it found](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/production_plan.md).
+The short answer so far is **numpy**: the two kernels the measurement rated clearest for
+compilation were rewritten in numpy first, as its own rule required, and both ratios
+collapsed — a Rademacher bootstrap 3.4–3.9× faster at a fixed 32 MB of working memory at any
+`n`, and a cluster aggregation that no longer re-derives an encoding it was already given.
+The largest single win in the whole investigation was not arithmetic at all: building
+`threadpoolctl`'s controller once per process rather than once per learner fit, which was
+**49% of a DR-TMLE `retarget`**. `numba` remains a benchmark-only dependency.
 
 `ruff` and `mypy` are both pinned exactly, and in three places that have to move together:
 `pyproject.toml`'s `dev` extra, `.github/workflows/ci.yml`, and `noxfile.py`. `ruff` formats

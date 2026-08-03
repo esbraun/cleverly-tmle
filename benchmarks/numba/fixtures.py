@@ -287,6 +287,7 @@ def make_cluster(
     n_clusters: int = 500,
     n_estimands: int = 5,
     shape: Literal["balanced", "poisson", "skewed"] = "balanced",
+    labels: Literal["encoded", "raw"] = "encoded",
     seed: int = 20260803,
 ) -> ClusterFixture:
     """Influence curves whose rows belong to clusters of the requested size profile.
@@ -297,9 +298,15 @@ def make_cluster(
     of the rows in a handful of clusters, which is where a per-cluster parallelisation
     stalls and a per-row one does not.
 
-    The codes are deliberately **shuffled and sparse** -- gaps in the integer range, in no
-    particular order -- because the production implementation calls ``np.unique`` to
-    densify them and a fixture of ``0..C-1`` in order would hide that sort's cost.
+    ``labels`` is the second such dimension, and getting it wrong is how this fixture used
+    to flatter the compiled kernels.  It generated **shuffled, sparse** codes on the
+    reasoning that "a real ``id`` column looks like that and a fixture of ``0..C-1`` would
+    hide ``np.unique``'s sort".  The premise was wrong about where the sort was: a raw
+    ``id`` column never reaches ``cluster_sums``, because
+    :func:`cleverly.data.validate.encode_clusters` densifies it **once**, when the
+    container is built.  So ``"encoded"`` -- contiguous codes in first-appearance-free
+    sorted order -- is the internal contract and the default, and ``"raw"`` is kept for the
+    other question, which is what a caller invoking the public function directly pays.
     """
     rng = np.random.default_rng(seed)
     if shape == "balanced":
@@ -313,9 +320,13 @@ def make_cluster(
         weights = 1.0 / (1.0 + np.arange(n_clusters))
         codes = rng.choice(n_clusters, size=n, p=weights / weights.sum())
     codes = np.asarray(codes, dtype=np.int64)
-    # Sparse, unsorted labels: what a real `id` column looks like.
+    # Sparse, unsorted labels: what a real `id` column looks like before validation.
     relabel = rng.permutation(n_clusters) * 7 + 1000
     codes = relabel[codes]
+    if labels == "encoded":
+        # Exactly what `encode_clusters` leaves on the container, and therefore what the
+        # aggregation is actually handed.
+        codes = np.asarray(np.unique(codes, return_inverse=True)[1], dtype=np.int64)
     influence = rng.standard_normal((n, n_estimands))
     influence[:, 0] *= 3.0  # estimands do not share a scale
     return ClusterFixture(
