@@ -25,11 +25,11 @@ import numpy as np
 
 __all__ = [
     "Verdict",
+    "check",
     "compare_arrays",
     "compare_mapping",
     "compare_scalar",
     "compare_solver",
-    "check",
 ]
 
 
@@ -52,11 +52,10 @@ def _errors(reference: np.ndarray, candidate: np.ndarray) -> tuple[float, float]
     if a.shape != b.shape:
         return float("inf"), float("inf")
     finite = np.isfinite(a) & np.isfinite(b)
-    if not finite.all():
-        # A non-finite in one and not the other is a disagreement, not a rounding
-        # difference, and must not be dropped by the mask that handles the rest.
-        if not np.array_equal(np.isfinite(a), np.isfinite(b)):
-            return float("inf"), float("inf")
+    # A non-finite in one and not the other is a disagreement, not a rounding difference,
+    # and must not be dropped by the mask that handles the rest.
+    if not finite.all() and not np.array_equal(np.isfinite(a), np.isfinite(b)):
+        return float("inf"), float("inf")
     a, b = a[finite], b[finite]
     if a.size == 0:
         return 0.0, 0.0
@@ -71,11 +70,15 @@ def compare_arrays(reference: Any, candidate: Any) -> tuple[float, float]:
 
 
 def compare_scalar(reference: Any, candidate: Any) -> tuple[float, float]:
-    return _errors(np.atleast_1d(np.asarray(reference, dtype=float)),
-                   np.atleast_1d(np.asarray(candidate, dtype=float)))
+    return _errors(
+        np.atleast_1d(np.asarray(reference, dtype=float)),
+        np.atleast_1d(np.asarray(candidate, dtype=float)),
+    )
 
 
-def compare_mapping(reference: Mapping[str, Any], candidate: Mapping[str, Any]) -> tuple[float, float]:
+def compare_mapping(
+    reference: Mapping[str, Any], candidate: Mapping[str, Any]
+) -> tuple[float, float]:
     """Worst disagreement across a dict of named arrays.
 
     A missing or extra key is infinite error rather than a skipped comparison: an
@@ -91,7 +94,9 @@ def compare_mapping(reference: Mapping[str, Any], candidate: Mapping[str, Any]) 
     return worst
 
 
-def compare_solver(reference: Mapping[str, Any], candidate: Mapping[str, Any]) -> tuple[float, float]:
+def compare_solver(
+    reference: Mapping[str, Any], candidate: Mapping[str, Any]
+) -> tuple[float, float]:
     """Numerical *and* algorithmic agreement for anything that iterates.
 
     The numeric fields are compared as usual.  The fields that are not numbers --
@@ -130,7 +135,7 @@ def check(
     atol, rtol = tolerance
     try:
         absolute, relative = compare(reference, candidate)
-    except Exception as error:  # noqa: BLE001 - the reason is the useful output
+    except Exception as error:
         return Verdict(False, float("inf"), float("inf"), f"{type(error).__name__}: {error}")
     ok = bool(absolute <= atol or relative <= rtol)
     reason = (

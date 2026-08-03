@@ -186,9 +186,7 @@ def numpy_one_step(inputs: dict[str, Any], *, defer_arms: bool = False) -> dict[
         steps += 1
 
     if defer_arms:
-        arms = _shrink(
-            _expit(_logit(arms) + np.einsum("nkp,p->nk", h_arms, epsilon)), _ALPHA
-        )
+        arms = _shrink(_expit(_logit(arms) + np.einsum("nkp,p->nk", h_arms, epsilon)), _ALPHA)
     relative = _relative(score, scale)
     return {
         "epsilon": epsilon,
@@ -238,7 +236,17 @@ def _apply_arms(h_arms, arms, epsilon, out_arms):
 
 @njit(inline="always")
 def _fused_step_serial(
-    y, weights, mask, h, h_arms, observed, arms, move, out_observed, out_arms, score,
+    y,
+    weights,
+    mask,
+    h,
+    h_arms,
+    observed,
+    arms,
+    move,
+    out_observed,
+    out_arms,
+    score,
     update_arms,
 ):
     """One trial step: apply the move and take the resulting score, in a single row pass.
@@ -282,7 +290,18 @@ def _fused_step_serial(
 
 @pjit(inline="always")
 def _fused_step_parallel(
-    y, weights, mask, h, h_arms, observed, arms, move, out_observed, out_arms, score, partial,
+    y,
+    weights,
+    mask,
+    h,
+    h_arms,
+    observed,
+    arms,
+    move,
+    out_observed,
+    out_arms,
+    score,
+    partial,
     update_arms,
 ):
     """The same step with a ``prange`` over rows and a thread-local score reduction.
@@ -342,7 +361,17 @@ def _make_walk(step_kernel, decorator, parallel: bool):
 
     @decorator()
     def walk(
-        y, weights, mask, h, h_arms, observed, arms, step_size, max_steps, tol, n_threads,
+        y,
+        weights,
+        mask,
+        h,
+        h_arms,
+        observed,
+        arms,
+        step_size,
+        max_steps,
+        tol,
+        n_threads,
         defer_arms,
     ):
         rows = y.shape[0]
@@ -401,14 +430,33 @@ def _make_walk(step_kernel, decorator, parallel: bool):
                 move[j] = dx * score[j] / norm
             if parallel:
                 _fused_step_parallel(
-                    y, weights, mask, h, h_arms, current_observed, current_arms,
-                    move, trial_observed, trial_arms, trial_score, partial,
+                    y,
+                    weights,
+                    mask,
+                    h,
+                    h_arms,
+                    current_observed,
+                    current_arms,
+                    move,
+                    trial_observed,
+                    trial_arms,
+                    trial_score,
+                    partial,
                     not defer_arms,
                 )
             else:
                 _fused_step_serial(
-                    y, weights, mask, h, h_arms, current_observed, current_arms,
-                    move, trial_observed, trial_arms, trial_score,
+                    y,
+                    weights,
+                    mask,
+                    h,
+                    h_arms,
+                    current_observed,
+                    current_arms,
+                    move,
+                    trial_observed,
+                    trial_arms,
+                    trial_score,
                     not defer_arms,
                 )
             trial_norm = 0.0

@@ -104,8 +104,11 @@ def numpy_estimands(inputs: dict[str, Any]) -> dict[str, Any]:
         plug_in = float(np.mean(treated * (q[:, 1] - q[:, 0])) / share[1])
         curves["att"] = (
             weights
-            * (treated * residual - indicator[:, 0] * odds * residual
-               + treated * (q[:, 1] - q[:, 0] - plug_in))
+            * (
+                treated * residual
+                - indicator[:, 0] * odds * residual
+                + treated * (q[:, 1] - q[:, 0] - plug_in)
+            )
             / share[1]
         )
         psi["att"] = plug_in
@@ -115,8 +118,11 @@ def numpy_estimands(inputs: dict[str, Any]) -> dict[str, Any]:
         plug_in = float(np.mean(control * (q[:, 1] - q[:, 0])) / share[0])
         curves["atc"] = (
             weights
-            * (indicator[:, 1] * odds * residual - control * residual
-               + control * (q[:, 1] - q[:, 0] - plug_in))
+            * (
+                indicator[:, 1] * odds * residual
+                - control * residual
+                + control * (q[:, 1] - q[:, 0] - plug_in)
+            )
             / share[0]
         )
         psi["atc"] = plug_in
@@ -172,8 +178,20 @@ def _moments_serial(y, q, q_observed, g, indicator, weights, mask):
 
 @njit()
 def _curves_serial(
-    y, q, q_observed, g, indicator, weights, mask,
-    psi1, psi0, psi_att, psi_atc, share1, share0, out,
+    y,
+    q,
+    q_observed,
+    g,
+    indicator,
+    weights,
+    mask,
+    psi1,
+    psi0,
+    psi_att,
+    psi_atc,
+    share1,
+    share0,
+    out,
 ):
     """Every requested curve, one row at a time.
 
@@ -199,20 +217,32 @@ def _curves_serial(
         out[0, i] = ic1
         out[1, i] = ic0
         out[2, i] = ic1 - ic0
-        out[3, i] = w * (
-            d1 * residual - d0 * (g0 / g1) * residual + d1 * (contrast - psi_att)
-        ) / share1
-        out[4, i] = w * (
-            d1 * (g1 / g0) * residual - d0 * residual + d0 * (contrast - psi_atc)
-        ) / share0
+        out[3, i] = (
+            w * (d1 * residual - d0 * (g0 / g1) * residual + d1 * (contrast - psi_att)) / share1
+        )
+        out[4, i] = (
+            w * (d1 * (g1 / g0) * residual - d0 * residual + d0 * (contrast - psi_atc)) / share0
+        )
         out[5, i] = ic1 / psi1 - ic0 / psi0
         out[6, i] = ic1 / or1 - ic0 / or0
 
 
 @pjit()
 def _curves_parallel(
-    y, q, q_observed, g, indicator, weights, mask,
-    psi1, psi0, psi_att, psi_atc, share1, share0, out,
+    y,
+    q,
+    q_observed,
+    g,
+    indicator,
+    weights,
+    mask,
+    psi1,
+    psi0,
+    psi_att,
+    psi_atc,
+    share1,
+    share0,
+    out,
 ):
     """The same, with ``prange`` over rows.
 
@@ -239,12 +269,12 @@ def _curves_parallel(
         out[0, i] = ic1
         out[1, i] = ic0
         out[2, i] = ic1 - ic0
-        out[3, i] = w * (
-            d1 * residual - d0 * (g0 / g1) * residual + d1 * (contrast - psi_att)
-        ) / share1
-        out[4, i] = w * (
-            d1 * (g1 / g0) * residual - d0 * residual + d0 * (contrast - psi_atc)
-        ) / share0
+        out[3, i] = (
+            w * (d1 * residual - d0 * (g0 / g1) * residual + d1 * (contrast - psi_att)) / share1
+        )
+        out[4, i] = (
+            w * (d1 * (g1 / g0) * residual - d0 * residual + d0 * (contrast - psi_atc)) / share0
+        )
         out[5, i] = ic1 / psi1 - ic0 / psi0
         out[6, i] = ic1 / or1 - ic0 / or0
 

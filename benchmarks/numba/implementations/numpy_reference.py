@@ -97,7 +97,7 @@ def resolve_plan(mode: Mode | str, cores: int, *, workers: int | None = None) ->
     if resolved.name == "task_parallel":
         return ThreadPlan(numba_threads=1, blas_threads=1, workers=cores)
     if resolved.name == "hybrid":
-        count = workers if workers else max(1, int(round(cores**0.5)))
+        count = workers if workers else max(1, round(cores**0.5))
         count = max(1, min(count, cores))
         return ThreadPlan(numba_threads=max(1, cores // count), blas_threads=1, workers=count)
     raise KeyError(f"unknown mode {resolved.name!r}")

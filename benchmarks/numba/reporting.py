@@ -130,14 +130,17 @@ def summarise(rows: Sequence[Row], environment: Any) -> str:
         f"- **CPU**: {environment.cpu_model} "
         f"({environment.physical_cores} physical / {environment.logical_cores} logical cores)\n"
         f"- **BLAS**: {environment.blas_backend} ({environment.blas_threading_layer})\n"
-        f"- **numpy** {environment.numpy_version}, **numba** {environment.numba_version or 'absent'}\n"
+        f"- **numpy** {environment.numpy_version}, "
+        f"**numba** {environment.numba_version or 'absent'}\n"
         f"- **commit**: `{environment.git_sha[:12]}`"
         f"{' (working tree dirty)' if environment.git_dirty else ''}\n"
     )
 
     kernels = _by_kernel(rows)
     lines.append("\n## Verdicts\n")
-    lines.append("| kernel | estimator | best implementation | serial | parallel | memory | verdict |")
+    lines.append(
+        "| kernel | estimator | best implementation | serial | parallel | memory | verdict |"
+    )
     lines.append("| --- | --- | --- | --- | --- | --- | --- |")
     for name, group in kernels.items():
         verdict = _verdict(group)
@@ -221,13 +224,18 @@ def _verdict(group: Sequence[Row]) -> dict[str, str]:
     estimator = group[0].scenario
     if reference is None or not usable:
         return {
-            "estimator": estimator, "best": "-", "serial": "-", "parallel": "-",
-            "memory": "-", "decision": "not measured",
+            "estimator": estimator,
+            "best": "-",
+            "serial": "-",
+            "parallel": "-",
+            "memory": "-",
+            "decision": "not measured",
         }
     best = min(usable, key=lambda row: row.warm_seconds)
     serial_rows = [
-        row for row in usable if row.numba_threads == 1 and row.workers == 1
-        and row.implementation != "numpy"
+        row
+        for row in usable
+        if row.numba_threads == 1 and row.workers == 1 and row.implementation != "numpy"
     ]
     parallel_rows = [row for row in usable if row.numba_threads > 1 or row.workers > 1]
     serial_gain = (
@@ -246,7 +254,8 @@ def _verdict(group: Sequence[Row]) -> dict[str, str]:
         else float("nan")
     )
 
-    if group[0].negative_control and not (serial_gain >= _SERIAL_BAR or parallel_gain >= _PARALLEL_BAR):
+    cleared = serial_gain >= _SERIAL_BAR or parallel_gain >= _PARALLEL_BAR
+    if group[0].negative_control and not cleared:
         decision = "retain numpy (control, as expected)"
     elif parallel_gain >= _PARALLEL_BAR and parallel_gain > serial_gain * 1.2:
         decision = "adopt numba parallel"

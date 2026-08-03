@@ -37,7 +37,7 @@ from ..implementations.numba_serial import njit
 from ..validation import compare_arrays, compare_solver
 from . import KernelSpec, register
 
-__all__ = ["build_gram", "build_newton", "numpy_gram", "numpy_newton", "numba_newton"]
+__all__ = ["build_gram", "build_newton", "numba_newton", "numpy_gram", "numpy_newton"]
 
 _ALPHA = 0.9995
 
@@ -145,8 +145,12 @@ def _newton(x, y, offset, weights, max_iter, tol):
 
 def numba_newton(inputs: dict[str, Any]) -> dict[str, Any]:
     epsilon, iterations, converged = _newton(
-        inputs["x"], inputs["y"], inputs["offset"], inputs["weights"],
-        int(inputs["max_iter"]), float(inputs["tol"]),
+        inputs["x"],
+        inputs["y"],
+        inputs["offset"],
+        inputs["weights"],
+        int(inputs["max_iter"]),
+        float(inputs["tol"]),
     )
     return {"epsilon": epsilon, "n_iter": int(iterations), "converged": bool(converged)}
 
@@ -174,9 +178,7 @@ def numpy_gram(inputs: dict[str, Any]) -> np.ndarray:
     control.
     """
     design, h, weights = inputs["design"], inputs["h"], inputs["weights"]
-    return np.asarray(
-        np.einsum("ijp,ijq,ij,i->pq", design, design, h, weights, optimize=True)
-    )
+    return np.asarray(np.einsum("ijp,ijq,ij,i->pq", design, design, h, weights, optimize=True))
 
 
 @njit()

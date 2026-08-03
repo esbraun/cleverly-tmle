@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from .numba_parallel import PARALLEL_AVAILABLE, pjit
 from .numba_serial import NUMBA_AVAILABLE, njit
-from .numpy_reference import Mode, MODES
+from .numpy_reference import MODES, Mode
 
 __all__ = [
     "MODES",

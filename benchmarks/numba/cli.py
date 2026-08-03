@@ -26,7 +26,6 @@ Examples
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -38,16 +37,26 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", type=Path, help="YAML or JSON config file")
     parser.add_argument(
-        "--kernel", "--scenario", dest="kernels", nargs="+", default=None,
+        "--kernel",
+        "--scenario",
+        dest="kernels",
+        nargs="+",
+        default=None,
         help="kernel name(s), or 'all'",
     )
     parser.add_argument(
-        "--implementation", dest="implementations", nargs="+", default=None,
+        "--implementation",
+        dest="implementations",
+        nargs="+",
+        default=None,
         help="implementation name(s), or 'all'",
     )
     parser.add_argument("--sizes", type=int, nargs="+", default=None)
     parser.add_argument(
-        "--num-cores", type=int, nargs="+", default=None,
+        "--num-cores",
+        type=int,
+        nargs="+",
+        default=None,
         help="core counts to measure the parallel implementations at",
     )
     parser.add_argument("--repeats", type=int, default=None)
@@ -59,16 +68,45 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--memory", dest="memory", action="store_true", default=None)
     parser.add_argument("--amortise", action="store_true", default=None)
     parser.add_argument(
-        "--cold-compile", action="store_true", default=None,
+        "--cold-compile",
+        action="store_true",
+        default=None,
         help="measure first-call compilation in a fresh process per kernel, then exit",
     )
+    parser.add_argument("--list", action="store_true", help="list the registered kernels and exit")
     parser.add_argument(
-        "--list", action="store_true", help="list the registered kernels and exit"
+        "--pipelines",
+        nargs="*",
+        default=None,
+        help=(
+            "run the complete post-nuisance pipeline scenarios instead of the kernels, "
+            "naming them or passing none for all. These call the shipped API and produce "
+            "the denominator every kernel speed-up has to be multiplied by"
+        ),
     )
+    parser.add_argument(
+        "--pipeline-libraries",
+        nargs="+",
+        default=["glm"],
+        help=(
+            "learner presets to run the pipelines at. `glm` is the cheapest available and "
+            "inflates every package-owned share several-fold, so quoting it alone is the "
+            "standard way to mislead with this measurement"
+        ),
+    )
+    parser.add_argument("--pipeline-n", type=int, default=20_000)
     # Estimator-specific dimensions, forwarded to whichever kernels take them.
     for name in (
-        "n-estimands", "n-arms", "n-folds", "n-candidates", "n-timepoints", "n-regimens",
-        "n-bootstrap", "n-clusters", "n-causes", "n-horizons",
+        "n-estimands",
+        "n-arms",
+        "n-folds",
+        "n-candidates",
+        "n-timepoints",
+        "n-regimens",
+        "n-bootstrap",
+        "n-clusters",
+        "n-causes",
+        "n-horizons",
     ):
         parser.add_argument(f"--{name}", type=int, nargs="+", default=None)
     parser.add_argument("--regime", nargs="+", default=None)
@@ -128,8 +166,17 @@ def main(argv: list[str] | None = None) -> int:
     config = load(args.config) if args.config else Config()
     overrides: dict[str, object] = {}
     for name in (
-        "kernels", "implementations", "sizes", "num_cores", "repeats", "warmups",
-        "seed", "output", "validate", "memory", "amortise",
+        "kernels",
+        "implementations",
+        "sizes",
+        "num_cores",
+        "repeats",
+        "warmups",
+        "seed",
+        "output",
+        "validate",
+        "memory",
+        "amortise",
     ):
         value = getattr(args, name, None)
         if value is None:
@@ -151,9 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     config = replace(
         config,
         **overrides,
-        sweeps=tuple(
-            KernelSweep(kernel=name, dimensions=dims) for name, dims in sweeps.items()
-        ),
+        sweeps=tuple(KernelSweep(kernel=name, dimensions=dims) for name, dims in sweeps.items()),
     )
 
     # Must happen before numpy/numba are imported anywhere, which is why the imports
@@ -178,6 +223,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return report_cold_compile(config)
 
+    if args.pipelines is not None:
+        return _run_pipelines(
+            args.pipelines or None, args.pipeline_libraries, args.pipeline_n, config.output
+        )
+
     from .reporting import write_all
     from .runner import run
 
@@ -185,6 +235,70 @@ def main(argv: list[str] | None = None) -> int:
     latest = write_all(rows, environment, config.output)
     print(f"wrote {len(rows)} row(s) to {latest}")
     print((latest / "summary.md").read_text())
+    return 0
+
+
+def _run_pipelines(names: list[str] | None, libraries: list[str], size: int, output: Path) -> int:
+    """Run the complete post-nuisance pipelines and write ``pipelines.md``.
+
+    Kept out of the kernel sweep's output rather than folded into it: a pipeline row is a
+    *share*, not a speed-up, and the two answer different questions.  Filing them in one
+    table would invite reading a kernel's 9x next to a pipeline's 2% as though they were
+    comparable numbers.
+    """
+    import json
+
+    from .scenarios import resolve
+
+    rows = []
+    lines = [
+        "# Complete post-nuisance pipelines\n",
+        "Each row fits once (outside the timed region) and then times the package's own "
+        "post-nuisance work at its real API. The share is what every kernel speed-up has "
+        "to be multiplied by before it means anything.\n",
+        "`glm` is the cheapest learner preset the package offers and inflates every share "
+        "here several-fold; a `default` fit costs roughly 37x more per row. Read the pair, "
+        "never one alone.\n",
+        "| scenario | library | n | fit (s) | post-nuisance (s) | share of fit | note |",
+        "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for library in libraries:
+        for spec in resolve(names):
+            try:
+                result = spec.run(n=size, library=library)
+            except Exception as error:
+                lines.append(
+                    f"| `{spec.name}` | {library} | {size} | - | - | - | "
+                    f"failed: {type(error).__name__}: {error} |"
+                )
+                continue
+            rows.append(
+                {
+                    "scenario": result.name,
+                    "library": result.library,
+                    "n": result.n,
+                    "fit_seconds": result.fit_seconds,
+                    "post_nuisance_seconds": result.post_nuisance_seconds,
+                    "share": result.share,
+                    "detail": result.detail,
+                    "note": result.note,
+                }
+            )
+            lines.append(
+                f"| `{result.name}` | {result.library} | {result.n} | "
+                f"{result.fit_seconds:.3f} | {result.post_nuisance_seconds:.4f} | "
+                f"{100 * result.share:.2f}% | {result.note} |"
+            )
+            print(
+                f"{result.name:24} {result.library:8} fit={result.fit_seconds:8.3f}s "
+                f"post={result.post_nuisance_seconds:8.4f}s share={100 * result.share:6.2f}%"
+            )
+
+    latest = Path(output) / "latest"
+    latest.mkdir(parents=True, exist_ok=True)
+    (latest / "pipelines.md").write_text("\n".join(lines) + "\n")
+    (latest / "pipelines.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    print(f"wrote {latest / 'pipelines.md'}")
     return 0
 
 

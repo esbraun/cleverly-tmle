@@ -111,7 +111,8 @@ def numpy_reduction_round(inputs: dict[str, Any]) -> dict[str, Any]:
     for r in range(inputs["n_rounds"]):
         for arm in (0, 1):
             g = np.clip(mechanism[:, arm], 1e-3, 1.0 - 1e-3)
-            # Equation (8)-shaped: the ordinary 1/g covariate carrying the reduction.
+            # Equation (8)-shaped: the ordinary 1/g covariate carrying the
+            # reduction.
             covariate = indicator[:, arm] / g * (1.0 + q_reduced[:, arm])
             epsilon = 0.0
             total = weights[mask].sum()
@@ -206,7 +207,9 @@ def _rounds_serial(y, offset, weights, mask, indicator, mechanism, q_reduced, g_
 
 
 @pjit()
-def _rounds_parallel(y, offset, weights, mask, indicator, mechanism, q_reduced, g_reduced, n_rounds):
+def _rounds_parallel(
+    y, offset, weights, mask, indicator, mechanism, q_reduced, g_reduced, n_rounds
+):
     """``prange`` over the arms, which is the only independent axis the alternation has.
 
     The *rounds* are strictly sequential -- each reads the mechanism the last one tilted --
@@ -264,8 +267,9 @@ def thread_limit_overhead(repeats: int = 200) -> dict[str, float]:
     which walks the process's loaded shared objects through ``dl_iterate_phdr``.  The cost
     is per *entry*, so it scales with the number of learner fits and not with ``n``.
     """
-    from cleverly.learners._threads import thread_limit
     from threadpoolctl import threadpool_limits
+
+    from cleverly.learners._threads import thread_limit
 
     start = time.perf_counter()
     for _ in range(repeats):

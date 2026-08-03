@@ -40,7 +40,12 @@ from ..implementations.numba_serial import njit
 from ..validation import compare_mapping
 from . import KernelSpec, register
 
-__all__ = ["build", "numba_candidate_scores", "numba_candidate_scores_parallel", "numpy_candidate_scores"]
+__all__ = [
+    "build",
+    "numba_candidate_scores",
+    "numba_candidate_scores_parallel",
+    "numpy_candidate_scores",
+]
 
 _ALPHA = 0.9995
 _MAX_NEWTON = 20
@@ -126,8 +131,13 @@ def numpy_candidate_scores(inputs: dict[str, Any]) -> dict[str, Any]:
             if not rows.any():
                 continue
             loss -= float(
-                (weights[rows] * (y[rows] * np.log(targeted[rows])
-                                  + (1.0 - y[rows]) * np.log(1.0 - targeted[rows]))).sum()
+                (
+                    weights[rows]
+                    * (
+                        y[rows] * np.log(targeted[rows])
+                        + (1.0 - y[rows]) * np.log(1.0 - targeted[rows])
+                    )
+                ).sum()
             )
         losses[c] = loss
     return {

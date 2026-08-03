@@ -72,8 +72,13 @@ def build(
 ) -> dict[str, Any]:
     """``n_horizons=0`` means every horizon, which is what a risk curve reports."""
     fixture = make_survival(
-        n, n_times=n_times, n_regimens=n_regimens, n_causes=n_causes,
-        incidence=incidence, regime=regime, seed=seed,
+        n,
+        n_times=n_times,
+        n_regimens=n_regimens,
+        n_causes=n_causes,
+        incidence=incidence,
+        regime=regime,
+        seed=seed,
     )
     horizons = (
         tuple(range(1, n_times + 1))
@@ -106,9 +111,7 @@ def _masks_and_cumulative(fixture, assignment, bounds):
     cumulative = np.empty((times, n))
     for t in range(times):
         followed = (
-            followed
-            & (base.treated[:, t] == assignment[:, t])
-            & (base.uncensored[:, t] == 1.0)
+            followed & (base.treated[:, t] == assignment[:, t]) & (base.uncensored[:, t] == 1.0)
         )
         g1 = np.clip(base.treatment_probability[:, t], lower, upper)
         running = running * np.where(assignment[:, t] == 1.0, g1, 1.0 - g1)
@@ -133,11 +136,7 @@ def _one_horizon(fixture, following, cumulative, event, cause_event, horizon, we
         # observation that the event happened -- and is not in node `t + 1`'s.
         event_free_before = np.ones(n, dtype=bool) if t == 0 else (event[:, t - 1] == 0.0)
         follow = following[t] & event_free_before
-        at_risk = (
-            np.ones(n, dtype=bool)
-            if t == 0
-            else (following[t - 1] & (event[:, t] == 0.0))
-        )
+        at_risk = np.ones(n, dtype=bool) if t == 0 else (following[t - 1] & (event[:, t] == 0.0))
         pseudo = cause_event[:, t] + (1.0 - event[:, t]) * carried
         initial = np.where(at_risk, base.initial[t], 0.0)
         denominator = np.where(at_risk, cumulative[t], 1.0)
@@ -158,9 +157,7 @@ def _one_horizon(fixture, following, cumulative, event, cause_event, horizon, we
                 if hessian <= 0.0 or not np.isfinite(hessian):
                     break
                 epsilon += gradient / hessian
-        targeted = np.clip(
-            _expit(offset + counterfactual * epsilon), 1.0 - _ALPHA, _ALPHA
-        )
+        targeted = np.clip(_expit(offset + counterfactual * epsilon), 1.0 - _ALPHA, _ALPHA)
         clever_terms.append((clever, pseudo, targeted))
         carried = np.where(at_risk, targeted, 0.0)
         targeted_first = targeted
@@ -193,8 +190,13 @@ def numpy_incidence(inputs: dict[str, Any], *, share_masks: bool = False) -> dic
                         fixture, base.assignment[r], inputs["g_bounds"]
                     )
                 psi, curve = _one_horizon(
-                    fixture, following, cumulative, fixture.event,
-                    fixture.cause_event[j], horizon, weights,
+                    fixture,
+                    following,
+                    cumulative,
+                    fixture.event,
+                    fixture.cause_event[j],
+                    horizon,
+                    weights,
                 )
                 key = f"{base.labels[r]}|{cause}|{horizon}"
                 out[f"psi_{key}"] = np.array([psi])
@@ -212,8 +214,15 @@ def numpy_incidence_shared(inputs: dict[str, Any]) -> dict[str, Any]:
 
 @njit()
 def _build_masks(
-    treatment_probability, censoring_probability, treated, uncensored, assignment,
-    lower, upper, following, cumulative,
+    treatment_probability,
+    censoring_probability,
+    treated,
+    uncensored,
+    assignment,
+    lower,
+    upper,
+    following,
+    cumulative,
 ):
     n, times = treated.shape
     for i in range(n):
@@ -232,8 +241,16 @@ def _build_masks(
 
 @njit()
 def _horizon_pass(
-    following, cumulative, event, cause_event, initial, weights, horizon,
-    targeted, clever, pseudo,
+    following,
+    cumulative,
+    event,
+    cause_event,
+    initial,
+    weights,
+    horizon,
+    targeted,
+    clever,
+    pseudo,
 ):
     """One horizon's backward pass, fused.  Returns the plug-in; fills the work arrays."""
     n = weights.shape[0]
@@ -247,9 +264,10 @@ def _horizon_pass(
             follow = following[t, i] and event_free
             covariate = 1.0 / cumulative[t, i] if at_risk else 0.0
             clever[t, i] = covariate if follow else 0.0
-            carried = 0.0 if t == horizon - 1 else targeted[t + 1, i]
+            carried = 0.0
             if t < horizon - 1:
-                carried = targeted[t + 1, i] if (following[t, i] and event[i, t + 1] == 0.0) else 0.0
+                still_there = following[t, i] and event[i, t + 1] == 0.0
+                carried = targeted[t + 1, i] if still_there else 0.0
             pseudo[t, i] = cause_event[i, t] + (1.0 - event[i, t]) * carried
             if follow:
                 total += weights[i]
@@ -300,16 +318,33 @@ def _horizon_pass(
 
 @njit()
 def _cell(
-    following, cumulative, event, cause_event, initial, weights, horizon, times,
-    psi_out, influence_out, index,
+    following,
+    cumulative,
+    event,
+    cause_event,
+    initial,
+    weights,
+    horizon,
+    times,
+    psi_out,
+    influence_out,
+    index,
 ):
     n = weights.shape[0]
     targeted = np.empty((times, n))
     clever = np.zeros((times, n))
     pseudo = np.zeros((times, n))
     plug_in = _horizon_pass(
-        following, cumulative, event, cause_event, initial, weights, horizon,
-        targeted, clever, pseudo,
+        following,
+        cumulative,
+        event,
+        cause_event,
+        initial,
+        weights,
+        horizon,
+        targeted,
+        clever,
+        pseudo,
     )
     psi_out[index] = plug_in
     for i in range(n):
@@ -321,8 +356,18 @@ def _cell(
 
 @njit()
 def _incidence_serial(
-    treatment_probability, censoring_probability, treated, uncensored, initial,
-    assignment, event, cause_event, weights, horizons, lower, upper,
+    treatment_probability,
+    censoring_probability,
+    treated,
+    uncensored,
+    initial,
+    assignment,
+    event,
+    cause_event,
+    weights,
+    horizons,
+    lower,
+    upper,
 ):
     n, times = treated.shape
     n_regimens = assignment.shape[0]
@@ -334,23 +379,49 @@ def _incidence_serial(
         following = np.empty((times, n), dtype=np.bool_)
         cumulative = np.empty((times, n))
         _build_masks(
-            treatment_probability, censoring_probability, treated, uncensored,
-            assignment[r], lower, upper, following, cumulative,
+            treatment_probability,
+            censoring_probability,
+            treated,
+            uncensored,
+            assignment[r],
+            lower,
+            upper,
+            following,
+            cumulative,
         )
         for j in range(n_causes):
             for h in range(horizons.shape[0]):
                 index = (r * n_causes + j) * horizons.shape[0] + h
                 _cell(
-                    following, cumulative, event, cause_event[j], initial, weights,
-                    horizons[h], times, psi, influence, index,
+                    following,
+                    cumulative,
+                    event,
+                    cause_event[j],
+                    initial,
+                    weights,
+                    horizons[h],
+                    times,
+                    psi,
+                    influence,
+                    index,
                 )
     return psi, influence
 
 
 @pjit()
 def _incidence_parallel(
-    treatment_probability, censoring_probability, treated, uncensored, initial,
-    assignment, event, cause_event, weights, horizons, lower, upper,
+    treatment_probability,
+    censoring_probability,
+    treated,
+    uncensored,
+    initial,
+    assignment,
+    event,
+    cause_event,
+    weights,
+    horizons,
+    lower,
+    upper,
 ):
     """``prange`` over ``(regimen, cause, horizon)``.
 
@@ -374,12 +445,28 @@ def _incidence_parallel(
         following = np.empty((times, n), dtype=np.bool_)
         cumulative = np.empty((times, n))
         _build_masks(
-            treatment_probability, censoring_probability, treated, uncensored,
-            assignment[r], lower, upper, following, cumulative,
+            treatment_probability,
+            censoring_probability,
+            treated,
+            uncensored,
+            assignment[r],
+            lower,
+            upper,
+            following,
+            cumulative,
         )
         _cell(
-            following, cumulative, event, cause_event[j], initial, weights,
-            horizons[h], times, psi, influence, index,
+            following,
+            cumulative,
+            event,
+            cause_event[j],
+            initial,
+            weights,
+            horizons[h],
+            times,
+            psi,
+            influence,
+            index,
         )
     return psi, influence
 
@@ -390,9 +477,18 @@ def _run(inputs: dict[str, Any], kernel: Any) -> dict[str, Any]:
     lower, upper = inputs["g_bounds"]
     horizons = np.asarray(inputs["horizons"], dtype=np.int64)
     psi, influence = kernel(
-        base.treatment_probability, base.censoring_probability, base.treated,
-        base.uncensored, base.initial, base.assignment, fixture.event,
-        fixture.cause_event, base.weights, horizons, float(lower), float(upper),
+        base.treatment_probability,
+        base.censoring_probability,
+        base.treated,
+        base.uncensored,
+        base.initial,
+        base.assignment,
+        fixture.event,
+        fixture.cause_event,
+        base.weights,
+        horizons,
+        float(lower),
+        float(upper),
     )
     out: dict[str, Any] = {}
     index = 0

@@ -52,9 +52,7 @@ print(json.dumps({{"first": first, "warm": best}}))
 
 def cold_compile_seconds(kernel: str, implementation: str, dimensions: dict) -> dict[str, float]:
     """Launch a subprocess, call the kernel once, and report the compile time."""
-    script = _CHILD.format(
-        spec=kernel, name=implementation, dimensions=json.dumps(dimensions)
-    )
+    script = _CHILD.format(spec=kernel, name=implementation, dimensions=json.dumps(dimensions))
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
@@ -77,11 +75,7 @@ def report_cold_compile(config: Config) -> int:
     print(f"{'kernel':28} {'implementation':30} {'compile':>9} {'warm':>9} {'break-even':>11}")
     print("-" * 90)
     for spec in resolve(config.kernels):
-        dimensions = {
-            key: value
-            for key, value in spec.dimensions.items()
-            if key not in ("n",)
-        }
+        dimensions = {key: value for key, value in spec.dimensions.items() if key not in ("n",)}
         # A small fixture: compilation is a function of the types and the code, not the
         # length, and a large one would spend minutes running what it only needs to call.
         if "n" in spec.dimensions:

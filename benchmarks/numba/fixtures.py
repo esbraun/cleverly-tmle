@@ -384,7 +384,8 @@ def make_longitudinal(
     """
     rng = np.random.default_rng(seed)
     floor = _FLOOR[regime]
-    growth = np.linspace(0.8, {"good": 1.2, "moderate": 2.2, "severe": 3.2}.get(regime, 1.6), n_times)
+    spread = {"good": 1.2, "moderate": 2.2, "severe": 3.2}.get(regime, 1.6)
+    growth = np.linspace(0.8, spread, n_times)
 
     treatment_probability = np.empty((n, n_times))
     censoring_probability = np.empty((n, n_times))
@@ -408,13 +409,10 @@ def make_longitudinal(
         # which is the shape that makes the assignment a matrix rather than a vector.
         thresholds = np.linspace(-0.3, 0.3, n_regimens)
         signal = rng.standard_normal((n, n_times))
-        assignment = np.stack(
-            [(signal > threshold).astype(float) for threshold in thresholds]
-        )
+        assignment = np.stack([(signal > threshold).astype(float) for threshold in thresholds])
     else:
         plans = [
-            np.array([(r >> t) & 1 for t in range(n_times)], dtype=float)
-            for r in range(n_regimens)
+            np.array([(r >> t) & 1 for t in range(n_times)], dtype=float) for r in range(n_regimens)
         ]
         assignment = np.stack([np.broadcast_to(p, (n, n_times)).copy() for p in plans])
 
@@ -473,9 +471,7 @@ def make_survival(
     survivors, not to ``n``, and an implementation that ignores that does ``T`` full-length
     passes where it needs a shrinking one.
     """
-    base = make_longitudinal(
-        n, n_times=n_times, n_regimens=n_regimens, regime=regime, seed=seed
-    )
+    base = make_longitudinal(n, n_times=n_times, n_regimens=n_regimens, regime=regime, seed=seed)
     rng = np.random.default_rng(seed + 1)
     hazard = np.clip(incidence * (0.6 + rng.random((n, n_times))), 1e-4, 0.9)
     draws = rng.random((n, n_times)) < hazard

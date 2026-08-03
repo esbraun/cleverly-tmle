@@ -37,6 +37,7 @@ from typing import Any
 
 __all__ = [
     "ThreadPlan",
+    "applied",
     "bootstrap_environment",
     "cpu_seconds",
     "environment_record",
@@ -44,7 +45,6 @@ __all__ = [
     "numba_available",
     "peak_rss_bytes",
     "physical_cores",
-    "applied",
 ]
 
 #: Every variable a numerical library on this stack reads for its thread count.
@@ -268,8 +268,9 @@ def environment_record() -> Environment:
     pools = threadpool_info()
     blas = next((p for p in pools if p.get("user_api") == "blas"), {})
     try:
-        import numba
         import llvmlite
+
+        import numba
 
         numba_version: str | None = numba.__version__
         llvmlite_version: str | None = llvmlite.__version__

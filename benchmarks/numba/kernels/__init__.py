@@ -18,7 +18,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-__all__ = ["KernelSpec", "REGISTRY", "register", "resolve"]
+__all__ = ["REGISTRY", "KernelSpec", "register", "resolve"]
 
 
 @dataclass(frozen=True)

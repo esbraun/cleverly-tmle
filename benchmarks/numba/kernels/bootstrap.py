@@ -43,10 +43,9 @@ import numpy as np
 from ..fixtures import make_influence
 from ..implementations.numba_parallel import PARALLEL_AVAILABLE, pjit, prange
 from ..implementations.numba_serial import njit
-from ..validation import compare_scalar
 from . import KernelSpec, register
 
-__all__ = ["build", "numpy_multiplier", "numba_multiplier", "numba_multiplier_parallel"]
+__all__ = ["build", "numba_multiplier", "numba_multiplier_parallel", "numpy_multiplier"]
 
 #: The package's chunk size, so the reference allocates what the package allocates.
 _CHUNK = 256
@@ -95,7 +94,33 @@ def build(
 _SIGNS = np.array([-1.0, 1.0])
 
 
-def numpy_multiplier(inputs: dict[str, Any]) -> float:
+def _summarise(statistics: np.ndarray, alpha: float) -> dict[str, float]:
+    """The critical value, plus the standard error a comparison of two of them needs.
+
+    The numpy path draws from PCG64 and the compiled paths from a counter hash, so the two
+    critical values are two *estimates of the same quantile from different samples*.  They
+    cannot be compared to a fixed tolerance at any replicate count.
+
+    The standard error is taken by resampling the statistics rather than by the textbook
+    ``sqrt(p(1-p)/B) / f(q)``, because the density at a 95th percentile of a max-t law is
+    exactly the quantity that formula needs and does not supply.  Using ``spread/sqrt(B)``
+    instead -- the obvious shortcut -- understates it by a factor of several precisely at
+    the upper tail, which is where this quantile lives; it was tried and read a correct
+    kernel as five standard errors out.  Resampling costs microseconds on ``B`` floats and
+    is outside every timed region.
+    """
+    quantile = 1.0 - alpha
+    rng = np.random.default_rng(0)
+    size = statistics.size
+    draws = np.quantile(rng.choice(statistics, size=(200, size), replace=True), quantile, axis=1)
+    return {
+        "critical_value": float(np.quantile(statistics, quantile)),
+        "critical_value_se": float(draws.std(ddof=1)),
+        "n_replicates": float(size),
+    }
+
+
+def numpy_multiplier(inputs: dict[str, Any]) -> dict[str, float]:
     """The shipped path: pack bits, unpack to signs, one dgemm per chunk.
 
     Transcribed from :func:`cleverly.inference.multiplier.multiplier_critical_value` and
@@ -123,7 +148,7 @@ def numpy_multiplier(inputs: dict[str, Any]) -> float:
         standardised = np.abs(draws[:, usable]) / se[usable]
         statistics[done : done + size] = standardised.max(axis=1)
         done += size
-    return float(np.quantile(statistics, 1.0 - inputs["alpha"]))
+    return _summarise(statistics, inputs["alpha"])
 
 
 # --------------------------------------------------------------------------- numba
@@ -213,8 +238,14 @@ def _multiplier_serial(
     statistics = np.empty(n_replicates)
     for first in range(0, n_replicates, block):
         _block_statistics(
-            centred, se, usable, n, seed, first,
-            min(block, n_replicates - first), statistics,
+            centred,
+            se,
+            usable,
+            n,
+            seed,
+            first,
+            min(block, n_replicates - first),
+            statistics,
         )
     return statistics
 
@@ -242,13 +273,19 @@ def _multiplier_parallel(
     for index in prange(n_blocks):
         first = index * block
         _block_statistics(
-            centred, se, usable, n, seed, first,
-            min(block, n_replicates - first), statistics,
+            centred,
+            se,
+            usable,
+            n,
+            seed,
+            first,
+            min(block, n_replicates - first),
+            statistics,
         )
     return statistics
 
 
-def _run(inputs: dict[str, Any], kernel: Any) -> float:
+def _run(inputs: dict[str, Any], kernel: Any) -> dict[str, float]:
     centred = inputs["centred"]
     se = np.asarray(inputs["std_errors"], dtype=float)
     usable = np.isfinite(se) & (se > 0)
@@ -262,15 +299,35 @@ def _run(inputs: dict[str, Any], kernel: Any) -> float:
         np.uint64(inputs["seed"]),
         _BLOCK,
     )
-    return float(np.quantile(statistics, 1.0 - inputs["alpha"]))
+    return _summarise(statistics, inputs["alpha"])
 
 
-def numba_multiplier(inputs: dict[str, Any]) -> float:
+def numba_multiplier(inputs: dict[str, Any]) -> dict[str, float]:
     return _run(inputs, _multiplier_serial)
 
 
-def numba_multiplier_parallel(inputs: dict[str, Any]) -> float:
+def numba_multiplier_parallel(inputs: dict[str, Any]) -> dict[str, float]:
     return _run(inputs, _multiplier_parallel)
+
+
+def _compare(reference: dict[str, float], candidate: dict[str, float]) -> tuple[float, float]:
+    """Disagreement in units of the quantile's own Monte Carlo standard error.
+
+    The two values are differenced and divided by the standard error of the difference,
+    so the kernel's tolerance is a number of standard errors rather than a number of units
+    -- the only form of this comparison that means the same thing at ``B = 64`` and at
+    ``B = 10,000``.
+
+    Two compiled implementations of the same draw are checked far more sharply than this,
+    bitwise, by the equivalence test in ``tests/unit/test_numba_benchmark.py``.  This gate
+    is only for the cross-generator comparison, where nothing sharper is available.
+    """
+    error = abs(reference["critical_value"] - candidate["critical_value"])
+    standard_error = np.sqrt(
+        reference["critical_value_se"] ** 2 + candidate["critical_value_se"] ** 2
+    )
+    normalised = error / max(standard_error, 1e-12)
+    return float(normalised), float(normalised)
 
 
 # ------------------------------------------------------------------------ registry
@@ -286,14 +343,12 @@ register(
         estimator="inference",
         build=build,
         implementations=_IMPLEMENTATIONS,
-        compare=compare_scalar,
-        # The two paths draw *different* multipliers -- one from PCG64, one from a
-        # counter hash -- so the critical values agree only as two estimates of the same
-        # quantile do. The gate is therefore a Monte Carlo one: at B=2000 the quantile's
-        # own standard error is around 1%, so 3% is a bar a wrong kernel fails and a
-        # right one passes. The *serial* and *parallel* compiled paths draw identically
-        # and are additionally checked bit-for-bit by the equivalence test.
-        tolerance=(0.05, 0.03),
+        compare=_compare,
+        # In units of the quantile's Monte Carlo standard error, per `_compare`. Four is
+        # a bar that a correct kernel clears at any replicate count and that a kernel
+        # computing the wrong statistic fails -- a sign error, a missed standardisation or
+        # a dropped column moves the max-t quantile by far more than four standard errors.
+        tolerance=(4.0, 4.0),
         parallel_axis="replicates",
         note=(
             "generation-bound and allocates a (chunk, n) float64 array; the fused kernel "

@@ -15,7 +15,7 @@ file can say, the command line can say too.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -113,9 +113,21 @@ def load(path: str | Path) -> Config:
 def from_mapping(payload: Mapping[str, Any]) -> Config:
     """Build a :class:`Config` from a parsed config document."""
     known = {
-        "kernels", "scenarios", "implementations", "sizes", "num_cores", "repeats",
-        "warmups", "min_total_seconds", "seed", "output", "validate", "memory",
-        "cold_compile", "amortise", "hybrid_workers",
+        "kernels",
+        "scenarios",
+        "implementations",
+        "sizes",
+        "num_cores",
+        "repeats",
+        "warmups",
+        "min_total_seconds",
+        "seed",
+        "output",
+        "validate",
+        "memory",
+        "cold_compile",
+        "amortise",
+        "hybrid_workers",
     }
     unknown = sorted(set(payload) - known - {"sweeps"})
     if unknown:

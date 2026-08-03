@@ -25,7 +25,7 @@ from typing import Any
 
 from .config import Config
 from .fixtures import digest
-from .implementations.numpy_reference import MODES, resolve_plan
+from .implementations.numpy_reference import resolve_plan
 from .kernels import KernelSpec, resolve
 from .reporting import Row
 from .resources import (
@@ -104,7 +104,7 @@ def _run_one(
     reference_error = ""
     try:
         reference_output = spec.implementations["numpy"](inputs)
-    except Exception as error:  # noqa: BLE001 - reported, not raised
+    except Exception as error:
         reference_error = f"{type(error).__name__}: {error}"
 
     wanted = _selected(spec, config)
@@ -112,50 +112,64 @@ def _run_one(
     jobs: list[tuple[str, int]] = []
     for name in wanted:
         _, scales = _plan_for(name, 1)
-        jobs.extend(
-            (name, cores) for cores in (config.num_cores if scales else (1,))
-        )
+        jobs.extend((name, cores) for cores in (config.num_cores if scales else (1,)))
 
     for name, cores in shuffled(jobs, config.seed + size + len(spec.name)):
         implementation = spec.implementations[name]
         plan, _ = _plan_for(name, cores)
         if plan.numba_threads > available or plan.workers > available:
             rows.append(
-                _skipped(spec, name, size, cores, plan, dimensions, environment,
-                         f"asked for {cores} cores; the box has {available}")
+                _skipped(
+                    spec,
+                    name,
+                    size,
+                    cores,
+                    plan,
+                    dimensions,
+                    environment,
+                    f"asked for {cores} cores; the box has {available}",
+                )
             )
             continue
         if reference_error and name != "numpy":
             rows.append(
-                _skipped(spec, name, size, cores, plan, dimensions, environment,
-                         f"numpy reference failed: {reference_error}")
+                _skipped(
+                    spec,
+                    name,
+                    size,
+                    cores,
+                    plan,
+                    dimensions,
+                    environment,
+                    f"numpy reference failed: {reference_error}",
+                )
             )
             continue
 
-        with applied(plan):
-            cold = None
-            if config.cold_compile and name.startswith("numba"):
-                # The compilation has already happened by the time the sweep reaches
-                # here -- the module-level dispatchers compiled on the reference pass --
-                # so a "cold" number taken now would be a warm one. Cold compile is
-                # measured in its own process by `cli --cold-compile`, and left None here
-                # rather than filled with something that looks like a measurement.
-                cold = None
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                measurement = measure(
-                    lambda: implementation(inputs),
-                    warmups=config.warmups,
-                    repeats=config.repeats,
-                    min_total_seconds=config.min_total_seconds,
-                    cold=cold,
-                )
-                output = implementation(inputs)
-                amortised = (
-                    measure_amortised(lambda: implementation(inputs))
-                    if config.amortise and spec.amortise
-                    else {}
-                )
+        # Bound to the loop variables explicitly. A closure over `implementation` would
+        # be re-read at call time, and `measure` calls it after the loop has moved on --
+        # the classic late-binding bug, and one that would silently time the *last*
+        # implementation under every implementation's name.
+        def call(fn=implementation, payload=inputs):
+            return fn(payload)
+
+        # `cold` is deliberately None here rather than a timed first call. By the time
+        # the sweep reaches this point the module-level dispatchers have already compiled
+        # -- the numpy reference pass ran first, and a numba kernel compiles on its own
+        # first call whenever that was -- so a "cold" number taken now would be a warm
+        # one wearing a cold label. Compilation is measured in its own process by
+        # `cli --cold-compile`, which is the only place it can be measured honestly.
+        with applied(plan), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            measurement = measure(
+                call,
+                warmups=config.warmups,
+                repeats=config.repeats,
+                min_total_seconds=config.min_total_seconds,
+                cold=None,
+            )
+            output = call()
+            amortised = measure_amortised(call) if config.amortise and spec.amortise else {}
 
         verdict = (
             check(reference_output, output, compare=spec.compare, tolerance=spec.tolerance)
@@ -164,8 +178,17 @@ def _run_one(
         )
         rows.append(
             _row(
-                spec, name, size, cores, plan, dimensions, environment, measurement,
-                verdict, amortised, inputs,
+                spec,
+                name,
+                size,
+                cores,
+                plan,
+                dimensions,
+                environment,
+                measurement,
+                verdict,
+                amortised,
+                inputs,
             )
         )
     return rows
@@ -198,7 +221,9 @@ def _common(
         "implementation": name,
         "n": size,
         "num_cores_requested": cores,
-        "num_cores_effective": effective_threads() if plan.numba_threads > 1 else plan.requested_cores,
+        "num_cores_effective": (
+            effective_threads() if plan.numba_threads > 1 else plan.requested_cores
+        ),
         "blas_threads": plan.blas_threads,
         "numba_threads": plan.numba_threads,
         "workers": plan.workers,
@@ -234,8 +259,17 @@ def _skipped(spec, name, size, cores, plan, dimensions, environment, reason) -> 
 
 
 def _row(
-    spec, name, size, cores, plan, dimensions, environment,
-    measurement: Measurement, verdict, amortised, inputs,
+    spec,
+    name,
+    size,
+    cores,
+    plan,
+    dimensions,
+    environment,
+    measurement: Measurement,
+    verdict,
+    amortised,
+    inputs,
 ) -> Row:
     return Row(
         **_common(spec, name, size, cores, plan, dimensions, environment),

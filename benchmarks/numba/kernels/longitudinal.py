@@ -180,7 +180,7 @@ def numpy_recursion(inputs: dict[str, Any], *, prefix: bool = False) -> dict[str
 
 
 def numpy_recursion_prefix(inputs: dict[str, Any]) -> dict[str, Any]:
-    """The same recursion with the masks carried rather than rebuilt: ``O(T n)``, not ``O(T^2 n)``."""
+    """The recursion with the masks carried rather than rebuilt: ``O(T n)``, not ``O(T^2 n)``."""
     return numpy_recursion(inputs, prefix=True)
 
 
@@ -189,8 +189,19 @@ def numpy_recursion_prefix(inputs: dict[str, Any]) -> dict[str, Any]:
 
 @njit()
 def _recursion_one(
-    treatment_probability, censoring_probability, treated, uncensored, outcome, initial,
-    assignment, weights, lower, upper, psi_out, influence_out, index,
+    treatment_probability,
+    censoring_probability,
+    treated,
+    uncensored,
+    outcome,
+    initial,
+    assignment,
+    weights,
+    lower,
+    upper,
+    psi_out,
+    influence_out,
+    index,
 ):
     """One regimen's whole backward pass, fused.
 
@@ -296,24 +307,51 @@ def _recursion_one(
 
 @njit()
 def _recursion_serial(
-    treatment_probability, censoring_probability, treated, uncensored, outcome, initial,
-    assignment, weights, lower, upper,
+    treatment_probability,
+    censoring_probability,
+    treated,
+    uncensored,
+    outcome,
+    initial,
+    assignment,
+    weights,
+    lower,
+    upper,
 ):
     n_regimens = assignment.shape[0]
     psi = np.empty(n_regimens)
     influence = np.empty((n_regimens, outcome.shape[0]))
     for r in range(n_regimens):
         _recursion_one(
-            treatment_probability, censoring_probability, treated, uncensored, outcome,
-            initial, assignment[r], weights, lower, upper, psi, influence, r,
+            treatment_probability,
+            censoring_probability,
+            treated,
+            uncensored,
+            outcome,
+            initial,
+            assignment[r],
+            weights,
+            lower,
+            upper,
+            psi,
+            influence,
+            r,
         )
     return psi, influence
 
 
 @pjit()
 def _recursion_parallel(
-    treatment_probability, censoring_probability, treated, uncensored, outcome, initial,
-    assignment, weights, lower, upper,
+    treatment_probability,
+    censoring_probability,
+    treated,
+    uncensored,
+    outcome,
+    initial,
+    assignment,
+    weights,
+    lower,
+    upper,
 ):
     """One regimen per thread.
 
@@ -327,8 +365,19 @@ def _recursion_parallel(
     influence = np.empty((n_regimens, outcome.shape[0]))
     for r in prange(n_regimens):
         _recursion_one(
-            treatment_probability, censoring_probability, treated, uncensored, outcome,
-            initial, assignment[r], weights, lower, upper, psi, influence, r,
+            treatment_probability,
+            censoring_probability,
+            treated,
+            uncensored,
+            outcome,
+            initial,
+            assignment[r],
+            weights,
+            lower,
+            upper,
+            psi,
+            influence,
+            r,
         )
     return psi, influence
 

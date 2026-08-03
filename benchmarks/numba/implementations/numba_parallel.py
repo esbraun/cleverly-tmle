@@ -26,7 +26,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 try:
     import numba as _numba
-    from numba import prange  # noqa: F401  (re-exported for the kernels)
+    from numba import prange
 
     PARALLEL_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only where numba is absent
