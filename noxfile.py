@@ -71,3 +71,37 @@ def bench_drtmle(session: nox.Session) -> None:
     """Characterise how the doubly-robust alternation exits.  Tens of minutes at defaults."""
     session.install("-e", ".[dev]")
     session.run("python", "benchmarks/bench_drtmle.py", *session.posargs)
+
+
+@nox.session(name="bench-numba")
+def bench_numba(session: nox.Session) -> None:
+    """Whether numba or explicit parallelism helps *after* the nuisances are fitted.
+
+    Defaults to ``benchmarks/configs/sandbox.json`` -- sizes to 100,000 and core counts to
+    four, which is minutes rather than hours.  Pass ``-- --config benchmarks/configs/full.yaml``
+    on a machine with cores to spare; that one is the sweep the report is meant to be
+    regenerated from, and it needs ``pyyaml``, which this repository deliberately does not
+    depend on.
+
+    The correctness half of this investigation is **not** here: it is
+    ``tests/unit/test_numba_benchmark.py``, which the ordinary ``tests`` session runs.
+    Whether a compiled kernel computes what numpy computes is a correctness question and
+    belongs where correctness questions are checked, not behind a benchmark session
+    somebody has to remember to run.
+    """
+    session.install("-e", ".[bench]")
+    args = session.posargs or ["--config", "benchmarks/configs/sandbox.json"]
+    session.run("python", "-m", "benchmarks.numba.cli", *args)
+
+
+@nox.session(name="bench-numba-pipelines")
+def bench_numba_pipelines(session: nox.Session) -> None:
+    """The denominator: how much of a real fit the post-nuisance half is, per flavour.
+
+    Runs at both learner presets, because a ``glm`` share alone is the standard way to
+    mislead with this measurement -- it is the cheapest preset available and inflates every
+    package-owned share several-fold.
+    """
+    session.install("-e", ".[bench]")
+    args = session.posargs or ["--pipeline-libraries", "glm", "default"]
+    session.run("python", "-m", "benchmarks.numba.cli", "--pipelines", *args)

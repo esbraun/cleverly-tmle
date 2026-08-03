@@ -129,7 +129,10 @@ def from_mapping(payload: Mapping[str, Any]) -> Config:
         "amortise",
         "hybrid_workers",
     }
-    unknown = sorted(set(payload) - known - {"sweeps"})
+    # A leading underscore is a comment. JSON has no comment syntax and this loader takes
+    # JSON deliberately -- pyyaml is not a dependency of this repository -- so a config
+    # file needs *some* way to say why it is what it is. Everything else is refused.
+    unknown = sorted(key for key in set(payload) - known - {"sweeps"} if not key.startswith("_"))
     if unknown:
         raise KeyError(
             f"unknown config key(s) {unknown}. A typo here would otherwise run the "
