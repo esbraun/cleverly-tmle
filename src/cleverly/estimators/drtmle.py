@@ -56,9 +56,9 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       fit invalid in words that name a defect rather than a convergence failure.  That is
       ``docs/roadmap.md``'s piece B1a, and it is an instrument and not a remedy: read a
       ``DRTMLE`` standard error as provisional wherever ``res.score_verdict`` says so.
-      Which convention replaces the current one is piece B1b's and waits on the theorem:
-      there are more than two candidates, and the theorem's own algorithm truncates nothing
-      at all.
+      Which convention replaces the current one is piece B1b's, and it waits on no document:
+      the theorem's own algorithm truncates nothing at all, so there is no convention there
+      to match and the choice is a finite-sample rendering against a stated bar.
 
 Every interval this package reports is valid when the second-order remainder is negligible,
 and for a plain TMLE that remainder is the product

@@ -47,8 +47,10 @@ the curve subtracted that term anyway.  It no longer does; the row that found it
 
 What this does **not** do is choose a convention.  Which mechanism equation (9) ought to be
 solved against is a derivation -- there are more than two candidates and the theorem's own
-algorithm truncates nothing at all -- and it is piece B1b of ``docs/roadmap.md``, waiting on
-the published statement of Theorem 1.  Every identity here is valid under all of them.
+algorithm truncates nothing at all -- and it is piece B1b of ``docs/roadmap.md``.  It is not
+waiting on a document: the theorem prescribes no truncation to match, so B1b is a
+finite-sample rendering chosen against a stated bar.  Every identity here is valid under all
+of the candidates.
 
 Five conditions on how the identity is checked, each ruling out a way of passing for the
 wrong reason, and all five are in the code below rather than in this docstring's good

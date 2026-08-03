@@ -117,8 +117,11 @@ registry.
     defect and it is not confined to poor overlap. [The investigation
     log](drtmle-investigation-log.md#item-20-from-discovery-to-cause) carries the measurements.
 
-  So **until [B1b](#b1b--the-theorem-conforming-targeting-decision) chooses a convention, a
+  So **until [B1b](#b1b--the-theorem-conforming-targeting-decision) lands a convention, a
   `DRTMLE` standard error should be read as provisional wherever `res.score_verdict` says so.**
+  B1b is no longer a decision to take: a fitted prototype has eliminated two of its four candidates
+  by construction and separated the other two by measurement, and what is left is [what to
+  build](#what-the-prototype-settled-and-what-is-left-to-build).
   The live defect is now caught *by name*: [B1a](#b1a--the-identity-and-safety-patch) has landed,
   so `res.validation.correction_check()` recomputes each arm's `Pn[w D*_g]` and `Pn[w D*_Q]` from
   the exact returned state, reports the residual against the score the loop recorded and the
@@ -255,7 +258,7 @@ that same rule applied to a piece rather than to an item.
 | **B1a** — *landed* | the score/correction identities, the clipping diagnostic, and invalidation when either fails | `cleverly/validation/drtmle.py`; `res.validation.correction_check()`; `identity` and `correction` rows on `score_check`; tests in `tests/unit/test_drtmle_fit.py` and `test_influence_drtmle.py` |
 | **A1a** — *landed* | items 1 and 21, and item 22's theoretical half: the theorem read, mapped, graded, the sign adjudicated, every object pinned to the test that derives it, and the decomposition pinned against a perturbation of the law. Item 22's *numerical* half — both orders on real data — went to B2, whose dispatch it shares | `tests/unit/test_influence_gateaux_drtmle.py`; `TestTheReportedVarianceIsTheorem1s`; closes out [`docs/drtmle-theorem-concordance.md`](drtmle-theorem-concordance.md) — its object table's `evidence` column, its assumption matrix, and §7's finding for B1b |
 | **A1b** | item 15: a construction satisfying the empirical-process conditions, and whether fold reuse is one | a proof for the pooled construction, or a nested reference estimator to measure it against; [the concordance's §8](drtmle-theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) |
-| **B1b** | items 11 and 20: the targeting convention, chosen on theorem fidelity | the chosen submodel or solver at the `DRTMLE` call sites; the variant comparison table |
+| **B1b** | items 11 and 20: the targeting convention, chosen on theorem fidelity — **planned against a fitted prototype**, which eliminated two candidates by construction and separated the other two by measurement | a bounded mechanism solve at the `DRTMLE` call sites, the bounded array carried forward, a named failure where no constrained root exists; the variant comparison table; a replacement for B1a's clipped-row fixture witness |
 | **B2** | items 12, 19 and item 22's numerical half, re-measures 4 and 6, decides the overlap policy | columns on `benchmarks/bench_drtmle.py`, the paper's update order run beside this one, a dispatch of `drtmle-convergence.yml` |
 | **C** | items 3 and 13: the demonstration | `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, `docs/drtmle-coverage-study.md`, per-replicate results |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
@@ -645,6 +648,121 @@ regression surface: **the change belongs at the `DRTMLE` call sites, not in that
 if a bounded convention is adopted, [limitation 6](#limitations-recorded-rather-than-fixed) gets
 *worse* rather than better, since a truncated residual is not the canonical logistic score.
 
+###### What the prototype settled, and what is left to build
+
+**The piece is now sized against a fitted prototype rather than against the candidate table**, and
+the first thing that run settled is that the table's axis is not the discriminating one. Two hooks
+on `targeting`'s module namespace, nothing in the library moved, three draws and a forced bound,
+three conventions; the numbers are in [the investigation
+log](drtmle-investigation-log.md#what-the-b1b-prototype-measured) and four readings of them decide
+this section.
+
+- **What carries the defect is the array the alternation carries forward.** `targeted_g =
+  mechanism.propensity` is the *raw* tilted mechanism and the next round offsets from its `logit`,
+  so a row outside the bounds stays outside for the rest of the fit. Carry the **bounded** array
+  forward instead and the identity holds at the exit near-automatically, because at a fixed point
+  `ε → 0` and the two arrays coincide there. Measured: both candidates exit with **zero** clipped
+  rows on draws where today's convention clips 1 and 167, and `Δ_g` falls from `5.8e-04` and
+  `3.7e-03` to roundoff.
+- **Two of the four candidates cannot satisfy criterion 1 by construction**, which is the paragraph
+  the decision hierarchy asks for. **C** is today's solver with the curve made to follow it, and a
+  `D_g` whose residual and denominator sit at two different mechanisms is no theorem's `D_g` at
+  all, whatever it is the first-order condition of. **B**, the untruncated equation, *is* the
+  theorem's own step and stays the definition of the estimator wherever the bound is slack, but a
+  fitted `g*` is not bounded away from zero the way the theorem's `g_0` is assumed to be, so it
+  cannot be the default. That leaves
+  **A** — clip after the logistic solve, `drtmle`'s convention — and **D**, solve the bounded
+  equation directly.
+- **A and D are one fit wherever the bound does not bind at the fixed point, and separate by four
+  orders where it does.** At the `auto` bound they agree on every draw run. Forcing
+  `g_bounds=(0.15, 0.85)` on the weak-overlap draw leaves A's final scores at `6.8e-06` and
+  `2.1e-06` against an inferential threshold of about `4e-06`, and D's at `2.1e-10` and `8.0e-10`.
+  That is criterion 2 doing the work it is ranked second for, and the separation is the predicted
+  one rather than a numerical accident: A's substep solves the **pre-clip** score and the clip is
+  a projection applied after it, so a fixed point with clipping is a fixed point of neither
+  equation.
+- **D is a regression surface where nothing clips.** On the module fixture `psi`, `se` and both
+  stored scores agree with today's fit to every digit printed — expected rather than lucky, since
+  with the clip slack on every row D's equation *is* the logistic score.
+
+**So the recommendation is D, and what is left to adjudicate is which D.** [The concordance's
+§7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm) had already said
+this without the numbers: if a finite bound is required in practice it wants *a bounded submodel
+or a constrained estimating equation whose final score is the theorem-defined score* — **not a
+projection applied after an unconstrained optimisation**, which is A. What the prototype adds is
+that the difference is `6.8e-06` against `2.1e-10` rather than a matter of principle only. But §7
+also says a **smooth** bounded submodel is likely preferable to hard clipping, and the prototype
+ran the hard one:
+
+- **D-hard**, measured: `clip` inside the estimating equation, solved by damped Newton on a
+  piecewise-smooth `F`. The final score is exactly the declared estimator's, and the
+  non-smoothness lands on the *solver* rather than on the score's validity — but a root can fail
+  to exist, and rows pinned at the bound contribute nothing to the Jacobian.
+- **D-smooth**, unmeasured: fluctuate inside the bounds — `g_ε = lo + (hi − lo)·expit(logit((ĝ −
+  lo)/(hi − lo)) + εH_g)` — so the mechanism cannot leave them and no projection is applied at
+  all. `F` is then smooth, a root exists under mild conditions, and criterion 4 is easier to
+  argue. Against it: it is a different submodel and therefore a different declared estimator, its
+  limit is a mechanism that approaches the bound rather than one pinned at it, and nothing here
+  has fitted one.
+
+**Measure D-smooth against D-hard on the same three fixtures before choosing**, on criteria 2 and
+4 — that is the one comparison this plan leaves open, and it is a day's work rather than a study.
+Everything below is the same either way; only the definition of `F` changes.
+
+What to build, in the order it has to happen:
+
+1. a bounded mechanism solve at the `DRTMLE` call sites — solve
+   `F(ε) = Pn[ w H_g · (1_a − g_ε) ] = 0` by damped Newton, at whichever bounded `g_ε` the
+   comparison above selects; under D-hard the pinned rows contribute zero to the Jacobian because
+   the clip is flat there. `solve_mechanism` itself does not move;
+2. the bounded array carried forward, in both the alternation and the closing pass, so that later
+   outcome targeting, the reduction refits and the final regression all read one mechanism;
+3. **a root need not exist**, and the acceptance criterion is that this is never silent: under
+   D-hard, with every row pinned the Jacobian is singular and no `ε` solves `F`. It gets a
+   `TargetingFailure` of its own name, which `score_check` already surfaces, rather than the last
+   iterate returned as though it were a solution. Under D-smooth this is rarer and is not
+   impossible, so the failure path is written either way;
+4. the identity tests, on a fixture where the bound binds *during the iteration* — and see the
+   condition below, because the fixture selector this repository has does not survive the change;
+5. `tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred` **rewritten rather than
+   deleted**, as [B1a](#b1a--the-identity-and-safety-patch) already says: it pins the defect's
+   numbers today, and afterwards its draw is the regression test that the *initial* mechanism
+   still leaves the bounds on that draw and the identity holds anyway.
+
+The mutations each test is watched to fail against are the two the prototype already ran: **carry
+the raw array forward** — the identity goes red on both clipping fixtures — and **substitute A's
+solve for D's**, which moves the weak-overlap-at-`0.15` final score from `1e-10` to `6.8e-06`,
+above the inferential bar at the worst arm. A test that cannot tell A from D is testing the
+carried array and not the convention, and should say so in its own name.
+
+**Two things this does not close, and neither should be claimed for it.**
+[Limitation 5](#limitations-recorded-rather-than-fixed) — equation (9)'s covariate reads the very
+mechanism it tilts, so one solve leaves a residual at the post-tilt covariate — is untouched: the
+prototype's final scores sit at the same `1e-09` to `1e-10` as today's, because the outer loop is
+still what makes the direction self-consistent. And
+[limitation 6](#limitations-recorded-rather-than-fixed) is priced above as getting *worse* under a
+bounded convention; the prototype neither confirms nor refutes that, since it did not instrument
+the closing pass's cap. Both belong in [B2](#b2--the-sweep-on-the-corrected-implementation)'s
+re-measurement rather than in this piece's claims.
+
+**One of B1a's five conditions has to be replaced, and this is the only place that will notice.**
+Its fifth is that an identity be checked *on a fixture where the bound binds*, witnessed by
+`CorrectionRow.clipped`. Under any convention that carries the bounded array forward that witness
+goes **vacuous**: `clipped` is 0 at the exit on every draw measured, including the one where 375
+rows clip today. So a test selecting its fixture on `clipped > 0` selects the empty set after this
+piece lands, and one asserting `clipped > 0` asserts something that can no longer happen — which
+is [stop-ship 14](#stop-ship)'s shape, a check agreeing where it could not have disagreed, in a
+second place. The replacement witness is the clipped share of the **initial** mechanism: a
+property of the draw rather than of the convention, and therefore still true after the fix.
+
+**And it moves what [B2](#b2--the-sweep-on-the-corrected-implementation) should expect.** The
+`weak_overlap` seed-0 draw fails its score check today with a verdict saying the standard errors
+do not describe the estimate; under both candidates it comes back passing, with its worst final
+score at `5.6e-07` under A and `6.6e-10` under D against a threshold near `6e-06`. One draw is not
+the 24 that motivated a weak-overlap refusal and B2 re-measures all of
+them — but the standing instruction not to predeclare that refusal now has a measurement behind it
+rather than only a caution.
+
 Two acceptance criteria were stated wrongly in the previous revision and are corrected in the
 validation plan; both corrections came from the third review and both are right.
 
@@ -659,7 +777,12 @@ validation plan; both corrections came from the third review and both are right.
   closing pass or the final targeted regression — and then the plug-in moves legitimately. So
   predeclare `|psi_new − psi_old| ≤ c·se_old`, compare each candidate against the estimate its own
   exact targeted state produces rather than against today's `psi`, and treat a material movement
-  as something to investigate rather than as an automatic rejection.
+  as something to investigate rather than as an automatic rejection. **The prototype says to expect
+  one**, and where: `ate` moves by `0.02·se` on the ordinary clipping draw and by `0.5·se` on the
+  weak-overlap draw at a forced bound. Both are exactly the case the paragraph above describes —
+  the mechanism carried into every later step is a different array — so `c` has to be set with that
+  in mind, and a movement of that size is a fact about which state was targeted rather than
+  evidence against the candidate.
 
 ##### B2 — the sweep, on the corrected implementation
 
@@ -945,7 +1068,11 @@ effort. Piece **0** was first and has landed, and so now has **B1a**; what is le
    now records it as a finding. It used to wait on R's numbers as well; it does not, and the
    theorem clips nothing, so there was never an implementation whose convention could settle this
    — and no document left to wait for either, which makes B1b a design decision against a stated
-   bar rather than a reading.
+   bar rather than a reading. **It is now a plan rather than a decision to take**: a prototype has
+   eliminated two of the four candidates by construction, separated the remaining two by
+   measurement, and named [what to
+   build](#what-the-prototype-settled-and-what-is-left-to-build). What is left is the
+   implementation, its tests, and the variant table on more than three draws.
 4. **B2**, on the corrected implementation, because poor overlap may be where the demonstration
    has to happen and because the exit distribution under the current rule is uncharacterised.
 5. **C**, which is the point.

@@ -224,6 +224,77 @@ to no threshold, which is the row that found this. On the 600-row draw
 against a `5.4e-06` bar — the same finding on a second draw, and now the fixture of the first
 partial-guard fit this repository has ever run end to end.
 
+### What the B1b prototype measured
+
+Sizing for [piece B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision), and it is a
+scratch prototype rather than a deliverable: two hooks on `estimators/targeting.py`'s module
+namespace — the covariate builder, to capture the bounds, and `solve_mechanism`, to substitute a
+candidate — so that a convention can be *fitted* rather than argued about. Nothing in the library
+moved. The candidates are the validation plan's, and the first thing the run settled is that its
+table's axis is not the discriminating one.
+
+**The discriminating axis is which array the alternation carries forward, not which residual an
+expression reads.** `solve_with_reduction` sets `targeted_g = mechanism.propensity`, the *raw*
+tilted array, and the next round takes `logit` of that as its offset — so a row outside the bounds
+stays outside them for the rest of the fit, and the disagreement with the curve's `ḡ*` is carried
+rather than created afresh each round. Any convention that carries the **bounded** array forward
+makes the identity hold at the exit near-automatically: the next round's offset is `logit ḡ*`, and
+at a fixed point `ε → 0`, so the raw and bounded arrays coincide there. Both candidates measured
+below exit with **zero rows clipped**, on draws where today's convention clips 1 and 167.
+
+At `g_bounds="auto"`, `glm` on both nuisances, `n_folds=5`, `learner_folds=3`, `n = 600`, the
+worst arm's `Δ_g` on the outcome scale and the worst arm's final equation-(9) score:
+
+| draw | convention | rows clipped at exit | worst \|Δ_g\| | worst final score | `ate` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `nonlinear` seed 3 | current | 0 | `7e-19` | `1.0e-09` | `1.42968582` |
+| `nonlinear` seed 3 | **D** | 0 | `4e-18` | `1.0e-09` | `1.42968582` |
+| `nonlinear` seed 2 | current | 1 | `5.8e-04` | `1.1e-09` | `1.46604459` |
+| `nonlinear` seed 2 | A | 0 | `7e-18` | `8.6e-10` | `1.46579069` |
+| `nonlinear` seed 2 | **D** | 0 | `9e-19` | `7.8e-10` | `1.46328775` |
+| `weak_overlap` seed 0 | current | 167 | `3.7e-03` | `1.2e-09` | `0.72277403` |
+| `weak_overlap` seed 0 | A | 0 | `2e-18` | `5.6e-07` | `0.72664977` |
+| `weak_overlap` seed 0 | **D** | 0 | `9e-18` | `6.6e-10` | `0.71406807` |
+
+Three readings, and the third is the one that decides the piece:
+
+- **The prototype reproduces the defect it was built to remove**, which is what says the hooks did
+  not change the fit into something else: seed 2's `Δ_g` of `5.817e-04` and the weak-overlap
+  draw's `2.930e-03` / `3.673e-03` are [the measurements above](#the-measurements) to the digit.
+- **Where nothing clips, D is a regression surface.** On the module fixture — `nonlinear` seed 3,
+  the draw `tests/unit/test_drtmle_fit.py` fits everything on — `psi`, `se` and both stored scores
+  agree with today's fit to every digit printed. That is expected rather than lucky: with the clip
+  slack on every row, D's equation *is* the logistic score, so the two solvers are chasing one
+  root.
+- **A and D separate only where the bound binds at the fixed point, and there they separate by
+  four orders.** At the `auto` bound they are one fit. Forcing `g_bounds=(0.15, 0.85)` on the
+  weak-overlap draw — 375 rows clipped under today's convention — leaves A's final scores at
+  `6.8e-06` and `2.1e-06` against an inferential threshold of about `4e-06`, and D's at `2.1e-10`
+  and `8.0e-10`. This is the predicted separation and not a numerical accident: A's substep solves
+  the **pre-clip** logistic score and the clip is a projection applied after it, so a fixed point
+  with clipping is a fixed point of neither equation, while D solves the equation the reported
+  curve carries. `psi` moves from `0.7037` (A) to `0.7307` (D) against `se ≈ 0.08`, which is a
+  third of a standard error and is the movement the validation plan says to investigate rather
+  than to reject a candidate for.
+
+**And it moves what B2 should expect.** On the `weak_overlap` seed-0 draw the fit as it stands
+fails its score check with a verdict saying the standard errors do not describe the estimate;
+under both A and D the same draw comes back with the identity at roundoff and its worst final
+score at `5.6e-07` (A) and `6.6e-10` (D) against a threshold near `6e-06` — passing, both of them.
+One draw is not the 24 that motivated a weak-overlap refusal, and B2 re-measures
+all of them — but the standing instruction not to predeclare that refusal now has a measurement
+behind it rather than only a caution.
+
+**One thing it cost, and it is a condition to replace rather than a result.** B1a's fifth
+condition is that an identity be checked *on a fixture where the bound binds*, witnessed by
+`CorrectionRow.clipped`. Under any convention that carries the bounded array forward that witness
+goes **vacuous** — `clipped` is 0 at the exit on every draw run above, including the one where 375
+rows clip today. A test selecting its fixture on `clipped > 0` would be selecting the empty set
+after B1b, and one asserting `clipped > 0` would be asserting something that can no longer happen.
+That is [stop-ship 14](roadmap.md#stop-ship)'s shape — a check agreeing where it could not have
+disagreed — arriving in a second place, and the replacement witness is the clipped share of the
+**initial** mechanism, which is a property of the draw rather than of the convention.
+
 ## How the alternation exits
 
 96 fits: four processes by two sizes by twelve seeds, `glm` on both nuisances, `n_folds=5`,
