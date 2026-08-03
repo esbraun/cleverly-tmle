@@ -9,7 +9,12 @@ from ._fitting import (
     predict_mean,
     supports_sample_weight,
 )
-from ._threads import get_thread_limit, set_thread_limit, thread_limit
+from ._threads import (
+    get_thread_limit,
+    refresh_thread_pools,
+    set_thread_limit,
+    thread_limit,
+)
 from .crossfit import (
     CrossFitPlan,
     Folds,
@@ -47,6 +52,7 @@ __all__ = [
     "infer_task",
     "make_folds",
     "predict_mean",
+    "refresh_thread_pools",
     "refuse_scheme",
     "resolve_library",
     "resolve_n_folds",
