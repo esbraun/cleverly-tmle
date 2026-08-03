@@ -27,6 +27,19 @@ box; `--library glm --sizes 2000 --skip ltmle` is seconds, and `--library defaul
 is a couple of minutes and is the run whose numbers belong in a document. Never quote a `glm`
 share as a verdict — it is the cheapest preset available and inflates every other line several-fold.
 
+**`benchmarks/numba/` is the post-nuisance instrument, and it is the cheap one to run here.**
+It excludes the learner fits from every timed region by construction, so `n=1,000,000` is
+seconds rather than an afternoon — `nox -s bench-numba` (or `python -m benchmarks.numba.cli
+--config benchmarks/configs/sandbox.json`) is minutes on this box and is the whole sweep at
+sandbox sizes. `benchmarks/configs/full.yaml` is *not*: it sweeps to a million rows and eight
+cores and belongs on a machine with cores to spare, or on
+`.github/workflows/numba-benchmark.yml`'s `full` tier. `--pipelines` is the other half and is
+the expensive one, because it fits: it is the only part that runs learners, and at
+`--pipeline-libraries default` it is tens of minutes. Read
+`benchmarks/results/candidate_inventory.md` before adding a kernel — a kernel goes in on a
+profiled share, not on the shape of its code, and the document records which of the obvious
+candidates measured out.
+
 **`benchmarks/bench_drtmle.py` is the same kind of thing without the marker to say so.**
 It is not a test, so no selection excludes it, and at its defaults it is ~96 `DRTMLE` fits
 of tens of seconds each — measured at 57s per fit on 400 rows here. Dispatch

@@ -117,6 +117,7 @@ def _load_all() -> None:
         bootstrap,
         clustered,
         collaborative,
+        cvtmle,
         drtmle,
         influence_curves,
         longitudinal,

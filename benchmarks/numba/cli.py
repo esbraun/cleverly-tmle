@@ -75,6 +75,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--list", action="store_true", help="list the registered kernels and exit")
     parser.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "carry forward rows from a previous run in the same output directory, so a "
+            "long sweep can be run kernel by kernel without each run erasing the last "
+            "one's summary. A re-run of the same configuration replaces its old row"
+        ),
+    )
+    parser.add_argument(
         "--pipelines",
         nargs="*",
         default=None,
@@ -130,8 +139,12 @@ _DIMENSION_FLAGS: dict[str, list[tuple[str, str]]] = {
         ("one_step_walk", "n_arms"),
         ("newton_targeting", "n_arms"),
         ("msm_gram", "n_arms"),
+        ("cvtmle_fold_targeting", "n_arms"),
     ],
-    "n_folds": [("ctmle_candidate_scores", "n_folds")],
+    "n_folds": [
+        ("ctmle_candidate_scores", "n_folds"),
+        ("cvtmle_fold_targeting", "n_folds"),
+    ],
     "n_candidates": [("ctmle_candidate_scores", "n_candidates")],
     "n_timepoints": [
         ("ltmle_backward_recursion", "n_times"),
@@ -152,6 +165,7 @@ _DIMENSION_FLAGS: dict[str, list[tuple[str, str]]] = {
         ("drtmle_reduction_rounds", "regime"),
         ("ctmle_candidate_scores", "regime"),
         ("fused_influence_curves", "regime"),
+        ("cvtmle_fold_targeting", "regime"),
     ],
     "cluster_shape": [("cluster_sums", "shape")],
     "bootstrap_chunk_size": [("multiplier_bootstrap", "chunk")],
@@ -228,10 +242,12 @@ def main(argv: list[str] | None = None) -> int:
             args.pipelines or None, args.pipeline_libraries, args.pipeline_n, config.output
         )
 
-    from .reporting import write_all
+    from .reporting import load_rows, merge, write_all
     from .runner import run
 
     rows, environment = run(config)
+    if args.append:
+        rows = merge(load_rows(config.output), rows)
     latest = write_all(rows, environment, config.output)
     print(f"wrote {len(rows)} row(s) to {latest}")
     print((latest / "summary.md").read_text())

@@ -1906,3 +1906,28 @@ unoptimised spelling: reassociating moves the last bits, which turned
 The measurements are reproducible — rerun the benchmark before revisiting this, with
 `--library default`, since `glm` is the cheapest preset available and inflates every other line's
 share several-fold.
+
+### The wider instrument, and what it changed
+
+Everything above rests on **one** compiled kernel — a hand-fused Newton loop — and that kernel
+is the *least* favourable case a compiler could plausibly be offered: its inner work is already
+`x @ eps`, `x.T @ (…)` and a vectorised `exp`, so a scalar loop has nothing left to remove.
+Reading "numba buys nothing, at any size" off it is reasoning from a negative control, and
+`benchmarks/numba/` is the instrument that stops doing that. Same question, every post-nuisance
+kernel in the package, core count as an explicit parameter, a correctness gate on every row.
+
+The conclusion above **holds where it was measured and does not generalise**, which is the
+correction. Fused row-wise kernels, indexed accumulation and the compiled recursions are 2–12×,
+and the multiplier bootstrap's `(chunk, n)` array — named above as one of the two allocations
+that break first at scale — need not exist at all. Read
+`benchmarks/results/candidate_inventory.md` first: it is the profile the rest was sized against,
+and three of the things it is natural to expect turn out to be false. In particular the largest
+package-owned cost in a DR-TMLE `retarget` and in an LTMLE fit is **`threadpoolctl`**, entered
+once per learner fit at 1.4 ms a time — 57% and 40% respectively — which is not a compilation
+question and is not fixed by one.
+
+```bash
+pip install -e '.[bench]'
+nox -s bench-numba              # the kernels
+nox -s bench-numba-pipelines    # the denominator: post-nuisance share, per flavour
+```

@@ -20,13 +20,14 @@ a failed correctness gate: each is a row with a reason, not a gap.  A gap reads 
 from __future__ import annotations
 
 import csv
+import dataclasses
 import json
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-__all__ = ["Row", "write_all"]
+__all__ = ["Row", "load_rows", "merge", "write_all"]
 
 
 @dataclass
@@ -70,6 +71,50 @@ class Row:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def load_rows(output: Path) -> list[Row]:
+    """Rows from a previous run, for ``--append``.
+
+    A full sweep is hours and a single kernel is minutes, so running it kernel by kernel
+    has to be possible without each run erasing the last one's summary.  Rows are keyed by
+    ``(kernel, implementation, n, cores, dimensions)``; a re-run of the same configuration
+    replaces the old row rather than sitting beside it, because two rows claiming the same
+    measurement with different numbers is worse than either of them alone.
+
+    **The environment is *not* merged.**  ``environment.json`` is overwritten by the run
+    that wrote last, and the per-row ``git_sha`` and ``cpu_model`` are what a reader has to
+    check: appending a row from another machine is exactly the mistake this package refuses
+    to make silently, so the evidence stays on every row.
+    """
+    path = Path(output) / "latest" / "results.jsonl"
+    if not path.exists():
+        return []
+    fields = {f.name for f in dataclasses.fields(Row)}
+    rows: list[Row] = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        rows.append(Row(**{k: v for k, v in payload.items() if k in fields}))
+    return rows
+
+
+def _key(row: Row) -> tuple[Any, ...]:
+    return (
+        row.operation,
+        row.implementation,
+        row.n,
+        row.num_cores_requested,
+        json.dumps(row.dimensions, sort_keys=True, default=str),
+    )
+
+
+def merge(previous: Sequence[Row], current: Sequence[Row]) -> list[Row]:
+    """``current`` wins on a collision; everything else is carried forward."""
+    merged = {_key(row): row for row in previous}
+    merged.update({_key(row): row for row in current})
+    return list(merged.values())
 
 
 def write_all(rows: Sequence[Row], environment: Any, output: Path) -> Path:
@@ -136,29 +181,60 @@ def summarise(rows: Sequence[Row], environment: Any) -> str:
         f"{' (working tree dirty)' if environment.git_dirty else ''}\n"
     )
 
-    kernels = _by_kernel(rows)
+    # Grouped by *configuration*, not by kernel. A kernel swept over two sizes and three
+    # fold counts is six different measurements, and pooling them would take the maximum
+    # speed-up across sizes and the ratio of a 10,000-row reference to a 100,000-row
+    # candidate. That is not a speed-up; it is a size difference wearing one's clothes,
+    # and it is exactly the mistake that makes a benchmark suite quietly useless.
+    configurations = _by_configuration(rows)
     lines.append("\n## Verdicts\n")
     lines.append(
-        "| kernel | estimator | best implementation | serial | parallel | memory | verdict |"
+        "| kernel | configuration | estimator | best implementation | serial | parallel "
+        "| memory | verdict |"
     )
-    lines.append("| --- | --- | --- | --- | --- | --- | --- |")
-    for name, group in kernels.items():
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for (name, label), group in configurations.items():
         verdict = _verdict(group)
         lines.append(
-            f"| `{name}` | {verdict['estimator']} | {verdict['best']} | "
+            f"| `{name}` | {label} | {verdict['estimator']} | {verdict['best']} | "
             f"{verdict['serial']} | {verdict['parallel']} | {verdict['memory']} | "
             f"{verdict['decision']} |"
         )
 
     lines.append("\n## Parallel scaling\n")
-    for name, group in kernels.items():
+    lines.append(
+        "One table per kernel per configuration.  Speed-up is against *that* "
+        "implementation at one core, so it isolates what the added cores bought; the "
+        "verdict table above compares against the numpy reference instead.\n"
+    )
+    for (name, label), group in configurations.items():
         scaling = _scaling_table(group)
         if not scaling:
             continue
-        lines.append(f"\n### `{name}`\n")
+        lines.append(f"\n### `{name}` -- {label}\n")
         lines.append("| implementation | cores | seconds | speed-up | efficiency | peak RSS (MB) |")
         lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
         lines.extend(scaling)
+
+    lines.append("\n## Algorithmic headroom, before any compilation\n")
+    lines.append(
+        "Several kernels carry a numpy arm that is not a compiled one -- masks carried "
+        "rather than rebuilt, counterfactual arms updated once at the end of a walk "
+        "rather than on every trial step, horizon-independent quantities shared across "
+        "horizons.  Where the column below is large, the answer is *fix the algorithm*, "
+        "and a compiler would be optimising work that need not be done.\n"
+    )
+    lines.append("| kernel | configuration | best numpy variant | gain over the shipped shape |")
+    lines.append("| --- | --- | --- | ---: |")
+    any_headroom = False
+    for (name, label), group in configurations.items():
+        variant, gain = _algorithmic_headroom(group)
+        if variant is None:
+            continue
+        any_headroom = True
+        lines.append(f"| `{name}` | {label} | `{variant}` | {gain:.2f}x |")
+    if not any_headroom:
+        lines.append("| - | - | none measured | - |")
 
     failures = [row for row in rows if not row.correct and not row.skipped_reason]
     lines.append("\n## Correctness\n")
@@ -207,6 +283,45 @@ def _by_kernel(rows: Sequence[Row]) -> dict[str, list[Row]]:
     for row in rows:
         out.setdefault(row.operation, []).append(row)
     return out
+
+
+#: Dimensions that are not worth putting in a configuration label: they are the same for
+#: every row of a run and would make every label longer without distinguishing anything.
+_UNINTERESTING = {"seed"}
+
+
+def _label(row: Row, varying: set[str]) -> str:
+    """A short name for one configuration: ``n`` plus whatever else was swept.
+
+    Only the dimensions that actually *vary* within the kernel are named. A kernel run at
+    one fold count does not need "n_folds=10" in every label, and a label that lists every
+    dimension is one a reader stops reading.
+    """
+    parts = [f"n={row.n:,}"] if row.n else []
+    parts += [
+        f"{key}={row.dimensions[key]}"
+        for key in sorted(varying)
+        if key in row.dimensions and key not in ({"n"} | _UNINTERESTING)
+    ]
+    return ", ".join(parts) or "default"
+
+
+def _by_configuration(rows: Sequence[Row]) -> dict[tuple[str, str], list[Row]]:
+    """``(kernel, configuration label) -> rows``, in first-seen order."""
+    out: dict[tuple[str, str], list[Row]] = {}
+    for kernel, group in _by_kernel(rows).items():
+        seen: dict[str, set[Any]] = {}
+        for row in group:
+            for key, value in row.dimensions.items():
+                seen.setdefault(key, set()).add(_hashable(value))
+        varying = {key for key, values in seen.items() if len(values) > 1}
+        for row in group:
+            out.setdefault((kernel, _label(row, varying)), []).append(row)
+    return out
+
+
+def _hashable(value: Any) -> Any:
+    return tuple(value) if isinstance(value, list) else value
 
 
 def _reference(group: Iterable[Row]) -> Row | None:
@@ -265,7 +380,18 @@ def _verdict(group: Sequence[Row]) -> dict[str, str]:
         decision = "adopt for memory"
     else:
         decision = "retain numpy"
-    if best.implementation.startswith("numpy") and best.implementation != "numpy":
+    # A numpy *variant* winning means the answer is an algorithm rather than a compiler --
+    # deferring the arm updates, carrying the masks, sharing them across horizons. That is
+    # the plan's "improve the numpy instead" outcome and it overrides the verdict above.
+    #
+    # `numpy_threads` is excluded by name: it is the *same* numpy running on more cores,
+    # which is a statement about parallelism and not about the algorithm, and filing it as
+    # an algorithmic improvement would tell a reader to go looking for a rewrite that does
+    # not exist.
+    if best.implementation.startswith("numpy") and best.implementation not in (
+        "numpy",
+        "numpy_threads",
+    ):
         decision = f"improve numpy instead ({best.implementation})"
     return {
         "estimator": estimator,
@@ -277,7 +403,36 @@ def _verdict(group: Sequence[Row]) -> dict[str, str]:
     }
 
 
+def _algorithmic_headroom(group: Sequence[Row]) -> tuple[str | None, float]:
+    """The best *non-compiled, non-threaded* numpy variant, and its gain over `numpy`.
+
+    ``numpy_threads`` is excluded: it is the same algorithm on more cores, and reporting
+    it here would tell a reader to look for a rewrite that does not exist.
+    """
+    reference = _reference(group)
+    if reference is None:
+        return None, float("nan")
+    variants = [
+        row
+        for row in group
+        if row.implementation.startswith("numpy")
+        and row.implementation not in ("numpy", "numpy_threads")
+        and row.correct
+        and not row.skipped_reason
+    ]
+    if not variants:
+        return None, float("nan")
+    best = min(variants, key=lambda row: row.warm_seconds)
+    return best.implementation, reference.warm_seconds / best.warm_seconds
+
+
 def _scaling_table(group: Sequence[Row]) -> list[str]:
+    """One row per (implementation, core count), within a single configuration.
+
+    The caller has already partitioned by configuration, so every row here differs only in
+    its implementation and its core count -- which is what makes a speed-up column mean
+    what it says.
+    """
     lines: list[str] = []
     by_implementation: dict[str, list[Row]] = {}
     for row in group:

@@ -48,16 +48,30 @@ _MODE_FOR = {
     "numba_parallel": "numba_parallel",
     "numba_parallel_deferred_arms": "numba_parallel",
     "numba_parallel_by_cluster": "numba_parallel",
+    # Threads over independent tasks, each single-threaded: the plan's *task-parallel*
+    # mode. It varies with the core count exactly as a `prange` kernel does, so it is
+    # swept the same way.
+    "numpy_threads": "task_parallel",
 }
 
 
 def _plan_for(implementation: str, cores: int) -> tuple[ThreadPlan, bool]:
-    """The thread plan and whether this implementation varies with the core count."""
+    """The thread plan and whether this implementation varies with the core count.
+
+    A serial implementation is marked as *not* varying, and is therefore measured once
+    rather than once per core count. Re-measuring it would produce a flat curve that reads
+    as a finding about parallelism instead of the tautology it is.
+    """
     mode = _MODE_FOR.get(implementation)
     if mode is None:
         return resolve_plan("numpy_serial", cores), False
     if mode == "numba_serial":
         return resolve_plan("numba_serial", cores), False
+    if mode == "task_parallel":
+        # The worker pool is threads inside this process, and the kernel reads its width
+        # off numba's count -- so the plan sets that, and pins BLAS to one so the workers
+        # do not each claim the machine.
+        return ThreadPlan(numba_threads=cores, blas_threads=1, workers=cores), True
     return resolve_plan("numba_parallel", cores), True
 
 

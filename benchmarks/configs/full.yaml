@@ -52,6 +52,12 @@ sweeps:
     n_causes: [1, 2]
     n_horizons: [1, 10, 0]
 
+  # Folds cut each task's rows by 1/F while giving the task axis more tasks: the two
+  # parallelisms cross somewhere, and where is a property of the machine.
+  cvtmle_fold_targeting:
+    n_folds: [2, 5, 10, 20]
+    n_arms: [2, 5]
+
   ctmle_candidate_scores:
     n_candidates: [10, 50, 200]
     n_folds: [2, 5, 10]
