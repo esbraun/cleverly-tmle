@@ -13,10 +13,13 @@ demonstration, a cross-fitting construction and a widening of scope. That is a d
 list from the one this page opened with, and it does not lower the bar: *done* still means a
 demonstration that the interval attains nominal coverage where a plain `TMLE`'s does not.
 
-**The sweep is now a dispatch rather than a piece of work**: its instrument landed with
-[B2a](#b2a--the-sweep-instrument), which built the columns
-[§4](drtmle/validation-plan.md#4-the-sweep-piece-b2) asks for and the second update order item 22
-needs, and verified the workflow on a four-fit run.
+**The sweep has run**, four dispatches of it, and [what it
+measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured) closed items 12 and 19, took
+the weak-overlap product decision, and rewrote limitations 4 and 6 from their own numbers. The
+headline is that the alternation's exit distribution **inverted** — 87 of 96 fits reach the
+tolerance where 2 did — and that `weak-overlap`'s score check now fails on **0 of 24** where it
+failed on 23, on draws whose overlap is unchanged. So what is left is a demonstration, a
+cross-fitting construction, a widening of scope, and one clause of one frozen rule.
 
 That grouping and its order are a revision, three times over. An [external
 review](drtmle/review.md) of this page and the code behind it read the plan against Theorem 1 of
@@ -289,11 +292,14 @@ be confused.
 
 ### The work, in four pieces and eight pull requests
 
-A and B are each split, so the four pieces are eight pull requests: **B1a**, **A1a**, **B1b** and
-**B2a** have landed, and **A1b**, **B2b**, **C** and **D** are open. Small items are
+A and B are each split, so the four pieces are eight pull requests: **B1a**, **A1a**, **B1b**,
+**B2a** and **B2b** have landed, and **A1b**, **C** and **D** are open. Small items are
 grouped where the *evidence* is shared — B2 is five items because one dispatch of the same
 sweep answers all of them — not where the subject matter merely rhymes; and the three splits are
-that same rule applied to a piece rather than to an item.
+that same rule applied to a piece rather than to an item. **B2's grouping was right about four of
+its five and wrong about the fifth**: the exit distribution, the closing cap, the weak-overlap
+policy and the overlap attribution all fell out of one dispatch as planned, and the update-order
+question needed three more and still did not close.
 
 | PR | what it lands | new artefacts |
 | --- | --- | --- |
@@ -303,7 +309,7 @@ that same rule applied to a piece rather than to an item.
 | **B1b** — *landed* | items 11 and 20: the targeting convention, chosen on theorem fidelity against a fitted prototype that eliminated two candidates by construction and separated the other two by measurement | `solve_bounded_mechanism`, called from the two `DRTMLE` sites, with the truncated array carried forward and `"bounds_pinned"` where no constrained root exists; `tests/unit/test_bounded_mechanism.py`; `CorrectionRow.margin` in place of B1a's now-vacuous clipped-row witness |
 | **B2a** — *landed* | the instrument the dispatch needs: the columns §4 asks for, the working paper's update order beside this one, and the comparison arms. Closes nothing on its own, which is why it is its own pull request rather than a first commit of B2 | `DRTMLE(update_order="paper")` and `ReductionSpec.order`; three tables on `benchmarks/bench_drtmle.py` in place of one; `--order`, `--reduced-learner` and `--truncation` arms with workflow inputs; `TestBothUpdateOrdersReachTheTheoremsExit` |
 | **B2a′** — *landed* | the three things B2a left as prose rather than as something a run settles: the oracle reduction built where it exists, a **control** for the update-order difference, and the branch that hid a mutation deleted rather than guarded | `tests/unit/test_oracle_reductions.py` and item 24; the `reseed` arm, the route-against-noise table and [a frozen rule](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch); `_restated_outcome_score` made unconditional, `tests/unit/test_fluctuation_score.py`, and [lesson 12](drtmle/investigation-log.md#what-the-sizings-got-wrong) |
-| **B2b** | items 12, 19 and item 22's numerical half, re-measures 4 and 6, decides the overlap policy | a dispatch of `drtmle-convergence.yml`, and its tables in the investigation log |
+| **B2b** — *landed* | items 12 and 19, re-measures 4 and 6, takes the overlap policy — no refusal — and reads item 22's numerical half, which stays open on one clause | four dispatches of `drtmle-convergence.yml` and their tables in [the investigation log](drtmle/investigation-log.md#what-the-b2b-dispatch-measured); `_negligible_bar`; a `worst identity` column on `comparison_rows` and `tests/unit/test_bench_drtmle.py` |
 | **C** | items 3 and 13: the demonstration | `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, `docs/drtmle-coverage-study.md`, per-replicate results |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
