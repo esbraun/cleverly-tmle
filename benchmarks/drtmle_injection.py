@@ -74,6 +74,7 @@ from functools import cache
 from typing import Any
 
 import numpy as np
+from scipy.optimize import brentq
 from sklearn.base import BaseEstimator
 
 from cleverly.datasets import DGP, linear_dgp
@@ -90,7 +91,13 @@ __all__ = [
     "base_law",
     "drift_coefficients",
     "exact_remainder",
+    "exact_targeted_remainder",
+    "free_shape",
     "nuisance_error",
+    "plugin_weight",
+    "population_epsilon",
+    "targeted_coefficients",
+    "targeted_weight",
 ]
 
 #: The two off-diagonal cells, in the order every table reports them.
@@ -201,6 +208,185 @@ def _weight(dgp: DGP, w: Any, arm: float) -> Any:
     return (wrong - _arm(_mechanism(dgp, w), arm)) / wrong
 
 
+# ------------------------------------------------------- what targeting does to the drift
+#
+# Everything from here to `targeted_coefficients` exists because of one finding: the column
+# this module was built to report is *not* the quantity a fit's bias is, and the difference
+# is the targeting step.  See `docs/drtmle/coverage-study.md`'s repair section.
+
+
+def _limit_mechanism(cell: str, w: Any, arm: float) -> Any:
+    r""":math:`\lim \hat g_a`: the wrong mechanism in ``q-drift``, the true one in ``g-drift``.
+
+    The **limit** rather than the value at a finite ``n``, which is what "coefficient" means
+    throughout this module -- :func:`drift_coefficients` says so in its own docstring and
+    this has to agree with it or the two columns would be about different sequences.
+    """
+    dgp = base_law()
+    values = _wrong_mechanism(dgp, w) if cell == "q-drift" else _mechanism(dgp, w)
+    return _arm(values, arm)
+
+
+def _limit_outcome(cell: str, w: Any, arm: float) -> Any:
+    r""":math:`\lim \hat Q_a`, on the outcome's own scale.
+
+    :math:`\bar Q_{0,a}` in ``q-drift``, where the injected drift vanishes; the **wrong**
+    regression :math:`\bar Q_{0,a} + d_a` in ``g-drift``, where the outcome is the misspecified
+    nuisance and its error does not shrink.  Getting this backwards would evaluate the
+    fluctuation's direction at a regression no fit ever holds.
+    """
+    truth = np.asarray(base_law().outcome_mean(np.asarray(w, dtype=float), arm, None), dtype=float)
+    if cell == "q-drift":
+        return truth
+    ratio = 1.0 if arm == 1.0 else G_DRIFT_ARM0_RATIO
+    return truth + ratio * outcome_error(w)
+
+
+def _score_weight(cell: str, w: Any, arm: float) -> Any:
+    r""":math:`w_a = g_{0,a}/\hat g_a`, the weight the fluctuation's **score** is taken under.
+
+    Not :func:`_weight`, and the pair is the whole of the repair: :math:`u_a = 1 - w_a` is the
+    weight the *remainder* is an inner product against, and targeting drives the :math:`w_a`
+    one to zero.  A design that makes only the first large has constrained nothing.
+    """
+    return _arm(_mechanism(base_law(), w), arm) / _limit_mechanism(cell, w, arm)
+
+
+def _fluctuation_direction(cell: str, w: Any, arm: float) -> Any:
+    r""":math:`S_a`, the direction the single :math:`\varepsilon_a` moves :math:`\bar Q_a` in.
+
+    The ``mean`` submodel is logistic on the scaled outcome with the **counterfactual** clever
+    covariate :math:`1/\hat g_a` (``cleverly.fluctuation.submodel``'s ``mean_submodel``), so
+    :math:`\bar Q^*_a = \mathrm{expit}(\mathrm{logit}\,\hat Q^{sc}_a + \varepsilon_a/\hat g_a)`
+    and its derivative at :math:`\varepsilon_a = 0` is
+    :math:`\hat Q^{sc}_a(1 - \hat Q^{sc}_a)/\hat g_a`, times :attr:`OutcomeScaler.range` to
+    come back to the outcome's own scale.
+
+    One free parameter per arm, so what it can absorb is **one dimension** of the injection --
+    which is why the repair is a second linear condition and not a smaller constant.
+    """
+    scaler = OutcomeScaler(*Q_BOUNDS)
+    scaled = scaler.scale(_limit_outcome(cell, w, arm))
+    return (Q_BOUNDS[1] - Q_BOUNDS[0]) * scaled * (1.0 - scaled) / _limit_mechanism(cell, w, arm)
+
+
+@cache
+def _absorbed(cell: str) -> tuple[float, ...]:
+    r"""The one scalar per arm the targeted weight is built from, in the order ``(1.0, 0.0)``.
+
+    It is a **different** scalar in the two cells, and the asymmetry is structural rather
+    than untidy: which nuisance drifts decides which factor of the remainder's inner product
+    carries the :math:`n^{-\alpha}` and so which of them the free shape is.
+
+    ``q-drift`` returns :math:`\kappa_a = P_0[S_a]/P_0[w_a S_a]`.  The free shape is
+    :math:`h_a` itself, so an :math:`\varepsilon_a` computed from it would be circular --
+    :math:`\kappa_a` is what factors the fluctuation out of the shape, and it is why the
+    repair below can be a linear solve at all.
+
+    ``g-drift`` returns :math:`\varepsilon_a = -P_0[w_a d_a]/P_0[w_a S_a]` outright.  There the
+    free shape is the *mechanism* perturbation and the outcome error :math:`d_a` is fixed, so
+    the fluctuation's step is a constant of the design and nothing is circular.
+
+    Cached beside :func:`_normalisers` and for its reason: integrations over ``2**18`` points
+    that every coefficient needs.  Keyed by the cell alone, which is sound because every
+    factor is a **limit** -- nothing here depends on ``n``, and an edit that made one depend
+    on it would have to move the key.
+    """
+    dgp = base_law()
+    if cell not in CELLS:
+        raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
+    out = []
+    for arm in (1.0, 0.0):
+        denominator = dgp.expectation(
+            lambda w, a=arm: _score_weight(cell, w, a) * _fluctuation_direction(cell, w, a)
+        )
+        if cell == "q-drift":
+            numerator = dgp.expectation(lambda w, a=arm: _fluctuation_direction(cell, w, a))
+            out.append(numerator / denominator)
+        else:
+            ratio = 1.0 if arm == 1.0 else G_DRIFT_ARM0_RATIO
+            numerator = dgp.expectation(
+                lambda w, a=arm, r=ratio: _score_weight(cell, w, a) * r * outcome_error(w)
+            )
+            out.append(-numerator / denominator)
+    return tuple(out)
+
+
+def plugin_weight(cell: str, w: Any, arm: float) -> Any:
+    r"""What the cell's free shape multiplies in :math:`R_2(\hat Q)`, the **plug-in** remainder.
+
+    :math:`u_a = (\hat g_a - g_{0,a})/\hat g_a` in ``q-drift``, where the free shape is the
+    injected :math:`h_a`; the fixed outcome error :math:`d_a` in ``g-drift``, where the free
+    shape is the mechanism perturbation.  In both cells
+    :math:`c_a = P_0[\text{plugin} \cdot \text{shape}]`, which is the coefficient
+    :func:`drift_coefficients` has always reported.
+    """
+    if cell == "q-drift":
+        return _weight(base_law(), w, arm)
+    if cell == "g-drift":
+        ratio = 1.0 if arm == 1.0 else G_DRIFT_ARM0_RATIO
+        return ratio * outcome_error(w)
+    raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
+
+
+def targeted_weight(cell: str, w: Any, arm: float) -> Any:
+    r"""What the cell's free shape multiplies in :math:`R_2(\bar Q^*)`, the **estimator's bias**.
+
+    The derivation is three lines.  The fluctuation's population score is
+    :math:`P_0[w_a(\bar Q^*_a - \bar Q_{0,a})] = 0`; the bias is
+    :math:`R_2(\bar Q^*_a) = P_0[u_a(\bar Q^*_a - \bar Q_{0,a})]` with :math:`u_a = 1 - w_a`,
+    so the score kills the :math:`w_a` half.  Writing the offset as
+    :math:`(\hat Q_a - \bar Q_{0,a}) + \varepsilon_a S_a` and eliminating
+    :math:`\varepsilon_a` through the score leaves, per cell:
+
+    - ``q-drift``: :math:`v_a = 1 - \kappa_a w_a`, against the shape :math:`h_a`;
+    - ``g-drift``: :math:`r_a = d_a + \varepsilon_a S_a`, against the shape
+      :math:`\tilde u_a = \lim n^{\alpha}u_a`, since there it is the *mechanism* that drifts.
+
+    Either way :math:`b_a = P_0[\text{targeted} \cdot \text{shape}]` is a **linear functional
+    of the free shape**, exactly as :math:`c_a` is -- which is what makes the repair a 2x2
+    solve rather than a redesign, and what turns *"the drift survives targeting"* from a
+    property to hope for into a condition a design can be built to satisfy.
+
+    Neither weight is identically zero: :math:`v_a` vanishes only if :math:`w_a` is constant,
+    i.e. only if :math:`\hat g_a \propto g_{0,a}`.  That is the numerical form of *"Tier 1 can
+    be a demonstration"*, and ``tests/unit/test_drtmle_coverage.py`` **measures** it rather
+    than asserting it -- the design note's live alternative was that no injection into a
+    single nuisance produces a first-order shortfall at all.
+    """
+    scalar = dict(zip((1.0, 0.0), _absorbed(cell), strict=True))[arm]
+    if cell == "q-drift":
+        return 1.0 - scalar * _score_weight(cell, w, arm)
+    if cell == "g-drift":
+        return plugin_weight(cell, w, arm) + scalar * _fluctuation_direction(cell, w, arm)
+    raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
+
+
+def free_shape(cell: str, w: Any, arm: float) -> Any:
+    r"""The cell's free shape, with its :math:`n^{-\alpha}` divided out.
+
+    :math:`h_a` in ``q-drift``; :math:`\tilde u_a = \lim n^{\alpha}(\hat g_a - g_{0,a})/\hat g_a`
+    in ``g-drift``, which is the mechanism perturbation over the limit mechanism and carries
+    the arm-0 sign flip -- one free column and its complement, which is why that cell can set
+    the ATE's coefficients and not each arm's.
+
+    **Both coefficient functions read this**, so a change to the injection cannot move one
+    column without moving the other.  That duplication used to sit between
+    :func:`outcome_perturbation` and :func:`drift_coefficients`, where a test asserting the two
+    agree could be satisfied by two edits made the same wrong way.
+    """
+    if cell == "q-drift":
+        return _outcome_shape(cell, w, arm)
+    if cell == "g-drift":
+        g = _mechanism(base_law(), w)
+        # The arm-0 mechanism moves by *minus* the arm-1 perturbation: one free column and
+        # its complement.  Getting this sign wrong turns c_ATE from a sum of magnitudes into
+        # a difference, which is the cancellation the design exists to make impossible.
+        delta = _mechanism_shape(cell, w)
+        return (delta if arm == 1.0 else -delta) / _arm(g, arm)
+    raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
+
+
 @cache
 def _normalisers(cell: str) -> tuple[float, ...]:
     r"""The quadrature the injected shapes are scaled by, so the coefficients are the declared.
@@ -229,41 +415,58 @@ def _normalisers(cell: str) -> tuple[float, ...]:
     raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
 
 
-def outcome_perturbation(cell: str, n: int, w: Any, arm: float) -> Any:
-    r""":math:`\hat Q_a - \bar Q_{0,a}` at ``n`` rows, on the **outcome's own** scale.
+def _outcome_shape(cell: str, w: Any, arm: float) -> Any:
+    r"""The outcome regression's error shape, with any :math:`n^{-\alpha}` divided out.
 
-    ``q-drift``'s is the drifting :math:`n^{-\alpha} h_a` with :math:`h_a` aligned with the
-    misspecification weight and normalised to :data:`Q_DRIFT_C`; ``g-drift``'s is the fixed
-    :func:`outcome_error`, which does not shrink because in that cell the outcome regression is
-    the *wrong* nuisance.
+    ``q-drift``'s :math:`h_a` -- the **free** shape of that cell, and what the repair chooses;
+    ``g-drift``'s fixed :math:`d_a`, which is that cell's misspecification and not free at all.
     """
     if cell == "q-drift":
         norm = dict(zip((1.0, 0.0), _normalisers(cell), strict=True))[arm]
-        shape = _weight(base_law(), w, arm)
-        return float(n) ** -ALPHA * (Q_DRIFT_C[arm] / norm) * shape
+        return (Q_DRIFT_C[arm] / norm) * _weight(base_law(), w, arm)
     if cell == "g-drift":
         ratio = 1.0 if arm == 1.0 else G_DRIFT_ARM0_RATIO
         return ratio * outcome_error(w)
     raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
 
 
-def mechanism_perturbation(cell: str, n: int, w: Any) -> Any:
-    r""":math:`\hat g(1|W) - g_0(1|W)` at ``n`` rows.
+def _mechanism_shape(cell: str, w: Any) -> Any:
+    r"""The arm-1 mechanism perturbation with :math:`n^{-\alpha}` divided out.
 
-    Zero in ``q-drift``, where the mechanism is the wrong nuisance and is handled by
-    :func:`_wrong_mechanism` instead.  In ``g-drift`` it is
-    :math:`n^{-\alpha}\lambda\,d(W)g_0(1|W)g_0(0|W)`: the :math:`g_0(1-g_0)` factor is what
-    keeps :math:`\hat g` interior wherever :math:`g_0` is near a boundary -- the perturbation
-    vanishes with the probability it perturbs -- and it is why this cell needs no clipping and
-    so no truncation active.
+    Zero in ``q-drift``.  In ``g-drift`` it is the **free** shape,
+    :math:`\lambda\,d(W)g_0(1|W)g_0(0|W)`: the :math:`g_0(1-g_0)` factor is what keeps
+    :math:`\hat g` interior wherever :math:`g_0` nears a boundary -- the perturbation vanishes
+    with the probability it perturbs -- and it is why that cell needs no clipping and so has no
+    truncation active.
     """
     if cell == "q-drift":
         return np.zeros(np.asarray(w, dtype=float).shape[0])
     if cell == "g-drift":
         (norm,) = _normalisers(cell)
         g = _mechanism(base_law(), w)
-        return float(n) ** -ALPHA * (G_DRIFT_C_ATE / norm) * outcome_error(w) * g * (1.0 - g)
+        return (G_DRIFT_C_ATE / norm) * outcome_error(w) * g * (1.0 - g)
     raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
+
+
+def outcome_perturbation(cell: str, n: int, w: Any, arm: float) -> Any:
+    r""":math:`\hat Q_a - \bar Q_{0,a}` at ``n`` rows, on the **outcome's own** scale.
+
+    ``q-drift``'s is the drifting :math:`n^{-\alpha}h_a`; ``g-drift``'s is the fixed
+    :func:`outcome_error`, which does not shrink because in that cell the outcome regression is
+    the *wrong* nuisance.  Which cell carries the :math:`n^{-\alpha}` is the whole difference
+    between them, which is why it lives here rather than in :func:`_outcome_shape`.
+    """
+    scale = float(n) ** -ALPHA if cell == "q-drift" else 1.0
+    return scale * _outcome_shape(cell, w, arm)
+
+
+def mechanism_perturbation(cell: str, n: int, w: Any) -> Any:
+    r""":math:`\hat g(1|W) - g_0(1|W)` at ``n`` rows.
+
+    Zero in ``q-drift``, where the mechanism is the wrong nuisance and is handled by
+    :func:`_wrong_mechanism` instead; the drifting :math:`n^{-\alpha}` shape in ``g-drift``.
+    """
+    return float(n) ** -ALPHA * _mechanism_shape(cell, w)
 
 
 def injected_mechanism(cell: str, n: int, w: Any) -> Any:
@@ -368,37 +571,51 @@ def drift_coefficients(cell: str) -> dict[str, float]:
     Verified against the declaration rather than trusted: ``tests/unit/test_drtmle_coverage.py``
     asserts they agree and that each clears :data:`C_MIN`, which is §5's *"commit the
     coefficient calculation with the design"* made checkable.
+
+    **It is not the coefficient a fit's bias has**, which is
+    :func:`targeted_coefficients` -- this one is of the *plug-in* remainder, and C3's pilot
+    measured the two a factor of twenty apart.  The two are one expression against two weights
+    and both are declared, which is what §5's targeted-coefficient clause asks for.
     """
+    return _coefficients(cell, plugin_weight)
+
+
+def targeted_coefficients(cell: str) -> dict[str, float]:
+    r"""The realised :math:`b_1`, :math:`b_0` and :math:`b_{ATE}`: the **estimator's bias**.
+
+    :math:`b_a = P_0[v_a \cdot \text{shape}_a]` against :func:`targeted_weight`, with the
+    drifting :math:`n^{-\alpha}` divided out, so that
+    :math:`\hat\psi - \psi_0 = (P_n - P_0)D^* + n^{-\alpha}b_{ATE} + o(n^{-\alpha})` and the
+    first term is mean-zero across draws.
+
+    **This is the column C3's pilot found missing**, and its absence is the whole of what went
+    wrong: the design normalised :func:`drift_coefficients` to ``0.40`` and sized a coverage
+    shortfall from it, while the quantity a shortfall is made of came out twenty times smaller
+    because the fluctuation's one free parameter per arm absorbed the injection.  See
+    ``docs/drtmle/coverage-study.md``'s repair section, and
+    ``benchmarks/drtmle_tier1_bias.py`` for the measurement on real fits.
+    """
+    return _coefficients(cell, targeted_weight, key="b")
+
+
+def _coefficients(cell: str, weight: Callable[..., Any], key: str = "c") -> dict[str, float]:
+    """One quadrature, called at the two weights -- see the two functions above.
+
+    Written once deliberately.  Two copies of this integral would be two chances for a
+    coefficient and the column that reads it to disagree somewhere other than in the weight
+    under test, which is the class of mistake this whole piece is a repair for.
+    """
+    if cell not in CELLS:
+        raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
     dgp = base_law()
-    per_arm = {}
-    for arm in (1.0, 0.0):
-        if cell == "q-drift":
-
-            def integrand(w: Any, arm: float = arm) -> Any:
-                # h_a with the n^-alpha divided out, times the weight it is aligned with.
-                norm = dict(zip((1.0, 0.0), _normalisers(cell), strict=True))[arm]
-                return _weight(dgp, w, arm) ** 2 * (Q_DRIFT_C[arm] / norm)
-
-        elif cell == "g-drift":
-
-            def integrand(w: Any, arm: float = arm) -> Any:
-                (norm,) = _normalisers(cell)
-                g = _mechanism(dgp, w)
-                shape = (G_DRIFT_C_ATE / norm) * outcome_error(w) * g * (1.0 - g)
-                # The arm-0 mechanism moves by *minus* the arm-1 perturbation: one free
-                # column and its complement. Getting this sign wrong flips c_0 and turns the
-                # ATE coefficient from a sum of magnitudes into a difference.
-                delta = shape if arm == 1.0 else -shape
-                ratio = 1.0 if arm == 1.0 else G_DRIFT_ARM0_RATIO
-                return delta / _arm(g, arm) * ratio * outcome_error(w)
-
-        else:
-            raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
-        per_arm[arm] = dgp.expectation(integrand)
+    per_arm = {
+        arm: dgp.expectation(lambda w, a=arm: weight(cell, w, a) * free_shape(cell, w, a))
+        for arm in (1.0, 0.0)
+    }
     return {
-        "c1": per_arm[1.0],
-        "c0": per_arm[0.0],
-        "c_ate": per_arm[1.0] - per_arm[0.0],
+        f"{key}1": per_arm[1.0],
+        f"{key}0": per_arm[0.0],
+        f"{key}_ate": per_arm[1.0] - per_arm[0.0],
     }
 
 
@@ -429,6 +646,92 @@ def exact_remainder(cell: str, n: int) -> dict[str, float]:
             estimated = _arm(injected_mechanism(cell, n, w), arm)
             truth = _arm(_mechanism(dgp, w), arm)
             return (estimated - truth) / estimated * outcome_perturbation(cell, n, w, arm)
+
+        out[f"r2_{int(arm)}"] = dgp.expectation(integrand)
+    out["r2_ate"] = out["r2_1"] - out["r2_0"]
+    return out
+
+
+def population_epsilon(cell: str, n: int, arm: float) -> float:
+    r"""The fluctuation's step at the **population** score, solved rather than linearised.
+
+    :math:`\varepsilon_a` such that
+
+    .. math::
+
+        P_0\!\left[\frac{g_{0,a}}{\hat g_a}
+                   \bigl(\bar Q^{sc}_{0,a}
+                         - \mathrm{expit}(\mathrm{logit}\,\hat Q^{sc}_a
+                                          + \varepsilon_a/\hat g_a)\bigr)\right] = 0,
+
+    which is what ``cleverly``'s Newton solve converges to as ``n`` grows.  Solved exactly by a
+    bracketed root find over the same Sobol rule rather than by the first-order expansion
+    :func:`targeted_weight` factors :math:`\varepsilon_a` out with, because the two differ by
+    the curvature of the logistic submodel -- measured at 20% of the step at ``n = 600``.
+
+    So :func:`targeted_coefficients` is the **limit** and :func:`exact_targeted_remainder` is
+    the prediction at a size, which is exactly the pair :func:`drift_coefficients` and
+    :func:`exact_remainder` already are.
+    """
+    dgp = base_law()
+    scaler = OutcomeScaler(*Q_BOUNDS)
+
+    def score(epsilon: float) -> float:
+        def integrand(w: Any) -> Any:
+            ghat = _arm(injected_mechanism(cell, n, w), arm)
+            initial = scaler.scale(injected_outcome(cell, n, w, arm))
+            targeted = expit(logit(initial) + epsilon / ghat)
+            truth = scaler.scale(
+                np.asarray(base_law().outcome_mean(np.asarray(w, float), arm, None), float)
+            )
+            return _arm(_mechanism(dgp, w), arm) / ghat * (truth - targeted)
+
+        return float(dgp.expectation(integrand))
+
+    # The score is strictly decreasing in epsilon (the submodel is monotone and the weight is
+    # positive), so any bracket that changes sign contains the one root.  Widening rather than
+    # guessing: a design whose step needs more than this has left the regime it claims.
+    bound = 1.0
+    while score(-bound) * score(bound) > 0.0:
+        bound *= 4.0
+        if bound > 1024.0:
+            raise ValueError(
+                f"no population root for {cell!r} at n={n}, arm {arm} within +/-1024; the "
+                "injected regression is too far from the truth for a one-parameter submodel"
+            )
+    return float(brentq(score, -bound, bound, xtol=1e-14, rtol=1e-15))
+
+
+def exact_targeted_remainder(cell: str, n: int) -> dict[str, float]:
+    r"""The **estimator's bias** at the injected sequence, integrated rather than simulated.
+
+    .. math::
+
+        R_{2,a}(\bar Q^*) = P_0\!\left[\frac{\hat g_a - g_{0,a}}{\hat g_a}
+                                       (\bar Q^*_a - \bar Q_{0,a})\right]
+
+    -- the same expression :func:`exact_remainder` integrates, at the **targeted** regression
+    rather than the initial one, with :math:`\varepsilon_a` from :func:`population_epsilon`.
+    :math:`n^{\alpha}R_{2,a}(\bar Q^*) \to b_a`.
+
+    This is the column §5's targeted-coefficient clause requires be read against the declared
+    coefficient, and the one a coverage shortfall is sized from:
+    :math:`\hat\psi - \psi_0 = (P_n - P_0)D^* + R_2(\bar Q^*)`, whose first term is mean-zero
+    across draws.  Reading :func:`exact_remainder` in its place is what C3's pilot cost.
+    """
+    dgp = base_law()
+    scaler = OutcomeScaler(*Q_BOUNDS)
+    out = {}
+    for arm in (1.0, 0.0):
+        epsilon = population_epsilon(cell, n, arm)
+
+        def integrand(w: Any, arm: float = arm, epsilon: float = epsilon) -> Any:
+            estimated = _arm(injected_mechanism(cell, n, w), arm)
+            truth = _arm(_mechanism(dgp, w), arm)
+            initial = scaler.scale(injected_outcome(cell, n, w, arm))
+            targeted = scaler.unscale_level(expit(logit(initial) + epsilon / estimated))
+            reference = np.asarray(dgp.outcome_mean(np.asarray(w, float), arm, None), float)
+            return (estimated - truth) / estimated * (targeted - reference)
 
         out[f"r2_{int(arm)}"] = dgp.expectation(integrand)
     out["r2_ate"] = out["r2_1"] - out["r2_0"]
