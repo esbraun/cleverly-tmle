@@ -1075,12 +1075,13 @@ among them — the run that separates a noisy reduction from a wrong equation, a
 the truncation-curve caveat are in [the validation
 plan](drtmle/validation-plan.md#4-the-sweep-piece-b2).
 
-*The sweep measures the criterion that was replaced.* [The
+*The first sweep measured the criterion that was replaced, and the rerun has happened.* [That
 table](drtmle/investigation-log.md#how-the-alternation-exits) is the evidence item 7's change was
 argued from, which is the right way round — the failure had to be characterised before the
-threshold moved — but it means the exit distribution under the current rule is uncharacterised. A
-rerun is one dispatch and about 45 minutes, and would say whether `tolerance` is now the norm at
-scale or only on the six fits looked at. It re-measures items 4 and 6 for free.
+threshold moved — and it left the exit distribution under the current rule uncharacterised. The
+rerun was one dispatch and **six minutes**, not the 45 this paragraph budgeted, and it says
+`tolerance` is now the norm at scale rather than on the six fits looked at: **87 of 96**, against
+2. It re-measured items 4 and 6 for free, as predicted.
 
 *The absolute bar is a proxy for the one it cites.* `score_check` compares against
 `DEFAULT_TOLERANCE * se / sqrt(n)` using the fit's actual `se`; `targeting._solved` substitutes
