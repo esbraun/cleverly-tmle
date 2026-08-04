@@ -692,6 +692,13 @@ variances and covariance, both remainder diagnostics and the two branches, the n
 their slopes, the realised drift coefficients, elapsed time, and a Monte Carlo standard error
 against every one of them.
 
+**And the three truncation witnesses**, which are gate 1's new clause 0 and are cheap because
+`benchmarks/bench_drtmle.py` already computes two of them: `clip share` at the initial mechanism,
+`margin` at the exit, and `min gr1`. They are not diagnostics of a fit going wrong — a bound-active
+fit can have every identity at `1e-17` and every score negligible, and on `weak-overlap` it does.
+They say which *estimator* the row is evidence about, which is a different question and one no
+other column on this list answers.
+
 ### Sizes and replications
 
 At least three sizes — `600 / 1,200 / 2,400` is the shape, adjusted upward if the prescribed rate
@@ -718,6 +725,16 @@ commercially uninteresting, and those are different conclusions.
 
 **Gate 1 — statistical validity.** `DRTMLE` is theoretically and computationally validated if:
 
+0. **the supported contract is frozen before the dispatch and the study's cells are inside it.**
+   This clause is new, it is the one change made to these rules since they were frozen, and the
+   written reason the rules require is [item
+   25](../roadmap.md#the-supported-contract-and-item-25): the guarantee is claimed for a fit whose
+   truncations are inactive, so a study that does not report which side of that line its cells fell
+   on cannot say what its coverage number is evidence about. Operationally: report `clip share` at
+   the initial mechanism, `CorrectionRow.margin` at the exit and `min gr1` per cell per size; a
+   cell with any of the three active is reported as bound-active and read as *empirically
+   supported, outside the theorem* rather than as evidence for or against Theorem 1. The rule is
+   changed **before** the final run and not after it, which is the only time it may be;
 1. theorem concordance closes, including
    [item 21](theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved);
 2. zero state-identity failures from [B1a](#1-the-invariants-piece-b1a)'s checks across the whole
