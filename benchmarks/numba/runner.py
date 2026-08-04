@@ -192,6 +192,11 @@ def _run_one(
         # `cli --cold-compile`, which is the only place it can be measured honestly.
         with applied(plan), warnings.catch_warnings():
             warnings.simplefilter("ignore")
+            # Read inside the plan, or it is the boot ceiling wearing a core count's name:
+            # `applied` restores numba's count on the way out, so a read after the block
+            # records what the process booted with rather than what this row ran at. On a
+            # four-core sweep that filed every two-core measurement as a four-core one.
+            effective = _effective_cores(plan)
             measurement = measure(
                 call,
                 warmups=config.warmups,
@@ -221,9 +226,23 @@ def _run_one(
                 verdict,
                 amortised,
                 inputs,
+                effective,
             )
         )
     return rows
+
+
+def _effective_cores(plan: ThreadPlan) -> int:
+    """Threads numba is actually running with.  Call this *inside* ``applied(plan)``.
+
+    numba caps a request at ``NUMBA_NUM_THREADS`` rather than refusing it, so a row that
+    asked for more than the process booted with would otherwise be filed at the count it
+    asked for.  That check is the whole point of the column, and it can only be made while
+    the plan is in force.
+    """
+    from .implementations.numba_parallel import effective_threads
+
+    return effective_threads() if plan.numba_threads > 1 else plan.requested_cores
 
 
 def _selected(spec: KernelSpec, config: Config) -> list[str]:
@@ -244,18 +263,15 @@ def _common(
     plan: ThreadPlan,
     dimensions: dict[str, Any],
     environment: Any,
+    effective: int | None,
 ) -> dict[str, Any]:
-    from .implementations.numba_parallel import effective_threads
-
     return {
         "scenario": spec.estimator,
         "operation": spec.name,
         "implementation": name,
         "n": size,
         "num_cores_requested": cores,
-        "num_cores_effective": (
-            effective_threads() if plan.numba_threads > 1 else plan.requested_cores
-        ),
+        "num_cores_effective": effective,
         "blas_threads": plan.blas_threads,
         "numba_threads": plan.numba_threads,
         "workers": plan.workers,
@@ -273,8 +289,11 @@ def _common(
 
 
 def _skipped(spec, name, size, cores, plan, dimensions, environment, reason) -> Row:
+    # `effective=None` rather than the requested count: this row never entered the plan,
+    # so there is no effective count to report and filling one in would put a number in
+    # the column that no measurement stands behind.
     return Row(
-        **_common(spec, name, size, cores, plan, dimensions, environment),
+        **_common(spec, name, size, cores, plan, dimensions, environment, None),
         repeat_count=0,
         warm_seconds=float("nan"),
         warm_iqr_seconds=float("nan"),
@@ -303,9 +322,10 @@ def _row(
     verdict,
     amortised,
     inputs,
+    effective: int | None,
 ) -> Row:
     return Row(
-        **_common(spec, name, size, cores, plan, dimensions, environment),
+        **_common(spec, name, size, cores, plan, dimensions, environment, effective),
         repeat_count=len(measurement.samples),
         warm_seconds=measurement.median,
         warm_iqr_seconds=measurement.iqr,

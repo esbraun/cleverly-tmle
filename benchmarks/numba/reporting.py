@@ -39,7 +39,11 @@ class Row:
     implementation: str
     n: int
     num_cores_requested: int
-    num_cores_effective: int
+    #: Threads numba was actually running with, read *inside* the applied plan -- numba
+    #: caps a request at ``NUMBA_NUM_THREADS`` rather than refusing it, and the point of
+    #: the column is to catch that.  ``None`` on a skipped row, which entered no plan and
+    #: so has no effective count: JSON writes ``null`` and the CSV an empty cell.
+    num_cores_effective: int | None
     blas_threads: int
     numba_threads: int
     workers: int
