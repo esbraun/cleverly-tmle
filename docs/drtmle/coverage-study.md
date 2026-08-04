@@ -200,7 +200,15 @@ itself. What the harness implements of them, and where:
   class of error as reporting a per-protocol analysis as intention-to-treat. The other two
   accountings — excluded with the exclusion rate beside it, and the rate as its own outcome — are
   printed next to it;
-- a fit that **raised** is in the denominator, recorded with what it raised.
+- a fit that **raised** is in the denominator, recorded with what it raised;
+- the invalid share is split into `identity` and `score` **columns**, because gate 1 asks for
+  the two apart — clause 2 is *zero state-identity failures* and clause 3 is *every required
+  score negligible* — and the tolerance clause 3 is read at is printed in the run banner rather
+  than left to a default nobody wrote down;
+- a **mixed** cell is reported pooled, with the two contract populations beside it as
+  description and never as a verdict. That is §5's fourth rule, it is C3's decision taken
+  before the dispatch, and [what forced it](#what-tier-1-already-showed-and-it-is-not-what-the-design-expected)
+  is below.
 
 ## Tier 2: a prescribed *rate* rather than a prescribed sequence
 
@@ -377,6 +385,14 @@ Three consequences, and none of them is that a fit is wrong:
    so the honest reading is a proportion of each cell's coverage number that is evidence about the
    constrained rendering — which is a reporting decision C3 has to take before its dispatch, and
    which this page flags rather than takes.
+
+   **C3 has taken it**, before its dispatch as clause 0 requires, and it is [§5's fourth
+   operational rule](validation-plan.md#four-rules-that-make-the-gates-operational): the pooled
+   number stays primary and is what clauses 5 and 6 read, the share is what clause 0 reads, and
+   the two contract populations are reported *beside* them as description — because the label is
+   a post-fit property of the draw, so selecting on it conditions on a non-random subset exactly
+   as excluding invalid fits would. `stratum_rows` is the table and the rule is in §5 rather than
+   in two places.
 3. **the contract label must stay out of the verdict**, which is why `CorrectionCheck.passed` does
    not read it. On this evidence a fit that is *sound in every way the package can check* is
    routinely outside the theorem's scope, and folding the label into a pass/fail would report a

@@ -99,7 +99,13 @@ jobs:
       # Through the environment rather than interpolated into the command, so the inputs are
       # arguments and not fragments of shell -- `nightly.yml` and `drtmle-convergence.yml`
       # say the same.
-      - env:
+      # `bash` rather than the default `bash -e {0}`, which has no `pipefail`: the study is
+      # piped through `tee`, so without it a crashed run exits on `tee`'s zero and reports a
+      # **green job with a truncated log and no JSONL**. That is the worst failure mode
+      # available to the one run on this page whose cost makes redoing it a decision rather
+      # than an errand -- a silent partial study reads exactly like a complete one.
+      - shell: bash -euo pipefail {0}
+        env:
           CELL: ${{ matrix.cell }}
           SIZES: ${{ inputs.sizes }}
           REPLICATES: ${{ inputs.replicates }}

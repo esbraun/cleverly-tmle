@@ -859,7 +859,7 @@ commercially uninteresting, and those are different conclusions.
 The 0.05 coverage gap belongs in gate 2 and only there. It is a product judgment about whether a
 costly estimator earns its place, and it has no theorem behind it.
 
-### Three rules that make the gates operational
+### Four rules that make the gates operational
 
 **"Compatible with 0.95"** means
 
@@ -888,6 +888,35 @@ a diagnostic correlated with the fit having gone wrong, and reporting it as *the
 same class of error as reporting a per-protocol analysis as intention-to-treat. The rule has to be
 written down before the numbers exist, because a demonstration whose exclusion rule was chosen
 after seeing which cells it helped is not a demonstration.
+
+**A mixed cell's coverage number is reported pooled, with the two contract populations beside
+it.** This is the fourth rule, it is [piece C3](../roadmap.md#c-the-demonstration)'s decision
+taken before its dispatch as clause 0 requires, and the written reason is
+[C1's witness](coverage-study.md#what-tier-1-already-showed-and-it-is-not-what-the-design-expected):
+cells are **mixed** rather than pure, so *"the study's cells are inside the contract"* is a share
+and there is no cell-level label for a coverage number to be read under.
+
+- **The primary number pools every fit in the cell**, which is the estimator as shipped, and it
+  is the same intention-to-treat reading the rule above it already takes. Clauses 5 and 6 read
+  it, and clause 0 reads the **share** beside it.
+- **Coverage within the theorem-side and the bound-active draws is reported next to it, as
+  description and not as a verdict.** The contract label is a *post-fit property of the draw*,
+  so conditioning on it selects a non-random subset exactly as excluding invalid fits does —
+  and the objection is the same one, so it earns the same answer. **Neither stratum may be
+  quoted as "the theorem-backed estimator's coverage"**, in this study or in any document
+  reading it; doing so is [stop-ship 15](../roadmap.md#stop-ship) with a number attached.
+- **What the strata are for** is the one question the share cannot answer: whether the two
+  populations behave differently at all. A cell whose two strata agree says the constrained
+  rendering is not doing anything visible to coverage at this size; a cell whose strata diverge
+  is a finding, and one neither the pooled number nor the share would show.
+- **The label stays out of every verdict**, which is why `CorrectionCheck.passed` does not read
+  it and why no accounting here does either. A bound-active fit can have every identity at
+  `1e-17` and every score negligible — on the well-overlapped draws C1 measured, it does — so
+  folding the label into a pass/fail would report a sixth of sound draws as broken.
+
+`benchmarks/drtmle_coverage.py::stratum_rows` is the implementation and the harness prints it
+under that caveat; the rule is here and not there, for the reason the design note gives about
+every rule in this study.
 
 ## 6. What each new test has to be watched to fail
 

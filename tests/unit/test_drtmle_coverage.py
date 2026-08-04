@@ -20,8 +20,21 @@ is a short list with a sharp reason behind each entry:
 * **a fit that raised reaches the table.**  A sweep that dropped it would report the coverage of
   the draws that happened to work.
 
-Everything in the last two is arithmetic on hand-built records and fits nothing, which is why
-this module is cheap despite testing a study.
+Piece C3 added three more, and each is a rule a gate reads rather than a convenience:
+
+* **the pooled coverage number stays pooled.**  §5's fourth operational rule -- a mixed cell is
+  reported pooled, with the two contract populations *beside* it as description.  A stratum
+  quietly becoming the primary number is the failure this pins, and it is built so the two
+  disagree completely so that a slip reads ``0.0`` or ``1.0`` rather than something plausible.
+* **the two causes of an invalid fit are counted apart.**  Gate 1's clause 2 is *zero
+  state-identity failures* and its clause 3 is *every required score negligible*; one boolean
+  answers neither, and B1a worded the two apart precisely because they send a reader to
+  different places.
+* **every table's rows are the width of its headers.**  A structural pin against the one
+  mistake that produces a complete, plausible, *wrong* table rather than a failure.
+
+Everything but the first two bullets is arithmetic on hand-built records and fits nothing, which
+is why this module is cheap despite testing a study.
 """
 
 from __future__ import annotations
@@ -41,6 +54,7 @@ from benchmarks import drtmle_injection as injection  # noqa: E402
 
 from cleverly import DRTMLE, TMLE  # noqa: E402
 from cleverly.utils.bounds import OutcomeScaler  # noqa: E402
+from cleverly.validation import score  # noqa: E402
 
 #: Small enough to be a fast-tier fit and large enough that the injected sequence's ``n``
 #: means something.  The injection makes the primary nuisances free -- they are function
@@ -287,6 +301,21 @@ class TestTheReducedRegressionsAreFittedAndNotInjected:
         assert np.abs(np.asarray(fit.nuisance.outcome.arms[1.0])).min() > 0.05
 
 
+def check_row(name: str, kind: str, passed: bool) -> score.ScoreCheckRow:
+    """A hand-built row, since only ``kind`` and ``passed`` are read by the split."""
+    return score.ScoreCheckRow(
+        name=name,
+        kind=kind,
+        score=0.0 if passed else 1.0,
+        threshold=1.0 if passed else 1e-12,
+        std_error=1.0,
+        passed=passed,
+        converged=True,
+        n_iter=1,
+        method="newton",
+    )
+
+
 def record(**overrides) -> study.Replicate:
     """A hand-built replicate, so the accounting can be tested without fitting anything."""
     defaults: dict[str, object] = {
@@ -303,6 +332,8 @@ def record(**overrides) -> study.Replicate:
         "upper": 1.6,
         "covered": True,
         "valid": True,
+        "identity_failures": 0,
+        "score_failures": 0,
         "contract": "theorem",
         "initial_clip_share": 0.0,
         "margin": 0.1,
@@ -542,7 +573,7 @@ class TestTheRemainderColumnsAreItemThirteens:
         rows = study.remainder_rows(records)
 
         assert rows
-        assert all(len(row) == 12 for row in rows)
+        assert all(len(row) == len(study.REMAINDER_HEADERS) for row in rows)
 
     def test_a_run_without_an_evaluation_draw_reports_no_rows(self) -> None:
         """Absent rather than blank: a column of ``nan`` reads as a measurement that failed."""
@@ -572,7 +603,223 @@ class TestTheRemainderColumnsAreItemThirteens:
             for i in range(4)
         ]
         (row,) = [entry for entry in study.remainder_rows(records) if entry[2] == "ate"]
+        cell = dict(zip(study.REMAINDER_HEADERS, row, strict=True))
 
-        assert row[9] == "-"
-        assert row[10] == "-"
-        assert row[11] == "0/4"
+        assert cell["R_Q"] == "-"
+        assert cell["R_g"] == "-"
+        # The cancellation ratio is clause 4's second half and is a ratio *of* the branches, so
+        # where they did not resolve it must not resolve either: a number here would say the
+        # total rests on no cancellation, which is a claim about two quantities nobody measured.
+        assert cell["cancel"] == "-"
+        assert cell["branches resolved"] == "0/4"
+
+
+class TestEveryTablesRowsMatchItsHeaders:
+    """A structural pin, and the hazard it exists for is specific rather than hypothetical.
+
+    The whole output of a dispatch is a log a human reads down a column.  A header tuple one
+    place out from its row builder does not fail, raise or print a ragged table -- it
+    **relabels every number underneath it**, and the study whose numbers those are is the one
+    run on this page whose cost makes redoing it a decision rather than an errand.
+
+    It is checked here rather than trusted to review because it is the mistake that was
+    actually made: inserting ``sqrt(n) R2`` into :func:`remainder_rows` while its headers lived
+    at the call site in ``main`` produced a complete, plausible, wrong table.
+    """
+
+    def test_each_builder_returns_rows_the_width_of_its_headers(self) -> None:
+        records = [
+            record(
+                data_seed=i,
+                estimator=name,
+                contract="theorem" if i % 2 else "bound-active",
+                remaining=float("nan") if name == "tmle" else 0.01,
+                root_n_remaining=float("nan") if name == "tmle" else 0.2,
+                branch_q=float("nan") if name == "tmle" else 0.004,
+                branch_g=float("nan") if name == "tmle" else -0.001,
+                branch_error=1e-5,
+            )
+            for i in range(4)
+            for name in ("tmle", "drtmle")
+        ]
+        builders = {
+            study.REGIME_HEADERS: study.regime_rows(records, [600]),
+            study.COVERAGE_HEADERS: study.coverage_rows(records),
+            study.SHORTFALL_HEADERS: study.shortfall_rows(records),
+            study.REMAINDER_HEADERS: study.remainder_rows(records),
+            study.CONTRACT_HEADERS: study.contract_rows(records),
+            study.STRATUM_HEADERS: study.stratum_rows(records),
+            study.VALIDITY_HEADERS: study.validity_rows(records),
+            study.REPLICATE_HEADERS: study.replicate_rows(records),
+        }
+
+        for headers, rows in builders.items():
+            assert rows, headers
+            for row in rows:
+                assert len(row) == len(headers), (headers, row)
+
+
+class TestTheTwoCausesOfAnInvalidFitAreCountedApart:
+    """Gate 1 asks for them apart, so one boolean cannot answer it.
+
+    Clause 2 is *zero state-identity failures across the whole study* and clause 3 is *every
+    required final score negligible*.  They are different findings -- an identity residual is a
+    software defect that iterating longer cannot fix, and a score above its threshold is a fit
+    that did not converge -- and B1a shipped ``correction_check`` precisely to keep the wording
+    of the two apart.  A study that collapsed them into ``valid`` would report a clause-2
+    failure as though it were a clause-3 one, which sends a reader to ``one_step`` and a smaller
+    step size for a fit whose solver did its job.
+    """
+
+    def test_an_identity_failure_is_not_counted_as_a_score_failure(self) -> None:
+        records = [
+            record(data_seed=i, valid=False, identity_failures=1, score_failures=0)
+            for i in range(3)
+        ]
+
+        cells = [
+            dict(zip(study.VALIDITY_HEADERS, r, strict=True)) for r in study.validity_rows(records)
+        ]
+        (cell,) = [c for c in cells if c["estimator"] == "drtmle"]
+
+        assert cell["identity"] == "3"
+        assert cell["score"] == "0"
+        assert cell["invalid share"] == "1.000"
+
+    def test_a_score_failure_is_not_counted_as_an_identity_failure(self) -> None:
+        records = [
+            record(data_seed=i, valid=False, identity_failures=0, score_failures=2)
+            for i in range(3)
+        ]
+
+        cells = [
+            dict(zip(study.VALIDITY_HEADERS, r, strict=True)) for r in study.validity_rows(records)
+        ]
+        (cell,) = [c for c in cells if c["estimator"] == "drtmle"]
+
+        assert cell["identity"] == "0"
+        assert cell["score"] == "6"
+
+    def test_the_split_is_taken_off_the_checks_own_selector(self) -> None:
+        """The arithmetic in the harness, not just the column it feeds.
+
+        Built by hand rather than by fitting: what is under test is that the two counts
+        partition ``failures``, so a check carrying one failing identity row and two failing
+        score rows must come back ``(1, 2)`` and never ``(1, 3)`` or ``(3, 0)``.
+        """
+        rows = (
+            check_row("ok", "score", passed=True),
+            check_row("identity[1.0]", "identity", passed=False),
+            check_row("eq8", "score", passed=False),
+            check_row("correction[1.0]", "correction", passed=False),
+        )
+        check = score.ScoreCheck(rows=rows, tolerance=study.VALIDITY_TOLERANCE, n=600)
+
+        assert study._failure_counts(check) == (1, 2)
+
+    def test_a_check_with_nothing_failing_carries_neither_count(self) -> None:
+        rows = (check_row("ok", "score", passed=True),)
+        check = score.ScoreCheck(rows=rows, tolerance=study.VALIDITY_TOLERANCE, n=600)
+
+        assert study._failure_counts(check) == (0, 0)
+
+    def test_a_fit_that_raised_carries_neither_count(self) -> None:
+        """There is no returned state for an identity to be checked against.
+
+        Such a row is read by ``error`` and by ``invalid share``, both of which already carry
+        it; putting it in ``identity`` as well would report a software defect the study has no
+        evidence for.
+        """
+        payload = study.Payload(cell="q-drift", n=600, data_seed=1, fold_seed=2)
+
+        rows = study._failed(payload, "drtmle", "ValueError", dict.fromkeys(study.ESTIMANDS, 0.0))
+
+        assert all(r.identity_failures == 0 and r.score_failures == 0 for r in rows)
+        assert all(r.error == "ValueError" and not r.valid for r in rows)
+
+
+class TestTheMixedCellRuleIsPooledPrimaryWithStrataBeside:
+    """C3's frozen decision, at the arithmetic rather than at the prose.
+
+    ``docs/drtmle/validation-plan.md`` §5's fourth operational rule.  C1's witness found cells
+    are **mixed**, so gate 1's clause 0 is a share and there is no cell-level label a coverage
+    number can be read under.  The rule: the pooled number stays primary and is what clauses 5
+    and 6 read; the two contract populations are reported beside it as *description*, because
+    the label is a post-fit property of the draw and selecting on it conditions on a non-random
+    subset exactly as excluding invalid fits would.
+    """
+
+    def test_the_pooled_number_is_over_every_draw_and_not_over_a_stratum(self) -> None:
+        """The load-bearing one: a stratum's coverage must not become the cell's.
+
+        Built so the two disagree -- every bound-active draw covers and no theorem-side one
+        does -- so a pooled number that had quietly become either stratum's reads 0.0 or 1.0
+        rather than the 0.5 the cell actually has.
+        """
+        records = [
+            record(
+                data_seed=i,
+                contract="bound-active" if i % 2 else "theorem",
+                covered=bool(i % 2),
+            )
+            for i in range(8)
+        ]
+
+        cells = [
+            dict(zip(study.COVERAGE_HEADERS, r, strict=True)) for r in study.coverage_rows(records)
+        ]
+        (pooled,) = [c for c in cells if c["estimator"] == "drtmle"]
+
+        assert pooled["coverage"] == "0.500"
+        assert pooled["reps"] == "8"
+
+    def test_the_strata_partition_the_cell(self) -> None:
+        records = [
+            record(data_seed=i, contract="bound-active" if i % 2 else "theorem", covered=i % 2 == 1)
+            for i in range(8)
+        ]
+
+        rows = [
+            dict(zip(study.STRATUM_HEADERS, r, strict=True)) for r in study.stratum_rows(records)
+        ]
+        by_population = {r["population"]: r for r in rows}
+
+        assert sum(int(r["reps"]) for r in rows) == 8
+        assert by_population["theorem"]["coverage"] == "0.000"
+        assert by_population["bound-active"]["coverage"] == "1.000"
+        assert by_population["theorem"]["share"] == "0.500"
+
+    def test_a_plain_fit_contributes_no_stratum_row(self) -> None:
+        """A ``TMLE`` fit has no mechanism tilt, so it is on neither side of the contract."""
+        records = [record(data_seed=i, estimator="tmle", contract="none") for i in range(4)]
+
+        assert study.stratum_rows(records) == []
+
+
+class TestTheRemainderCarriesTheColumnsTheGatesRead:
+    """``sqrt(n) R2`` is gate 2's and ``cancel`` is the second half of gate 1's clause 4."""
+
+    def test_root_n_r2_is_root_n_times_the_mean_plain_remainder(self) -> None:
+        records = [
+            record(data_seed=i, estimator="drtmle", remaining=0.01, r2=0.02) for i in range(4)
+        ]
+
+        cells = [
+            dict(zip(study.REMAINDER_HEADERS, r, strict=True))
+            for r in study.remainder_rows(records)
+        ]
+        (cell,) = [c for c in cells if c["estimand"] == "ate"]
+
+        assert cell["sqrt(n) R2"] == f"{np.sqrt(600) * 0.02:+.4f}"
+
+    def test_branches_of_one_sign_show_no_cancellation(self) -> None:
+        assert study._cancellation(0.004, 0.002) == "1.00x"
+
+    def test_opposed_branches_report_how_much_the_total_rests_on_cancelling(self) -> None:
+        """The failure mode clause 4 names: a small total built from two large branches.
+
+        ``|0.010| + |-0.009| = 0.019`` over a total of ``0.001`` is a total that is 19 times
+        smaller than the numbers it came from, which is exactly *"large with the other
+        cancelling it"* and is invisible in ``sqrt(n) R_rem`` alone.
+        """
+        assert study._cancellation(0.010, -0.009) == "19.00x"

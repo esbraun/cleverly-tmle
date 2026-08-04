@@ -6,14 +6,15 @@ coverage where a plain* ``TMLE``'s *does not*.  This script is the **instrument*
 ``benchmarks/bench_drtmle.py`` was the instrument for the B2 sweep: it asserts nothing, its
 output is a set of tables a human reads, and running it does not settle anything on its own.
 
-**It is Tier 1 only, and Tier 1 is not the demonstration.**
-``docs/drtmle/validation-plan.md`` §5 asks for two tiers.  Tier 1 hands the estimator a
-*prescribed* nuisance sequence (``benchmarks/drtmle_injection.py``), which is the only
-construction in which "the intended asymptotic regime was entered" is true by definition -- so
-it is where a remainder can be read off exactly, and it is **not an applied claim**.  Tier 2 is
-prescribed-rate *learners*, it needs the fold-retained nuisance objects :math:`P_0\hat D`
-requires, and it is the demonstration; both are piece C2's, and ``--tier 2`` is refused by name
-here rather than approximated.
+**Both tiers run from here, and only one of them is the demonstration.**
+``docs/drtmle/validation-plan.md`` §5 asks for two.  Tier 1 hands the estimator a *prescribed*
+nuisance sequence (``benchmarks/drtmle_injection.py``), which is the only construction in which
+"the intended asymptotic regime was entered" is true by definition -- so it is where a remainder
+can be read off exactly, and it is **not an applied claim**.  Tier 2 fits both nuisances, the
+good one a smoother at a bandwidth sequence committed before any fit
+(``benchmarks/drtmle_tier2.py``), and it **is** the demonstration.  ``--tier`` selects between
+them and the run banner says which was chosen, because a table that does not say which tier
+produced it is a table about an estimator nobody has named.
 
 What the tables answer, and why each is here rather than in a summary line:
 
@@ -37,11 +38,19 @@ What the tables answer, and why each is here rather than in a summary line:
   outside Theorem 1*, and a coverage number read without that label is a number about an
   estimator nobody has named.  The cells here are designed to be inside it; the column is what
   checks that rather than assuming it.
-* **the invalid-fit rate, three ways.**  The primary report counts an algorithmically invalid
-  fit as a **failure of the procedure**, which is an intention-to-treat reading: coverage over
-  the surviving fits is conditional on a non-random subset selected on a diagnostic correlated
-  with the fit having gone wrong.  The other two accountings are reported beside it, and the
-  rule is written down here rather than chosen after seeing which cells it helped.
+* **coverage within each contract population**, beside the share and never in place of the
+  pooled number.  Cells are *mixed* -- C1's witness found a sixth to a third of well-overlapped
+  draws exiting bound-active -- and how that is read is the decision C3 froze before its
+  dispatch: pooled is primary, the strata are description, and neither is "the theorem-backed
+  estimator's coverage", because the label is a post-fit property of the draw.
+* **the invalid-fit rate, three ways, and split by cause.**  The primary report counts an
+  algorithmically invalid fit as a **failure of the procedure**, which is an intention-to-treat
+  reading: coverage over the surviving fits is conditional on a non-random subset selected on a
+  diagnostic correlated with the fit having gone wrong.  The other two accountings are reported
+  beside it, and the rule is written down here rather than chosen after seeing which cells it
+  helped.  ``identity`` and ``score`` split the rate by cause because **gate 1 asks for them
+  apart**: an identity residual is a software defect and a score above its threshold is a fit
+  that did not converge, and one boolean answers neither clause on its own.
 
 **Why this is not** :class:`~cleverly.validation.CoverageStudy`.  That class is the right
 instrument for "does this configuration cover", and four things it does are wrong for a
@@ -85,7 +94,7 @@ import numpy as np
 from cleverly import DRTMLE, TMLE
 from cleverly.estimators.base import format_table
 from cleverly.utils.parallel import map_parallel
-from cleverly.validation import EstimandSummary
+from cleverly.validation import DEFAULT_TOLERANCE, EstimandSummary
 
 try:  # the benchmarks package is importable either way, depending on the entry point
     from benchmarks import drtmle_injection, drtmle_remainder, drtmle_tier2
@@ -125,6 +134,14 @@ ESTIMANDS = ("ate", "ey1", "ey0")
 
 #: The nominal level every coverage number below is read against.
 NOMINAL = 0.95
+
+#: **The predeclared validity rule**, which gate 1's clause 3 reads a fit against.  It is the
+#: package's own default and is *named* here rather than left to it, for the reason §5 gives
+#: about every rule in this study: a threshold nobody wrote down before the numbers existed is
+#: a threshold that can be chosen after seeing which cells it helped.  Passed explicitly to
+#: every ``score_check`` call below and printed in the run banner, so the record and the rule
+#: cannot come apart.
+VALIDITY_TOLERANCE = DEFAULT_TOLERANCE
 
 #: The reduced regressions' learner.  Named rather than defaulted: ``DRTMLE`` falls back to the
 #: primary *specification*, which here is an injected instance -- see
@@ -166,6 +183,15 @@ class Replicate:
     #: covers the state identities and the corrections as well as the three fluctuation rows.
     #: The primary accounting counts ``False`` as a coverage failure.
     valid: bool
+    #: The two causes of ``valid = False``, counted apart because **gate 1 asks for them
+    #: apart**: clause 2 is *zero state-identity failures* and clause 3 is *every required
+    #: final score negligible*, and a single boolean cannot answer both.  It is B1a's own
+    #: distinction carried into the study that reads it -- an identity residual is a software
+    #: defect and iterating longer cannot fix one, while a score above its threshold is a fit
+    #: that did not solve its equations.  ``score_failures`` is every other failing row, so
+    #: the two sum to ``len(score_check().failures)``.
+    identity_failures: int
+    score_failures: int
     #: Item 25's label and its three witnesses, ``""``/``nan`` for a plain ``TMLE`` fit, which
     #: has no mechanism tilt and so no contract to be inside or outside.
     contract: str
@@ -182,6 +208,11 @@ class Replicate:
     #: ``remaining`` is the corrected one Theorem 1 assumes negligible.
     r2: float = float("nan")
     p0_curve: float = float("nan")
+    #: :math:`P_n\hat D`, which targeting drove to zero.  Carried on the record rather than
+    #: only on :class:`benchmarks.drtmle_remainder.RemainderRow` so that a reader of the
+    #: per-replicate file can *see* that it did -- never so that it can stand in for
+    #: ``p0_curve``, which is the one the remainder is built from.
+    pn_curve: float = float("nan")
     remaining: float = float("nan")
     root_n_remaining: float = float("nan")
     branch_q: float = float("nan")
@@ -217,6 +248,25 @@ def _witnesses(fit: Any) -> dict[str, Any]:
         "margin": check.margin,
         "gr1_margin": check.gr1_margin,
     }
+
+
+def _failure_counts(check: Any) -> tuple[int, int]:
+    """A failing fit's two causes, counted apart, because **gate 1 reads them apart**.
+
+    Clause 2 is *zero state-identity failures across the whole study*; clause 3 is *every
+    required final score negligible*.  ``score_check().passed`` answers neither on its own, and
+    the two are different findings rather than two shades of one: an identity residual says the
+    score the loop recorded and the term the reported curve carries are not the same functional
+    of the returned state -- a software defect, which iterating longer cannot fix -- while a
+    score above its threshold says the fit did not solve the equation it posed.  B1a worded them
+    apart for exactly this reason; collapsing them here would undo that in the one place it
+    finally gets read.
+
+    Taken off :attr:`ScoreCheck.identity_failures`, which is the class's own selector on the
+    ``identity`` row kind, so there is one definition of "identity failure" rather than two.
+    """
+    identity = len(check.identity_failures)
+    return identity, len(check.failures) - identity
 
 
 def _alternation(fit: Any) -> dict[str, Any]:
@@ -256,6 +306,11 @@ def _failed(
             upper=float("nan"),
             covered=False,
             valid=False,
+            # A fit that raised solved nothing, and neither count is a *failure* of the kind
+            # gate 1 reads: there is no state to check an identity against. The `error`
+            # column is what such a row is read by, and `invalid share` already carries it.
+            identity_failures=0,
+            score_failures=0,
             contract="none",
             initial_clip_share=float("nan"),
             margin=float("nan"),
@@ -319,7 +374,9 @@ def one_draw(payload: Payload) -> list[Replicate]:
             records.extend(_failed(payload, estimator, type(exc).__name__, truth))
             continue
         seconds = time.perf_counter() - started
-        valid = fit.validation.score_check().passed
+        check = fit.validation.score_check(tolerance=VALIDITY_TOLERANCE)
+        valid = check.passed
+        identity_failures, score_failures = _failure_counts(check)
         witnesses, alternation = _witnesses(fit), _alternation(fit)
         remainder: dict[str, Any] = {}
         if estimator == "drtmle" and evaluation is not None:
@@ -354,9 +411,12 @@ def one_draw(payload: Payload) -> list[Replicate]:
                     upper=float(high),
                     covered=bool(low <= truth[name] <= high),
                     valid=valid,
+                    identity_failures=identity_failures,
+                    score_failures=score_failures,
                     seconds=seconds,
                     r2=float("nan") if row is None else row.r2,
                     p0_curve=float("nan") if row is None else row.p0_curve,
+                    pn_curve=float("nan") if row is None else row.pn_curve,
                     remaining=float("nan") if row is None else row.remaining,
                     root_n_remaining=float("nan") if row is None else row.root_n_remaining,
                     branch_q=float("nan") if row is None else row.branch_q,
@@ -538,11 +598,34 @@ def paired_shortfall(
 
 
 # ------------------------------------------------------------------ the tables
+#
+# Every table's headers are declared **beside the function that builds its rows**, and
+# ``main`` reads them from here rather than spelling them out at the call site.  The reason is
+# a hazard this study cannot afford: the whole output of a dispatch is a log a human reads
+# down a column, so a header tuple that has drifted one place from its row builder does not
+# fail -- it relabels every number underneath it.  Inserting one column into
+# :func:`remainder_rows` and forgetting its header is a two-line mistake that produces a
+# complete, plausible, wrong table, and it happened while this pair was two declarations.
+# ``TestEveryTablesRowsMatchItsHeaders`` is the pin.
 
 
 def design_rows() -> list[list[str]]:
     """What the design committed to, printed before any measurement is read."""
     return injection.summary_rows()
+
+
+#: Headers for :func:`regime_rows`, declared beside it -- see the note above.
+REGIME_HEADERS = (
+    "cell",
+    "n",
+    "R2 (ate)",
+    "n^a R2 (ate)",
+    "declared c",
+    "n^a R2 (arm 1)",
+    "n^a R2 (arm 0)",
+    "||Q-hat - Q0||",
+    "||g-hat - g0||",
+)
 
 
 def regime_rows(records: Sequence[Replicate], sizes: Sequence[int]) -> list[list[str]]:
@@ -583,6 +666,25 @@ def regime_rows(records: Sequence[Replicate], sizes: Sequence[int]) -> list[list
     return rows
 
 
+#: Headers for :func:`coverage_rows`, declared beside it -- see the note above.
+COVERAGE_HEADERS = (
+    "cell",
+    "n",
+    "estimand",
+    "estimator",
+    "reps",
+    "bias",
+    "sqrt(n) bias",
+    "mc se",
+    "mean se",
+    "se ratio",
+    "coverage",
+    "wilson 95%",
+    "compatible",
+    "width",
+)
+
+
 def coverage_rows(records: Sequence[Replicate]) -> list[list[str]]:
     """Coverage and calibration per cell, size, estimator and estimand."""
     rows = []
@@ -615,6 +717,20 @@ def coverage_rows(records: Sequence[Replicate]) -> list[list[str]]:
     return rows
 
 
+#: Headers for :func:`shortfall_rows`, declared beside it -- see the note above.
+SHORTFALL_HEADERS = (
+    "cell",
+    "n",
+    "estimand",
+    "pairs",
+    "tmle",
+    "drtmle",
+    "tmle shortfall",
+    "drtmle - tmle",
+    "resolved",
+)
+
+
 def shortfall_rows(records: Sequence[Replicate]) -> list[list[str]]:
     """The comparison the study is for, paired on the draw."""
     rows = []
@@ -639,6 +755,19 @@ def shortfall_rows(records: Sequence[Replicate]) -> list[list[str]]:
                 ]
             )
     return rows
+
+
+#: Headers for :func:`contract_rows`, declared beside it -- see the note above.
+CONTRACT_HEADERS = (
+    "cell",
+    "n",
+    "fits",
+    "bound-active",
+    "contract",
+    "worst clip share",
+    "min margin",
+    "min gr1 margin",
+)
 
 
 def contract_rows(records: Sequence[Replicate]) -> list[list[str]]:
@@ -669,8 +798,89 @@ def contract_rows(records: Sequence[Replicate]) -> list[list[str]]:
     return rows
 
 
+#: Headers for :func:`stratum_rows`, declared beside it -- see the note above.
+STRATUM_HEADERS = (
+    "cell",
+    "n",
+    "population",
+    "reps",
+    "share",
+    "coverage",
+    "wilson 95%",
+)
+
+
+def stratum_rows(records: Sequence[Replicate]) -> list[list[str]]:
+    """Coverage within each contract population, which is C3's mixed-cell decision.
+
+    **Description, not a verdict, and the distinction is the whole rule.**  C1's witness found
+    cells are *mixed* -- a sixth to a third of well-overlapped draws exit bound-active, because
+    equation (9)'s covariate vanishes where the outcome regression is right rather than because
+    overlap is poor -- so a cell's coverage number is partly evidence about the constrained
+    rendering.  What gate 1's clause 0 reads is the **share**, in the contract table; what
+    clauses 5 and 6 read is the **pooled** number, in the coverage table.
+
+    These rows are neither.  The contract label is a *post-fit property of the draw*, so
+    conditioning on it selects a non-random subset exactly as excluding invalid fits does --
+    and the same objection applies: neither stratum may be quoted as "the theorem-backed
+    estimator's coverage".  What they answer is the one question the share alone cannot, which
+    is whether the two populations behave differently at all.
+
+    ``DRTMLE`` rows only: a plain fit has no mechanism tilt and so no contract to be inside.
+    """
+    rows = []
+    for cell, n in _cells(records):
+        selected = [r for r in _select(records, cell, n, "drtmle", "ate") if r.contract != "none"]
+        if not selected:
+            continue
+        for population in ("theorem", "bound-active"):
+            stratum = [r for r in selected if r.contract == population]
+            if not stratum:
+                continue
+            # The primary accounting, unchanged, applied within the stratum -- so a number
+            # here differs from the pooled one only through which draws it is over.
+            hits = sum(1 for r in stratum if r.covered and r.valid and np.isfinite(r.psi))
+            low, high = wilson(hits, len(stratum))
+            rows.append(
+                [
+                    cell,
+                    f"{n:,}",
+                    population,
+                    str(len(stratum)),
+                    f"{len(stratum) / len(selected):.3f}",
+                    f"{hits / len(stratum):.3f}",
+                    f"[{low:.3f}, {high:.3f}]",
+                ]
+            )
+    return rows
+
+
+#: Headers for :func:`validity_rows`, declared beside it -- see the note above.
+VALIDITY_HEADERS = (
+    "cell",
+    "n",
+    "estimator",
+    "reps",
+    "invalid share",
+    "identity",
+    "score",
+    "raised",
+    "coverage (primary)",
+    "coverage (excluded)",
+    "valid reps",
+)
+
+
 def validity_rows(records: Sequence[Replicate]) -> list[list[str]]:
-    """The invalid-fit rate, and what the three accountings do to the coverage number."""
+    """The invalid-fit rate, and what the three accountings do to the coverage number.
+
+    The two failure counts are reported **apart** because gate 1 asks for them apart: clause 2
+    is *zero state-identity failures across the whole study* and clause 3 is *every required
+    final score negligible*.  A single ``valid`` boolean answers neither on its own, and the
+    two mean different things -- an identity residual is a software defect that iterating
+    longer cannot fix, and a score above its threshold is a fit that did not converge.  Counted
+    over the ``ate`` rows, which is one row per fit rather than one per estimand.
+    """
     rows = []
     for cell, n in _cells(records):
         for estimator in ("tmle", "drtmle"):
@@ -686,6 +896,8 @@ def validity_rows(records: Sequence[Replicate]) -> list[list[str]]:
                     estimator,
                     str(accounted.trials),
                     f"{accounted.invalid_share:.3f}",
+                    str(sum(r.identity_failures for r in selected)),
+                    str(sum(r.score_failures for r in selected)),
                     ", ".join(raised) or "-",
                     f"{accounted.primary:.3f}",
                     f"{accounted.excluded:.3f}",
@@ -693,6 +905,46 @@ def validity_rows(records: Sequence[Replicate]) -> list[list[str]]:
                 ]
             )
     return rows
+
+
+def _cancellation(branch_q: float, branch_g: float) -> str:
+    """How much of the total the two appendix branches cancel out of, as a ratio.
+
+    Gate 1's clause 4 is two claims and only the first had a column: the total has to trend to
+    zero, **and** it must not do so because one large branch cancels the other.  This is the
+    second, ``(|R_Q| + |R_g|) / |R_Q + R_g|``: one where the branches do not oppose each other
+    at all, and unbounded as the total goes to zero with the branches apart.
+
+    Deliberately a **ratio and not a verdict**.  §5 declares no threshold for it, and inventing
+    one here would put a rule in a second place -- the number is reported and the clause is read
+    against it in the study's write-up.
+    """
+    total = abs(branch_q + branch_g)
+    magnitude = abs(branch_q) + abs(branch_g)
+    if not np.isfinite(magnitude) or magnitude == 0.0:
+        return "-"
+    if total == 0.0:
+        return "inf"
+    return f"{magnitude / total:.2f}x"
+
+
+#: Headers for :func:`remainder_rows`, declared beside it -- see the note above.
+REMAINDER_HEADERS = (
+    "cell",
+    "n",
+    "estimand",
+    "reps",
+    "R2 (fitted)",
+    "sqrt(n) R2",
+    "n^a R2",
+    "declared c",
+    "R_rem",
+    "sqrt(n) R_rem",
+    "R_Q",
+    "R_g",
+    "cancel",
+    "branches resolved",
+)
 
 
 def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
@@ -704,10 +956,19 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
     Carlo standard error travels beside every entry.
 
     ``R_2`` is the *plain* remainder at the fitted nuisances and is here for the regime-entry
-    question, against the coefficient the design committed to.  ``sqrt(n) R_rem`` is the one
+    question, against the coefficient the design committed to; ``sqrt(n) R2`` beside it is the
+    one **gate 2's** clause 1 reads, since its third condition is that the plain remainder
+    fails to vanish in the cell the shortfall is claimed in.  ``sqrt(n) R_rem`` is the one
     gate 1's clause 4 reads.  The branch columns are ``-`` where the binned limits did not
     resolve them, which is a statement about the design rather than about the estimator --
     see ``benchmarks/drtmle_remainder.py``.
+
+    ``cancel`` is clause 4's **second half**, which had no column at all: a total trending to
+    zero can conceal two large branches of opposite sign, so the ratio
+    ``(|R_Q| + |R_g|) / |R_Q + R_g|`` says how much cancellation the total rests on.  One is
+    no cancellation; a large value is the failure mode the clause names, and it is reported
+    rather than thresholded because §5 sets no number for it.  ``-`` where the branches did
+    not resolve, since a ratio of two unresolved quantities is not a measurement of anything.
     """
     rows = []
     for cell, n in _cells(records):
@@ -741,16 +1002,58 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
                     estimand,
                     str(len(selected)),
                     f"{r2_mean:+.4f}",
+                    f"{math.sqrt(n) * r2_mean:+.4f}",
                     f"{n**injection.ALPHA * r2_mean:+.4f}",
                     f"{declared:+.4f}" if estimand == "ate" else "",
                     f"{column('remaining')[0]:+.5f}",
                     f"{root_mean:+.4f} +/- {root_error:.4f}",
                     f"{branch_q:+.5f}" if resolved else "-",
                     f"{branch_g:+.5f}" if resolved else "-",
+                    _cancellation(branch_q, branch_g) if resolved else "-",
                     f"{resolved}/{len(selected)}",
                 ]
             )
     return rows
+
+
+#: Headers for :func:`replicate_rows`, declared beside it -- see the note above.
+REPLICATE_HEADERS = (
+    "cell",
+    "n",
+    "seed",
+    "estimator",
+    "estimand",
+    "psi",
+    "se",
+    "covered",
+    "valid",
+    "contract",
+)
+
+
+def replicate_rows(records: Sequence[Replicate]) -> list[list[str]]:
+    """Every replicate, under ``--rows``.
+
+    A ten-column projection of a twenty-nine-field record: the rest are in the per-replicate
+    JSONL, which is where a reader who wants them should go rather than to a wider table.  What
+    is here is what a human scans a log for -- which draw, which estimator, did it cover, did it
+    solve what it reports, and which side of the contract it exited on.
+    """
+    return [
+        [
+            r.cell,
+            f"{r.n:,}",
+            str(r.data_seed),
+            r.estimator,
+            r.estimand,
+            f"{r.psi:+.4f}",
+            f"{r.std_error:.4f}",
+            "yes" if r.covered else "no",
+            "yes" if r.valid else "NO",
+            r.contract,
+        ]
+        for r in records
+    ]
 
 
 def _payloads(
@@ -867,133 +1170,46 @@ def main() -> None:
     )
     table(
         "Which regime the cells entered",
-        (
-            "cell",
-            "n",
-            "R2 (ate)",
-            "n^a R2 (ate)",
-            "declared c",
-            "n^a R2 (arm 1)",
-            "n^a R2 (arm 0)",
-            "||Q-hat - Q0||",
-            "||g-hat - g0||",
-        ),
+        REGIME_HEADERS,
         regime_rows(records, args.sizes),
     )
     table(
         "Coverage and calibration",
-        (
-            "cell",
-            "n",
-            "estimand",
-            "estimator",
-            "reps",
-            "bias",
-            "sqrt(n) bias",
-            "mc se",
-            "mean se",
-            "se ratio",
-            "coverage",
-            "wilson 95%",
-            "compatible",
-            "width",
-        ),
+        COVERAGE_HEADERS,
         coverage_rows(records),
     )
     table(
         "The shortfall, paired on the draw",
-        (
-            "cell",
-            "n",
-            "estimand",
-            "pairs",
-            "tmle",
-            "drtmle",
-            "tmle shortfall",
-            "drtmle - tmle",
-            "resolved",
-        ),
+        SHORTFALL_HEADERS,
         shortfall_rows(records),
     )
     if args.evaluation_n > 0:
         table(
             "The remainder Theorem 1 assumes negligible (item 13)",
-            (
-                "cell",
-                "n",
-                "estimand",
-                "reps",
-                "R2 (fitted)",
-                "n^a R2",
-                "declared c",
-                "R_rem",
-                "sqrt(n) R_rem",
-                "R_Q",
-                "R_g",
-                "branches resolved",
-            ),
+            REMAINDER_HEADERS,
             remainder_rows(records),
         )
     table(
         "Which estimator each cell is evidence about (gate 1, clause 0)",
-        (
-            "cell",
-            "n",
-            "fits",
-            "bound-active",
-            "contract",
-            "worst clip share",
-            "min margin",
-            "min gr1 margin",
-        ),
+        CONTRACT_HEADERS,
         contract_rows(records),
     )
     table(
+        "Coverage within the two contract populations (description, not a verdict)",
+        STRATUM_HEADERS,
+        stratum_rows(records),
+    )
+    table(
         "Invalid fits, three accountings",
-        (
-            "cell",
-            "n",
-            "estimator",
-            "reps",
-            "invalid share",
-            "raised",
-            "coverage (primary)",
-            "coverage (excluded)",
-            "valid reps",
-        ),
+        VALIDITY_HEADERS,
         validity_rows(records),
     )
 
     if args.rows:
         table(
             "Every replicate",
-            (
-                "cell",
-                "n",
-                "seed",
-                "estimator",
-                "estimand",
-                "psi",
-                "se",
-                "covered",
-                "valid",
-                "contract",
-            ),
-            [
-                [
-                    r.cell,
-                    f"{r.n:,}",
-                    str(r.data_seed),
-                    r.estimator,
-                    r.estimand,
-                    f"{r.psi:+.4f}",
-                    f"{r.std_error:.4f}",
-                    "yes" if r.covered else "no",
-                    "yes" if r.valid else "NO",
-                    r.contract,
-                ]
-                for r in records
-            ],
+            REPLICATE_HEADERS,
+            replicate_rows(records),
         )
 
     print("\nReading the numbers")
@@ -1023,16 +1239,32 @@ def main() -> None:
         "finding about the design and not about the variant."
     )
     print(
+        "\nCells are mixed rather than pure, so the stratum table is beside the contract one\n"
+        "and is *description*: the pooled coverage number is what gate 1's clauses 5 and 6\n"
+        "read, the share is what clause 0 reads, and neither stratum is 'the theorem-backed\n"
+        "estimator's coverage' -- the label is a post-fit property of the draw, so selecting\n"
+        "on it conditions on a non-random subset exactly as dropping invalid fits would."
+    )
+    print(
         "\nThe primary coverage column counts an algorithmically invalid fit as a failure of\n"
         "the procedure. The excluded column is beside it and is never to be quoted without\n"
-        "the invalid share, which is the third accounting."
+        "the invalid share, which is the third accounting. `identity` and `score` split that\n"
+        "share by cause, which gate 1 asks for apart: clause 2 is zero state-identity\n"
+        "failures and clause 3 is every required score negligible at tolerance "
+        f"{VALIDITY_TOLERANCE:g},\nwhich is the predeclared validity rule this run was read "
+        "under."
     )
     if args.evaluation_n > 0:
         print(
             "\nThe remainder table is item 13. `sqrt(n) R_rem` is what gate 1's clause 4 reads\n"
             "and it has to trend to zero across the sizes; `R_Q` and `R_g` are the two\n"
             "appendix branches, so that a total trending to zero cannot conceal cancellation\n"
-            "between them. Where `branches resolved` is short of the replicate count, the\n"
+            "between them, and `cancel` is that second half as a number -- (|R_Q| + |R_g|)\n"
+            "over |R_Q + R_g|, one where the branches do not oppose each other and large\n"
+            "where a small total rests on two large branches of opposite sign. `sqrt(n) R2`\n"
+            "is the plain remainder and is gate 2's clause 1, whose third condition is that\n"
+            "it fails to vanish in the cell the shortfall is claimed in.\n"
+            "Where `branches resolved` is short of the replicate count, the\n"
             "binned limits those two are built from did not separate from their own\n"
             "discretisation error, which is a statement about this design and not about the\n"
             "estimator -- benchmarks/drtmle_remainder.py says what is approximated in them."
