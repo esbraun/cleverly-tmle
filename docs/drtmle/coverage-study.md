@@ -543,6 +543,12 @@ Tier 2's regime is not the one that was committed. Both bear on whether the 250-
 would measure the thing it is for, and §5 permits the design to move **before** that run and not
 after it.
 
+> **This whole section is kept as the pilot read it, and [the repair](#the-repair-and-what-would-say-each-half-of-it-is-wrong)
+> below is what the numbers became.** Three of its readings have since moved — the factor was
+> `436` and not twenty, `g-drift`'s corrected remainder is not rising, and Tier 2's realised
+> coefficient is stable rather than drifting — and each is corrected where it is used rather than
+> edited away here, because a pilot's value is that it was run before anyone knew the answer.
+
 ## The repair, and what would say each half of it is wrong
 
 **The decision is to fix the design rather than to run it or to abandon it**, and [§5's
@@ -751,14 +757,24 @@ every other. *Not resolvable at this draw count* and *failed* are different thin
 says which it is; separating them is what the 250-replicate dispatch exists for, and it is
 [item 13](../roadmap.md#what-is-still-open)'s number rather than this design's.
 
-### This is the second time a coverage study here has found no gap
+### Twice a coverage study here found no gap, and the pair is the thing to carry forward
 
 The first is on the roadmap already: a pilot over the off-diagonal grid put `TMLE` and `DRTMLE` at
 `0.958` apiece in one cell and `1.000` in the other, and the diagnosis was that a correctly
 specified *parametric* nuisance converges at `n^(−1/2)`, so `R₂` is `O(n^(−1))` and the product
-condition never binds. The whole Tier-1/Tier-2 construction exists to answer that. **It has now
-returned "no gap" a second time, for a different reason**, and a future agent should hold the two
-together: the first was the nuisance converging too fast, the second is the targeting step removing
-what was injected. Both are the study failing to *enter* the regime rather than the estimator
-failing in it, and a third recurrence would be evidence that the regime is hard to reach on purpose
-rather than by accident.
+condition never binds. The whole Tier-1/Tier-2 construction exists to answer that. It returned "no
+gap" a second time in C3a's pilot, for a different reason: the targeting step removing what was
+injected.
+
+**Both were the study failing to *enter* the regime rather than the estimator failing in it, and
+both are now closed** — the first by this construction, the second by
+[the repair](#the-repair-and-what-would-say-each-half-of-it-is-wrong). What a future agent should
+carry forward is not the tally but the **shape** the two share, because a third instance would look
+like neither: in each case a column that was exactly right sat beside a prediction that was wrong,
+and in each case the resolution was that the two were about different quantities. A nuisance norm
+is not a remainder; a plug-in remainder is not a bias. Where a design's own column agrees with its
+own arithmetic and the fits disagree with both, the question to ask first is **which quantity each
+of them is**, not what constant to change.
+
+The instrument that now enforces this is the pre-flight, and its whole content is that a design's
+number has to be checked against a *fit* before the expensive run and not after it.

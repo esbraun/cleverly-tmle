@@ -13,13 +13,16 @@ widening of scope**. That is a different kind of list from the one this page ope
 does not lower the bar: *done* still means a demonstration that the interval attains nominal
 coverage where a plain `TMLE`'s does not.
 
-**The demonstration's instruments have all landed, the pilot has run, and what is left of piece C
-is a repair and then a dispatch.**
+**The demonstration's instruments have all landed, the pilot has run, the repair it forced has
+landed, and what is left of piece C is the dispatch.**
 [C1](#what-c1-landed) is the harness, Tier 1's prescribed nuisance sequences with their
 drift coefficients committed and verified, and [item 25](#the-supported-contract-and-item-25)'s
 per-fit truncation witness; [C2](#what-c2-landed) is **Tier 2** — both nuisances fitted, the good
 one a smoother at a committed bandwidth sequence — and the **evaluation companion** that makes
-`P₀D̂` computable, so item 13's columns exist for the first time. Tier 2 also came in cheaper than
+`P₀D̂` computable, so item 13's columns exist for the first time; and [C3b](#what-c3b-repaired) is
+the **second declared coefficient** — the estimator's bias rather than the plug-in remainder — a
+Tier-1 injection built to hit it, and the three pre-flight conditions as a verdict table the
+harness prints and the workflow says to read first. Tier 2 also came in cheaper than
 the tier it replaces: 5.4s to 7.4s a fit against the 43s this page costed C from.
 
 C1's first run moved a scope claim rather than a number — and that witness immediately found the contract's condition is not the
@@ -2565,7 +2568,7 @@ carried forward as an item of its own.
 
 ## What the sizings got wrong
 
-Thirteen lessons, and they now live in [the investigation
+Sixteen lessons, and they now live in [the investigation
 log](drtmle/investigation-log.md#what-the-sizings-got-wrong) with the rest of the record. They are
 kept because the only thing a retrospective is for is the next sizing, and they are not on this
 page because a plan is not a history. In one line each:
