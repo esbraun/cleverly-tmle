@@ -654,6 +654,14 @@ def comparison_rows(results: list[Exit], variant: str) -> list[list[str]]:
     Paired on the draw rather than compared cell-mean to cell-mean: the two arms fit the
     *same* data with the *same* fold seed, so the difference is the arm's and pairing is
     what removes the draw-to-draw variation that would otherwise swamp it.
+
+    ``worst identity`` is here because :func:`curve_rows` is base-only, and the update-order
+    rule frozen in ``docs/drtmle/validation-plan.md`` §4 asks for the state identity in
+    **either** arm rather than in the one that happens to be the reference.  Every
+    :class:`Exit` already carries a populated :class:`Curve` -- :func:`one_fit` computes it
+    whatever the arm -- so the number existed and only the table dropped it.  The column
+    makes that clause measurable; it does not move the rule, and reading it as a change to
+    one would be the thing §4 was frozen to prevent.
     """
     base = {
         (r.process, r.n, r.data_seed): r for r in results if r.variant == "base" and not r.error
@@ -675,6 +683,10 @@ def comparison_rows(results: list[Exit], variant: str) -> list[list[str]]:
                 f"{_median(ratios):.4f}",
                 f"{min(ratios):.4f} - {max(ratios):.4f}",
                 _share([not other.score_ok for _, other in paired]),
+                # A max rather than a median, as `curve_rows` takes it: the identity's right
+                # value is zero, so the cell's verdict is its worst row and an average would
+                # let one broken fit hide behind eleven sound ones.
+                f"{max(other.curve.identity for _, other in paired):.1e}",
                 f"{_median([other.rounds for _, other in paired]):.0f}",
             ]
         )
@@ -955,6 +967,7 @@ def main() -> None:
                     "med se ratio",
                     "se ratio range",
                     "check fails",
+                    "worst identity",
                     "med rounds",
                 ],
                 comparison_rows(results, variant),

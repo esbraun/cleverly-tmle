@@ -497,6 +497,17 @@ prescribes a fixed point rather than a route — would not survive it. A route d
 large but shrinks at the same rate as the reseed's is the *opposite* finding, and is the expected
 one.
 
+**Clause 4 needed a column, and adding one is not changing the rule.** The identity lives on *What
+the reported curve rests on*, and that table is base-only — so at the time this rule was frozen
+three of its four clauses were answerable from the printed tables and the fourth was answerable for
+one arm of the two it names. Every `Exit` already carried the number, since `one_fit` computes the
+whole `Curve` whatever the arm; only `comparison_rows` dropped it. It now carries a `worst identity`
+column, a **max** over the cell as `curve_rows` takes it, since an identity's right value is zero and
+a median would let one broken fit hide behind eleven sound ones. The distinction this paragraph
+exists to hold is that the *rule* is unchanged and what moved is what can be read against it —
+`tests/unit/test_bench_drtmle.py` pins the column, watched to fail. A clause nobody can evaluate is
+not a frozen rule, it is a frozen intention.
+
 **Why a count rather than an interval.** `comparison_rows` reports a median, and this repository has
 no Monte Carlo standard error for a median — `EstimandSummary.bias_se` is a mean's. At twelve draws
 a distribution-free paired count is honest where an invented interval would not be, so clause 2 is
@@ -514,6 +525,17 @@ order: true    order_control: true
 2 processes × 3 sizes × 12 seeds × 3 arms = 216 fits, ≈ 100 minutes at `jobs: 2` against the
 180-minute cap, with the paper arm's longer route allowed for. The main four-process sweep keeps its
 two sizes and runs with the arms **off**.
+
+**It was dispatched as two runs, one process each, and the reason is the cap rather than the rule.**
+The estimate above is against the base arm's 42.6s per fit; the paper arm took 22 rounds against 8
+on the draw the two were first compared on, so a *draw* costs base + reseed + paper and 72 draws at
+`jobs: 2` reaches ~118 minutes before the `n = 2,400` cell is allowed for. The workflow prints
+nothing until every fit has returned — a run killed at the cap reports no table at all rather than a
+truncated one — so a single dispatch stakes the whole arm on an estimate. Every table here is keyed
+on `(process, n)` and every clause of the rule above is stated per process, so two dispatches of
+~60 minutes produce exactly the rows one would have. **The split changes the run and not the rule**,
+and it is recorded here rather than in the log because a reader checking the rule against the
+evidence will otherwise find one dispatch promised and two delivered.
 
 **Stopping and validity are two questions and the sweep must report them separately.**
 Asymptotic linearity asks for `P_n D = o_p(n^(−1/2))`; the honest finite-sample rendering of `o`
