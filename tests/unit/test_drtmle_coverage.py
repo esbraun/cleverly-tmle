@@ -468,29 +468,111 @@ class TestTheContractColumnIsReportedPerCell:
         assert study.contract_rows(records) == []
 
 
-class TestTierTwoIsRefusedRatherThanApproximated:
-    def test_the_refusal_fires_before_a_single_fit_and_names_where_tier_two_lives(
-        self, monkeypatch
-    ) -> None:
-        """So that a dispatch cannot produce a number the harness has no learner for.
+class TestTheTierIsSelectedRatherThanRefused:
+    r"""``--tier 2`` runs now, and the refusal that stood here is **deleted** rather than kept.
 
-        The two tiers answer different questions and the confusion between them is the one this
-        script is most likely to cause -- Tier 1's numbers are about a prescribed nuisance
-        sequence and are not an applied claim -- so the refusal is a message naming what Tier 2
-        would need and which piece owns it, rather than an ``argparse`` rejection that says only
-        that 2 is not 1.
+    It read *"tier 2 is not implemented here and is refused rather than approximated"*, and
+    the thing it named -- prescribed-rate learners plus the fold-retained nuisances
+    :math:`P_0\hat D` needs -- is what piece C2 landed.  Deleted rather than guarded, which
+    is `lesson 12 <../../docs/drtmle/investigation-log.md>`_ of the investigation log applied
+    a second time: a branch kept "in case" is a branch that hides the next mutation.
 
-        Driven through ``main`` rather than asserted against the source: what matters is that it
-        fires *before* any fit, which reading the file cannot establish.
+    What replaces it is a *selection*, and the confusion the refusal existed to prevent is
+    now handled by the banner the run prints: the two tiers answer different questions and
+    every table says which one it is reporting.
+    """
+
+    def test_a_tier_selects_a_module_and_both_supply_one_interface(self) -> None:
+        assert set(study.TIERS) == {1, 2}
+        for tier in study.TIERS.values():
+            for name in ("CELLS", "ALPHA", "base_law", "settings", "drift_coefficients"):
+                assert hasattr(tier, name)
+
+    def test_tier_two_runs_and_reports_the_same_tables(self, monkeypatch, tmp_path) -> None:
+        """Driven through ``main`` rather than through the pieces.
+
+        A smoke size, because what is checked is that a tier-2 dispatch produces the tables
+        rather than what the numbers in them are -- the numbers are the study's, and the
+        study runs on a runner.
         """
         monkeypatch.setattr(
-            sys, "argv", ["drtmle_coverage.py", "--tier", "2", "--replicates", "500"]
+            sys,
+            "argv",
+            [
+                "drtmle_coverage.py",
+                "--tier",
+                "2",
+                "--cells",
+                "q-drift",
+                "--sizes",
+                "200",
+                "--replicates",
+                "2",
+                "--jobs",
+                "1",
+                "--evaluation-n",
+                "400",
+                "--out",
+                str(tmp_path),
+            ],
         )
-        monkeypatch.setattr(
-            study,
-            "one_draw",
-            lambda payload: pytest.fail("the refusal must fire before any fit"),
-        )
+        study.main()
 
-        with pytest.raises(SystemExit, match="prescribed-rate"):
+    def test_an_unknown_tier_is_still_refused_by_argparse(self, monkeypatch) -> None:
+        monkeypatch.setattr(sys, "argv", ["drtmle_coverage.py", "--tier", "3"])
+        with pytest.raises(SystemExit):
             study.main()
+
+
+class TestTheRemainderColumnsAreItemThirteens:
+    """What the remainder table reports, and what it does when it cannot report it."""
+
+    def test_the_table_reads_the_drtmle_rows_only(self) -> None:
+        """A plain ``TMLE`` fit has no companion, so it contributes no remainder row.
+
+        Item 13 is a condition of *Theorem 1*, which is the doubly-robust estimator's; a
+        remainder column filled in for the plain arm would be a number about a different
+        expansion under the same heading.
+        """
+        records = [
+            record(data_seed=i, estimator=name, remaining=float("nan") if name == "tmle" else 0.01)
+            for i in range(4)
+            for name in ("tmle", "drtmle")
+        ]
+        rows = study.remainder_rows(records)
+
+        assert rows
+        assert all(len(row) == 12 for row in rows)
+
+    def test_a_run_without_an_evaluation_draw_reports_no_rows(self) -> None:
+        """Absent rather than blank: a column of ``nan`` reads as a measurement that failed."""
+        records = [record(data_seed=i, estimator="drtmle") for i in range(4)]
+
+        assert study.remainder_rows(records) == []
+
+    def test_an_unresolved_branch_is_reported_as_such_rather_than_as_zero(self) -> None:
+        """``nan`` in, ``-`` out.
+
+        The branch columns are binned approximations and
+        ``benchmarks/drtmle_remainder.py`` returns ``nan`` where they did not separate from
+        their own discretisation error.  Printing a zero there would report "the branch is
+        negligible" for a branch nobody measured, which is the one reading gate 1's clause 4
+        must not be given.
+        """
+        records = [
+            record(
+                data_seed=i,
+                estimator="drtmle",
+                remaining=0.01,
+                root_n_remaining=0.2,
+                branch_q=float("nan"),
+                branch_g=float("nan"),
+                branch_error=0.5,
+            )
+            for i in range(4)
+        ]
+        (row,) = [entry for entry in study.remainder_rows(records) if entry[2] == "ate"]
+
+        assert row[9] == "-"
+        assert row[10] == "-"
+        assert row[11] == "0/4"

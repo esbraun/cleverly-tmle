@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -33,12 +33,14 @@ from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray, Targetin
 from ..data.causal_data import CausalData
 from ..fluctuation._score import relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
+    CarryItem,
     Fluctuation,
     InitialFit,
     TargetingFailure,
     solve_fluctuation,
 )
 from ..fluctuation.mechanism import (
+    MechanismCarry,
     MechanismFluctuation,
     mechanism_covariate,
     mechanism_score,
@@ -48,9 +50,10 @@ from ..fluctuation.mechanism import (
 from ..fluctuation.one_step import solve_one_step
 from ..fluctuation.reduced import reduced_mechanism_covariate, reduced_outcome_submodel
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict, submodel_for
+from ..learners.crossfit import Folds
 from ..msm import solve_projection
 from ..utils.bounds import OutcomeScaler
-from ._nuisance import NuisanceEstimates, Propensity
+from ._nuisance import CompanionEstimates, NuisanceEstimates, Propensity
 from .direct_effect import clever_covariate_inputs
 from .reduced import ReducedSet
 
@@ -289,7 +292,7 @@ def solve_submodel(
     spec: TargetingSpec,
     *,
     warn: bool = True,
-    carry: Sequence[InitialFit] = (),
+    carry: Sequence[CarryItem] = (),
 ) -> Fluctuation:
     """Solve the fluctuation on the given rows, by whichever method ``spec`` names.
 
@@ -684,10 +687,12 @@ class ReductionSpec:
     refit:
         Takes a :class:`~cleverly.estimators._nuisance.NuisanceEstimates` carrying the
         *current* targeted regression and mechanism, and returns the reductions relative to
-        them.  It is handed a whole object rather than two arrays for the reason
-        :func:`~cleverly.estimators.reduced.fit_reduced` takes one: ``folds`` is read off
-        it, so it cannot be given a mechanism and a split that came from different
-        constructions.
+        them -- the production set, and one per outer fold at the evaluation companion's
+        rows (empty without a companion).  It is handed a whole object rather than two
+        arrays for the reason :func:`~cleverly.estimators.reduced.fit_reduced` takes one:
+        ``folds`` is read off it, so it cannot be given a mechanism and a split that came
+        from different constructions -- and the companion rides on the same object for the
+        same reason.
     guard:
         Which extra equations are solved, in ``drtmle``'s vocabulary and **crossed** the way
         that package crosses it: ``"Q"`` guards against a misspecified outcome regression
@@ -698,7 +703,7 @@ class ReductionSpec:
         path recovered by a loop that happens to exit early.
     """
 
-    refit: Callable[[NuisanceEstimates], ReducedSet]
+    refit: Callable[[NuisanceEstimates], tuple[ReducedSet, tuple[ReducedSet, ...]]]
     guard: tuple[str, ...] = ("Q", "g")
     #: Which route through the round the alternation takes -- see :data:`ReductionOrder`.
     #: It rides here rather than being a keyword of :func:`solve_with_reduction` because it
@@ -799,6 +804,13 @@ class ReductionFluctuation:
     #: reductions this record carries, which the alternation itself never does -- it solves
     #: at one refit and reports at another.  Zero would mean the pass did not run.
     closing: int = 0
+    #: The whole targeted collection at an independent draw's rows, one copy per outer fold,
+    #: or ``None`` for every fit that declared no ``evaluation=``.  What
+    #: :math:`P_0\hat D` is integrated from, and the reason it lives *here* rather than on
+    #: the nuisances is the reason :attr:`reduced` does: these are the arrays the reported
+    #: curve is built from, and ``result.nuisance`` deliberately keeps describing the models
+    #: that were fitted.  See :class:`~cleverly.estimators._nuisance.CompanionEstimates`.
+    evaluation: CompanionEstimates | None = None
 
     @property
     def relative_score(self) -> float:
@@ -823,6 +835,175 @@ def needs_reduction(nuisance: NuisanceEstimates, group: TargetGroup) -> bool:
     predicate keyed on the group name alone would divert every ordinary fit in the package.
     """
     return group == "mean" and nuisance.reduced is not None
+
+
+@dataclass
+class _Companion:
+    r"""The fit's nuisances at the evaluation rows, moved in lockstep with the fitted ones.
+
+    ``docs/roadmap.md``'s item 13 needs :math:`P_0\hat D`, and a curve is a function of
+    :math:`(W, A, Y)`: it has to be *evaluated* somewhere the fit did not look.  The primary
+    and reduced regressions at those rows come from the same fitted models
+    (:func:`~cleverly.estimators._nuisance.cross_fit_companion`); what this class does is
+    the other half, which is that :math:`\bar Q^*` and :math:`g^*` there are the same
+    **step sequence** applied to a **different covariate**.
+
+    So every array here travels as a ``(fit, submodel)`` or ``(base, covariate)`` carry pair
+    through the very solvers the production arrays go through -- see
+    :data:`~cleverly.fluctuation.iterative.CarryItem`.  Rebuilding the endpoint afterwards
+    from ``(initial, epsilon)`` is what
+    :attr:`~cleverly.fluctuation.iterative.Fluctuation.carried` exists to refuse: the
+    outcome solve applies its tilt once per Newton step and shrinks after each, and
+    :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` clips, so a net offset
+    recovers the endpoint only on a fit where nothing touched a bound.
+
+    Mutable, unlike everything else in this module, and deliberately: it is the one piece of
+    the alternation that is *carried* rather than solved for, so it is updated in place at
+    each step exactly as ``inner_q`` and ``inner_g`` are rebound.  It never leaves this
+    module except as the record on
+    :attr:`ReductionFluctuation.evaluation`.
+    """
+
+    data: CausalData
+    outcome: tuple[InitialFit, ...]
+    mechanism: tuple[FloatArray, ...]
+    reduced: tuple[ReducedSet, ...]
+    scaler: OutcomeScaler
+    arms: tuple[float, ...]
+    fold_sizes: tuple[int, ...]
+
+    @classmethod
+    def of(cls, nuisance: NuisanceEstimates, companion: CompanionEstimates) -> _Companion:
+        """The state at the initial fits, before any equation has been solved."""
+        return cls(
+            data=companion.data,
+            outcome=tuple(companion.outcome),
+            mechanism=companion.propensity_arm(nuisance.arms[1]),
+            reduced=tuple(companion.reduced),
+            scaler=nuisance.scaler,
+            arms=nuisance.arms,
+            fold_sizes=tuple(companion.fold_sizes),
+        )
+
+    @property
+    def n_folds(self) -> int:
+        return len(self.outcome)
+
+    def nuisance(self, fold: int) -> NuisanceEstimates:
+        """Fold ``fold``'s current state as a :class:`NuisanceEstimates`, for the builders.
+
+        Built rather than stored so that every clever covariate at the companion rows comes
+        out of :func:`build_submodel` verbatim.  A second expression of ``1_a/g^*`` written
+        for the companion is exactly the kind of duplicate this variant has been caught by.
+        """
+        return NuisanceEstimates(
+            propensity=_propensity_from(self.mechanism[fold], self.arms),
+            outcome=self.outcome[fold],
+            scaler=self.scaler,
+            folds=Folds.single(self.outcome[fold].n),
+            reduced=self.reduced[fold] if self.reduced else None,
+        )
+
+    def outcome_carry(
+        self, group: TargetGroup, bounds: tuple[float, float], nuisance_bound: float
+    ) -> tuple[CarryItem, ...]:
+        """Equation (8)'s carry: each fold's regression beside its own clever covariate."""
+        return tuple(
+            (
+                self.outcome[fold],
+                build_submodel(
+                    self.data,
+                    self.nuisance(fold),
+                    group,
+                    bounds=bounds,
+                    nuisance_bound=nuisance_bound,
+                ),
+            )
+            for fold in range(self.n_folds)
+        )
+
+    def extra_carry(self, bounds: tuple[float, float]) -> tuple[CarryItem, ...]:
+        """Equation (10)'s carry, at each fold's own reductions."""
+        return tuple(
+            (
+                self.outcome[fold],
+                reduced_outcome_submodel(self.data.treatment, self.reduced[fold], bounds=bounds),
+            )
+            for fold in range(self.n_folds)
+        )
+
+    def joint_carry(
+        self, group: TargetGroup, bounds: tuple[float, float], nuisance_bound: float
+    ) -> tuple[CarryItem, ...]:
+        """The closing pass's four-column carry, stacked exactly as the fitted one is."""
+        outcome = self._pairs(self.outcome_carry(group, bounds, nuisance_bound))
+        extra = self._pairs(self.extra_carry(bounds))
+        return tuple(
+            (fit, _stacked(first, second))
+            for (fit, first), (_, second) in zip(outcome, extra, strict=True)
+        )
+
+    @staticmethod
+    def _pairs(items: Sequence[CarryItem]) -> list[tuple[InitialFit, Submodel]]:
+        """The carry items as pairs, which everything this class builds already is."""
+        return [item for item in items if isinstance(item, tuple)]
+
+    def mechanism_carry(self, bounds: tuple[float, float]) -> tuple[MechanismCarry, ...]:
+        """Equation (9)'s carry: each fold's mechanism beside its own ``Q_r/g^*``."""
+        return tuple(
+            (
+                self.mechanism[fold],
+                reduced_mechanism_covariate(
+                    self.reduced[fold], self.mechanism[fold], bounds=bounds
+                ),
+            )
+            for fold in range(self.n_folds)
+        )
+
+    def take_outcome(self, carried: Sequence[InitialFit]) -> None:
+        self.outcome = tuple(carried)
+
+    def take_mechanism(self, carried: Sequence[FloatArray]) -> None:
+        self.mechanism = tuple(carried)
+
+    def take_reduced(self, sets: Sequence[ReducedSet]) -> None:
+        self.reduced = tuple(sets)
+
+    def take_partial(self, sets: Sequence[ReducedSet], names: Sequence[str]) -> None:
+        """Replace only ``names`` of each fold's set -- the paper order's two-vintage refit."""
+        self.reduced = tuple(
+            replace(current, **{name: getattr(fresh, name) for name in names})
+            for current, fresh in zip(self.reduced, sets, strict=True)
+        )
+
+    def record(self) -> CompanionEstimates:
+        """The state as a :class:`CompanionEstimates`, for the fit to carry away."""
+        return CompanionEstimates(
+            data=self.data,
+            outcome=self.outcome,
+            propensity=tuple(_propensity_from(values, self.arms) for values in self.mechanism),
+            fold_sizes=self.fold_sizes,
+            reduced=self.reduced,
+        )
+
+
+def _split_carried(
+    carried: Sequence[Any], inner: tuple[Any, ...] | None
+) -> tuple[tuple[Any, ...] | None, tuple[Any, ...]]:
+    """The nested construction's carried arrays and the companion's, in the order passed.
+
+    One place splits them, so that a solve which passes both cannot be read back as though
+    the companion's slabs were fold-free designs -- which every array here would survive,
+    since both are the same type and the same length.
+    """
+    if inner is None:
+        return None, tuple(carried)
+    return tuple(carried[: len(inner)]), tuple(carried[len(inner) :])
+
+
+def _combine(inner: tuple[Any, ...] | None, companion: tuple[Any, ...]) -> tuple[Any, ...]:
+    """What goes in as ``carry``: the nested arrays first, then the companion's."""
+    return tuple(() if inner is None else inner) + companion
 
 
 def solve_with_reduction(
@@ -1011,6 +1192,11 @@ def solve_with_reduction(
     inner_q = None if nuisance.inner is None else nuisance.inner.outcome
     inner_g = None if nuisance.inner is None else nuisance.inner.propensity_arm(upper)
     inner_extra: tuple[InitialFit, ...] | None = None
+    # The evaluation companion, or `None` on every fit that declared no `evaluation=` --
+    # which is every fit but the one `docs/roadmap.md`'s item 13 reads its remainder off.
+    # It travels beside `inner_q`/`inner_g` in the same `carry`, contributes to no solve and
+    # is split back out by `_split_carried`.
+    companion = None if nuisance.companion is None else _Companion.of(nuisance, nuisance.companion)
     submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
     fluctuation = solve_submodel(
         scaled,
@@ -1020,9 +1206,14 @@ def solve_with_reduction(
         observed,
         spec,
         warn=warn,
-        carry=() if inner_q is None else inner_q,
+        carry=_combine(
+            inner_q,
+            () if companion is None else companion.outcome_carry(group, bounds, nuisance_bound),
+        ),
     )
-    inner_q = None if inner_q is None else tuple(fluctuation.carried)
+    inner_q, tail = _split_carried(fluctuation.carried, inner_q)
+    if companion is not None:
+        companion.take_outcome(tail)
 
     mechanism: MechanismFluctuation | None = None
     extra: Fluctuation | None = None
@@ -1065,16 +1256,27 @@ def solve_with_reduction(
                 observed,
                 spec,
                 warn=False,
-                carry=() if inner_q is None else inner_q,
+                carry=_combine(
+                    inner_q,
+                    ()
+                    if companion is None
+                    else companion.outcome_carry(group, bounds, nuisance_bound),
+                ),
             )
             targeted_q = fluctuation.targeted
-            inner_q = None if inner_q is None else tuple(fluctuation.carried)
+            inner_q, tail = _split_carried(fluctuation.carried, inner_q)
+            if companion is not None:
+                companion.take_outcome(tail)
             if "g" in guard:
                 # Step 3, at g^k and the once-updated Qbar. `replace` rather than the whole
                 # set: Qr is step 5's and must not arrive early, which is the difference
                 # between the two orders rather than an optimisation.
-                once = reduction.refit(_reduction_inputs(current, targeted_q, targeted_g, inner_q))
+                once, once_companion = reduction.refit(
+                    _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
+                )
                 reduced = replace(reduced, gr1=once.gr1, gr2=once.gr2)
+                if companion is not None:
+                    companion.take_partial(once_companion, ("gr1", "gr2"))
                 extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
                 extra = solve_submodel(  # step 4: equation (10), along H_2
                     scaled,
@@ -1084,19 +1286,25 @@ def solve_with_reduction(
                     observed,
                     spec,
                     warn=False,
-                    carry=() if inner_q is None else inner_q,
+                    carry=_combine(
+                        inner_q, () if companion is None else companion.extra_carry(bounds)
+                    ),
                 )
                 targeted_q = extra.targeted
-                inner_q = None if inner_q is None else tuple(extra.carried)
+                inner_q, tail = _split_carried(extra.carried, inner_q)
+                if companion is not None:
+                    companion.take_outcome(tail)
                 if first_initial is None:
                     first_initial = np.asarray(extra.score_initial)
                 if extra.failure is not None:
                     ill_conditioned += 1
             if "Q" in guard:
-                twice = reduction.refit(  # step 5, at g^k and the twice-updated Qbar
-                    _reduction_inputs(current, targeted_q, targeted_g, inner_q)
+                twice, twice_companion = reduction.refit(  # step 5, at the twice-updated Qbar
+                    _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
                 )
                 reduced = replace(reduced, qr=twice.qr)
+                if companion is not None:
+                    companion.take_partial(twice_companion, ("qr",))
                 mechanism = solve_bounded_mechanism(  # step 6: equation (9), along H_3
                     indicator,
                     targeted_g,
@@ -1104,10 +1312,14 @@ def solve_with_reduction(
                     weights,
                     bounds=bounds,
                     tol=spec.tol,
-                    carry=() if inner_g is None else inner_g,
+                    carry=_combine(
+                        inner_g, () if companion is None else companion.mechanism_carry(bounds)
+                    ),
                 )
                 targeted_g = mechanism.propensity
-                inner_g = None if inner_g is None else tuple(mechanism.carried)
+                inner_g, tail = _split_carried(mechanism.carried, inner_g)
+                if companion is not None:
+                    companion.take_mechanism(tail)
                 current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
         else:
             if "Q" in guard:
@@ -1118,18 +1330,24 @@ def solve_with_reduction(
                     weights,
                     bounds=bounds,
                     tol=spec.tol,
-                    carry=() if inner_g is None else inner_g,
+                    carry=_combine(
+                        inner_g, () if companion is None else companion.mechanism_carry(bounds)
+                    ),
                 )
                 # The **truncated** tilt, which is what makes the next round's offset, every
                 # later covariate and the reported correction read one array. Carrying the
                 # raw one forward is what left a clipped row outside the bounds for the rest
                 # of the fit, and it was the load-bearing half of item 20.
                 targeted_g = mechanism.propensity
-                inner_g = None if inner_g is None else tuple(mechanism.carried)
+                inner_g, tail = _split_carried(mechanism.carried, inner_g)
+                if companion is not None:
+                    companion.take_mechanism(tail)
                 current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
-                reduced = reduction.refit(
-                    _reduction_inputs(current, targeted_q, targeted_g, inner_q)
+                reduced, reduced_companion = reduction.refit(
+                    _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
                 )
+                if companion is not None:
+                    companion.take_reduced(reduced_companion)
 
             if "g" in guard:
                 extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
@@ -1141,9 +1359,16 @@ def solve_with_reduction(
                     observed,
                     spec,
                     warn=False,
-                    carry=() if inner_q is None else inner_q,
+                    carry=_combine(
+                        inner_q, () if companion is None else companion.extra_carry(bounds)
+                    ),
                 )
-                inner_extra = None if inner_q is None else tuple(extra.carried)
+                inner_extra, companion_extra = _split_carried(extra.carried, inner_q)
+                # Updated in place rather than held aside the way `inner_extra` is: the
+                # companion has no branch where equation (10) did not run, so its
+                # equation-(8) base is unconditionally this endpoint.
+                if companion is not None:
+                    companion.take_outcome(companion_extra)
                 if first_initial is None:
                     first_initial = np.asarray(extra.score_initial)
                 if extra.failure is not None:
@@ -1163,18 +1388,28 @@ def solve_with_reduction(
                 # The base and its carried copies must be the same vintage: equation (10)
                 # leaves `targeted_q` where it was and hands its own result on, so reading
                 # `inner_q` here would fluctuate arrays one step behind the array they
-                # accompany.
-                carry=() if inner_q is None else (inner_q if extra is None else inner_extra or ()),
+                # accompany. The companion is on the same rule and for the same reason: its
+                # equation-(10) endpoint is what equation (8) starts from.
+                carry=_combine(
+                    None if inner_q is None else (inner_q if extra is None else inner_extra or ()),
+                    ()
+                    if companion is None
+                    else companion.outcome_carry(group, bounds, nuisance_bound),
+                ),
             )
             targeted_q = fluctuation.targeted
-            inner_q = None if inner_q is None else tuple(fluctuation.carried)
+            inner_q, tail = _split_carried(fluctuation.carried, inner_q)
+            if companion is not None:
+                companion.take_outcome(tail)
             if "Q" in guard:
                 # Qr is a regression of the outcome residual, so the step just taken moved
                 # its target. Refit before the score below is read, or the loop tests
                 # equation (9) at a covariate the exiting pair no longer implies.
-                reduced = reduction.refit(
-                    _reduction_inputs(current, targeted_q, targeted_g, inner_q)
+                reduced, reduced_companion = reduction.refit(
+                    _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
                 )
+                if companion is not None:
+                    companion.take_reduced(reduced_companion)
 
         # Equation (8)'s score, at the pair the round *exits* at rather than the pair it was
         # solved at. Under this package's order those are the same state and this is a
@@ -1292,6 +1527,7 @@ def solve_with_reduction(
         fluctuation=fluctuation,
         mechanism=mechanism,
         extra=extra,
+        companion=companion,
     )
     submodel = closing.submodel
     fluctuation = closing.fluctuation
@@ -1334,6 +1570,7 @@ def solve_with_reduction(
         ill_conditioned=ill_conditioned,
         closing=closing.steps,
         closing_capped=closing.capped,
+        evaluation=None if companion is None else companion.record(),
     )
     return submodel, replace(fluctuation, mechanism=mechanism, reduction=record)
 
@@ -1427,6 +1664,7 @@ def _close_at_frozen_reductions(
     fluctuation: Fluctuation,
     mechanism: MechanismFluctuation | None,
     extra: Fluctuation | None,
+    companion: _Companion | None = None,
     max_steps: int = 20,
 ) -> _Closing:
     r"""Re-solve the three equations at the reductions the influence curve will read.
@@ -1510,8 +1748,11 @@ def _close_at_frozen_reductions(
                 weights,
                 bounds=bounds,
                 tol=spec.tol,
+                carry=() if companion is None else companion.mechanism_carry(bounds),
             )
             targeted_g = solved.propensity
+            if companion is not None:
+                companion.take_mechanism(solved.carried)
             settled, scale = mechanism_score(
                 indicator,
                 targeted_g,
@@ -1535,8 +1776,19 @@ def _close_at_frozen_reductions(
     if "g" not in guard:
         steps += 1
         fluctuation = solve_submodel(
-            scaled, fluctuation.targeted, submodel, weights, observed, spec, warn=False
+            scaled,
+            fluctuation.targeted,
+            submodel,
+            weights,
+            observed,
+            spec,
+            warn=False,
+            carry=()
+            if companion is None
+            else companion.outcome_carry(group, bounds, nuisance_bound),
         )
+        if companion is not None:
+            companion.take_outcome(fluctuation.carried)
         return _Closing(
             submodel=submodel,
             fluctuation=fluctuation,
@@ -1568,7 +1820,13 @@ def _close_at_frozen_reductions(
         observed,
         spec,
         warn=False,
+        # Four columns here too: the companion is fluctuated along the same stack, so its
+        # endpoint is the same map of its own initial fit rather than an approximation of
+        # one taken from the two-column submodel this function returns.
+        carry=() if companion is None else companion.joint_carry(group, bounds, nuisance_bound),
     )
+    if companion is not None:
+        companion.take_outcome(joint.carried)
     width = submodel.dim
     settled = score_columns(scaled, joint.targeted.observed, submodel.observed, weights, mask)
     settled_q = score_columns(
@@ -1648,6 +1906,7 @@ def _reduction_inputs(
     targeted: InitialFit,
     mechanism: FloatArray,
     inner: tuple[InitialFit, ...] | None = None,
+    companion: _Companion | None = None,
 ) -> NuisanceEstimates:
     """The nuisances a refit of the reduced regressions is taken *relative to*.
 
@@ -1661,9 +1920,17 @@ def _reduction_inputs(
     stated at the targeted collection, so a nested refit taken at fold-free arrays still
     sitting at their **initial** values would be conditioning on a different state from the
     one it evaluates at.  ``None`` on every pooled fit.
+
+    ``companion`` moves the evaluation rows' copies for exactly that reason a second time: a
+    reduced regression is a regression **on** a primary prediction, so the companion design
+    a fold's model predicts at has to be that fold's *current* state.  Handing it the
+    initial arrays would evaluate the round's reduction at a mechanism no round was at, and
+    every array would still be in range.
     """
     del mechanism  # already written onto `nuisance` by `_retargeted_mechanism`
     updated = replace(nuisance, outcome=targeted)
+    if companion is not None:
+        updated = replace(updated, companion=companion.record())
     if inner is None or nuisance.inner is None:
         return updated
     return replace(updated, inner=replace(nuisance.inner, outcome=inner))

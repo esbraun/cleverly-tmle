@@ -1,4 +1,4 @@
-# The coverage study: the design, and what Tier 1 already showed
+# The coverage study: the design, both tiers, and what each has shown
 
 `DRTMLE`'s definition of done is one sentence — *a demonstration that the interval attains its
 nominal coverage where a plain `TMLE`'s does not* — and [piece C](../roadmap.md#c-the-demonstration)
@@ -8,25 +8,27 @@ coefficient, three sizes, 250 replicates minimum, and rules frozen before the di
 document is the specification and this one is the design**: what the cells actually are, what
 constants were committed, and what the instrument has measured so far.
 
-**C is three pull requests and this is the first.** The split follows the rule the roadmap is
+**C is three pull requests and two have landed.** The split follows the rule the roadmap is
 lettered under — grouped where the *evidence* is shared — and the three have different evidence:
 
 | PR | what it lands | evidence |
 | --- | --- | --- |
-| **C1** — *this one* | the harness, Tier 1 complete, the workflow, item 25's per-fit witness | the exact remainder of a prescribed sequence, and that the instrument works |
-| **C2** | Tier 2's prescribed-rate learners, the fold-retained nuisances `P₀D̂` needs, both appendix-B remainder branches | item 13's rate |
+| **C1** — *landed* | the harness, Tier 1 complete, the workflow, item 25's per-fit witness | the exact remainder of a prescribed sequence, and that the instrument works |
+| **C2** — *landed* | Tier 2's prescribed-rate learners, the evaluation companion `P₀D̂` needs, the remainder columns | item 13's rate |
 | **C3** | the pilot, the freeze, the final study, the second seed batch | item 3, and gates 1 and 2 |
 
 **Tier 1 is not the demonstration and this page will not be read as one.** Its nuisance sequence
 is handed to the estimator rather than learned, which is the only construction in which *"the
 intended asymptotic regime was entered"* is true by definition — so it is where a remainder can be
-read off exactly, and it is not an applied claim. Tier 2 is the demonstration.
+read off exactly, and it is not an applied claim. **Tier 2 is the demonstration**, it landed with
+C2, and its section is [below](#tier-2-a-prescribed-rate-rather-than-a-prescribed-sequence).
 
-## The two cells
+## Tier 1's two cells
 
 Both off the diagonal of the misspecification grid, because which nuisance is wrong is the whole
 axis and one cell is an anecdote. `benchmarks/drtmle_injection.py` is the code and carries the
-same reasoning at each constant.
+same reasoning at each constant; [Tier 2](#tier-2-a-prescribed-rate-rather-than-a-prescribed-sequence)
+is the same two cells with both nuisances fitted.
 
 | cell | `Q̂` | `ĝ` |
 | --- | --- | --- |
@@ -126,11 +128,13 @@ The targeting step moves `Q̂` to `Q̄*` by `O_p(n^(−1/2))`, which is smaller 
 remainder at the next order. The number above is therefore the *regime's* remainder and not the
 realised fit's.
 
-`R_remaining` — the doubly-robust curve's own remainder, and the two appendix-B branches — needs
-`P₀D̂` at the **fitted** reduced regressions, so it needs their values on covariates no fold trained
-at. That is the fold-retained nuisance object §5 puts in Tier 2, it is **piece C2's**, and item 13
-goes with it. Nothing here reports a corrected remainder, and the harness does not print a column
-for one.
+`R_remaining` — the doubly-robust curve's own remainder — needs `P₀D̂` at the **fitted** reduced
+regressions, so it needs their values on covariates no fold trained at. That is the fold-retained
+nuisance object §5 puts in Tier 2, and **C2 landed it as `DRTMLE(evaluation=…)`**: an independent
+draw carried through the fit, one copy of every nuisance per outer fold, moved by the same
+targeting steps the fitted arrays take. It is available at *either* tier — `--evaluation-n` is the
+knob — and [the remainder section](#the-remainder-item-13) says what it computes and what it
+approximates.
 
 ## Sizes, replicates and cost
 
@@ -161,8 +165,20 @@ runs from `.github/workflows/drtmle-coverage.yml`, dispatch-only, a matrix over 
 per-replicate rows travel as an artefact, since `benchmarks/results/` is generated output and a file
 from a two-core runner reads as a fact about the package rather than about that box.
 
-**Tier 2 will not be this cheap.** Its nuisances are fitted, which is what the 43s figure was
-measuring, so C2 re-times before it re-scopes exactly as this did.
+**Tier 2 was expected not to be this cheap, and it is.** Its nuisances are fitted, which is what
+the 43s was measuring — so C2 re-timed before re-scoping, exactly as this did, and the answer is
+that the additive smoother is cheap:
+
+| measurement | on a four-core sandbox container |
+| --- | --- |
+| a **tier-2** `DRTMLE` fit, `q-drift` at `n = 600`, with a 2,000-row companion | **5.4s** |
+| the same at `g-drift` | **7.4s** |
+| the tier-2 harness, `--sizes 300 --replicates 2 --jobs 1 --evaluation-n 800` | 2 draws / 4 fits in 9s, **1.7s median per fit** |
+
+So the frozen study is affordable at either tier and `drtmle-coverage.yml`'s 300-minute cap is
+generous rather than tight. The companion is what the remainder columns cost, and it is a
+prediction per fold per nuisance per round with no further learner fit — a few seconds at the
+pilot's evaluation size, and it scales with `--evaluation-n` rather than with `n`.
 
 ## The rules
 
@@ -185,6 +201,126 @@ itself. What the harness implements of them, and where:
   accountings — excluded with the exclusion rate beside it, and the rate as its own outcome — are
   printed next to it;
 - a fit that **raised** is in the denominator, recorded with what it raised.
+
+## Tier 2: a prescribed *rate* rather than a prescribed sequence
+
+`benchmarks/drtmle_tier2.py`. The same two cells and the same base law, with **both nuisances
+fitted** — which is what makes this the demonstration and Tier 1 not. The trap the roadmap
+records applies here and only here: `tests/e2e/test_double_robustness.py`'s "correct" cell is an
+*oracle*, which makes `R₂` exactly zero and a plain `TMLE`'s interval already valid, so the gap
+this study is about opens only where the good nuisance is estimated.
+
+| cell | `Q̂` | `ĝ` |
+| --- | --- | --- |
+| **`q-drift`** | an oversmoothed additive kernel regression, consistent at `O(h_n²)` | a logistic GLM on `{W2, W3}`, whose limit is not `g₀` anywhere |
+| **`g-drift`** | per-arm GLMs on subsets, whose limits are not `Q̄₀` | an oversmoothed additive kernel smoother of the arm indicator |
+
+### The committed smoothing sequence
+
+```text
+h_n = c_h · n^(−β),    β = α/2 = 0.125,    c_h = 1.15
+```
+
+applied **one covariate at a time** — an additive backfit of one-dimensional Nadaraya–Watson
+smoothers. A local-constant bias is `O(h²)`, so halving `α` is what makes `R₂` drift at `α`: the
+two tiers then share the rate of the **remainder**, which is what they have to share to be about
+one regime. The nuisance's own `L₂` error falls at `0.125`, which is a genuinely slow learner and
+is the point.
+
+**Two design decisions here are findings rather than preferences**, and both are §5's own
+inner-product trap arriving through a new door.
+
+**Not a regressogram, which is what §5 names.** A regressogram's bias oscillates in sign within
+every bin, so its `L₂` norm is `O(B⁻¹)` while its *inner product with a smooth weight* is `O(B⁻²)`
+— and the remainder is an inner product. Matching a declared remainder rate with one therefore
+needs a bin count large enough that the fit is variance-dominated at the sizes this study reaches,
+and its remainder is then sampling noise rather than a drift. A local-constant bias is
+`h²[½∇²m + ∇m·∇log p]`, smooth and single-signed against a monotone weight, and no cancellation is
+available to it. §5's list is illustrative; what it asks for is a sequence chosen in advance.
+
+**Additive rather than a product kernel**, and that is the curse of dimensionality rather than a
+modelling assumption. A four-dimensional product kernel wide enough to be bias-dominated at
+`n = 600` smooths over essentially the whole covariate space — measured at an `L₂` error of `1.81`
+against an outcome standard deviation of `1.75`, which is not a slow learner but a broken one —
+while one narrow enough to be a regression has a variance of the same order as its bias. One
+dimension at a time has variance `O(1/(nh))` and is bias-dominated at a bandwidth that still
+resolves the function. It leaves the bias formula the coefficient is committed from unchanged.
+
+### The committed calculation, and what it is a *prediction* of
+
+`c_h` is the one number chosen to hit a target rather than derived: it is sized so `q-drift`'s
+predicted `c_ATE` lands at Tier 1's committed `0.40`, since `c_a ∝ c_h²` and the two tiers are only
+comparable if their drifts are.
+
+| cell | `c₁` | `c₀` | `c_ATE` | `‖drifting‖` at 600 → 2,400 | `‖wrong‖` |
+| --- | --- | --- | --- | --- | --- |
+| `q-drift` | `+0.195` | `−0.193` | `+0.389` | `0.383 → 0.271` | `0.073`, fixed |
+| `g-drift` | `+0.205` | `−0.205` | `+0.410` | `0.023 → 0.017` | `1.28`, fixed |
+
+The arms' coefficients have **opposite signs in both cells**, so `c_ATE` is a sum of magnitudes and
+cancellation in the contrast is impossible rather than merely unlikely — Tier 1 gets that by giving
+its arms opposite signs by hand, and here it falls out of `b₀ = −b₁`.
+
+**And it is a prediction rather than an identity**, which is the honest difference between the
+tiers. Tier 1 *normalises* its injected shape so the coefficient comes out at a declared number;
+here the estimator's bias is what it is, and the design's number is what the run is read against.
+On one draw at `n = 600` the measured `n^α R₂` came out at `0.407` against the predicted `0.389`
+(`q-drift`) and `0.370` against `0.410` (`g-drift`) — which is the check §5 asks for in place of
+inferring the regime from an `L₂` rate, and the pilot is what turns one draw into a number.
+
+**On this law a subset model's error has mean zero at every arm**, because the covariates are
+independent standard normals. So the untargeted plug-in contrast is unbiased and the whole of what
+a coverage shortfall can come from is `R₂`. That is the cleanest separation this design could have,
+and it is worth saying because it is the *opposite* of Tier 1's situation, where
+`G_DRIFT_ARM0_RATIO` exists to stop an error identical at both arms making the contrast
+accidentally right.
+
+## The remainder, item 13
+
+`benchmarks/drtmle_remainder.py`, and `DRTMLE(evaluation=…)` beneath it. Three columns, and they
+are not the same kind of number.
+
+**`R_remaining` is exact given the companion.** `P₀D̂` is the population mean of the *fitted*
+doubly-robust curve, which needs the curve as a function of `(W, A, Y)` — and an array of
+out-of-fold predictions defines one nowhere. §5 refuses `P_nD̂` in its place by name: that is what
+targeting drove to zero. The companion supplies the function by evaluating every fold's nuisances
+at an independent draw and moving them by the **same targeting steps** the fitted arrays take.
+
+**The fold convention, which §5 requires be documented rather than discovered:**
+
+```text
+P₀D̂  =  Σ_k (n_k / n) · E₀[ D̂^(k)(O) ]
+```
+
+with `n_k` the rows fold `k` holds out — the estimator's own fold weighting, not a uniform one.
+
+**`R₂` at the fitted nuisances is exact too**, and is the regime-entry column Tier 2 gets in place
+of Tier 1's quadrature over a prescribed sequence. It is checked against that quadrature at Tier 1,
+where both are computable: two routes to one population integral sharing no code, which is the
+strongest check available here.
+
+**`R_Q` and `R_g` are approximated, and what is approximated in them is on the face of the module.**
+The branch *sums* need fewer limits than the terms do — writing out `R₃ + R₄` and `R̃₅ + R̃₆`, the
+univariate limits `Q̄_{0,r}`, `g_{1,0,r}` and `g_{2,0,r}` **cancel** — and what is left is the
+fitted reductions, which the companion has exactly, plus the two `0n` limits, which are population
+conditional means of computable quantities given computable scalars and so are quadratures rather
+than fits. Each is estimated by a binned average over the evaluation draw at **two bin counts**,
+and the difference between them travels beside the column as its own error; a branch smaller than
+that error is reported as `-` rather than as a number.
+
+**The empirical-process terms `M₁` and `M̃₂` are refused by name.** They are `(Pₙ − P₀)` of a
+difference of estimated curves, and under the fold convention above `Pₙ` and `P₀` are taken at
+different renderings of the nuisances — out of fold on the fitting sample, fold-conditional on the
+evaluation draw. There is no single-sample expression that is both. What is reported is the
+second-order half of each branch, which is the half gate 1's clause 4 is about: an empirical-process
+term is `o_p(n^(−1/2))` under the Donsker and `L₂` conditions §5 lists and carries no product of
+nuisance errors to cancel against.
+
+**One property of the columns matters for how the study reads them.** `P₀D̂` is a quadrature, so its
+error is `sd(D)/√m` and it lands *directly* in a replicate's `R_remaining`: at `m = 1,500` that
+error is `0.026` against a remainder of order `0.007`, so a single draw's column is mostly noise.
+The harness draws an **independent** evaluation sample per replicate, so it averages down across
+them, and every entry in the remainder table carries its Monte Carlo standard error.
 
 ## What Tier 1 already showed, and it is not what the design expected
 

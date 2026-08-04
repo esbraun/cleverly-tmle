@@ -13,10 +13,15 @@ widening of scope**. That is a different kind of list from the one this page ope
 does not lower the bar: *done* still means a demonstration that the interval attains nominal
 coverage where a plain `TMLE`'s does not.
 
-**The demonstration's instrument has landed and its first run moved a scope claim rather than a
-number.** [C1](#what-c1-landed) is the harness, Tier 1's prescribed nuisance sequences with their
+**The demonstration's instruments have both landed and what is left of piece C is a dispatch.**
+[C1](#what-c1-landed) is the harness, Tier 1's prescribed nuisance sequences with their
 drift coefficients committed and verified, and [item 25](#the-supported-contract-and-item-25)'s
-per-fit truncation witness — and that witness immediately found the contract's condition is not the
+per-fit truncation witness; [C2](#what-c2-landed) is **Tier 2** — both nuisances fitted, the good
+one a smoother at a committed bandwidth sequence — and the **evaluation companion** that makes
+`P₀D̂` computable, so item 13's columns exist for the first time. Tier 2 also came in cheaper than
+the tier it replaces: 5.4s to 7.4s a fit against the 43s this page costed C from.
+
+C1's first run moved a scope claim rather than a number — and that witness immediately found the contract's condition is not the
 ordinary case this page had read it as: a sixth to a third of *well-overlapped* draws exit with the
 targeted mechanism pressed against a bound, because equation (9)'s covariate vanishes where the
 outcome regression is right. Item 4 with the nuisances swapped. The fits are sound; what moves is
@@ -234,8 +239,9 @@ while another fails:
    reported this link **broken** at the sign; reading the source closed item 21 and item 22's
    theoretical half in the implementation's favour, A1a closed item 1, and A1b closed item 15 —
    under a stated entropy condition the shipped libraries meet, with its stability half left to a
-   run — so what is left of the link is items 13 and 25 — the empirical remainder rate and
-   **which fits the guarantee is claimed for at all** — and
+   run — so what is left of the link is items 13 and 25 — the empirical remainder rate, whose
+   **instrument** landed with [C2](#what-c2-landed) and whose number is C3's, and **which fits the
+   guarantee is claimed for at all** — and
    **item 22's numerical half, on one clause of a frozen rule that every measurement misses in the
    direction favourable to it**, which [B2b](#b2b--the-dispatch-and-what-it-decides) reads out.
 
@@ -255,7 +261,8 @@ while another fails:
    that sentence and what it costs.
 2. **Derivation-anchored correctness, component by component** — each object the curve is built
    from agrees with what the derivation gives for it, not merely `psi` and `se`, where several
-   differences cancel. **This link is now closed except for item 13's rate.**
+   differences cancel. **This link is now closed except for item 13's rate, which is a dispatch
+   away rather than an instrument away.**
    `tests/unit/test_remainder_drtmle.py` is the exact-law arithmetic of the expansion,
    `tests/unit/test_theorem_drtmle.py` pins the package's arrays against Theorem 1's own terms and
    the reported interval against its `σ²_n`, and `tests/unit/test_influence_gateaux_drtmle.py` is
@@ -346,7 +353,7 @@ be confused.
 ### The work, in four pieces and ten pull requests
 
 A, B and C are each split, so the four pieces are ten pull requests: **B1a**, **A1a**, **B1b**,
-**B2a**, **B2b**, **A1b** and **C1** have landed, and **C2**, **C3** and **D** are open. **The
+**B2a**, **B2b**, **A1b**, **C1** and **C2** have landed, and **C3** and **D** are open. **The
 contract is an eleventh row and is not a piece** — it is documentation, it closes no research, and
 it is in the table because it is an input to C that had to be frozen rather than produced. Small
 items are grouped where the *evidence* is shared — B2 is five items because one dispatch of the same
@@ -375,7 +382,7 @@ So **C1** is the instrument, **C2** is Tier 2 and item 13, and **C3** is the stu
 | **B2b** — *landed* | items 12 and 19, re-measures 4 and 6, takes the overlap policy — no refusal — and reads item 22's numerical half, which stays open on one clause | four dispatches of `drtmle-convergence.yml` and their tables in [the investigation log](drtmle/investigation-log.md#what-the-b2b-dispatch-measured); `_negligible_bar`; a `worst identity` column on `comparison_rows` and `tests/unit/test_bench_drtmle.py` |
 | **the contract** — *documentation, and it has landed* | item 25: which options the theorem-backed guarantee is claimed for, and which are supported beside it. Not a piece and not research — the scope decision, its conditions as assumption rows, and the two review readings it corrects | [the table](#the-supported-contract-and-item-25); [the concordance's §7 scope decision](drtmle/theorem-concordance.md#the-scope-decision-item-25) and three new matrix rows; gate 1's clause 0. Its per-fit witness landed with C1 and **found the contract's condition is not the ordinary case it was read as** |
 | **C1** — *landed* | the study's instrument and Tier 1 complete: prescribed nuisance sequences with their drift coefficients committed analytically and verified by quadrature, the paired harness, the dispatch workflow, and item 25's per-fit truncation witness. Closes no numbered item on its own, which is why it is its own pull request rather than a first commit of C | `benchmarks/drtmle_injection.py`, `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, [`docs/drtmle/coverage-study.md`](drtmle/coverage-study.md); `CorrectionCheck.contract` with `initial_clipped` and `gr1_margin`; `DGP.expectation`; `tests/unit/test_drtmle_coverage.py` and `TestTheContractSaysWhichEstimator` |
-| **C2** | item 13: Tier 2's prescribed-rate learners, the fold-retained nuisance objects `P₀D̂` needs, and the two appendix-B remainder branches reported apart | a benchmark-only fitted-nuisance object exposing `predict` per fold; the series/spline/histogram learners with their smoothing sequence; `R_Q` and `R_g` columns |
+| **C2** — *landed* | item 13's **instrument**: Tier 2's prescribed-rate learners, the evaluation companion `P₀D̂` needs, and the two appendix branches reported apart. It does not close item 13, which is a *rate* and so C3's dispatch's | `DRTMLE(evaluation=…)`, `CompanionEstimates`, `cross_fit_companion`, carry-with-its-own-covariate in both fluctuation solvers; `benchmarks/drtmle_tier2.py` and `benchmarks/drtmle_remainder.py`; `--tier 2` and `--evaluation-n` on the harness and the workflow; `tests/unit/test_drtmle_companion.py`, `test_drtmle_tier2.py`, `test_drtmle_remainder_study.py` |
 | **C3** | item 3: the pilot, the freeze, the final study and its independent second seed batch | four dispatches of `drtmle-coverage.yml` and their tables; per-replicate results; gates 1 and 2 read out |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
@@ -397,16 +404,17 @@ A1a theorem concordance ──> B1b  targeting  ──────┘  instrumen
                                  convention          landed      landed │
                                                                         ├─> C1 ──> C2 ──> C3
 contract + item 25  scope frozen ──────────────────────────────────────┤  harness  tier 2  study
-A1b cross-fitting construction ────────────────────────────────────────┘  landed
+A1b cross-fitting construction ────────────────────────────────────────┘  landed   landed
        (no logical block; a rework edge — C's fits are of A1b's construction)
 
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Everything through C1 has landed**, so what is left of the graph is Tier 2, the study and D. The
-C1 → C2 edge is the harness and the injection interface, which Tier 2 extends rather than replaces;
-the C2 → C3 edge is that a dispatch whose remainder columns are missing cannot read gate 1's clause
-4. Two open threads sit behind it rather than pieces. Item 22's numerical half is answered
+**Everything through C2 has landed**, so what is left of the graph is the study and D. The
+C1 → C2 edge was the harness and the injection interface, which Tier 2 extended rather than
+replaced; the C2 → C3 edge — that a dispatch whose remainder columns are missing cannot read gate
+1's clause 4 — is **discharged**: the columns exist and both tiers dispatch from the one workflow.
+Two open threads sit behind it rather than pieces. Item 22's numerical half is answered
 on `nonlinear` and unresolved on `weak-overlap`, and it gates [stop-ship 2](#stop-ship) rather than
 gating C. And A1b's construction decision rests on its argument's **entropy** half, which the
 learner settles, plus its **stability** half, which a dispatch reads — so the rework edge into C is
@@ -599,6 +607,13 @@ insufficient on its own**: the working paper's appendix B splits the remainder i
 `R_{g,n}`, and a total trending to zero can conceal cancellation between them, so the study
 reports the branches separately where the DGP permits. The exact terms are in [the concordance's
 §5](drtmle/theorem-concordance.md#5-the-remaining-remainder-terms).
+
+**The column exists as of [C2](#what-c2-landed) and the item does not close on it.** What that
+piece built is the thing `P₀D̂` was missing — the fit's own nuisance functions at rows it never
+saw — and the two exact columns beside it. What it did not do is *run* three sizes at 250
+replicates, which is C3's dispatch and is where a **rate** can be read. An instrument landing is
+not a condition being met, which is the rule [A1b's stability half](#what-a1b-landed) is held to
+and this is held to the same one.
 
 ##### A1b — the cross-fitting construction
 
@@ -1512,8 +1527,8 @@ the third option reads *empirically supported and outside the theorem* rather th
 
 #### C. The demonstration
 
-**Closes items 3 and 13, in three pull requests: [C1](#what-c1-landed) has landed, C2 and C3 are
-open.** A coverage pilot over the off-diagonal of
+**Closes items 3 and 13, in three pull requests: [C1](#what-c1-landed) and [C2](#what-c2-landed)
+have landed, C3 is open.** A coverage pilot over the off-diagonal of
 the misspecification grid put `TMLE` and `DRTMLE` at 0.958 apiece in one cell and 1.000 in the
 other — no gap to close. The diagnosis is understood: a correctly specified *parametric* nuisance
 converges at `n^(−1/2)`, so `R₂` is `O(n^(−1))` and the product condition never binds. There was
@@ -1545,13 +1560,21 @@ each part is there and what it would take to *not* believe the result:
   spline or histogram regression with a smoothing sequence chosen in advance, and it is the
   demonstration. The Super Learner belongs in the applied stress tests that come after.
 
-  **Tier 1 has landed and the split between the two is sharper than "two ways of being slow".**
+  **Both tiers have landed and the split between them is sharper than "two ways of being slow".**
   Tier 1's remainder is a *quadrature* — both nuisances are prescribed functions of `W`, so `R₂` is
   integrated rather than estimated and `n^α R₂ → c` is an identity a test can assert. Tier 2's is
   not: `P₀D̂` at *fitted* reduced regressions needs their values on covariates no fold trained at,
-  which is the fold-retained nuisance object §5 asks for. So the piece that reads item 13's rate
-  off is **C2**, and Tier 1's exact remainder is the regime-entry column beside it rather than a
-  substitute for it.
+  which is the fold-retained nuisance object §5 asks for and which
+  [C2](#what-c2-landed) built as `DRTMLE(evaluation=…)`. So Tier 1's exact remainder is the
+  regime-entry column beside Tier 2's rather than a substitute for it, and the two are checked
+  against each other where both are computable — two routes to one population integral sharing no
+  code.
+
+  Tier 2's own drift coefficient is a **prediction** rather than an identity, which is the honest
+  difference: Tier 1 normalises its injected shape so the coefficient comes out at a declared value,
+  and here the estimator's bias is what it is. What the study reports is the measured `n^α R₂`
+  against the committed one. On one draw at `n = 600` that came out at `0.407` against `0.389` and
+  `0.370` against `0.410`, which is §5's *"verify empirically"* rather than an `L₂` rate.
 - **A nonzero drift coefficient, chosen analytically and verified.** `α` is a knob to report, not
   a threshold to hit, and the first review's `α < 1/4` is the familiar bar for the
   *both-consistent* product condition — sufficient here rather than necessary, since in an
@@ -1638,9 +1661,21 @@ list flagged as the thing to redo first. Redone with C1, on a four-core containe
 | the Tier-1 pilot, 2 cells × 3 sizes × 50 replicates | 300 draws, 600 fits, under an hour at `jobs=2` |
 
 A Tier-1 fit is cheap because its primary nuisances are *function evaluations* rather than learner
-fits; what it pays for is the alternation, which barely depends on `n`. **Tier 2 will not be**, since
-its nuisances are fitted, and that is what the 43s was measuring — so C2 re-times before it
-re-scopes exactly as C1 did rather than inheriting either number.
+fits; what it pays for is the alternation, which barely depends on `n`. **Tier 2 was expected not to
+be**, since its nuisances are fitted and that is what the 43s was measuring — so C2 re-timed before
+re-scoping exactly as C1 did rather than inheriting either number, and the answer is that it is
+cheap too:
+
+| | measured |
+| --- | --- |
+| a **Tier-2** `DRTMLE` fit, `q-drift` at `n = 600`, with a 2,000-row companion | **5.4s** |
+| the same at `g-drift` | **7.4s** |
+| the Tier-2 harness at `--sizes 300 --replicates 2 --evaluation-n 800` | 4 fits in 9s, **1.7s** median |
+
+The additive smoother is cheaper than the boosting library the 43s was measuring, so the frozen
+study is affordable at either tier and the workflow's 300-minute cap is generous rather than tight.
+What the companion costs is a prediction per fold per nuisance per round and no further learner
+fit, and it scales with `--evaluation-n` rather than with `n`.
 `.github/workflows/drtmle-coverage.yml` is the dispatch-only workflow, a `matrix:` over the cells;
 the nightly tier must not absorb it.
 
@@ -1676,9 +1711,59 @@ benchmark. Four pieces, of which the last was not planned as a finding:
   overstated, and it leaves C3 a reporting decision. [The
   measurement](drtmle/investigation-log.md#what-c1s-witness-measured-on-its-first-run).
 
-What it does **not** land, by name: `R_remaining` and the two appendix-B branches, which need
+What it did **not** land, by name: `R_remaining` and the two appendix-B branches, which need
 `P₀D̂` at the *fitted* reductions and so C2's retained per-fold nuisances; and any coverage verdict,
-since `--tier 2` is refused rather than approximated and Tier 1 is not the demonstration.
+since `--tier 2` was refused rather than approximated and Tier 1 is not the demonstration. Both of
+the first two landed with [C2](#what-c2-landed); the third is still true of C1's numbers and of
+C2's.
+
+##### What C2 landed
+
+Item 13's instrument, Tier 2, and the columns gate 1's clause 4 reads. **It does not close item
+13**, and the distinction is the one A1b's stability half is held to: what landed is the thing that
+makes a rate measurable, and a rate is three sizes at 250 replicates, which is C3's dispatch.
+
+- **the evaluation companion**, `DRTMLE(evaluation=…)`, and it is a **library** keyword where §5
+  asked for a benchmark-only object. That departure is the piece's one real design decision and it
+  is recorded rather than slipped in: retaining the models and *replaying* the alternation outside
+  the library is a second implementation of `solve_with_reduction`'s state map, and that map is the
+  hard part — the outcome solve applies its tilt once per Newton step and shrinks after each,
+  `solve_bounded_mechanism` clips, and the reductions are refit every round, so `Q̄*` is **not**
+  `expit(logit Q̄̂ + ε·H)`. A bug in a replay is indistinguishable from a real remainder. So the
+  evaluation rows travel **through the same solvers**, which is `Fluctuation.carried` generalised in
+  one way: a carried item supplies its own clever covariate, because the evaluation rows' is not the
+  fitting rows'. A third diagnostic keyword beside `update_order=` and `reduced_crossfit=`, and for
+  the same kind of reason;
+- **and it is anchored by an identity rather than by an argument.** Handed the fitting frame back
+  as its own companion, fold `k`'s slab must reproduce the production array at the rows fold `k`
+  holds out — every initial array, all three reductions, and the *targeted* `Q̄*` and `g*`. That
+  fails if a slab is read one fold out, if a round's tilt is dropped, if the companion travels along
+  the production covariate, or if a refit is taken at a stale design; two of those were mutated and
+  watched to fail. The companion is otherwise **inert**: a Tier-1 study run on the pre-C2 code and
+  on this one agreed on 48 rows across 12 fields with zero mismatches;
+- **Tier 2**, `benchmarks/drtmle_tier2.py`: both nuisances fitted, the good one an oversmoothed
+  **additive kernel** at a committed `h_n = 1.15·n^(−0.125)`, with the drift coefficients computed
+  by quadrature at `c_ATE = 0.389` and `0.410` — Tier 1's `0.40`, so the two tiers share the rate of
+  the *remainder*, which is what they have to share to be about one regime. **Not** the regressogram
+  §5 names, and that is a finding: a regressogram's bias oscillates within a bin, so its `L₂` norm
+  is `O(B⁻¹)` while its inner product with a smooth weight is `O(B⁻²)` — and the remainder is an
+  inner product, so matching a declared rate with one needs a bin count at which the fit is
+  variance-dominated and its remainder is noise. §5's trap, through a second door;
+- **the remainder columns**, `benchmarks/drtmle_remainder.py`: `R_remaining` and `R₂` at the fitted
+  nuisances, both **exact** given the companion, and the two appendix branches, which are **not** —
+  each is a binned quadrature reported at two bin counts with their difference beside it, and a
+  branch smaller than that error is reported as unresolved rather than as a number. The `M` terms
+  are refused by name, because `(P_n − P_0)` of a fold-conditional function has no single-sample
+  rendering under the fold-weighted convention `P₀D̂` is taken at;
+- **and the re-timing the page asks for before C is re-scoped.** A Tier-2 `DRTMLE` fit with a
+  2,000-row companion is **5.4s** to **7.4s** at `n = 600`, against the **43s** this page costed C
+  from and beside C1's **5.6s** for an ordinary fit. Tier 2 was expected to be the expensive tier
+  and is not: the smoother is cheaper than the boosting library the 43s was measuring.
+
+What it does **not** land, by name: any coverage verdict and any rate. A single draw's
+`R_remaining` is dominated by the evaluation draw's own quadrature error — `sd(D)/√m`, which lands
+directly in it — so the number that means something is the replicate mean with its Monte Carlo
+error, which needs the dispatch.
 
 #### D. Widen the scope to what the sources derive
 

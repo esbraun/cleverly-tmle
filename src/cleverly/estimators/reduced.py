@@ -51,13 +51,27 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
+from ..fluctuation.iterative import InitialFit
 from ..learners._fitting import Task, predict_mean
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import bound
 from ..utils.parallel import map_parallel
-from ._nuisance import InnerDesigns, NuisanceEstimates, cross_fit_predictions, fit_on_rows
+from ._nuisance import (
+    CompanionEstimates,
+    InnerDesigns,
+    NuisanceEstimates,
+    Propensity,
+    cross_fit_companion,
+    fit_on_rows,
+)
 
-__all__ = ["REDUCED_CROSSFITS", "ReducedSet", "fit_reduced", "refuse_unsupported"]
+__all__ = [
+    "REDUCED_CROSSFITS",
+    "ReducedSet",
+    "fit_reduced",
+    "reduced_designs",
+    "refuse_unsupported",
+]
 
 #: The reductions the sources derive.  ``"univariate"`` is Benkeser et al.'s three
 #: univariate regressions and ``drtmle``'s own default; ``"bivariate"`` is van der Laan
@@ -206,8 +220,9 @@ def fit_reduced(
     g_bounds: tuple[float, float],
     reduction: str = "univariate",
     crossfit: str = "pooled",
+    companion: CompanionEstimates | None = None,
     n_jobs: int = 1,
-) -> tuple[ReducedSet, dict[str, list[SuperLearnerDiagnostics]]]:
+) -> tuple[ReducedSet, dict[str, list[SuperLearnerDiagnostics]], tuple[ReducedSet, ...]]:
     r"""Fit the three reduced-dimension regressions out of fold, one set per arm.
 
     Parameters
@@ -235,10 +250,17 @@ def fit_reduced(
         models left fold ``k`` out as well.  A reference construction rather than a
         production path -- see the last two paragraphs of the notes.
 
+    companion:
+        The fit's primary nuisances at an independent draw, one copy per outer fold.  When
+        given, fold ``k``'s reduced model also predicts at the design **fold ``k``'s own**
+        companion primary arrays imply -- which is the pairing that makes the returned sets
+        fold-conditional functions rather than a mixture of folds.  ``None`` on every fit
+        that declared no ``evaluation=``, and that path is bit for bit what it was.
+
     Returns
     -------
-    The evaluated set, and the Super Learner diagnostics keyed ``"qr"``, ``"gr1"`` and
-    ``"gr2"``.
+    The evaluated set, the Super Learner diagnostics keyed ``"qr"``, ``"gr1"`` and
+    ``"gr2"``, and one companion set per outer fold -- empty without a companion.
 
     Notes
     -----
@@ -351,9 +373,17 @@ def fit_reduced(
             )
     arms = nuisance.arms
 
+    if companion is not None and companion.n_folds != nuisance.folds.n_folds:
+        raise ValueError(
+            f"the companion covers {companion.n_folds} outer folds and this fit's split has "
+            f"{nuisance.folds.n_folds}; fold k's reduced model predicts at fold k's own "
+            "companion design, so a mismatch would pair a model with another fold's arrays"
+        )
     scaled = nuisance.scaler.scale(data.outcome)
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = {"qr": [], "gr1": [], "gr2": []}
     columns: dict[str, list[FloatArray]] = {"qr": [], "gr1": [], "gr2": []}
+    # ``(K, m)`` per role per arm, assembled into one ``ReducedSet`` per fold at the end.
+    companion_columns: dict[str, list[FloatArray]] = {"qr": [], "gr1": [], "gr2": []}
 
     for arm in arms:
         indicator = (np.asarray(data.treatment, dtype=float) == float(arm)).astype(float)
@@ -393,26 +423,50 @@ def fit_reduced(
             ("gr1", classification_learner, "classification", (0.0, 1.0)),
             ("gr2", regression_learner, "regression", None),
         )
+        elsewhere = (
+            None
+            if companion is None
+            else [
+                reduced_designs(companion.propensity[fold], companion.outcome[fold], arm)
+                for fold in range(companion.n_folds)
+            ]
+        )
         for name, learner, task, clip in roles:
             design, target = production[name]
             fit_mask = (
                 (indicator == 1.0) & np.asarray(data.observed, dtype=bool) if name == "qr" else None
             )
-            columns[name].append(
-                _reduced_column(
-                    learner,
-                    design=design,
-                    target=target,
-                    training=None if training is None else [each[name] for each in training],
-                    fit_mask=fit_mask,
-                    data=data,
-                    nuisance=nuisance,
-                    task=task,
-                    clip=clip,
-                    n_jobs=n_jobs,
-                    diagnostics=diagnostics[name],
-                )
+            values, at_companion = _reduced_column(
+                learner,
+                design=design,
+                target=target,
+                training=None if training is None else [each[name] for each in training],
+                companion=None if elsewhere is None else [each[name] for each in elsewhere],
+                fit_mask=fit_mask,
+                data=data,
+                nuisance=nuisance,
+                task=task,
+                clip=clip,
+                n_jobs=n_jobs,
+                diagnostics=diagnostics[name],
             )
+            columns[name].append(values)
+            if at_companion is not None:
+                companion_columns[name].append(at_companion)
+
+    at_folds: tuple[ReducedSet, ...] = ()
+    if companion is not None:
+        at_folds = tuple(
+            ReducedSet(
+                qr=np.column_stack([column[fold] for column in companion_columns["qr"]]),
+                gr1=np.column_stack([column[fold] for column in companion_columns["gr1"]]),
+                gr2=np.column_stack([column[fold] for column in companion_columns["gr2"]]),
+                arms=arms,
+                g_bounds=(float(g_bounds[0]), float(g_bounds[1])),
+                reduction=reduction,
+            )
+            for fold in range(companion.n_folds)
+        )
 
     return (
         ReducedSet(
@@ -424,6 +478,7 @@ def fit_reduced(
             reduction=reduction,
         ),
         diagnostics,
+        at_folds,
     )
 
 
@@ -449,18 +504,36 @@ def _roles(
     estimate.
     """
     if inner is None:
-        mechanism = nuisance.propensity.arm(arm)
-        regression = nuisance.outcome.arms[arm]
-        truncated = nuisance.propensity.bounded(g_bounds)[:, nuisance.propensity.column_for(arm)]
+        mechanism_fit, regression_fit = nuisance.propensity, nuisance.outcome
     else:
-        source = inner.propensity[fold]
-        mechanism = source.arm(arm)
-        regression = inner.outcome[fold].arms[arm]
-        truncated = source.bounded(g_bounds)[:, source.column_for(arm)]
+        mechanism_fit, regression_fit = inner.propensity[fold], inner.outcome[fold]
+    designs = reduced_designs(mechanism_fit, regression_fit, arm)
+    regression = regression_fit.arms[arm]
+    truncated = mechanism_fit.bounded(g_bounds)[:, mechanism_fit.column_for(arm)]
     return {
-        "qr": (mechanism, scaled - regression),
-        "gr1": (regression, indicator),
-        "gr2": (regression, (indicator - truncated) / truncated),
+        "qr": (designs["qr"], scaled - regression),
+        "gr1": (designs["gr1"], indicator),
+        "gr2": (designs["gr2"], (indicator - truncated) / truncated),
+    }
+
+
+def reduced_designs(
+    propensity: Propensity, outcome: InitialFit, arm: float
+) -> dict[str, FloatArray]:
+    r"""Which primary array each reduced regression is a regression **on**, at one arm.
+
+    :math:`Q_r` conditions on the mechanism and the two reduced mechanisms condition on the
+    outcome regression -- the crossing that is the whole construction, and the one the R
+    source names the other way round from the paper.  Stated once here because it is read
+    in two places: :func:`_roles`, which pairs each design with its target at the fitting
+    rows, and the companion, which needs the design alone at rows that have no target.
+    A second statement of it is how a companion comes to answer for a different regression
+    from the one it accompanies.
+    """
+    return {
+        "qr": propensity.arm(arm),
+        "gr1": outcome.arms[arm],
+        "gr2": outcome.arms[arm],
     }
 
 
@@ -470,6 +543,7 @@ def _reduced_column(
     design: FloatArray,
     target: FloatArray,
     training: list[tuple[FloatArray, FloatArray]] | None,
+    companion: list[FloatArray] | None,
     fit_mask: BoolArray | None,
     data: CausalData,
     nuisance: NuisanceEstimates,
@@ -477,7 +551,7 @@ def _reduced_column(
     clip: tuple[float, float] | None,
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
-) -> FloatArray:
+) -> tuple[FloatArray, FloatArray | None]:
     """One reduced regression, out of fold, on a one-column design.
 
     The design is a nuisance prediction rather than a covariate, which is the whole of
@@ -487,15 +561,24 @@ def _reduced_column(
     ``training`` is the nested construction: one ``(design, target)`` per outer fold, taken
     from primary models that left that fold out as well, used for the rows a fold **trains**
     on while the row it **predicts** keeps the production design.  ``None`` is the pooled
-    construction and goes through :func:`~cleverly.estimators._nuisance.cross_fit_predictions`
+    construction and goes through :func:`~cleverly.estimators._nuisance.cross_fit_companion`
     unchanged, which is what makes a pooled fit bit for bit what it was.
+
+    ``companion`` is one design per outer fold at the evaluation rows, predicted at by that
+    fold's model and returned as a ``(K, m)`` slab beside the ``(n,)`` production column.
     """
     matrix = np.asarray(design, dtype=float).reshape(-1, 1)
+    elsewhere = (
+        None
+        if companion is None
+        else [np.asarray(each, dtype=float).reshape(-1, 1) for each in companion]
+    )
     if training is not None:
         return _nested_column(
             learner,
             matrix=matrix,
             training=training,
+            companion=elsewhere,
             fit_mask=fit_mask,
             data=data,
             nuisance=nuisance,
@@ -504,7 +587,7 @@ def _reduced_column(
             n_jobs=n_jobs,
             diagnostics=diagnostics,
         )
-    predictions, fitted = cross_fit_predictions(
+    predictions, at_companion, fitted = cross_fit_companion(
         learner,
         matrix,
         np.asarray(target, dtype=float),
@@ -512,13 +595,14 @@ def _reduced_column(
         nuisance.folds,
         task=task,
         predict_designs={"values": matrix},
+        companion_designs={} if elsewhere is None else {"values": elsewhere},
         fit_mask=fit_mask,
         groups=data.cluster,
         clip=clip,
         n_jobs=n_jobs,
     )
     diagnostics.extend(fitted)
-    return predictions["values"]
+    return predictions["values"], (None if elsewhere is None else at_companion["values"])
 
 
 def _nested_column(
@@ -526,6 +610,7 @@ def _nested_column(
     *,
     matrix: FloatArray,
     training: list[tuple[FloatArray, FloatArray]],
+    companion: list[FloatArray] | None,
     fit_mask: BoolArray | None,
     data: CausalData,
     nuisance: NuisanceEstimates,
@@ -533,7 +618,7 @@ def _nested_column(
     clip: tuple[float, float] | None,
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
-) -> FloatArray:
+) -> tuple[FloatArray, FloatArray | None]:
     """One reduced regression whose training rows never saw the fold it predicts.
 
     A sibling of :func:`cross_fit_predictions`'s fold loop rather than a call into it, and
@@ -554,7 +639,12 @@ def _nested_column(
     weights = data.weights
     groups = data.cluster
 
-    def run_fold(index: int, train: IntArray, test: IntArray) -> tuple[IntArray, FloatArray, Any]:
+    def clipped(values: FloatArray) -> FloatArray:
+        return values if clip is None else np.clip(values, clip[0], clip[1])
+
+    def run_fold(
+        index: int, train: IntArray, test: IntArray
+    ) -> tuple[int, IntArray, FloatArray, FloatArray | None, Any]:
         rows = train[mask[train]]
         if rows.size == 0:
             raise ValueError(
@@ -571,15 +661,23 @@ def _nested_column(
             task,
             groups,
         )
-        values = np.asarray(predict_mean(model, matrix[test], task), dtype=float)
-        if clip is not None:
-            values = np.clip(values, clip[0], clip[1])
-        return test, values, getattr(model, "diagnostics_", None)
+        values = clipped(np.asarray(predict_mean(model, matrix[test], task), dtype=float))
+        elsewhere = (
+            None
+            if companion is None
+            else clipped(np.asarray(predict_mean(model, companion[index], task), dtype=float))
+        )
+        return index, test, values, elsewhere, getattr(model, "diagnostics_", None)
 
     jobs = [(index, train, test) for index, (train, test) in enumerate(folds)]
     out = np.empty(n, dtype=float)
-    for test, values, fitted in map_parallel(run_fold, jobs, n_jobs=n_jobs):
+    slabs: dict[int, FloatArray] = {}
+    for index, test, values, elsewhere, fitted in map_parallel(run_fold, jobs, n_jobs=n_jobs):
         out[test] = values
+        if elsewhere is not None:
+            slabs[index] = elsewhere
         if fitted is not None:
             diagnostics.append(fitted)
-    return out
+    if companion is None:
+        return out, None
+    return out, np.stack([slabs[index] for index in range(folds.n_folds)])

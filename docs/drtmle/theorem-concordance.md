@@ -414,6 +414,32 @@ stays useful and is not sufficient: a total trending to zero can conceal cancell
 `R_Q` and `R_g`. Where the DGP permits, [the study](validation-plan.md#5-the-controlled-study-piece-c)
 must report `R_Q` and `R_g` **separately**, their component products, their signs, and the total.
 
+**C2 computes all of this and the arithmetic above is what made the branches reachable.** Two
+things fall out of writing the sums rather than the terms, and one does not.
+
+*The branch sums lose their univariate limits.* Adding the pairs above,
+
+```text
+R_{3,n} + R_{4,n}         = P_0[ { Q̄_{0n,r}/g_0 − Q̄_{n,r}/g_n } (g_0 − g_n) ]
+R̃_{5,n} + R̃_{6,n}         = P_0[ { (1_a/g_{1,0n,r})g_{2,0n,r} − (1_a/g_{1,n,r})g_{2,n,r} } (Y − Q̄_n) ]
+```
+
+— `Q̄_{0,r}`, `g_{1,0,r}` and `g_{2,0,r}` **cancel**. What is left is the *fitted* reductions,
+which `DRTMLE(evaluation=…)` supplies exactly at an independent draw, and the two `0n` limits.
+
+*A `0n` limit is a quadrature.* `Q̄_{0n,r}` is a population conditional mean of a computable
+quantity given two computable scalars, so it needs no model — `benchmarks/drtmle_remainder.py`
+estimates it by a binned average over the evaluation draw at two bin counts and reports their
+difference as the column's own error.
+
+*The `M` terms do not fall out.* `M_{1,n}` and `M̃_{2,n}` are `(P_n − P_0)` of a difference of
+estimated curves, and a cross-fitted estimator has no single nuisance function: `P_n` reads the
+out-of-fold arrays and `P_0` reads the fold-conditional ones, so no single-sample expression is
+both. They are **refused by name** rather than approximated, and what is reported is each branch's
+second-order half — which is what the cancellation question is about, since an empirical-process
+term is `o_p(n^(−1/2))` under the conditions above and carries no product of nuisance errors to
+cancel against.
+
 ## 6. The recursive algorithm (item 22)
 
 *Source: the 2016 working paper.* With
@@ -963,7 +989,7 @@ filled in from optimism, exactly as §15's `unverified` column says of itself.
 | `D_Y` | `D*_Q` | `eval_Dstar_Q` univariate branch | `A`, `W`, `Y` | + | `g_{r,1}` bounded | starred | yes | `D_DR`, eq (10)'s check | `test_theorem_drtmle.py`; `test_influence_drtmle.py` for the longhand; `test_influence_gateaux_drtmle.py`'s `q_right` cell, where it is the live correction |
 | `D^{*,#}` | `D = D* − D*_Q − D*_g` | `DnoStar − DnQoStar − DngoStar` | — | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | — | starred | rowwise per arm; ATE is the rowwise difference | the variance | `test_influence_drtmle.py` (difference not sum; per-guard membership) **and `test_influence_gateaux_drtmle.py`**, which is the Gateaux pin of the decomposition this row wanted: in each off-diagonal cell the corrected curve equals `tests/discrete_law.py`'s complex-step EIF, row for row, from a real fit as well as longhand |
 | `B_n`, `B_{A,n}`, `B_{Y,n}` | the three recorded scores | `PnDnoStar` etc. | — | — | **the identity B1a pins and B1b makes hold** | starred | yes | the stopping rule and `score_check` | `test_drtmle_fit.py`, `test_bounded_mechanism.py`, and `validation/drtmle.py`'s `correction_check` |
-| `R_{Q,n}`, `R_{g,n}` | not computed | not computed | — | — | — | — | — | item 13 | **open, and [piece C](../roadmap.md#c-the-demonstration)'s** — a column on that study rather than a test here, since only it knows `ψ_0`. [§5](#5-the-remaining-remainder-terms) has the terms |
+| `R_{Q,n}`, `R_{g,n}` | `branch_products` | not computed | — | — | — | — | — | item 13 | **computed, in [piece C2](../roadmap.md#c-the-demonstration)** — a column on that study rather than a test here, since only it knows `ψ_0`. `benchmarks/drtmle_remainder.py` reports each branch's **second-order half** off `DRTMLE(evaluation=…)`, with its own binning error beside it; the `M` terms are refused by name. [§5](#5-the-remaining-remainder-terms) has the arithmetic |
 | `σ̂²_n` | `influence_covariance` | `drtmle` covariance block | — | — | — | — | — | the interval | `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` — the interval built from the package's own corrections is the one Theorem 1's terms give, the uncentred `P_n{D}²` differs from the reported variance by exactly `(P_n D)²`, and the contrast reads the covariance rather than the sum |
 | the probability limits `Q̄_1`, `g_1` | declared in tests; a fit has estimates, not limits | — | `W` | — | — | the limit the starred arrays converge to | yes | Theorem 1's conclusion, and `D^{*,#}` is evaluated **at them** | `test_influence_gateaux_drtmle.py`, the first fixture here to *have* limits: the misspecified nuisance is a constant, so it is its own limit, and the union model is entered by construction rather than by a rate |
 
@@ -1008,8 +1034,8 @@ than nothing at all, and one row that read **violated** now reads violated-and-m
 | `B_n = o_p(n^(−1/2))` | Thm 1 | eq (8) | solved to `1e-11` relative or `_NEGLIGIBLE/n` absolute | sweep | met, under a numerical proxy for `o_p` |
 | `B_{A,n} = o_p(n^(−1/2))` | Thm 1 | eq (9) | solved at the **truncated** residual, which is the one the curve reads | item 20; `correction_check`'s `identity` rows, per arm, on four fixtures including one where 375 rows clip | **met**, under the stated restriction that the mechanism is the truncated one and not the theorem's untruncated `g*` — [§7](#7-truncation-is-not-in-the-theorems-algorithm) is why that is a rendering rather than a departure. It read *violated wherever the bound binds*: B1a made it visible and [B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision) closed it, at `1e-17` on the identity and `1e-10` on the score |
 | `B_{Y,n} = o_p(n^(−1/2))` | Thm 1 | eq (10) | solved exactly | tests | met |
-| `R_{Q,n} = o_p(n^(−1/2))` | app. A | asymptotic linearity | unmeasured | `test_remainder_drtmle.py` has the *arithmetic* at saturated reductions; the empirical rate is [piece C](../roadmap.md#c-the-demonstration)'s column | **unverified** — item 13 |
-| `R_{g,n} = o_p(n^(−1/2))` | app. B | asymptotic linearity | unmeasured | as above, and the two branches must be reported **apart** — [§5](#5-the-remaining-remainder-terms) | **unverified** — item 13 |
+| `R_{Q,n} = o_p(n^(−1/2))` | app. A | asymptotic linearity | measured, not shown | `test_remainder_drtmle.py` has the *arithmetic* at saturated reductions; C2 built the instrument — `√n R_remaining` off an independent draw through the fit's own nuisances, plus each branch apart — and [piece C3](../roadmap.md#c-the-demonstration)'s dispatch is what reads the rate | **unverified, and now measurable** — item 13. The status does not move on an instrument landing, which is the same rule [§8](#8-cross-fitting-is-not-in-the-sources-and-the-argument-for-it-item-15)'s stability row is held to |
+| `R_{g,n} = o_p(n^(−1/2))` | app. B | asymptotic linearity | measured, not shown | as above, and the two branches are reported **apart** — [§5](#5-the-remaining-remainder-terms) — with the caveat that what is reported is each branch's second-order half and the `M` terms are refused | **unverified, and now measurable** — item 13 |
 | Donsker / `L_2` for `D_A`, `D_Y` | app. A/B | the empirical-process terms | cross-fitting, pooled | [§8.1](#81-the-decomposition-and-which-term-needs-what) splits it: the nested term is conditionally mean zero by the ordinary argument, and what is left is `(P_n − P_0)Δ_k` | **met for term [A]**; term [B] is the four rows below, which is what item 15 became |
 | **(E)** the reductions' univariate fitted class has a **measure-free** bracketing-entropy bound | not Thm 1's — A1b's | term [B]'s equicontinuity | fixed by the learner: `mean`/`glm`/`glmnet`/`gam` are bounded fixed-dimension sieves and `boost` is a fixed bounded-variation ball, since `max_iter=200`, `learning_rate=0.05`, `max_leaf_nodes=15` and `early_stopping=False` are constants in `learners/library.py` | [§8.3](#83-which-learners-are-inside-e-and-it-is-better-than-it-looks)'s table | **met for `library` in `glm`/`fast`/`default`**. This is the row the whole argument buys: the reduction is univariate, so the entropy condition falls on a one-dimensional class and *not* on the primary nuisances' complexity |
 | …and `library="rich"`, a nearest-neighbour or a saturated candidate is **outside** it | as above | as above | not refused and not warned — `reduced_*_learner` falls back to the primary spec | `_forest(min_samples_leaf=10)` gives `≈ n/10` pieces on one column | **outside the guarantee by declaration** where a caller asks for it. Scope, not a defect, and the same shape as [§7's](#the-scope-decision-item-25) truncation rows |

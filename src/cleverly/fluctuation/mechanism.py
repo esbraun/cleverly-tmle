@@ -64,7 +64,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 import numpy as np
 from scipy import optimize
@@ -79,6 +79,7 @@ if TYPE_CHECKING:  # pragma: no cover - `interventions` does not import `fluctua
 
 __all__ = [
     "MECHANISM_BUILDERS",
+    "MechanismCarry",
     "MechanismFluctuation",
     "apply_mechanism_tilt",
     "mechanism_covariate",
@@ -87,7 +88,40 @@ __all__ = [
     "register_mechanism",
     "solve_bounded_mechanism",
     "solve_mechanism",
+    "split_mechanism_carry",
 ]
+
+#: One item of ``carry`` on this side: a further mechanism moved by the same tilt.
+#:
+#: A bare array takes the **production** covariate, which is what the nested
+#: reduced-regression construction wants -- its fold-free copies describe the same rows.  A
+#: ``(base, covariate)`` pair takes one of its own, which is what an evaluation companion
+#: needs: :math:`Q_r/g^*` at rows the fit never saw is a different array at the same
+#: :math:`\epsilon`.  The counterpart of
+#: :data:`~cleverly.fluctuation.iterative.CarryItem` on the outcome side.
+MechanismCarry: TypeAlias = "FloatArray | tuple[FloatArray, FloatArray]"
+
+
+def split_mechanism_carry(
+    carry: Sequence[MechanismCarry], default: FloatArray
+) -> tuple[tuple[FloatArray, ...], tuple[FloatArray, ...]]:
+    """The carried mechanisms and the covariate each of them is tilted along.
+
+    The counterpart of :func:`~cleverly.fluctuation.iterative.split_carry`, written for the
+    same reason: one definition of what a carried item is, read by both solvers here.
+    """
+    bases: list[FloatArray] = []
+    covariates: list[FloatArray] = []
+    for item in carry:
+        if isinstance(item, tuple):
+            base, own = item
+            bases.append(base)
+            covariates.append(own)
+        else:
+            bases.append(item)
+            covariates.append(default)
+    return tuple(bases), tuple(covariates)
+
 
 #: How far from 0 and 1 an initial mechanism is held before its logit is taken.  This is
 #: **not** a truncation of the mechanism in the ``g_bounds`` sense -- it does not enter
@@ -262,7 +296,7 @@ def solve_mechanism(
     *,
     max_iter: int = 50,
     tol: float = 1e-12,
-    carry: Sequence[FloatArray] = (),
+    carry: Sequence[MechanismCarry] = (),
 ) -> MechanismFluctuation:
     r"""Tilt ``propensity`` along ``covariate`` until :math:`P_n[H_g (A - g^*)] = 0`.
 
@@ -293,9 +327,13 @@ def solve_mechanism(
     failure: TargetingFailure | None = detail.failure
     if failure is None and not converged:
         failure = "max_iter_reached"
+    bases, covariates = split_mechanism_carry(carry, h)
     return MechanismFluctuation(
         propensity=tilted,
-        carried=tuple(apply_mechanism_tilt(base, h, epsilon) for base in carry),
+        carried=tuple(
+            apply_mechanism_tilt(base, own, epsilon)
+            for base, own in zip(bases, covariates, strict=True)
+        ),
         epsilon=epsilon,
         score=score_columns(a, tilted, h, w, everywhere),
         score_scale=score_scale(h, w, everywhere),
@@ -326,7 +364,7 @@ def solve_bounded_mechanism(
     bounds: tuple[float, float],
     max_iter: int = 50,
     tol: float = 1e-12,
-    carry: Sequence[FloatArray] = (),
+    carry: Sequence[MechanismCarry] = (),
 ) -> MechanismFluctuation:
     r"""Tilt ``propensity`` until the score **at the truncated mechanism** is zero.
 
@@ -432,10 +470,14 @@ def solve_bounded_mechanism(
         # right -- and it must not be handed to a root finder with no derivative to work
         # with.  The mechanism still comes back *truncated*, since that is the array the
         # curve reads.
+        bases, covariates = split_mechanism_carry(carry, h)
         return replace(
             plain,
             propensity=at(warm)[1],
-            carried=tuple(apply_mechanism_tilt(base, h, warm, bounds=bounds) for base in carry),
+            carried=tuple(
+                apply_mechanism_tilt(base, own, warm, bounds=bounds)
+                for base, own in zip(bases, covariates, strict=True)
+            ),
             score=residual(warm),
             converged=True,
             failure=None,
@@ -464,9 +506,13 @@ def solve_bounded_mechanism(
         # at the bound on ordinary fits whose equation is solved exactly.
         pinned = float(np.mean((tilt <= lower) | (tilt >= upper)))
         failure = "bounds_pinned" if pinned > _PINNED_SHARE else "max_iter_reached"
+    bases, covariates = split_mechanism_carry(carry, h)
     return MechanismFluctuation(
         propensity=truncated,
-        carried=tuple(apply_mechanism_tilt(base, h, epsilon, bounds=bounds) for base in carry),
+        carried=tuple(
+            apply_mechanism_tilt(base, own, epsilon, bounds=bounds)
+            for base, own in zip(bases, covariates, strict=True)
+        ),
         epsilon=epsilon,
         score=score,
         score_scale=score_scale(h, w, everywhere),

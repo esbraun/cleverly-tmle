@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import numpy as np
 
@@ -54,15 +54,23 @@ if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes 
     from .reduced import ReducedSet
 
 __all__ = [
+    "CompanionEstimates",
     "InnerDesigns",
     "NuisanceEstimates",
     "Propensity",
     "RepeatFit",
+    "cross_fit_companion",
     "cross_fit_predictions",
     "fit_inner_designs",
     "fit_nuisances",
     "fit_on_rows",
 ]
+
+#: A design a *companion* prediction is taken at: either one matrix every fold's model
+#: predicts at, or one matrix per outer fold.  The second form is what a reduced regression
+#: needs, since fold ``k``'s companion design is fold ``k``'s own primary prediction --
+#: see :func:`~cleverly.estimators.reduced.fit_reduced`.
+CompanionDesign: TypeAlias = "FloatArray | Sequence[FloatArray]"
 
 
 @dataclass(frozen=True)
@@ -205,6 +213,84 @@ class InnerDesigns:
 
 
 @dataclass(frozen=True)
+class CompanionEstimates:
+    r"""The fit's nuisances evaluated at rows it never saw, one copy per outer fold.
+
+    ``docs/drtmle/validation-plan.md`` §5 asks for *"a benchmark-only fitted nuisance
+    object exposing predict(new_data) per fold"*, so that :math:`P_0\hat D` -- the
+    population mean of the **fitted** doubly-robust curve, which
+    ``docs/roadmap.md``'s item 13 needs and which :math:`P_n\hat D` is refused as a
+    substitute for -- can be integrated against an independent draw.  This is that object,
+    and it holds arrays rather than models for the reason
+    :class:`~cleverly.estimators.reduced.ReducedSet` does: a model cannot be serialised
+    with a result, and a *replay* of the alternation outside the library would be a second
+    implementation of a state map whose whole difficulty is that it is not
+    ``expit(logit Q + eps*H)``.
+
+    Every array here is therefore produced by the **same fitted model object** the
+    production array came from (:func:`cross_fit_companion`) and moved by the **same step
+    sequence** the production arrays took
+    (:attr:`~cleverly.fluctuation.iterative.Fluctuation.carried`).  What makes that
+    checkable rather than asserted is that handing the fitting frame back in as the
+    companion must reproduce the fit's own out-of-fold arrays exactly, fold by fold --
+    ``tests/unit/test_drtmle_companion.py``.
+
+    Attributes
+    ----------
+    data:
+        The companion rows themselves, as a :class:`~cleverly.data.CausalData`, so that
+        every clever-covariate builder can be reused verbatim at them rather than
+        reimplemented.  They contribute to no fit, no score and no fold.
+    outcome, propensity:
+        One per outer fold, in fold order, each ``m`` rows long: entry ``k`` is fold ``k``'s
+        model evaluated at every companion row.
+    fold_sizes:
+        Rows of the **fitting** sample held out by each fold.  §5's averaging convention is
+        the fold-weighted mean, :math:`\sum_k (n_k/n) P_0 \hat D^{(k)}`, and this is what
+        weights it; a study that averaged the slabs equally would be reporting a different
+        convention without saying so.
+    reduced:
+        The three reduced regressions at the companion rows, one set per outer fold, filled
+        in by :func:`~cleverly.estimators.reduced.fit_reduced`.  Empty until then.
+    """
+
+    data: CausalData
+    outcome: tuple[InitialFit, ...]
+    propensity: tuple[Propensity, ...]
+    fold_sizes: tuple[int, ...]
+    reduced: tuple[ReducedSet, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(self.outcome) != len(self.propensity) or len(self.outcome) != len(self.fold_sizes):
+            raise ValueError(
+                "the companion outcome, mechanism and fold sizes must cover the same outer "
+                f"folds; got {len(self.outcome)}, {len(self.propensity)} and "
+                f"{len(self.fold_sizes)}"
+            )
+        if not self.outcome:
+            raise ValueError("companion estimates must cover at least one outer fold")
+
+    @property
+    def n_folds(self) -> int:
+        return len(self.outcome)
+
+    @property
+    def n(self) -> int:
+        """Companion rows."""
+        return int(self.outcome[0].n)
+
+    @property
+    def fold_weights(self) -> FloatArray:
+        """``n_k / n``, the weights §5's fold-conditional average is taken with."""
+        sizes = np.asarray(self.fold_sizes, dtype=float)
+        return sizes / float(sizes.sum())
+
+    def propensity_arm(self, arm: float) -> tuple[FloatArray, ...]:
+        """``g(arm | W)`` from each fold's copy at the companion rows, untruncated."""
+        return tuple(each.arm(arm) for each in self.propensity)
+
+
+@dataclass(frozen=True)
 class NuisanceEstimates:
     """Cross-fitted nuisance predictions and the diagnostics that came with them.
 
@@ -310,6 +396,12 @@ class NuisanceEstimates:
     #: :class:`NuisanceEstimates` and reads ``folds`` off it, so the designs and the split
     #: they were built against cannot come apart.  See :class:`InnerDesigns`.
     inner: InnerDesigns | None = None
+    #: The same nuisances evaluated at an independent draw, one copy per outer fold, or
+    #: ``None`` for every fit that declared no ``evaluation=``.  Carried here for the reason
+    #: ``inner`` is -- :func:`~cleverly.estimators.reduced.fit_reduced` reads it off the
+    #: object it is handed, so the companion designs and the split cannot come apart -- and
+    #: it is what :math:`P_0\\hat D` is integrated from.  See :class:`CompanionEstimates`.
+    companion: CompanionEstimates | None = None
 
     def retilted(self, mechanism: FloatArray) -> NuisanceEstimates:
         """The same nuisances with every tilt re-evaluated at ``mechanism``.
@@ -455,6 +547,63 @@ def cross_fit_predictions(
     Predictions per named design, and the Super Learner diagnostics per fold (empty
     when the learner is not a Super Learner).
     """
+    predictions, _, diagnostics = cross_fit_companion(
+        learner,
+        design,
+        target,
+        weights,
+        folds,
+        task=task,
+        predict_designs=predict_designs,
+        companion_designs={},
+        fit_mask=fit_mask,
+        groups=groups,
+        clip=clip,
+        classes=classes,
+        n_jobs=n_jobs,
+    )
+    return predictions, diagnostics
+
+
+def cross_fit_companion(
+    learner: Learner,
+    design: FloatArray,
+    target: FloatArray,
+    weights: FloatArray,
+    folds: Folds,
+    *,
+    task: Task,
+    predict_designs: dict[str, FloatArray],
+    companion_designs: Mapping[str, CompanionDesign],
+    fit_mask: BoolArray | None = None,
+    groups: IntArray | None = None,
+    clip: tuple[float, float] | None = None,
+    classes: Sequence[float] | None = None,
+    n_jobs: int = 1,
+) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
+    """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
+
+    The one fold loop, so that a companion prediction comes from the **same fitted model
+    object** the production prediction came from rather than from a refit of the same
+    learner on the same rows.  Two of those would agree for a deterministic learner and
+    would not for a seeded one, which is exactly the kind of "usually equal" this variant
+    has been caught by before.
+
+    ``predict_designs`` is scattered by fold into ``(n,)`` arrays, as it always was:
+    row ``i``'s value comes from the model that held fold ``i`` out.  ``companion_designs``
+    cannot be, because a companion row belongs to no fold -- so it comes back stacked,
+    ``(K, m)`` or ``(K, m, C)``, entry ``k`` being fold ``k``'s model evaluated at every
+    companion row.  Which of those slabs to read, or how to average them, is the caller's
+    convention and is stated where the caller states it
+    (``docs/drtmle/validation-plan.md`` §5's fold-weighted average).
+
+    A companion design may be one matrix, used for every fold, or one matrix **per fold** --
+    see :data:`CompanionDesign`.
+
+    Returns ``(predictions, companion, diagnostics)``.  With no companion designs the first
+    and last are what :func:`cross_fit_predictions` returns and the middle is empty; that
+    path is the production one and is bit for bit what it was.
+    """
     n = design.shape[0]
     mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
     if not mask.any():
@@ -465,16 +614,25 @@ def cross_fit_predictions(
             return _clip(predict_mean(model, matrix, task), clip)
         return _clip(predict_probabilities(model, matrix, classes), clip)
 
+    def companion_at(model: Learner, fold: int) -> dict[str, FloatArray]:
+        return {
+            name: predict(model, _companion_matrix(matrix, fold))
+            for name, matrix in companion_designs.items()
+        }
+
     if folds.is_single:
         rows = np.flatnonzero(mask)
         model = fit_on_rows(learner, design, target, weights, rows, task, groups)
         predictions = {name: predict(model, matrix) for name, matrix in predict_designs.items()}
+        companion = {name: values[None, ...] for name, values in companion_at(model, 0).items()}
         diagnostics = getattr(model, "diagnostics_", None)
-        return predictions, [diagnostics] if diagnostics is not None else []
+        return predictions, companion, [diagnostics] if diagnostics is not None else []
 
-    jobs = [(train, test) for train, test in folds]
+    jobs = [(fold, train, test) for fold, (train, test) in enumerate(folds)]
 
-    def run_fold(train: IntArray, test: IntArray) -> tuple[IntArray, dict[str, FloatArray], Any]:
+    def run_fold(
+        fold: int, train: IntArray, test: IntArray
+    ) -> tuple[int, IntArray, dict[str, FloatArray], dict[str, FloatArray], Any]:
         rows = train[mask[train]]
         if rows.size == 0:
             raise ValueError(
@@ -487,18 +645,43 @@ def cross_fit_predictions(
         predictions = {
             name: predict(model, matrix[test]) for name, matrix in predict_designs.items()
         }
-        return test, predictions, getattr(model, "diagnostics_", None)
+        return (
+            fold,
+            test,
+            predictions,
+            companion_at(model, fold),
+            getattr(model, "diagnostics_", None),
+        )
 
     results = map_parallel(run_fold, jobs, n_jobs=n_jobs)
     shape: tuple[int, ...] = (n,) if classes is None else (n, len(tuple(classes)))
     out = {name: np.empty(shape, dtype=float) for name in predict_designs}
+    slabs: dict[str, list[FloatArray]] = {name: [] for name in companion_designs}
+    order: list[int] = []
     diagnostics_list: list[SuperLearnerDiagnostics] = []
-    for test, predictions, diagnostics in results:
+    for fold, test, predictions, companion_values, diagnostics in results:
         for name, values in predictions.items():
             out[name][test] = values
+        order.append(fold)
+        for name, values in companion_values.items():
+            slabs[name].append(values)
         if diagnostics is not None:
             diagnostics_list.append(diagnostics)
-    return out, diagnostics_list
+    # Stacked in **fold** order rather than in completion order: `map_parallel` preserves
+    # the job order today, and a slab indexed by position would silently answer for the
+    # wrong fold if it ever stopped doing so.
+    rank = np.argsort(np.asarray(order))
+    companion = {
+        name: np.stack([values[index] for index in rank]) for name, values in slabs.items()
+    }
+    return out, companion, diagnostics_list
+
+
+def _companion_matrix(design: CompanionDesign, fold: int) -> FloatArray:
+    """One matrix from a companion design: the design itself, or this fold's entry."""
+    if isinstance(design, np.ndarray):
+        return design
+    return np.asarray(design[fold], dtype=float)
 
 
 def fit_on_rows(
@@ -652,6 +835,7 @@ def fit_nuisances(
     incremental_reference: str | None = None,
     shift_reference: str | None = None,
     density_bins: int = 20,
+    companion: CausalData | None = None,
     n_jobs: int = 1,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
@@ -668,9 +852,20 @@ def fit_nuisances(
     the ratio :math:`g(a - \\delta \\mid W) / g(a \\mid W)`, so numerator and denominator
     come from one out-of-fold model by construction and there is no second model for a
     later step to get wrong.
+
+    ``companion`` is an independent draw at which every fold's mechanism and outcome
+    regression is *also* evaluated, returned on
+    :attr:`NuisanceEstimates.companion`.  It contributes to no fit, no fold and no score,
+    so a call that passes ``None`` -- which is every call but a
+    :class:`~cleverly.DRTMLE` with ``evaluation=`` -- goes down the identical path.  It is
+    accepted only for the shape that estimator supports: an arm-coded treatment, a fully
+    observed outcome and no intermediate, which are exactly the refusals ``DRTMLE`` already
+    makes by name.
     """
     diagnostics: dict[str, Any] = {}
     groups = data.cluster
+    if companion is not None:
+        _check_companion(data, companion)
 
     # --- treatment mechanism -------------------------------------------------
     treatment_model = (
@@ -702,7 +897,7 @@ def fit_nuisances(
         propensity = Propensity(np.zeros((data.n, 0)), ())
         shift_set = ShiftSet.evaluate(tuple(shifts), data, density, reference=shift_reference)
     else:
-        propensity_out, propensity_diagnostics = cross_fit_predictions(
+        propensity_out, propensity_companion, propensity_diagnostics = cross_fit_companion(
             treatment_model,
             data.covariates,
             data.treatment,
@@ -710,6 +905,7 @@ def fit_nuisances(
             folds,
             task="classification",
             predict_designs={"g": data.covariates},
+            companion_designs={} if companion is None else {"g": companion.covariates},
             groups=groups,
             clip=(0.0, 1.0),
             classes=arms,
@@ -819,7 +1015,13 @@ def fit_nuisances(
                 value, intermediate_value=level
             )
 
-    outcome_out, outcome_diagnostics = cross_fit_predictions(
+    companion_designs: dict[str, FloatArray] = {}
+    if companion is not None:
+        companion_designs = {"observed": companion.treatment_design()}
+        for arm in arms:
+            companion_designs[_design_key(arm, levels[0])] = companion.counterfactual_design(arm)
+
+    outcome_out, outcome_companion, outcome_diagnostics = cross_fit_companion(
         outcome_learner,
         outcome_design,
         scaled,
@@ -827,6 +1029,7 @@ def fit_nuisances(
         folds,
         task=outcome_task,
         predict_designs=designs,
+        companion_designs=companion_designs,
         fit_mask=data.observed,
         groups=groups,
         clip=(0.0, 1.0),
@@ -844,6 +1047,27 @@ def fit_nuisances(
     }
     primary = by_level[levels[0]]
 
+    companion_estimates = None
+    if companion is not None:
+        counts = np.bincount(np.asarray(folds.assignment), minlength=folds.n_folds)
+        companion_estimates = CompanionEstimates(
+            data=companion,
+            outcome=tuple(
+                InitialFit(
+                    outcome_companion["observed"][fold],
+                    {
+                        arm: outcome_companion[_design_key(arm, levels[0])][fold]
+                        for arm in counterfactual
+                    },
+                )
+                for fold in range(folds.n_folds)
+            ),
+            propensity=tuple(
+                Propensity(propensity_companion["g"][fold], arms) for fold in range(folds.n_folds)
+            ),
+            fold_sizes=tuple(int(count) for count in counts),
+        )
+
     return NuisanceEstimates(
         propensity=propensity,
         outcome=primary,
@@ -858,7 +1082,47 @@ def fit_nuisances(
         density=density,
         shifts=shift_set,
         incremental=ipsi_set,
+        companion=companion_estimates,
     )
+
+
+def _check_companion(data: CausalData, companion: CausalData) -> None:
+    """Refuse a companion this function cannot evaluate every nuisance at.
+
+    Named rather than assumed, because each of these is a *silent* wrong answer rather than
+    a crash: a companion on a continuous treatment would carry an ``(n, 0)`` mechanism, one
+    with a missingness or intermediate model would be missing the factors its clever
+    covariate divides by, and one whose covariates are named differently would be predicted
+    at a design the model was not fitted on.  All three are already refused by name in
+    :class:`~cleverly.DRTMLE`, which is the only caller; this is the second lock, on the
+    function that would otherwise return an array for a fit nobody ran.
+    """
+    if data.is_continuous_treatment or companion.is_continuous_treatment:
+        raise NotImplementedError(
+            "an evaluation companion reads a per-arm mechanism g(a | W), and a continuous "
+            "dose has none: its mechanism is a conditional density and evaluating it at "
+            "new rows is a different object from predicting a probability."
+        )
+    if data.has_missing_outcome or data.has_intermediate:
+        raise NotImplementedError(
+            "an evaluation companion is not built for a fit with delta= or intermediate=: "
+            "the curve at the companion rows would need the missingness and intermediate "
+            "mechanisms there too, and DRTMLE -- the only estimator that asks for one -- "
+            "refuses both by name."
+        )
+    if tuple(companion.covariate_names) != tuple(data.covariate_names):
+        raise ValueError(
+            f"the companion carries covariates {list(companion.covariate_names)} and the "
+            f"fit was made on {list(data.covariate_names)}; a companion is the fit's own "
+            "models evaluated elsewhere, so its design has to be the design they were "
+            "fitted on"
+        )
+    if tuple(companion.treatment_levels) != tuple(data.treatment_levels):
+        raise ValueError(
+            f"the companion's treatment takes levels {list(companion.treatment_levels)} and "
+            f"the fit's takes {list(data.treatment_levels)}; the arm codes index every "
+            "per-arm array here, so the two must agree"
+        )
 
 
 def fit_inner_designs(

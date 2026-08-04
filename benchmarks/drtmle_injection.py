@@ -58,8 +58,10 @@ for in place of inferring the regime from an :math:`L_2` rate.
 What this module does **not** compute is :math:`P_0 \hat D` for the *doubly-robust* curve, and
 so not ``R_remaining``.  The primary nuisances here are prescribed functions and integrate
 exactly; the three reduced regressions are **fitted**, so evaluating their limit on new
-covariates needs the fold-retained nuisance objects §5 puts in Tier 2.  That is piece C2's, and
-item 13 goes with it.  Everything here is about the *plug-in at the injected sequence*, which is
+covariates needs the fold-retained nuisance objects §5 puts in Tier 2.  Piece C2 built them as
+``DRTMLE(evaluation=...)`` and ``benchmarks/drtmle_remainder.py`` is the arithmetic on top, so the
+corrected remainder is available *here* too -- ``--evaluation-n`` is the knob, and item 13's rate
+is C3's dispatch.  Everything here is about the *plug-in at the injected sequence*, which is
 the regime-entry evidence -- and the targeting step moves :math:`\hat Q` by
 :math:`O_p(n^{-1/2})`, which is smaller than the injected :math:`n^{-\alpha}` at every
 :math:`\alpha < 1/2` and so leaves the drift's leading term where it was.
