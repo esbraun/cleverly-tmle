@@ -414,6 +414,38 @@ class TestWhereTheDesignsDifferTheConstructionsDo:
         for fit in pair.values():
             assert fit.validation.score_check().passed
 
+    def test_a_retarget_of_a_nested_fit_is_still_nested(self, pair: dict[str, Any]) -> None:
+        r"""The sensitivity analyses re-enter the alternation, and must not fall back to pooled.
+
+        ``DRTMLE.retarget`` refits the reduced regressions -- they are regressions *of* the
+        current pair, so they cannot be cached arithmetic the way an ordinary fit's are --
+        and it reads the construction off the estimator while the fold-free designs ride on
+        :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner`.  If either half went
+        missing, a truncation curve on a nested fit would silently report a *pooled*
+        estimator's sensitivity under the nested fit's name.
+
+        The witness is that the retargeted estimate differs from the pooled fit's at the same
+        bound: a fallback would make the two identical.
+        """
+        nested, pooled = pair["nested"], pair["pooled"]
+        estimator = DRTMLE(
+            reduced_crossfit="nested",
+            outcome_learner="glm",
+            treatment_learner="glm",
+            reduced_outcome_learner="glm",
+            reduced_treatment_learner="glm",
+            estimands=("ate",),
+            cross_fit=True,
+            n_folds=FOLDS,
+            learner_folds=3,
+            simultaneous=False,
+            random_state=0,
+        )
+        data = nested.data
+        assert nested.nuisance.inner is not None
+        estimates, _ = estimator.retarget(data, nested.nuisance, estimands=("ate",), g_bounds=INERT)
+        assert estimates["ate"].psi != pooled["ate"].psi
+
 
 class TestASaturatedReductionOnAFiniteLawCannotSeeItInGr1:
     r"""A blind spot, measured by running it and watching it **pass**.
