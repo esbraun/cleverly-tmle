@@ -120,6 +120,40 @@ class DGP:
         """
         return dict(_cached_truth(self, intermediate_value))
 
+    def expectation(self, integrand: Callable[[FloatArray], FloatArray]) -> float:
+        r"""``E_0[integrand(latent)]``, by the rule :meth:`truth` integrates with.
+
+        The escape hatch for a population quantity that is not an estimand: a remainder
+        term, a drift coefficient, the :math:`L_2` distance between a prescribed nuisance
+        and the true one.  ``integrand`` is handed the ``(count, n_latent)`` latent matrix
+        -- the same argument :attr:`propensity` and :attr:`outcome_mean` take, hidden
+        columns included -- and returns one value per row.
+
+        It exists so that such a quantity is integrated on **the same rule as the truth it
+        is compared against**.  ``benchmarks/drtmle_coverage.py`` is the caller: its
+        prescribed nuisance sequence has a drift coefficient
+        :math:`c_a = P_0[(g_{1,a} - g_{0,a})/g_{1,a} \cdot h_a]` that has to be verified
+        against the same law the coverage is measured at, and a second quadrature -- a large
+        random draw, or Sobol points with a different seed -- would put a Monte Carlo error
+        of its own between the two and leave a disagreement unattributable.
+
+        Not cached, unlike :meth:`truth`: the key would have to be the callable, and two
+        closures over different constants are not the same integrand however they compare.
+
+        >>> dgp = linear_dgp()
+        >>> mean_g = dgp.expectation(dgp.propensity)
+        >>> bool(0.4 < mean_g < 0.6)
+        True
+        """
+        latent = _sobol_normal(self.n_latent, _TRUTH_POINTS)
+        values = np.asarray(integrand(latent), dtype=float).reshape(-1)
+        if values.size != _TRUTH_POINTS:
+            raise ValueError(
+                f"integrand must return one value per integration point; got {values.size} "
+                f"for {_TRUTH_POINTS} points"
+            )
+        return float(np.mean(values))
+
     def _integrate(self, intermediate_value: float | None) -> dict[str, float]:
         latent = _sobol_normal(self.n_latent, _TRUTH_POINTS)
         g = np.clip(np.asarray(self.propensity(latent), dtype=float), 0.0, 1.0)

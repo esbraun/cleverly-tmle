@@ -55,6 +55,12 @@ The questions, and the columns that answer them:
 * **the five places weak overlap enters** (§4).  ``clip``, ``min g``, ``ess``, and the high
   quantiles of all three clever covariates and of the reductions they are built from -- so
   that a failure can be attributed to one of them rather than to "poor overlap".
+* **item 25 -- which estimator is each cell evidence about?**  ``bound-active``, a count of
+  the cell's draws on the far side of
+  `the supported contract <../docs/roadmap.md>`_, off the same
+  :func:`~cleverly.validation.correction_check` witness the coverage study reads.  It is a
+  scope column and not a failure count: those draws' identities hold at roundoff and their
+  scores are negligible.
 
 **This will not run in the Claude Code cloud sandbox**, and ``CLAUDE.md`` explains why: the
 defaults here are ~96 fits of tens of seconds each, and ``--order paper`` doubles that at a
@@ -80,6 +86,7 @@ import statistics
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -172,6 +179,19 @@ class Overlap:
         the exit however hard the draw was, and a count taken there would be zero on every
         row of this table -- ``docs/roadmap.md``'s stop-ship 14, a column that could not
         disagree.  This is a property of the draw.
+
+        **Read off the fit rather than recomputed here.**  It was three lines of numpy in
+        this module until item 25's witness put the same quantity on
+        :class:`~cleverly.validation.CorrectionCheck`, and two implementations of "which side
+        of the supported contract is this cell on" is one more than the question can stand:
+        the study in ``benchmarks/drtmle_coverage.py`` reads the fit's, and a sweep answering
+        with its own arithmetic could disagree with it about a cell.  The number is
+        unchanged, which was checked before the duplicate went.
+    contract:
+        ``"theorem"`` or ``"bound-active"``, off the same witness: which estimator this fit's
+        numbers are evidence about (item 25).  Not a verdict -- a bound-active fit here has
+        every identity at roundoff and every score negligible, which is exactly what the
+        ``weak-overlap`` rows of the B2b dispatch say.
     margin:
         How close the targeted mechanism comes to either bound, as a fraction of the
         interval between them.  The witness B1b replaced the clipped count with: a
@@ -195,6 +215,7 @@ class Overlap:
     """
 
     clip_share: float = float("nan")
+    contract: str = ""
     margin: float = float("nan")
     min_g: float = float("nan")
     ess: float = float("nan")
@@ -417,12 +438,16 @@ def _indicators(fit, arms: tuple[float, ...]) -> np.ndarray:
     return np.column_stack([(treatment == arm).astype(float) for arm in arms])
 
 
-def _overlap(fit, bounds: tuple[float, float], margin: float) -> Overlap:
-    """The five places, read off one fit."""
+def _overlap(fit, bounds: tuple[float, float], correction: Any) -> Overlap:
+    """The five places, read off one fit.
+
+    ``correction`` is the fit's own :func:`~cleverly.validation.correction_check`, which is
+    where three of these columns now come from rather than from arithmetic repeated here --
+    see :attr:`Overlap.clip_share`.
+    """
     repeat = fit.repeats[0]
     nuisance, fluctuation = repeat.nuisance, repeat.fluctuations["mean"]
     reduction = fluctuation.reduction
-    lower, upper = bounds
     arms = reduction.reduced.arms
 
     raw = np.column_stack([nuisance.propensity.arm(arm) for arm in arms])
@@ -435,8 +460,9 @@ def _overlap(fit, bounds: tuple[float, float], margin: float) -> Overlap:
     )
     reduced = reduction.reduced
     return Overlap(
-        clip_share=float(np.mean((raw < lower) | (raw > upper))),
-        margin=margin,
+        clip_share=correction.initial_clip_share,
+        contract=correction.contract,
+        margin=correction.margin,
         min_g=float(np.min(raw)),
         ess=ess,
         h8=_quantile(h8),
@@ -551,7 +577,7 @@ def one_fit(payload: Payload) -> Exit:
         worst_share=float(worst / reference) if reference > 0 else float("nan"),
         psi=float(estimate.psi),
         se=float(estimate.std_error),
-        overlap=_overlap(fit, reduction.bounds, correction.margin),
+        overlap=_overlap(fit, reduction.bounds, correction),
         curve=_curve(fit),
     )
 
@@ -608,7 +634,13 @@ def summarise(results: list[Exit]) -> list[list[str]]:
 
 
 def overlap_rows(results: list[Exit]) -> list[list[str]]:
-    """The five places weak overlap enters, per cell, as medians over the draws."""
+    """The five places weak overlap enters, per cell, as medians over the draws.
+
+    ``bound-active`` is a **count** and not a median, because item 25's contract is a
+    statement about a cell rather than about its typical draw: a cell with one bound-active
+    fit in twelve is a cell whose coverage number is evidence about two estimators, and a
+    median would report it as though it were about one.
+    """
     rows = []
     for process, n, cell in _cells(results, "base"):
         rows.append(
@@ -616,6 +648,7 @@ def overlap_rows(results: list[Exit]) -> list[list[str]]:
                 process,
                 f"{n:,}",
                 f"{_median([r.overlap.clip_share for r in cell]):.3f}",
+                _share([r.overlap.contract == "bound-active" for r in cell]),
                 f"{_median([r.overlap.margin for r in cell]):.1e}",
                 f"{_median([r.overlap.min_g for r in cell]):.3f}",
                 f"{_median([r.overlap.ess for r in cell]):.2f}",
@@ -949,6 +982,7 @@ def main() -> None:
                 "process",
                 "n",
                 "clip share",
+                "bound-active",
                 "margin",
                 "min g",
                 "ess/n",

@@ -83,6 +83,41 @@ intentions:
   would now be selected from nothing at all: ``docs/roadmap.md``'s stop-ship 14, a check
   agreeing where it could not have disagreed, arriving in a second place.  What a constrained
   root does instead is sit *against* the boundary, and the margin is how that shows.
+
+Which estimator the fit is, which is a different question
+---------------------------------------------------------
+
+Everything above asks whether a fit solved what it reports.  :attr:`CorrectionCheck.contract`
+asks something no other column here answers: **which estimator the numbers are evidence
+about.**  ``docs/roadmap.md``'s item 25 is the scope decision behind it -- truncation is not in
+Theorem 1's algorithm, so the theorem-backed guarantee is claimed for a fit whose truncations
+are *inactive*, and a fit where one binds is reported as empirically supported and outside the
+theorem.  Three truncations have to be inactive for that, not one, and until this module grew
+the two columns below only :attr:`~CorrectionRow.margin` was on a fit at all:
+
+============================  ===================================  ==========================
+truncation                    witness                              in Theorem 1's assumptions
+============================  ===================================  ==========================
+:math:`\hat g` at the fit     :attr:`CorrectionRow.initial_clipped` an assumption on
+                                                                   :math:`g_0`, not an
+                                                                   operation on
+                                                                   :math:`\hat g`
+:math:`g^*` at the exit       :attr:`CorrectionRow.margin`          the same one
+:math:`g_{r,1}`               :attr:`CorrectionRow.gr1_margin`      **none**: it is a
+                                                                   regression of an arm
+                                                                   indicator on
+                                                                   :math:`\hat{\bar Q}`, and
+                                                                   :math:`g_0 > \delta` does
+                                                                   not imply it is bounded
+                                                                   away from zero
+============================  ===================================  ==========================
+
+**A bound-active fit is not a failing fit, and :attr:`CorrectionCheck.passed` does not read
+this.**  On ``weak_overlap_dgp`` every identity holds at ``1e-17`` and every score is
+negligible while a third of the ``(row, arm)`` pairs clip at the initial mechanism; that is a
+scope label, and folding it into a verdict would report the fit as broken.  The label needs a
+threshold where the two margin columns deliberately have none, so the threshold is on the
+label -- :data:`MARGIN_ACTIVE` -- and the raw columns stay what they were.
 """
 
 from __future__ import annotations
@@ -100,7 +135,13 @@ from ..utils.text import format_table
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
 
-__all__ = ["IDENTITY_TOLERANCE", "CorrectionCheck", "CorrectionRow", "correction_check"]
+__all__ = [
+    "IDENTITY_TOLERANCE",
+    "MARGIN_ACTIVE",
+    "CorrectionCheck",
+    "CorrectionRow",
+    "correction_check",
+]
 
 #: How far a state identity may miss before it is called a defect, on the outcome's scale.
 #: A number rather than a judgement, and the gap either side of it is what makes it one:
@@ -111,6 +152,20 @@ __all__ = ["IDENTITY_TOLERANCE", "CorrectionCheck", "CorrectionRow", "correction
 #: quantity is a difference of two evaluations of one expression, and its right value is
 #: zero rather than something small compared with anything.
 IDENTITY_TOLERANCE = 1e-12
+
+#: How near a bound a mechanism has to come before :attr:`CorrectionCheck.contract` calls the
+#: truncation *active*, as a fraction of the interval between the bounds.  A threshold on the
+#: **label** and not on the columns it reads, deliberately: :attr:`CorrectionRow.margin` and
+#: :attr:`CorrectionRow.gr1_margin` stay thresholdless so a test can pick its own, and this is
+#: the one place a number is needed, because a scope label has to come out of a comparison.
+#:
+#: The gap either side of it is what makes it a number rather than a judgement.  On the draw
+#: item 20 was found on the exit margin is ``1.2e-06`` and on its sibling that never clipped it
+#: is ``0.14``; over ``benchmarks/bench_drtmle.py``'s 96-fit dispatch ``weak-overlap``'s median
+#: margin is **exactly** ``0.0e+00`` at two of three sizes while the three ordinary processes
+#: sit at ``0.11`` to ``0.20``.  So this sits two orders above the active regime and three below
+#: the inactive one.
+MARGIN_ACTIVE = 1e-4
 
 
 @sentinel_equality
@@ -162,6 +217,26 @@ class CorrectionRow:
         returned arrays is: the trajectory that got there is not on the record.  What it is
         is a property that separates the two draws by five orders and cannot be manufactured
         by the fix, which is what a fixture's precondition has to be.
+    initial_clipped:
+        How many ``(row, arm)`` pairs of the **initial** mechanism -- the cross-fitted
+        :meth:`~cleverly.estimators._nuisance.Propensity.arm`, untruncated -- lie outside the
+        truncation.  A property of the *draw* rather than of the alternation, and so the one
+        truncation witness here that is not about what the loop did: it counts what
+        :meth:`~cleverly.estimators._nuisance.Propensity.bounded` had to do on the way into
+        equation (8)'s covariate.  Unlike :attr:`clipped`, which B1b emptied, this column
+        **can** disagree -- ``benchmarks/bench_drtmle.py``'s dispatch reads a share of ``0.000``
+        on ``linear``, ``nonlinear`` and ``off-diagonal`` and ``0.231`` to ``0.338`` on
+        ``weak-overlap``, which is item 25's two regimes already measured.
+    gr1_margin:
+        The closest :math:`g_{r,1}` comes to either bound, as a fraction of the interval,
+        read off the **untruncated** array :class:`~cleverly.estimators.reduced.ReducedSet`
+        stores -- so unlike :attr:`margin` it is **signed**, and a value at or below zero says
+        :meth:`~cleverly.estimators.reduced.ReducedSet.bounded_gr1` is doing something to
+        equation (10)'s denominator.  It is the third of the three truncations item 25's
+        condition is about and the one with no counterpart in Theorem 1's assumption list:
+        :math:`g_{r,1}` is a regression of an arm indicator on :math:`\\hat{\\bar Q}`, and
+        :math:`g_0 > \\delta` does not imply it is bounded away from zero.
+        ``weak-overlap``'s ``min gr1`` of ``0.000`` is this bound binding.
     solved:
         Whether this fit solved the equation the correction comes from -- which, since
         item 23, is the same question as whether the term is in the reported curve, because
@@ -187,6 +262,8 @@ class CorrectionRow:
     solved: bool
     clip_bias: float = float("nan")
     margin: float = float("nan")
+    initial_clipped: int = 0
+    gr1_margin: float = float("nan")
 
     @property
     def residual(self) -> float:
@@ -282,6 +359,66 @@ class CorrectionCheck:
         """The closest any draw's targeted mechanism comes to its bounds, as a fraction."""
         return min((row.margin for row in self.rows), default=float("nan"))
 
+    @property
+    def initial_clip_share(self) -> float:
+        """The worst draw's share of ``(row, arm)`` pairs clipped at the *initial* mechanism.
+
+        A share rather than the count :attr:`CorrectionRow.initial_clipped` carries, so that
+        two sizes are comparable; the worst draw rather than the mean of them, because
+        :attr:`contract` is a statement about the fit and one bound-active draw makes the
+        whole report one.
+        """
+        arms = len({row.arm for row in self.rows})
+        pairs = self.n * arms
+        if not self.rows or pairs == 0:  # pragma: no cover - a guarded fit has both
+            return float("nan")
+        return max(row.initial_clipped for row in self.rows) / pairs
+
+    @property
+    def gr1_margin(self) -> float:
+        """The closest any draw's :math:`g_{r,1}` comes to its bounds, as a fraction.
+
+        Signed, so at or below zero says the truncation is active -- see
+        :attr:`CorrectionRow.gr1_margin`.
+        """
+        return min((row.gr1_margin for row in self.rows), default=float("nan"))
+
+    @property
+    def truncations_active(self) -> tuple[str, ...]:
+        """Which of item 25's three truncations bite on this fit, named.
+
+        Empty on a fit inside the theorem-backed contract.  Named rather than counted
+        because the three are different objects with different standing: two are operations
+        on a mechanism the theorem assumes bounded, and the third has no assumption in the
+        theorem at all.
+        """
+        active = []
+        if np.isfinite(self.initial_clip_share) and self.initial_clip_share > 0.0:
+            active.append("g-hat at the initial fit")
+        if np.isfinite(self.margin) and self.margin <= MARGIN_ACTIVE:
+            active.append("g* at the exit")
+        if np.isfinite(self.gr1_margin) and self.gr1_margin <= MARGIN_ACTIVE:
+            active.append("g_r1")
+        return tuple(active)
+
+    @property
+    def contract(self) -> str:
+        """Which estimator this fit's numbers are evidence about (``docs/roadmap.md`` item 25).
+
+        ``"theorem"`` where none of the three truncations is active, in which case
+        :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` returned the
+        unconstrained solve bit for bit and the fit **is** Theorem 1's estimator;
+        ``"bound-active"`` otherwise, which is *empirically supported and outside the
+        theorem* rather than wrong -- see this module's docstring.  ``"none"`` for a fit that
+        reports no corrections and so has no mechanism tilt to ask about.
+
+        **Not a verdict.**  :attr:`passed` does not read this, and a bound-active fit whose
+        identities hold and whose scores are negligible has passed every check here.
+        """
+        if not self.rows:
+            return "none"
+        return "bound-active" if self.truncations_active else "theorem"
+
     def to_frame(self, data: Any = None) -> Any:
         payload = {
             "draw": [row.draw for row in self.rows],
@@ -293,6 +430,8 @@ class CorrectionCheck:
             "clip_bias": [row.clip_bias for row in self.rows],
             "clipped": [row.clipped for row in self.rows],
             "margin": [row.margin for row in self.rows],
+            "initial_clipped": [row.initial_clipped for row in self.rows],
+            "gr1_margin": [row.gr1_margin for row in self.rows],
             # Which rows `reported` is being judged on. Without it a partial-guard frame
             # carries a large number in a column of small ones and says nothing about why.
             "solved": [row.solved for row in self.rows],
@@ -334,6 +473,20 @@ class CorrectionCheck:
             f"  the truncation binds on up to {self.clipped} row(s) of {self.n} at the exit "
             f"of any one draw, and the targeted mechanism comes within {self.margin:.2g} of "
             "a bound; the per-draw figures are in to_frame()",
+            # Item 25's scope label, on the face of the fit rather than recomputable from it.
+            # Deliberately not in `_verdict`: which estimator a number is evidence about is a
+            # different question from whether the fit solved what it reports, and reading it
+            # as a verdict would report a sound bound-active fit as broken.
+            f"  contract: {self.contract}"
+            + (
+                f" -- {', '.join(self.truncations_active)} active, so this fit is empirically "
+                "supported and outside Theorem 1 (docs/roadmap.md item 25) rather than "
+                "wrong; it is not a failure and the verdict below does not read it"
+                if self.truncations_active
+                else " -- none of the three truncations is active, so this fit is Theorem 1's "
+                "estimator: clip share 0 at the initial mechanism, and margins "
+                f"{self.margin:.2g} (g*) and {self.gr1_margin:.2g} (g_r1)"
+            ),
         ]
         unsolved = {row.equation for row in self.rows if not row.solved}
         if unsolved:
@@ -415,6 +568,17 @@ def correction_check(
                 else repeat.nuisance.propensity.arm(reduction.reduced.arms[1]),
                 reduction.bounds,
             )
+            # Item 25's other two witnesses. Both are properties of this draw rather than of
+            # a single arm's equation, so they ride on every row of it exactly as `clipped`
+            # and `margin` do -- and both come off the arrays the covariates divide by: the
+            # untruncated initial mechanism `Propensity.bounded` was applied to, and the
+            # untruncated `gr1` `bounded_gr1` was applied to.
+            initial = np.column_stack(
+                [repeat.nuisance.propensity.arm(arm) for arm in reduction.reduced.arms]
+            )
+            lower, upper = reduction.bounds
+            initial_clipped = int(np.count_nonzero((initial < lower) | (initial > upper)))
+            gr1_margin = _margin(reduction.reduced.gr1, reduction.bounds)
             stored_g = np.asarray(mechanism.score) if mechanism is not None else np.zeros(0)
             stored_q = np.asarray(reduction.score)
             for column, arm in enumerate(reduction.reduced.arms):
@@ -437,6 +601,8 @@ def correction_check(
                         clip_bias=scale * float(np.mean(weights * parts.clip_bias[arm])),
                         clipped=clipped,
                         margin=margin,
+                        initial_clipped=initial_clipped,
+                        gr1_margin=gr1_margin,
                         # `parts.guard` rather than `reduction.guard`: the selection has to
                         # come from the object the curve selected with, for the same reason
                         # the means come from the arrays the curve carries.
@@ -457,6 +623,8 @@ def correction_check(
                         reported=scale * float(np.mean(weights * parts.d_q[arm])),
                         clipped=clipped,
                         margin=margin,
+                        initial_clipped=initial_clipped,
+                        gr1_margin=gr1_margin,
                         solved="g" in parts.guard,
                     )
                 )

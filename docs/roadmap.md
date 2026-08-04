@@ -13,6 +13,15 @@ widening of scope**. That is a different kind of list from the one this page ope
 does not lower the bar: *done* still means a demonstration that the interval attains nominal
 coverage where a plain `TMLE`'s does not.
 
+**The demonstration's instrument has landed and its first run moved a scope claim rather than a
+number.** [C1](#what-c1-landed) is the harness, Tier 1's prescribed nuisance sequences with their
+drift coefficients committed and verified, and [item 25](#the-supported-contract-and-item-25)'s
+per-fit truncation witness — and that witness immediately found the contract's condition is not the
+ordinary case this page had read it as: a sixth to a third of *well-overlapped* draws exit with the
+targeted mechanism pressed against a bound, because equation (9)'s covariate vanishes where the
+outcome regression is right. Item 4 with the nuisances swapped. The fits are sound; what moves is
+which estimator their numbers are evidence about.
+
 **The cross-fitting construction has come off that list**, and how it came off is worth a line
 because it is not what this page expected. [A1b](#a1b--the-cross-fitting-construction) held two
 tracks open — a proof for the pooled construction *or* a nested reference estimator — and writing
@@ -77,7 +86,7 @@ alone; the half that unblocks B1b no longer waits on the half that unblocks noth
 [Link 2 of the four](#what-is-still-open) — derivation-anchored correctness — closed with it,
 except for item 13's rate.
 
-**This page is now one of four**, because it had become a status page, a methodology review, a
+**This page is now one of five**, because it had become a status page, a methodology review, a
 forensic report, an implementation specification, a test plan, a simulation protocol and a project
 history at once, and that density made the dependency plan harder to execute than the plan itself
 was:
@@ -86,8 +95,14 @@ was:
 | --- | --- |
 | **this page** | status, the pieces, what blocks what, the release gates, the definitions of done |
 | [theorem concordance](drtmle/theorem-concordance.md) | the theorem objects, the assumptions and their grading, the appendix-B terms, the paper/Python/R mapping, the cross-fitting status |
-| [validation plan](drtmle/validation-plan.md) | the fixtures, the candidate targeting algorithms, the benchmark columns, the coverage design, the frozen decision rules, the mutations |
+| [validation plan](drtmle/validation-plan.md) | the fixtures, the candidate targeting algorithms, the benchmark columns, the coverage *specification*, the frozen decision rules, the mutations |
+| [coverage study](drtmle/coverage-study.md) | the *design* the specification is realised by: the two cells, the committed drift coefficients, the re-timing, and what Tier 1 has measured |
 | [investigation log](drtmle/investigation-log.md) | item 20's discovery, the clipped-row measurements, the hypothesis that was dropped, the convergence sweep, the runner history, the lessons |
+
+The fourth row is the newest and the pair it makes with the third is deliberate: a **specification**
+says what a study has to contain to be believed, and a **design** says what the cells are and what
+constants were committed. Keeping them in one file is how a rule gets restated next to the numbers
+it judges, and a rule restated is a rule that can differ from itself.
 
 Everything else here is a record: [Refusals worth lifting](#refusals-worth-lifting) is the list of
 parameters this package had the machinery for and had simply not written down, and it is now
@@ -328,18 +343,26 @@ why the most important item on the page has the highest number, and **23** was f
 B1a's own instrument on its first run and is now closed. The pieces are lettered so the two cannot
 be confused.
 
-### The work, in four pieces and eight pull requests
+### The work, in four pieces and ten pull requests
 
-A and B are each split, so the four pieces are eight pull requests: **B1a**, **A1a**, **B1b**,
-**B2a**, **B2b** and **A1b** have landed, and **C** and **D** are open. **The contract is a ninth
-row and is not a piece** — it is documentation, it closes no research, and it is in the table
-because it is an input to C that has to be frozen rather than produced. Small items are
-grouped where the *evidence* is shared — B2 is five items because one dispatch of the same
-sweep answers all of them — not where the subject matter merely rhymes; and the three splits are
+A, B and C are each split, so the four pieces are ten pull requests: **B1a**, **A1a**, **B1b**,
+**B2a**, **B2b**, **A1b** and **C1** have landed, and **C2**, **C3** and **D** are open. **The
+contract is an eleventh row and is not a piece** — it is documentation, it closes no research, and
+it is in the table because it is an input to C that had to be frozen rather than produced. Small
+items are grouped where the *evidence* is shared — B2 is five items because one dispatch of the same
+sweep answers all of them — not where the subject matter merely rhymes; and the four splits are
 that same rule applied to a piece rather than to an item. **B2's grouping was right about four of
 its five and wrong about the fifth**: the exit distribution, the closing cap, the weak-overlap
 policy and the overlap attribution all fell out of one dispatch as planned, and the update-order
 question needed three more and still did not close.
+
+**C splits three ways under that same rule, and the split is the B2a/B2b one twice over.** Tier 1's
+evidence is the exact remainder of a *prescribed* nuisance sequence — a quadrature, with no learner
+and no fold draw in it — and Tier 2's is a coverage gap under estimated ones, which needs the
+fold-retained nuisance object `P₀D̂` cannot be computed without. Those share nothing but a harness.
+And the dispatch shares nothing with either: it is the one run on this page whose *cost* makes
+redoing it a decision rather than an errand, so its inputs are frozen before it and not during it.
+So **C1** is the instrument, **C2** is Tier 2 and item 13, and **C3** is the study and item 3.
 
 | PR | what it lands | new artefacts |
 | --- | --- | --- |
@@ -350,8 +373,10 @@ question needed three more and still did not close.
 | **B2a** — *landed* | the instrument the dispatch needs: the columns §4 asks for, the working paper's update order beside this one, and the comparison arms. Closes nothing on its own, which is why it is its own pull request rather than a first commit of B2 | `DRTMLE(update_order="paper")` and `ReductionSpec.order`; three tables on `benchmarks/bench_drtmle.py` in place of one; `--order`, `--reduced-learner` and `--truncation` arms with workflow inputs; `TestBothUpdateOrdersReachTheTheoremsExit` |
 | **B2a′** — *landed* | the three things B2a left as prose rather than as something a run settles: the oracle reduction built where it exists, a **control** for the update-order difference, and the branch that hid a mutation deleted rather than guarded | `tests/unit/test_oracle_reductions.py` and item 24; the `reseed` arm, the route-against-noise table and [a frozen rule](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch); `_restated_outcome_score` made unconditional, `tests/unit/test_fluctuation_score.py`, and [lesson 12](drtmle/investigation-log.md#what-the-sizings-got-wrong) |
 | **B2b** — *landed* | items 12 and 19, re-measures 4 and 6, takes the overlap policy — no refusal — and reads item 22's numerical half, which stays open on one clause | four dispatches of `drtmle-convergence.yml` and their tables in [the investigation log](drtmle/investigation-log.md#what-the-b2b-dispatch-measured); `_negligible_bar`; a `worst identity` column on `comparison_rows` and `tests/unit/test_bench_drtmle.py` |
-| **the contract** — *documentation, and the first half has landed* | item 25: which options the theorem-backed guarantee is claimed for, and which are supported beside it. Not a piece and not research — the scope decision, its conditions as assumption rows, and the two review readings it corrects | [the table](#the-supported-contract-and-item-25); [the concordance's §7 scope decision](drtmle/theorem-concordance.md#the-scope-decision-item-25) and three new matrix rows; gate 1's clause 0. What is left is the per-fit witness for the initial mechanism and `g_{r,1}`, which lands with C |
-| **C** | items 3 and 13: the demonstration | `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, `docs/drtmle-coverage-study.md`, per-replicate results |
+| **the contract** — *documentation, and it has landed* | item 25: which options the theorem-backed guarantee is claimed for, and which are supported beside it. Not a piece and not research — the scope decision, its conditions as assumption rows, and the two review readings it corrects | [the table](#the-supported-contract-and-item-25); [the concordance's §7 scope decision](drtmle/theorem-concordance.md#the-scope-decision-item-25) and three new matrix rows; gate 1's clause 0. Its per-fit witness landed with C1 and **found the contract's condition is not the ordinary case it was read as** |
+| **C1** — *landed* | the study's instrument and Tier 1 complete: prescribed nuisance sequences with their drift coefficients committed analytically and verified by quadrature, the paired harness, the dispatch workflow, and item 25's per-fit truncation witness. Closes no numbered item on its own, which is why it is its own pull request rather than a first commit of C | `benchmarks/drtmle_injection.py`, `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, [`docs/drtmle/coverage-study.md`](drtmle/coverage-study.md); `CorrectionCheck.contract` with `initial_clipped` and `gr1_margin`; `DGP.expectation`; `tests/unit/test_drtmle_coverage.py` and `TestTheContractSaysWhichEstimator` |
+| **C2** | item 13: Tier 2's prescribed-rate learners, the fold-retained nuisance objects `P₀D̂` needs, and the two appendix-B remainder branches reported apart | a benchmark-only fitted-nuisance object exposing `predict` per fold; the series/spline/histogram learners with their smoothing sequence; `R_Q` and `R_g` columns |
+| **C3** | item 3: the pilot, the freeze, the final study and its independent second seed batch | four dispatches of `drtmle-coverage.yml` and their tables; per-replicate results; gates 1 and 2 read out |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
 **A1 split into A1a and A1b for the reason B1 split into B1a and B1b**, and the reason is worth
@@ -370,16 +395,18 @@ B1a  identity + safety patch ─────────────────
                                                   ├─> B2a ──> B2b ──┐
 A1a theorem concordance ──> B1b  targeting  ──────┘  instrument  sweep │
                                  convention          landed      landed │
-                                                                        ├─> C  demonstration
-contract + item 25  scope frozen ──────────────────────────────────────┤
-A1b cross-fitting construction ────────────────────────────────────────┘   landed
+                                                                        ├─> C1 ──> C2 ──> C3
+contract + item 25  scope frozen ──────────────────────────────────────┤  harness  tier 2  study
+A1b cross-fitting construction ────────────────────────────────────────┘  landed
        (no logical block; a rework edge — C's fits are of A1b's construction)
 
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Everything but C and D has landed**, so what is left of the graph is the demonstration, with D
-outside it. Two open threads sit behind it rather than pieces. Item 22's numerical half is answered
+**Everything through C1 has landed**, so what is left of the graph is Tier 2, the study and D. The
+C1 → C2 edge is the harness and the injection interface, which Tier 2 extends rather than replaces;
+the C2 → C3 edge is that a dispatch whose remainder columns are missing cannot read gate 1's clause
+4. Two open threads sit behind it rather than pieces. Item 22's numerical half is answered
 on `nonlinear` and unresolved on `weak-overlap`, and it gates [stop-ship 2](#stop-ship) rather than
 gating C. And A1b's construction decision rests on its argument's **entropy** half, which the
 learner settles, plus its **stability** half, which a dispatch reads — so the rework edge into C is
@@ -1415,12 +1442,27 @@ taken together, and the reason is that the condition is checkable rather than me
   optimisation but the guarantee that the fit *is* the theorem's estimator — bit for bit, down to
   `hessian_condition` and `loglik`. So on such a fit Theorem 1 applies as written, with no
   rendering to defend.
-- **It is the ordinary case at the sizes this variant runs at, and that is measured rather than
-  hoped.** [B2b's dispatch](drtmle/investigation-log.md#where-weak-overlap-enters-now-that-it-does-not-fail)
+- **It is the ordinary case at the sizes this variant runs at for the *initial* mechanism, and
+  that is measured; it is not the ordinary case at the exit, and this page read it as though it
+  were.** [B2b's dispatch](drtmle/investigation-log.md#where-weak-overlap-enters-now-that-it-does-not-fail)
   reports a `clip share` of `0.000` on `linear`, `nonlinear` **and `off-diagonal`** at `n = 600` and
   `n = 1,200` — that is the share of `(row, arm)` pairs outside the bounds at the *initial*
   mechanism — with `margin`, the distance of the targeted mechanism from the nearer bound, at
   `0.11` to `0.20`. `off-diagonal` is the cell shape [C](#c-the-demonstration) turns on.
+
+  **Those margins are medians over twelve draws, and a minority at exactly zero is invisible to a
+  median.** [C1's witness](drtmle/investigation-log.md#what-c1s-witness-measured-on-its-first-run)
+  read the label per draw on its first run and found **one to two of six** well-overlapped draws
+  exiting bound-active, on `linear_dgp` — the easiest process here, chosen for its overlap — with
+  the initial `clip share` at `0.000` and `g_{r,1}` well interior in every one of them. So it is
+  the *exit* margin alone, and the cause is not positivity: equation (9)'s covariate is `Q_r/g*`
+  and `Q_r` **vanishes where the outcome regression is right**, so on a draw whose q99 `|Q_r/g*|`
+  is `7e-03` the score's root is an `epsilon` of **24** on the logit scale, which drives rows to
+  both bounds while the initial mechanism never leaves `[0.35, 0.86]`. That is item 4 with the
+  nuisances swapped — the half of it nothing had written down — and its consequence is that a
+  study's cells are **mixed** rather than uniformly inside the contract, so gate 1's clause 0 is a
+  *share* per cell rather than a label. The instrument is a scope column and not a verdict:
+  every one of those fits passes its score check and every identity holds at roundoff.
 - **`weak-overlap` is the other regime and it is not marginal**: `clip share` `0.338` / `0.288` /
   `0.231` at the three sizes, `margin` **exactly** `0.0e+00` at both of the first two — a
   constrained root sits *against* the boundary — and `min gr1` `0.000`. Those fits are the third
@@ -1443,14 +1485,25 @@ taken together, and the reason is that the condition is checkable rather than me
   is "none of the three truncations is active", and the third is an assumption about an estimated
   object rather than about the law.
 
-**What closes it.** Three things have to agree on one sentence: this page, the concordance, and the
-estimator's own output. The first two are done in this revision — the table above, and the matrix
-rows behind it. What is left is the **witness**, and it is small and concrete rather than research:
-`CorrectionRow.margin` covers the targeted mechanism at the exit and **nothing on a fit covers the
-initial mechanism or `g_{r,1}`**, so today a user cannot ask a fit which side of the contract it is
-on without recomputing `clip share` the way `bench_drtmle.py` does. That witness, and a column on
-[C](#c-the-demonstration) reporting it per cell, are item 25's remaining work; it can land with C
-rather than ahead of it, since C is where the number that needs it is produced.
+**What closed it.** Three things had to agree on one sentence: this page, the concordance, and the
+estimator's own output. The first two were done in the revision that opened item 25 — the table
+above, and the matrix rows behind it — and the third is the **witness**, which landed with
+[C1](#the-work-in-four-pieces-and-ten-pull-requests). `CorrectionRow.margin` covered the targeted
+mechanism at the exit and **nothing on a fit covered the initial mechanism or `g_{r,1}`**, so a user
+could not ask a fit which side of the contract it was on without recomputing `clip share` the way
+`bench_drtmle.py` does. Now `CorrectionCheck.contract` answers it, `initial_clipped` and
+`gr1_margin` are the two columns it needed, `correction_check().summary()` names the label and its
+three numbers, and `bench_drtmle.py` reads them off the fit rather than recomputing one of them —
+two implementations of "which side of the line is this" being one more than the question can stand.
+
+**And the witness immediately made the condition's second bullet wrong, which is the best thing it
+could have done.** The share is not near zero at the exit; it is a sixth to a third on the easiest
+process here, for a reason that is about a degenerate covariate rather than about overlap. That is
+recorded above and in [the log](drtmle/investigation-log.md#what-c1s-witness-measured-on-its-first-run),
+and what it leaves for [C3](#c-the-demonstration) is a *reporting* decision rather than research:
+gate 1's clause 0 has to be read as a share per cell, and a cell's coverage number is then partly
+evidence about the constrained rendering. Deciding how to report a mixed cell is C3's, before its
+dispatch and not after it.
 
 **What is *not* claimed.** That the constrained expansion has been derived — it has not, and option
 one stays available to anyone who wants the bound-active regime inside the theorem rather than
@@ -1459,7 +1512,8 @@ the third option reads *empirically supported and outside the theorem* rather th
 
 #### C. The demonstration
 
-**Closes item 3, and item 3 is the definition of done.** A coverage pilot over the off-diagonal of
+**Closes items 3 and 13, in three pull requests: [C1](#what-c1-landed) has landed, C2 and C3 are
+open.** A coverage pilot over the off-diagonal of
 the misspecification grid put `TMLE` and `DRTMLE` at 0.958 apiece in one cell and 1.000 in the
 other — no gap to close. The diagnosis is understood: a correctly specified *parametric* nuisance
 converges at `n^(−1/2)`, so `R₂` is `O(n^(−1))` and the product condition never binds. There was
@@ -1470,10 +1524,12 @@ docstring that it is not a demonstration.
 
 The remainder is `R₂ = ‖ĝ − g₀‖ · ‖Q̄̂ − Q̄₀‖` and a `TMLE` interval needs `√n · R₂ → 0`, so the
 regime wanted is one where that product does *not* vanish fast enough while one nuisance is still
-consistent. The full design — the two tiers, the drift-coefficient calculation, the regime-entry
-columns, the `P₀D̂` evaluation convention, the reporting schedule, the sizes and replications, and
-the frozen decision rules — is in [the validation
-plan](drtmle/validation-plan.md#5-the-controlled-study-piece-c). What belongs on this page is why
+consistent. The full specification — the two tiers, the drift-coefficient calculation, the
+regime-entry columns, the `P₀D̂` evaluation convention, the reporting schedule, the sizes and
+replications, and the frozen decision rules — is in [the validation
+plan](drtmle/validation-plan.md#5-the-controlled-study-piece-c), and **what the cells actually are
+is [the design note](drtmle/coverage-study.md)**: the committed drift coefficients, the constants
+behind them, and the re-timing. What belongs on this page is why
 each part is there and what it would take to *not* believe the result:
 
 - **Both off-diagonal cells**, not one. `Q̄` right and `g` wrong, and `g` right and `Q̄` wrong.
@@ -1488,6 +1544,14 @@ each part is there and what it would take to *not* believe the result:
   right place to read item 13's remainder off, and not an applied claim. **Tier 2** is a series,
   spline or histogram regression with a smoothing sequence chosen in advance, and it is the
   demonstration. The Super Learner belongs in the applied stress tests that come after.
+
+  **Tier 1 has landed and the split between the two is sharper than "two ways of being slow".**
+  Tier 1's remainder is a *quadrature* — both nuisances are prescribed functions of `W`, so `R₂` is
+  integrated rather than estimated and `n^α R₂ → c` is an identity a test can assert. Tier 2's is
+  not: `P₀D̂` at *fitted* reduced regressions needs their values on covariates no fold trained at,
+  which is the fold-retained nuisance object §5 asks for. So the piece that reads item 13's rate
+  off is **C2**, and Tier 1's exact remainder is the regime-entry column beside it rather than a
+  substitute for it.
 - **A nonzero drift coefficient, chosen analytically and verified.** `α` is a knob to report, not
   a threshold to hit, and the first review's `α < 1/4` is the familiar bar for the
   *both-consistent* product condition — sufficient here rather than necessary, since in an
@@ -1499,6 +1563,14 @@ each part is there and what it would take to *not* believe the result:
   while both arm coefficients are nonzero. So choose `h_a` so that `|c_a|` and `|c_1 − c_0|` are
   bounded below, commit the calculation with the design, and verify `n^α·R₂ → c` empirically
   rather than inferring the regime from an `L₂` rate.
+
+  **Done, and the construction is worth one line because it makes the proviso structural rather
+  than checked.** `h_a` is aligned with the misspecification weight and normalised by the quadrature
+  that defines `c_a`, so the coefficients come out *at the design's declared values* — and the arms
+  are given **opposite signs**, which makes `c_ATE = c_1 − c_0` a sum of magnitudes and cancellation
+  impossible rather than merely unlikely. Committed at `c_ATE = 0.40`, verified against
+  `DGP.expectation` — the same Sobol rule the truth is integrated with, so a coefficient and the
+  coverage it explains cannot disagree through two quadratures.
 - **Coverage against its Monte Carlo standard error**, over replications, with "compatible with
   0.95" defined operationally and a minimum replication count so that a wide interval cannot read
   as success. `CLAUDE.md`'s rule applies with force: never assert coverage on a single fit, and
@@ -1553,12 +1625,60 @@ public API until some operating regime is demonstrated. A variant that ships wit
 found no case where this helps" in its own docs is not a neutral state. That is gate 2 failing
 while gate 1 passes, and it is a real and reportable outcome rather than a defeat.
 
-**What it costs, since that is why it has not been done.** A `DRTMLE` fit is 43s at `n = 1,200`
-(measured, [the sweep](drtmle/investigation-log.md#how-the-alternation-exits)) and a study runs
-both estimators over every replicate. Two cells by two sizes by 250 replicates is ~2,000 fits,
-which is ~24 hours serial and about two on a 12-way `matrix:`. A third size and the nuisance-rate
-columns roughly double it. That is a dispatch-only workflow of its own —
-`drtmle-convergence.yml` is the template — and the nightly tier must not absorb it.
+**What it costs, re-timed rather than inherited.** This paragraph read *"a `DRTMLE` fit is 43s at
+`n = 1,200`, so two cells by two sizes by 250 replicates is ~2,000 fits, ~24 hours serial"* — a
+figure measured before piece B1b and before the exit criterion item 7 replaced, which the ordered
+list flagged as the thing to redo first. Redone with C1, on a four-core container:
+
+| | measured |
+| --- | --- |
+| an ordinary `DRTMLE` fit, `nonlinear` at `n = 1,200` | **5.6s**, against the **43s** on record at the same size — a factor of 7.7, which is the *"seventh of the wall clock"* B2b's dispatch predicted |
+| the same at `n = 400` | **16.4s** — *slower* at fewer rows, which `test_drtmle_fit.py` already records: noisier nuisances loosen the coupling and lengthen the loop |
+| a **Tier-1** pair — `TMLE` and `DRTMLE`, injected nuisances | **1.2s per fit**, at `n = 300` and at `n = 600`/`1,200` alike |
+| the Tier-1 pilot, 2 cells × 3 sizes × 50 replicates | 300 draws, 600 fits, under an hour at `jobs=2` |
+
+A Tier-1 fit is cheap because its primary nuisances are *function evaluations* rather than learner
+fits; what it pays for is the alternation, which barely depends on `n`. **Tier 2 will not be**, since
+its nuisances are fitted, and that is what the 43s was measuring — so C2 re-times before it
+re-scopes exactly as C1 did rather than inheriting either number.
+`.github/workflows/drtmle-coverage.yml` is the dispatch-only workflow, a `matrix:` over the cells;
+the nightly tier must not absorb it.
+
+##### What C1 landed
+
+The instrument, Tier 1, and the one thing on C's path that is a library change rather than a
+benchmark. Four pieces, of which the last was not planned as a finding:
+
+- **the Tier-1 injection**, `benchmarks/drtmle_injection.py`: two scikit-learn-shaped learners in
+  the shape `tests/conftest.py`'s oracles already establish, the two off-diagonal cells, the drift
+  coefficients committed and verified against `DGP.expectation`, and `exact_remainder`. Three
+  decisions in it are load-bearing and each is on the module: the base law is the *easy* one, chosen
+  for **overlap** rather than difficulty, because the misspecification is prescribed and the law's
+  only job is to put the cells inside the contract; the outcome scaler is **declared** through
+  `q_bounds=` rather than recovered, since `OracleOutcomeContinuous`'s recovery carries an
+  `O(n^(−1/2))` error and that is *the same order as the injected drift*; and `h_a` is aligned with
+  the misspecification weight with the arms given opposite signs, so no coefficient can cancel;
+- **the harness**, `benchmarks/drtmle_coverage.py`: both estimators on the same draw at the same
+  injected nuisances, so the shortfall is **paired** and gate 2's `0.05` is resolvable at 250
+  replicates rather than at an order of magnitude more. `EstimandSummary` is reused for every
+  standard column, and `CoverageStudy` deliberately is not — it swallows exceptions, keeps no
+  per-replicate row, cannot pair two estimators on a draw and carries no per-fit diagnostic;
+- **item 25's witness**, `CorrectionCheck.contract` with `initial_clipped` and `gr1_margin` beside
+  the `margin` B1b left, on the face of every fit and in `to_frame()`. `bench_drtmle.py` now reads
+  its `clip share` off it rather than recomputing — two implementations of "which side of the
+  contract" being one more than the question can stand — and the column came out numerically
+  unchanged, which was checked before the duplicate went;
+- **and the finding the witness produced on its first run.** A sixth to a third of well-overlapped
+  draws exit **bound-active**, with the initial mechanism never clipping, because equation (9)'s
+  covariate `Q_r/g*` vanishes where the outcome regression is right — so its score's root is an
+  `epsilon` of 24 on the logit scale and drives rows to both bounds. That is item 4 with the
+  nuisances swapped, it makes [item 25](#the-supported-contract-and-item-25)'s second bullet
+  overstated, and it leaves C3 a reporting decision. [The
+  measurement](drtmle/investigation-log.md#what-c1s-witness-measured-on-its-first-run).
+
+What it does **not** land, by name: `R_remaining` and the two appendix-B branches, which need
+`P₀D̂` at the *fitted* reductions and so C2's retained per-fold nuisances; and any coverage verdict,
+since `--tier 2` is refused rather than approximated and Tier 1 is not the demonstration.
 
 #### D. Widen the scope to what the sources derive
 
@@ -1652,22 +1772,32 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
    [What it measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured). The one thing it
    did not settle is item 22's numerical half on `weak-overlap`, where twelve draws resolve nothing
    in either direction.
-6. **The [contract](#the-supported-contract-and-item-25)**, which is prose and is the cheapest
-   thing on this list. It is ordered here rather than "anywhere" because it is what C's numbers are
-   read under, and a scope inferred from a completed study is not a scope.
-7. **A1b**, which waited on nothing and has landed. Its construction decision is now **frozen at
+6. ~~**The [contract](#the-supported-contract-and-item-25)**~~ — landed, prose and the cheapest
+   thing on the list. It was ordered here rather than "anywhere" because it is what C's numbers are
+   read under, and a scope inferred from a completed study is not a scope. Its per-fit witness came
+   with C1 and **found its own second bullet overstated**, which is what having a witness is for.
+7. ~~**A1b**~~ — waited on nothing and has landed. Its construction decision is now **frozen at
    the pooled construction**, which is what C's final dispatch needed — the argument closes on the
    entropy condition and the dispatch supports the stability one without showing it, and the thing
    that would reopen the decision is a `‖Δ_k‖` measurement rather than another sweep of this one.
    [What it measured](drtmle/investigation-log.md#what-the-a1b-dispatch-measured).
-8. **C**, which is the point. Its sizing is the thing to redo first: it was costed from a 43s
-   `DRTMLE` fit and that fit is now several times cheaper, so re-time before re-scoping. **Its
-   design needs nothing added** — a review proposed two off-diagonal regimes, a known nonzero
-   drift, three sizes, the remainder branches reported apart, coverage with `se` calibration and
-   per-replicate results kept, and [the validation
-   plan's §5](drtmle/validation-plan.md#5-the-controlled-study-piece-c) already specifies every one
-   of them. What that reading confirms is that C's open question is scope and sequencing, which is
-   6 and 7, and not the study design.
+8. ~~**C1**~~ — landed: the harness, Tier 1, the workflow, the witness, and
+   [the design note](drtmle/coverage-study.md) with its drift coefficients committed and verified.
+   The **sizing was redone rather than inherited**, which is what this list asked for: C had been
+   costed from a 43s `DRTMLE` fit measured before B1b, and the re-timing puts that same fit at
+   **5.6s** — a factor of 7.7 — and a *Tier-1* fit at **1.2s**, since its primary nuisances are
+   function evaluations rather than learner fits. So a 300-draw pilot is under an hour rather than a
+   day. **The study
+   design needed nothing added**, exactly as the last revision concluded: a review proposed two
+   off-diagonal regimes, a known nonzero drift, three sizes, the remainder branches reported apart,
+   coverage with `se` calibration and per-replicate results kept, and
+   [§5](drtmle/validation-plan.md#5-the-controlled-study-piece-c) already specified every one.
+9. **C2**, Tier 2 and item 13: prescribed-rate learners, and the fold-retained nuisance object
+   `P₀D̂` needs. It re-times before it re-scopes, as C1 did — its nuisances are *fitted*, which is
+   what the 43s figure was measuring, so C1's 1.2s does not transfer.
+10. **C3**, the study and item 3. The one run whose cost makes redoing it a decision, so nothing
+    enters it unfrozen — including the mixed-cell reporting decision item 25's witness has just
+    handed it.
 
 **Item 23 was outside that order**, like **D**: a small fix with an oracle already in the
 repository, touching only the partial-guard path, which is why it did not wait on the theorem or on

@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from .api import ValidationSuite
-from .drtmle import IDENTITY_TOLERANCE, CorrectionCheck, CorrectionRow, correction_check
+from .drtmle import (
+    IDENTITY_TOLERANCE,
+    MARGIN_ACTIVE,
+    CorrectionCheck,
+    CorrectionRow,
+    correction_check,
+)
 from .nuisance import NuisanceDiagnostics, NuisanceModelReport, nuisance_diagnostics
 from .refute import DEFAULT_TESTS, RefutationResult, RefutationTest, refute
 from .score import DEFAULT_TOLERANCE, ScoreCheck, ScoreCheckRow, score_check
@@ -13,6 +19,7 @@ __all__ = [
     "DEFAULT_TESTS",
     "DEFAULT_TOLERANCE",
     "IDENTITY_TOLERANCE",
+    "MARGIN_ACTIVE",
     "CorrectionCheck",
     "CorrectionRow",
     "CoverageStudy",

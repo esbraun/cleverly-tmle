@@ -577,6 +577,12 @@ at "~24 hours serial and about two on a 12-way `matrix:`" from a 43s `DRTMLE` fi
 and that fit is now several times cheaper. Re-time before re-sizing rather than dividing by seven —
 piece C fits both estimators over every replicate at three sizes, and only the `DRTMLE` half moved.
 
+**That re-timing has since been done and the instruction was the right one.** C1 measured the same
+fit at the same size at **5.6s** — a factor of 7.7, so dividing by seven would have been close — and
+a **Tier-1** fit at **1.2s**, which dividing by anything would not have reached, since its primary
+nuisances are prescribed functions rather than learner fits. [§5's cost
+paragraph](#sizes-and-replications) carries both.
+
 **Stopping and validity are two questions and the sweep must report them separately.**
 Asymptotic linearity asks for `P_n D = o_p(n^(−1/2))`; the honest finite-sample rendering of `o`
 is a deterministic sequence `c_n/√n` with `c_n → 0` slowly — a **numerical** criterion, stated as
@@ -596,6 +602,20 @@ survives regardless is the ordinary positivity warning, which fires on these fit
 units outside the bounds on the seed-0 draw).
 
 ## 5. The controlled study (piece C)
+
+**This section is the specification and [the coverage study](coverage-study.md) is the design.** What
+follows is what a study has to contain to be believed; what the cells actually are, which constants
+were committed, and what the instrument has measured are there. The pair is deliberate — a rule
+restated next to the numbers it judges is a rule that can differ from itself.
+
+**C is three pull requests and the first has landed.** **C1** is the harness and Tier 1 complete;
+**C2** is Tier 2's prescribed-rate learners plus the fold-retained nuisances `P₀D̂` needs, and so
+item 13; **C3** is the pilot, the freeze and the study, and so item 3. The split is this page's own
+grouping rule — shared *evidence*, not shared subject matter — and the two tiers share none: Tier 1's
+remainder is a **quadrature**, since both its nuisances are prescribed functions of `W`, so
+`n^α R₂ → c` is an identity a unit test asserts; Tier 2's needs the values of *fitted* reduced
+regressions on covariates no fold trained at. So **the tier that reads item 13's rate off is C2**,
+and Tier 1's exact remainder is the regime-entry column beside it rather than a substitute for it.
 
 The regime wanted is one where `R₂ = ‖ĝ − g₀‖·‖Q̄̂ − Q̄₀‖` does not vanish fast enough for a plain
 `TMLE` interval while one nuisance is still consistent. Four things the study has to contain, each
@@ -671,10 +691,20 @@ convention for averaging or conditioning over folds.
 
 - **Tier 1**: exact finite-support summation or a very large independent draw. No model retention
   is needed, because the nuisance sequence is prescribed.
+
+  **As built, that holds of the *plug-in* remainder and not of the corrected one, and the
+  distinction is what put the two tiers in different pull requests.** `R₂` at the injected sequence
+  is a Sobol quadrature over two prescribed functions and is exact — that is C1's regime-entry
+  column, closing on the declared coefficient to five figures. `R_remaining` is not: the three
+  *reduced* regressions are fitted whatever the primary nuisances are, so `P₀D̂` needs their values
+  off the training rows and the retention below is required in Tier 1 too. C1 therefore reports no
+  corrected remainder and prints no column for one.
 - **Tier 2**: add a **benchmark-only** fitted nuisance object exposing `predict(new_data)` per
   fold; evaluate each fold's corrected curve on an independent draw using the nuisance functions
   trained for that fold; average the fold-conditional `P₀` values with the same fold weights the
-  estimator uses. A completely independent training/evaluation split is the alternative.
+  estimator uses. A completely independent training/evaluation split is the alternative. **This is
+  C2's and it carries item 13 with it**, for the reason just given: it is what the corrected
+  remainder needs at *either* tier.
 
 **Document the conditioning convention.** Without it `R_remaining` can be an artefact of how
 fold-specific fits were extrapolated to the integration sample rather than a property of the
@@ -697,12 +727,19 @@ variances and covariance, both remainder diagnostics and the two branches, the n
 their slopes, the realised drift coefficients, elapsed time, and a Monte Carlo standard error
 against every one of them.
 
-**And the three truncation witnesses**, which are gate 1's new clause 0 and are cheap because
-`benchmarks/bench_drtmle.py` already computes two of them: `clip share` at the initial mechanism,
-`margin` at the exit, and `min gr1`. They are not diagnostics of a fit going wrong — a bound-active
-fit can have every identity at `1e-17` and every score negligible, and on `weak-overlap` it does.
-They say which *estimator* the row is evidence about, which is a different question and one no
-other column on this list answers.
+**And the three truncation witnesses**, which are gate 1's new clause 0: `clip share` at the initial
+mechanism, `margin` at the exit, and `g_{r,1}`'s distance from its bound. They are not diagnostics of
+a fit going wrong — a bound-active fit can have every identity at `1e-17` and every score negligible,
+and on `weak-overlap` it does. They say which *estimator* the row is evidence about, which is a
+different question and one no other column on this list answers.
+
+All three are on the fit since C1 — `CorrectionCheck.contract`, `initial_clip_share`, `margin`,
+`gr1_margin` — so the harness reads them rather than recomputing any, and **the label is reported as
+a count of the cell's draws rather than as a cell-level verdict.** That is not a presentation choice:
+C1's first run put one to two of six *well-overlapped* draws on the far side of the contract, which
+means cells are **mixed** and a median of the margins would report a mixed cell as though it were a
+pure one. How to read a mixed cell's coverage number is C3's decision, to be taken **before** its
+dispatch under the rule that these may be changed before the final run and not after it.
 
 ### Sizes and replications
 
@@ -714,12 +751,17 @@ a `0.95`-against-`0.88` gap comfortably and does not resolve `0.95` against `0.9
 independent second seed batch, run after the first is complete. Changing sizes or counts *after*
 seeing coverage is permitted only as a new experiment, documented as one.
 
-**What it costs.** A `DRTMLE` fit is 43s at `n = 1,200` (measured,
-[the sweep](investigation-log.md#how-the-alternation-exits)) and a study runs both
-estimators over every replicate. Two cells by two sizes by 250 replicates is ~2,000 fits, which is
-~24 hours serial and about two on a 12-way `matrix:`. A third size and the nuisance-rate columns
-roughly double it. That is a dispatch-only workflow of its own — `drtmle-convergence.yml` is the
-template — and the nightly tier must not absorb it.
+**What it costs, re-timed with C1.** The figure this paragraph carried — 43s per `DRTMLE` fit at
+`n = 1,200`, so ~2,000 fits and ~24 hours serial — was measured before piece B1b and before the
+exit criterion item 7 replaced. Re-measured on a four-core container: that same fit is **5.6s** — a
+factor of 7.7, which is the *"seventh of the wall clock"* B2b's corrected exit criterion bought —
+and a **Tier-1** fit is **1.2s**, because its primary nuisances are function evaluations rather
+than learner fits and what it pays for is the alternation. So the Tier-1 pilot — 2 cells × 3 sizes
+× 50 replicates, 300 draws and 600 fits — is under an hour at `jobs=2`. **Tier 2 will not be**:
+its nuisances are fitted, which is what the 43s was measuring, so C2 re-times before it re-scopes
+rather than inheriting either number. `.github/workflows/drtmle-coverage.yml` is the dispatch-only
+workflow — a `matrix:` over the cells, since both estimators of a pair must be fitted in one worker
+for the shortfall to stay paired — and the nightly tier must not absorb it.
 
 ### The decision rules, frozen before the dispatch
 
@@ -842,7 +884,15 @@ rather than being found afterwards.
 | unit | the guard *travels* to the corrections rather than being read twice | **run**: have `correction_parts` pass a literal `("Q", "g")` — fails the production-path tier and not the array tier, which is the separation |
 | integration | a partial-guard fit's unguarded correction is reported and **not judged** | **run**: hold it to the bar and watch a correct fit fail; and revert `total()` to the sum and watch the same fit's curve decentre — `TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor` |
 | integration | a failing score check is visible in `summary()` (item 16) | silence the verdict (already done, item 16) |
-| simulation | the drift coefficient is nonzero as designed | set `h_a` orthogonal to the misspecification weight and watch `TMLE` cover anyway |
+| unit | item 25's label can read **either** value (C1) | **run**: hard-code `contract` to `"theorem"`, and `TestTheContractSaysWhichEstimator`'s pinched fit goes red. The label reading one value on every fit is [stop-ship 14](../roadmap.md#stop-ship) a third time, so the class fits one of each and asserts they disagree |
+| unit | the label is a **scope** column and not a verdict | **run**: have `CorrectionCheck.passed` read `truncations_active`, and a bound-active fit whose identities all hold is reported as broken |
+| unit | `initial_clipped` reads the **untruncated** initial mechanism | **run**: clip it first, and the count is zero on every fit — the column that could not disagree, in the place it is easiest to reintroduce |
+| unit | `gr1_margin` reads the **untruncated** `gr1`, so it is signed | **run**: read `bounded_gr1` instead, and the pinched fit's negative margin becomes zero |
+| unit | the estimator receives the prescribed sequence, on the declared scale (C1) | **run**: drop `q_bounds=` from the shared settings and the scaler is the draw's own range — which is `OracleOutcomeContinuous`'s `O(n^(-1/2))` recovery error, *the same order as the injected drift* |
+| unit | the reductions stay **fitted** rather than prescribed | **run**: omit the reduced learners and the fit raises — on the *width* of a univariate design rather than on a check, which is why the harness names them explicitly instead of relying on it |
+| unit | the shortfall is paired **on the draw** | **run**: pair by position, and a missing arm makes the difference draw-to-draw variation wearing the estimator's name |
+| unit | the primary accounting counts an invalid fit as a **miss** | **run**: count coverage over all rows regardless of `valid`, and an invalid fit whose interval happens to contain the truth is scored as a success |
+| simulation | the drift coefficient is nonzero as designed | set `h_a` orthogonal to the misspecification weight and watch `TMLE` cover anyway. **The construction makes this structural**: `h_a` is aligned with the weight and normalised by the quadrature defining `c_a`, with the arms given opposite signs, so `tests/unit/test_drtmle_coverage.py` asserts the realised coefficients *are* the declared ones and that `c_1 > 0 > c_0` |
 | simulation | slow `Q̄`, wrong `g` | `TMLE` must under-cover, or the regime was not entered |
 | simulation | slow `g`, wrong `Q̄` | as above, in the mirror cell |
 | simulation | both nuisances right | no material efficiency loss from the corrections |

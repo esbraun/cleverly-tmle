@@ -100,6 +100,24 @@ class TestTruth:
     def test_truth_is_deterministic(self) -> None:
         assert nonlinear_dgp().truth() == nonlinear_dgp().truth()
 
+    def test_expectation_is_the_same_rule_the_truth_is_integrated_with(self) -> None:
+        """Bit for bit, which is the whole reason the method exists rather than an approximation.
+
+        A caller integrating a remainder term or a drift coefficient compares it against a
+        ``truth()`` value, so a second quadrature -- a large random draw, or Sobol points at
+        another seed -- would put a Monte Carlo error of its own between the two and leave a
+        disagreement unattributable.  ``approx`` would pass against exactly that, so this
+        asserts equality.
+        """
+        dgp = nonlinear_dgp()
+
+        assert dgp.expectation(lambda w: dgp.outcome_mean(w, 1.0, None)) == dgp.truth()["ey1"]
+
+    def test_expectation_refuses_an_integrand_of_the_wrong_length(self) -> None:
+        """A scalar or a subsample would average to something plausible and wrong."""
+        with pytest.raises(ValueError, match="one value per integration point"):
+            nonlinear_dgp().expectation(lambda w: np.zeros(3))
+
     def test_binary_outcome_truth_includes_marginal_ratios(self) -> None:
         truth = binary_outcome_dgp().truth()
         assert 0.0 < truth["ey0"] < truth["ey1"] < 1.0
