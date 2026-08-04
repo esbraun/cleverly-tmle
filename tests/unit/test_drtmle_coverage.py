@@ -663,7 +663,18 @@ class TestTheTierIsSelectedRatherThanRefused:
     def test_a_tier_selects_a_module_and_both_supply_one_interface(self) -> None:
         assert set(study.TIERS) == {1, 2}
         for tier in study.TIERS.values():
-            for name in ("CELLS", "ALPHA", "base_law", "settings", "drift_coefficients"):
+            for name in (
+                "CELLS",
+                "ALPHA",
+                "base_law",
+                "settings",
+                "drift_coefficients",
+                # C3b's two: a tier that supplied only the plug-in coefficient would print a
+                # regime-entry table about a quantity no fit's bias is, which is the whole of
+                # what C3a's pilot measured.
+                "targeted_coefficients",
+                "exact_targeted_remainder",
+            ):
                 assert hasattr(tier, name)
 
     def test_tier_two_runs_and_reports_the_same_tables(self, monkeypatch, tmp_path) -> None:
@@ -802,6 +813,7 @@ class TestEveryTablesRowsMatchItsHeaders:
             study.CONTRACT_HEADERS: study.contract_rows(records),
             study.STRATUM_HEADERS: study.stratum_rows(records),
             study.VALIDITY_HEADERS: study.validity_rows(records),
+            study.PREFLIGHT_HEADERS: study.preflight_rows(records),
             study.REPLICATE_HEADERS: study.replicate_rows(records),
         }
 

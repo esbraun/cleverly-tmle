@@ -18,12 +18,19 @@ produced it is a table about an estimator nobody has named.
 
 What the tables answer, and why each is here rather than in a summary line:
 
-* **which regime the cells entered.**  ``n^alpha R2`` against the drift coefficient the design
-  committed to, per arm and for the ATE, beside each nuisance's :math:`L_2` error and its
-  log-log slope.  §5's instruction is blunt about this: *"without these columns a correct
-  coverage number is still only a number"*, and the reason is that a nuisance norm falling at
-  the right rate does not say the **inner product** did -- the remainder is one, so a
-  coefficient can vanish with a nonzero norm.
+* **which regime the cells entered, twice over.**  ``n^alpha R2`` against the drift coefficient
+  the design committed to, beside each nuisance's :math:`L_2` error and its log-log slope.
+  §5's instruction is blunt about this: *"without these columns a correct coverage number is
+  still only a number"*, and the reason is that a nuisance norm falling at the right rate does
+  not say the **inner product** did -- the remainder is one, so a coefficient can vanish with a
+  nonzero norm.  It is two tables because there are two remainders: the one at the *initial*
+  regression, which says the nuisances are what the design says, and the one at the
+  **targeted** regression, which is what a fit's bias is.  C3a's pilot had only the first, read
+  it as the second, and dispatched a design whose drift the fluctuation was absorbing whole.
+* **the three pre-flight conditions**, as a verdict table.  They are what
+  ``docs/drtmle/coverage-study.md``'s repair section requires cleared before a 250-replicate
+  dispatch, they are minutes rather than a study, and §5 requires they be read **before** a run
+  rather than inferred from one afterwards.
 * **coverage, against its Monte Carlo standard error**, by a Wilson interval and the
   *compatible with 0.95* rule §5 freezes, with the replication count and the interval width on
   the face of the table so that a wide interval cannot read as success.
@@ -104,11 +111,12 @@ except ImportError:  # pragma: no cover - direct `python benchmarks/drtmle_cover
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from benchmarks import drtmle_injection, drtmle_remainder, drtmle_tier2
 
-#: The two tiers, each a module supplying the same seven names -- ``CELLS``, ``ALPHA``,
-#: ``base_law``, ``settings``, ``drift_coefficients``, ``exact_remainder``,
-#: ``nuisance_error`` -- so that one harness reads both and no table branches on which tier
-#: it is printing.  What differs is what those names *mean*, and the tier banner below says
-#: so on every run rather than leaving a reader to infer it from a filename.
+#: The two tiers, each a module supplying the same names -- ``CELLS``, ``ALPHA``, ``base_law``,
+#: ``settings``, ``drift_coefficients``, ``targeted_coefficients``, ``exact_remainder``,
+#: ``exact_targeted_remainder``, ``nuisance_error``, ``summary_rows`` and ``SUMMARY_HEADERS``
+#: -- so that one harness reads both and no table branches on which tier it is printing.  What
+#: differs is what those names *mean*, and the tier banner below says so on every run rather
+#: than leaving a reader to infer it from a filename.
 TIERS = {1: drtmle_injection, 2: drtmle_tier2}
 
 #: Which tier is in force.  Module-level because ``one_draw`` runs in a worker process and a
@@ -1022,6 +1030,110 @@ def _cancellation(branch_q: float, branch_g: float) -> str:
     return f"{magnitude / total:.2f}x"
 
 
+#: Headers for :func:`preflight_rows`, declared beside it -- see the note above.
+PREFLIGHT_HEADERS = ("condition", "cell", "reading", "verdict")
+
+#: How far the realised targeted coefficient may sit from the declared one before condition 1
+#: is read as failed, and how far apart the sizes' readings may be before condition 2 is.
+#: **Chosen as a rule rather than from a result**: a design whose regime-entry column is out by
+#: more than a quarter is not in the regime it committed to in any useful sense, and one whose
+#: readings across three sizes span more than a quarter of their own mean is not stable.  §5
+#: names no number for either, so these live here, once, and the verdict column says which was
+#: applied rather than leaving a reader to infer it.
+PREFLIGHT_TOLERANCE = 0.25
+
+
+def preflight_rows(records: Sequence[Replicate]) -> list[list[str]]:
+    r"""The three conditions ``docs/drtmle/coverage-study.md``'s repair section requires.
+
+    *"None of these needs a coverage study, all three are minutes, and the reason to state them
+    here is that a study dispatched without them measures a design nobody has checked -- which
+    is what happened."*  So they are read as a verdict table rather than left to be assembled
+    from four others by a reader who already knows what to look for:
+
+    1. :math:`R_2(\bar Q^*)` at the declared :math:`n^{-\alpha}b` -- **not** at
+       :math:`R_2(\hat Q)`, which is the check the pre-repair design would have passed;
+    2. the realised :math:`n^{\alpha}R_2` stable across the sizes and near its committed value;
+    3. :math:`\sqrt n R_{\text{remaining}}` **falling** rather than rising, in both cells.
+
+    Read on the plain ``TMLE`` for the first two, since that is the estimator whose regime the
+    design commits, and on ``DRTMLE`` for the third, which is item 13's condition and is about
+    the corrected curve.
+
+    **Condition 3 failing is a finding rather than a fault in the design.**  It is a condition
+    of *Theorem 1* -- the estimator would then be outside the assumptions its own guarantee
+    needs at these sizes -- and the design note says so before any number existed: *"fixing the
+    rate and finding the remainder still rises would be a more interesting result than fixing
+    it and finding it does not"*.  A ``-`` means the run carried no evaluation draw, so
+    condition 3 was not measurable rather than failed, and the two must not read alike.
+    """
+    rows = []
+    for cell in injection.CELLS:
+        sizes = sorted({n for _, n in _cells(records) if _ == cell})
+        if not sizes:
+            continue
+        declared = injection.targeted_coefficients(cell)["b_ate"]
+
+        def realised(size: int, cell: str = cell) -> float:
+            values = [
+                r.r2_targeted
+                for r in _select(records, cell, size, "tmle", "ate")
+                if np.isfinite(r.r2_targeted)
+            ]
+            return size**injection.ALPHA * float(np.mean(values)) if values else float("nan")
+
+        readings = [realised(size) for size in sizes]
+        largest = readings[-1]
+        rows.append(
+            [
+                "1. bias at the declared n^-a b",
+                cell,
+                f"{largest:+.4f} against {declared:+.4f} at n={sizes[-1]:,}",
+                _verdict(
+                    np.isfinite(largest) and abs(largest / declared - 1.0) <= PREFLIGHT_TOLERANCE
+                ),
+            ]
+        )
+        spread = (max(readings) - min(readings)) / abs(np.mean(readings)) if readings else np.nan
+        rows.append(
+            [
+                "2. n^a R2 stable across sizes",
+                cell,
+                " / ".join(f"{value:+.4f}" for value in readings) + f"  spread {spread:.2f}",
+                _verdict(np.isfinite(spread) and spread <= PREFLIGHT_TOLERANCE),
+            ]
+        )
+        corrected = [
+            float(np.mean(values))
+            if (
+                values := [
+                    r.root_n_remaining
+                    for r in _select(records, cell, size, "drtmle", "ate")
+                    if np.isfinite(r.root_n_remaining)
+                ]
+            )
+            else float("nan")
+            for size in sizes
+        ]
+        if not any(np.isfinite(value) for value in corrected):
+            rows.append(["3. sqrt(n) R_rem falling", cell, "no evaluation draw", "-"])
+            continue
+        rows.append(
+            [
+                "3. sqrt(n) R_rem falling",
+                cell,
+                " / ".join(f"{value:+.3f}" for value in corrected),
+                _verdict(abs(corrected[-1]) <= abs(corrected[0])),
+            ]
+        )
+    return rows
+
+
+def _verdict(passed: bool) -> str:
+    """One word, so the table can be read down a column rather than parsed."""
+    return "pass" if passed else "FAIL"
+
+
 #: Headers for :func:`remainder_rows`, declared beside it -- see the note above.
 REMAINDER_HEADERS = (
     "cell",
@@ -1305,6 +1417,11 @@ def main() -> None:
         "Invalid fits, three accountings",
         VALIDITY_HEADERS,
         validity_rows(records),
+    )
+    table(
+        "The three pre-flight conditions, before any 250-replicate dispatch",
+        PREFLIGHT_HEADERS,
+        preflight_rows(records),
     )
 
     if args.rows:
