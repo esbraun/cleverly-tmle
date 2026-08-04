@@ -263,6 +263,29 @@ class TestTheInnerDesignsLeaveTwoFoldsOut:
         ]
         assert all(differs), "every fold's copy equals the production mechanism"
 
+    def test_designs_built_against_another_split_are_refused(self) -> None:
+        """The designs are keyed to *a* split; entry ``k`` is what left outer fold ``k`` out.
+
+        Reusing a set built against a different partition would nest every fold inside
+        somebody else's, and the arrays would be the right shape and entirely ordinary
+        looking.  Unreachable through :class:`~cleverly.DRTMLE`, where one ``_nuisances``
+        call builds both, and reachable through :func:`~cleverly.estimators.reduced.
+        fit_reduced` directly -- which is where the check lives.
+        """
+        folds = _folds()
+        base = nuisances(WRONG_G, WRONG_Q, folds=folds)
+        wider = make_folds(law.N, FOLDS + 2, random_state=0)
+        mismatched = _inner_from(replace(base, folds=wider))
+        with pytest.raises(ValueError, match="built against a different split"):
+            fit_reduced(
+                causal_data(),
+                replace(base, inner=mismatched),
+                regression_learner=CellMeans(),
+                classification_learner=CellMeans(),
+                g_bounds=INERT,
+                crossfit="nested",
+            )
+
     def test_it_refuses_a_split_with_nothing_to_leave_out(self) -> None:
         folds = make_folds(law.N, 2, random_state=0)
         base = replace(nuisances(WRONG_G, WRONG_Q, folds=folds), folds=folds)

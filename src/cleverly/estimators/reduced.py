@@ -329,13 +329,26 @@ def fit_reduced(
     if crossfit not in REDUCED_CROSSFITS:
         raise ValueError(f"crossfit must be one of {list(REDUCED_CROSSFITS)}; got {crossfit!r}")
     inner = nuisance.inner if crossfit == "nested" else None
-    if crossfit == "nested" and inner is None:
-        raise ValueError(
-            "crossfit='nested' needs the fold-free primary designs on "
-            "NuisanceEstimates.inner, and this object carries none. They are built by "
-            "fit_inner_designs at the initial fit; a refit that dropped them would be "
-            "pooled while reporting itself as nested."
-        )
+    if crossfit == "nested":
+        if inner is None:
+            raise ValueError(
+                "crossfit='nested' needs the fold-free primary designs on "
+                "NuisanceEstimates.inner, and this object carries none. They are built by "
+                "fit_inner_designs at the initial fit; a refit that dropped them would be "
+                "pooled while reporting itself as nested."
+            )
+        if inner.n_folds != nuisance.folds.n_folds:
+            # The designs are keyed to *a* split -- entry `k` is what left outer fold `k`
+            # out -- so a mismatch means they were built against a different one, and every
+            # fold would then train on arrays nested inside somebody else's partition. It
+            # cannot happen through `DRTMLE`, where one `_nuisances` call builds both; it can
+            # through `fit_reduced` directly, and a wrong answer here would look entirely
+            # ordinary.
+            raise ValueError(
+                f"the fold-free designs cover {inner.n_folds} outer folds and this fit's "
+                f"split has {nuisance.folds.n_folds}; they were built against a different "
+                "split and reusing them would nest each fold inside the wrong partition"
+            )
     arms = nuisance.arms
 
     scaled = nuisance.scaler.scale(data.outcome)
@@ -532,8 +545,8 @@ def _nested_column(
 
     Predicting at the *inner* design instead would be a different estimator and a silent
     one: every array stays in range, and the fit would be answering for a mechanism no row
-    was assigned under.  ``tests/unit/test_reduced_regressions.py`` pins the call site
-    against exactly that.
+    was assigned under.  ``tests/unit/test_nested_reductions.py`` pins the call site against
+    exactly that, and the longhand beside it against reading the wrong fold's copy.
     """
     folds = nuisance.folds
     n = matrix.shape[0]
