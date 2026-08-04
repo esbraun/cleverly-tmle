@@ -39,7 +39,11 @@ class Row:
     implementation: str
     n: int
     num_cores_requested: int
-    num_cores_effective: int
+    #: Threads numba was actually running with, read *inside* the applied plan -- numba
+    #: caps a request at ``NUMBA_NUM_THREADS`` rather than refusing it, and the point of
+    #: the column is to catch that.  ``None`` on a skipped row, which entered no plan and
+    #: so has no effective count: JSON writes ``null`` and the CSV an empty cell.
+    num_cores_effective: int | None
     blas_threads: int
     numba_threads: int
     workers: int
@@ -64,6 +68,13 @@ class Row:
     numba_version: str | None
     blas_backend: str
     cpu_model: str
+    #: Calls behind each sample.  ``1`` is one call timed directly; above that a sample is
+    #: a per-call mean over a batch, which is how ``min_total_seconds`` is met without one
+    #: arm taking more samples than another and breaking the rotation's pairing.  Recorded
+    #: because ``warm_iqr_seconds`` is uninterpretable without it -- a batch mean's spread
+    #: is narrower than a single call's by roughly ``sqrt`` of this.  Defaulted, so a
+    #: `results.jsonl` written before the rotation still loads.
+    calls_per_sample: int = 1
     cold_compile_seconds: float | None = None
     result_digest: str = ""
     parallel_axis: str | None = None

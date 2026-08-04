@@ -15,7 +15,8 @@ The change is to build one controller for the process and reuse it.
 
 > Measured on the four-core Intel Xeon @ 2.80 GHz container this repository's cloud
 > sessions run in, `/proc/loadavg` under 0.6, Python 3.11, numpy 2.4.6, threadpoolctl
-> 3.6.0, with OpenBLAS ×2 and OpenMP loaded. Medians of interleaved repetitions.
+> 3.6.0, with OpenBLAS ×2 and OpenMP loaded. Medians of repetitions taken in randomised
+> **block** order, not interleaved -- see [the reading note](README.md#reading-a-number-out-of-any-of-them).
 
 ## Per entry
 
@@ -106,10 +107,38 @@ behaviour rather than the reasoning:
   valid. A `register_at_fork` hook drops the cache in the child anyway, which costs one
   deferred walk and covers the child that goes on to load something the parent never had.
 - **A spawned child** re-imports the module and starts with no cache.
-- **Concurrent entry** from a thread-backed joblib is guarded by a lock, so four threads
-  arriving together build one controller rather than four.
+- **Concurrent construction** is guarded by a lock, so four threads arriving together build
+  one controller rather than four.
 
-The eleven tests cover the limit being applied and restored, restoration after an exception,
+**That lock is about the walk, not about the limiting, and this document used to read as
+though it covered both.** It does not, and the gap was real: a `threadpoolctl` limiter
+snapshots what is in force when it is built and writes that back when it is released, so two
+overlapping blocks restored each other's saved state — the second lost its limit when the
+first exited, and the process's own setting never came back. The cache neither caused that
+(a fresh `threadpool_limits` per call had the identical race) nor fixed it, and nothing
+inside the package reaches it, since every `map_parallel` call leaves `prefer=None` and
+joblib dispatches to loky *processes*. `thread_limit` is public API, though, and an ambient
+`parallel_backend("threading")` reaches it in one step. It is now refcounted: one snapshot
+is kept, taken by the outermost block, and it is the only thing ever written back.
+
+Refcounting the *applies* was the obvious version of that and is wrong, which is worth
+recording because "threadpoolctl's limits are process-global" is only half true. Measured
+here with numpy and scikit-learn loaded, applying `limits=1` in the main thread and reading
+the pools from another:
+
+| pool | main thread | another thread |
+| --- | ---: | ---: |
+| `openblas` | 1 | **1** |
+| `openblas` | 1 | **1** |
+| `openmp` | 1 | **4** |
+
+`omp_set_num_threads` sets an ICV for the *calling* thread, so a block that took a reference
+on another thread's instead of applying its own would run its OpenMP regions unlimited —
+which is LightGBM and scikit-learn's histogram boosting. It is also why "apply one outer
+limit from the coordinating thread" is not the fix it sounds like.
+
+The sixteen tests cover the limit being applied and restored, restoration after an exception,
 nesting (the inner exit restores the *enclosing* limit, not the original), `set_thread_limit(None)`,
 an explicit override of the configured default, the refresh mechanism, the `has_lightgbm`
-call site, concurrency, and a build with no threadpoolctl at all.
+call site, concurrent construction, overlapping blocks across threads, a non-LIFO release, the
+thread-local OpenMP pool, a forked child's reset, and a build with no threadpoolctl at all.

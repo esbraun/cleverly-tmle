@@ -94,6 +94,7 @@ import numpy as np
 
 from ..estimators.tmle import correction_parts
 from ..utils.frames import emit_frame
+from ..utils.records import sentinel_equality
 from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -112,6 +113,7 @@ __all__ = ["IDENTITY_TOLERANCE", "CorrectionCheck", "CorrectionRow", "correction
 IDENTITY_TOLERANCE = 1e-12
 
 
+@sentinel_equality
 @dataclass(frozen=True)
 class CorrectionRow:
     """One arm, one equation, one draw: what was solved against what is reported.
@@ -135,7 +137,7 @@ class CorrectionRow:
         :math:`B_{clip}(a) = P_n[w\\,Q_r/g^b\\,(g - g^b)]` for the ``"D*_g"`` row, ``nan``
         for the other.  Before B1b it reproduced **minus** :attr:`residual` to floating
         point, which is what made it a check on item 20's diagnosis rather than merely a new
-        column; the sign is the orientation ``docs/drtmle-validation-plan.md`` defines it
+        column; the sign is the orientation ``docs/drtmle/validation-plan.md`` defines it
         in, and the two differed because one residual read :math:`1_a - g` and the other
         :math:`1_a - g^b`.  It is **zero now**, on every fit, because there is no longer a
         raw tilted mechanism for it to measure the distance to.
@@ -167,6 +169,12 @@ class CorrectionRow:
         guard.  ``False`` on a single-guard fit's other equation, and such a row is
         informational: :meth:`CorrectionCheck.correction_failures` does not read it, since
         a term nothing subtracts cannot make an interval wrong however large it is.
+
+    :attr:`clip_bias` and :attr:`margin` are ``nan`` on the rows that do not carry them,
+    which is a sentinel and not an unknown -- so two such rows are the same row, and
+    :func:`~cleverly.utils.records.sentinel_equality` is what says so.  The generated
+    ``__eq__`` said it only by accident and stopped saying it on Python 3.13; that module
+    has the five-line reproduction.
     """
 
     draw: int

@@ -1,9 +1,9 @@
 # DRTMLE: the investigation record
 
 What was measured, what was hypothesised and dropped, and what one execution environment could
-and could not reach. **This file is a record and not a plan** — [the roadmap](roadmap.md) is the
-plan, [the concordance](drtmle-theorem-concordance.md) is what the sources say, and [the
-validation plan](drtmle-validation-plan.md) is what will be run. Everything here is kept for the
+and could not reach. **This file is a record and not a plan** — [the roadmap](../roadmap.md) is the
+plan, [the concordance](theorem-concordance.md) is what the sources say, and [the
+validation plan](validation-plan.md) is what will be run. Everything here is kept for the
 same reason `bench_tmle.py` keeps its own numbers: a measurement nobody can rerun becomes
 folklore, and a hypothesis that was dropped without its reason written down gets proposed again.
 
@@ -16,7 +16,7 @@ harder to execute than the plan itself was.
 
 Two, both kept in full and neither adopted unread.
 
-- **[The first review](drtmle-review.md)**, verbatim, read the plan against Theorem 1 of
+- **[The first review](review.md)**, verbatim, read the plan against Theorem 1 of
   Benkeser et al. (2017) and found the definition of done right and the route to it short by two
   conditions — now items 13 and 15. Three of its charges came back narrower than stated when
   checked against the code (its §1 terminology charge, §3's monotonicity charge, §7.1's on
@@ -25,7 +25,7 @@ Two, both kept in full and neither adopted unread.
   first review into a dependency-ordered execution plan — plus the 2016 Berkeley working-paper
   version of Benkeser, Carone, van der Laan & Gilbert. It accepted the item-20 diagnosis below,
   rejected three of the revision's claims, and supplied the theorem objects that
-  [the concordance](drtmle-theorem-concordance.md) is now seeded with. Its findings are
+  [the concordance](theorem-concordance.md) is now seeded with. Its findings are
   distributed across the three live documents rather than kept as a document of their own,
   because unlike the first review it arrived with theorem text attached and that text belongs in
   the concordance rather than in a quotation of a review.
@@ -68,7 +68,7 @@ repeated fit is an ordinary fit, and the affected draws include first draws. It 
 fixture, and a quarter of splits is the rate at which an ordinary `auto` bound binds on 600 rows.
 
 `score_check` **does** catch it, on the *influence-curve* rows, which are computed from the curve
-rather than from what the solver recorded. That is [item 16](roadmap.md#closed-since-this-list-opened)
+rather than from what the solver recorded. That is [item 16](../roadmap.md#closed-since-this-list-opened)
 arriving on the first case nobody constructed for it, and it is the only reason this was seen at
 all.
 
@@ -158,18 +158,18 @@ extreme, and that is the point: no amount of solving the first equation bounds t
   by `ḡ` and its residual is `Y − Q̄*`, so no plain `TMLE` fit can be in this state.
 - **The `1e-11` is real and is measuring the wrong thing.** The loop solved the equation it posed.
   What it did not do is pose the equation whose solution the curve needs.
-- **It is not [limitation 5](roadmap.md#limitations-recorded-rather-than-fixed).** Those two
+- **It is not [limitation 5](../roadmap.md#limitations-recorded-rather-than-fixed).** Those two
   looked like one story — "four to five orders worse on a quarter of draws" — and are not. The
   `1e-9` of limitation 5 is the equation the loop poses, measured at the arrays the loop leaves,
   and it stays `1e-9` on the uncentred draws too.
-- **It is not [limitation 6](roadmap.md#limitations-recorded-rather-than-fixed) either.** The
+- **It is not [limitation 6](../roadmap.md#limitations-recorded-rather-than-fixed) either.** The
   closing pass's mechanism stage does bind on its cap, and the uncentred draws are the ones where
   the tilted `g*` leaves the bounds — but the cap binds on 94 of 96 fits while the curve is
   uncentred on a quarter of them, so the cap cannot be what selects them.
 
 ### What B1a measured when it landed
 
-The patch is described in [the roadmap](roadmap.md#what-b1a-landed); what belongs here are the
+The patch is described in [the roadmap](../roadmap.md#what-b1a-landed); what belongs here are the
 numbers it produced, because they are what the diagnosis above is now checked against on every
 fit rather than once by hand.
 
@@ -206,7 +206,7 @@ it should fail.
 
 The instrument's first run against a `guard=("g",)` fit reported a correction of `2.8e-03` on the
 outcome scale at arm 1 with **zero clipped rows** and no equation (9) anywhere in the fit — which
-is [item 23](roadmap.md#what-is-still-open), a single-guard fit subtracting a correction it never
+is [item 23](../roadmap.md#what-is-still-open), a single-guard fit subtracting a correction it never
 solved for. It is a different defect from item 20 in cause, in magnitude and in which fits it
 touches, and nothing here would have seen it: no test in this repository fits a partial guard end
 to end, and the default `guard=("Q", "g")` cannot be in this state.
@@ -216,7 +216,7 @@ recomputing a recorded number from the returned state on one fit; this was found
 recomputation, once it was a permanent fixture of every doubly-robust fit rather than thirty lines
 in a scratch file.
 
-**Item 23 is now [closed](roadmap.md#closed-since-this-list-opened)**, and the measurement above is
+**Item 23 is now [closed](../roadmap.md#closed-since-this-list-opened)**, and the measurement above is
 kept because it is the evidence rather than a symptom. The curve subtracts one correction per
 equation the guard asked for; the unsolved equation's mean is still reported, as a diagnostic held
 to no threshold, which is the row that found this. On the 600-row draw
@@ -226,7 +226,7 @@ partial-guard fit this repository has ever run end to end.
 
 ### What the B1b prototype measured
 
-Sizing for [piece B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision), which has since
+Sizing for [piece B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision), which has since
 landed on exactly the candidate this run selected. A scratch prototype rather than a deliverable:
 two hooks on `estimators/targeting.py`'s module
 namespace — the covariate builder, to capture the bounds, and `solve_mechanism`, to substitute a
@@ -292,7 +292,7 @@ condition is that an identity be checked *on a fixture where the bound binds*, w
 goes **vacuous** — `clipped` is 0 at the exit on every draw run above, including the one where 375
 rows clipped before. A test selecting its fixture on `clipped > 0` would be selecting the empty
 set, and one asserting `clipped > 0` would be asserting something that can no longer happen. That
-is [stop-ship 14](roadmap.md#stop-ship)'s shape — a check agreeing where it could not have
+is [stop-ship 14](../roadmap.md#stop-ship)'s shape — a check agreeing where it could not have
 disagreed — arriving in a second place.
 
 **And the replacement this run proposed was wrong, which the implementation found.** The clipped
@@ -319,10 +319,10 @@ same equation, and that difference is itself why the library does not use a hand
 `.github/workflows/drtmle-convergence.yml` from `benchmarks/bench_drtmle.py`, 2,588s of runner at
 42.6s per fit, and **no fit raised**.
 
-**These numbers measure the exit criterion [item 7](roadmap.md#closed-since-this-list-opened)
+**These numbers measure the exit criterion [item 7](../roadmap.md#closed-since-this-list-opened)
 replaced**, not the current one. That is deliberate and is the order the item required — the
 failure had to be characterised before the threshold moved — and re-measuring under the current
-rule is [piece B2](roadmap.md#b2--the-sweep-on-the-corrected-implementation)'s.
+rule is [piece B2](../roadmap.md#b2--the-sweep-on-the-corrected-implementation)'s.
 
 | process | n | rounds med [range] | tol/stall/cap | ill>0 | closing capped | med eq10 at exit | med min `mean\|h\|` | med `\|score\|/(se/√n)` | check fails |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -338,7 +338,7 @@ rule is [piece B2](roadmap.md#b2--the-sweep-on-the-corrected-implementation)'s.
 Read down the `tol/stall/cap` column first, because it is the one that changed a claim: **2 fits
 of 96 reached the tolerance, 86 stalled and 8 ran out of rounds.** Then `ill>0`, which rises with
 `n` on `linear` (5/12 to 9/12) and is highest exactly where the mechanism is easiest to get right
-— the prediction [item 4](roadmap.md#limitations-recorded-rather-than-fixed) makes and had never
+— the prediction [item 4](../roadmap.md#limitations-recorded-rather-than-fixed) makes and had never
 tested. Then `check fails`, which is flat zero everywhere except `weak-overlap` and the one
 `linear` draw at `n = 600`.
 
@@ -359,8 +359,8 @@ beside it.
 ## What the B2a smoke runs measured
 
 Four fits at `n = 400` on `nonlinear`, which is the most of this that belongs in a small container
-([`CLAUDE.md`](../CLAUDE.md)), plus the two module fixtures the tests fit. They are here because
-three of them are what [B2b](roadmap.md#b2b--the-dispatch-and-what-it-decides) will have to explain
+([`CLAUDE.md`](../../CLAUDE.md)), plus the two module fixtures the tests fit. They are here because
+three of them are what [B2b](../roadmap.md#b2b--the-dispatch-and-what-it-decides) will have to explain
 if the sweep reproduces them, and because a smoke run whose numbers are thrown away has to be
 rerun by the next person.
 
@@ -387,7 +387,7 @@ reseed, and the route moved `psi` further in 1 of the 2 pairs. That is the null 
 to state: on present evidence the two update orders move `ψ` about as much as refitting one of them
 on a different split does, and the "0.22 of a standard error" above is a draw of that distribution
 rather than a property of the route. The dispatch that would settle it is
-[the rule in §4](drtmle-validation-plan.md#the-update-order-rule-frozen-before-the-dispatch)'s, and
+[the rule in §4](validation-plan.md#the-update-order-rule-frozen-before-the-dispatch)'s, and
 the rule was written before it ran. The variance difference has a visible mechanism — the
 routes exit holding reductions of different vintages, measured at `sd(g_{r,2})` of `0.024` against
 `0.031` on the 600-row draw — and the `ψ` difference is the ordinary `o_p(n^{-1/2})` gap between
@@ -429,7 +429,7 @@ Three readings, and the third is the one that changes what the arm is for.
 primary nuisances wrong, where a plain TMLE has no guarantee at all because its remainder is a
 product of two errors and neither is zero. Under `guard=("g",)`, where no mechanism equation is
 solved, it is exact to `1e-12`; that pair of numbers locates the `3.6e-08` at
-[limitation 5](roadmap.md#limitations-recorded-rather-than-fixed) — equation (9) is never solved
+[limitation 5](../roadmap.md#limitations-recorded-rather-than-fixed) — equation (9) is never solved
 exactly, because its covariate reads the mechanism it tilts — rather than at the oracle being
 approximate or the law being realised imperfectly. This is `test_remainder_drtmle.py`'s expansion
 arriving at the other end of the estimator: that module shows *on paper* that one guard removes the
@@ -479,10 +479,10 @@ paper 356) and `arxiv.org` each returned **403 at the agent proxy's `CONNECT`** 
 denial, not a paywall — while `raw.githubusercontent.com` and `pypi.org` returned 200.
 
 Two documents have since been supplied by hand and neither required that network:
-`docs/pdf.pdf` is Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using drtmle*,
+The first is Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using drtmle*,
 Observational Studies 9(2):43–78, and the 2016 Berkeley working-paper version of Benkeser, Carone,
 van der Laan & Gilbert was read by the second review and transcribed into
-[the concordance](drtmle-theorem-concordance.md). **Check the network again rather than inheriting
+[the concordance](theorem-concordance.md). **Check the network again rather than inheriting
 this measurement**, and prefer a checked-in copy to either.
 
 ## What the sizings got wrong
@@ -494,7 +494,7 @@ of what each cost, and the six landed refusals' own notes are in git history, la
 at `da8cacf`.
 
 **1. A refusal's stated reason is the first thing to check, and it is wrong about half the time.**
-Three of the six lifts in [Refusals worth lifting](roadmap.md#refusals-worth-lifting) found the
+Three of the six lifts in [Refusals worth lifting](../roadmap.md#refusals-worth-lifting) found the
 written reason false rather than merely stale. `shifts=` refused `delta=`, `intermediate=` and
 `weights=` together on one reason that was wrong for all three — conditional probabilities of
 binary events do not become densities because `A` is continuous, and a weight tilts the population
@@ -554,13 +554,13 @@ a *sentence* — the theorem's other assumption, what the fold reuse establishes
 shown when the score check fails, the corrected curve's relationship to the efficient one, what
 `weights=` needs said about it, what `repeats=` averages, what the monotonicity buys — and the
 61-test `drtmle` suite is green with every one of them standing as it stood. Checked against the
-code, three of [the first review](drtmle-review.md)'s charges came back narrower than stated (14,
+code, three of [the first review](review.md)'s charges came back narrower than stated (14,
 17 and 19, each still real) and the rest came back whole. That ratio is about the same as lesson
 1's on refusals, and for the same reason: a written justification is a claim with no instrument,
 so it decays at the rate claims with no instrument decay. **The cheapest instrument for a prose
 claim is a reader who has the source open**, and one pass of that over this page cost less than
 any item on it. The second review is the same lesson arriving with the *source itself* attached,
-and it found [item 21](roadmap.md#a1a--the-theoretical-audit) — a sign — which no reader without
+and it found [item 21](../roadmap.md#a1a--the-theoretical-audit) — a sign — which no reader without
 the theorem could have found and no test in this repository would ever have failed against.
 
 **7. A test can pin the wrong half of what it is named for, and then it decays like a prose
@@ -606,7 +606,7 @@ exactly how the second one will look on the day someone lifts that refusal. The 
 a state fingerprint. It is an **identity test between the stored score and a recomputation of the
 term the curve carries**, which is the check the execution plan asked for under a diagnosis that
 was wrong, and which is right regardless of the diagnosis — and regardless of which convention
-[B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) eventually adopts.
+[B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision) eventually adopts.
 
 **10. A display is not a derivation, and the difference decided item 21.** The charge that the
 mechanism correction's sign disagreed with the theorem came from a faithful transcription of the
@@ -633,11 +633,11 @@ is evidence about the transcription and not about the derivation. **Two checks t
 against the same class of error are one check**, however different their machinery.
 
 **11. Before building an oracle, check whether the quantity collapses onto one already here — at
-the value the check has to be taken at.** [A1a](roadmap.md#a1a--the-theoretical-audit) was sized
+the value the check has to be taken at.** [A1a](../roadmap.md#a1a--the-theoretical-audit) was sized
 as a further `discrete_law*` module carrying the whole DRTMLE limit as an analytic functional:
 initial nuisances, three reduced regressions, the alternation, differentiated by complex step.
 That is a few hundred lines, it re-encodes the algorithm rather than the derivation, and it would
-have had to reproduce a loop [limitation 4](roadmap.md#limitations-recorded-rather-than-fixed)
+have had to reproduce a loop [limitation 4](../roadmap.md#limitations-recorded-rather-than-fixed)
 says does not reliably converge.
 
 None of it was needed. The check has to be taken **in the union model**, because that is where
@@ -656,7 +656,7 @@ that makes the work necessary (here, the union model) is often the one that make
 
 Two riders, because the collapse is not free. It holds only at **saturated** reductions, so the
 module is silent about the pooled cross-fitting construction by construction — [stop-ship
-14](roadmap.md#stop-ship) exists so that silence is not later read as agreement. And it made three
+14](../roadmap.md#stop-ship) exists so that silence is not later read as agreement. And it made three
 mutations invisible, each found by running it and watching it *pass*. That half of the record is
 the one that is never kept: a suite documents what it caught, and what it cannot catch is what a
 later reader mistakes for coverage.
@@ -669,9 +669,9 @@ score check and the correction identities is therefore downstream of an operatio
 thing they would have detected.
 
 This has now happened twice and the second time was found only because the mutation was run.
-[Item 12](roadmap.md#closed-since-this-list-opened) was the first: the exit criterion changed and
+[Item 12](../roadmap.md#closed-since-this-list-opened) was the first: the exit criterion changed and
 "the whole 61-test `drtmle` suite passed identically before and after, because every assertion in
-it is about the *reported* fit". The second is [B2a](roadmap.md#b2a--the-sweep-instrument)'s
+it is about the *reported* fit". The second is [B2a](../roadmap.md#b2a--the-sweep-instrument)'s
 stale-score restatement — deleting it let the paper-order loop exit on a score for a state two
 later steps had moved, and **68 of the module's 69 tests still passed**.
 

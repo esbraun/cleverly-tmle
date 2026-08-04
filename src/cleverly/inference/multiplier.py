@@ -70,7 +70,7 @@ The remaining float64 expansion is the one cost that is still there to take: doi
 at ``float32`` measured 7.2x against the shipped path rather than 1.9x, at a
 disagreement of 1e-6 on a critical value whose own resampling error is 1e-2.  That is
 a change to the arithmetic of a reported quantity and wants its own argument, so it is
-not made here; ``benchmarks/results/bootstrap_numpy.md`` records the measurement.
+not made here; ``docs/benchmarks/bootstrap_numpy.md`` records the measurement.
 
 Gaussian multipliers need no resampling at all
 ----------------------------------------------

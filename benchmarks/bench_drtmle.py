@@ -12,7 +12,7 @@ exists so the numbers stop living as prose in a docstring.  It is the same reaso
 ``bench_tmle.py`` states for keeping its rows: a comparison nobody can rerun becomes
 folklore.
 
-**It has been run once, and the table is in ``docs/drtmle-investigation-log.md`` under *How
+**It has been run once, and the table is in ``docs/drtmle/investigation-log.md`` under *How
 the alternation exits*.**  What it found is worth knowing before running it again.  Item 4's
 "minority behaviour rather than the norm" named the wrong minority: 8 of 96 fits ran out of
 rounds, but only **2 reached the tolerance** and **86 stalled**.  Item 6 held exactly (94 of
@@ -27,7 +27,7 @@ again.**  Items 11 and 20 were one defect -- equation (9) solved at the raw tilt
 while the reported curve read the truncated one -- and it is closed, so the 23-of-24 failure
 is on present evidence a convention mismatch rather than the estimator breaking down.  This
 script is [piece B2](../docs/roadmap.md)'s instrument for re-measuring that at scale, and it
-now records what ``docs/drtmle-validation-plan.md`` §4 asks for rather than the three
+now records what ``docs/drtmle/validation-plan.md`` §4 asks for rather than the three
 columns the first sweep had.
 
 The questions, and the columns that answer them:
@@ -48,7 +48,7 @@ The questions, and the columns that answer them:
   ``--order paper`` fits each draw a second time under the working paper's own recursion and
   reports :math:`\\Delta\\psi` in units of ``se``, and the ratio of the two standard errors.
   Both orders run *here*, against the same nuisances, which is what
-  ``docs/drtmle-theorem-concordance.md`` §6 asks for; **do not** compare fluctuation
+  ``docs/drtmle/theorem-concordance.md`` §6 asks for; **do not** compare fluctuation
   coefficients across them, since the submodels a round passes through differ.
 * **the five places weak overlap enters** (§4).  ``clip``, ``min g``, ``ess``, and the high
   quantiles of all three clever covariates and of the reductions they are built from -- so
@@ -984,7 +984,7 @@ def main() -> None:
             "  the two routes move psi about as much as a different split of one route does, so\n"
             "  what looked like a route difference is what any refit does. A count near the pair\n"
             "  count is a route difference the split cannot account for -- and the rule it is\n"
-            "  judged against is in docs/drtmle-validation-plan.md section 4, predeclared."
+            "  judged against is in docs/drtmle/validation-plan.md section 4, predeclared."
         )
 
     print("\nReading the numbers")

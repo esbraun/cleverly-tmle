@@ -7,7 +7,7 @@ remainder is the product :math:`\|\hat g - g_0\| \cdot \|\hat{\bar Q} - \bar Q_0
 :math:`\sqrt n` times a product needs *both* factors shrinking.  van der Laan (2014) and
 Benkeser, Carone, van der Laan & Gilbert (2017) buy an interval that survives one
 inconsistent nuisance by solving two further equations, written here in the numbering the
-software paper uses (Benkeser & Hejazi 2023, :file:`docs/pdf.pdf`):
+software paper uses (Benkeser & Hejazi 2023, Observational Studies 9(2):43-78):
 
 .. math::
 

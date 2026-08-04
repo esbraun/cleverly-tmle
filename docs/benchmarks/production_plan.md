@@ -34,8 +34,10 @@ package, and a pure-numpy rewrite of it beats the compiled parallel kernel on on
 
 > **Provenance for every number in §1.** Taken while writing this, on the four-core Intel
 > Xeon @ 2.80 GHz container these sessions run in, `/proc/loadavg` under 0.6, Python 3.11,
-> numpy 2.4.6, numba 0.66.0, threadpoolctl 3.6.0. Timings are medians of interleaved
-> repetitions. This is the same box `findings.md` was measured on, which is what makes the
+> numpy 2.4.6, numba 0.66.0, threadpoolctl 3.6.0. Timings are medians of repetitions taken in
+> randomised **block** order -- described here and in `findings.md` as interleaved, which the
+> harness did not do; see
+> [the reading note](README.md#reading-a-number-out-of-any-of-them). This is the same box `findings.md` was measured on, which is what makes the
 > comparisons below comparisons rather than anecdotes.
 
 ---
@@ -60,7 +62,8 @@ writing 205 MB, in numpy, in `src/`, today. Two consequences, and the second is 
 changes the plan.
 
 **A blocked numpy rewrite is most of the win, with no dependency.** Through the production
-arithmetic at `n = 100,000`, `m = 7`, `B = 1,000`, interleaved, three repetitions each:
+arithmetic at `n = 100,000`, `m = 7`, `B = 1,000`, three repetitions each in randomised block
+order:
 
 | implementation | seconds | speed-up | critical value |
 | --- | ---: | ---: | --- |
@@ -173,6 +176,15 @@ way rather than started from scratch:
   runner's scaling table is worth reading for its shape and not its numbers. What is missing is
   a fast-tier test of the *production* backends, which cannot exist until they do, and a
   controlled-hardware tier, which needs a named machine rather than another workflow file.
+
+  **This was too generous, and the thing it was generous about is the one that mattered.** The
+  full tier passed `--num-cores 1 2` *alongside* `--config full.yaml`, and that flag replaces
+  the config's list rather than narrowing it — so `full.yaml`'s `[1, 2, 4, 8]` was discarded and
+  the "full sweep" was a two-core sweep. No job in this repository had ever run above two cores.
+  The flag is gone from that job and a `runner:` dispatch input takes its place, which turns
+  "needs a named machine" into a one-field dispatch rather than a workflow to write; the *gap*
+  is unchanged until someone uses it. Rescoping a section is the right move and reading the
+  command line is what has to come first.
 
 ---
 
@@ -370,13 +382,13 @@ the new profiles. The proposal's 5%-of-corrected-runtime rule is the right bar.
 Steps 0–5 produce no new package structure, which is the point of the reordering:
 
 ```
-benchmarks/results/production_plan.md        this document
-benchmarks/results/revised_findings.md       or a rewritten findings.md; one or the other, not both
-benchmarks/results/thread_limit_profile.md   Step 1
-benchmarks/results/bootstrap_numpy.md        Step 2 (the proposal's bootstrap_integration.md, renamed
+docs/benchmarks/production_plan.md        this document
+docs/benchmarks/revised_findings.md       or a rewritten findings.md; one or the other, not both
+docs/benchmarks/thread_limit_profile.md   Step 1
+docs/benchmarks/bootstrap_numpy.md        Step 2 (the proposal's bootstrap_integration.md, renamed
                                              for what it will actually contain)
-benchmarks/results/cluster_integration.md    Step 3
-benchmarks/results/longitudinal_phases.md    Steps 4-5
+docs/benchmarks/cluster_integration.md    Step 3
+docs/benchmarks/longitudinal_phases.md    Steps 4-5
 tests/unit/test_thread_limit.py              Step 1
 tests/unit/test_multiplier_blocking.py       Step 2
 tests/unit/test_cluster_codes.py             Step 3
@@ -396,7 +408,16 @@ of `[bench]` only if a kernel clears it.
 - **The float32 question.** Whether a `float32` expansion is acceptable inside a Monte Carlo
   quantile is a statistical judgement with a 7.2×-against-1.9× price tag on it, and it is not
   settled by the 1e-6 agreement measured at one configuration.
-- **Anything about a machine with more than four cores**, unchanged from `findings.md` §9.
+- **Anything about a machine with more than four cores**, unchanged from `findings.md` §9 — and
+  weaker than it looked, since no CI job had ever exceeded **two**. So the defensible statement
+  is that the *measured* serial and low-core workloads do not justify a runtime dependency, not
+  that a compiled kernel would fail to help a large repeated workload on 8–32 physical cores.
+  The two are easy to conflate and only one of them has evidence.
+- **Whether two implementations within a few percent of each other differ at all.** Every number
+  in this document and in `findings.md` was taken in randomised *block* order — described
+  throughout, wrongly, as interleaved — so drift is confounded with arm at exactly the scale
+  that would decide a 1.02× against a 0.98×. The harness now rotates properly; resolving those
+  comparisons means rerunning them on it, which nothing here has done.
 - **The estimand-count axis at `m = 1`.** `multiplier_critical_value` returns `norm.ppf`
   immediately for a single estimand, so the proposal's `estimands = 1` benchmark point does not
   reach any kernel. Keep it as an API test.

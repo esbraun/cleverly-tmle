@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -172,30 +173,47 @@ _DIMENSION_FLAGS: dict[str, list[tuple[str, str]]] = {
 }
 
 
+#: Config fields a command-line flag may set.  Each **replaces** the config's value rather
+#: than narrowing it, and ``num_cores`` is the one where that matters: `--num-cores 1 2`
+#: against a config sweeping `[1, 2, 4, 8]` measures 1 and 2, not the intersection with the
+#: box.  Do not make it a clamp.  `resources.py` refuses a core count the machine cannot
+#: serve rather than capping it silently, and that refusal is what makes an efficiency
+#: column trustworthy -- a clamping flag would put the silent cap back in the one place
+#: nobody looks for it.
+_OVERRIDABLE = (
+    "kernels",
+    "implementations",
+    "sizes",
+    "num_cores",
+    "repeats",
+    "warmups",
+    "seed",
+    "output",
+    "validate",
+    "memory",
+    "amortise",
+)
+
+
+def _apply_overrides(config: Any, args: Any) -> Any:
+    """Replace the config's values with whatever flags were actually passed."""
+    from dataclasses import replace
+
+    overrides: dict[str, object] = {}
+    for name in _OVERRIDABLE:
+        value = getattr(args, name, None)
+        if value is None:
+            continue
+        overrides[name] = tuple(value) if isinstance(value, list) else value
+    return replace(config, **overrides)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
 
     from .config import Config, load
 
-    config = load(args.config) if args.config else Config()
-    overrides: dict[str, object] = {}
-    for name in (
-        "kernels",
-        "implementations",
-        "sizes",
-        "num_cores",
-        "repeats",
-        "warmups",
-        "seed",
-        "output",
-        "validate",
-        "memory",
-        "amortise",
-    ):
-        value = getattr(args, name, None)
-        if value is None:
-            continue
-        overrides[name] = tuple(value) if isinstance(value, list) else value
+    config = _apply_overrides(load(args.config) if args.config else Config(), args)
 
     sweeps = {sweep.kernel: dict(sweep.dimensions) for sweep in config.sweeps}
     for flag, targets in _DIMENSION_FLAGS.items():
@@ -211,15 +229,24 @@ def main(argv: list[str] | None = None) -> int:
 
     config = replace(
         config,
-        **overrides,
         sweeps=tuple(KernelSweep(kernel=name, dimensions=dims) for name, dims in sweeps.items()),
     )
 
     # Must happen before numpy/numba are imported anywhere, which is why the imports
     # below this line are function-local and the ones above are not.
-    from .resources import bootstrap_environment
+    from .resources import bootstrap_environment, logical_cores
 
     bootstrap_environment(config.max_cores)
+    if config.max_cores > logical_cores():
+        # Said here rather than left for the artefact: the rows above the box's core count
+        # are skipped rather than capped, and a reader of the job log should know that
+        # before wondering where they went.
+        print(
+            f"note: this configuration sweeps to {config.max_cores} cores and this box has "
+            f"{logical_cores()}; the rows above it are recorded as skipped rather than "
+            "capped -- see `skipped_reason` in results.jsonl",
+            file=sys.stderr,
+        )
 
     from .kernels import REGISTRY, resolve
 

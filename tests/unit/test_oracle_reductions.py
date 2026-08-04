@@ -1,6 +1,6 @@
 r"""What does a fit do when the reduced regressions are *exactly* right?
 
-``docs/drtmle-validation-plan.md`` §4 asks whether a sweep's failures persist "when the
+``docs/drtmle/validation-plan.md`` §4 asks whether a sweep's failures persist "when the
 reductions are handed the **oracle** values", and sized that as free "because the datasets
 already know their truth".  They do not.  A reduction is a conditional expectation given a
 **fitted** object -- :math:`Q_r(a, W) = E[\bar Q_0 - \bar Q^* \mid \hat g(a|W)]`, and the two

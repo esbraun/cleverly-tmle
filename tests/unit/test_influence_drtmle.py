@@ -571,7 +571,7 @@ class TestTheCorrectionsSplitIntoTheTermsTheEquationsSolve:
         :math:`P_n[w D^*_g] - S_g^{stored} = B_{clip}`, and *exactly*: both sides are the
         same rows of the same arrays, differing only in whether the residual reads the raw
         tilted mechanism or the truncated one.  The orientation is
-        ``docs/drtmle-validation-plan.md``'s, where :math:`B_{clip}` carries
+        ``docs/drtmle/validation-plan.md``'s, where :math:`B_{clip}` carries
         :math:`g - g^b`; the residual the check reports is its negation, and asserting the
         two agree up to that sign is the point rather than an inconvenience.
         """

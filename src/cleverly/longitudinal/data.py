@@ -712,7 +712,7 @@ class LongitudinalData:
         carrying them down the nodes computes the same arrays in :math:`O(T n)`.
 
         Invisible at the ``T = 2`` this package's own fixtures use and 2.4x of the
-        recursion at ``T = 20`` (``benchmarks/results/longitudinal_masks.md``).  The two
+        recursion at ``T = 20`` (``docs/benchmarks/longitudinal_masks.md``).  The two
         methods stay, answer the same thing, and are what a caller wanting one node should
         use; this is what the recursion uses.
         """

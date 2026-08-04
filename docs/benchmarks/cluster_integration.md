@@ -9,7 +9,8 @@ The first of those was already paid for, somewhere else, once.
 
 > Measured on the four-core Intel Xeon @ 2.80 GHz container this repository's cloud sessions
 > run in, `/proc/loadavg` under 0.6, Python 3.11, numpy 2.4.6, numba 0.66.0. Medians of
-> interleaved repetitions, every kernel compiled before any measurement.
+> repetitions taken in randomised **block** order, not interleaved -- see [the reading note](README.md#reading-a-number-out-of-any-of-them);
+> every kernel compiled before any measurement.
 
 ## 1. The labels reaching `cluster_sums` are already dense
 
@@ -106,13 +107,30 @@ fusing `m` passes over one index vector into one pass is a thing a compiler does
 not.
 
 The package's own default estimand sets are three to seven, and `m = 5` is where this is a
-wash. So the honest classification is **retain numpy, unless a caller is aggregating twenty or
-more curves at once** — not "strong production candidate", and not `findings.md`'s "adopt
-numba (parallel above ~10⁵ rows)", whose crossover was measured against a sort that no longer
-runs.
+wash. So the classification is **retain numpy**, which is neither "strong production
+candidate" nor `findings.md`'s "adopt numba (parallel above ~10⁵ rows)", whose crossover was
+measured against a sort that no longer runs.
 
-**One row is reproducible and unexplained.** The compiled kernel takes 2.03 ms at `m = 5` and
-0.73 ms at `m = 7` on identical labels and 40% more work — confirmed across seeds, orderings
-and fresh processes. Whatever the cause (a vectorisation cliff in the inner column loop is the
-obvious guess), a kernel whose timing has a cliff between five and seven columns is itself an
-argument for measuring the configuration you will run rather than the one that benchmarks well.
+**The crossover itself is not located, and this document used to name one.** It said "unless a
+caller is aggregating twenty or more curves at once", and that does not follow from the table
+above it: `m = 7` is already **4.31× serial and 6.35× on four threads**, and seven is the top
+of the range the package's own defaults occupy. Reaching twenty means reasoning from `m = 5`
+alone while discounting a measured `m = 7` — silently, and in the same paragraph that quotes
+"three to seven" as the range that matters. Nothing between 7 and 20 has ever been run, and
+`benchmarks/configs/full.yaml` sweeps `n_estimands: [1, 5, 20]`, so **the harness as
+configured cannot locate the crossover it was being used to assert.** Whatever it is, it is at
+or below 7 on this evidence.
+
+That does not change the decision. The kernel-level win at `m = 7` is real and the *fit*-level
+share is what it has to be multiplied by, which `findings.md` §5 puts far below the bar for a
+runtime dependency — 2.3–2.8× on `influence_covariance`, ~1.1× on a clustered `retarget` at
+`n = 10⁵` and nothing at `n = 20,000`. What it changes is what may be quoted: retain numpy, on
+a fit-level share, and not on a threshold nobody measured.
+
+**And one row is reproducible and unexplained**, which is why the threshold could not simply be
+moved down to 7 either. The compiled kernel takes 2.03 ms at `m = 5` and 0.73 ms at `m = 7` on
+identical labels and 40% more work — confirmed across seeds, orderings and fresh processes.
+Whatever the cause (a vectorisation cliff in the inner column loop is the obvious guess), a
+kernel whose timing has a cliff between five and seven columns is itself an argument for
+measuring the configuration you will run rather than the one that benchmarks well. Resolving
+it needs `m = 3 … 10` in fresh processes, and that has not been run.

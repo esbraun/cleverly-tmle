@@ -437,7 +437,7 @@ been established about it. Two different things are worth keeping apart about th
 below. Its **provenance** is that its form was read off R's `drtmle` rather than derived here. Its
 **evidence** is that it has since been checked twice against the derivation: against Theorem 1's
 own appendices, at a nonzero `Q_r` where a flipped sign would show
-([the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved));
+([the concordance's §4](drtmle/theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved));
 and against a *perturbation of the law*, where in each half of the union model the corrected curve
 is the efficient influence function row for row — from a real fit as well as longhand
 (`tests/unit/test_influence_gateaux_drtmle.py`). Nothing here has been compared against that
@@ -563,10 +563,10 @@ whether the fit is corrected and says which equations it solved.
 **The influence curve was a fidelity claim about `drtmle`, and it has now been checked against
 the theorem.** The form above is what that package computes, read off its implementation;
 Theorem 1 of Benkeser, Carone, van der Laan & Gilbert is where the influence function is
-derived, and the 2016 working paper is now in the repository at `docs/viewcontent.cgi.pdf` and
+derived, and the 2016 working paper — UCB Biostatistics paper 356 — has been obtained and
 read. The two **agree**, and the reason that took an argument is that the paper's §3.1 display
 prints the mechanism correction with a leading minus its own appendices contradict — see
-[the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved),
+[the concordance's §4](drtmle/theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved),
 which is where a reader who wants the derivation rather than the verdict should go. The
 *published* 2017 article is still unread and no longer gates this. Scope is likewise set by what has been *derived* rather than by what `drtmle`
 accepts: a binary treatment, the `mean` group, and the univariate reduction. A multi-valued
@@ -851,6 +851,9 @@ and the registry must cover each other exactly.
 
 ## References
 
+The full list, with the locators the `DRTMLE` prose cites, is
+[`references.md`](references.md); what follows is the same set grouped by where it is used.
+
 - van der Laan & Rubin (2006), *Targeted Maximum Likelihood Learning*.
 - Gruber & van der Laan (2010), *A targeted maximum likelihood estimator of a causal effect on a
   bounded continuous outcome*.
@@ -883,8 +886,8 @@ The last three are for `DRTMLE`, and
 [doubly-robust inference](#doubly-robust-inference-what-the-extra-equations-remove) rests on
 them — on the first two for the estimating equations and on the third's implementation for
 the influence curve. **Theorem 1 has now been read**, in the 2016 working-paper version kept at
-`docs/viewcontent.cgi.pdf`, and the curve agrees with it; that section and
-[the concordance](drtmle-theorem-concordance.md) say what the agreement took and what is still
+UCB Biostatistics paper 356, and the curve agrees with it; that section and
+[the concordance](drtmle/theorem-concordance.md) say what the agreement took and what is still
 open without it.
 
 - van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical

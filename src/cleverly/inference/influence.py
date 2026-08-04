@@ -474,7 +474,7 @@ def reduced_corrections(
     with two signs, which is the other reason not to settle it from a display.
     ``tests/unit/test_theorem_drtmle.py`` checks the appendix step that fixes the
     orientation, and pins these arrays against the theorem's terms;
-    ``docs/drtmle-theorem-concordance.md`` §4 carries the argument.
+    ``docs/drtmle/theorem-concordance.md`` §4 carries the argument.
 
     The *published* 2017 article remains unread and no longer gates this: the adjudication is
     internal consistency plus exact-law arithmetic, and neither depends on the edition.
@@ -574,7 +574,7 @@ class CorrectionParts:
         outcome that :math:`Q_r` and the fluctuation's residual both live on.
     clip_bias:
         Rowwise :math:`Q_r(a, W)/g^b(a|W)\,\{g(a|W) - g^b(a|W)\}` per arm -- the
-        :math:`B_{clip}` of ``docs/drtmle-validation-plan.md``, in that document's
+        :math:`B_{clip}` of ``docs/drtmle/validation-plan.md``, in that document's
         orientation.  It is **exactly** the difference between the mechanism score the
         alternation solves, at the raw tilted :math:`g^*`, and the mean of the
         :math:`D^*_g` above, which truncates :math:`g^*` in its residual as well as in its
