@@ -1059,33 +1059,58 @@ separates the two things `_NEGLIGIBLE / n` conflates: when to stop iterating, an
 that came out is entitled to a Wald interval. The second is `score_check`'s job and
 [item 16](#closed-since-this-list-opened)'s.
 
-**The product decision belongs to this piece**, and B1 changes what it is likely to be. If the
-sweep still finds no stable region, `DRTMLE` should refuse or invalidate under weak overlap on a
-**predeclared** diagnostic rather than warn — a warning is easy to miss, and this is a method
-whose only purpose is inference. The reporting half of that is
-[item 16](#closed-since-this-list-opened), which has landed; what this piece adds is the threshold
-and the name of the state, decided from evidence. But the evidence that motivated the refusal was
-23 of 24 failed score checks, and on present measurement those are the convention mismatch rather
-than the estimator breaking down — so **do not predeclare the refusal before B2 re-measures**.
-What survives regardless is the ordinary positivity warning, which fires on these fits already
-(29% of units outside the bounds on the seed-0 draw).
+**The product decision belonged to this piece and is taken: `DRTMLE` does not refuse under weak
+overlap, and no diagnostic is predeclared for it.** The proposal was that if the sweep still found
+no stable region the estimator should refuse or invalidate on a predeclared diagnostic rather than
+warn — a warning being easy to miss on a method whose only purpose is inference. The whole
+evidence for it was 23 of 24 failed score checks on `weak_overlap_dgp`, and
+[B2b](#b2b--the-dispatch-and-what-it-decides) re-measured that on the same seeds: **0 of 24**, and
+0 of 36 again at three sizes on the order dispatch, with the worst standardised score falling from
+`1.1e+00` to `2.1e-07`. The draws did not get easier — a third of their `(row, arm)` pairs still
+clip at the initial mechanism, `min g` and `min gr1` both round to zero, and the per-arm effective
+`n` is 8–13% against 41–47% elsewhere — so the failure was
+[B1b](#b1b--the-theorem-conforming-targeting-decision)'s convention mismatch and refusing on
+overlap would be refusing on the symptom's former proxy. **A refusal has to be argued from evidence
+that exists**, and after B1b none does.
 
-**19. The alternation's convergence argument proves less than it is read as proving.**
-`solve_with_reduction`'s docstring argues that equation (9) is a weighted logistic MLE of `A | W`
-and equations (8) and (10) are the outcome quasi-likelihood — separate factors of the likelihood
-of `(A, Y) | W` — so each step maximises its own factor with the others held fixed and "the joint
-value never decreases". The first review reads the mid-loop refit of the reductions as breaking
-that, and it does not: the reductions enter as the *directions* of the submodels, not as values of
-the objective, so refitting them changes the next step's direction and leaves the current joint
-value where it is, and monotonicity survives. What does not survive is what the argument is used
-for. A bounded monotone sequence converges *in value*; that is why the loop terminates, and it is
-not why the iterates approach a common zero of three score equations — under a direction that
-changes each round, the fixed point of the ascent need not be a stationary point of anything. The
-sweep already shows the gap in numbers: **86 of 96 fits stalled** at a point the objective would
-not climb from, against 2 that reached the tolerance. So the wording is the fix — state it as an
-estimating-equation iteration with empirical convergence diagnostics, keep the monotonicity claim
-for what it does buy (termination, and the reason not to restart from `Q̄⁰`), and drop the
-implication that stalling is a numerical disappointment rather than the expected exit.
+Three things stand in its place rather than nothing:
+
+- **the ordinary positivity warning**, which fires on these fits already (29% of units outside the
+  bounds on the seed-0 draw) and is the honest signal that the *design* is thin;
+- **`score_check` on the face of the fit**, [item 16](#closed-since-this-list-opened), which is the
+  per-fit answer a predeclared population-level threshold would have been a poor substitute for.
+  It is not vacuous here: one *control* fit — a different fold split of a `weak-overlap` draw whose
+  base fit passes — does fail, at a rate near 1 in 100 rather than 23 in 24. Such a fit says so;
+- **two columns that still separate `weak-overlap` from everything else, recorded rather than
+  acted on.** `q99 h(10)` reaches `2.49` against `0.06`–`0.23`, and the largest 1% of rows carry
+  28–37% of the worst score's absolute mass against 7–12%. Neither costs a fit its score check
+  today. A score driven to `2e-07` by a handful of large rows cancelling is not the same object as
+  one that is small rowwise, and if a predeclared diagnostic is ever wanted here, the concentration
+  share is the candidate with a reason behind it — not the clipped-row share, which is a property
+  of the draw that B1b made harmless.
+
+**19. The alternation's convergence argument proved less than it was read as proving —
+[closed](#closed-since-this-list-opened) by B2b.** The diagnosis stays here because it is the
+reasoning the wording was changed on. `solve_with_reduction`'s docstring argues that equation (9)
+is a weighted logistic MLE of `A | W` and equations (8) and (10) are the outcome quasi-likelihood —
+separate factors of the likelihood of `(A, Y) | W` — so each step maximises its own factor with the
+others held fixed and "the joint value never decreases". The first review reads the mid-loop refit
+of the reductions as breaking that, and it does not: the reductions enter as the *directions* of
+the submodels, not as values of the objective, so refitting them changes the next step's direction
+and leaves the current joint value where it is, and monotonicity survives. What does not survive is
+what the argument is used for. A bounded monotone sequence converges *in value*; that is why the
+loop terminates, and it is not why the iterates approach a common zero of three score equations —
+under a direction that changes each round, the fixed point of the ascent need not be a stationary
+point of anything. The sweep showed the gap in numbers: **86 of 96 fits stalled** at a point the
+objective would not climb from, against 2 that reached the tolerance.
+
+**The fix was the wording and the numbers behind it have since moved, which is worth keeping
+straight.** The docstring now states the loop as an estimating-equation iteration with empirical
+convergence diagnostics, keeps the monotonicity claim for what it does buy — termination, and the
+reason not to restart from `Q̄⁰` — and names a stall as an ordinary exit rather than a numerical
+disappointment. **That last sentence was written against 86 of 96 and the count is now 8**; the
+correction it makes is unaffected, because what was wrong was reading a stall as failure and not
+how often one happened.
 
 **20. The reported curve was not centred wherever the mechanism truncation binds, and the
 fluctuation rows said it was — [closed](#closed-since-this-list-opened) by B1b.** Kept here in
@@ -1725,8 +1750,24 @@ every assertion in it is about the *reported* fit and the closing pass makes tha
 either way. `TestAnEquationStopsOnEitherRuler` in `tests/unit/test_drtmle_fit.py` unit-tests
 `_solved` directly, and the absolute branch was deleted and the suite watched to fail — two of the
 four assertions go red — before the test was kept. Asserting `exit_reason == "tolerance"` on a
-fitted result was rejected: which exit fires is a property of the draw. The item's two other loose
-ends are open and are in [piece B2](#b2--the-sweep-on-the-corrected-implementation).
+fitted result was rejected: which exit fires is a property of the draw.
+
+**The item's two loose ends closed with B2b, and the honest report of one of them is that it was a
+restatement.** *The exit distribution under the current rule was uncharacterised* — it is now, and
+it inverted: 87 of 96 fits reach the tolerance where 2 did. And *the loop's absolute bar was a
+proxy for the one it cites*: `_NEGLIGIBLE / n` was justified as `score_check`'s
+`DEFAULT_TOLERANCE · se/√n` with `se = O(n^(−1/2))` on the scaled outcome substituted in, which is
+circular, since the loop runs before the estimate exists. It is now `_negligible_bar(n)`, stated as
+a numerical criterion in its own right — a deterministic `c_n/√n` with `c_n = 1e-3/√n`, which is
+the finite-sample rendering of the `o` in `P_n D = o_p(n^(−1/2))`. **The arithmetic is unchanged
+and no fit takes a different exit**; what changed is that the criterion now rests on a property a
+test can check rather than on an assumption about a quantity it precedes.
+`test_the_bar_renders_an_o_and_not_an_O` asserts `bar(n)·√n` decreases and crosses a fixed level,
+and the mutation is a bar of `1e-3/√n` — a legitimate-looking sequence rendering an `O` — under
+which that product is flat and two of the class's five tests go red. The other half of the
+separation was already in place: the standardised score `|P_n S_j|/sd̂(S_j)` is reported *beside*
+the stopping rule by the sweep's *What the reported curve rests on*, not folded into it, and
+whether a fit is entitled to a Wald interval stays `score_check`'s question at the realised `se`.
 
 ## Refusals worth lifting
 
