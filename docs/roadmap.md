@@ -8,10 +8,18 @@ pieces of work, each of which is a pull request rather than an errand.
 
 **No known defect is live.** The last one — the reported curve was not centred wherever the
 mechanism truncation bound — closed with
-[B1b](#b1b--the-theorem-conforming-targeting-decision), and what is left is a sweep, a
-demonstration, a cross-fitting construction and a widening of scope. That is a different kind of
-list from the one this page opened with, and it does not lower the bar: *done* still means a
+[B1b](#b1b--the-theorem-conforming-targeting-decision), and what is left is a demonstration, a
+cross-fitting construction, a **scope decision** and a widening of scope. That is a different kind
+of list from the one this page opened with, and it does not lower the bar: *done* still means a
 demonstration that the interval attains nominal coverage where a plain `TMLE`'s does not.
+
+**The scope decision is the newest of them and it came from reading this page against its own
+concordance.** B1b left the score and the curve one expression at one state; it did not make
+Theorem 1's expansion a statement about the constrained estimator, and the assumption matrix had
+said so in two rows the whole time. So the guarantee is now claimed for a fit whose truncations are
+inactive — which is what the ordinary cells measure, and *not* what the weak-overlap ones do — and
+bound-active fits are reported as empirically supported and outside the theorem. That is [the
+supported contract](#the-supported-contract-and-item-25) and item 25.
 
 **The sweep has run**, four dispatches of it, and [what it
 measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured) closed items 12 and 19, took
@@ -19,7 +27,11 @@ the weak-overlap product decision, and rewrote limitations 4 and 6 from their ow
 headline is that the alternation's exit distribution **inverted** — 87 of 96 fits reach the
 tolerance where 2 did — and that `weak-overlap`'s score check now fails on **0 of 24** where it
 failed on 23, on draws whose overlap is unchanged. So what is left is a demonstration, a
-cross-fitting construction, a widening of scope, and one clause of one frozen rule.
+cross-fitting construction, a scope decision, a widening of scope, and one clause of one frozen
+rule. **That same dispatch supplies the scope decision's evidence**, in columns it was not run
+for: `clip share` is `0.000` on the three ordinary processes and `0.231` to `0.338` on
+`weak-overlap`, whose `margin` is exactly zero at both sizes it is recorded at. Those are the two
+regimes item 25 separates, already measured.
 
 That grouping and its order are a revision, three times over. An [external
 review](drtmle/review.md) of this page and the code behind it read the plan against Theorem 1 of
@@ -194,12 +206,28 @@ nothing less clears the variant. What the reviews changed is not that bar but wh
 while another fails:
 
 1. **Theorem fidelity** — the equations solved and the curve reported are the ones the derivation
-   gives, under conditions the fit actually meets. Items 1, 13, 15, 21 and 22. The third review
+   gives, under conditions the fit actually meets. Items 1, 13, 15, 21, 22 and 25. The third review
    reported this link **broken** at the sign; reading the source closed item 21 and item 22's
    theoretical half in the implementation's favour, and A1a closed item 1, so what is left of the
-   link is items 13 and 15 — the empirical remainder rate and the cross-fitting construction — and
+   link is items 13, 15 and 25 — the empirical remainder rate, the cross-fitting construction and
+   **which fits the guarantee is claimed for at all** — and
    **item 22's numerical half, on one clause of a frozen rule that every measurement misses in the
    direction favourable to it**, which [B2b](#b2b--the-dispatch-and-what-it-decides) reads out.
+
+   **Item 25 is new with this revision, it is a scope decision rather than a defect, and it was
+   found by reading this link's own summary against the concordance's assumption matrix.** That
+   summary used to say the link was down to items 13 and 15. The matrix does not: `hard truncation
+   of ĝ` reads *not covered by the source*, and `B_{A,n}` reads met **under the stated restriction
+   that the mechanism is the truncated one and not the theorem's untruncated `g*`**.
+   [B1b](#b1b--the-theorem-conforming-targeting-decision) made the solved score and the reported
+   curve one expression at one state, which is what it was chosen for and is worth every digit it
+   bought — and it is *internal coherence*, not the claim that Theorem 1's expansion applies to the
+   constrained estimator. Calling the constrained update a **finite-sample rendering** names the
+   step honestly and supplies no such claim. So the link is short by one sentence — *which fits the
+   guarantee is claimed for* — and that sentence belongs before [C](#c-the-demonstration) rather
+   than after it, because a coverage number read under an unstated scope is a number about an
+   estimator nobody has named. [The supported contract](#the-supported-contract-and-item-25) is
+   that sentence and what it costs.
 2. **Derivation-anchored correctness, component by component** — each object the curve is built
    from agrees with what the derivation gives for it, not merely `psi` and `se`, where several
    differences cancel. **This link is now closed except for item 13's rate.**
@@ -293,7 +321,9 @@ be confused.
 ### The work, in four pieces and eight pull requests
 
 A and B are each split, so the four pieces are eight pull requests: **B1a**, **A1a**, **B1b**,
-**B2a** and **B2b** have landed, and **A1b**, **C** and **D** are open. Small items are
+**B2a** and **B2b** have landed, and **A1b**, **C** and **D** are open. **The contract is a ninth
+row and is not a piece** — it is documentation, it closes no research, and it is in the table
+because it is an input to C that has to be frozen rather than produced. Small items are
 grouped where the *evidence* is shared — B2 is five items because one dispatch of the same
 sweep answers all of them — not where the subject matter merely rhymes; and the three splits are
 that same rule applied to a piece rather than to an item. **B2's grouping was right about four of
@@ -310,6 +340,7 @@ question needed three more and still did not close.
 | **B2a** — *landed* | the instrument the dispatch needs: the columns §4 asks for, the working paper's update order beside this one, and the comparison arms. Closes nothing on its own, which is why it is its own pull request rather than a first commit of B2 | `DRTMLE(update_order="paper")` and `ReductionSpec.order`; three tables on `benchmarks/bench_drtmle.py` in place of one; `--order`, `--reduced-learner` and `--truncation` arms with workflow inputs; `TestBothUpdateOrdersReachTheTheoremsExit` |
 | **B2a′** — *landed* | the three things B2a left as prose rather than as something a run settles: the oracle reduction built where it exists, a **control** for the update-order difference, and the branch that hid a mutation deleted rather than guarded | `tests/unit/test_oracle_reductions.py` and item 24; the `reseed` arm, the route-against-noise table and [a frozen rule](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch); `_restated_outcome_score` made unconditional, `tests/unit/test_fluctuation_score.py`, and [lesson 12](drtmle/investigation-log.md#what-the-sizings-got-wrong) |
 | **B2b** — *landed* | items 12 and 19, re-measures 4 and 6, takes the overlap policy — no refusal — and reads item 22's numerical half, which stays open on one clause | four dispatches of `drtmle-convergence.yml` and their tables in [the investigation log](drtmle/investigation-log.md#what-the-b2b-dispatch-measured); `_negligible_bar`; a `worst identity` column on `comparison_rows` and `tests/unit/test_bench_drtmle.py` |
+| **the contract** — *documentation, and the first half has landed* | item 25: which options the theorem-backed guarantee is claimed for, and which are supported beside it. Not a piece and not research — the scope decision, its conditions as assumption rows, and the two review readings it corrects | [the table](#the-supported-contract-and-item-25); [the concordance's §7 scope decision](drtmle/theorem-concordance.md#the-scope-decision-item-25) and three new matrix rows; gate 1's clause 0. What is left is the per-fit witness for the initial mechanism and `g_{r,1}`, which lands with C |
 | **C** | items 3 and 13: the demonstration | `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, `docs/drtmle-coverage-study.md`, per-replicate results |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
@@ -326,18 +357,35 @@ rhymes* — applied to a piece rather than to an item.
 
 ```text
 B1a  identity + safety patch ─────────────────────┐   landed
-                                                  ├─> B2a ──> B2b ──> C  demonstration
-A1a theorem concordance ──> B1b  targeting  ──────┘  instrument  sweep
-                                 convention          landed      landed
+                                                  ├─> B2a ──> B2b ──┐
+A1a theorem concordance ──> B1b  targeting  ──────┘  instrument  sweep │
+                                 convention          landed      landed │
+                                                                        ├─> C  demonstration
+contract + item 25  scope frozen ──────────────────────────────────────┤
+A1b cross-fitting construction ────────────────────────────────────────┘
+       (no logical block; a rework edge — C's fits are of A1b's construction)
 
-A1b cross-fitting construction   blocks nothing; gate 1 requires it
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Everything upstream of C has landed**, so what is left of the graph is the demonstration, with
-A1b and D outside it. What B2b leaves behind it is one open thread rather than a piece: item 22's
-numerical half is answered on `nonlinear` and unresolved on `weak-overlap`, and it gates
-[stop-ship 2](#stop-ship) rather than gating C.
+**Everything on B's arm has landed**, so what is left of the graph is the scope freeze, the
+cross-fitting construction and the demonstration, with D outside it. What B2b leaves behind it is
+one open thread rather than a piece: item 22's numerical half is answered on `nonlinear` and
+unresolved on `weak-overlap`, and it gates [stop-ship 2](#stop-ship) rather than gating C.
+
+**Two edges into C are new with this revision and neither is a logical block.** They are there
+because C is the one dispatch on this page whose *cost* makes redoing it a decision rather than an
+errand — ~2,000 fits, re-timed but still a workflow of its own. The
+[contract](#the-supported-contract-and-item-25) is an edge because a coverage number read under an
+unstated scope is a number about an estimator nobody has named; it is a page of prose and freezing
+it costs nothing. **A1b is an edge because the estimator C fits is the pooled construction**: if
+A1b concludes that construction has to change, C's numbers are numbers about the wrong estimator
+and the study is rerun. This page said A1b "blocks nothing", which is true of every *other* piece
+and was read as true of C — and A1b's own section already says the outcome may be that a nested
+reference implementation is needed. That is a rework edge, and the ordering rule it implies is
+narrower than "finish A1b first": **A1b's construction decision must be frozen before C's final
+dispatch**, which a pilot of 50–100 replicates does not wait on. Ordering the whole demonstration
+behind an open research question would be the opposite mistake.
 
 **B1a first**, because every number B2 and C produce is read *through* the reported curve, and
 until it lands a share of every cell's fits report a curve the fit did not solve for. It is also
@@ -346,9 +394,11 @@ convention B1b might eventually choose**, so it does not wait on the theorem.
 
 **A1a alongside it**, outranking everything because if the theorem and the transcription disagree,
 work already landed is work to redo — and on the sign they already did. **B1b after A1a**, because
-the convention is a derivation and not a taste. **B2 and then C** on the corrected implementation.
-**A1b** wherever it fits, since nothing waits on it and gate 1 does not open without it. **D**
-independent of all of it.
+the convention is a derivation and not a taste. **B2** on the corrected implementation. Then the
+**contract** — a page of prose, and the cheapest thing left on this list — and **A1b**, whose
+construction decision has to be frozen before C's final dispatch even though nothing waits on it
+and even though its pilot does not. **C** last, because it is the expensive one and the only one
+whose inputs are worth freezing on purpose. **D** independent of all of it.
 
 The graph used to have a second arm into B1b — the R-parity piece, item 2, [retired by
 decision](#closed-since-this-list-opened) — and before that it had B1 both first and downstream of
@@ -453,7 +503,9 @@ item 1 closed here. Item 15 is [A1b](#a1b--the-cross-fitting-construction).
   settle it rather than nothing at all. Two corrections: `B_{A,n}` read *violated until B1 lands*
   and B1a has landed, so it now reads violated-**and-measured**, per arm, with B1b closing it; and
   the count of rows reading *not covered by the source* was three on this page and is four —
-  missing outcomes was added and this page had not caught up.
+  missing outcomes was added and this page had not caught up. **It is five since item 25**, which
+  split the truncation row in two: `ĝ`'s truncation has an assumption in the theorem to be scoped
+  against and `g_{r,1}`'s has none, and the matrix had been carrying them as one.
 - **Settle the update order (item 22) — the theoretical half is closed and the numerical half
   moves to [B2](#b2--the-sweep-on-the-corrected-implementation).** The theorem states a six-step
   recursion in a particular order and the Python iteration is not a transcription of it; the
@@ -477,6 +529,11 @@ item 1 closed here. Item 15 is [A1b](#a1b--the-cross-fitting-construction).
   step the theorem states without one**, against the bar that the final score be the
   theorem-defined score of the estimator declared. Nothing in the sources will settle that, which
   is why no further document is owed and why B1b was never really waiting on one.
+  **What that bar does not do is say which estimator is declared**, and this page went two
+  revisions without noticing the difference: a rendering whose final score is its own
+  theorem-defined score is internally coherent, and Theorem 1's *expansion* is still stated for the
+  untruncated one. [Item 25](#the-supported-contract-and-item-25) is the missing sentence, and it
+  is a scope decision rather than a reopening of B1b.
 
 Two of the assumption rows were open questions before any of this and are numbered:
 
@@ -504,10 +561,19 @@ reports the branches separately where the DGP permits. The exact terms are in [t
 
 ##### A1b — the cross-fitting construction
 
-*Closes item 15, and it is the whole of the piece.* **Blocked by nothing, and it blocks nothing** —
-which is why it is its own pull request rather than half of A1a. [Gate
-1](#c-the-demonstration) does not open without it, so it is not optional; it simply does not stand
-between anything and anything.
+*Closes item 15, and it is the whole of the piece.* **Blocked by nothing**, which is why it is its
+own pull request rather than half of A1a. [Gate 1](#c-the-demonstration) does not open without it,
+so it is not optional.
+
+**It used to read "and it blocks nothing", and that was wrong about one edge.** Nothing *waits* on
+it in the sense every other piece here does — no piece cannot start until it lands. But the
+estimator [C](#c-the-demonstration) fits is the pooled construction, and the two live outcomes
+below are not symmetric: "pooled is fine, and here is why" costs a paragraph and leaves C's numbers
+standing, while "it is not" makes a nested construction the reference and turns a completed
+coverage study into a study of the wrong estimator. A dependency that only bites in one branch is
+still a dependency, and the cost of the branch it bites in is the whole of piece C. So the rule is
+**A1b's construction decision frozen before C's final dispatch** — not A1b proved before C begins,
+which would put the demonstration behind an open research question.
 
 **15. The reduced regressions' cross-fitting is defended in an implementation note, not an
 argument.** `fit_reduced`'s docstring is the most careful writing in this variant and it reaches
@@ -1200,6 +1266,99 @@ report identities at `1e-17` or better and final scores at `1e-10`, and so does 
 Item **23**, found by the same instrument on the same run, was in this section and is
 [closed](#closed-since-this-list-opened).
 
+#### The supported contract, and item 25
+
+**This is not a piece and it is not research. It is the sentence every number C produces is read
+under, and it has to be frozen before C rather than inferred from C.** Which options a fit may use
+is already enforced in code and listed in three places — the refusals in `estimators/drtmle.py`'s
+docstring, `tests/unit/test_drtmle_fit.py::TestTheRefusals`, and [the concordance's assumption
+matrix](drtmle/theorem-concordance.md#15-assumptions-and-which-the-implementation-meets). What was
+nowhere is the *other* column: of the options a fit may use, which ones the **theorem-backed**
+guarantee is claimed for. A supported keyword and a keyword inside the guarantee are two different
+statements, and this page had been running them together.
+
+| option | status of the guarantee | what the status rests on |
+| --- | --- | --- |
+| binary treatment, `reduction="univariate"`, `guard` any subset of the three | **inside** | Theorem 1 as stated, plus the object concordance's `evidence` column and [A1a](#a1a--the-theoretical-audit)'s two anchors |
+| **no truncation active** — `ĝ` interior at the initial fit and at the exit, `g_{r,1}` interior | **inside**, and it is item 25's condition | `solve_bounded_mechanism` returns the unconstrained solve *bit for bit* where nothing clips (`test_bounded_mechanism.py::TestTheFastPathIsTheOldSolver`), so on such a fit the estimator **is** the theorem's |
+| **a truncation active** | **outside**, and reported as empirically supported rather than theorem-backed | item 25 below |
+| `weights=`, fixed | **inside**, by a transport argument written down and checked | item 17: the reductions are `P_w`-conditional expectations because they are fitted by weighted loss, and the mechanism they condition on and divide by is the `P_w` one; `test_remainder_drtmle.py` runs the whole expansion at two tilted laws and keeps the wrong transport as a failing control |
+| `weights=`, estimated (`weights_estimated=`) | **refused**, by name | nothing read here says what the reduced regressions of a random tilt are |
+| `repeats=` | **inside**, and it needs no DRTMLE-specific derivation | every row is out of fold in every draw, so each draw's fit is asymptotically linear with the same `D` and `mean_r ψ_r` is asymptotically linear with `mean_r IC_r → D`. That is the package-wide argument in [the guide](user-guide.md#cross-fitting-and-cv-tmle), composed with the theorem rather than replacing it; item 18 is the arithmetic under it |
+| pooled cross-fitting of the reductions | **unverified**, and it is [A1b](#a1b--the-cross-fitting-construction) | [the concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) |
+| `att`/`atc`, the other four axes, `delta=`, `intermediate=`, `targeting_scheme="fold"`, `cv_evaluation=True`, `K > 2` arms, `reduction="bivariate"`, composition with `CTMLE` | **refused**, by name | limitation 10 and [piece D](#d-widen-the-scope-to-what-the-sources-derive) |
+
+**Two rows of that table are a correction to a review's reading and are worth saying so.** A
+review put `weights=` and `repeats=` together as options where "exact-law and arithmetic tests
+establish what the code computes" while the theorem does not cover them, and proposed deriving
+them or excluding them from the contract. Neither needs either. `weights=` has a *transport*
+argument — not an arithmetic one — and the check that carries it is the whole expansion at two
+tilted laws with the wrong transport kept as a control that fails; that is item 17, and what it
+already declares as out of scope is the estimated weight. `repeats=` needs no new derivation at
+all: it varies the primary split and nothing else, and the averaging argument that makes
+`mean_r IC_r` the curve of `mean_r ψ_r` is the one every `TMLE` fit in this package already rests
+on. What both rows were missing is the *label*, which is this table. Excluding them would have
+narrowed a contract on the strength of a source's silence rather than of a gap in an argument.
+
+**25. The guarantee is claimed for a fit whose truncations are inactive, and that had never been
+said.** Truncation is not in the theorem's algorithm — [the concordance's
+§7](drtmle/theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm) states it as a
+finding: there is one mechanism, produced by an unconstrained `expit` fluctuation, and boundedness
+is an assumption about `g_0` rather than an operation on `ĝ`. B1b then chose the constrained
+estimating equation, which is the right rendering and closed items 11 and 20 — *and* leaves the
+implemented estimator solving a different equation from the theorem's on exactly the rows a bound
+binds. The three options a review put are the right three: derive the expansion for the constrained
+mechanism, restrict the guarantee to fits where the bound is asymptotically inactive, or treat
+bound-active fits as empirically supported and outside the theorem. **The second and third are
+taken together, and the reason is that the condition is checkable rather than merely assumable.**
+
+- **Where no row clips, there is nothing to derive.** `solve_bounded_mechanism` tries the
+  unconstrained solve first and returns it untouched when the tilt stays interior, which is not an
+  optimisation but the guarantee that the fit *is* the theorem's estimator — bit for bit, down to
+  `hessian_condition` and `loglik`. So on such a fit Theorem 1 applies as written, with no
+  rendering to defend.
+- **It is the ordinary case at the sizes this variant runs at, and that is measured rather than
+  hoped.** [B2b's dispatch](drtmle/investigation-log.md#where-weak-overlap-enters-now-that-it-does-not-fail)
+  reports a `clip share` of `0.000` on `linear`, `nonlinear` **and `off-diagonal`** at `n = 600` and
+  `n = 1,200` — that is the share of `(row, arm)` pairs outside the bounds at the *initial*
+  mechanism — with `margin`, the distance of the targeted mechanism from the nearer bound, at
+  `0.11` to `0.20`. `off-diagonal` is the cell shape [C](#c-the-demonstration) turns on.
+- **`weak-overlap` is the other regime and it is not marginal**: `clip share` `0.338` / `0.288` /
+  `0.231` at the three sizes, `margin` **exactly** `0.0e+00` at both of the first two — a
+  constrained root sits *against* the boundary — and `min gr1` `0.000`. Those fits are the third
+  option's population: every identity holds, every score is negligible, the score check passes on
+  0 of 24 failures where it used to fail 23 — and none of that is Theorem 1 applying to them.
+- **The asymptotic half of the restriction is available and its conditions have to be stated, not
+  waved at.** With `g_0 ∈ [δ, 1 − δ]` (Theorem 1's own assumption), a bound sequence eventually
+  below `δ` — which `g_bounds="auto"` supplies, since it is `5/(√n·log n) → 0` — and `ĝ`
+  consistent **in sup norm**, the clipping event has probability tending to zero, so the
+  constrained and unconstrained estimators coincide with probability → 1 and the expansion
+  transfers on that event. The sup norm is stronger than the `L₂` conditions Theorem 1 assumes and
+  a user-set fixed bound above `ess inf g_0` fails the second condition outright; both are
+  restrictions to record, and they are now rows in the assumption matrix rather than a paragraph
+  here.
+- **The gate is wider than the review stated, and this is the part no document had.** `ĝ` is not
+  the only truncated mechanism-side object: equation (10)'s covariate divides by
+  `ReducedSet.bounded_gr1(bounds)`, and `g_{r,1}` is a *regression of an arm indicator on `Q̂`*
+  whose boundedness away from zero has **no counterpart in Theorem 1's assumption list** — `g_0 > δ`
+  does not imply it. `weak-overlap`'s `min gr1` of `0.000` is that bound binding. So the condition
+  is "none of the three truncations is active", and the third is an assumption about an estimated
+  object rather than about the law.
+
+**What closes it.** Three things have to agree on one sentence: this page, the concordance, and the
+estimator's own output. The first two are done in this revision — the table above, and the matrix
+rows behind it. What is left is the **witness**, and it is small and concrete rather than research:
+`CorrectionRow.margin` covers the targeted mechanism at the exit and **nothing on a fit covers the
+initial mechanism or `g_{r,1}`**, so today a user cannot ask a fit which side of the contract it is
+on without recomputing `clip share` the way `bench_drtmle.py` does. That witness, and a column on
+[C](#c-the-demonstration) reporting it per cell, are item 25's remaining work; it can land with C
+rather than ahead of it, since C is where the number that needs it is produced.
+
+**What is *not* claimed.** That the constrained expansion has been derived — it has not, and option
+one stays available to anyone who wants the bound-active regime inside the theorem rather than
+beside it. And that a bound-active fit is wrong: B1b's measurements say the opposite, which is why
+the third option reads *empirically supported and outside the theorem* rather than *unsupported*.
+
 #### C. The demonstration
 
 **Closes item 3, and item 3 is the definition of done.** A coverage pilot over the off-diagonal of
@@ -1272,7 +1431,10 @@ coverage gap a condition of *correctness*, which it never was.
 - **Gate 1, statistical validity**: theorem concordance closed (item 21 included), zero
   state-identity failures, final scores valid, corrected remainder trending to zero with neither
   appendix branch hidden by cancellation, `se` ratio in `[0.90, 1.10]`, coverage compatible with
-  0.95 in **both** off-diagonal cells, and the conclusion reproducing in the second seed batch.
+  0.95 in **both** off-diagonal cells, the conclusion reproducing in the second seed batch, and —
+  new with this revision — **the contract frozen and its truncation condition reported per cell**,
+  so that a cell whose bound is active is read as [item 25](#the-supported-contract-and-item-25)'s
+  third option rather than as evidence about the theorem.
 - **Gate 2, practical release value**: a predeclared, practically meaningful improvement over
   `TMLE` — the proposal is a shortfall of at least **0.05** in at least one cell with the Monte
   Carlo interval on the *difference* excluding zero — an acceptable invalid-fit rate, acceptable
@@ -1392,10 +1554,20 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
    [What it measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured). The one thing it
    did not settle is item 22's numerical half on `weak-overlap`, where twelve draws resolve nothing
    in either direction.
-6. **C**, which is the point. Its sizing is the thing to redo first: it was costed from a 43s
-   `DRTMLE` fit and that fit is now several times cheaper, so re-time before re-scoping.
-7. **A1b**, anywhere: nothing waits on it and [gate 1](#c-the-demonstration) does not open
-   without it. Ordered last because it blocks nothing, not because it matters least.
+6. **The [contract](#the-supported-contract-and-item-25)**, which is prose and is the cheapest
+   thing on this list. It is ordered here rather than "anywhere" because it is what C's numbers are
+   read under, and a scope inferred from a completed study is not a scope.
+7. **A1b**, which still waits on nothing — but whose construction decision has to be frozen before
+   C's *final* dispatch, because C fits the pooled construction and a study of a construction that
+   then changes is a study of the wrong estimator. Its pilot does not wait on this.
+8. **C**, which is the point. Its sizing is the thing to redo first: it was costed from a 43s
+   `DRTMLE` fit and that fit is now several times cheaper, so re-time before re-scoping. **Its
+   design needs nothing added** — a review proposed two off-diagonal regimes, a known nonzero
+   drift, three sizes, the remainder branches reported apart, coverage with `se` calibration and
+   per-replicate results kept, and [the validation
+   plan's §5](drtmle/validation-plan.md#5-the-controlled-study-piece-c) already specifies every one
+   of them. What that reading confirms is that C's open question is scope and sequencing, which is
+   6 and 7, and not the study design.
 
 **Item 23 was outside that order**, like **D**: a small fix with an oracle already in the
 repository, touching only the partial-guard path, which is why it did not wait on the theorem or on
@@ -1415,9 +1587,9 @@ any of it.
 ### Stop-ship
 
 Any one of these blocks calling `DRTMLE` finished, and they are the four links restated as things
-a reader could check rather than as claims. Two of them are about how the *evidence* is described
-rather than about the code — 11 and the new 14 — and both exist because a claim that outruns its
-instrument is how this variant has gone wrong twice:
+a reader could check rather than as claims. Three of them are about how the *evidence* is described
+rather than about the code — 11, 14 and the new 15 — and all three exist because a claim that
+outruns its instrument is how this variant has gone wrong twice:
 
 1. a correction term disagrees with Theorem 1 or the appendix — this was item 21 and it is
    **closed**: the appendices force the positive reading, which is the one implemented, and
@@ -1477,7 +1649,16 @@ instrument is how this variant has gone wrong twice:
     construction, and [the concordance's
     §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) says so. This is new
     with A1a and is exactly the shape of the mistake item 2 was retired for: a check agreeing
-    where it could not have disagreed.
+    where it could not have disagreed;
+15. any document reads a **bound-active** fit's numbers as evidence that Theorem 1's expansion
+    covers it. B1b made the solved score and the reported curve one expression at one state, which
+    is internal coherence; the theorem has one mechanism and it is untruncated
+    ([§7](drtmle/theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)), so a fit
+    on which `ĝ` or `g_{r,1}` sits against a bound is [item
+    25](#the-supported-contract-and-item-25)'s third option — empirically supported, outside the
+    theorem — however good its identities and its scores look. This is new with the contract and it
+    is 14's shape one level up: 14 is a check that could not have disagreed, and this is a check
+    that agreed about something else.
 
 Note what is **not** on this list any more: a coverage gap over `TMLE` of at least 0.05. That is a
 product judgment about whether the variant earns its cost, it has no theorem behind it, and it now

@@ -549,6 +549,51 @@ clipping wherever practical positivity control is needed, because hard clipping 
 projection performed after the optimisation and the unconstrained first-order condition is not the
 first-order condition of the clipped state.
 
+### The scope decision (item 25)
+
+**A finding that a step is not in the source is not by itself a statement about which fits the
+theorem covers, and this section stopped one sentence short of one.** B1b's bar was that the final
+score be the theorem-defined score of the estimator *declared*, and it is met; what was never
+written down is which estimator is declared. The three available answers are: derive the expansion
+for the constrained mechanism, restrict the guarantee to fits where the truncation is
+asymptotically inactive, or hold bound-active fits as empirically supported and outside the
+theorem. **The second and third are taken**, and [the roadmap's
+contract](../roadmap.md#the-supported-contract-and-item-25) is where they are stated for a reader.
+Four things belong here rather than there, because they are properties of the derivation:
+
+1. **Where nothing clips there is nothing to render.** `solve_bounded_mechanism` returns the
+   unconstrained solve untouched when the tilt stays interior, so such a fit *is* the estimator
+   Theorem 1 is stated for — not an approximation to it. This is the whole reason the second option
+   is available at all, and it is pinned by
+   `tests/unit/test_bounded_mechanism.py::TestTheFastPathIsTheOldSolver`.
+2. **The asymptotic half needs three conditions and two of them are not Theorem 1's.** With
+   `g_0 ∈ [δ, 1 − δ]` — which *is* Theorem 1's — a bound sequence eventually below `δ`, and `ĝ`
+   consistent in **sup** norm, the clipping event has probability tending to zero and the two
+   estimators coincide with probability → 1, which is all asymptotic linearity needs. The sup norm
+   is stronger than the `L₂` conditions the theorem assumes, and `g_bounds="auto"` supplies the
+   bound sequence (`5/(√n·log n) → 0`) while a user-set fixed bound above `ess inf g_0` does not
+   supply it at all. Both are rows in [§15](#15-assumptions-and-which-the-implementation-meets)
+   now rather than a paragraph here.
+3. **`ĝ` is not the only truncated mechanism-side object.** Equation (10)'s covariate divides by
+   `ReducedSet.bounded_gr1`, and `g_{r,1}` is a regression of an arm indicator on `Q̂` whose
+   boundedness away from zero has **no counterpart in the theorem's assumption list** — `g_0 > δ`
+   does not imply it, since the conditioning variable is an estimate rather than `W`. So the
+   condition is *none of the three truncations active*, and the third is an assumption about an
+   estimated object. This is the part no document had; the matrix's `hard truncation of ĝ` row
+   named one of two.
+4. **The residue is a witness, not a derivation.** `CorrectionRow.margin` reports the targeted
+   mechanism's distance from the nearer bound and nothing on a fit reports the initial mechanism's
+   or `g_{r,1}`'s, so the condition is checkable in principle and not yet reported in practice —
+   `benchmarks/bench_drtmle.py`'s `clip share` and `min gr1` are the only places it is computed.
+   That, and a per-cell column on [piece C](../roadmap.md#c-the-demonstration), is what closes
+   item 25.
+
+Option one stays open to anyone who wants the bound-active regime inside the theorem rather than
+beside it, and nothing here argues a bound-active fit is *wrong*: B1b's measurements — identities
+at `1e-17`, final scores at `1e-10`, `check fails` flat zero across 96 fits including both
+`weak-overlap` cells — say the opposite. They say it about an estimating equation this file's own
+finding puts outside the theorem, which is exactly the distinction the third option exists to keep.
+
 ## 8. Cross-fitting is not covered (item 15)
 
 The theorem uses Donsker and `L_2`-convergence conditions for the empirical-process terms. **It
@@ -806,7 +851,7 @@ filled in from optimism, exactly as §15's `unverified` column says of itself.
 | reduced-regression rate conditions | yes, as *sufficient* examples | 2016 working paper, app. A/B | necessary conditions, if wanted |
 | empirical-process conditions | yes | 2016 working paper | — |
 | recursive algorithm | yes | 2016 working paper | — |
-| **truncation theorem** | **no** | not stated anywhere in hand | an original derivation or a new proof — [§7](#7-truncation-is-not-in-the-theorems-algorithm) |
+| **truncation theorem** | **no** | not stated anywhere in hand | an original derivation, and it is **no longer owed**: [§7's scope decision](#the-scope-decision-item-25) restricts the guarantee to the inactive-bound regime, where the estimator is the theorem's, and puts the active one beside the theorem rather than inside it. Wanted only by someone who wants that regime covered |
 | **pooled cross-fitting theorem** | **no** | general CV claim only | a new argument or a reference construction — [§8](#8-cross-fitting-is-not-covered-item-15) |
 | **multi-arm theorem** | **no** | software example only | the 2017 paper's multi-arm case, or a derivation |
 | weights, estimated or fixed | **no** | — | item 17 closed the transport on the exact law; the theorem says nothing |
@@ -825,7 +870,9 @@ than nothing at all, and one row that read **violated** now reads violated-and-m
 | condition | source | required for | what the implementation does | evidence | status |
 | --- | --- | --- | --- | --- | --- |
 | `Q̄ = Q̄_0` **or** `g = g_0` | Thm 1 | the whole conclusion | assumed, not checked | `test_influence_gateaux_drtmle.py` enters each half of the union **by construction** — one nuisance exact in the sample, the other a declared constant | met by assumption; the union model is the point, and it is now the fixture rather than a hope |
-| `g_0 > δ > 0` (true mechanism) | Thm 1 | boundedness | assumed; a *fitted* `g` is truncated instead | positivity warning | **unverified** — the theorem bounds `g_0`, the code bounds `ĝ` |
+| `g_0 > δ > 0` (true mechanism) | Thm 1 | boundedness | assumed; a *fitted* `g` is truncated instead | positivity warning | **unverified** — the theorem bounds `g_0`, the code bounds `ĝ`. What the two have to do with each other is [§7's scope decision](#the-scope-decision-item-25) and not this row |
+| `ĝ` consistent in **sup** norm | not Thm 1's — item 25's | the truncation being asymptotically inactive | not checked | — | **unverified**, and stronger than the `L₂` conditions the theorem assumes. It is the price of the second option: without it, "the bound stops binding" is a hope rather than a consequence |
+| a bound sequence eventually below `δ` | not Thm 1's — item 25's | as above | `g_bounds="auto"` is `5/(√n·log n) → 0` and satisfies it; a user-set fixed bound above `ess inf g_0` does not | `resolve_g_bounds` | **met for `"auto"`**, and a stated restriction otherwise — a fixed bound is a choice a caller can make that puts their fit outside the guarantee, which is worth saying plainly rather than pricing into the default |
 | `B_n = o_p(n^(−1/2))` | Thm 1 | eq (8) | solved to `1e-11` relative or `_NEGLIGIBLE/n` absolute | sweep | met, under a numerical proxy for `o_p` |
 | `B_{A,n} = o_p(n^(−1/2))` | Thm 1 | eq (9) | solved at the **truncated** residual, which is the one the curve reads | item 20; `correction_check`'s `identity` rows, per arm, on four fixtures including one where 375 rows clip | **met**, under the stated restriction that the mechanism is the truncated one and not the theorem's untruncated `g*` — [§7](#7-truncation-is-not-in-the-theorems-algorithm) is why that is a rendering rather than a departure. It read *violated wherever the bound binds*: B1a made it visible and [B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision) closed it, at `1e-17` on the identity and `1e-10` on the score |
 | `B_{Y,n} = o_p(n^(−1/2))` | Thm 1 | eq (10) | solved exactly | tests | met |
@@ -835,16 +882,25 @@ than nothing at all, and one row that read **violated** now reads violated-and-m
 | reduced regressions consistent | Thm 1 | the corrections' limits | estimated, unmeasured rates | `test_reduced_regressions.py` shows a **saturated** learner recovers them exactly on the exact law; that is consistency at one learner on one law and not a rate | **unverified** |
 | exact zeros vs `o_p(n^(−1/2))` | Thm 1 | the stopping rule | numerical criterion | item 12 | met under a stated restriction |
 | arm-level means / ATE contrast | Thm 1 + adaptation | the reported parameters | rowwise difference of arm curves | `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` — the contrast's variance is the difference's, not the sum of the arms' | met; the adaptation is stated, not cited |
-| hard truncation of `ĝ` | **nowhere** | the implementation as written | applied, inconsistently | item 20 | **not covered by the source** — [§7](#7-truncation-is-not-in-the-theorems-algorithm) |
+| hard truncation of `ĝ` | **nowhere** | the implementation as written | applied consistently since B1b: one array in the score and in the curve | item 20; [§7's scope decision](#the-scope-decision-item-25) | **not covered by the source**, and the guarantee is now **scoped around it** rather than assumed through it — Theorem 1 is claimed for a fit on which the bound is inactive, where the estimator is the unconstrained one bit for bit; a bound-active fit is empirically supported and outside the theorem (item 25) |
+| hard truncation of `g_{r,1}` | **nowhere** | equation (10)'s covariate | `ReducedSet.bounded_gr1`, at the same `g_bounds` | `min gr1` is `0.000` on both `weak-overlap` cells and `0.117`–`0.426` elsewhere ([the sweep](investigation-log.md#where-weak-overlap-enters-now-that-it-does-not-fail)) | **not covered by the source** — and unlike `ĝ` it has no assumption to lean on: `g_0 > δ` says nothing about a regression on `Q̂`. Same scope as the row above, and it is the half item 25 added |
 | the mechanism correction's sign | Thm 1 | the variance | the appendices' orientation | [§4](#4-the-sign-discrepancy-item-21--resolved), `test_theorem_drtmle.py` | **met**; the §3.1 display disagrees and its own appendices contradict it — item 21, closed |
 | the update order | Thm 1's algorithm | nothing, if the fixed point is the same | different order | [§6](#6-the-recursive-algorithm-item-22) | **met under a stated restriction**: the paper's step 7 states its own exit as the three scores, so the order is not prescriptive; whether the fixed points coincide numerically is B2's, and both orders are now **runnable** here (`update_order=`), agreeing on `ψ` and differing by 2.3% in `se` on the one draw compared so far — item 22 |
-| fixed weights | **nowhere** | item 17's claim | weighted loss throughout | `test_remainder_drtmle.py` | met for a **fixed** weight; estimated weights not covered |
-| repeated sample splitting | **nowhere** | item 18's claim | mean over draws | `test_drtmle_fit.py` | met arithmetically; not covered by the source |
+| fixed weights | **nowhere** | item 17's claim | weighted loss throughout | `test_remainder_drtmle.py` runs the whole expansion at two tilted laws, with the wrong transport kept as a control that fails | met for a **fixed** weight, by a **transport argument** and not merely by arithmetic: the reductions are `P_w`-conditional expectations because they are fitted by weighted loss, and the mechanism they condition on and divide by is the `P_w` one. Inside [the contract](../roadmap.md#the-supported-contract-and-item-25); estimated weights are refused |
+| repeated sample splitting | **nowhere** | item 18's claim | mean over draws | `test_drtmle_fit.py` | met, and it needs no source and no DRTMLE-specific derivation: every row is out of fold in every draw, so each draw is asymptotically linear with the same `D` and `mean_r ψ_r` is asymptotically linear with `mean_r IC_r`. That is the package-wide argument composed with Theorem 1; inside [the contract](../roadmap.md#the-supported-contract-and-item-25) |
 | `K` arms | **nowhere** | piece D | binary only, refused by name | `reduced_mechanism_covariate` raises above two arms rather than generalising the tilt | **not covered by the source** — [§12](#12-multi-valued-treatment-and-the-simplex) |
 | missing outcomes | **nowhere**; `drtmle` masks `D*_g` and this package does not | a lifted `delta=` | refused, so the two conventions never differ on a fit either package accepts | [§9](#9-what-was-read-out-of-the-r-source-and-what-is-still-owed) | **not covered by the source** — settle from the derivation *before* lifting the refusal; no run could ever have settled it |
 | composition with `CTMLE` | **nowhere** | — | refused | `test_drtmle_fit.py::TestTheRefusals` | **not covered by the source** |
 
-**Four rows read *not covered by the source*** — hard truncation, `K` arms, missing outcomes and
-composition with `CTMLE` — and five read `unverified`. A page elsewhere that counts three of the
-first has not been updated since missing outcomes was added; [the roadmap](../roadmap.md) is the one
-that said so and no longer does.
+**Five rows read *not covered by the source*** — the truncation of `ĝ`, the truncation of
+`g_{r,1}`, `K` arms, missing outcomes and composition with `CTMLE` — and seven read `unverified`.
+The two truncation rows were one row until item 25, and splitting them is the substance rather than
+bookkeeping: `ĝ`'s truncation has an assumption in the theorem to be scoped against (`g_0 > δ`) and
+`g_{r,1}`'s has none.
+
+**A row reading *not covered by the source* is not the same as a row outside the guarantee**, and
+conflating the two is what item 25 corrected. `K` arms, missing outcomes and `CTMLE` are refused,
+so no fit reaches them. The truncation rows are reached by every fit, which is why they needed a
+scope decision rather than a refusal — and why the two weight and split rows, which are *also*
+covered nowhere in the sources, are inside the contract on arguments written down here rather than
+outside it on the sources' silence.
