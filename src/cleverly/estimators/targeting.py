@@ -23,7 +23,7 @@ This module deliberately does not import :mod:`cleverly.estimators.base`, so
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
@@ -289,9 +289,27 @@ def solve_submodel(
     spec: TargetingSpec,
     *,
     warn: bool = True,
+    carry: Sequence[InitialFit] = (),
 ) -> Fluctuation:
-    """Solve the fluctuation on the given rows, by whichever method ``spec`` names."""
+    """Solve the fluctuation on the given rows, by whichever method ``spec`` names.
+
+    ``carry`` moves further initial fits by the same steps -- see
+    :attr:`~cleverly.fluctuation.iterative.Fluctuation.carried`.  It is refused rather than
+    silently dropped under ``targeting="one_step"``: that solver walks the universal
+    least-favorable submodel in up to twenty thousand adaptive steps, so carrying an array
+    through it is a different order of cost from carrying one through twenty Newton steps,
+    and the one caller that passes ``carry`` is a reference construction rather than a
+    production path.
+    """
     if spec.targeting == "one_step":
+        if carry:
+            raise NotImplementedError(
+                "targeting='one_step' and reduced_crossfit='nested' are not combined. The "
+                "nested construction moves its fold-free designs by the same steps the "
+                "fitted arrays take, and the one-step walk takes up to 20,000 of them with "
+                "an adaptive length -- so this is a cost decision rather than a derivation. "
+                "Use targeting='iterative', which is the default."
+            )
         return solve_one_step(
             scaled,
             initial,
@@ -316,6 +334,7 @@ def solve_submodel(
         max_iter=spec.max_iter,
         tol=spec.tol,
         warn=warn,
+        carry=carry,
     )
 
 
@@ -982,10 +1001,28 @@ def solve_with_reduction(
     reduced = nuisance.reduced
     targeted_g = nuisance.propensity.arm(upper)
     current = nuisance
+    # The nested construction's fold-free primary arrays, moved by every fluctuation the
+    # production ones take -- `carry` in, `carried` out. `None` on a pooled fit, where every
+    # `carry` below is empty and every `carried` comes back empty, so the loop is bit for
+    # bit what it was. They are *carried* rather than reconstructed from `(initial, epsilon)`
+    # because the outcome solve applies its tilt once per Newton step and shrinks after each,
+    # so a net offset recovers the endpoint only when no iterate touched a bound -- and the
+    # fits that touch one are the weak-overlap fits this construction is compared on.
+    inner_q = None if nuisance.inner is None else nuisance.inner.outcome
+    inner_g = None if nuisance.inner is None else nuisance.inner.propensity_arm(upper)
+    inner_extra: tuple[InitialFit, ...] | None = None
     submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
     fluctuation = solve_submodel(
-        scaled, nuisance.outcome, submodel, weights, observed, spec, warn=warn
+        scaled,
+        nuisance.outcome,
+        submodel,
+        weights,
+        observed,
+        spec,
+        warn=warn,
+        carry=() if inner_q is None else inner_q,
     )
+    inner_q = None if inner_q is None else tuple(fluctuation.carried)
 
     mechanism: MechanismFluctuation | None = None
     extra: Fluctuation | None = None
@@ -1021,27 +1058,43 @@ def solve_with_reduction(
                 data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
             )
             fluctuation = solve_submodel(  # step 2: equation (8), along H_1(g^k)
-                scaled, targeted_q, submodel, weights, observed, spec, warn=False
+                scaled,
+                targeted_q,
+                submodel,
+                weights,
+                observed,
+                spec,
+                warn=False,
+                carry=() if inner_q is None else inner_q,
             )
             targeted_q = fluctuation.targeted
+            inner_q = None if inner_q is None else tuple(fluctuation.carried)
             if "g" in guard:
                 # Step 3, at g^k and the once-updated Qbar. `replace` rather than the whole
                 # set: Qr is step 5's and must not arrive early, which is the difference
                 # between the two orders rather than an optimisation.
-                once = reduction.refit(_reduction_inputs(current, targeted_q, targeted_g))
+                once = reduction.refit(_reduction_inputs(current, targeted_q, targeted_g, inner_q))
                 reduced = replace(reduced, gr1=once.gr1, gr2=once.gr2)
                 extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
                 extra = solve_submodel(  # step 4: equation (10), along H_2
-                    scaled, targeted_q, extra_submodel, weights, observed, spec, warn=False
+                    scaled,
+                    targeted_q,
+                    extra_submodel,
+                    weights,
+                    observed,
+                    spec,
+                    warn=False,
+                    carry=() if inner_q is None else inner_q,
                 )
                 targeted_q = extra.targeted
+                inner_q = None if inner_q is None else tuple(extra.carried)
                 if first_initial is None:
                     first_initial = np.asarray(extra.score_initial)
                 if extra.failure is not None:
                     ill_conditioned += 1
             if "Q" in guard:
                 twice = reduction.refit(  # step 5, at g^k and the twice-updated Qbar
-                    _reduction_inputs(current, targeted_q, targeted_g)
+                    _reduction_inputs(current, targeted_q, targeted_g, inner_q)
                 )
                 reduced = replace(reduced, qr=twice.qr)
                 mechanism = solve_bounded_mechanism(  # step 6: equation (9), along H_3
@@ -1051,9 +1104,11 @@ def solve_with_reduction(
                     weights,
                     bounds=bounds,
                     tol=spec.tol,
+                    carry=() if inner_g is None else inner_g,
                 )
                 targeted_g = mechanism.propensity
-                current = _retargeted_mechanism(nuisance, targeted_g, arms)
+                inner_g = None if inner_g is None else tuple(mechanism.carried)
+                current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
         else:
             if "Q" in guard:
                 mechanism = solve_bounded_mechanism(
@@ -1063,20 +1118,32 @@ def solve_with_reduction(
                     weights,
                     bounds=bounds,
                     tol=spec.tol,
+                    carry=() if inner_g is None else inner_g,
                 )
                 # The **truncated** tilt, which is what makes the next round's offset, every
                 # later covariate and the reported correction read one array. Carrying the
                 # raw one forward is what left a clipped row outside the bounds for the rest
                 # of the fit, and it was the load-bearing half of item 20.
                 targeted_g = mechanism.propensity
-                current = _retargeted_mechanism(nuisance, targeted_g, arms)
-                reduced = reduction.refit(_reduction_inputs(current, targeted_q, targeted_g))
+                inner_g = None if inner_g is None else tuple(mechanism.carried)
+                current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
+                reduced = reduction.refit(
+                    _reduction_inputs(current, targeted_q, targeted_g, inner_q)
+                )
 
             if "g" in guard:
                 extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
                 extra = solve_submodel(
-                    scaled, targeted_q, extra_submodel, weights, observed, spec, warn=False
+                    scaled,
+                    targeted_q,
+                    extra_submodel,
+                    weights,
+                    observed,
+                    spec,
+                    warn=False,
+                    carry=() if inner_q is None else inner_q,
                 )
+                inner_extra = None if inner_q is None else tuple(extra.carried)
                 if first_initial is None:
                     first_initial = np.asarray(extra.score_initial)
                 if extra.failure is not None:
@@ -1093,13 +1160,21 @@ def solve_with_reduction(
                 observed,
                 spec,
                 warn=False,
+                # The base and its carried copies must be the same vintage: equation (10)
+                # leaves `targeted_q` where it was and hands its own result on, so reading
+                # `inner_q` here would fluctuate arrays one step behind the array they
+                # accompany.
+                carry=() if inner_q is None else (inner_q if extra is None else inner_extra or ()),
             )
             targeted_q = fluctuation.targeted
+            inner_q = None if inner_q is None else tuple(fluctuation.carried)
             if "Q" in guard:
                 # Qr is a regression of the outcome residual, so the step just taken moved
                 # its target. Refit before the score below is read, or the loop tests
                 # equation (9) at a covariate the exiting pair no longer implies.
-                reduced = reduction.refit(_reduction_inputs(current, targeted_q, targeted_g))
+                reduced = reduction.refit(
+                    _reduction_inputs(current, targeted_q, targeted_g, inner_q)
+                )
 
         # Equation (8)'s score, at the pair the round *exits* at rather than the pair it was
         # solved at. Under this package's order those are the same state and this is a
@@ -1531,8 +1606,17 @@ def _close_at_frozen_reductions(
     )
 
 
+def _propensity_from(g1: FloatArray, arms: tuple[float, ...]) -> Propensity:
+    """The two-arm mechanism written as a ``Propensity`` from its upper arm alone."""
+    upper = np.asarray(g1, dtype=float).reshape(-1)
+    return Propensity(np.column_stack([1.0 - upper, upper]), arms)
+
+
 def _retargeted_mechanism(
-    nuisance: NuisanceEstimates, targeted: FloatArray, arms: tuple[float, ...]
+    nuisance: NuisanceEstimates,
+    targeted: FloatArray,
+    arms: tuple[float, ...],
+    inner: tuple[FloatArray, ...] | None = None,
 ) -> NuisanceEstimates:
     """``nuisance`` with the mechanism replaced by the tilted one, for the covariate only.
 
@@ -1541,13 +1625,29 @@ def _retargeted_mechanism(
     describing the model that was fitted.  The complement form is
     :meth:`~cleverly.estimators._nuisance.Propensity.bounded`'s two-arm rule arriving one
     step earlier -- the tilt moves one probability and the other arm is its complement.
+
+    ``inner`` is the nested construction's fold-free mechanisms, moved by the **same** tilt
+    at the **same** ``epsilon`` -- see :attr:`~cleverly.fluctuation.mechanism.
+    MechanismFluctuation.carried`.  ``None`` on every pooled fit, where
+    :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner` is ``None`` and this
+    replaces nothing.
     """
-    g1 = np.asarray(targeted, dtype=float).reshape(-1)
-    return replace(nuisance, propensity=Propensity(np.column_stack([1.0 - g1, g1]), arms))
+    updated = replace(nuisance, propensity=_propensity_from(targeted, arms))
+    if inner is None or nuisance.inner is None:
+        return updated
+    return replace(
+        updated,
+        inner=replace(
+            nuisance.inner, propensity=tuple(_propensity_from(each, arms) for each in inner)
+        ),
+    )
 
 
 def _reduction_inputs(
-    nuisance: NuisanceEstimates, targeted: InitialFit, mechanism: FloatArray
+    nuisance: NuisanceEstimates,
+    targeted: InitialFit,
+    mechanism: FloatArray,
+    inner: tuple[InitialFit, ...] | None = None,
 ) -> NuisanceEstimates:
     """The nuisances a refit of the reduced regressions is taken *relative to*.
 
@@ -1555,9 +1655,18 @@ def _reduction_inputs(
     alternation rather than three equations solved at arrays fixed in advance.  ``folds``,
     the scaler and the weights travel unchanged, so the refit is out of fold on the same
     split the primary fits used.
+
+    ``inner`` moves the nested construction's fold-free outcome regressions along with it,
+    for the reason the refit reads the targeted pair at all: equations (9) and (10) are
+    stated at the targeted collection, so a nested refit taken at fold-free arrays still
+    sitting at their **initial** values would be conditioning on a different state from the
+    one it evaluates at.  ``None`` on every pooled fit.
     """
     del mechanism  # already written onto `nuisance` by `_retargeted_mechanism`
-    return replace(nuisance, outcome=targeted)
+    updated = replace(nuisance, outcome=targeted)
+    if inner is None or nuisance.inner is None:
+        return updated
+    return replace(updated, inner=replace(nuisance.inner, outcome=inner))
 
 
 def _stacked(first: Submodel, second: Submodel) -> Submodel:

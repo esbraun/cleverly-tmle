@@ -62,7 +62,7 @@ per-iteration trace, because a loop that stalls should be visible in
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
@@ -80,6 +80,7 @@ if TYPE_CHECKING:  # pragma: no cover - `interventions` does not import `fluctua
 __all__ = [
     "MECHANISM_BUILDERS",
     "MechanismFluctuation",
+    "apply_mechanism_tilt",
     "mechanism_covariate",
     "mechanism_score",
     "needs_mechanism",
@@ -130,6 +131,12 @@ class MechanismFluctuation:
     score: FloatArray
     score_scale: FloatArray
     score_initial: FloatArray
+    #: Further mechanisms moved by the **same** tilt at the **same** ``epsilon``, in the
+    #: order they were passed as ``carry``, and truncated exactly when :attr:`propensity`
+    #: was.  Empty on every fit that did not ask for one --
+    #: :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"`` is the only caller.
+    #: Nothing here reads them: they take the tilt and contribute nothing to it.
+    carried: tuple[FloatArray, ...] = ()
     converged: bool = True
     n_iter: int = 0
     epsilon_std_error: FloatArray | None = None
@@ -221,6 +228,32 @@ def mechanism_score(
     return score_columns(a, g, h, w, everywhere), score_scale(h, w, everywhere)
 
 
+def apply_mechanism_tilt(
+    propensity: FloatArray,
+    covariate: FloatArray,
+    epsilon: FloatArray,
+    *,
+    bounds: tuple[float, float] | None = None,
+) -> FloatArray:
+    r""":math:`\operatorname{expit}(\operatorname{logit}\hat g + H_g\epsilon)`, optionally clipped.
+
+    The mechanism tilt written once, so that the two solvers below and every caller moving
+    a *further* array by the same fluctuation apply one map rather than three copies of it.
+    Unlike the outcome fluctuation there is no step sequence to reproduce: the Newton
+    iteration here is on :math:`\epsilon` alone and the array is formed once from the final
+    coefficient, which is why this can be a function of ``(base, H, epsilon)`` and
+    :attr:`~cleverly.fluctuation.iterative.Fluctuation.carried` cannot.
+
+    ``bounds`` is passed on the branch :func:`solve_bounded_mechanism` takes, and left
+    ``None`` on the branch it does not, so a carried array is truncated exactly when the
+    array it accompanies was.
+    """
+    g = np.asarray(propensity, dtype=float).reshape(-1)
+    offset = logit(np.clip(g, _LOGIT_GUARD, 1.0 - _LOGIT_GUARD))
+    tilt = np.asarray(expit(offset + np.asarray(covariate, dtype=float) @ epsilon), dtype=float)
+    return tilt if bounds is None else np.clip(tilt, float(bounds[0]), float(bounds[1]))
+
+
 def solve_mechanism(
     treatment: FloatArray,
     propensity: FloatArray,
@@ -229,6 +262,7 @@ def solve_mechanism(
     *,
     max_iter: int = 50,
     tol: float = 1e-12,
+    carry: Sequence[FloatArray] = (),
 ) -> MechanismFluctuation:
     r"""Tilt ``propensity`` along ``covariate`` until :math:`P_n[H_g (A - g^*)] = 0`.
 
@@ -261,6 +295,7 @@ def solve_mechanism(
         failure = "max_iter_reached"
     return MechanismFluctuation(
         propensity=tilted,
+        carried=tuple(apply_mechanism_tilt(base, h, epsilon) for base in carry),
         epsilon=epsilon,
         score=score_columns(a, tilted, h, w, everywhere),
         score_scale=score_scale(h, w, everywhere),
@@ -291,6 +326,7 @@ def solve_bounded_mechanism(
     bounds: tuple[float, float],
     max_iter: int = 50,
     tol: float = 1e-12,
+    carry: Sequence[FloatArray] = (),
 ) -> MechanismFluctuation:
     r"""Tilt ``propensity`` until the score **at the truncated mechanism** is zero.
 
@@ -368,9 +404,13 @@ def solve_bounded_mechanism(
     if not 0.0 < lower < upper < 1.0:
         raise ValueError(f"the mechanism truncation must satisfy 0 < lo < hi < 1; got {bounds}")
 
-    plain = solve_mechanism(a, propensity, h, w, max_iter=max_iter, tol=tol)
+    plain = solve_mechanism(a, propensity, h, w, max_iter=max_iter, tol=tol, carry=carry)
     raw = np.asarray(plain.propensity, dtype=float)
     if not np.any((raw < lower) | (raw > upper)):
+        # The fast path returns the unconstrained solve untouched, so a carried array is
+        # untruncated here too: the whole point of this branch is that the estimator *is*
+        # the unconstrained one, and clipping only the carried arrays would make the two
+        # constructions differ by a truncation rather than by a construction.
         return plain
 
     g = np.asarray(propensity, dtype=float).reshape(-1)
@@ -395,6 +435,7 @@ def solve_bounded_mechanism(
         return replace(
             plain,
             propensity=at(warm)[1],
+            carried=tuple(apply_mechanism_tilt(base, h, warm, bounds=bounds) for base in carry),
             score=residual(warm),
             converged=True,
             failure=None,
@@ -425,6 +466,7 @@ def solve_bounded_mechanism(
         failure = "bounds_pinned" if pinned > _PINNED_SHARE else "max_iter_reached"
     return MechanismFluctuation(
         propensity=truncated,
+        carried=tuple(apply_mechanism_tilt(base, h, epsilon, bounds=bounds) for base in carry),
         epsilon=epsilon,
         score=score,
         score_scale=score_scale(h, w, everywhere),
