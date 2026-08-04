@@ -618,11 +618,12 @@ def design_rows() -> list[list[str]]:
 REGIME_HEADERS = (
     "cell",
     "n",
-    "R2 (ate)",
-    "n^a R2 (ate)",
+    "R2(Q-hat)",
+    "n^a R2(Q-hat)",
     "declared c",
-    "n^a R2 (arm 1)",
-    "n^a R2 (arm 0)",
+    "R2(Qbar*)",
+    "n^a R2(Qbar*)",
+    "declared b",
     "||Q-hat - Q0||",
     "||g-hat - g0||",
 )
@@ -630,6 +631,13 @@ REGIME_HEADERS = (
 
 def regime_rows(records: Sequence[Replicate], sizes: Sequence[int]) -> list[list[str]]:
     """Whether each cell entered the regime it claims -- exactly, since the sequence is prescribed.
+
+    **Two remainder columns, not one, and the second is the one that answers the question.**
+    ``R2(Q-hat)`` is the plug-in remainder at the initial regression: it says the *injection* is
+    what the design says it is.  ``R2(Qbar*)`` is the same expression at the **targeted**
+    regression, which is what a fit's bias is -- and §5's targeted-coefficient clause requires
+    the regime be read off that one.  C3a's pilot had only the first, read it as the second, and
+    dispatched a design whose drift the fluctuation was absorbing whole.
 
     The slope columns are of ``log ||error||`` against ``log n``: ``-alpha`` for the drifting
     nuisance and ``0`` for the misspecified one, which is the pair that says a *product* is
@@ -640,10 +648,12 @@ def regime_rows(records: Sequence[Replicate], sizes: Sequence[int]) -> list[list
         if not any(r.cell == cell for r in records):
             continue
         declared = injection.drift_coefficients(cell)
+        declared_b = injection.targeted_coefficients(cell)
         errors = {n: injection.nuisance_error(cell, n) for n in sizes}
         logs = np.log(np.asarray(sizes, dtype=float))
         for n in sizes:
             remainder = injection.exact_remainder(cell, n)
+            targeted = injection.exact_targeted_remainder(cell, n)
             rows.append(
                 [
                     cell,
@@ -651,8 +661,9 @@ def regime_rows(records: Sequence[Replicate], sizes: Sequence[int]) -> list[list
                     f"{remainder['r2_ate']:+.5f}",
                     f"{n**injection.ALPHA * remainder['r2_ate']:+.4f}",
                     f"{declared['c_ate']:+.4f}",
-                    f"{n**injection.ALPHA * remainder['r2_1']:+.4f}",
-                    f"{n**injection.ALPHA * remainder['r2_0']:+.4f}",
+                    f"{targeted['r2_ate']:+.5f}",
+                    f"{n**injection.ALPHA * targeted['r2_ate']:+.4f}",
+                    f"{declared_b['b_ate']:+.4f}",
                     f"{errors[n]['q_error_1']:.4f}",
                     f"{errors[n]['g_error']:.4f}",
                 ]
@@ -662,7 +673,9 @@ def regime_rows(records: Sequence[Replicate], sizes: Sequence[int]) -> list[list
         if len(sizes) > 1:
             q_slope = np.polyfit(logs, [np.log(errors[n]["q_error_1"]) for n in sizes], 1)[0]
             g_slope = np.polyfit(logs, [np.log(errors[n]["g_error"]) for n in sizes], 1)[0]
-            rows.append([cell, "slope", "", "", "", "", "", f"{q_slope:+.3f}", f"{g_slope:+.3f}"])
+            rows.append(
+                [cell, "slope", "", "", "", "", "", "", f"{q_slope:+.3f}", f"{g_slope:+.3f}"]
+            )
     return rows
 
 
