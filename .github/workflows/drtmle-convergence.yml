@@ -43,6 +43,16 @@ on:
       reduced_learner:
         description: "also fit each draw with this learner for the reduced regressions, e.g. fast"
         default: ""
+      # This one costs *more* than a doubling and the reason is not the extra nuisance
+      # fits. Those are K times the primary fitting, paid once. What dominates is that the
+      # nested reductions are noisier, so equation (10)'s near-singular solve takes more
+      # rounds to settle -- measured at 1.3x to 17x the base arm's wall clock over four
+      # draws, with two of them running to the outer cap. Dispatch it with
+      # `order_control`, which is the yardstick section 7's rule reads it against.
+      reduced_crossfit:
+        description: "also fit each draw with the reduced regressions nested inside each outer fold (item 15); dispatch with order_control"
+        type: boolean
+        default: false
       truncation:
         description: "also refit each draw at these lower g_bounds, space-separated, e.g. 0.01 0.025"
         default: ""
@@ -77,6 +87,7 @@ jobs:
           # An empty string would become a bare `--reduced-learner` with no value, which
           # argparse rejects, so the flag and its value travel together or not at all.
           REDUCED: ${{ inputs.reduced_learner && format('--reduced-learner {0}', inputs.reduced_learner) || '' }}
+          NESTED: ${{ inputs.reduced_crossfit && '--reduced-crossfit nested' || '' }}
           TRUNCATION: ${{ inputs.truncation && format('--truncation {0}', inputs.truncation) || '' }}
         run: >
           python benchmarks/bench_drtmle.py
@@ -84,4 +95,4 @@ jobs:
           --sizes $SIZES
           --seeds "$SEEDS"
           --jobs "$JOBS"
-          $ROWS $ORDER $ORDER_CONTROL $REDUCED $TRUNCATION
+          $ROWS $ORDER $ORDER_CONTROL $REDUCED $NESTED $TRUNCATION
