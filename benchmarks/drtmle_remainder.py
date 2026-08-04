@@ -139,7 +139,12 @@ class RemainderRow:
     root_n_remaining:
         :math:`\\sqrt n` times it, which is the quantity item 13 asks to vanish.
     r2:
-        The plain second-order remainder at the fitted nuisances.
+        The plain second-order remainder at the fitted nuisances, at the **initial**
+        regression -- the plug-in one, which says the nuisances are what the design says.
+    r2_targeted:
+        The same expression at the **targeted** regression, which is what the fit's bias is
+        and what §5's targeted-coefficient clause requires the regime be read off.  The pair
+        is the point: C3a's pilot had only the first and read it as the second.
     branch_q, branch_g:
         Appendix A's and appendix B's second-order halves, or ``nan`` where the binned
         limits did not resolve them.
@@ -156,6 +161,7 @@ class RemainderRow:
     remaining: float
     root_n_remaining: float
     r2: float
+    r2_targeted: float
     branch_q: float
     branch_g: float
     branch_error: float
@@ -251,6 +257,50 @@ def plain_remainder(result: Any, dgp: DGP, bounds: tuple[float, float]) -> dict[
                 float(np.mean((estimated_g - truth_g) / estimated_g * (estimated_q - truth_q)))
             )
         out[f"r2_{int(arm)}"] = _fold_average(per_fold, weights)
+    out["r2_ate"] = out["r2_1"] - out["r2_0"]
+    return out
+
+
+def targeted_remainder(result: Any, dgp: DGP, bounds: tuple[float, float]) -> dict[str, float]:
+    r"""``R_2`` per arm at the **targeted** regression: what the fit's bias actually is.
+
+    .. math::
+
+        R_{2,a}(\bar Q^*) = P_0\Bigl[\frac{\hat g_a - g_{0,a}}{\hat g_a}
+                                     \bigl(\bar Q^*(a, W) - \bar Q_0(a, W)\bigr)\Bigr]
+
+    -- :func:`plain_remainder`'s expression at :math:`\bar Q^*` in place of :math:`\hat Q`,
+    which is the pair ``docs/drtmle/validation-plan.md`` §5's targeted-coefficient clause
+    requires be reported together.  C3a's pilot had only the first and read it as the second.
+
+    **Taken over the fit's own rows rather than over the companion**, and that departure from
+    every other column in this module is deliberate.  The companion holds each fold's
+    *initial* arrays; the targeted ones live on ``ReductionFluctuation.evaluation``, which
+    exists only on the ``DRTMLE`` path -- and the quantity wanted here is the **plain
+    ``TMLE``'s** bias, since that is the estimator whose interval a shortfall is claimed
+    against.  So :math:`P_0` is approximated by the sample mean over the fitting rows, which
+    carries an :math:`O(n^{-1/2})` quadrature error that averages down over the study's
+    replicates rather than biasing any of them.  ``benchmarks/drtmle_tier1_bias.py`` takes it
+    the same way, and at Tier 1 the two can be checked against a quadrature that does not
+    (``drtmle_injection.exact_targeted_remainder``).
+
+    :math:`\bar Q_0` and :math:`g_0` come from the law, so this needs no companion at all and
+    is available on a fit that declared no ``evaluation=``.
+    """
+    fluctuation = result.repeats[0].fluctuations["mean"]
+    scaler = result.nuisance.scaler
+    latent = _latent(result.data, dgp)
+    bounded = result.nuisance.propensity.bounded(bounds)
+
+    out: dict[str, float] = {}
+    for arm in ARMS:
+        estimated_g = bounded[:, result.nuisance.propensity.column_for(arm)]
+        truth_g = _arm_probability(np.asarray(dgp.propensity(latent), dtype=float), arm)
+        targeted_q = scaler.unscale_levels(fluctuation.targeted.arms[arm])
+        truth_q = np.asarray(dgp.outcome_mean(latent, arm, None), dtype=float)
+        out[f"r2_{int(arm)}"] = float(
+            np.mean((estimated_g - truth_g) / estimated_g * (targeted_q - truth_q))
+        )
     out["r2_ate"] = out["r2_1"] - out["r2_0"]
     return out
 
@@ -416,6 +466,7 @@ def remainder_rows(
     truth = dgp.truth()
     p0 = corrected_remainder(result, dgp)
     r2 = plain_remainder(result, dgp, bounds)
+    targeted = targeted_remainder(result, dgp, bounds)
     coarse = branch_products(result, dgp, bins=BIN_COUNTS[0])
     fine = branch_products(result, dgp, bins=BIN_COUNTS[1])
 
@@ -438,13 +489,20 @@ def remainder_rows(
                 pn_curve=pn,
                 remaining=remaining,
                 root_n_remaining=float(np.sqrt(n)) * remaining,
-                r2=r2[{"ate": "r2_ate", "ey1": "r2_1", "ey0": "r2_0"}[name]],
+                r2=r2[_KEYS[name]],
+                r2_targeted=targeted[_KEYS[name]],
                 branch_q=fine[f"branch_q_{name}"] if resolved else float("nan"),
                 branch_g=fine[f"branch_g_{name}"] if resolved else float("nan"),
                 branch_error=error,
             )
         )
     return rows
+
+
+#: Which remainder key an estimand reads.  One mapping rather than one per call site, since
+#: the two remainder columns are indexed the same way and a slip between them would put a
+#: contrast's number under an arm's.
+_KEYS = {"ate": "r2_ate", "ey1": "r2_1", "ey0": "r2_0"}
 
 
 def _name(arm: float) -> str:

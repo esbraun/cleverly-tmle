@@ -785,12 +785,17 @@ class TestEveryTablesRowsMatchItsHeaders:
                 branch_q=float("nan") if name == "tmle" else 0.004,
                 branch_g=float("nan") if name == "tmle" else -0.001,
                 branch_error=1e-5,
+                # On **both** arms, unlike every other remainder column: the targeted
+                # remainder needs no companion, and the row a shortfall is read against is
+                # the plain `TMLE`'s.
+                r2_targeted=0.08,
             )
             for i in range(4)
             for name in ("tmle", "drtmle")
         ]
         builders = {
             study.REGIME_HEADERS: study.regime_rows(records, [600]),
+            study.ENTRY_HEADERS: study.entry_rows(records),
             study.COVERAGE_HEADERS: study.coverage_rows(records),
             study.SHORTFALL_HEADERS: study.shortfall_rows(records),
             study.REMAINDER_HEADERS: study.remainder_rows(records),

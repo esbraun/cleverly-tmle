@@ -132,6 +132,11 @@ DEFAULT_REPLICATES = 50
 #: cancelled.
 ESTIMANDS = ("ate", "ey1", "ey0")
 
+#: Which key of a remainder dict an estimand reads.  ``benchmarks/drtmle_remainder`` indexes
+#: its per-arm results the way the estimator names its arms and this module names estimands,
+#: so the mapping is written once here rather than inline at each call site.
+_REMAINDER_KEYS = {"ate": "r2_ate", "ey1": "r2_1", "ey0": "r2_0"}
+
 #: The nominal level every coverage number below is read against.
 NOMINAL = 0.95
 
@@ -204,9 +209,14 @@ class Replicate:
     seconds: float
     #: Item 13's columns, on the ``drtmle`` rows of a run with an evaluation draw and
     #: ``nan`` everywhere else.  ``R_2`` is the *plain* remainder at the fitted nuisances,
-    #: which is the regime-entry column tier 2 gets in place of tier 1's quadrature;
-    #: ``remaining`` is the corrected one Theorem 1 assumes negligible.
+    #: at the **initial** regression; ``remaining`` is the corrected one Theorem 1 assumes
+    #: negligible.
     r2: float = float("nan")
+    #: The same remainder at the **targeted** regression, which is what a fit's bias is and
+    #: what §5's targeted-coefficient clause requires the regime be read off.  Tier 2's
+    #: regime-entry column, in place of tier 1's quadrature.  It reads ``nan`` on nothing --
+    #: unlike its siblings it needs no companion, since the law supplies both limits.
+    r2_targeted: float = float("nan")
     p0_curve: float = float("nan")
     #: :math:`P_n\hat D`, which targeting drove to zero.  Carried on the record rather than
     #: only on :class:`benchmarks.drtmle_remainder.RemainderRow` so that a reader of the
@@ -379,6 +389,16 @@ def one_draw(payload: Payload) -> list[Replicate]:
         identity_failures, score_failures = _failure_counts(check)
         witnesses, alternation = _witnesses(fit), _alternation(fit)
         remainder: dict[str, Any] = {}
+        # The regime-entry column, on **both** estimators.  It needs no companion -- the law
+        # supplies both limits and the fit supplies its own targeted regression -- and the
+        # arm that matters for gate 2 is the plain `TMLE`'s, since that is the estimator whose
+        # interval a shortfall is claimed against.  Reading `DRTMLE`'s in its place would
+        # answer for the corrected fit's bias, which is a different quantity.
+        try:
+            targeted = drtmle_remainder.targeted_remainder(fit, dgp, fit.config.g_bounds)
+        except Exception as exc:  # pragma: no cover - reported, never hidden
+            print(f"targeted remainder unavailable on {payload.cell} n={payload.n}: {exc!r}")
+            targeted = {}
         if estimator == "drtmle" and evaluation is not None:
             # Never swallowed into the fit's own failure: a remainder that could not be
             # computed is a gap in item 13's evidence, not a draw the estimator raised on,
@@ -415,6 +435,7 @@ def one_draw(payload: Payload) -> list[Replicate]:
                     score_failures=score_failures,
                     seconds=seconds,
                     r2=float("nan") if row is None else row.r2,
+                    r2_targeted=targeted.get(_REMAINDER_KEYS[name], float("nan")),
                     p0_curve=float("nan") if row is None else row.p0_curve,
                     pn_curve=float("nan") if row is None else row.pn_curve,
                     remaining=float("nan") if row is None else row.remaining,
@@ -675,6 +696,66 @@ def regime_rows(records: Sequence[Replicate], sizes: Sequence[int]) -> list[list
             g_slope = np.polyfit(logs, [np.log(errors[n]["g_error"]) for n in sizes], 1)[0]
             rows.append(
                 [cell, "slope", "", "", "", "", "", "", f"{q_slope:+.3f}", f"{g_slope:+.3f}"]
+            )
+    return rows
+
+
+#: Headers for :func:`entry_rows`, declared beside it -- see the note above.
+ENTRY_HEADERS = (
+    "cell",
+    "n",
+    "estimator",
+    "reps",
+    "R2(Qbar*)",
+    "n^a R2(Qbar*)",
+    "declared b",
+    "within",
+    "sqrt(n) R2(Qbar*)",
+)
+
+
+def entry_rows(records: Sequence[Replicate]) -> list[list[str]]:
+    r"""Pre-flight condition 1, measured: is the fit's **bias** the declared drift?
+
+    ``docs/drtmle/validation-plan.md`` §5 requires this be read *"before a coverage dispatch,
+    not inferred from one afterwards"*, and requires it at the **targeted** regression -- the
+    clause C3a's pilot failed on precisely by not having it.  The table above it reports what
+    the design predicts; this reports what the fits did.
+
+    **Per estimator, and the row that matters is the plain ``TMLE``'s.**  It is the estimator
+    whose interval a shortfall is claimed against, so it is the one that has to be in the
+    regime; ``DRTMLE``'s row is its own bias and is here beside it as description, since a
+    corrected fit's bias is a different quantity and one gate 2 makes no claim about.
+
+    ``within`` is the ratio of the realised coefficient to the declared one.  Reported rather
+    than thresholded, because §5 declares no number for it -- the study's write-up reads it and
+    a threshold invented here would put a rule in a second place.
+    """
+    rows = []
+    for cell, n in _cells(records):
+        declared = injection.targeted_coefficients(cell)["b_ate"]
+        for estimator in ("tmle", "drtmle"):
+            selected = [
+                r for r in _select(records, cell, n, estimator, "ate") if np.isfinite(r.r2_targeted)
+            ]
+            if not selected:
+                continue
+            values = np.array([r.r2_targeted for r in selected], dtype=float)
+            mean = float(values.mean())
+            error = float(np.std(values, ddof=1) / np.sqrt(values.size)) if values.size > 1 else 0.0
+            scaled = n**injection.ALPHA * mean
+            rows.append(
+                [
+                    cell,
+                    f"{n:,}",
+                    estimator,
+                    str(len(selected)),
+                    f"{mean:+.5f} +/- {error:.5f}",
+                    f"{scaled:+.4f}",
+                    f"{declared:+.4f}",
+                    f"{scaled / declared:.2f}x" if declared else "-",
+                    f"{math.sqrt(n) * mean:+.3f}",
+                ]
             )
     return rows
 
@@ -968,13 +1049,16 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
     :math:`\\sqrt n R_{\text{remaining}} \to 0`, a statement about the sequence, so the Monte
     Carlo standard error travels beside every entry.
 
-    ``R_2`` is the *plain* remainder at the fitted nuisances and is here for the regime-entry
-    question, against the coefficient the design committed to; ``sqrt(n) R2`` beside it is the
-    one **gate 2's** clause 1 reads, since its third condition is that the plain remainder
-    fails to vanish in the cell the shortfall is claimed in.  ``sqrt(n) R_rem`` is the one
-    gate 1's clause 4 reads.  The branch columns are ``-`` where the binned limits did not
-    resolve them, which is a statement about the design rather than about the estimator --
-    see ``benchmarks/drtmle_remainder.py``.
+    **Two plain-remainder columns, and the second is the regime-entry one.**
+    ``R2(Q-hat)`` is at the initial regression and says the fitted nuisances are what the
+    design predicts; ``R2(Qbar*)`` is the same expression at the **targeted** one, which is
+    what a fit's bias is.  §5's targeted-coefficient clause requires the regime be read off
+    the second, and ``sqrt(n) R2(Qbar*)`` is what **gate 2's** clause 1 reads -- its third
+    condition is that the plain remainder fails to vanish in the cell the shortfall is claimed
+    in, and a remainder the fluctuation has absorbed vanishes whatever was injected.
+    ``sqrt(n) R_rem`` is the one gate 1's clause 4 reads.  The branch columns are ``-`` where
+    the binned limits did not resolve them, which is a statement about the design rather than
+    about the estimator -- see ``benchmarks/drtmle_remainder.py``.
 
     ``cancel`` is clause 4's **second half**, which had no column at all: a total trending to
     zero can conceal two large branches of opposite sign, so the ratio
@@ -1182,9 +1266,14 @@ def main() -> None:
         design_rows(),
     )
     table(
-        "Which regime the cells entered",
+        "Which regime the cells entered, as the design predicts it",
         REGIME_HEADERS,
         regime_rows(records, args.sizes),
+    )
+    table(
+        "Which regime the fits entered (pre-flight condition 1)",
+        ENTRY_HEADERS,
+        entry_rows(records),
     )
     table(
         "Coverage and calibration",
