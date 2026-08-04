@@ -177,6 +177,15 @@ way rather than started from scratch:
   a fast-tier test of the *production* backends, which cannot exist until they do, and a
   controlled-hardware tier, which needs a named machine rather than another workflow file.
 
+  **This was too generous, and the thing it was generous about is the one that mattered.** The
+  full tier passed `--num-cores 1 2` *alongside* `--config full.yaml`, and that flag replaces
+  the config's list rather than narrowing it — so `full.yaml`'s `[1, 2, 4, 8]` was discarded and
+  the "full sweep" was a two-core sweep. No job in this repository had ever run above two cores.
+  The flag is gone from that job and a `runner:` dispatch input takes its place, which turns
+  "needs a named machine" into a one-field dispatch rather than a workflow to write; the *gap*
+  is unchanged until someone uses it. Rescoping a section is the right move and reading the
+  command line is what has to come first.
+
 ---
 
 ## 2. What the proposal gets right, unchanged
@@ -399,7 +408,16 @@ of `[bench]` only if a kernel clears it.
 - **The float32 question.** Whether a `float32` expansion is acceptable inside a Monte Carlo
   quantile is a statistical judgement with a 7.2×-against-1.9× price tag on it, and it is not
   settled by the 1e-6 agreement measured at one configuration.
-- **Anything about a machine with more than four cores**, unchanged from `findings.md` §9.
+- **Anything about a machine with more than four cores**, unchanged from `findings.md` §9 — and
+  weaker than it looked, since no CI job had ever exceeded **two**. So the defensible statement
+  is that the *measured* serial and low-core workloads do not justify a runtime dependency, not
+  that a compiled kernel would fail to help a large repeated workload on 8–32 physical cores.
+  The two are easy to conflate and only one of them has evidence.
+- **Whether two implementations within a few percent of each other differ at all.** Every number
+  in this document and in `findings.md` was taken in randomised *block* order — described
+  throughout, wrongly, as interleaved — so drift is confounded with arm at exactly the scale
+  that would decide a 1.02× against a 0.98×. The harness now rotates properly; resolving those
+  comparisons means rerunning them on it, which nothing here has done.
 - **The estimand-count axis at `m = 1`.** `multiplier_critical_value` returns `norm.ppf`
   immediately for a single estimand, so the proposal's `estimands = 1` benchmark point does not
   reach any kernel. Keep it as an API test.

@@ -1970,14 +1970,28 @@ produced. Written properly in numpy, the bootstrap is 3.4–3.9× and the compil
 advantage over cluster aggregation falls to 1.02× at five estimands and **0.74× at a million
 rows**. A third — the LTMLE mask fix — is real and `O(T²n)` → `O(Tn)`, and is 0.06% of a fit,
 because the ratio quoted for it was of a cached-nuisance region that excludes the learners by
-construction. `docs/benchmarks/production_plan.md` is the adjudication and
-`findings.md`'s banner lists all four. **`numba` is still a benchmark-only dependency, and the
-case for changing that is weaker than the measurement first suggested.** Read
-`docs/benchmarks/candidate_inventory.md` first: it is the profile the rest was sized against,
-and three of the things it is natural to expect turn out to be false. In particular the largest
-package-owned cost in a DR-TMLE `retarget` and in an LTMLE fit is **`threadpoolctl`**, entered
-once per learner fit at 1.4 ms a time — 57% and 40% respectively — which is not a compilation
-question and is not fixed by one.
+construction. [`production_plan.md`](benchmarks/production_plan.md) is the adjudication and
+[`findings.md`](benchmarks/findings.md) carries all four corrections in its body.
+**`numba` is still a benchmark-only dependency, and the case for changing that is weaker than
+the measurement first suggested.** Read
+[`candidate_inventory.md`](benchmarks/candidate_inventory.md) first: it is the profile the rest
+was sized against, and three of the things it is natural to expect turn out to be false. In
+particular the largest package-owned cost in a DR-TMLE `retarget` and in an LTMLE fit is
+**`threadpoolctl`**, entered once per learner fit at 1.4 ms a time — 57% and 40% respectively —
+which is not a compilation question and is not fixed by one.
+
+**And then a third correction, which does not move the verdict but narrows what it covers.** An
+external review of that work found four defects in these documents, all of them confirmed
+against the source. Two are arithmetic claims that were simply wrong — the bootstrap's buffer is
+a 32 MB *target with a four-replicate floor*, not a constant, and the ~20-estimand crossover for
+`cluster_sums` does not follow from its own table, which reads 4.31× at seven. The other two are
+about the instrument: every recorded number was taken in randomised **block** order rather than
+the interleaving three documents claimed, and **no CI job has ever run above two cores** — the
+`full` tier passed `--num-cores 1 2` alongside a config sweeping to eight, and the flag replaces
+rather than narrows. So the defensible statement is that the *measured* serial and low-core
+workloads do not justify a runtime dependency; it is not evidence that a compiled kernel would
+fail to help a large repeated workload on 8–32 physical cores. That question is open and the
+`runner:` dispatch input is now how it would be answered.
 
 ```bash
 pip install -e '.[bench]'
