@@ -389,12 +389,15 @@ deliverable as much as the assertions are, for the reason
 One dispatch of `benchmarks/bench_drtmle.py`, **after B1**, because every conclusion it could draw
 today is read through a curve that a share of fits have wrong.
 
-**The piece split into B2a and B2b, and this section is what B2a was executed from.** The dispatch
-this section describes could not happen until the script recorded what the section asks for, and
-the paper's update order did not exist to be run at all — so the instrument is one pull request
-([B2a](../roadmap.md#b2a--the-sweep-instrument), landed) and the dispatch and its reading are the
+**The piece split into B2a and B2b, and this section is what both were executed from.** The
+dispatch this section describes could not happen until the script recorded what the section asks
+for, and the paper's update order did not exist to be run at all — so the instrument was one pull
+request ([B2a](../roadmap.md#b2a--the-sweep-instrument)) and the dispatch and its reading were the
 next ([B2b](../roadmap.md#b2b--the-dispatch-and-what-it-decides)). That is the same split B1 took and
-for the same reason: one half precedes the other and depends on it.
+for the same reason: one half precedes the other and depends on it. **Both have landed**, and the
+dispatch was four runs rather than the one this section planned: the main sweep, one order run per
+process, and the order arm again at three times the seeds. [What they
+measured](investigation-log.md#what-the-b2b-dispatch-measured).
 
 **One instruction here could not be executed as written, and the correction is B2a's.** This
 section asks whether the failures persist "when the reductions are handed the **oracle** values",
@@ -513,6 +516,27 @@ no Monte Carlo standard error for a median — `EstimandSummary.bias_se` is a me
 a distribution-free paired count is honest where an invented interval would not be, so clause 2 is
 stated on the count and the mean with `sd/√M` is reported beside it for continuity. Raising `--seeds`
 for this arm is the way to sharpen it; reading its median as though it were a coverage number is not.
+
+**That sharpener was taken and the rule still did not resolve, which is worth recording against the
+rule rather than against the estimator.** [B2b](../roadmap.md#b2b--the-dispatch-and-what-it-decides)
+ran the arm at twelve draws and again at thirty-six. Clause 2 fails on both processes at both
+counts, always *short* of half. Clause 1 is met on one process at each count — a different one each
+time — because a median over twelve or thirty-six draws is not stable enough to carry the claim; on
+`nonlinear` at 36 draws it rises by 2% in the last step while the control's median rises in the same
+place. What *is* stable is the route difference sitting 3.5 to 4 times below the control's at every
+cell. **Two restatements have reasons behind them and may be made before a further dispatch, never
+after one**: clause 2 should be **one-sided**, since a count far below half is evidence for the
+conclusion rather than against it; and clause 1 should be stated on the **ratio of the two medians**
+rather than on the route's alone, since the control exists precisely to absorb what a refit does and
+the route median inherits its noise otherwise. Neither is made here. [The
+reading](investigation-log.md#the-same-rule-at-thirty-six-draws-and-why-the-two-readings-are-not-nested)
+carries both seed counts.
+
+**And the two readings are not nested, which is a property of the instrument.**
+`bench_drtmle.py` slices its three seed streams as `[:s]`, `[s:2s]` and `[2s:]`, so raising `--seeds`
+holds the *data* seeds' prefix and moves the fold and control blocks wholesale: the 36-draw run
+shares its first twelve datasets with the 12-draw one and none of their fold splits. Neither
+supersedes the other and both are kept. The script's comment now says so.
 
 **The dispatch it is judged from** is its own, because three sizes across four processes and three
 arms does not fit the runner:
