@@ -447,6 +447,46 @@ class TestWhereTheDesignsDifferTheConstructionsDo:
         assert estimates["ate"].psi != pooled["ate"].psi
 
 
+class TestEachRepeatedDrawGetsItsOwnFoldFreeDesigns:
+    """``repeats=`` redraws the primary split, and the designs are keyed to *a* split.
+
+    This is why the fold-free copies live on
+    :class:`~cleverly.estimators._nuisance.NuisanceEstimates` rather than on the estimator:
+    ``_nuisances`` runs once per draw, so each draw builds its own against its own folds and
+    the two cannot come apart.  Carrying them on the estimator would look identical on an
+    ordinary fit and be wrong only here -- one draw's designs nested inside another draw's
+    split, which is not a construction at all.
+    """
+
+    @pytest.fixture(scope="class")
+    def repeated(self) -> Any:
+        return DRTMLE(
+            reduced_crossfit="nested",
+            outcome_learner="glm",
+            treatment_learner="glm",
+            estimands=("ate",),
+            cross_fit=True,
+            n_folds=FOLDS,
+            learner_folds=3,
+            simultaneous=False,
+            random_state=0,
+            repeats=2,
+        ).fit(law.frame(), outcome="Y", treatment="A")
+
+    def test_the_draws_differ_and_so_do_their_designs(self, repeated: Any) -> None:
+        draws = repeated.single().repeats
+        assert len(draws) == 2
+        first, second = draws[0].nuisance, draws[1].nuisance
+        assert not np.array_equal(first.folds.assignment, second.folds.assignment), (
+            "the two draws share a split, so this fixture cannot see the failure"
+        )
+        for each in (first, second):
+            assert each.inner is not None and each.inner.n_folds == FOLDS
+        assert not np.allclose(
+            first.inner.propensity[0].arm(1.0), second.inner.propensity[0].arm(1.0)
+        )
+
+
 class TestASaturatedReductionOnAFiniteLawCannotSeeItInGr1:
     r"""A blind spot, measured by running it and watching it **pass**.
 

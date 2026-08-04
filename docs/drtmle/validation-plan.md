@@ -950,10 +950,27 @@ reduction learner in use. The nested construction then becomes the reference,
   ([limitation 4](../roadmap.md#limitations-recorded-rather-than-fixed)). Clause 4 is what that
   bears on, and clause 4 is about the *scores*, not about how many rounds it took to solve them.
 
+**The dispatch ran and the rule did not resolve; the numbers and the reading are in [the
+log](investigation-log.md#what-the-a1b-dispatch-measured).** Clauses 2, 3 and 4 pass. Clause 1
+passes on `nonlinear` and fails on `linear` — where the failure takes the falsifier's literal shape,
+the nested difference staying flat while the control halves, and where the nested difference is
+nonetheless 3 to 7 times *below* that control at every size. The rule is **left exactly as frozen**:
+it was written to be evaluated, it has been, and it came back unresolved. Rewriting it now to fit
+what the numbers did is the one thing this section forbids.
+
+**What the run establishes about the *rule* rather than the estimator.** A median over twelve draws
+will not carry a slope claim — the second time this page has measured that, after the update order
+at twelve draws and again at thirty-six — and the pre-registered restatement (read the *ratio* of
+the two medians) does not rescue it, since neither process's ratios are monotone either. The next
+dispatch should not buy more seeds at these sizes. It should build the instrument the next paragraph
+records, because clauses 1–3 all read a *consequence* on `ψ`, and a consequence is where
+cancellation and split noise live.
+
 **What is not on this list, and could be.** A direct estimate of `‖Δ_k‖` — the paired `L₂` distance
 between the two arms' reduced arrays, which are row-aligned by construction since the arms share a
 draw and a fold seed. Clauses 1–3 measure its *consequence* on `ψ` and `se`, and a consequence can
 hold by cancellation. Reporting the norm itself would need each fit's `(n, 3K)` reduced block kept
 and paired after the sweep; it is a `--keep-reductions` flag and a table, it is not research, and it
-is the sharpest instrument this section could have. It is recorded here rather than built because
-the rule above is evaluable without it.
+is the sharpest instrument this section could have. It was recorded rather than built because the rule
+above is evaluable without it — and having evaluated it, **this is now the piece of work the next
+dispatch is**, rather than an optional sharpening.
