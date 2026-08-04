@@ -88,12 +88,24 @@ from cleverly.utils.parallel import map_parallel
 from cleverly.validation import EstimandSummary
 
 try:  # the benchmarks package is importable either way, depending on the entry point
-    from benchmarks import drtmle_injection as injection
+    from benchmarks import drtmle_injection, drtmle_remainder, drtmle_tier2
 except ImportError:  # pragma: no cover - direct `python benchmarks/drtmle_coverage.py`
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from benchmarks import drtmle_injection as injection
+    from benchmarks import drtmle_injection, drtmle_remainder, drtmle_tier2
+
+#: The two tiers, each a module supplying the same seven names -- ``CELLS``, ``ALPHA``,
+#: ``base_law``, ``settings``, ``drift_coefficients``, ``exact_remainder``,
+#: ``nuisance_error`` -- so that one harness reads both and no table branches on which tier
+#: it is printing.  What differs is what those names *mean*, and the tier banner below says
+#: so on every run rather than leaving a reader to infer it from a filename.
+TIERS = {1: drtmle_injection, 2: drtmle_tier2}
+
+#: Which tier is in force.  Module-level because ``one_draw`` runs in a worker process and a
+#: module attribute travels with the import rather than through the payload; ``main`` sets it
+#: before any draw is dispatched.
+injection: Any = drtmle_injection
 
 #: The sizes §5 names, *"adjusted upward if the prescribed rate is not visible"*.  Three rather
 #: than two because two are suggestive and three carry a rate.
@@ -118,6 +130,16 @@ NOMINAL = 0.95
 #: primary *specification*, which here is an injected instance -- see
 #: :func:`benchmarks.drtmle_injection.settings`.
 REDUCED_LEARNER = "glm"
+
+#: Rows of the independent draw ``P_0 D-hat`` is integrated over.  A quadrature rule rather
+#: than a sample size: it controls the accuracy of the remainder columns and appears in no
+#: root-``n`` scaling, which is taken at the *fitting* size.  ``0`` turns the columns off,
+#: and the table then does not print rather than printing blanks.
+DEFAULT_EVALUATION_N = 2_000
+
+#: The seed stream the evaluation draws come from, disjoint from the study's own so that
+#: raising ``--evaluation-n`` cannot change which rows a replicate was fitted on.
+EVALUATION_SEED = 90_000_000
 
 
 @dataclass
@@ -154,6 +176,17 @@ class Replicate:
     failure: str
     rounds: int
     seconds: float
+    #: Item 13's columns, on the ``drtmle`` rows of a run with an evaluation draw and
+    #: ``nan`` everywhere else.  ``R_2`` is the *plain* remainder at the fitted nuisances,
+    #: which is the regime-entry column tier 2 gets in place of tier 1's quadrature;
+    #: ``remaining`` is the corrected one Theorem 1 assumes negligible.
+    r2: float = float("nan")
+    p0_curve: float = float("nan")
+    remaining: float = float("nan")
+    root_n_remaining: float = float("nan")
+    branch_q: float = float("nan")
+    branch_g: float = float("nan")
+    branch_error: float = float("nan")
     error: str = ""
 
 
@@ -165,6 +198,7 @@ class Payload:
     n: int
     data_seed: int
     fold_seed: int
+    evaluation_n: int = 0
 
 
 def _witnesses(fit: Any) -> dict[str, Any]:
@@ -249,6 +283,16 @@ def one_draw(payload: Payload) -> list[Replicate]:
     frame, _ = dgp.sample(payload.n, seed=payload.data_seed)
     truth = dgp.truth()
     shared = injection.settings(payload.cell, payload.n)
+    # Drawn per replicate rather than once, so the quadrature error is independent across
+    # replicates and averages down in the reported mean rather than biasing every row the
+    # same way. The seed stream is disjoint from the study's -- see EVALUATION_SEED.
+    evaluation = (
+        None
+        if payload.evaluation_n <= 0
+        else drtmle_remainder.evaluation_frame(
+            dgp, payload.evaluation_n, EVALUATION_SEED + payload.data_seed % 1_000_003
+        )
+    )
 
     records: list[Replicate] = []
     for estimator, factory in (
@@ -260,6 +304,7 @@ def one_draw(payload: Payload) -> list[Replicate]:
                 reduced_outcome_learner=REDUCED_LEARNER,
                 reduced_treatment_learner=REDUCED_LEARNER,
                 random_state=payload.fold_seed,
+                evaluation=evaluation,
             ),
         ),
     ):
@@ -276,9 +321,24 @@ def one_draw(payload: Payload) -> list[Replicate]:
         seconds = time.perf_counter() - started
         valid = fit.validation.score_check().passed
         witnesses, alternation = _witnesses(fit), _alternation(fit)
+        remainder: dict[str, Any] = {}
+        if estimator == "drtmle" and evaluation is not None:
+            # Never swallowed into the fit's own failure: a remainder that could not be
+            # computed is a gap in item 13's evidence, not a draw the estimator raised on,
+            # and the two must not be reported as one.
+            try:
+                remainder = {
+                    row.estimand: row
+                    for row in drtmle_remainder.remainder_rows(
+                        fit, dgp, n=payload.n, bounds=fit.config.g_bounds
+                    )
+                }
+            except Exception as exc:  # pragma: no cover - reported, never hidden
+                print(f"remainder columns unavailable on {payload.cell} n={payload.n}: {exc!r}")
         for name in ESTIMANDS:
             estimate = fit.estimates[name]
             low, high = estimate.ci
+            row = remainder.get(name)
             records.append(
                 Replicate(
                     cell=payload.cell,
@@ -295,6 +355,13 @@ def one_draw(payload: Payload) -> list[Replicate]:
                     covered=bool(low <= truth[name] <= high),
                     valid=valid,
                     seconds=seconds,
+                    r2=float("nan") if row is None else row.r2,
+                    p0_curve=float("nan") if row is None else row.p0_curve,
+                    remaining=float("nan") if row is None else row.remaining,
+                    root_n_remaining=float("nan") if row is None else row.root_n_remaining,
+                    branch_q=float("nan") if row is None else row.branch_q,
+                    branch_g=float("nan") if row is None else row.branch_g,
+                    branch_error=float("nan") if row is None else row.branch_error,
                     **witnesses,
                     **alternation,
                 )
@@ -628,11 +695,72 @@ def validity_rows(records: Sequence[Replicate]) -> list[list[str]]:
     return rows
 
 
+def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
+    """Item 13's columns, averaged over the replicates of each cell and size.
+
+    Averaged rather than reported per draw because a single draw's ``R_remaining`` carries
+    the estimator's own sampling noise as well as the remainder -- what item 13 asks about is
+    :math:`\\sqrt n R_{\text{remaining}} \to 0`, a statement about the sequence, so the Monte
+    Carlo standard error travels beside every entry.
+
+    ``R_2`` is the *plain* remainder at the fitted nuisances and is here for the regime-entry
+    question, against the coefficient the design committed to.  ``sqrt(n) R_rem`` is the one
+    gate 1's clause 4 reads.  The branch columns are ``-`` where the binned limits did not
+    resolve them, which is a statement about the design rather than about the estimator --
+    see ``benchmarks/drtmle_remainder.py``.
+    """
+    rows = []
+    for cell, n in _cells(records):
+        declared = injection.drift_coefficients(cell)["c_ate"]
+        for estimand in ESTIMANDS:
+            selected = [
+                r for r in _select(records, cell, n, "drtmle", estimand) if np.isfinite(r.remaining)
+            ]
+            if not selected:
+                continue
+
+            def column(name: str, rows_: Sequence[Replicate] = selected) -> tuple[float, float]:
+                values = np.array([getattr(r, name) for r in rows_], dtype=float)
+                finite = values[np.isfinite(values)]
+                if finite.size == 0:
+                    return (float("nan"), float("nan"))
+                error = (
+                    float(np.std(finite, ddof=1) / np.sqrt(finite.size)) if finite.size > 1 else 0.0
+                )
+                return (float(np.mean(finite)), error)
+
+            r2_mean, _ = column("r2")
+            root_mean, root_error = column("root_n_remaining")
+            branch_q, _ = column("branch_q")
+            branch_g, _ = column("branch_g")
+            resolved = sum(1 for r in selected if np.isfinite(r.branch_q))
+            rows.append(
+                [
+                    cell,
+                    f"{n:,}",
+                    estimand,
+                    str(len(selected)),
+                    f"{r2_mean:+.4f}",
+                    f"{n**injection.ALPHA * r2_mean:+.4f}",
+                    f"{declared:+.4f}" if estimand == "ate" else "",
+                    f"{column('remaining')[0]:+.5f}",
+                    f"{root_mean:+.4f} +/- {root_error:.4f}",
+                    f"{branch_q:+.5f}" if resolved else "-",
+                    f"{branch_g:+.5f}" if resolved else "-",
+                    f"{resolved}/{len(selected)}",
+                ]
+            )
+    return rows
+
+
 def _payloads(
-    cells: Sequence[str], sizes: Sequence[int], seeds: Sequence[tuple[int, int]]
+    cells: Sequence[str],
+    sizes: Sequence[int],
+    seeds: Sequence[tuple[int, int]],
+    evaluation_n: int,
 ) -> list[Payload]:
     return [
-        Payload(cell, n, data_seed, fold_seed)
+        Payload(cell, n, data_seed, fold_seed, evaluation_n)
         for cell in cells
         for n in sizes
         for data_seed, fold_seed in seeds
@@ -659,7 +787,10 @@ def write_records(records: Sequence[Replicate], directory: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--cells", nargs="+", default=list(injection.CELLS), choices=list(injection.CELLS)
+        "--cells",
+        nargs="+",
+        default=list(drtmle_injection.CELLS),
+        choices=list(drtmle_injection.CELLS),
     )
     parser.add_argument("--sizes", type=int, nargs="+", default=list(DEFAULT_SIZES))
     parser.add_argument("--replicates", type=int, default=DEFAULT_REPLICATES)
@@ -671,7 +802,21 @@ def main() -> None:
         help="the study's own seed; a different one is the independent second batch, which "
         "section 5 requires be run after the first is complete rather than beside it",
     )
-    parser.add_argument("--tier", type=int, default=1, choices=(1, 2))
+    parser.add_argument(
+        "--tier",
+        type=int,
+        default=1,
+        choices=(1, 2),
+        help="1 is the prescribed nuisance sequence and is not the demonstration; 2 is the "
+        "prescribed-rate learners and is",
+    )
+    parser.add_argument(
+        "--evaluation-n",
+        type=int,
+        default=DEFAULT_EVALUATION_N,
+        help="rows of the independent draw P_0 D-hat is integrated over, which is item 13's "
+        "instrument; 0 turns the remainder columns off",
+    )
     parser.add_argument("--rows", action="store_true", help="print every replicate, not the cells")
     parser.add_argument(
         "--out",
@@ -681,16 +826,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.tier != 1:
-        raise SystemExit(
-            "tier 2 is not implemented here and is refused rather than approximated. It is "
-            "prescribed-rate *learners* -- a series, spline or histogram regression with a "
-            "smoothing sequence chosen in advance -- plus the fold-retained nuisance objects "
-            "P_0 D-hat needs, and it is piece C2 in docs/roadmap.md. Tier 1's numbers are "
-            "about a prescribed nuisance sequence and are not an applied claim; running this "
-            "script and calling it the demonstration would be exactly the confusion the two "
-            "tiers exist to prevent."
-        )
+    # Set before any draw is dispatched, and read by `one_draw` in the worker: the tier is a
+    # module of designs rather than a branch, so every table below reads one interface.
+    global injection
+    injection = TIERS[args.tier]
 
     # Two streams from one seed, prefix-stable the way `bench_drtmle.py`'s are: raising
     # `--replicates` leaves every earlier data seed unchanged and moves the fold block
@@ -702,10 +841,11 @@ def main() -> None:
         (int(data), int(fold))
         for data, fold in zip(drawn[: args.replicates], drawn[args.replicates :], strict=True)
     ]
-    payloads = _payloads(args.cells, args.sizes, seeds)
+    payloads = _payloads(args.cells, args.sizes, seeds, args.evaluation_n)
     print(
-        f"tier 1: {len(payloads)} draws over cells {list(args.cells)} and sizes "
-        f"{list(args.sizes)}, two estimators each, jobs={args.jobs}"
+        f"tier {args.tier}: {len(payloads)} draws over cells {list(args.cells)} and sizes "
+        f"{list(args.sizes)}, two estimators each, jobs={args.jobs}, "
+        f"evaluation draw {args.evaluation_n:,} rows"
     )
 
     started = time.perf_counter()
@@ -775,6 +915,25 @@ def main() -> None:
         ),
         shortfall_rows(records),
     )
+    if args.evaluation_n > 0:
+        table(
+            "The remainder Theorem 1 assumes negligible (item 13)",
+            (
+                "cell",
+                "n",
+                "estimand",
+                "reps",
+                "R2 (fitted)",
+                "n^a R2",
+                "declared c",
+                "R_rem",
+                "sqrt(n) R_rem",
+                "R_Q",
+                "R_g",
+                "branches resolved",
+            ),
+            remainder_rows(records),
+        )
     table(
         "Which estimator each cell is evidence about (gate 1, clause 0)",
         (
@@ -839,13 +998,23 @@ def main() -> None:
 
     print("\nReading the numbers")
     print("=" * 19)
-    print(
-        "This is tier 1 and tier 1 is not the demonstration. The nuisance sequence is\n"
-        "prescribed, so 'the intended asymptotic regime was entered' is true by construction\n"
-        "rather than measured -- which is what makes the remainder columns exact and what\n"
-        "makes these coverage numbers evidence about an estimator fed a designed sequence and\n"
-        "not about one fed a learner. Tier 2 is the demonstration and is piece C2."
-    )
+    if args.tier == 1:
+        print(
+            "This is tier 1 and tier 1 is not the demonstration. The nuisance sequence is\n"
+            "prescribed, so 'the intended asymptotic regime was entered' is true by\n"
+            "construction rather than measured -- which is what makes these coverage numbers\n"
+            "evidence about an estimator fed a designed sequence and not about one fed a\n"
+            "learner. Tier 2 is the demonstration."
+        )
+    else:
+        print(
+            "This is tier 2 and it is the demonstration: both nuisances are fitted, and the\n"
+            "good one is a smoother whose bandwidth sequence was committed before any fit.\n"
+            "So 'the intended regime was entered' is a *measurement* here rather than a\n"
+            "construction -- read `n^a R2` against `declared c` in the remainder table before\n"
+            "reading any coverage number, because a cell whose realised coefficient missed is\n"
+            "a cell whose coverage answers about a different regime."
+        )
     print(
         "\nRead the contract table before the coverage table. A cell reading BOUND-ACTIVE is\n"
         "evidence about the constrained rendering rather than about Theorem 1's estimator\n"
@@ -858,6 +1027,16 @@ def main() -> None:
         "the procedure. The excluded column is beside it and is never to be quoted without\n"
         "the invalid share, which is the third accounting."
     )
+    if args.evaluation_n > 0:
+        print(
+            "\nThe remainder table is item 13. `sqrt(n) R_rem` is what gate 1's clause 4 reads\n"
+            "and it has to trend to zero across the sizes; `R_Q` and `R_g` are the two\n"
+            "appendix branches, so that a total trending to zero cannot conceal cancellation\n"
+            "between them. Where `branches resolved` is short of the replicate count, the\n"
+            "binned limits those two are built from did not separate from their own\n"
+            "discretisation error, which is a statement about this design and not about the\n"
+            "estimator -- benchmarks/drtmle_remainder.py says what is approximated in them."
+        )
     errored = [r for r in records if r.error]
     if errored:
         print(

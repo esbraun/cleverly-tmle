@@ -23,9 +23,14 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       *not* planned is a comparison against that package's numbers: both descend from one
       source, so agreement would be evidence about the transcription and blind to exactly
       this error.  See :func:`~cleverly.inference.influence.reduced_corrections`.
-   2. **Nothing demonstrates that the interval is better.**  A coverage study over the
-      off-diagonal of the misspecification grid found no gap for this variant to close at
-      the sizes it could reach; the regime it is for is out of reach of a nightly budget.
+   2. **Nothing demonstrates that the interval is better, and the instruments that would are
+      now built.**  A coverage study over the off-diagonal of the misspecification grid found
+      no gap for this variant to close at the sizes it could reach.  ``docs/roadmap.md``'s
+      piece C is the demonstration that would: its harness and prescribed nuisance sequences
+      landed with C1, and its prescribed-*rate* learners and the evaluation companion item
+      13's remainder needs landed with C2 -- ``evaluation=`` below.  What is left is the
+      dispatch, which is C3.  Until it runs, this is still an estimator with no demonstration
+      rather than one with a negative result.
    3. **The alternation is not guaranteed to converge, though it now mostly does.**
       Equation (10)'s covariate is near-singular on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so a draw can exit at
@@ -186,6 +191,20 @@ class ReducedFit:
     g_bounds: tuple[float, float]
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = field(default_factory=dict)
 
+    @staticmethod
+    def evaluation(result: Any) -> Any:
+        """The targeted companion of a fitted result, or ``None`` if it declared none.
+
+        A one-line accessor rather than a field, because the companion is not known until
+        the alternation has finished and this object is built before it: it lives on
+        :attr:`~cleverly.estimators.targeting.ReductionFluctuation.evaluation`, which is
+        where every other array the alternation produced lives, and reading it off the
+        fluctuation is what keeps one copy of it.
+        """
+        fluctuation = result.repeats[0].fluctuations.get("mean")
+        reduction = getattr(fluctuation, "reduction", None)
+        return None if reduction is None else reduction.evaluation
+
 
 class DRTMLE(TMLE):
     r"""TMLE with doubly-robust inference, for a binary point treatment.  **In progress.**
@@ -259,6 +278,27 @@ class DRTMLE(TMLE):
         is that the nested reductions are noisier, so equation (10)'s near-singular solve
         takes more rounds.  Measured at 1.3x to 17x a pooled fit's wall clock over four
         draws, on two of which it reached the outer cap.
+    evaluation:
+        An independent draw -- a dataframe or a prepared
+        :class:`~cleverly.data.CausalData` -- at which this fit's nuisances are **also**
+        evaluated, one copy per outer fold, and moved by the same targeting steps the
+        fitted arrays take.  **A third diagnostic keyword**, alongside ``update_order`` and
+        ``reduced_crossfit``, and for the same kind of reason: ``docs/roadmap.md``'s item 13
+        asks whether :math:`\\sqrt n R_{\\text{remaining}} \\to 0`, that needs
+        :math:`P_0\\hat D` -- the population mean of the **fitted** curve, for which
+        :math:`P_n\\hat D` is refused since targeting drove it to zero -- and a curve is a
+        function of :math:`(W, A, Y)` that no array of out-of-fold predictions defines
+        anywhere else.
+
+        The companion contributes to no fit, no fold and no score, so a fit that declares
+        one is **bit for bit** a fit that does not; ``tests/unit/test_drtmle_companion.py``
+        is what holds that rather than the sentence.  What it costs is one further
+        prediction per fold per nuisance per round, and no further learner fit.
+
+        It arrives on
+        :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.companion` and, once the
+        alternation has moved it, on :attr:`ReducedFit.evaluation`.  Refused with
+        ``repeats=``, ``targeting="one_step"`` and ``target_weights=True``, each by name.
     reduced_outcome_learner, reduced_treatment_learner:
         Learners for the reduced-dimension regressions, defaulting to the specifications the
         primary nuisances use.  Two rather than one because the tasks differ:
@@ -330,6 +370,7 @@ class DRTMLE(TMLE):
         reduced_treatment_learner: Any = None,
         reduced_crossfit: str = "pooled",
         update_order: ReductionOrder = "cleverly",
+        evaluation: Any = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -339,6 +380,7 @@ class DRTMLE(TMLE):
         self.reduced_treatment_learner = reduced_treatment_learner
         self.reduced_crossfit = reduced_crossfit
         self.update_order = update_order
+        self.evaluation = evaluation
         self._validate_drtmle_settings()
 
     def _validate_drtmle_settings(self) -> None:
@@ -387,6 +429,33 @@ class DRTMLE(TMLE):
                     "being predicted and the fold being trained on -- so it needs at least "
                     f"three; got n_folds={self.n_folds}."
                 )
+        if self.evaluation is not None:
+            # Each refused because the companion would come back describing a fit nobody
+            # ran, and none of the three would raise on its own.
+            if self.repeats > 1:
+                raise ValueError(
+                    "evaluation= and repeats= are not combined. Each draw of the split "
+                    "targets its own alternation, so there would be one companion per draw "
+                    "and no single state for P_0 D-hat to be the mean of -- and "
+                    "result.extra['drtmle'] already describes draw 0 only. Fit each draw "
+                    "separately, or drop repeats=."
+                )
+            if self.targeting == "one_step":
+                raise NotImplementedError(
+                    "evaluation= and targeting='one_step' are not combined, on cost rather "
+                    "than on derivation -- the same refusal reduced_crossfit='nested' takes. "
+                    "The companion is moved by the same steps the fitted arrays take, and "
+                    "the one-step walk takes up to 20,000 of them with an adaptive length. "
+                    "Use targeting='iterative', which is the default."
+                )
+            if self.target_weights:
+                raise NotImplementedError(
+                    "evaluation= and target_weights=True are not combined. The weighted form "
+                    "of the submodel divides the covariate by the *fitting* sample's weights, "
+                    "and a companion row has none of them -- so the companion would travel "
+                    "along a covariate belonging to other rows while reporting itself as "
+                    "that fit's."
+                )
         if self.targeting_scheme == "fold" or self.cv_evaluation:
             raise NotImplementedError(
                 "DRTMLE targets pooled only. Fold-wise targeting would need each fold's "
@@ -427,7 +496,14 @@ class DRTMLE(TMLE):
         ``folds`` off it.
         """
         self._check_drtmle(data)
-        base = self._fit_nuisances(data, folds, scaler, intermediate_value, seed=seed)
+        base = self._fit_nuisances(
+            data,
+            folds,
+            scaler,
+            intermediate_value,
+            seed=seed,
+            companion=self._companion(data),
+        )
         if self.guard and self.reduced_crossfit == "nested":
             # Before the reductions, because they read it. Once per fit rather than once
             # per round: every refit inside the alternation moves these arrays by the
@@ -453,7 +529,9 @@ class DRTMLE(TMLE):
             # estimator recovered by a loop that happens to exit after one round.
             return base, {"drtmle": ReducedFit((), self.reduction, config.g_bounds)}
 
-        reduced, diagnostics = self._fit_reduced(data, base, config.g_bounds)
+        reduced, diagnostics, at_companion = self._fit_reduced(data, base, config.g_bounds)
+        if base.companion is not None:
+            base = replace(base, companion=replace(base.companion, reduced=at_companion))
         return (
             replace(base, reduced=reduced),
             {"drtmle": ReducedFit(self.guard, self.reduction, config.g_bounds, diagnostics)},
@@ -471,17 +549,47 @@ class DRTMLE(TMLE):
             return None
         bounds = nuisance.reduced.g_bounds
 
-        def refit(current: NuisanceEstimates) -> ReducedSet:
-            return self._fit_reduced(data, current, bounds)[0]
+        def refit(current: NuisanceEstimates) -> tuple[ReducedSet, tuple[ReducedSet, ...]]:
+            production, _, at_companion = self._fit_reduced(data, current, bounds)
+            return production, at_companion
 
         return ReductionSpec(refit=refit, guard=self.guard, order=self.update_order)
+
+    def _companion(self, data: CausalData) -> CausalData | None:
+        """The declared evaluation rows, prepared the way the fitting rows were.
+
+        ``None`` on every fit that declared no ``evaluation=``, which is the ordinary one.
+        The frame goes through :meth:`~cleverly.TMLE._prepare` with the *same* roles the fit
+        was given, so the companion's design is the design the models were fitted on rather
+        than one that merely resembles it -- and a mismatch is refused by
+        :func:`~cleverly.estimators._nuisance.fit_nuisances` rather than predicted through.
+        """
+        if self.evaluation is None:
+            return None
+        if isinstance(self.evaluation, CausalData):
+            return self.evaluation
+        # The roles come off the *fitted* container rather than being asked for again, so
+        # a companion cannot be prepared under a different reading of the same frame --
+        # which would predict the fit's models at a design they were not fitted on and
+        # look entirely ordinary doing it.
+        return self._prepare(
+            self.evaluation,
+            outcome=data.outcome_name,
+            treatment=data.treatment_name,
+            covariates=data.covariate_names,
+            delta=None,
+            weights=None,
+            id=None,
+            intermediate=None,
+            treatment_kind="discrete",
+        )
 
     def _fit_reduced(
         self,
         data: CausalData,
         nuisance: NuisanceEstimates,
         g_bounds: tuple[float, float],
-    ) -> tuple[ReducedSet, dict[str, list[SuperLearnerDiagnostics]]]:
+    ) -> tuple[ReducedSet, dict[str, list[SuperLearnerDiagnostics]], tuple[ReducedSet, ...]]:
         """One place resolves the reduced learners, so a refit matches the initial fit.
 
         Deliberately **not** threaded with a draw's seed, unlike the primary nuisances.  The
@@ -504,6 +612,10 @@ class DRTMLE(TMLE):
             g_bounds=g_bounds,
             reduction=self.reduction,
             crossfit=self.reduced_crossfit,
+            # Off the object handed in rather than off ``self``, so that a refit inside the
+            # alternation predicts at the companion designs that round's state implies --
+            # `_reduction_inputs` is what writes them there.
+            companion=nuisance.companion,
             n_jobs=self.n_jobs,
         )
 

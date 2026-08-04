@@ -164,7 +164,7 @@ class OracleReductionDRTMLE(DRTMLE):
         if spec is None:
             return None
         bounds = nuisance.reduced.g_bounds
-        return replace(spec, refit=lambda current: _oracle_set(current, bounds))
+        return replace(spec, refit=lambda current: (_oracle_set(current, bounds), ()))
 
 
 def _fit(estimator: type[DRTMLE], **overrides: Any) -> Any:

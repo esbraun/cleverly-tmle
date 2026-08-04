@@ -6,12 +6,13 @@ name: drtmle-coverage
 # nightly tier must not absorb it -- a tier that silently grew a half-hour study would be
 # a tier nobody dispatches.
 #
-# It is **tier 1**, which is not the demonstration. Tier 1 hands the estimator a prescribed
-# nuisance sequence (benchmarks/drtmle_injection.py), so "the intended asymptotic regime was
-# entered" is true by construction and the remainder is exact; tier 2 is prescribed-rate
-# learners plus the fold-retained nuisances `P_0 D-hat` needs, and is piece C2. The script
-# refuses `--tier 2` by name rather than approximating it, so this workflow cannot produce a
-# number the harness has no learner for.
+# **Both tiers run from here**, and which one a dispatch chose is the first thing to read off
+# its log. Tier 1 (benchmarks/drtmle_injection.py) hands the estimator a prescribed nuisance
+# sequence, so "the intended asymptotic regime was entered" is true by construction and is
+# **not** an applied claim; tier 2 (benchmarks/drtmle_tier2.py) fits both nuisances, with the
+# good one a smoother whose bandwidth sequence was committed before any fit, and **is** the
+# demonstration. The remainder columns item 13 asks for -- `P_0 D-hat` at an independent
+# draw -- come from `--evaluation-n` and are available at either tier.
 #
 # The environment this repository is developed in cannot run a pilot (see CLAUDE.md), so this
 # is how piece C's numbers get produced.
@@ -39,6 +40,17 @@ on:
       jobs:
         description: "parallel draws; each fit is single-threaded, and 2 fits the runner"
         default: "2"
+      tier:
+        description: >-
+          1 is the prescribed nuisance sequence and is not the demonstration; 2 is the
+          prescribed-rate learners and is. Both report the same tables
+        default: "1"
+      evaluation_n:
+        description: >-
+          rows of the independent draw P_0 D-hat is integrated over -- item 13's instrument,
+          a quadrature rule rather than a sample size, so it appears in no root-n scaling.
+          0 turns the remainder columns off
+        default: "2000"
       rows:
         description: "also print every replicate, not just the per-cell tables"
         type: boolean
@@ -71,11 +83,13 @@ jobs:
       fail-fast: false
       matrix:
         cell: ${{ fromJSON(needs.plan.outputs.cells) }}
-    # A tier-1 pair (TMLE plus DRTMLE) measured at ~2.4s on a four-core container, so the
-    # pilot's 150 draws per cell is well under an hour. Generous rather than tight, and for
-    # the sharper reason `drtmle-convergence.yml` gives: the script prints nothing until every
-    # draw has returned, so a run killed at the cap reports no table at all rather than a
-    # partial one. The frozen study's 750 draws per cell is what this cap is sized for.
+    # A tier-1 pair (TMLE plus DRTMLE) measured at ~2.4s on a four-core container and a
+    # **tier-2** pair at 5.4s to 7.4s per fit at n = 600 -- against the 43s per DRTMLE fit
+    # docs/roadmap.md costed piece C from, which is the re-timing that piece asks for before
+    # C is re-scoped. So the pilot stays well inside this cap at either tier. Generous rather
+    # than tight, and for the sharper reason `drtmle-convergence.yml` gives: the script prints
+    # nothing until every draw has returned, so a run killed at the cap reports no table at
+    # all rather than a partial one.
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
@@ -91,6 +105,8 @@ jobs:
           REPLICATES: ${{ inputs.replicates }}
           SEED: ${{ inputs.seed }}
           JOBS: ${{ inputs.jobs }}
+          TIER: ${{ inputs.tier }}
+          EVALUATION_N: ${{ inputs.evaluation_n }}
           ROWS: ${{ inputs.rows && '--rows' || '' }}
         run: >
           python benchmarks/drtmle_coverage.py
@@ -99,6 +115,8 @@ jobs:
           --replicates "$REPLICATES"
           --seed "$SEED"
           --jobs "$JOBS"
+          --tier "$TIER"
+          --evaluation-n "$EVALUATION_N"
           $ROWS
           | tee "coverage-$CELL.log"
 
@@ -109,7 +127,7 @@ jobs:
           CELL: ${{ matrix.cell }}
         run: |
           {
-            echo "## drtmle-coverage: $CELL"
+            echo "## drtmle-coverage: tier ${{ inputs.tier }}, $CELL"
             echo '```text'
             cat "coverage-$CELL.log"
             echo '```'

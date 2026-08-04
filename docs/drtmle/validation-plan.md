@@ -608,7 +608,7 @@ follows is what a study has to contain to be believed; what the cells actually a
 were committed, and what the instrument has measured are there. The pair is deliberate — a rule
 restated next to the numbers it judges is a rule that can differ from itself.
 
-**C is three pull requests and the first has landed.** **C1** is the harness and Tier 1 complete;
+**C is three pull requests and two have landed.** **C1** is the harness and Tier 1 complete;
 **C2** is Tier 2's prescribed-rate learners plus the fold-retained nuisances `P₀D̂` needs, and so
 item 13; **C3** is the pilot, the freeze and the study, and so item 3. The split is this page's own
 grouping rule — shared *evidence*, not shared subject matter — and the two tiers share none: Tier 1's
@@ -641,6 +641,16 @@ exactly zero and `TMLE`'s interval already valid. The gap opens only where the g
   demonstration.** A Super Learner's realised rate is neither identified nor reproducible, so a gap
   it produces could as easily be finite-sample instability as the intended drift; keep it for the
   applied stress tests that come after.
+
+  **Landed with C2**, as an oversmoothed **additive kernel** with `h_n = 1.15·n^(−0.125)` rather
+  than as a regressogram, and the substitution is a finding rather than a liberty: a regressogram's
+  bias oscillates within every bin, so its `L₂` norm is `O(B⁻¹)` while its *inner product with a
+  smooth weight* is `O(B⁻²)` — and the remainder is an inner product. Matching a declared remainder
+  rate with one needs a bin count at which the fit is variance-dominated at these sizes, and the
+  remainder it then produces is sampling noise. This list is illustrative; what it asks for is a
+  sequence chosen in advance, and a bandwidth is one.
+  [The design note](coverage-study.md#tier-2-a-prescribed-rate-rather-than-a-prescribed-sequence)
+  carries the constants.
 
 ### The drift coefficient, which a rate alone does not give you
 
@@ -706,9 +716,30 @@ convention for averaging or conditioning over folds.
   C2's and it carries item 13 with it**, for the reason just given: it is what the corrected
   remainder needs at *either* tier.
 
+  **C2 landed it as a library keyword rather than as a benchmark-only object**, and the departure
+  from this paragraph's own words is worth the sentence. Retaining the models and *replaying* the
+  alternation outside the library is a second implementation of `solve_with_reduction`'s state map
+  — and that map is the hard part: the outcome solve applies its tilt once per Newton step and
+  shrinks after each, `solve_bounded_mechanism` clips, and the reductions are refit every round, so
+  `Q̄*` is not `expit(logit Q̄̂ + ε·H)`. A bug in a replay is indistinguishable from a real
+  remainder. So `DRTMLE(evaluation=…)` carries the evaluation rows **through the same solvers**, as
+  `Fluctuation.carried` already does for the nested construction, generalised in one way: a carried
+  item supplies its own clever covariate, because the evaluation rows' is not the fitting rows'.
+  It is inert when absent — pinned bit for bit — and it is anchored by an identity rather than by
+  an argument: handed the fitting frame back as its own companion, fold `k`'s slab must reproduce
+  the production array at the rows fold `k` holds out (`tests/unit/test_drtmle_companion.py`).
+
 **Document the conditioning convention.** Without it `R_remaining` can be an artefact of how
 fold-specific fits were extrapolated to the integration sample rather than a property of the
 estimator.
+
+**The convention in force is the fold-weighted one**, which is what this section asks for and what
+C2 implements: `P₀D̂ = Σ_k (n_k/n)·E₀[D̂^(k)(O)]`, with `n_k` the rows fold `k` holds out and the
+expectation over an independent draw whose size is `--evaluation-n`. That size is a **quadrature
+rule and not a sample size**: it appears in no root-`n` scaling, which is taken at the fitting
+size. Its error lands directly in a replicate's `R_remaining` at `O(m^(−1/2))`, so the harness
+draws an independent evaluation sample per replicate and reports the Monte Carlo standard error of
+the mean beside every entry.
 
 ### Reporting `R_Q` and `R_g` separately
 
@@ -717,6 +748,27 @@ trending to zero can conceal cancellation between the two appendix branches. Whe
 permits, report `R_Q` and `R_g` separately, their component products, their signs, and the total.
 See [the concordance's §5](theorem-concordance.md#5-the-remaining-remainder-terms) for the
 exact terms.
+
+**What C2 reports, and what it refuses, written down before the numbers exist.** Two observations
+make the branches computable and one keeps the rest honest.
+
+The branch **sums** need fewer limits than the terms do: writing out `R₃ + R₄` and `R̃₅ + R̃₆`, the
+univariate limits `Q̄_{0,r}`, `g_{1,0,r}` and `g_{2,0,r}` **cancel**, leaving the fitted reductions
+— which the companion has exactly — and the two `0n` limits. A `0n` limit is a population
+conditional mean of a computable quantity given two computable scalars, so it is a **quadrature and
+not a fit**: estimated by a binned average over the evaluation draw, at two bin counts, with the
+difference reported beside the column as its own error. **A branch smaller than that error is
+reported as not resolvable** rather than as a number — this section's *"where the DGP permits"*,
+said out loud rather than discovered after a dispatch.
+
+The empirical-process terms `M₁` and `M̃₂` are **refused by name**. They are `(P_n − P_0)` of a
+difference of estimated curves, and under the fold convention above `P_n` and `P₀` are taken at
+different renderings of the nuisances — out of fold on the fitting sample, fold-conditional on the
+evaluation draw — so there is no single-sample expression that is both. Picking one and calling it
+the theorem's term would be worse than not reporting it. What is reported is each branch's
+**second-order half**, which is the half gate 1's clause 4 is about: an empirical-process term is
+`o_p(n^(−1/2))` under the Donsker and `L₂` conditions above and carries no product of nuisance
+errors to cancel against.
 
 ### What to report
 
@@ -757,9 +809,11 @@ exit criterion item 7 replaced. Re-measured on a four-core container: that same 
 factor of 7.7, which is the *"seventh of the wall clock"* B2b's corrected exit criterion bought —
 and a **Tier-1** fit is **1.2s**, because its primary nuisances are function evaluations rather
 than learner fits and what it pays for is the alternation. So the Tier-1 pilot — 2 cells × 3 sizes
-× 50 replicates, 300 draws and 600 fits — is under an hour at `jobs=2`. **Tier 2 will not be**:
-its nuisances are fitted, which is what the 43s was measuring, so C2 re-times before it re-scopes
-rather than inheriting either number. `.github/workflows/drtmle-coverage.yml` is the dispatch-only
+× 50 replicates, 300 draws and 600 fits — is under an hour at `jobs=2`. **Tier 2 was expected not
+to be**: its nuisances are fitted, which is what the 43s was measuring, so C2 re-timed before
+re-scoping rather than inheriting either number — and measured **5.4s to 7.4s** per fit at
+`n = 600` with a 2,000-row companion, so it is affordable too. The additive smoother is cheaper
+than the boosting library the 43s was measuring. `.github/workflows/drtmle-coverage.yml` is the dispatch-only
 workflow — a `matrix:` over the cells, since both estimators of a pair must be fitted in one worker
 for the shortfall to stay paired — and the nightly tier must not absorb it.
 

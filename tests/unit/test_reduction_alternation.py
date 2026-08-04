@@ -61,17 +61,18 @@ NUISANCE_BOUND = 1e-8
 def refit_closure(data, counter: list[NuisanceEstimates] | None = None):
     """A saturated refit of the three reduced regressions, recording what it was handed."""
 
-    def refit(current: NuisanceEstimates) -> ReducedSet:
+    def refit(current: NuisanceEstimates) -> tuple[ReducedSet, tuple[ReducedSet, ...]]:
         if counter is not None:
             counter.append(current)
-        reduced, _ = fit_reduced(
+        reduced, _, at_companion = fit_reduced(
             data,
             current,
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
+            companion=current.companion,
         )
-        return reduced
+        return reduced, at_companion
 
     return refit
 

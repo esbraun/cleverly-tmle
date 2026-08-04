@@ -107,7 +107,7 @@ def fitted(
     data: CausalData | None = None,
     folds: Folds | None = None,
 ) -> ReducedSet:
-    reduced, _ = fit_reduced(
+    reduced, _, _ = fit_reduced(
         causal_data() if data is None else data,
         nuisances(g_hat, q_hat, folds=folds),
         regression_learner=CellMeans(),
@@ -183,7 +183,7 @@ class TestTheResidualIsOnTheScaledOutcome:
     def test_relabelling_the_outcome_leaves_qr_exactly_where_it_was(self) -> None:
         data, nuisance = self._relabelled()
         assert not nuisance.scaler.is_identity, "the relabelling must not be a no-op"
-        reduced, _ = fit_reduced(
+        reduced, _, _ = fit_reduced(
             data,
             nuisance,
             regression_learner=CellMeans(),
@@ -203,7 +203,7 @@ class TestTheResidualIsOnTheScaledOutcome:
     def test_the_two_reduced_mechanisms_do_not_read_the_outcome_at_all(self) -> None:
         """So relabelling cannot move them, which is what says the above is about ``Qr``."""
         data, nuisance = self._relabelled()
-        reduced, _ = fit_reduced(
+        reduced, _, _ = fit_reduced(
             data,
             nuisance,
             regression_learner=CellMeans(),
@@ -231,13 +231,13 @@ class TestTheArmMaskBelongsToTheOutcomeResidualOnly:
         seen: list[Any] = []
         import cleverly.estimators.reduced as module
 
-        original = module.cross_fit_predictions
+        original = module.cross_fit_companion
 
         def record(*args: Any, **kwargs: Any) -> Any:
             seen.append(kwargs["fit_mask"])
             return original(*args, **kwargs)
 
-        monkeypatch.setattr(module, "cross_fit_predictions", record)
+        monkeypatch.setattr(module, "cross_fit_companion", record)
         fitted(WRONG_G, WRONG_Q)
 
         treatment = law.frame()["A"].to_numpy(dtype=float)
@@ -297,7 +297,7 @@ class TestTheClipIsPerRegression:
                 p = self.predict(x)
                 return np.column_stack([1.0 - p, p])
 
-        reduced, _ = fit_reduced(
+        reduced, _, _ = fit_reduced(
             causal_data(),
             nuisances(WRONG_G, WRONG_Q),
             regression_learner=OutOfRange(),
@@ -373,13 +373,13 @@ class TestTheSplitIsTheOneTheNuisancesUsed:
         import cleverly.estimators.reduced as module
 
         seen: list[Any] = []
-        original = module.cross_fit_predictions
+        original = module.cross_fit_companion
 
         def record(*args: Any, **kwargs: Any) -> Any:
             seen.append((args[4], kwargs["groups"]))
             return original(*args, **kwargs)
 
-        monkeypatch.setattr(module, "cross_fit_predictions", record)
+        monkeypatch.setattr(module, "cross_fit_companion", record)
         folds = make_folds(law.N, 3, random_state=0)
         fitted(WRONG_G, WRONG_Q, folds=folds)
 
@@ -392,13 +392,13 @@ class TestTheSplitIsTheOneTheNuisancesUsed:
         import cleverly.estimators.reduced as module
 
         seen: list[Any] = []
-        original = module.cross_fit_predictions
+        original = module.cross_fit_companion
 
         def record(*args: Any, **kwargs: Any) -> Any:
             seen.append(kwargs["groups"])
             return original(*args, **kwargs)
 
-        monkeypatch.setattr(module, "cross_fit_predictions", record)
+        monkeypatch.setattr(module, "cross_fit_companion", record)
         frame = law.frame().assign(pid=np.arange(law.N) // 10)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W"], id="pid")
         fitted(WRONG_G, WRONG_Q, data=data)

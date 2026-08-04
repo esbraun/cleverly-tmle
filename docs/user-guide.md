@@ -1194,6 +1194,26 @@ unless you are running that comparison. It costs `n_folds` times the primary nui
 more than that, more alternation rounds — 1.3x to 17x a pooled fit's wall clock on the draws
 measured so far.
 
+`evaluation=` is the **third**, and it exists so that a *condition of the theorem* is a
+measurement rather than an assumption. Solving the three score equations is necessary; the source
+separately assumes the remainder left over is negligible, and checking that needs the population
+mean of the fitted doubly-robust curve — a mean over rows the fit never saw, since the empirical
+one is the quantity targeting drove to zero. Passing an independent draw here evaluates every
+fold's nuisances at it and moves them by the same targeting steps the fitted arrays take, so the
+curve is available as a *function*:
+
+```python
+holdout, _ = make_nonlinear_ate(n=20_000, seed=99)
+res = DRTMLE(..., evaluation=holdout).fit(frame, outcome="Y", treatment="A").single()
+companion = res.repeats[0].fluctuations["mean"].reduction.evaluation
+```
+
+The draw contributes to no fit, no fold and no score, so a fit that declares one is bit for bit a
+fit that does not — and it is refused with `repeats=`, `targeting="one_step"` and
+`target_weights=True`, each by name. What to do with it is
+[`benchmarks/drtmle_remainder.py`](../benchmarks/drtmle_remainder.py); this is a research
+instrument for [item 13](roadmap.md#what-is-still-open) rather than something an applied fit needs.
+
 **A single guard reports a shorter curve, and the report says which.** One correction per
 equation the guard asks for: `guard=("g",)` solves equation (10) and reports
 `D = D* - D*_Q`, and the verdict names that rather than the both-guards curve. The other

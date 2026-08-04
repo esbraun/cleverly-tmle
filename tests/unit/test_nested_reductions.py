@@ -112,7 +112,7 @@ def _inner_from(
 def _fitted(inner: InnerDesigns | None, *, folds: Any) -> ReducedSet:
     """``fit_reduced`` at the declared nuisances, pooled when ``inner`` is ``None``."""
     base = nuisances(WRONG_G, WRONG_Q, folds=folds)
-    reduced, _ = fit_reduced(
+    reduced, _, _ = fit_reduced(
         causal_data(),
         base if inner is None else replace(base, inner=inner),
         regression_learner=CellMeans(),

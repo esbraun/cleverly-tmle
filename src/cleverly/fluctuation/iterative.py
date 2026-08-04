@@ -24,7 +24,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 
@@ -35,6 +35,7 @@ from ._score import quasi_loglik, relative_score, score_columns, score_scale
 from .submodel import Submodel, check_arms, weighted_form
 
 __all__ = [
+    "CarryItem",
     "Fluctuation",
     "FoldFluctuation",
     "InitialFit",
@@ -44,6 +45,18 @@ __all__ = [
 ]
 
 TargetingLabel = Literal["iterative", "one_step", "linear"]
+
+#: One item of ``carry``: a further initial fit moved by the same steps as the fitted one.
+#:
+#: A bare :class:`InitialFit` travels along the **production** submodel, which is what the
+#: nested reduced-regression construction wants -- its fold-free copies describe the same
+#: rows, so they take the same clever covariate.  A ``(fit, submodel)`` pair travels along
+#: one of its own, which is what an *evaluation companion* needs: its rows are not the
+#: fitted rows, so ``1_a / g^*`` at them is a different array even though ``epsilon`` is the
+#: same number.  Both are moved by the identical step sequence, which is the whole reason
+#: either goes through the solver rather than being reconstructed from ``(initial, epsilon)``
+#: afterwards -- see :attr:`Fluctuation.carried`.
+CarryItem: TypeAlias = "InitialFit | tuple[InitialFit, Submodel]"
 
 #: How a targeting step failed, when it did.  Naming the mode matters because the
 #: fixes differ: ``separation_suspected`` and ``bounds_pinned`` point at positivity,
@@ -350,7 +363,7 @@ def solve_fluctuation(
     max_iter: int = 20,
     tol: float = 1e-10,
     warn: bool = True,
-    carry: Sequence[InitialFit] = (),
+    carry: Sequence[CarryItem] = (),
 ) -> Fluctuation:
     """Run the targeting step.
 
@@ -375,11 +388,13 @@ def solve_fluctuation(
     target_weights:
         Use the weighted form of the fluctuation (R's ``target.gwt``).
     carry:
-        Further initial fits to move along the same submodel by the same steps, returned
-        on :attr:`Fluctuation.carried`.  Nothing here reads them: they take the step and
+        Further initial fits to move by the same steps, returned on
+        :attr:`Fluctuation.carried`.  Nothing here reads them: they take the step and
         contribute nothing to it, so a fit that passes none is unchanged in every array
-        and every diagnostic.  See :attr:`Fluctuation.carried` for why an endpoint plus
-        an ``epsilon`` is not a substitute.
+        and every diagnostic.  A bare fit travels along *this* submodel and a
+        ``(fit, submodel)`` pair along one of its own -- see :data:`CarryItem`.  And see
+        :attr:`Fluctuation.carried` for why an endpoint plus an ``epsilon`` is not a
+        substitute for either.
     """
     y = np.asarray(outcome, dtype=float).reshape(-1)
     n = y.shape[0]
@@ -400,7 +415,11 @@ def solve_fluctuation(
     fit_submodel, fit_weights = weighted_form(submodel, w) if target_weights else (submodel, w)
 
     current = initial.shrunk(alpha)
-    carried = tuple(fit.shrunk(alpha) for fit in carry)
+    # The submodel a carried item travels along is fixed before the first step, so an
+    # evaluation companion cannot pick up a covariate from a later iterate than the one
+    # its own state was built at.
+    carry_fits, carry_submodels = split_carry(carry, fit_submodel)
+    carried = tuple(fit.shrunk(alpha) for fit in carry_fits)
     epsilon = np.zeros(fit_submodel.dim)
     scale = score_scale(scoring_submodel.observed, w, mask)
     # trace[0] is the score at epsilon = 0, so the same entry means the same thing
@@ -420,7 +439,10 @@ def solve_fluctuation(
         )
         epsilon = epsilon + step
         current = apply_logistic(current, fit_submodel, step, alpha)
-        carried = tuple(apply_logistic(fit, fit_submodel, step, alpha) for fit in carried)
+        carried = tuple(
+            apply_logistic(fit, own, step, alpha)
+            for fit, own in zip(carried, carry_submodels, strict=True)
+        )
         score = score_columns(y, current.observed, scoring_submodel.observed, w, mask)
         trace.append(relative_score(score, scale))
         if trace[-1] <= tol or (step_converged and np.max(np.abs(step)) <= tol):
@@ -486,6 +508,32 @@ def _classify(
     if iterations >= max_iter:
         return "max_iter_reached"
     return detail.failure or "max_iter_reached"
+
+
+def split_carry(
+    carry: Sequence[CarryItem], default: Submodel
+) -> tuple[tuple[InitialFit, ...], tuple[Submodel, ...]]:
+    """The carried fits and the submodel each of them travels along.
+
+    A bare :class:`InitialFit` takes ``default`` -- the submodel the fitted arrays are
+    moving along, which is right whenever the carried arrays describe the same rows.  A
+    ``(fit, submodel)`` pair takes its own, which is what rows the fit never saw need.  See
+    :data:`CarryItem`.
+
+    The two are separated here rather than at each call site so that both solvers and every
+    future one read one definition of what a carried item is.
+    """
+    fits: list[InitialFit] = []
+    submodels: list[Submodel] = []
+    for item in carry:
+        if isinstance(item, tuple):
+            fit, own = item
+            fits.append(fit)
+            submodels.append(own)
+        else:
+            fits.append(item)
+            submodels.append(default)
+    return tuple(fits), tuple(submodels)
 
 
 def apply_logistic(
@@ -605,7 +653,7 @@ def _solve_linear(
     weights: FloatArray,
     mask: BoolArray,
     *,
-    carry: Sequence[InitialFit] = (),
+    carry: Sequence[CarryItem] = (),
 ) -> Fluctuation:
     """Fluctuate on the identity scale: a single weighted least-squares solve.
 
@@ -622,14 +670,15 @@ def _solve_linear(
     step = _solve_step(lhs, rhs)
     epsilon = np.zeros(submodel.dim) if step is None else step
 
-    def moved(fit: InitialFit) -> InitialFit:
+    def moved(fit: InitialFit, along: Submodel) -> InitialFit:
         return InitialFit(
-            fit.observed + submodel.observed @ epsilon,
-            {level: values + submodel.arms[level] @ epsilon for level, values in fit.arms.items()},
+            fit.observed + along.observed @ epsilon,
+            {level: values + along.arms[level] @ epsilon for level, values in fit.arms.items()},
         )
 
-    targeted = moved(initial)
-    carried = tuple(moved(fit) for fit in carry)
+    targeted = moved(initial, submodel)
+    carry_fits, carry_submodels = split_carry(carry, submodel)
+    carried = tuple(moved(fit, own) for fit, own in zip(carry_fits, carry_submodels, strict=True))
     escaped = any(values.min() < 0.0 or values.max() > 1.0 for values in targeted.arms.values())
     if escaped:
         warnings.warn(

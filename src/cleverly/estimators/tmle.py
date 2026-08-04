@@ -1142,6 +1142,7 @@ class TMLE:
         intermediate_value: float | None,
         extra_levels: Sequence[float] = (),
         seed: int | None = None,
+        companion: CausalData | None = None,
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         estimates = fit_nuisances(
@@ -1184,6 +1185,7 @@ class TMLE:
             incremental=self.incremental,
             incremental_reference=None if self.reference is None else str(self.reference),
             density_bins=self.density_bins,
+            companion=companion,
             n_jobs=self.n_jobs,
         )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and

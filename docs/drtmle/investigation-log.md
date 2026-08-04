@@ -881,6 +881,76 @@ van der Laan & Gilbert was read by the second review and transcribed into
 [the concordance](theorem-concordance.md). **Check the network again rather than inheriting
 this measurement**, and prefer a checked-in copy to either.
 
+## What C2 measured, and the two things it changed its mind about
+
+Piece C2 built item 13's instrument — the evaluation companion, Tier 2, and the remainder columns
+— and two of its design choices are recorded here rather than in the design note, because both are
+*measurements that overturned a plan* rather than constants a reader needs to look up.
+
+### The regressogram §5 names cannot carry a declared remainder rate
+
+The validation plan's §5 asks Tier 2 for *"a series, spline or histogram regression with a
+smoothing sequence chosen in advance"*, and a histogram was the obvious reading. It does not work,
+and the reason is §5's **own** inner-product trap arriving through a door that section does not
+look at.
+
+A regressogram's bias is `truth − within-bin mean`, which **oscillates in sign inside every bin**.
+So its `L₂` norm is `O(B⁻¹)` while its inner product with a *smooth* weight is `O(B⁻²)` — the
+oscillation integrates away against anything that does not oscillate with it. The remainder is an
+inner product. So matching a declared remainder rate of `n^(−α)` needs `B_n ≍ n^(α/2)`... no:
+`B_n^(−2) = n^(−α)` needs `B_n ≍ n^(α/2)`, which at `α = 0.25` and the study's sizes is 5 to 6 bins
+and moves by 20% across a fourfold range — so integer rounding, not the sequence, decides the rate.
+Pushing `B_n` up to make the rounding negligible puts the fit the other side of the bias–variance
+line: an additive regressogram with `4 × 18` parameters on the 480 training rows of an `n = 600`
+fold has a variance of `0.39` against a bias of `0.08`, and the remainder it then produces is
+sampling noise wearing a design's name.
+
+What replaced it is an oversmoothed **additive local-constant kernel**, whose bias is
+`h²[½∇²m + ∇m·∇log p]` — smooth, and single-signed against a monotone weight, so no cancellation is
+available to it. §5's list is illustrative and what it asks for is a sequence chosen in advance; a
+bandwidth is one.
+
+**The additive part is a second measurement.** A four-dimensional *product* kernel wide enough to
+be bias-dominated at `n = 600` smooths over essentially the whole covariate space: measured at an
+`L₂` error of **1.81** against an outcome standard deviation of **1.75**, which is not a slow
+learner but a broken one. One dimension at a time has variance `O(1/(nh))` and is bias-dominated at
+a bandwidth that still resolves the function.
+
+### The committed coefficient came out within a few percent on the first draw
+
+The design commits `c_ATE` by quadrature — `0.389` for `q-drift` and `0.410` for `g-drift`, sized so
+they match Tier 1's `0.40`. One draw at `n = 600` measured `n^α R₂` at **`0.407`** and **`0.370`**
+against them. That is §5's *"verify empirically that `n^α R₂ → c`"* landing on the first attempt,
+and it is worth recording because the coefficient is a **prediction** here rather than the identity
+Tier 1 normalises its shape to produce.
+
+### Tier 2 is the cheap tier, which is the opposite of what the page expected
+
+This page and the roadmap both said Tier 2 *"will not be"* cheap, on the reasoning that its
+nuisances are fitted and that is what the stale 43s-per-fit figure was measuring. Re-timed on a
+four-core container:
+
+| | measured |
+| --- | --- |
+| a Tier-2 `DRTMLE` fit, `q-drift` at `n = 600`, 2,000-row companion | **5.4s** |
+| the same at `g-drift` | **7.4s** |
+| an ordinary `DRTMLE` fit at `n = 1,200` (C1's re-timing) | 5.6s |
+| the figure piece C was costed from | 43s |
+
+The additive smoother is cheaper than the `SuperLearner` the 43s was measuring, so the study is
+affordable at either tier. The lesson is the one C1 already recorded and this is a second instance
+of: **a cost figure inherited across a change of estimator is not a cost figure.**
+
+### What a single replicate's `R_remaining` is mostly made of
+
+`P₀D̂` is a quadrature over the evaluation draw, so its error is `sd(D)/√m` and it lands **directly**
+in that replicate's `R_remaining`. Measured: at `m = 1,500` the error is `0.026` against a remainder
+of order `0.007`, so one draw's column is three parts noise to one part signal. At `m = 4,000` it is
+`0.016`. This is why the harness draws an **independent** evaluation sample per replicate — so the
+error averages down across them rather than biasing every row the same way — and why every entry in
+the remainder table carries a Monte Carlo standard error. A reader who takes a single row's
+`√n R_remaining` as a measurement of the remainder is reading the quadrature.
+
 ## What the sizings got wrong
 
 Thirteen lessons, distilled from the per-item retrospectives that used to run to several hundred
