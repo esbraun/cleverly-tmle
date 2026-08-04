@@ -370,13 +370,13 @@ the new profiles. The proposal's 5%-of-corrected-runtime rule is the right bar.
 Steps 0–5 produce no new package structure, which is the point of the reordering:
 
 ```
-benchmarks/results/production_plan.md        this document
-benchmarks/results/revised_findings.md       or a rewritten findings.md; one or the other, not both
-benchmarks/results/thread_limit_profile.md   Step 1
-benchmarks/results/bootstrap_numpy.md        Step 2 (the proposal's bootstrap_integration.md, renamed
+docs/benchmarks/production_plan.md        this document
+docs/benchmarks/revised_findings.md       or a rewritten findings.md; one or the other, not both
+docs/benchmarks/thread_limit_profile.md   Step 1
+docs/benchmarks/bootstrap_numpy.md        Step 2 (the proposal's bootstrap_integration.md, renamed
                                              for what it will actually contain)
-benchmarks/results/cluster_integration.md    Step 3
-benchmarks/results/longitudinal_phases.md    Steps 4-5
+docs/benchmarks/cluster_integration.md    Step 3
+docs/benchmarks/longitudinal_phases.md    Steps 4-5
 tests/unit/test_thread_limit.py              Step 1
 tests/unit/test_multiplier_blocking.py       Step 2
 tests/unit/test_cluster_codes.py             Step 3

@@ -546,7 +546,7 @@ class TestTheAlternationCanBeIllConditioned:
     wrong.**  Six seeded fits at ``n = 800`` on this one process reported no ill-conditioned
     solve and a worst score of ``1e-9``, which read as a minority behaviour of particular
     draws.  A 96-fit sweep -- four processes by two sizes by twelve seeds, tabulated in
-    ``docs/drtmle-investigation-log.md`` under *How the alternation exits* -- says otherwise:
+    ``docs/drtmle/investigation-log.md`` under *How the alternation exits* -- says otherwise:
     the solve is ill-conditioned on 5 of 12 ``linear`` draws at ``n = 600`` and 9 of 12 at ``n = 1,200``,
     and highest exactly where the mechanism is easiest to get right, which is what the
     paragraph above predicts and what sweeping only hard processes would have hidden.  A fit
@@ -623,7 +623,7 @@ class TestAnEquationStopsOnEitherRuler:
     Asserting ``exit_reason == "tolerance"`` on a fitted result would be the other candidate,
     and it is rejected for the reason the class above rejects it: which exit fires is a
     property of the draw, and six fits are not enough to make it a property of the estimator.
-    The sweep in ``docs/drtmle-investigation-log.md`` had 2 of 96 reach the tolerance under
+    The sweep in ``docs/drtmle/investigation-log.md`` had 2 of 96 reach the tolerance under
     the *old* rule and
     the new rule has not been swept, so pinning it here would pin a seed.
 
@@ -1028,7 +1028,7 @@ def paper(fit):
 class TestBothUpdateOrdersReachTheTheoremsExit:
     r"""Item 22's numerical half, at one draw: two routes, one stated fixed point.
 
-    The 2016 working paper states a six-step recursion (`docs/drtmle-theorem-concordance.md`
+    The 2016 working paper states a six-step recursion (`docs/drtmle/theorem-concordance.md`
     §6) and this package's alternation is not a transcription of it.  Reading the paper
     settled the *theoretical* half -- its step 7 states termination as the three empirical
     means being approximately zero, so the order is one way of reaching a fixed point rather
@@ -1147,7 +1147,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         sequence of *solves* instead, which is what the order is.
 
         Two hooks on the targeting module's namespace and nothing in the library moved,
-        which is how ``docs/drtmle-investigation-log.md`` records B1b's prototype being run.
+        which is how ``docs/drtmle/investigation-log.md`` records B1b's prototype being run.
         The first round is all that is asserted: a round is the unit the order is defined
         over, and later rounds repeat it.
         """

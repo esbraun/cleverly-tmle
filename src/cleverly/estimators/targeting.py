@@ -153,7 +153,7 @@ ReductionExit = Literal["tolerance", "stall", "cap"]
 #:
 #: ``"cleverly"`` is this package's own and the default, bit for bit what it always was:
 #: equation (9), refit, equation (10), equation (8), refit.  ``"paper"`` is
-#: ``docs/drtmle-theorem-concordance.md`` §6's steps 2 to 6 -- equation (8), refit
+#: ``docs/drtmle/theorem-concordance.md`` §6's steps 2 to 6 -- equation (8), refit
 #: :math:`g_{r,1}` and :math:`g_{r,2}` at the **once-updated** outcome regression, equation
 #: (10), refit :math:`Q_r` at the **twice-updated** one, equation (9).  Neither the exit
 #: test, the stall rule nor the closing pass differs between them, deliberately: what is in
@@ -876,7 +876,7 @@ def solve_with_reduction(
     :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
 
     **Swept over 96 fits** -- four processes by two sizes by twelve seeds, the table under
-    *How the alternation exits* in ``docs/drtmle-investigation-log.md`` -- which replaced the
+    *How the alternation exits* in ``docs/drtmle/investigation-log.md`` -- which replaced the
     six-fit claim that stood here.  It
     said the loop "converged in 15 to 45 rounds" on six seeded draws of *one* process, and
     so ran to the cap only on a minority.  Running out of rounds is a minority (8 of 96),
@@ -949,7 +949,7 @@ def solve_with_reduction(
     for outer in range(1, max_outer + 1):
         if order == "paper":
             # Steps 2 to 6 of the working paper's recursion, in its order --
-            # `docs/drtmle-theorem-concordance.md` §6. The two refits are the paper's own
+            # `docs/drtmle/theorem-concordance.md` §6. The two refits are the paper's own
             # steps 3 and 5 and they are what the order is *about*: the reductions are
             # taken at two different vintages of the outcome regression, the mechanism
             # half at the once-updated one and Qr at the twice-updated one, where this
@@ -1344,7 +1344,7 @@ def _close_at_frozen_reductions(
     truncation left alone and differed on every row it clipped, and one clipped row of 600
     was enough to leave the reported curve uncentred by ``5.8e-4`` while this stage recorded
     ``8e-11``.  That was item 20 in ``docs/roadmap.md``, it accounted for item 11 as well,
-    and the measurements are in ``docs/drtmle-investigation-log.md``.
+    and the measurements are in ``docs/drtmle/investigation-log.md``.
 
     :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` is what closed it: it
     solves the score at the **truncated** tilt, which is the expression the reported curve

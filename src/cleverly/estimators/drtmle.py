@@ -18,7 +18,7 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       block in a form satisfiable only with the *positive* correction, and Theorem 1's
       variance formula then reads exactly as this package computes it.  The argument, and the
       two further sign slips in the same document, are in
-      ``docs/drtmle-theorem-concordance.md`` §4; ``tests/unit/test_theorem_drtmle.py`` pins
+      ``docs/drtmle/theorem-concordance.md`` §4; ``tests/unit/test_theorem_drtmle.py`` pins
       it, at a **nonzero** :math:`Q_r`, which is the only place a sign is visible.  What is
       *not* planned is a comparison against that package's numbers: both descend from one
       source, so agreement would be evidence about the transcription and blind to exactly
@@ -226,7 +226,7 @@ class DRTMLE(TMLE):
         pass, deliberately: what is in question is the route.
 
         Two cautions carry over from
-        ``docs/drtmle-theorem-concordance.md`` §6.  Compare the **scores and the estimates**,
+        ``docs/drtmle/theorem-concordance.md`` §6.  Compare the **scores and the estimates**,
         never the fluctuation coefficients: the submodels a round passes through differ, so
         an ``epsilon`` from one is not an ``epsilon`` from the other.  And compare the two at
         the **same nuisances** -- the same data, the same ``random_state`` -- since the

@@ -12,9 +12,10 @@ venv/
 .coverage
 htmlcov/
 target/
-# Benchmark *runs* are machine-specific and are not committed; the written-up
-# findings that live beside them are. A `results.jsonl` from a four-core sandbox
-# would read as a fact about the package rather than about that box.
+# Benchmark *runs* are machine-specific and are not committed: a `results.jsonl`
+# from a four-core sandbox would read as a fact about the package rather than
+# about that box. This directory is now output only -- the write-ups that used to
+# sit beside it live in `docs/benchmarks/`, where a reader looking for the
+# findings will find them and a `--output` will not overwrite them.
 benchmarks/results/*
-!benchmarks/results/*.md
 !benchmarks/results/.gitkeep

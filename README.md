@@ -28,7 +28,12 @@ reason, rather than approximated.
 | --- | --- |
 | [User guide](https://github.com/esbraun/cleverly-tmle/blob/main/docs/user-guide.md) | one runnable recipe per capability — multi-arm treatments, dynamic and stochastic regimes, continuous doses, incremental interventions, marginal structural models, longitudinal and survival fits, C-TMLE, cross-fitting, weights |
 | [Technical appendix](https://github.com/esbraun/cleverly-tmle/blob/main/docs/methodology.md) | per algorithm: the estimand, its efficient influence curve, the second-order remainder, and the test that fails when it is built wrong |
-| [Roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) | what has landed, what is worth building next, and where native acceleration does and does not pay |
+| [Roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) | what has landed, what is worth building next, and — at the top — the [standing decisions](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md#standing-decisions) this package has taken and will not re-litigate |
+| [Benchmarks](https://github.com/esbraun/cleverly-tmle/blob/main/docs/benchmarks/) | where a fit's time goes, and what compiling or parallelising the package's own arithmetic would buy |
+
+Everything under [`docs/`](https://github.com/esbraun/cleverly-tmle/blob/main/docs/), including the
+`DRTMLE` working documents, is indexed in
+[`docs/README.md`](https://github.com/esbraun/cleverly-tmle/blob/main/docs/README.md).
 
 ## Install
 
@@ -329,9 +334,9 @@ python -m benchmarks.numba.cli --config benchmarks/configs/sandbox.json
 The second benchmark answers a narrower question than the first and answers it properly:
 with the nuisance fits excluded from every timed region, does compiling or parallelising
 the package's own arithmetic help? Its write-ups are
-[the profile](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/candidate_inventory.md),
-[the measurement](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/findings.md)
-and [what acting on it found](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/results/production_plan.md).
+[the profile](https://github.com/esbraun/cleverly-tmle/blob/main/docs/benchmarks/candidate_inventory.md),
+[the measurement](https://github.com/esbraun/cleverly-tmle/blob/main/docs/benchmarks/findings.md)
+and [what acting on it found](https://github.com/esbraun/cleverly-tmle/blob/main/docs/benchmarks/production_plan.md).
 The short answer so far is **numpy**: the two kernels the measurement rated clearest for
 compilation were rewritten in numpy first, as its own rule required, and both ratios
 collapsed — a Rademacher bootstrap 3.4–3.9× faster at a fixed 32 MB of working memory at any

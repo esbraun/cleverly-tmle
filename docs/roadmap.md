@@ -15,11 +15,11 @@ demonstration that the interval attains nominal coverage where a plain `TMLE`'s 
 
 **The sweep is now a dispatch rather than a piece of work**: its instrument landed with
 [B2a](#b2a--the-sweep-instrument), which built the columns
-[§4](drtmle-validation-plan.md#4-the-sweep-piece-b2) asks for and the second update order item 22
+[§4](drtmle/validation-plan.md#4-the-sweep-piece-b2) asks for and the second update order item 22
 needs, and verified the workflow on a four-fit run.
 
 That grouping and its order are a revision, three times over. An [external
-review](drtmle-review.md) of this page and the code behind it read the plan against Theorem 1 of
+review](drtmle/review.md) of this page and the code behind it read the plan against Theorem 1 of
 Benkeser et al. (2017) and found the definition of done right and the route to it short by two
 conditions, which are now items 13 and 15. A second review turned that into a dependency-ordered
 execution plan, and checking *its* central claim — that the returned state and the reported curve
@@ -41,7 +41,7 @@ than a transcription of it closed both of the third review's items — the **sig
 implementation**, on that paper's own appendices, which contradict the display the charge was
 filed from; and the **update order**, because the paper states its own exit as the three score
 equations and so prescribes a fixed point rather than a route. That is
-[lesson 10](drtmle-investigation-log.md#what-the-sizings-got-wrong), and it is why this page no
+[lesson 10](drtmle/investigation-log.md#what-the-sizings-got-wrong), and it is why this page no
 longer opens with a stop-ship.
 
 **Piece A has since split in two as well, and the reason is not B1's — worth keeping the two
@@ -61,9 +61,9 @@ was:
 | document | what is in it |
 | --- | --- |
 | **this page** | status, the pieces, what blocks what, the release gates, the definitions of done |
-| [theorem concordance](drtmle-theorem-concordance.md) | the theorem objects, the assumptions and their grading, the appendix-B terms, the paper/Python/R mapping, the cross-fitting status |
-| [validation plan](drtmle-validation-plan.md) | the fixtures, the candidate targeting algorithms, the benchmark columns, the coverage design, the frozen decision rules, the mutations |
-| [investigation log](drtmle-investigation-log.md) | item 20's discovery, the clipped-row measurements, the hypothesis that was dropped, the convergence sweep, the runner history, the lessons |
+| [theorem concordance](drtmle/theorem-concordance.md) | the theorem objects, the assumptions and their grading, the appendix-B terms, the paper/Python/R mapping, the cross-fitting status |
+| [validation plan](drtmle/validation-plan.md) | the fixtures, the candidate targeting algorithms, the benchmark columns, the coverage design, the frozen decision rules, the mutations |
+| [investigation log](drtmle/investigation-log.md) | item 20's discovery, the clipped-row measurements, the hypothesis that was dropped, the convergence sweep, the runner history, the lessons |
 
 Everything else here is a record: [Refusals worth lifting](#refusals-worth-lifting) is the list of
 parameters this package had the machinery for and had simply not written down, and it is now
@@ -73,6 +73,27 @@ Nothing is queued behind `DRTMLE`. The remaining rows under [Not written
 yet](methodology.md#not-written-yet) are there because nobody has asked, not because anything
 stands in the way, and the one standing conditional item is the [HAL
 trigger](#on-native-acceleration).
+
+## Standing decisions
+
+Choices this package has made, each on evidence rather than on taste, and each of which
+someone will otherwise re-derive from scratch. **This table is the verdict; the linked
+documents are the evidence.** Read a row before opening what it links to — the point of
+having it is that "why is there no `numba` dependency" should not cost seven measurement
+write-ups.
+
+Each row also says what would *reopen* it, because a decision with no such condition is a
+prejudice.
+
+| decision | why, in one line | reopened by | evidence |
+| --- | --- | --- | --- |
+| **`numba` is a benchmark-only dependency.** Nothing under `src/` imports it | all three "adopt numba" recommendations dissolved once the numpy baseline was written properly — an expansion that need not happen, a sort already done elsewhere, a quadratic mask rebuild — and the largest single win in the whole investigation was a context manager | a kernel beating a *competent numpy* baseline, on a machine with more than four cores. Nothing is measured above four, and no CI job runs above two | [benchmarks](benchmarks/) |
+| **No Rust or other native extension**, and the package stays pure Python | nuisance estimation dominates every realistic fit and already runs in compiled code; cleverly-authored arithmetic does not reach 3% of a `default` fit even at five million rows | **HAL** — a nuisance learner that is not scikit-learn moves the whole denominator. Unchanged, and still the trigger | [On native acceleration](#on-native-acceleration) |
+| **The internals are numpy, not polars**, whatever the caller passes in | the whole dataframe boundary is 1.5% of the cheapest fit and 0.06% of a realistic one — 1.5% and 0.04% asymptotically — so there is no share for a columnar engine to win, and scikit-learn takes contiguous numpy regardless | a workload whose cost is joins, group-bys or IO. None of those is on this path | [At several million rows](#at-several-million-rows) |
+| **No R in this repository and none in CI**, and no parity test against another implementation | two checks that cannot fail against the same class of error are one check: Python and R descend from one source, so agreement is evidence about a transcription and not about a derivation | nothing. It is a retirement, not a deprioritisation — and referring to another implementation *in prose* was never what was refused | [What the sizings got wrong](#what-the-sizings-got-wrong), lesson 9 |
+| **Nuisance fits run single-threaded**, with one `ThreadpoolController` per process | parallelism belongs across folds and candidates rather than inside each small fit; building the controller per entry was 57% of a DR-TMLE `retarget` | a fit large enough that one model wants the machine — `set_thread_limit(None)` is the lever, not a code change | [`thread_limit_profile.md`](benchmarks/thread_limit_profile.md) |
+| **`tracemalloc` is the memory instrument** | it *does* see numba's allocations, through all three CPython allocator domains — the caveat that said otherwise was wrong and was measured to be wrong | a question about resident memory rather than allocation, or a library calling `malloc` directly. That needs an incremental-RSS arm *beside* this column, not instead of it | [`production_plan.md`](benchmarks/production_plan.md) §1.3 |
+| **Benchmark write-ups live in [`docs/benchmarks/`](benchmarks/)**; `benchmarks/results/` is generated output and is git-ignored | a `results.jsonl` from a four-core container reads as a fact about the package rather than about that box | nothing | [`docs/README.md`](README.md) |
 
 ## Variants
 
@@ -116,7 +137,7 @@ registry.
     correction, and Theorem 1's variance formula then reads exactly as this package computes it.
     So the display is wrong on its face, in a document that also prints `D_Y` twice with two
     signs. The argument, the two further slips in the same paper, and what is left are in [the
-    concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved);
+    concordance's §4](drtmle/theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved);
     `tests/unit/test_theorem_drtmle.py` pins it, watched to fail against a flipped sign in the
     library itself;
   - **the reported curve is not centred whenever the targeted mechanism leaves the truncation
@@ -127,7 +148,7 @@ registry.
     the curve subtracts reads the *truncated* one, so a single clipped row of 600 is enough to
     decentre the curve while every fluctuation row still reports `1e-11`. It is a `DRTMLE`-only
     defect and it is not confined to poor overlap. [The investigation
-    log](drtmle-investigation-log.md#item-20-from-discovery-to-cause) carries the measurements.
+    log](drtmle/investigation-log.md#item-20-from-discovery-to-cause) carries the measurements.
 
   **[B1b](#b1b--the-theorem-conforming-targeting-decision) has landed and closed it.**
   `solve_bounded_mechanism` solves equation (9)'s score at the truncated tilt — the expression the
@@ -153,7 +174,7 @@ registry.
   has been compared against that package's numbers and **nothing will be**, which is a
   [decision](#closed-since-this-list-opened) rather than a gap; and a coverage study found **no gap
   for the variant to close** at the sizes it could reach. [What is still open](#what-is-still-open) is the
-  rest. Three of its items are there because the [first review](drtmle-review.md) put them there:
+  rest. Three of its items are there because the [first review](drtmle/review.md) put them there:
   the theorem's *other* assumption beyond the three score equations (item 13), the cross-fitting
   construction the reductions would need to satisfy it (item 15), and the claim that the
   alternation converges (19). Four more of that review's items — that the corrected curve is the
@@ -181,7 +202,7 @@ while another fails:
    `tests/unit/test_theorem_drtmle.py` pins the package's arrays against Theorem 1's own terms and
    the reported interval against its `σ²_n`, and `tests/unit/test_influence_gateaux_drtmle.py` is
    the piece that was missing: the reported curve's own decomposition, against a **derivative**.
-   [The concordance's object table](drtmle-theorem-concordance.md#13-the-object-concordance) no
+   [The concordance's object table](drtmle/theorem-concordance.md#13-the-object-concordance) no
    longer has a `TODO` in its `evidence` column.
 
    **The anchor is the point and the exact law is not enough by itself.** At the truth `Q_r` and
@@ -226,7 +247,7 @@ transcription and is blind to exactly the class of error item 21 is in. The coro
 most to learn is that **that blind spot is shared with the exact law**, which is why link 2 above
 carries its anchor in italics: two checks that cannot fail against the same class of error are one
 check, however different their machinery
-([lesson 9](drtmle-investigation-log.md#what-the-sizings-got-wrong)).
+([lesson 9](drtmle/investigation-log.md#what-the-sizings-got-wrong)).
 
 **A1a is that lesson applied rather than restated, and it is worth saying how.** Its instrument is
 a Gateaux derivative, which is different machinery from the theorem-terms comparison — but
@@ -243,7 +264,7 @@ piece.
 The [limitations](#limitations-recorded-rather-than-fixed) after the pieces are outside the chain
 entirely: real, understood, and unable to move a coverage number. Anything that *can* move one
 belongs in a piece, which is where item 20 went after being filed there by mistake — see
-[lesson 7](drtmle-investigation-log.md#what-the-sizings-got-wrong).
+[lesson 7](drtmle/investigation-log.md#what-the-sizings-got-wrong).
 
 That bar is deliberately higher than "no known defects". An estimator with every limitation
 below resolved and no demonstration is one that computes something nobody has shown is worth
@@ -275,11 +296,11 @@ that same rule applied to a piece rather than to an item.
 | PR | what it lands | new artefacts |
 | --- | --- | --- |
 | **B1a** — *landed* | the score/correction identities, the clipping diagnostic, and invalidation when either fails | `cleverly/validation/drtmle.py`; `res.validation.correction_check()`; `identity` and `correction` rows on `score_check`; tests in `tests/unit/test_drtmle_fit.py` and `test_influence_drtmle.py` |
-| **A1a** — *landed* | items 1 and 21, and item 22's theoretical half: the theorem read, mapped, graded, the sign adjudicated, every object pinned to the test that derives it, and the decomposition pinned against a perturbation of the law. Item 22's *numerical* half — both orders on real data — went to B2, whose dispatch it shares | `tests/unit/test_influence_gateaux_drtmle.py`; `TestTheReportedVarianceIsTheorem1s`; closes out [`docs/drtmle-theorem-concordance.md`](drtmle-theorem-concordance.md) — its object table's `evidence` column, its assumption matrix, and §7's finding for B1b |
-| **A1b** | item 15: a construction satisfying the empirical-process conditions, and whether fold reuse is one | a proof for the pooled construction, or a nested reference estimator to measure it against; [the concordance's §8](drtmle-theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) |
+| **A1a** — *landed* | items 1 and 21, and item 22's theoretical half: the theorem read, mapped, graded, the sign adjudicated, every object pinned to the test that derives it, and the decomposition pinned against a perturbation of the law. Item 22's *numerical* half — both orders on real data — went to B2, whose dispatch it shares | `tests/unit/test_influence_gateaux_drtmle.py`; `TestTheReportedVarianceIsTheorem1s`; closes out [`docs/drtmle/theorem-concordance.md`](drtmle/theorem-concordance.md) — its object table's `evidence` column, its assumption matrix, and §7's finding for B1b |
+| **A1b** | item 15: a construction satisfying the empirical-process conditions, and whether fold reuse is one | a proof for the pooled construction, or a nested reference estimator to measure it against; [the concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) |
 | **B1b** — *landed* | items 11 and 20: the targeting convention, chosen on theorem fidelity against a fitted prototype that eliminated two candidates by construction and separated the other two by measurement | `solve_bounded_mechanism`, called from the two `DRTMLE` sites, with the truncated array carried forward and `"bounds_pinned"` where no constrained root exists; `tests/unit/test_bounded_mechanism.py`; `CorrectionRow.margin` in place of B1a's now-vacuous clipped-row witness |
 | **B2a** — *landed* | the instrument the dispatch needs: the columns §4 asks for, the working paper's update order beside this one, and the comparison arms. Closes nothing on its own, which is why it is its own pull request rather than a first commit of B2 | `DRTMLE(update_order="paper")` and `ReductionSpec.order`; three tables on `benchmarks/bench_drtmle.py` in place of one; `--order`, `--reduced-learner` and `--truncation` arms with workflow inputs; `TestBothUpdateOrdersReachTheTheoremsExit` |
-| **B2a′** — *landed* | the three things B2a left as prose rather than as something a run settles: the oracle reduction built where it exists, a **control** for the update-order difference, and the branch that hid a mutation deleted rather than guarded | `tests/unit/test_oracle_reductions.py` and item 24; the `reseed` arm, the route-against-noise table and [a frozen rule](drtmle-validation-plan.md#the-update-order-rule-frozen-before-the-dispatch); `_restated_outcome_score` made unconditional, `tests/unit/test_fluctuation_score.py`, and [lesson 12](drtmle-investigation-log.md#what-the-sizings-got-wrong) |
+| **B2a′** — *landed* | the three things B2a left as prose rather than as something a run settles: the oracle reduction built where it exists, a **control** for the update-order difference, and the branch that hid a mutation deleted rather than guarded | `tests/unit/test_oracle_reductions.py` and item 24; the `reseed` arm, the route-against-noise table and [a frozen rule](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch); `_restated_outcome_score` made unconditional, `tests/unit/test_fluctuation_score.py`, and [lesson 12](drtmle/investigation-log.md#what-the-sizings-got-wrong) |
 | **B2b** | items 12, 19 and item 22's numerical half, re-measures 4 and 6, decides the overlap policy | a dispatch of `drtmle-convergence.yml`, and its tables in the investigation log |
 | **C** | items 3 and 13: the demonstration | `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, `docs/drtmle-coverage-study.md`, per-replicate results |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
@@ -331,7 +352,7 @@ revisions.
 `D = D* − D*_Q − D*_g` was read off `drtmle`'s implementation, not derived. The whole variant is a
 variance estimate, so a curve transcribed from software and never checked against its derivation
 is the one part of this that could be wrong in a way nothing here would catch — and
-[it was](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved), on a sign.
+[it was](drtmle/theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved), on a sign.
 
 **It is checked now, twice and against different things**, which is the piece's whole point:
 against Theorem 1's appendices at a nonzero `Q_r`, and against the Gateaux derivative of the
@@ -357,7 +378,7 @@ article, an NIH author manuscript in PubMed Central as **PMC5793673**, and van d
 Theorem 3, which only [piece D](#d-widen-the-scope-to-what-the-sources-derive) needs. Neither now
 gates anything: item 21 was settled on internal consistency plus exact-law arithmetic, and neither
 depends on the edition. One runner's network measurements are in [the investigation
-log](drtmle-investigation-log.md#what-one-runner-could-and-could-not-reach) rather than here,
+log](drtmle/investigation-log.md#what-one-runner-could-and-could-not-reach) rather than here,
 because they are a property of an execution environment on a date and this page carried an
 obstacle it had inherited for two revisions.
 
@@ -405,7 +426,7 @@ item 1 closed here. Item 15 is [A1b](#a1b--the-cross-fitting-construction).
   regression's pooling weight. All three are one degeneracy — a cell is blind to every mutation
   of a term it sets to zero — and each names the module that does cover it. That list is the
   point rather than an apology: an instrument whose blind spots are unlisted is how [lesson
-  9](drtmle-investigation-log.md#what-the-sizings-got-wrong) happens again.
+  9](drtmle/investigation-log.md#what-the-sizings-got-wrong) happens again.
 - ~~**Finish the assumption matrix**~~ — **done**, one row per condition, with columns
   `condition | source | required for | what the implementation does | evidence | status`, and a
   status drawn from *met*, *met under a stated restriction*, *unverified*, *violated*, *not
@@ -430,7 +451,7 @@ item 1 closed here. Item 15 is [A1b](#a1b--the-cross-fitting-construction).
   implementations, and the comparison wants the same nuisances on both sides. **Do not compare
   fluctuation coefficients across algorithms** unless the submodels and the order are identical.
 - ~~**Answer the question B1b waits on.**~~ **Done, in [the concordance's
-  §7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)**, which now
+  §7](drtmle/theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)**, which now
   states it as a finding rather than leaving it as a reading: *the theorem's `D_g` is evaluated at
   the same `g*` its score is solved at, and that `g*` is not truncated anywhere.* The consequence
   changes what B1b is. The theorem has one mechanism, not two conventions to choose between — so
@@ -461,7 +482,7 @@ item 13 is opened here, where the reason for it is, and closed there. **It is no
 insufficient on its own**: the working paper's appendix B splits the remainder into `R_{Q,n}` and
 `R_{g,n}`, and a total trending to zero can conceal cancellation between them, so the study
 reports the branches separately where the DGP permits. The exact terms are in [the concordance's
-§5](drtmle-theorem-concordance.md#5-the-remaining-remainder-terms).
+§5](drtmle/theorem-concordance.md#5-the-remaining-remainder-terms).
 
 ##### A1b — the cross-fitting construction
 
@@ -488,14 +509,14 @@ the several reasons item 2 was never going to earn its keep. Keep both tracks: i
 "pooled is fine, and here is why", the docstring gains a
 paragraph and the item closes; if it is not, the expensive nested version is the reference
 implementation to measure the cheap one against, and it need not become the default to be useful.
-[The concordance's §8](drtmle-theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) holds
+[The concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) holds
 the status.
 
 **A1a narrowed where this can be measured, and did not touch the item itself.** Its comparison
 runs at **saturated** reductions, where every conditioning cell is a singleton and the pooled
 construction and any nested one return the same arrays — so the decomposition closing to `1e-15`
 says nothing about fold reuse either way, and reading it as support here would be exactly the
-mistake [lesson 9](drtmle-investigation-log.md#what-the-sizings-got-wrong) names. What separates
+mistake [lesson 9](drtmle/investigation-log.md#what-the-sizings-got-wrong) names. What separates
 the constructions is a reduction that genuinely **pools**, which is
 `tests/unit/test_remainder_drtmle.py`'s `TIED_G` / `TIED_Q` territory and where a nested reference
 estimator would first be measured.
@@ -508,7 +529,7 @@ and `se`**: several differences cancel at `psi`, and `psi` is precisely the quan
 empirical means being zero makes *insensitive* to the corrections. The order to localise a
 discrepancy in, the shapes of the laws each component is checked on, and the per-component
 tolerances are in [the validation
-plan](drtmle-validation-plan.md#3-the-component-checklist-piece-a1a); which test pins which object
+plan](drtmle/validation-plan.md#3-the-component-checklist-piece-a1a); which test pins which object
 is the concordance's `evidence` column.
 
 **A1a finished it, and one line of the instruction turned out to be too narrow.** "Compare
@@ -557,7 +578,7 @@ is truncated in both — so the two expressions are **identical on every row the
 bind and differ on every row it does**, and the reported curve is off by exactly the clipped rows'
 contribution. The measurements, the algebra, the four things it settles and a two-row construction
 that proves the point with no simulation at all are in [the investigation
-log](drtmle-investigation-log.md#item-20-from-discovery-to-cause). Three consequences for this
+log](drtmle/investigation-log.md#item-20-from-discovery-to-cause). Three consequences for this
 piece:
 
 - **an immutable state object would not have fixed it.** The plan's `DRTMLEState` is worth having
@@ -576,8 +597,8 @@ either an identity residual exceeds roundoff or a final correction score exceeds
 tolerance, and reports the invalidity on the face of the result. The five conditions on how those
 identities must be checked — per arm, before the contrast, with weights, on one outcome scale, and
 on a fixture where the bound **binds** — are in [the validation
-plan](drtmle-validation-plan.md#1-the-invariants-piece-b1a), and the last of them is the
-degeneracy [lesson 2](drtmle-investigation-log.md#what-the-sizings-got-wrong) names.
+plan](drtmle/validation-plan.md#1-the-invariants-piece-b1a), and the last of them is the
+degeneracy [lesson 2](drtmle/investigation-log.md#what-the-sizings-got-wrong) names.
 
 `tests/unit/test_drtmle_fit.py::TestTheReportedCurveIsNotAlwaysCentred` must be **rewritten rather
 than deleted**: it currently pins the defect's numbers, and afterwards its fixture is the
@@ -624,7 +645,7 @@ Four decisions in it are worth having written down, because each was a fork:
 - **One scale.** Everything is reported on the outcome's own scale. `Q_r` and the fluctuation's
   residual live on the `[0, 1]` scaled outcome and the reported curve carries `scaler.range`, so a
   correction and `se/√n` are otherwise a factor of `range` apart —
-  [lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong)'s pattern in a second place.
+  [lesson 8](drtmle/investigation-log.md#what-the-sizings-got-wrong)'s pattern in a second place.
   Dropping the factor was one of the seven mutations run, and it fails a test.
 
 **The sign in the plan was one orientation out and the plan's is kept.** `B_clip` is defined there
@@ -669,7 +690,7 @@ truncating a fitted one. So the theorem as written supports neither the current 
 post-fit clipping as an exact step — which is what makes this a derivation rather than a choice.
 The four candidates, their costs, and the four-criterion decision hierarchy that ranks theorem
 fidelity and exact final-score validity first are in [the validation
-plan](drtmle-validation-plan.md#2-the-targeting-candidates-piece-b1b) — a hierarchy that used to
+plan](drtmle/validation-plan.md#2-the-targeting-candidates-piece-b1b) — a hierarchy that used to
 have R parity at its foot and now does not have it at all.
 
 Two things to carry into the implementation. `solve_mechanism` is shared with `ipsi`, which is a
@@ -683,7 +704,7 @@ if a bounded convention is adopted, [limitation 6](#limitations-recorded-rather-
 the first thing that run settled is that the table's axis is not the discriminating one. Two hooks
 on `targeting`'s module namespace, nothing in the library moved, three draws and a forced bound,
 three conventions; the numbers are in [the investigation
-log](drtmle-investigation-log.md#what-the-b1b-prototype-measured) and four readings of them decide
+log](drtmle/investigation-log.md#what-the-b1b-prototype-measured) and four readings of them decide
 this section.
 
 - **What carries the defect is the array the alternation carries forward.** `targeted_g =
@@ -715,7 +736,7 @@ this section.
   with the clip slack on every row D's equation *is* the logistic score.
 
 **So the choice is D, and the remaining question was which D.** [The concordance's
-§7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm) had already said
+§7](drtmle/theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm) had already said
 this without the numbers: if a finite bound is required in practice it wants *a bounded submodel
 or a constrained estimating equation whose final score is the theorem-defined score* — **not a
 projection applied after an unconstrained optimisation**, which is A. What the prototype adds is
@@ -739,7 +760,7 @@ ran the hard one:
 
 **The comparison this section promised was run before anything was written**, on the three
 fixtures below plus the forced bound, and the [investigation
-log](drtmle-investigation-log.md#what-the-b1b-prototype-measured) has both tables. §7's preference
+log](drtmle/investigation-log.md#what-the-b1b-prototype-measured) has both tables. §7's preference
 for a smooth submodel is an argument *against a projection applied after an unconstrained
 optimisation*, which is candidate A; D-hard puts the clip inside the equation, so the stated
 reason does not reach it.
@@ -852,7 +873,7 @@ it could draw today is read through a curve that a share of fits have wrong.
 
 **This piece split in two, and the reason is B1's rather than A1's.** B1 split because one half
 preceded the other and depended on it; so does this. "One dispatch" was written as though the
-script already recorded what [the validation plan's §4](drtmle-validation-plan.md#4-the-sweep-piece-b2)
+script already recorded what [the validation plan's §4](drtmle/validation-plan.md#4-the-sweep-piece-b2)
 asks it to record, and it recorded three columns of the eleven — and item 22's numerical half asks
 for a comparison against an update order that **did not exist in this repository at all**. So the
 instrument is [B2a](#b2a--the-sweep-instrument), which has landed, and the dispatch and its reading
@@ -873,7 +894,7 @@ and **no comparison of fluctuation coefficients across algorithms**.
 **Landed.** It is the half of B2 that had to precede the dispatch, and this section is what it
 shipped.
 
-**`DRTMLE(update_order="paper")`** is [the concordance's §6](drtmle-theorem-concordance.md#6-the-recursive-algorithm-item-22)
+**`DRTMLE(update_order="paper")`** is [the concordance's §6](drtmle/theorem-concordance.md#6-the-recursive-algorithm-item-22)
 recursion implemented beside this package's: equation (8), then `g_{r,1}` and `g_{r,2}` at the
 **once-updated** outcome regression, then equation (10), then `Q_r` at the **twice-updated** one,
 then equation (9). Four things about it are decisions rather than transcription.
@@ -892,7 +913,7 @@ then equation (9). Four things about it are decisions rather than transcription.
   loop, by that same expression at the iterate it returns.
 
   It shipped conditional on the order and is now unconditional, and the reason is
-  [lesson 12](drtmle-investigation-log.md#what-the-sizings-got-wrong). **Deleting the restatement
+  [lesson 12](drtmle/investigation-log.md#what-the-sizings-got-wrong). **Deleting the restatement
   was run and 68 of the module's 69 tests still passed** — the closing pass re-solves all three
   equations and makes the *reported* fit identical either way, which is item 12's shape in a second
   place. A branch that only one order exercises is exactly what that lesson says to remove rather
@@ -910,7 +931,7 @@ and the 99th percentiles of all three clever covariates and of `Q_r`, `g_{r,1}` 
 `|P_n S_j|/sd̂(S_j)` reported **beside** the stopping rule rather than folded into it, the share of
 the worst score carried by its top 1%, 5% and 10% of rows, and the Hessian conditioning). Two
 column definitions had to change on contact with the code and [the validation
-plan](drtmle-validation-plan.md#4-the-sweep-piece-b2) carries both: the clipped-row share is read
+plan](drtmle/validation-plan.md#4-the-sweep-piece-b2) carries both: the clipped-row share is read
 at the **initial** mechanism, since a converged bounded tilt clips nothing and a column read at the
 exit would be zero on every row — stop-ship 14's shape again; and equation (9) has no Hessian to
 report at all, because B1b made that solve a root find rather than a Newton step.
@@ -955,7 +976,7 @@ the medians are `9.97e-02` for the route against `8.23e-02` for the reseed. On p
 0.22 is what a refit does rather than what the route does, which is the opposite of what this
 paragraph was written expecting. The rule that decides it, written before the dispatch that will
 judge it, is [in the validation
-plan](drtmle-validation-plan.md#the-update-order-rule-frozen-before-the-dispatch), and it hangs on
+plan](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch), and it hangs on
 a **count** rather than an interval because twelve draws do not support a Monte Carlo interval on a
 median and this package has no estimator for one.
 
@@ -967,7 +988,7 @@ already been dispatched with every new input at a four-fit smoke configuration a
 in 89 seconds, reproducing this container's numbers to every digit printed — so what is left is the
 real sweep and its reading, not a debugging round. Dispatch
 `.github/workflows/drtmle-convergence.yml`, read the tables out of the job log, and put them in
-[the investigation log](drtmle-investigation-log.md#how-the-alternation-exits) beside the first
+[the investigation log](drtmle/investigation-log.md#how-the-alternation-exits) beside the first
 sweep's — which measured a criterion that has since changed and an implementation that has since
 been fixed, so it is a *record* rather than a baseline to reproduce.
 
@@ -982,7 +1003,7 @@ off. The update-order question is its own — two processes, **three** sizes, th
 reseed control — because a rate needs three sizes and three sizes across four processes and three
 arms does not fit the runner. Both configurations, the rule the second is judged by, and what would
 falsify it are [in the validation
-plan](drtmle-validation-plan.md#the-update-order-rule-frozen-before-the-dispatch).
+plan](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch).
 
 **24. An oracle reduction on the continuous processes needs the fitted learners, and nothing here
 keeps them.** A reduced regression conditions on `ĝ(a|W)` and `Q̄̂(a, W)` — *fitted* objects — so its
@@ -1005,10 +1026,10 @@ continuous-process reduction's error, and no number in this repository should be
 four are harmless. The five places, the columns the sweep must add — the clipped-row share first
 among them — the run that separates a noisy reduction from a wrong equation, and
 the truncation-curve caveat are in [the validation
-plan](drtmle-validation-plan.md#4-the-sweep-piece-b2).
+plan](drtmle/validation-plan.md#4-the-sweep-piece-b2).
 
 *The sweep measures the criterion that was replaced.* [The
-table](drtmle-investigation-log.md#how-the-alternation-exits) is the evidence item 7's change was
+table](drtmle/investigation-log.md#how-the-alternation-exits) is the evidence item 7's change was
 argued from, which is the right way round — the failure had to be characterised before the
 threshold moved — but it means the exit distribution under the current rule is uncharacterised. A
 rerun is one dispatch and about 45 minutes, and would say whether `tolerance` is now the norm at
@@ -1068,7 +1089,7 @@ twelve `repeats=2` fits on `nonlinear_dgp` at `n=600` with `glm` on both nuisanc
 `7e-04` on the scaled outcome, every one exiting on `"tolerance"` with no failure recorded and no
 ill-conditioned round. On one such draw equation (9)'s **recorded** score is `3.7e-11` while the
 mean of the `D*_g` the curve actually subtracts is `-2.3e-04`. The cause is above; the record is
-in [the investigation log](drtmle-investigation-log.md#item-20-from-discovery-to-cause).
+in [the investigation log](drtmle/investigation-log.md#item-20-from-discovery-to-cause).
 
 This is not a `repeats=` defect and refusing that keyword would misdiagnose it: a draw of a
 repeated fit is an ordinary fit, and the affected draws include first draws. It is also not a
@@ -1083,7 +1104,7 @@ comparison locates. The reasoning was sound and the premise was wrong: there was
 between two arrays. What located it was **recomputing the recorded score from the returned state
 in the same process** — thirty lines, one fit, no R — and then finding the recomputation *agreed*
 with the record, which is what pointed at the expression rather than at the state. The general
-lesson is [lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong); the specific one is
+lesson is [lesson 8](drtmle/investigation-log.md#what-the-sizings-got-wrong); the specific one is
 part of why that piece is now [retired](#closed-since-this-list-opened).
 
 `score_check` **did** catch it, on the *influence-curve* rows, which are computed from the curve
@@ -1122,7 +1143,7 @@ regime wanted is one where that product does *not* vanish fast enough while one 
 consistent. The full design — the two tiers, the drift-coefficient calculation, the regime-entry
 columns, the `P₀D̂` evaluation convention, the reporting schedule, the sizes and replications, and
 the frozen decision rules — is in [the validation
-plan](drtmle-validation-plan.md#5-the-controlled-study-piece-c). What belongs on this page is why
+plan](drtmle/validation-plan.md#5-the-controlled-study-piece-c). What belongs on this page is why
 each part is there and what it would take to *not* believe the result:
 
 - **Both off-diagonal cells**, not one. `Q̄` right and `g` wrong, and `g` right and `Q̄` wrong.
@@ -1200,7 +1221,7 @@ found no case where this helps" in its own docs is not a neutral state. That is 
 while gate 1 passes, and it is a real and reportable outcome rather than a defeat.
 
 **What it costs, since that is why it has not been done.** A `DRTMLE` fit is 43s at `n = 1,200`
-(measured, [the sweep](drtmle-investigation-log.md#how-the-alternation-exits)) and a study runs
+(measured, [the sweep](drtmle/investigation-log.md#how-the-alternation-exits)) and a study runs
 both estimators over every replicate. Two cells by two sizes by 250 replicates is ~2,000 fits,
 which is ~24 hours serial and about two on a 12-way `matrix:`. A third size and the nuisance-rate
 columns roughly double it. That is a dispatch-only workflow of its own —
@@ -1223,7 +1244,7 @@ behind **A1a** — the reading — rather than beside it.
   the regularity conditions to van der Laan (2014) Theorem 3, which nothing here has read, so
   the missing statement, its assumptions, its expansion, its influence function and its remainder
   decomposition are all outstanding — [the concordance's
-  §10](drtmle-theorem-concordance.md#10-the-bivariate-construction) records the status. It gets
+  §10](drtmle/theorem-concordance.md#10-the-bivariate-construction) records the status. It gets
   its own reduced object, its own submodel and its own fixtures rather than being folded into
   `ReducedSet`'s array schema — two reductions whose estimating equations differ structurally
   should not share a container — and it is worth a side-by-side run against the univariate pair,
@@ -1277,13 +1298,13 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
    not supply. None of it needed a document that is not in hand and none of it needed another
    implementation.
 3. ~~**B1b**~~ — landed. A1a had said which mechanism the theorem's `D_g` is evaluated at ([the
-   concordance's §7](drtmle-theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)),
+   concordance's §7](drtmle/theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)),
    and since the theorem clips nothing there was no implementation whose convention could settle
    this and no document left to wait for — so it was a design decision against a stated bar rather
    than a reading, taken against a fitted prototype rather than against the candidate table.
    [What it shipped](#what-b1b-landed).
 4. ~~**B2a**~~ — landed, in two passes. The dispatch could not measure what [the validation
-   plan's §4](drtmle-validation-plan.md#4-the-sweep-piece-b2) asks for until the script recorded
+   plan's §4](drtmle/validation-plan.md#4-the-sweep-piece-b2) asks for until the script recorded
    it, and item 22's numerical half asks for a comparison against an update order that did not
    exist here. [What it shipped](#b2a--the-sweep-instrument). The second pass closed the three
    things the first left as prose: the oracle reduction is built where it exists and **item 24**
@@ -1361,13 +1382,13 @@ instrument is how this variant has gone wrong twice:
     runs at *saturated* reductions, where every conditioning cell is a singleton and the pooled
     construction and a nested one return the same arrays — so it is silent on item 15 by
     construction, and [the concordance's
-    §8](drtmle-theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) says so. This is new
+    §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) says so. This is new
     with A1a and is exactly the shape of the mistake item 2 was retired for: a check agreeing
     where it could not have disagreed.
 
 Note what is **not** on this list any more: a coverage gap over `TMLE` of at least 0.05. That is a
 product judgment about whether the variant earns its cost, it has no theorem behind it, and it now
-lives in [gate 2](drtmle-validation-plan.md#the-decision-rules-frozen-before-the-dispatch).
+lives in [gate 2](drtmle/validation-plan.md#the-decision-rules-frozen-before-the-dispatch).
 
 ### Limitations, recorded rather than fixed
 
@@ -1382,7 +1403,7 @@ rounds on one unseeded draw. Such a fit runs to the outer cap and reports
 `failure = "max_iter_reached"`. `ReductionFluctuation.ill_conditioned` reports it, and `drtmle`
 sidesteps the whole question by capping at three iterations and never claiming convergence.
 
-Over [96 fits](drtmle-investigation-log.md#how-the-alternation-exits) the conditioning is **worst
+Over [96 fits](drtmle/investigation-log.md#how-the-alternation-exits) the conditioning is **worst
 where the reasoning predicted**, which is the part that had never been tested: `gr2` vanishes where
 the mechanism is *right*, so the easy process should be the ill-conditioned one, and it is.
 `linear` reports an ill-conditioned solve on **5 of 12** fits at `n = 600` and **9 of 12** at
@@ -1479,7 +1500,7 @@ Three things about the closure are worth keeping and each was a fork:
 every document here said so in a way that left a reader no way to tell what would change that.
 Two things closed it and they are different in kind. The **provenance** is unchanged and stays
 written down: the formula was read off that package's source, and
-[§9](drtmle-theorem-concordance.md#9-what-was-read-out-of-the-r-source-and-what-is-still-owed)
+[§9](drtmle/theorem-concordance.md#9-what-was-read-out-of-the-r-source-and-what-is-still-owed)
 records what else was, including the `gr1`/`gr2` naming inversion. What is new is the
 **evidence**, and there are two independent pieces of it: Theorem 1's appendices, at a nonzero
 `Q_r` (item 21), and the Gateaux derivative of the parameter on a law where one nuisance is wrong
@@ -1514,7 +1535,7 @@ law instead of R": **the exact-law instrument is blind in the same place.** At c
 `Q_r` and `g_{r,2}` vanish row by row, so every `test_influence_gateaux*` module passes against a
 flipped sign too. Two checks that cannot fail against the same class of error are one check,
 however different their machinery
-([lesson 9](drtmle-investigation-log.md#what-the-sizings-got-wrong)). What is not blind is a
+([lesson 9](drtmle/investigation-log.md#what-the-sizings-got-wrong)). What is not blind is a
 comparison against the theorem's own terms at a **nonzero `Q_r`**, which is
 `tests/unit/test_theorem_drtmle.py`.
 
@@ -1523,18 +1544,18 @@ reasoning that a divergence between two arrays is what a component-by-component 
 The reasoning was sound and the premise was false — there was no divergence between two arrays —
 and what found it was thirty lines, one fit and **no R**: recomputing the recorded score from the
 returned state in the same process. That is
-[lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong), and it is the second time this
+[lesson 8](drtmle/investigation-log.md#what-the-sizings-got-wrong), and it is the second time this
 page filed a finding behind a fixture that would not have produced it.
 
 **What survives is the decomposition, and it moves to A1a.** "Compare components, not `psi` and
 `se`" was always the right instruction — several differences cancel at `psi`, and `psi` is precisely
 what all three empirical means being zero makes insensitive to the corrections. Only the thing each
 component was compared *against* was wrong. Each is now checked against its derivation, and the
-[concordance's object table](drtmle-theorem-concordance.md#13-the-object-concordance) gains an
+[concordance's object table](drtmle/theorem-concordance.md#13-the-object-concordance) gains an
 `evidence` column naming, per object, the test that pins it; the rows still reading `TODO` there are
 what is left of this item, restated as tests to write rather than as a fixture to import.
 
-The [first review](drtmle-review.md)'s recommendation A3 — *"cross-language validation at the
+The [first review](drtmle/review.md)'s recommendation A3 — *"cross-language validation at the
 component level"*, called a release blocker there — is **declined**, with this as the written
 reason. Its A4, the independent algebraic check, is accepted and is A1a's; that review's own argument
 for A4 is the argument against A3, since it says in its own words that a cross-language comparison
@@ -1717,7 +1738,7 @@ carried forward as an item of its own.
 ## What the sizings got wrong
 
 Twelve lessons, and they now live in [the investigation
-log](drtmle-investigation-log.md#what-the-sizings-got-wrong) with the rest of the record. They are
+log](drtmle/investigation-log.md#what-the-sizings-got-wrong) with the rest of the record. They are
 kept because the only thing a retrospective is for is the next sizing, and they are not on this
 page because a plan is not a history. In one line each:
 
@@ -1899,7 +1920,7 @@ place into a buffer sized by a byte budget rather than by a replicate count make
 3.4–3.9× faster and caps its working set at **32 MB whatever `n` is**, with the seeded stream
 untouched and the critical value bit-identical. So the allocation that broke first at scale is
 gone without a compiler, and the remaining one — the density learner's long design — is now the
-binding constraint on its own. `benchmarks/results/bootstrap_numpy.md` has the measurement.
+binding constraint on its own. `docs/benchmarks/bootstrap_numpy.md` has the measurement.
 
 One change came out of it. `np.einsum` defaults to `optimize=False`, which for three or more
 operands means numpy's own nested-loop kernel rather than a pairwise contraction through BLAS —
@@ -1939,10 +1960,10 @@ produced. Written properly in numpy, the bootstrap is 3.4–3.9× and the compil
 advantage over cluster aggregation falls to 1.02× at five estimands and **0.74× at a million
 rows**. A third — the LTMLE mask fix — is real and `O(T²n)` → `O(Tn)`, and is 0.06% of a fit,
 because the ratio quoted for it was of a cached-nuisance region that excludes the learners by
-construction. `benchmarks/results/production_plan.md` is the adjudication and
+construction. `docs/benchmarks/production_plan.md` is the adjudication and
 `findings.md`'s banner lists all four. **`numba` is still a benchmark-only dependency, and the
 case for changing that is weaker than the measurement first suggested.** Read
-`benchmarks/results/candidate_inventory.md` first: it is the profile the rest was sized against,
+`docs/benchmarks/candidate_inventory.md` first: it is the profile the rest was sized against,
 and three of the things it is natural to expect turn out to be false. In particular the largest
 package-owned cost in a DR-TMLE `retarget` and in an LTMLE fit is **`threadpoolctl`**, entered
 once per learner fit at 1.4 ms a time — 57% and 40% respectively — which is not a compilation

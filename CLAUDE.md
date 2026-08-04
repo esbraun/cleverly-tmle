@@ -36,20 +36,30 @@ cores and belongs on a machine with cores to spare, or on
 `.github/workflows/numba-benchmark.yml`'s `full` tier. `--pipelines` is the other half and is
 the expensive one, because it fits: it is the only part that runs learners, and at
 `--pipeline-libraries default` it is tens of minutes. Read
-`benchmarks/results/candidate_inventory.md` before adding a kernel — a kernel goes in on a
+`docs/benchmarks/candidate_inventory.md` before adding a kernel — a kernel goes in on a
 profiled share, not on the shape of its code, and the document records which of the obvious
 candidates measured out.
 
-**Read `benchmarks/results/production_plan.md` before quoting a ratio out of `findings.md`.**
-Four of that document's conclusions are superseded and its own banner lists them. The pattern
-is one mistake made three times and it is the one to avoid repeating: **a ratio measured
-against the shipped shape is not a ratio against numpy.** Two of its three clearest "adopt
-numba" recommendations dissolved when the numpy side was written properly — the multiplier
-bootstrap's cost was a float64 expansion and not the draw, `cluster_sums`'s was an
-`np.unique` re-deriving an encoding the container had already produced — and the third, the
-LTMLE mask fix, is real and is 0.06% of a fit because its ratio was of a cached-nuisance
-region. Before writing a kernel, check what the *production* function costs and what a
-competent numpy version of it would.
+**The standing decisions are in `docs/roadmap.md`, *Standing decisions*, and that table is
+what to read rather than the reports.** One screen, one row per decision, each with the
+condition that would reopen it and a link to its evidence. It exists so that "why is there
+no `numba` dependency" costs a table rather than seven measurement write-ups.
+`docs/benchmarks/README.md` is the same thing for the benchmark set specifically.
+
+**The lesson behind the numba rows is one mistake made three times, and it is the one to
+avoid repeating: a ratio measured against the shipped shape is not a ratio against numpy.**
+Two of the three clearest "adopt numba" recommendations dissolved when the numpy side was
+written properly — the multiplier bootstrap's cost was a float64 expansion and not the
+draw, `cluster_sums`'s was an `np.unique` re-deriving an encoding the container had already
+produced — and the third, the LTMLE mask fix, is real and is 0.06% of a fit because its
+ratio was of a cached-nuisance region. Before writing a kernel, check what the *production*
+function costs and what a competent numpy version of it would.
+
+**Every committed benchmark number predates the timing harness's rotation.** The harness
+took randomised *block* order until `measure_interleaved` landed — all of one arm's
+repetitions back to back — so a rerun is a different instrument rather than a replication,
+and a small ratio (`1.02x` against `0.98x`) was never resolved by the numbers on record.
+The provenance blocks say so; do not quietly compare across the change.
 
 **`LTMLE.profile_phases()` is the instrument for "where does a longitudinal fit's time go".**
 Named regions, wall clock, off by default and free when off (`cleverly.utils.phases`). It

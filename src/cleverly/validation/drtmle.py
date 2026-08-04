@@ -137,7 +137,7 @@ class CorrectionRow:
         :math:`B_{clip}(a) = P_n[w\\,Q_r/g^b\\,(g - g^b)]` for the ``"D*_g"`` row, ``nan``
         for the other.  Before B1b it reproduced **minus** :attr:`residual` to floating
         point, which is what made it a check on item 20's diagnosis rather than merely a new
-        column; the sign is the orientation ``docs/drtmle-validation-plan.md`` defines it
+        column; the sign is the orientation ``docs/drtmle/validation-plan.md`` defines it
         in, and the two differed because one residual read :math:`1_a - g` and the other
         :math:`1_a - g^b`.  It is **zero now**, on every fit, because there is no longer a
         raw tilted mechanism for it to measure the distance to.

@@ -6,8 +6,8 @@ this estimator**.  At correct nuisances :math:`Q_r` and :math:`g_{r,2}` vanish r
 so the corrected curve *equals* the plain one array for array and every one of those
 modules passes against a flipped sign, against a sum where a difference belongs, and
 against swapped reduced mechanisms.  That is lesson 2 of
-``docs/drtmle-investigation-log.md``, and it is why the object table in
-``docs/drtmle-theorem-concordance.md`` carried ``TODO`` against
+``docs/drtmle/investigation-log.md``, and it is why the object table in
+``docs/drtmle/theorem-concordance.md`` carried ``TODO`` against
 :math:`D^{*,\#}` while thirteen sibling modules pinned everything else.
 
 This module is that row.  It runs on nuisances that are **wrong on purpose**, and it is
@@ -550,7 +550,7 @@ class TestTheControlsBite:
         An instrument for this variant that is only ever run here says nothing at all --
         which is what every ``test_influence_gateaux*`` module before this one is, on this
         estimator, and it is the whole of
-        `lesson 2 <../../docs/drtmle-investigation-log.md>`_.
+        `lesson 2 <../../docs/drtmle/investigation-log.md>`_.
         """
         for sign in (-1.0, +1.0):
             curve = longhand_curve(cell, name, sign=sign)[law.first_row_of()]

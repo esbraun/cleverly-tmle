@@ -1211,7 +1211,7 @@ influence curve's form is read off `drtmle`'s implementation rather than derived
 been checked against Theorem 1 — in the 2016 working-paper version, kept at
 `docs/viewcontent.cgi.pdf` — and it agrees, though the paper's own display of one correction
 prints a sign its appendices contradict, so the check took an argument rather than a glance
-([the concordance's §4](drtmle-theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)).
+([the concordance's §4](drtmle/theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)).
 It has since also been checked against a *perturbation of the law*, which is the check every
 other estimand here gets and which this one could not have until the fixture was made wrong on
 purpose: with one nuisance consistent, the corrected curve a fit reports is the efficient

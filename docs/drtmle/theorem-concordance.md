@@ -3,8 +3,8 @@
 What the sources derive, what this package computes, and where the two disagree — with what
 `drtmle` computes recorded beside them as **provenance**, since that is where several of these
 formulae were read from. It is provenance and not a target: comparing against that package's
-numbers is [retired by decision](roadmap.md#closed-since-this-list-opened) and no R enters this
-repository or CI. This is [piece A1](roadmap.md#a1a--the-theoretical-audit)'s artefact and it is
+numbers is [retired by decision](../roadmap.md#closed-since-this-list-opened) and no R enters this
+repository or CI. This is [piece A1](../roadmap.md#a1a--the-theoretical-audit)'s artefact and it is
 **open**,
 though less so than it was: the working paper is now in the repository and read first-hand, and
 the stop-ship discrepancy it appeared to carry — [the sign of the mechanism
@@ -47,7 +47,7 @@ Benkeser et al., Theorem 1
 **Reading the document rather than a transcription of it changed the answer.** The transcription
 was faithful — the §3.1 display really does carry a leading minus on `D_A` — but a display is not
 a derivation, and the derivation is twenty pages later. This is
-[lesson 6](drtmle-investigation-log.md#what-the-sizings-got-wrong) again: the cheapest instrument
+[lesson 6](investigation-log.md#what-the-sizings-got-wrong) again: the cheapest instrument
 for a claim about a source is a reader with the source open, and second-hand is not open.
 
 ## 1. The target and the ordinary score
@@ -80,7 +80,7 @@ and the ordinary TMLE score equation, the article's **equation (5)**, is
 **Three different things wear this equation's clothes and A1 must keep them apart**: the exact
 finite-sample equality the software article writes, the theorem-level requirement that the
 empirical score be `o_p(n^(−1/2))`, and the implementation's numerical stopping criterion. They
-are not interchangeable, and [item 12](roadmap.md#closed-since-this-list-opened) is what happens
+are not interchangeable, and [item 12](../roadmap.md#closed-since-this-list-opened) is what happens
 when the last stands in for the second.
 
 The ordinary second-order remainder is
@@ -132,7 +132,7 @@ D^{*,#}(Q, g) = D*(Q, g) − I(g = g_0)·D_A(Q̄_{0,r}, g)
 The indicators are the doubly-robust content in one line: when both primary nuisances are
 correct, both corrections vanish and the ordinary efficient influence function is recovered — the
 same degeneracy that makes the exact-law instrument blind here
-([lesson 2](drtmle-investigation-log.md#what-the-sizings-got-wrong)).
+([lesson 2](investigation-log.md#what-the-sizings-got-wrong)).
 
 ## 3. Theorem 1
 
@@ -160,7 +160,7 @@ Three things to read off it, because each is a row in the assumption matrix belo
 - the score conditions are `o_p(n^(−1/2))`, **not** exact zeros. The implementation's exact-zero
   ambition is stricter than the theorem and its numerical stopping rule is not obviously either;
 - the conditions are on the **targeted** collection, including the *starred reduced* nuisances,
-  which is why [limitation 8](roadmap.md#limitations-recorded-rather-than-fixed) — that `retarget`
+  which is why [limitation 8](../roadmap.md#limitations-recorded-rather-than-fixed) — that `retarget`
   is no longer arithmetic on cached arrays — is a cost of following the source rather than a
   design slip;
 - the variance is `P_n[·]²` of the **rowwise** corrected curve, so nothing that summarises the
@@ -279,15 +279,15 @@ the estimated `D_Y` to its limit. Appendix A gives the analogous examples for `R
 the reduced outcome regression's approximation error, its fitted error, the primary propensity
 error, and a Donsker plus `L_2` condition for `D_A`.
 
-**Consequence for item 13**, which [A1](roadmap.md#a1a--the-theoretical-audit) opens and
-[C](roadmap.md#c-the-demonstration) closes. The single diagnostic
+**Consequence for item 13**, which [A1](../roadmap.md#a1a--the-theoretical-audit) opens and
+[C](../roadmap.md#c-the-demonstration) closes. The single diagnostic
 
 ```text
 R_remaining = ψ̂ − ψ_0 − (P_n − P_0) D̂_DR
 ```
 
 stays useful and is not sufficient: a total trending to zero can conceal cancellation between
-`R_Q` and `R_g`. Where the DGP permits, [the study](drtmle-validation-plan.md#5-the-controlled-study-piece-c)
+`R_Q` and `R_g`. Where the DGP permits, [the study](validation-plan.md#5-the-controlled-study-piece-c)
 must report `R_Q` and `R_g` **separately**, their component products, their signs, and the total.
 
 ## 6. The recursive algorithm (item 22)
@@ -327,7 +327,7 @@ hypotheses are conditions on the returned collection rather than on the route. T
 the difference licensed rather than merely unchecked.
 
 What is *not* settled by reading is whether the two orders reach the same fixed point on real
-data, which is a numerical claim and belongs to [B2](roadmap.md#b2--the-sweep-on-the-corrected-implementation):
+data, which is a numerical claim and belongs to [B2](../roadmap.md#b2--the-sweep-on-the-corrected-implementation):
 implement the paper's order beside this one, **both here and against the same nuisances**, and
 compare the fixed point each reaches and the final three theorem-defined scores at each. The
 instrument for the last of those now exists — `res.validation.correction_check()` reports each
@@ -364,7 +364,7 @@ compared are now **both run here**, the rule bites on the comparison this file a
 
 ## 7. Truncation is not in the theorem's algorithm
 
-**This section is A1a's answer to the question [B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision)
+**This section is A1a's answer to the question [B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision)
 waited on, and it is stated here as a finding rather than left as a reading.** The roadmap sent
 B1b here "once A1 has said which mechanism the theorem's `D_g` is evaluated at". It says:
 
@@ -391,7 +391,7 @@ preferring. The preference is stated *against a projection applied after an unco
 optimisation*, which is a different candidate, and the smooth submodel was fitted before being set
 aside: it is a different submodel on **every** fit rather than on the clipping ones, so at inert
 bounds it moves a fit whose bound never binds. The measurements are in [the investigation
-log](drtmle-investigation-log.md#what-the-b1b-prototype-measured).
+log](investigation-log.md#what-the-b1b-prototype-measured).
 
 The reasoning follows.
 
@@ -406,11 +406,11 @@ with **no hard clipping after the fluctuation**. So the theorem as written suppo
 the conventions this package and R respectively use:
 
 - not the current hybrid — bounded denominator, raw residual — which is
-  [item 20](drtmle-investigation-log.md#item-20-from-discovery-to-cause);
+  [item 20](investigation-log.md#item-20-from-discovery-to-cause);
 - not R's post-fit clipping, as an exact theorem step.
 
 That is a stronger statement than "the two conventions disagree", and it is what makes
-[B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) a derivation rather than a taste
+[B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision) a derivation rather than a taste
 question. Three things follow:
 
 1. one mechanism must appear consistently in the score and in the influence function;
@@ -458,12 +458,12 @@ cheap one, and a way to see whether the pooled dependence changes bias, variance
 rates. **Agreement with R would not have been evidence here** — that package predates this
 construction — which is one of several reasons the parity piece was never going to earn its keep.
 
-**This is [A1b](roadmap.md#a1b--the-cross-fitting-construction)'s work and it is the only part of
+**This is [A1b](../roadmap.md#a1b--the-cross-fitting-construction)'s work and it is the only part of
 piece A that is.** A1a closed the rest of this file without touching it, which is what the split
 was for: every other row here was a test to write or a reading to record, and this one is a proof
 to find or a second estimator to build. Nothing on the critical path to
-[B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) or to
-[C](roadmap.md#c-the-demonstration) waits on it; [gate 1](roadmap.md#c-the-demonstration) does.
+[B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision) or to
+[C](../roadmap.md#c-the-demonstration) waits on it; [gate 1](../roadmap.md#c-the-demonstration) does.
 
 One thing A1a settled that narrows it. The comparison in
 `tests/unit/test_influence_gateaux_drtmle.py` runs at **saturated** reductions, where the pooled
@@ -478,7 +478,7 @@ territory and where a nested reference estimator would first be measured.
 
 This section used to be *six traps for reading the R source alongside the paper* — advice for a
 parity run. There will be no parity run: it is [retired by
-decision](roadmap.md#closed-since-this-list-opened), no R enters this repository or CI, and four of
+decision](../roadmap.md#closed-since-this-list-opened), no R enters this repository or CI, and four of
 the six traps were only ever about how to compare two implementations without fooling yourself.
 
 Two of the six are not advice. They are **facts recorded once** and they survive here, because
@@ -491,13 +491,13 @@ recalled; the naming inversion the deleted first trap described lives on in
 - **`_NEGLIGIBLE / n` is R-shaped and not an invention.** R's stopping rule is `tolIC = 1/n` on the
   mean of the *reported* correction terms, tested against `max|c(PnDnoStar, PnDQnStar, PnDgnStar)|`
   where each is `mean()` of the array `eval_Dstar*` returns, and capped at `maxIter = 3`. The
-  absolute branch [item 7](roadmap.md#closed-since-this-list-opened) added here is the same shape.
+  absolute branch [item 7](../roadmap.md#closed-since-this-list-opened) added here is the same shape.
   Worth keeping precisely because it is the *weaker* claim: it says where the constant came from,
-  not that it is right — and [piece B2](roadmap.md#b2--the-sweep-on-the-corrected-implementation)
+  not that it is right — and [piece B2](../roadmap.md#b2--the-sweep-on-the-corrected-implementation)
   is where the loop's bar stops being a proxy for the reported one at all. Note also that R's
   convergence test is defined *on the curve it reports* where this package's is defined on what the
   solver recorded, which is the difference
-  [item 20](drtmle-investigation-log.md#item-20-from-discovery-to-cause) lives in.
+  [item 20](investigation-log.md#item-20-from-discovery-to-cause) lives in.
 - **`D*_g` and the missing-outcome indicator, which is an open derivation question and not a
   difference.** R's `eval_Dstar_g` is `Qr/g · (1{A = a, DeltaA = 1, DeltaY = 1} − g)`;
   `reduced_corrections` applies `observed` to `D*_Q` and **not** to `D*_g`. It is not live —
@@ -506,7 +506,7 @@ recalled; the naming inversion the deleted first trap described lives on in
   cleanest small example of why the parity piece was retired: every fixture would have agreed, on
   every draw, because the quantity that distinguishes the two conventions is identically absent
   from the fits either package accepts. A check that cannot fail is not a check
-  ([lesson 8](drtmle-investigation-log.md#what-the-sizings-got-wrong)). It is carried as a row in
+  ([lesson 8](investigation-log.md#what-the-sizings-got-wrong)). It is carried as a row in
   the assumption matrix below.
 
 The other three deleted traps were: that R's internal signs are confirmed and are what this package
@@ -520,7 +520,7 @@ returned object in a fixture nobody will now write.
 ## 10. The bivariate construction
 
 *Source: Benkeser & Hejazi (2023), attributing van der Laan (2014).* Carried here because
-[piece D](roadmap.md#d-widen-the-scope-to-what-the-sources-derive) is gated on it and because
+[piece D](../roadmap.md#d-widen-the-scope-to-what-the-sources-derive) is gated on it and because
 "derived in the sources" was being read as "transcription".
 
 ```text
@@ -611,16 +611,16 @@ it and why. A status column with no `unverified` in it has been filled in from t
 than from the paper.
 
 Two rows are still open and neither is a gap in this piece. `R_{Q,n}`/`R_{g,n}` is item 13, which
-A1 *opens* and [piece C](roadmap.md#c-the-demonstration) closes, because only that study knows
+A1 *opens* and [piece C](../roadmap.md#c-the-demonstration) closes, because only that study knows
 `ψ_0`. And the reduced regressions' cross-fitting is [§8](#8-cross-fitting-is-not-covered-item-15),
-which is [A1b](roadmap.md#a1b--the-cross-fitting-construction). Writing "open, owned by C" where a
+which is [A1b](../roadmap.md#a1b--the-cross-fitting-construction). Writing "open, owned by C" where a
 row used to read `TODO` is not a downgrade of the bar: `TODO` said *nobody has looked*, and these
 two say *this is whose it is*.
 
 The **R** column is *provenance*: it records where each formula in this package was read from, and
 the two `(swapped)` markers are the single easiest thing here to transcribe backwards. It is not a
 target. Comparing against that package's numbers is [retired by
-decision](roadmap.md#closed-since-this-list-opened) and there is no R in this repository or in CI.
+decision](../roadmap.md#closed-since-this-list-opened) and there is no R in this repository or in CI.
 
 The **evidence** column is what that retirement was traded for: which test pins the row *against
 its derivation*. It is the checklist item 2 used to be, restated as tests to write. A row reading
@@ -639,7 +639,7 @@ filled in from optimism, exactly as §15's `unverified` column says of itself.
 | `D_Y` | `D*_Q` | `eval_Dstar_Q` univariate branch | `A`, `W`, `Y` | + | `g_{r,1}` bounded | starred | yes | `D_DR`, eq (10)'s check | `test_theorem_drtmle.py`; `test_influence_drtmle.py` for the longhand; `test_influence_gateaux_drtmle.py`'s `q_right` cell, where it is the live correction |
 | `D^{*,#}` | `D = D* − D*_Q − D*_g` | `DnoStar − DnQoStar − DngoStar` | — | + ([§4](#4-the-sign-discrepancy-item-21--resolved)) | — | starred | rowwise per arm; ATE is the rowwise difference | the variance | `test_influence_drtmle.py` (difference not sum; per-guard membership) **and `test_influence_gateaux_drtmle.py`**, which is the Gateaux pin of the decomposition this row wanted: in each off-diagonal cell the corrected curve equals `tests/discrete_law.py`'s complex-step EIF, row for row, from a real fit as well as longhand |
 | `B_n`, `B_{A,n}`, `B_{Y,n}` | the three recorded scores | `PnDnoStar` etc. | — | — | **the identity B1a pins and B1b makes hold** | starred | yes | the stopping rule and `score_check` | `test_drtmle_fit.py`, `test_bounded_mechanism.py`, and `validation/drtmle.py`'s `correction_check` |
-| `R_{Q,n}`, `R_{g,n}` | not computed | not computed | — | — | — | — | — | item 13 | **open, and [piece C](roadmap.md#c-the-demonstration)'s** — a column on that study rather than a test here, since only it knows `ψ_0`. [§5](#5-the-remaining-remainder-terms) has the terms |
+| `R_{Q,n}`, `R_{g,n}` | not computed | not computed | — | — | — | — | — | item 13 | **open, and [piece C](../roadmap.md#c-the-demonstration)'s** — a column on that study rather than a test here, since only it knows `ψ_0`. [§5](#5-the-remaining-remainder-terms) has the terms |
 | `σ̂²_n` | `influence_covariance` | `drtmle` covariance block | — | — | — | — | — | the interval | `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` — the interval built from the package's own corrections is the one Theorem 1's terms give, the uncentred `P_n{D}²` differs from the reported variance by exactly `(P_n D)²`, and the contrast reads the covariance rather than the sum |
 | the probability limits `Q̄_1`, `g_1` | declared in tests; a fit has estimates, not limits | — | `W` | — | — | the limit the starred arrays converge to | yes | Theorem 1's conclusion, and `D^{*,#}` is evaluated **at them** | `test_influence_gateaux_drtmle.py`, the first fixture here to *have* limits: the misspecified nuisance is a constant, so it is its own limit, and the union model is entered by construction rather than by a rate |
 
@@ -673,18 +673,18 @@ The statuses below were the state on the day this file was seeded; **A1a filled 
 `evidence` cells and corrected one status, and the count of `unverified` rows did not fall** —
 which is what the column is for. What changed is that a row now says *what would settle it* rather
 than nothing at all, and one row that read **violated** now reads violated-and-measured, because
-[B1a](roadmap.md#b1a--the-identity-and-safety-patch) landed an instrument for it.
+[B1a](../roadmap.md#b1a--the-identity-and-safety-patch) landed an instrument for it.
 
 | condition | source | required for | what the implementation does | evidence | status |
 | --- | --- | --- | --- | --- | --- |
 | `Q̄ = Q̄_0` **or** `g = g_0` | Thm 1 | the whole conclusion | assumed, not checked | `test_influence_gateaux_drtmle.py` enters each half of the union **by construction** — one nuisance exact in the sample, the other a declared constant | met by assumption; the union model is the point, and it is now the fixture rather than a hope |
 | `g_0 > δ > 0` (true mechanism) | Thm 1 | boundedness | assumed; a *fitted* `g` is truncated instead | positivity warning | **unverified** — the theorem bounds `g_0`, the code bounds `ĝ` |
 | `B_n = o_p(n^(−1/2))` | Thm 1 | eq (8) | solved to `1e-11` relative or `_NEGLIGIBLE/n` absolute | sweep | met, under a numerical proxy for `o_p` |
-| `B_{A,n} = o_p(n^(−1/2))` | Thm 1 | eq (9) | solved at the **truncated** residual, which is the one the curve reads | item 20; `correction_check`'s `identity` rows, per arm, on four fixtures including one where 375 rows clip | **met**, under the stated restriction that the mechanism is the truncated one and not the theorem's untruncated `g*` — [§7](#7-truncation-is-not-in-the-theorems-algorithm) is why that is a rendering rather than a departure. It read *violated wherever the bound binds*: B1a made it visible and [B1b](roadmap.md#b1b--the-theorem-conforming-targeting-decision) closed it, at `1e-17` on the identity and `1e-10` on the score |
+| `B_{A,n} = o_p(n^(−1/2))` | Thm 1 | eq (9) | solved at the **truncated** residual, which is the one the curve reads | item 20; `correction_check`'s `identity` rows, per arm, on four fixtures including one where 375 rows clip | **met**, under the stated restriction that the mechanism is the truncated one and not the theorem's untruncated `g*` — [§7](#7-truncation-is-not-in-the-theorems-algorithm) is why that is a rendering rather than a departure. It read *violated wherever the bound binds*: B1a made it visible and [B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision) closed it, at `1e-17` on the identity and `1e-10` on the score |
 | `B_{Y,n} = o_p(n^(−1/2))` | Thm 1 | eq (10) | solved exactly | tests | met |
-| `R_{Q,n} = o_p(n^(−1/2))` | app. A | asymptotic linearity | unmeasured | `test_remainder_drtmle.py` has the *arithmetic* at saturated reductions; the empirical rate is [piece C](roadmap.md#c-the-demonstration)'s column | **unverified** — item 13 |
+| `R_{Q,n} = o_p(n^(−1/2))` | app. A | asymptotic linearity | unmeasured | `test_remainder_drtmle.py` has the *arithmetic* at saturated reductions; the empirical rate is [piece C](../roadmap.md#c-the-demonstration)'s column | **unverified** — item 13 |
 | `R_{g,n} = o_p(n^(−1/2))` | app. B | asymptotic linearity | unmeasured | as above, and the two branches must be reported **apart** — [§5](#5-the-remaining-remainder-terms) | **unverified** — item 13 |
-| Donsker / `L_2` for `D_A`, `D_Y` | app. A/B | the empirical-process terms | cross-fitting, pooled | `fit_reduced` docstring | **unverified** — item 15, and [A1b](roadmap.md#a1b--the-cross-fitting-construction)'s whole content |
+| Donsker / `L_2` for `D_A`, `D_Y` | app. A/B | the empirical-process terms | cross-fitting, pooled | `fit_reduced` docstring | **unverified** — item 15, and [A1b](../roadmap.md#a1b--the-cross-fitting-construction)'s whole content |
 | reduced regressions consistent | Thm 1 | the corrections' limits | estimated, unmeasured rates | `test_reduced_regressions.py` shows a **saturated** learner recovers them exactly on the exact law; that is consistency at one learner on one law and not a rate | **unverified** |
 | exact zeros vs `o_p(n^(−1/2))` | Thm 1 | the stopping rule | numerical criterion | item 12 | met under a stated restriction |
 | arm-level means / ATE contrast | Thm 1 + adaptation | the reported parameters | rowwise difference of arm curves | `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` — the contrast's variance is the difference's, not the sum of the arms' | met; the adaptation is stated, not cited |
@@ -699,5 +699,5 @@ than nothing at all, and one row that read **violated** now reads violated-and-m
 
 **Four rows read *not covered by the source*** — hard truncation, `K` arms, missing outcomes and
 composition with `CTMLE` — and five read `unverified`. A page elsewhere that counts three of the
-first has not been updated since missing outcomes was added; [the roadmap](roadmap.md) is the one
+first has not been updated since missing outcomes was added; [the roadmap](../roadmap.md) is the one
 that said so and no longer does.
