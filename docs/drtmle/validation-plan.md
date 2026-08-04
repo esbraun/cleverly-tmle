@@ -889,6 +889,20 @@ same class of error as reporting a per-protocol analysis as intention-to-treat. 
 written down before the numbers exist, because a demonstration whose exclusion rule was chosen
 after seeing which cells it helped is not a demonstration.
 
+**Frozen at 2%, after the pilot and before the final study, exactly where this paragraph says to
+freeze it.** [The pilot](coverage-study.md#what-the-pilot-measured) measured an invalid share of
+`0.000` to `0.060` over 600 fits, and the bar is **left where it was** rather than raised to the
+number that was seen. That is the whole discipline of this rule: `0.060` appears in one cell of
+twelve — `g-drift`, Tier 2, `n = 600` — and moving the threshold to 6% so that cell passes would be
+choosing the rule after seeing which cells it helped, which is the failure the paragraph above
+names. So the threshold stands and that cell is a **live gate-2 risk** to be read out rather than
+accommodated. Two things qualify it and neither changes it: `0.060` is 3 fits of 50, whose Monte
+Carlo error is about `0.034`, so it is barely separated from `0.02` and the final study's 250
+replicates are what resolve it; and **every invalid fit in the pilot was a `score` failure and none
+was an `identity` failure**, so what the rate measures is fits that did not converge rather than a
+software defect — which is the distinction gate 1's clauses 2 and 3 are worded apart for, and it is
+now a column rather than an inference.
+
 **A mixed cell's coverage number is reported pooled, with the two contract populations beside
 it.** This is the fourth rule, it is [piece C3](../roadmap.md#c-the-demonstration)'s decision
 taken before its dispatch as clause 0 requires, and the written reason is

@@ -479,10 +479,25 @@ alone.
 - **`identity` is `0` across all 600 fits**, so gate 1's clause 2 holds and the column C3 added to
   read it earned itself on its first run. Every `score` failure is a fit that did not converge,
   which is a different finding and now says so.
-- **The bound-active share as a rate is `0` to `20%`**, below C1's one-to-two-of-six, and it *falls*
-  with `n` in tier 1 (`20% / 10% / 10%`) as item 25's asymptotic argument says it should. The cells
-  are mixed, which is why §5's fourth rule exists; the strata never diverged by more than Monte
-  Carlo error at these counts.
+- **The bound-active share, now a rate rather than a share of six draws.** C1's witness read
+  one-to-two of six and this page carried that as *"a sixth to a third"*; over 50 draws a cell it is
+  lower everywhere and it **falls with `n`** in three of the four arms, which is what item 25's
+  asymptotic argument says it should do:
+
+  | tier, cell | `n = 600` | `n = 1,200` | `n = 2,400` |
+  | --- | --- | --- | --- |
+  | 1, `q-drift` | 10/50 = **20%** | 5/50 = 10% | 5/50 = 10% |
+  | 1, `g-drift` | 5/50 = 10% | 1/50 = 2% | 0/50 = **0%** |
+  | 2, `q-drift` | 0/50 = **0%** | 0/50 = 0% | 1/50 = 2% |
+  | 2, `g-drift` | 3/50 = 6% | 3/50 = 6% | 3/50 = 6% |
+
+  The initial mechanism clips essentially nowhere (`worst clip share` `0.0000` in eleven of twelve
+  cells, `0.0017` in the twelfth) and `g_{r,1}` stays interior throughout (`min gr1 margin` `0.117`
+  to `0.343`), so this is the **exit** margin alone — C1's diagnosis, at a hundred times the draws.
+  Cells are mixed, which is why §5's fourth rule exists. The strata never separated by more than
+  Monte Carlo error at these counts: the largest gap is `g-drift` Tier 2 at `n = 1,200`, `0.894`
+  theorem-side against `0.667` bound-active on **three** draws, whose Wilson interval is
+  `[0.208, 0.939]`. That is a stratum too small to read, reported rather than interpreted.
 - **The invalid share is `0.000` to `0.060`**, so the proposed 2% threshold is exceeded once, at
   `g-drift` tier 2 `n = 600`.
 
