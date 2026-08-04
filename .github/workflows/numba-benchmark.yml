@@ -19,6 +19,17 @@
 #                   worth reading for its *shape* and not for its numbers; the job says so
 #                   in its own summary rather than leaving a reader to infer it.
 #
+# The `full` job takes its core counts from the config, which is what makes it the full
+# tier. It used to pass `--num-cores 1 2` as well, and that flag *replaces* the config's
+# list rather than narrowing it -- so `full.yaml`'s `[1, 2, 4, 8]` was discarded and no job
+# in this file had ever run above two cores, while the reports read as though a full sweep
+# had. On the default runner the 4- and 8-core rows now come back as
+# `skipped_reason = "asked for 4 cores; the box has 2"`, which is `resources.py`'s refusal
+# working rather than a gap, and the summary tables them. Point `runner:` at a box with
+# cores to spare to have them measured; `num_cores:` still overrides for a one-off. (Named
+# with an underscore, not a hyphen: `inputs.num-cores` in an expression parses as a
+# subtraction rather than as a property.)
+#
 # Results are never compared across runs as though the hardware were the same. Every
 # artefact carries `environment.json`, and the summary carries the CPU model.
 name: numba-benchmark
@@ -35,6 +46,14 @@ on:
         description: Space-separated kernel names, or "all"
         type: string
         default: all
+      runner:
+        description: Runner label for the full tier -- a box with cores to spare
+        type: string
+        default: ubuntu-latest
+      num_cores:
+        description: Space-separated core counts for the full tier, or empty for the config's
+        type: string
+        default: ""
   schedule:
     # Weekly, well clear of the nightly statistical tier so the two are not measuring each
     # other's load.
@@ -60,6 +79,9 @@ jobs:
           python-version: "3.11"
           extra: bench
 
+      # `--num-cores 1 2` is right *here* and stays: this job passes no `--config`, so
+      # `Config()`'s default of (1, 2, 4) would produce a skipped four-core row every week
+      # on a two-core runner. The full tier below is the one that must not override.
       - name: Kernels, small, at every core count the runner has
         run: |
           python -m benchmarks.numba.cli \
@@ -84,7 +106,10 @@ jobs:
 
   full:
     if: github.event_name == 'workflow_dispatch' && inputs.tier == 'full'
-    runs-on: ubuntu-latest
+    # Dispatch-only, which is also what keeps a self-hosted `runner:` off the pull-request
+    # path. `inputs` is empty on a schedule, so only this job may be templated -- `smoke`
+    # runs on the schedule and stays on a literal label.
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
@@ -98,11 +123,13 @@ jobs:
       # config, which is YAML because it is meant to be read and edited, loads.
       - run: uv pip install pyyaml
 
+      # No `--num-cores` unless one is dispatched: the config's own `num_cores` is the full
+      # tier's core list, and a flag here would replace it rather than narrow it.
       - name: The whole sweep
         run: |
           python -m benchmarks.numba.cli \
             --config benchmarks/configs/full.yaml \
-            --num-cores 1 2 \
+            ${{ inputs.num_cores && format('--num-cores {0}', inputs.num_cores) || '' }} \
             --output benchmarks/results
 
       - name: The complete post-nuisance pipelines, at both learner presets
@@ -119,9 +146,13 @@ jobs:
       - name: Post the summaries
         run: |
           {
-            echo "> Measured on a shared two-core GitHub runner. Read the scaling tables"
-            echo "> for their shape, not their numbers, and never against a run from"
+            echo "> Measured on \`${{ inputs.runner || 'ubuntu-latest' }}\`. Read the scaling"
+            echo "> tables for their shape, not their numbers, and never against a run from"
             echo "> other hardware -- see environment.json in the artefact."
+            echo ">"
+            echo "> Core counts come from benchmarks/configs/full.yaml. Rows above what the"
+            echo "> box can serve are **skipped rather than capped**, and are tabled as such"
+            echo "> below -- a two-core runner answers nothing about 4 or 8."
             echo
             cat benchmarks/results/latest/summary.md
             echo

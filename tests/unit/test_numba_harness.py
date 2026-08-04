@@ -102,6 +102,67 @@ class TestTheEffectiveThreadCount:
         assert row.skipped_reason.startswith("asked for 4 cores")
 
 
+class TestTheCoreListOverride:
+    """``--num-cores`` replaces the config's list, and must not learn to clamp.
+
+    The workflow's ``full`` job used to pass ``--num-cores 1 2`` alongside
+    ``--config full.yaml``, which discarded that file's ``[1, 2, 4, 8]`` -- so no job in
+    this repository had ever run above two cores while the reports read as though a full
+    sweep had.  Dropping the flag is the fix; these are the tests that keep the *semantics*
+    the fix relies on from being "helpfully" softened afterwards.
+    """
+
+    def test_an_explicit_list_replaces_the_configs(self):
+        """A replace, not an intersection: ``--num-cores 1 2`` means 1 and 2."""
+        from benchmarks.numba.cli import _apply_overrides
+        from benchmarks.numba.config import Config
+
+        config = _apply_overrides(Config(num_cores=(1, 2, 4, 8)), _args(num_cores=[1, 2]))
+
+        assert config.num_cores == (1, 2)
+
+    def test_omitting_the_flag_keeps_the_configs_list(self):
+        """The regression itself.  A flag that is not passed must change nothing."""
+        from benchmarks.numba.cli import _apply_overrides
+        from benchmarks.numba.config import Config
+
+        config = _apply_overrides(Config(num_cores=(1, 2, 4, 8)), _args(num_cores=None))
+
+        assert config.num_cores == (1, 2, 4, 8)
+
+    def test_a_core_count_above_the_box_is_skipped_rather_than_capped(self):
+        """What honouring the config's list costs on a small runner, and why it is right.
+
+        `resources.py` refuses a count the machine cannot serve instead of capping it,
+        because an efficiency column computed against a silently capped count is a
+        fabrication.  So the 4- and 8-core rows of a full sweep on a two-core box come back
+        *named as skipped*, which is a reader-visible gap rather than a plausible number.
+        """
+        row = runner._skipped(
+            _spec(),
+            "numba_parallel",
+            1_000,
+            8,
+            ThreadPlan(numba_threads=8),
+            {"n": 1_000},
+            _environment(),
+            "asked for 8 cores; the box has 2",
+        )
+
+        assert "8" in row.skipped_reason and "2" in row.skipped_reason
+        assert row.repeat_count == 0
+        assert row.warm_seconds != row.warm_seconds  # nan: nothing was timed
+
+
+def _args(**overrides):
+    """An ``argparse.Namespace`` with every overridable flag unset but the named ones."""
+    import argparse
+
+    from benchmarks.numba.cli import _OVERRIDABLE
+
+    return argparse.Namespace(**{name: overrides.get(name) for name in _OVERRIDABLE})
+
+
 def _spec():
     """Any registered kernel: ``_common`` reads a name and two flags off it, nothing more.
 
