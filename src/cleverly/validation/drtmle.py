@@ -94,6 +94,7 @@ import numpy as np
 
 from ..estimators.tmle import correction_parts
 from ..utils.frames import emit_frame
+from ..utils.records import sentinel_equality
 from ..utils.text import format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -112,6 +113,7 @@ __all__ = ["IDENTITY_TOLERANCE", "CorrectionCheck", "CorrectionRow", "correction
 IDENTITY_TOLERANCE = 1e-12
 
 
+@sentinel_equality
 @dataclass(frozen=True)
 class CorrectionRow:
     """One arm, one equation, one draw: what was solved against what is reported.
@@ -167,6 +169,12 @@ class CorrectionRow:
         guard.  ``False`` on a single-guard fit's other equation, and such a row is
         informational: :meth:`CorrectionCheck.correction_failures` does not read it, since
         a term nothing subtracts cannot make an interval wrong however large it is.
+
+    :attr:`clip_bias` and :attr:`margin` are ``nan`` on the rows that do not carry them,
+    which is a sentinel and not an unknown -- so two such rows are the same row, and
+    :func:`~cleverly.utils.records.sentinel_equality` is what says so.  The generated
+    ``__eq__`` said it only by accident and stopped saying it on Python 3.13; that module
+    has the five-line reproduction.
     """
 
     draw: int

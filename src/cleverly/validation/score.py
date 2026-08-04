@@ -76,6 +76,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ..utils.frames import emit_frame
+from ..utils.records import sentinel_equality
 from ..utils.text import format_table
 from .drtmle import CorrectionCheck, correction_check
 
@@ -90,9 +91,16 @@ __all__ = ["ScoreCheck", "ScoreCheckRow", "score_check"]
 DEFAULT_TOLERANCE = 1e-3
 
 
+@sentinel_equality
 @dataclass(frozen=True)
 class ScoreCheckRow:
-    """The score diagnostic for one estimand or one targeted family."""
+    """The score diagnostic for one estimand or one targeted family.
+
+    ``score_initial`` and ``hessian_condition`` are ``nan`` on the rows that do not carry
+    them, which is a sentinel and not an unknown -- see
+    :func:`~cleverly.utils.records.sentinel_equality` for why comparing two of these rows
+    needs saying so rather than inheriting the generated ``__eq__``.
+    """
 
     name: str
     kind: str
