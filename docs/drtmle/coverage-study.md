@@ -652,34 +652,62 @@ than of this instrument.
 in the limit, and the two remainder columns coincide. Measured, a fitted `ε` of
 `+0.00026 ± 0.00183` and an absorbed share of `0.0000`.
 
-### Tier 2: make the committed rate the realised one
+### Tier 2: the constant, not the exponent
 
-**The problem is not the same problem.** Tier 2 *does* produce a gap — `q-drift` at `n = 2,400`
-reads `0.540` against `0.760`, a paired `+0.220 ± 0.072` — so its nuisances are not being absorbed
-the way Tier 1's are. What it does not do is enter the regime it committed to: the realised
-`n^α R₂` at the fitted nuisances is `0.59`–`0.68` against `0.389`/`0.410`, and it **drifts upward**
-across sizes rather than settling on a constant.
+**The problem was never the same problem, and C3b's first finding here is that Tier 2 does not
+suffer Tier 1's at all.** Its two coefficients agree to five figures — `b_ATE = 0.3895` against
+`c_ATE = 0.3886` in `q-drift`, and equal in `g-drift` — because both of its error shapes are
+**linear** in independent standard normals, so each has population mean zero, and the fluctuation's
+step is driven by exactly that mean. In `g-drift` the score weight is identically one at the limit,
+so `ε` is the mean of the outcome error and is zero exactly. That is why Tier 2 produced a coverage
+gap in the pilot while Tier 1 could not: absorption is a property of whether the nuisance's error
+is aligned with the fluctuation's direction, and a smoother's bias on a symmetric law is not.
 
-**The repair.** The bandwidth sequence `h_n = 1.15·n^(−0.125)` is what sets the smoother's bias,
-and a coefficient that grows with `n` says the realised rate is slower than `n^(−α)` rather than
-merely mis-scaled. So the constant and the exponent are both in question, and the exponent is the
-one that matters — a constant that is 1.5× can be re-normalised, a drifting coefficient cannot.
+**What was wrong was a reading, and correcting it changes which knob moves.** The pilot saw
+`0.59`–`0.68` against `0.389`/`0.410` and read it as *drifting upward*, so the section this
+replaces put the **exponent** in question. Re-measured at the targeted column over 12 draws at
+three sizes, the realised coefficient is `+0.6242 / +0.5863 / +0.6173` in `q-drift` — a **spread of
+0.06**, which is stable, at a ratio of `1.58×`. That is the design note's own *"a constant that is
+1.5× can be re-normalised, a drifting coefficient cannot"*, landing on the first branch.
 
-**Evidence for.** The quantity is measured directly by the harness's own regime-entry column at
-each size, a Tier-2 fit is `5.4`–`7.4s`, and a 12-draw check at three sizes is minutes rather than
-a dispatch. As with Tier 1 the acceptance test exists before the change.
+So `β` stays at `α/2`, which is what keeps the two tiers about one regime. **The obvious next move
+is that `c_h` is the knob — the committed calculation is the `h²` leading term alone, `h(600)` is
+`0.517`, so `h⁴` is not negligible and shrinking `h` should close the gap. That was run and it is
+wrong**, which is the second thing C3b measured here:
 
-**Evidence against.** `g-drift`'s corrected remainder **rises** — `√n R_rem` of `4.17 → 3.91 →
-5.07` — and a smoother whose bias is re-tuned to hit a declared `α` does not obviously fix a
-*corrected* remainder that is growing. That growth is item 13's condition failing, and item 13 is a
-condition of Theorem 1 rather than of this design: if it survives the repair, then at these sizes
-the estimator is outside the conditions its own guarantee needs and a coverage number would be
-measuring something the theorem does not cover. **Fixing the rate and finding the remainder still
-rises would be a more interesting result than fixing it and finding it does not.**
+| `c_h` | `h(600)` | predicted `b_ATE` | realised at `n = 600` |
+| --- | --- | --- | --- |
+| 1.15 | 0.517 | 0.3895 | `+0.6265` — **1.61×** |
+| 1.00 | 0.450 | 0.2946 | `+0.5234` — 1.78× |
+| 0.90 | 0.405 | 0.2386 | `+0.4549` — 1.91× |
+| 0.80 | 0.360 | 0.1885 | `+0.3861` — 2.05× |
+| 0.70 | 0.315 | 0.1443 | `+0.3195` — **2.21×** |
+
+The ratio **rises** as the bandwidth falls, which is the opposite of an `h⁴` truncation error and
+identifies the omitted term as **variance-side rather than bias-side**: both nuisances are fitted
+on the same rows, so their estimation errors covary, and that covariance enters the remainder's
+inner product without shrinking with `h`. So no bandwidth makes the leading-order prediction
+correct, shrinking it makes the agreement worse, and `c_h` stays at `1.15`.
+
+**What moves instead is the number the pre-flight reads against**, which §5 permits at the pilot
+and only there. Tier 2 gains a `COMMITTED_B_ATE`, measured at a stated protocol, with the analytic
+prediction reported beside it as the leading-order term it is — the two tiers already differ in
+exactly this way, since Tier 1 *solves* its shape to hit a declared number and here the estimator's
+bias is what it is. **This is not the shortfall being tuned for**: the drift is *stronger* than
+predicted, not weaker, and `q-drift`'s `TMLE` covers `0.750 / 0.583 / 0.500` against `DRTMLE`'s
+`0.833 / 0.917 / 0.917` — a gap far past gate 2's predeclared `0.05` either way.
+
+**And condition 3 no longer fails.** The pilot's `g-drift` corrected remainder *rose*
+(`4.17 → 3.91 → 5.07`); re-measured it reads `+2.85 / +3.30 / +2.62`, and `q-drift`'s reads
+`+1.48 / +1.23 / +1.26`. Both fall from the first size to the last, though at 12 draws the Monte
+Carlo errors are `±0.42` to `±0.83` and the final study is what resolves them. The paragraph this
+replaces was right to say a re-tuned smoother would not obviously repair a rising *corrected*
+remainder; what it could not know is that the rise was not there to repair.
 
 ### What both halves have to clear before any 250-replicate dispatch
 
-1. `R₂(Q̄*)` at the declared `n^(−α)c`, not `R₂(Q̂)` — the check the old design would have failed;
+1. `R₂(Q̄*)` at the declared `n^(−α)b`, not `R₂(Q̂)` at `n^(−α)c` — the check the old design would
+   have failed;
 2. the realised `n^α R₂` at the fitted nuisances stable across the three sizes and near its
    committed value;
 3. `√n R_rem` falling rather than rising in **both** cells.
@@ -687,6 +715,41 @@ rises would be a more interesting result than fixing it and finding it does not.
 None of these needs a coverage study, all three are minutes, and the reason to state them here is
 that a study dispatched without them measures a design nobody has checked — which is what
 happened, and what the pilot cost was small enough to catch.
+
+**They are a table now rather than a paragraph.** `benchmarks/drtmle_coverage.py` prints them last,
+one row per condition per cell with a verdict, and `.github/workflows/drtmle-coverage.yml`'s header
+says to read it first. Conditions 1 and 2 are read on the plain `TMLE`, since that is the estimator
+whose regime the design commits and whose interval a shortfall is claimed against; condition 3 on
+`DRTMLE`, since it is item 13's. A run with no evaluation draw reports condition 3 as `-` rather
+than as a failure — *not measurable* and *failed* must not read alike.
+
+The one tolerance in it is stated as a rule and not taken from a result: §5 names no number, so a
+quarter is written down once in the module and the verdict column says which was applied. Condition
+3 failing stays a **finding rather than a fault in the design** — it is a condition of Theorem 1,
+so the estimator would then be outside the assumptions its own guarantee needs at these sizes.
+
+### What the pre-flight read, at 12 draws and three sizes in both tiers
+
+*Both tiers, both cells, `600 / 1,200 / 2,400`, seed `20250801`. Tier 1 at `--evaluation-n 1200`
+and Tier 2 at `1500`; 72 draws each, 355s wall clock at `jobs=2` for Tier 2. This is minutes
+rather than a dispatch, which is the whole point of the conditions being what they are.*
+
+| condition | Tier 1 `q-drift` | Tier 1 `g-drift` | Tier 2 `q-drift` | Tier 2 `g-drift` |
+| --- | --- | --- | --- | --- |
+| **1** bias at the committed `n^(−α)b` | `+0.4003 ± 0.0362` vs `+0.4000` | `+0.0979 ± 0.0029` vs `+0.1000` | `+0.6173 ± 0.0200` vs `+0.6100` | `+0.6773 ± 0.0637` vs `+0.6200` |
+| **2** `n^α R₂` stable | `+0.430 / +0.453 / +0.400` | `+0.098 / +0.104 / +0.098` | `+0.624 / +0.586 / +0.617` | `+0.520 / +0.672 / +0.677` |
+| **3** `√n R_rem` falling | `+0.51 / +0.52 / +0.93` | `+1.05 / +1.37 / +1.80` | `+1.48 / +1.23 / +1.26` | `+2.85 / +3.30 / +2.62` |
+
+**Conditions 1 and 2 pass in all four cells**, and Tier 1's are the tight ones — `+0.4003` against
+a declared `+0.4000`, on real fits at the largest size, which is the repair confirmed rather than
+argued.
+
+**Condition 3 is `unresolved` everywhere, and that is a reading rather than a verdict.** `P₀D̂` is
+a quadrature whose error lands directly in each replicate's remainder and `√n` multiplies it, so
+the Monte Carlo errors here are `±0.42` to `±0.83` — every reading is inside its own error of
+every other. *Not resolvable at this draw count* and *failed* are different things and the table
+says which it is; separating them is what the 250-replicate dispatch exists for, and it is
+[item 13](../roadmap.md#what-is-still-open)'s number rather than this design's.
 
 ### This is the second time a coverage study here has found no gap
 

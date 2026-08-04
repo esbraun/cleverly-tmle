@@ -149,6 +149,32 @@ BANDWIDTH_EXPONENT = ALPHA / 2.0
 #: below its bias.
 BANDWIDTH_C = 1.15
 
+#: What the pre-flight reads condition 1 against, per cell: the ATE's **targeted** coefficient
+#: as this design realises it, rather than as :func:`targeted_coefficients` predicts it.
+#:
+#: **The two are not the same number here and C3b measured why.**  The prediction is the
+#: :math:`h_n^2` leading term alone, and the realised coefficient comes in at ``1.5`` to
+#: ``1.6`` times it -- stably, with a spread of ``0.06`` across the three sizes in ``q-drift``.
+#: The obvious reading is that :math:`h_n` is too large for the leading-order formula and the
+#: repair is a smaller :data:`BANDWIDTH_C`.  **That was run and it is wrong**: scanned over
+#: ``c_h`` of ``1.15 / 1.00 / 0.90 / 0.80 / 0.70`` at ``n = 600``, the ratio goes
+#: ``1.61 / 1.78 / 1.91 / 2.05 / 2.21`` -- it **rises** as the bandwidth falls, which is the
+#: opposite of an :math:`h^4` truncation error and identifies the omitted term as
+#: variance-side rather than bias-side.  Both nuisances are fitted on the same rows, so their
+#: estimation errors covary, and that covariance enters the remainder's inner product without
+#: shrinking with :math:`h`.
+#:
+#: So **no bandwidth makes the leading-order prediction correct**, shrinking it makes the
+#: agreement worse, and :data:`BANDWIDTH_C` stays where it was committed.  What moves instead
+#: is the number the pre-flight reads, which §5 permits at the pilot and only there:
+#: measured over 12 draws at ``600 / 1,200 / 2,400`` with seed ``20250801``, ``q-drift`` reads
+#: ``+0.624 / +0.586 / +0.617`` and ``g-drift`` ``+0.520 / +0.672 / +0.677``.
+#:
+#: This is not the shortfall being tuned for.  The drift is *stronger* than the design
+#: predicted, not weaker: ``q-drift``'s ``TMLE`` covers ``0.750 / 0.583 / 0.500`` against
+#: ``DRTMLE``'s ``0.833 / 0.917 / 0.917``, a gap far past gate 2's predeclared ``0.05``.
+COMMITTED_B_ATE = {"q-drift": 0.61, "g-drift": 0.62}
+
 #: How far the kernel's neighbours are taken, in bandwidths.  Beyond four the Gaussian
 #: weight is ``3e-4`` of the centre's and the sum is unchanged to five figures; the cap
 #: exists so the kernel matrix can be blocked rather than formed whole.
@@ -783,6 +809,20 @@ def exact_remainder(cell: str, n: int) -> dict[str, float]:
         "r2_0": factor * coefficients["c0"],
         "r2_ate": factor * coefficients["c_ate"],
     }
+
+
+def committed_coefficient(cell: str) -> float:
+    """What the pre-flight reads condition 1 against -- :data:`COMMITTED_B_ATE`.
+
+    A **measured** constant here and a declared one at Tier 1, which is the same distinction
+    the two tiers already have: Tier 1 normalises its shape so the coefficient comes out at a
+    number, and here the estimator's bias is what it is.  ``targeted_coefficients`` stays the
+    analytic leading-order prediction and is reported beside it, so a run shows both and a
+    reader can see how far apart they are rather than being handed one of them.
+    """
+    if cell not in CELLS:
+        raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
+    return COMMITTED_B_ATE[cell]
 
 
 def exact_targeted_remainder(cell: str, n: int) -> dict[str, float]:

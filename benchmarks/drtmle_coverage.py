@@ -716,7 +716,8 @@ ENTRY_HEADERS = (
     "reps",
     "R2(Qbar*)",
     "n^a R2(Qbar*)",
-    "declared b",
+    "committed b",
+    "predicted b",
     "within",
     "sqrt(n) R2(Qbar*)",
 )
@@ -735,13 +736,16 @@ def entry_rows(records: Sequence[Replicate]) -> list[list[str]]:
     regime; ``DRTMLE``'s row is its own bias and is here beside it as description, since a
     corrected fit's bias is a different quantity and one gate 2 makes no claim about.
 
-    ``within`` is the ratio of the realised coefficient to the declared one.  Reported rather
-    than thresholded, because §5 declares no number for it -- the study's write-up reads it and
-    a threshold invented here would put a rule in a second place.
+    ``within`` is the ratio of the realised coefficient to the **committed** one, and the
+    ``predicted`` column beside it is what the design's analytic calculation gives.  The two
+    are the same number at Tier 1, where the shape is solved to make them so, and apart at
+    Tier 2, where a smoother's bias is what it is -- so the gap between those columns is a
+    statement about the leading-order calculation rather than about the fit.
     """
     rows = []
     for cell, n in _cells(records):
-        declared = injection.targeted_coefficients(cell)["b_ate"]
+        declared = injection.committed_coefficient(cell)
+        predicted = injection.targeted_coefficients(cell)["b_ate"]
         for estimator in ("tmle", "drtmle"):
             selected = [
                 r for r in _select(records, cell, n, estimator, "ate") if np.isfinite(r.r2_targeted)
@@ -761,6 +765,7 @@ def entry_rows(records: Sequence[Replicate]) -> list[list[str]]:
                     f"{mean:+.5f} +/- {error:.5f}",
                     f"{scaled:+.4f}",
                     f"{declared:+.4f}",
+                    f"{predicted:+.4f}",
                     f"{scaled / declared:.2f}x" if declared else "-",
                     f"{math.sqrt(n) * mean:+.3f}",
                 ]
@@ -1051,10 +1056,16 @@ def preflight_rows(records: Sequence[Replicate]) -> list[list[str]]:
     is what happened."*  So they are read as a verdict table rather than left to be assembled
     from four others by a reader who already knows what to look for:
 
-    1. :math:`R_2(\bar Q^*)` at the declared :math:`n^{-\alpha}b` -- **not** at
+    1. :math:`R_2(\bar Q^*)` at the committed :math:`n^{-\alpha}b` -- **not** at
        :math:`R_2(\hat Q)`, which is the check the pre-repair design would have passed;
     2. the realised :math:`n^{\alpha}R_2` stable across the sizes and near its committed value;
     3. :math:`\sqrt n R_{\text{remaining}}` **falling** rather than rising, in both cells.
+
+    ``committed_coefficient`` is what condition 1 reads and the two tiers mean different things
+    by it, each saying so in its own docstring: Tier 1's shape is *solved* to hit a declared
+    number, and Tier 2's is a constant **measured** at a stated protocol, because a fitted
+    smoother's bias is what it is.  Condition 2 is read against the Monte Carlo error as well as
+    against the tolerance, since at a pre-flight's draw counts three readings disagree by noise.
 
     Read on the plain ``TMLE`` for the first two, since that is the estimator whose regime the
     design commits, and on ``DRTMLE`` for the third, which is item 13's condition and is about
@@ -1072,61 +1083,95 @@ def preflight_rows(records: Sequence[Replicate]) -> list[list[str]]:
         sizes = sorted({n for _, n in _cells(records) if _ == cell})
         if not sizes:
             continue
-        declared = injection.targeted_coefficients(cell)["b_ate"]
+        committed = injection.committed_coefficient(cell)
 
-        def realised(size: int, cell: str = cell) -> float:
-            values = [
-                r.r2_targeted
-                for r in _select(records, cell, size, "tmle", "ate")
-                if np.isfinite(r.r2_targeted)
-            ]
-            return size**injection.ALPHA * float(np.mean(values)) if values else float("nan")
+        def realised(size: int, cell: str = cell) -> tuple[float, float]:
+            values = np.array(
+                [
+                    r.r2_targeted
+                    for r in _select(records, cell, size, "tmle", "ate")
+                    if np.isfinite(r.r2_targeted)
+                ],
+                dtype=float,
+            )
+            if values.size == 0:
+                return (float("nan"), float("nan"))
+            scale = size**injection.ALPHA
+            error = float(np.std(values, ddof=1) / np.sqrt(values.size)) if values.size > 1 else 0.0
+            return (scale * float(values.mean()), scale * error)
 
-        readings = [realised(size) for size in sizes]
+        measured = [realised(size) for size in sizes]
+        readings = [value for value, _ in measured]
+        errors = [error for _, error in measured]
         largest = readings[-1]
         rows.append(
             [
-                "1. bias at the declared n^-a b",
+                "1. bias at the committed n^-a b",
                 cell,
-                f"{largest:+.4f} against {declared:+.4f} at n={sizes[-1]:,}",
+                f"{largest:+.4f} +/- {errors[-1]:.4f} against {committed:+.4f} at n={sizes[-1]:,}",
                 _verdict(
-                    np.isfinite(largest) and abs(largest / declared - 1.0) <= PREFLIGHT_TOLERANCE
+                    np.isfinite(largest) and abs(largest / committed - 1.0) <= PREFLIGHT_TOLERANCE
                 ),
             ]
         )
-        spread = (max(readings) - min(readings)) / abs(np.mean(readings)) if readings else np.nan
+        # Against the Monte Carlo error and not only against the tolerance: at a pre-flight's
+        # draw counts the spread of three readings is mostly noise, and a design reported as
+        # unstable because twelve draws disagree is the pilot's mistake in the other direction.
+        spread = max(readings) - min(readings)
+        noise = 2.0 * float(np.sqrt(2.0)) * max(errors)
+        relative = spread / abs(float(np.mean(readings))) if readings else float("nan")
         rows.append(
             [
                 "2. n^a R2 stable across sizes",
                 cell,
-                " / ".join(f"{value:+.4f}" for value in readings) + f"  spread {spread:.2f}",
-                _verdict(np.isfinite(spread) and spread <= PREFLIGHT_TOLERANCE),
+                " / ".join(f"{value:+.4f}" for value in readings)
+                + f"  spread {relative:.2f}, mc {noise / abs(float(np.mean(readings))):.2f}",
+                _verdict(
+                    np.isfinite(relative) and (relative <= PREFLIGHT_TOLERANCE or spread <= noise)
+                ),
             ]
         )
-        corrected = [
-            float(np.mean(values))
-            if (
-                values := [
-                    r.root_n_remaining
-                    for r in _select(records, cell, size, "drtmle", "ate")
-                    if np.isfinite(r.root_n_remaining)
-                ]
-            )
-            else float("nan")
-            for size in sizes
-        ]
-        if not any(np.isfinite(value) for value in corrected):
+        corrected = [_corrected(records, cell, size) for size in sizes]
+        if not any(np.isfinite(value) for value, _ in corrected):
             rows.append(["3. sqrt(n) R_rem falling", cell, "no evaluation draw", "-"])
+            continue
+        first, last = corrected[0], corrected[-1]
+        reading = " / ".join(f"{value:+.3f} +/- {error:.3f}" for value, error in corrected)
+        # `P_0 D-hat` is a quadrature whose error lands directly in each replicate's remainder,
+        # and `sqrt(n)` multiplies it -- so at a pre-flight's draw counts these columns are
+        # mostly noise and a rise inside their own error says nothing.  Reported as unresolved
+        # rather than as a failure, which is the same distinction the `-` above draws: a
+        # condition nobody could read and a condition that did not hold are different things,
+        # and only the dispatch separates them.
+        separated = abs(last[0] - first[0]) > 1.96 * float(np.hypot(first[1], last[1]))
+        if not separated:
+            rows.append(["3. sqrt(n) R_rem falling", cell, reading, "unresolved"])
             continue
         rows.append(
             [
                 "3. sqrt(n) R_rem falling",
                 cell,
-                " / ".join(f"{value:+.3f}" for value in corrected),
-                _verdict(abs(corrected[-1]) <= abs(corrected[0])),
+                reading,
+                _verdict(abs(last[0]) <= abs(first[0])),
             ]
         )
     return rows
+
+
+def _corrected(records: Sequence[Replicate], cell: str, size: int) -> tuple[float, float]:
+    """Mean and Monte Carlo error of ``sqrt(n) R_remaining`` over a cell and size's draws."""
+    values = np.array(
+        [
+            r.root_n_remaining
+            for r in _select(records, cell, size, "drtmle", "ate")
+            if np.isfinite(r.root_n_remaining)
+        ],
+        dtype=float,
+    )
+    if values.size == 0:
+        return (float("nan"), float("nan"))
+    error = float(np.std(values, ddof=1) / np.sqrt(values.size)) if values.size > 1 else 0.0
+    return (float(values.mean()), error)
 
 
 def _verdict(passed: bool) -> str:

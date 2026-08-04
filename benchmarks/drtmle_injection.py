@@ -876,6 +876,18 @@ def population_epsilon(cell: str, n: int, arm: float) -> float:
     return float(brentq(score, -bound, bound, xtol=1e-14, rtol=1e-15))
 
 
+def committed_coefficient(cell: str) -> float:
+    r"""What the pre-flight reads condition 1 against: :math:`b_{ATE}`, declared.
+
+    Identical to :func:`targeted_coefficients`' ``b_ate`` **by construction** here, because the
+    injected shape is solved to make it so -- which is exactly the difference between this tier
+    and Tier 2, where the same name returns a *measured* constant because a fitted nuisance's
+    bias is what it is.  The two tiers supply one name so the harness reads both without
+    branching, and each says in its own docstring what kind of number it is returning.
+    """
+    return targeted_coefficients(cell)["b_ate"]
+
+
 def exact_targeted_remainder(cell: str, n: int) -> dict[str, float]:
     r"""The **estimator's bias** at the injected sequence, integrated rather than simulated.
 
