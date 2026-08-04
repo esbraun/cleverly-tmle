@@ -320,14 +320,16 @@ rhymes* — applied to a piece rather than to an item.
 B1a  identity + safety patch ─────────────────────┐   landed
                                                   ├─> B2a ──> B2b ──> C  demonstration
 A1a theorem concordance ──> B1b  targeting  ──────┘  instrument  sweep
-                                 convention          landed      dispatch
+                                 convention          landed      landed
 
 A1b cross-fitting construction   blocks nothing; gate 1 requires it
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Everything upstream of B2b has landed**, so what is left of the graph is the dispatch, then C,
-with A1b and D outside it.
+**Everything upstream of C has landed**, so what is left of the graph is the demonstration, with
+A1b and D outside it. What B2b leaves behind it is one open thread rather than a piece: item 22's
+numerical half is answered on `nonlinear` and unresolved on `weak-overlap`, and it gates
+[stop-ship 2](#stop-ship) rather than gating C.
 
 **B1a first**, because every number B2 and C produce is read *through* the reported curve, and
 until it lands a share of every cell's fits report a curve the fit did not solve for. It is also
@@ -990,27 +992,52 @@ median and this package has no estimator for one.
 
 ###### B2b — the dispatch, and what it decides
 
-*Closes items 12, 19 and item 22's numerical half, re-measures items 4 and 6, and decides the
-weak-overlap product policy.* **Open, and it is a run rather than a patch.** The workflow has
-already been dispatched with every new input at a four-fit smoke configuration and came back green
-in 89 seconds, reproducing this container's numbers to every digit printed — so what is left is the
-real sweep and its reading, not a debugging round. Dispatch
-`.github/workflows/drtmle-convergence.yml`, read the tables out of the job log, and put them in
-[the investigation log](drtmle/investigation-log.md#how-the-alternation-exits) beside the first
-sweep's — which measured a criterion that has since changed and an implementation that has since
-been fixed, so it is a *record* rather than a baseline to reproduce.
+*Closes items 12 and 19, re-measures items 4 and 6, decides the weak-overlap product policy, and
+leaves item 22's numerical half answered on one process of two.* **Landed.** [What it
+measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured) is in the investigation log
+beside the first sweep's, which stays as the *before*: it measured a criterion that has since
+changed and an implementation that has since been fixed, so it is a record rather than a baseline
+to reproduce.
 
-What it has to come back with, and the rest of this section is the reasoning for each: the exit
-distribution under the current rule; whether the closing cap still binds on 94 of 96; whether
-`weak-overlap`'s 23-of-24 score-check failures survive B1b; `|Δψ|/se` between the update orders,
-whether it shrinks with `n`, and how it compares with what a different fold split moves; and the
-overlap columns that say *which* of the five places a surviving failure came from.
+**Five questions were put to it and four came back settled.** Each is below with the number that
+settled it, and the fifth is the one to read carefully.
 
-**It is two dispatches, not one.** The main sweep keeps four processes at two sizes with the arms
-off. The update-order question is its own — two processes, **three** sizes, the paper arm and the
-reseed control — because a rate needs three sizes and three sizes across four processes and three
-arms does not fit the runner. Both configurations, the rule the second is judged by, and what would
-falsify it are [in the validation
+- **the exit distribution under the current rule** — it *inverted*. `tol/stall/cap` was 2 / 86 / 8
+  and is **87 / 8 / 1**, at a median of 4 to 9 rounds against 12 to 24. Nothing about the iteration
+  changed; the exit test reads a different ruler. [Limitation 4](#limitations-recorded-rather-than-fixed)
+  is rewritten around it, and the incidental consequence is that the whole sweep costs a **seventh**
+  of what it did — 378s against 2,588s — which makes every runtime estimate on this page and in the
+  validation plan stale in the same direction, [piece C](#c-the-demonstration)'s included;
+- **whether the closing cap still binds on 94 of 96** — it binds on **96 of 96**, so
+  [limitation 6](#limitations-recorded-rather-than-fixed)'s standing prediction that a bounded
+  convention would make it worse is confirmed, in the smallest way it could be. It had been carried
+  as a guess for two revisions;
+- **whether `weak-overlap`'s 23-of-24 score-check failures survive B1b** — they do not. **0 of 24**,
+  and 0 of 36 again at three sizes, with the worst standardised score down from `1.1e+00` to
+  `2.1e-07` on draws whose overlap columns are unchanged. That is what takes the product decision
+  above;
+- **the overlap columns that say which of the five places a failure came from** — with no failures
+  left to attribute they instead say what did *not* change, which is the load-bearing half: a third
+  of `(row, arm)` pairs still clip, `min g` and `min gr1` still round to zero, `ess/n` is 8–13%.
+  One column still separates the process from every other and is recorded rather than acted on:
+  `q99 h(10)` at `2.49`, an order above the rest and rising with `n` where they fall;
+- **`|Δψ|/se` between the update orders, whether it shrinks with `n`, and how it compares with what
+  a different fold split moves** — this is item 22's numerical half and it is **not** closed. The
+  [rule frozen before the
+  dispatch](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch) is a
+  conjunction over both processes and its first clause fails on `weak-overlap`. Neither is the
+  falsifier met: the *reseed* difference fails to shrink there too, so the yardstick is as noisy as
+  the thing measured. On `nonlinear` every clause points one way and the route difference shrinks
+  by 7.8 over a fourfold `n` while a refit's shrinks by 2. [The
+  reading](drtmle/investigation-log.md#the-two-update-orders-against-the-yardstick-of-a-fold-split)
+  keeps both, and the sharpener the rule itself names — more seeds — is what was dispatched next.
+
+**It was four dispatches, not the two this section planned.** The main sweep is four processes at
+two sizes with the arms off. The update-order question is its own — two processes, **three** sizes,
+the paper arm and the reseed control — because a rate needs three sizes; it ran as one dispatch per
+process against a runner cap that turned out to have thirty times the headroom it was thought to,
+and then again at three times the seeds because twelve did not resolve `weak-overlap`. Both
+configurations, the rule, and what would falsify it are [in the validation
 plan](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch).
 
 **24. An oracle reduction on the continuous processes needs the fitted learners, and nothing here
@@ -1343,10 +1370,17 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
    things the first left as prose: the oracle reduction is built where it exists and **item 24**
    says what it would take elsewhere, the update-order difference has a control and a rule frozen
    before the dispatch that judges it, and the branch that let a mutation hide is gone.
-5. **B2b**, on the corrected implementation, because poor overlap may be where the demonstration
-   has to happen and because the exit distribution under the current rule is uncharacterised. It
-   is a dispatch and a reading rather than a patch.
-6. **C**, which is the point.
+5. ~~**B2b**~~ — landed. The exit distribution under the current rule was uncharacterised and now
+   is not: it inverted, 87 of 96 fits reaching the tolerance where 2 did, and the sweep costs a
+   seventh of what it did. `weak-overlap` was the reason to run this before the demonstration, and
+   it turned out not to be a problem to route around — 0 of 24 score-check failures against 23 of
+   24, on draws whose overlap is unchanged — so no refusal is predeclared. Items 12 and 19 closed;
+   limitations 4 and 6 were rewritten from their own numbers rather than from the first sweep's.
+   [What it measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured). The one thing it
+   did not settle is item 22's numerical half on `weak-overlap`, where twelve draws resolve nothing
+   in either direction.
+6. **C**, which is the point. Its sizing is the thing to redo first: it was costed from a 43s
+   `DRTMLE` fit and that fit is now several times cheaper, so re-time before re-scoping.
 7. **A1b**, anywhere: nothing waits on it and [gate 1](#c-the-demonstration) does not open
    without it. Ordered last because it blocks nothing, not because it matters least.
 

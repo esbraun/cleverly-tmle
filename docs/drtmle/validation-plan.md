@@ -526,16 +526,27 @@ order: true    order_control: true
 180-minute cap, with the paper arm's longer route allowed for. The main four-process sweep keeps its
 two sizes and runs with the arms **off**.
 
-**It was dispatched as two runs, one process each, and the reason is the cap rather than the rule.**
-The estimate above is against the base arm's 42.6s per fit; the paper arm took 22 rounds against 8
-on the draw the two were first compared on, so a *draw* costs base + reseed + paper and 72 draws at
-`jobs: 2` reaches ~118 minutes before the `n = 2,400` cell is allowed for. The workflow prints
-nothing until every fit has returned — a run killed at the cap reports no table at all rather than a
-truncated one — so a single dispatch stakes the whole arm on an estimate. Every table here is keyed
-on `(process, n)` and every clause of the rule above is stated per process, so two dispatches of
-~60 minutes produce exactly the rows one would have. **The split changes the run and not the rule**,
-and it is recorded here rather than in the log because a reader checking the rule against the
-evidence will otherwise find one dispatch promised and two delivered.
+**It was dispatched as two runs, one process each, and the precaution turned out to be
+unnecessary.** The reasoning was the cap: the estimate above is against the base arm's 42.6s per
+fit, the paper arm took 22 rounds against 8 on the draw the two were first compared on, so a *draw*
+costs base + reseed + paper and 72 draws at `jobs: 2` reaches ~118 minutes before the `n = 2,400`
+cell is allowed for — and the workflow prints nothing until every fit has returned, so a run killed
+at the cap reports no table at all rather than a truncated one. Every table here is keyed on
+`(process, n)` and every clause of the rule above is stated per process, so two dispatches produce
+exactly the rows one would have. **The split changes the run and not the rule**, and it is recorded
+here rather than in the log because a reader checking the rule against the evidence will otherwise
+find one dispatch promised and two delivered.
+
+**What the cost model got wrong is worth more than the split.** The two runs took **722s and 393s**
+for 108 fits each, at 9.8s and 6.4s a fit — against the 42.6s every sizing on this page was written
+from. The main four-process sweep is likewise 378s where it was 2,588s. The cause is
+[item 7](../roadmap.md#closed-since-this-list-opened)'s exit criterion: the alternation now reaches
+its tolerance in 4 to 9 rounds where it stalled after 12 to 24, so the sweep does about a seventh of
+the work. **Every runtime estimate in §4 and §5 is therefore stale in the same direction**, and the
+consequence for [§5's study](#5-the-controlled-study-piece-c) is the significant one: it was sized
+at "~24 hours serial and about two on a 12-way `matrix:`" from a 43s `DRTMLE` fit at `n = 1,200`,
+and that fit is now several times cheaper. Re-time before re-sizing rather than dividing by seven —
+piece C fits both estimators over every replicate at three sizes, and only the `DRTMLE` half moved.
 
 **Stopping and validity are two questions and the sweep must report them separately.**
 Asymptotic linearity asks for `P_n D = o_p(n^(−1/2))`; the honest finite-sample rendering of `o`
