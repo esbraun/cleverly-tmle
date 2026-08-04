@@ -541,6 +541,53 @@ sizes, but **a different fold split of one of those draws does fail**. That is a
 rather than the 23 in 24 it used to be, and it is the reason the policy paragraph below stops short
 of saying such a fit cannot fail.
 
+### The same rule at thirty-six draws, and why the two readings are not nested
+
+§4 names raising `--seeds` as the way to sharpen clause 2 and, by extension, the median clause 1
+reads; the dispatch above cost 393s and 722s against a 180-minute cap, so it was taken. Three
+sizes, **36 seeds**, both arms, one dispatch per process.
+
+**They are not the same twelve draws plus twenty-four more, and this is the finding to carry
+first.** `bench_drtmle.py` draws its three seed streams as `[:s]`, `[s:2s]` and `[2s:]` of one
+`SeedSequence`, so raising `s` leaves the *data* seeds' prefix alone and moves the fold and control
+blocks wholesale. A 36-seed run shares its first twelve **datasets** with a 12-seed one and **not
+one of their fold splits**. The script's own comment says `generate_state` is prefix-stable, which
+is true of adding a third *stream* — the change it was written for — and silent about raising
+`--seeds`; it now says so. So the two readings are separate samples that happen to share some
+draws, neither supersedes the other, and the honest statement is that the twelve-draw reading was
+*underpowered*, not *wrong*.
+
+| process | n | med route `\|Δψ\|/se` | med reseed `\|Δψ\|/se` | route > reseed | paper `se` ratio | paper check fails | paper worst identity | reseed check fails |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| weak-overlap | 600 | 4.97e-01 | 6.87e-01 | 12/36 | 0.9938 | 0/36 | 3.0e-17 | 0/36 |
+| weak-overlap | 1,200 | 2.89e-01 | 6.84e-01 | 6/36 | 0.9774 | 0/36 | 6.0e-17 | 0/36 |
+| weak-overlap | 2,400 | 2.43e-01 | 4.32e-01 | 12/36 | 1.0024 | 0/36 | 2.2e-17 | 0/36 |
+
+**Clause 1 holds on `weak-overlap` at 36 draws**, `4.97e-01 → 2.89e-01 → 2.43e-01`, monotone where
+twelve draws gave `1.64e-01 → 3.44e-01 → 1.15e-01`. **Clause 3 holds**, `1.0024`. **Clause 4
+holds**, 0 of 36 in every cell of both arms with identities at `6.0e-17` and better — and the lone
+control failure the twelve-draw run reported is *absent*, which is the non-nesting again: that
+failure belonged to a fold split this run does not contain. **Clause 2 is 12 of 36 at the largest
+size**, which a paired binomial puts at `p ≈ 0.05` two-sided and which therefore misses
+compatibility with half — **on the favourable side, as it did on `nonlinear`**: the route moves `ψ`
+*less* than a different fold split of one route does, at every size.
+
+**The reseed arm shrinks too, and more slowly**, `6.87e-01 → 6.84e-01 → 4.32e-01` against the
+route's `4.97e-01 → 2.89e-01 → 2.43e-01` — a factor of 1.6 against 2.0 over a fourfold `n`. That is
+the shape §4 called the expected finding: *a route difference that is large but shrinks at the same
+rate as the reseed's is the opposite of the falsifier*, and here it shrinks somewhat faster.
+
+**So the verdict, stated once and not re-argued.** Clause 2 is not met on either process, at either
+seed count, and it misses in the direction that supports the routes agreeing rather than the one
+that would count against them. Clauses 1, 3 and 4 hold on both processes once `weak-overlap` has
+enough draws to resolve a median. **Item 22's numerical half is therefore not closed under the rule
+as written**, and what stands between it and closure is a clause whose failures all point the wrong
+way for a route difference — which is a thing to say plainly rather than to legislate away after
+the fact. The rule may not be changed now. If a future revision wants to change it *before* a
+further dispatch, the change with a reason behind it is that clause 2 should be **one-sided**: the
+alternative it was written against is "the route moves `ψ` further than a split does", and a count
+far *below* half is evidence for the conclusion, not against it.
+
 ## What the B2a smoke runs measured
 
 Four fits at `n = 400` on `nonlinear`, which is the most of this that belongs in a small container

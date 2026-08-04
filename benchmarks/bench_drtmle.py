@@ -841,6 +841,15 @@ def main() -> None:
     # the one pathological fit on record was "a fit whose fold split was drawn unseeded", so
     # a sweep holding `random_state` at FAST_KWARGS's 0 would sweep straight past the thing
     # it is measuring; the third is the control arm's, and is only read when it is asked for.
+    #
+    # **That stability is across a third *stream*, not across `--seeds`, and the difference
+    # bites.** The blocks are `[:s]`, `[s:2s]` and `[2s:]`, so raising `s` leaves the data
+    # seeds' prefix alone and moves the fold and control blocks wholesale: a 36-seed run
+    # shares its first twelve *datasets* with a 12-seed one and not one of their fold splits.
+    # Two such runs are therefore not nested, and neither supersedes the other -- read them
+    # as separate samples that happen to share some draws. Measured: raising `--seeds` from
+    # 12 to 36 moved `weak-overlap`'s median route shift at `n = 600` from `1.6e-01` to
+    # `5.0e-01`, most of which is this rather than the extra draws.
     drawn = np.random.SeedSequence(args.seed).generate_state(3 * args.seeds)
     seeds = [
         (int(data), int(fold), int(control))
