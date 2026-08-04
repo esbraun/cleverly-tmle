@@ -1018,10 +1018,12 @@ settled it, and the fifth is the one to read carefully.
   is rewritten around it, and the incidental consequence is that the whole sweep costs a **seventh**
   of what it did — 378s against 2,588s — which makes every runtime estimate on this page and in the
   validation plan stale in the same direction, [piece C](#c-the-demonstration)'s included;
-- **whether the closing cap still binds on 94 of 96** — it binds on **96 of 96**, so
+- **whether the closing cap still binds on 94 of 96** — it binds on **96 of 96** on that grid, so
   [limitation 6](#limitations-recorded-rather-than-fixed)'s standing prediction that a bounded
   convention would make it worse is confirmed, in the smallest way it could be. It had been carried
-  as a guess for two revisions;
+  as a guess for two revisions. Adding `n = 2,400` shows it is *not* universal — 102 of 108 on
+  `nonlinear`, every exception at the largest size — which nothing had looked for and which makes
+  it a limitation that weakens with `n`;
 - **whether `weak-overlap`'s 23-of-24 score-check failures survive B1b** — they do not. **0 of 24**,
   and 0 of 36 again at three sizes, with the worst standardised score down from `1.1e+00` to
   `2.1e-07` on draws whose overlap columns are unchanged. That is what takes the product decision
@@ -1435,15 +1437,19 @@ instrument is how this variant has gone wrong twice:
    before the dispatch](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch),
    clauses 1, 3 and 4 hold on both processes — the route difference shrinks with `n`, the `se`
    ratios sit at `0.998` and `1.002` at the largest size, and no fit in either route fails its
-   score check or its state identity. Clause 2 asks the count of draws where the route difference
-   exceeds a *fold split's* to be compatible with half, and it is 2 of 12 on `nonlinear` and 12 of
-   36 on `weak-overlap`: **not compatible, and short rather than over** — the route moving `ψ`
-   *less* than a refit of one route does. Every failure of the rule therefore points the way that
-   supports the routes agreeing, and none points the other. That is a state to describe rather than
-   to legislate away, so the item stays open with its evidence and [the
+   score check or its state identity. **Clause 2 fails on both processes at both seed counts** —
+   the count of draws where the route difference exceeds a *fold split's* is 2 of 12 and 7 of 36 on
+   `nonlinear`, 3 of 12 and 12 of 36 on `weak-overlap`, all **short of half rather than over**,
+   which is the route moving `ψ` *less* than a refit of one route does. **And clause 1 is met on
+   one process at each seed count, a different one each time**, which says the median it reads is
+   underpowered at twelve draws and at thirty-six. Every miss points the way that supports the
+   routes agreeing and none points the other; what is stable across all twelve cells is that the
+   route difference sits *below* the fold-split difference, by a factor of 3.5 to 4 on `nonlinear`.
+   That is a state to describe rather than to legislate away, so the item stays open with its
+   evidence and [the
    log](drtmle/investigation-log.md#the-same-rule-at-thirty-six-draws-and-why-the-two-readings-are-not-nested)
-   records the one-sided restatement a future revision could make **before** a further dispatch and
-   not after this one;
+   records the two restatements a future revision could make **before** a further dispatch and not
+   after this one;
 3. a stored score and the term the curve carries are not the same functional of the same state —
    this was item 20, the one that was true and unnoticed, and it is **closed**:
    [B1a](#b1a--the-identity-and-safety-patch) made it reported and
@@ -1524,8 +1530,11 @@ than assumed: the final scores on all four of that piece's fixtures sit at the s
 not the solve.
 
 **6. The closing pass's mechanism stage stops on its cap, not on its tolerance.** It settles
-around `1e-9` rather than reaching `spec.tol = 1e-10`, on **96 of 96** swept fits — it was 94 of 96
-before B1b, and the two fits that stopped otherwise were both `weak-overlap`. Harmless *at
+around `1e-9` rather than reaching `spec.tol = 1e-10`, on **96 of 96** swept fits at `n ≤ 1,200` —
+it was 94 of 96 before B1b, and the two fits that stopped otherwise were both `weak-overlap`.
+**It is not quite universal once `n = 2,400` is swept**: 102 of 108 on `nonlinear` and 108 of 108
+on `weak-overlap` over three sizes, so every exception is at the largest size, which is what
+"harmless at that size" would predict of a residual that shrinks with `n`. Harmless *at
 that size* — the steps are arithmetic, and item 5 is why it cannot get there — but a cap that
 always binds is worth knowing about rather than reading as convergence. The qualification this
 entry used to carry — that a cap always binding and `D*_g` being wrong by `2e-04` are "close
@@ -1536,11 +1545,14 @@ them, so the cap cannot have been what selected them. This entry used to predict
 bounded-residual convention would make it
 *worse*, on the reasoning that a truncated residual is not the canonical logistic score. B1b
 adopted one and four fixtures could not tell; **[B2b](#b2b--the-dispatch-and-what-it-decides) can,
-and the prediction is confirmed in the smallest way it could be: 96 of 96, against 94.** The two
-that used to stop otherwise were both `weak-overlap` and no longer do. So this is the one place a
-bounded convention cost something, the cost is that a cap which nearly always bound now always
-binds, and item 5 remains why the stage cannot reach `spec.tol` at all. It is worth stating as a
-measurement precisely because it was carried as a guess for two revisions.
+and the prediction is confirmed in the smallest way it could be: 96 of 96 against 94, on the grid
+the 94 was measured on.** The two that used to stop otherwise were both `weak-overlap` and no
+longer do. So this is the one place a bounded convention cost something, the cost is that a cap
+which nearly always bound now binds on every fit at the sizes the prediction was made about, and
+item 5 remains why the stage cannot reach `spec.tol` at all. It is worth stating as a measurement
+precisely because it was carried as a guess for two revisions — and the `n = 2,400` exceptions are
+worth keeping beside it, because a limitation that weakens with `n` is a different object from one
+that does not, and nothing here had looked.
 
 **8. `retarget` is no longer arithmetic on cached arrays.** The reductions are refitted inside the
 alternation, so a truncation curve or an MNAR sweep costs about a fit per point rather than a

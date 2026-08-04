@@ -563,34 +563,54 @@ draws, neither supersedes the other, and the honest statement is that the twelve
 
 | process | n | med route `\|Δψ\|/se` | med reseed `\|Δψ\|/se` | route > reseed | paper `se` ratio | paper check fails | paper worst identity | reseed check fails |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| nonlinear | 600 | 3.98e-02 | 1.65e-01 | 11/36 | 0.9994 | 0/36 | 1.1e-17 | 0/36 |
+| nonlinear | 1,200 | 2.65e-02 | 9.34e-02 | 10/36 | 0.9994 | 0/36 | 1.5e-17 | 0/36 |
+| nonlinear | 2,400 | 2.70e-02 | 9.68e-02 | 7/36 | 0.9995 | 0/36 | 6.6e-18 | 0/36 |
 | weak-overlap | 600 | 4.97e-01 | 6.87e-01 | 12/36 | 0.9938 | 0/36 | 3.0e-17 | 0/36 |
 | weak-overlap | 1,200 | 2.89e-01 | 6.84e-01 | 6/36 | 0.9774 | 0/36 | 6.0e-17 | 0/36 |
 | weak-overlap | 2,400 | 2.43e-01 | 4.32e-01 | 12/36 | 1.0024 | 0/36 | 2.2e-17 | 0/36 |
 
-**Clause 1 holds on `weak-overlap` at 36 draws**, `4.97e-01 → 2.89e-01 → 2.43e-01`, monotone where
-twelve draws gave `1.64e-01 → 3.44e-01 → 1.15e-01`. **Clause 3 holds**, `1.0024`. **Clause 4
-holds**, 0 of 36 in every cell of both arms with identities at `6.0e-17` and better — and the lone
-control failure the twelve-draw run reported is *absent*, which is the non-nesting again: that
-failure belonged to a fold split this run does not contain. **Clause 2 is 12 of 36 at the largest
-size**, which a paired binomial puts at `p ≈ 0.05` two-sided and which therefore misses
-compatibility with half — **on the favourable side, as it did on `nonlinear`**: the route moves `ψ`
-*less* than a different fold split of one route does, at every size.
+**Clause 1 now holds on `weak-overlap` and fails on `nonlinear`, which is the exact reverse of the
+twelve-draw reading.** `weak-overlap` runs `4.97e-01 → 2.89e-01 → 2.43e-01`, monotone where twelve
+draws gave a rise at `n = 1,200`. `nonlinear` runs `3.98e-02 → 2.65e-02 → 2.70e-02` and rises by
+**2%** in the last step, where twelve draws gave a clean factor of 7.8. So neither seed count
+satisfies clause 1 on both processes, and the two disagree about *which* process is the problem.
 
-**The reseed arm shrinks too, and more slowly**, `6.87e-01 → 6.84e-01 → 4.32e-01` against the
-route's `4.97e-01 → 2.89e-01 → 2.43e-01` — a factor of 1.6 against 2.0 over a fourfold `n`. That is
-the shape §4 called the expected finding: *a route difference that is large but shrinks at the same
-rate as the reseed's is the opposite of the falsifier*, and here it shrinks somewhat faster.
+**The honest reading of that is that the clause is measuring the median's noise rather than the
+routes.** A 2% wobble in a median of 36 is not a claim about a limit, and the reseed arm wobbles
+with it in the same place — `1.65e-01 → 9.34e-02 → 9.68e-02`, also up in the last step. Both arms
+flatten between `n = 1,200` and `n = 2,400` together, which is a property of the pair of fits at
+those sizes and not of either route.
 
-**So the verdict, stated once and not re-argued.** Clause 2 is not met on either process, at either
-seed count, and it misses in the direction that supports the routes agreeing rather than the one
-that would count against them. Clauses 1, 3 and 4 hold on both processes once `weak-overlap` has
-enough draws to resolve a median. **Item 22's numerical half is therefore not closed under the rule
-as written**, and what stands between it and closure is a clause whose failures all point the wrong
-way for a route difference — which is a thing to say plainly rather than to legislate away after
-the fact. The rule may not be changed now. If a future revision wants to change it *before* a
-further dispatch, the change with a reason behind it is that clause 2 should be **one-sided**: the
-alternative it was written against is "the route moves `ψ` further than a split does", and a count
-far *below* half is evidence for the conclusion, not against it.
+**What is stable across both seed counts and both processes is the thing the control arm was built
+to show.** The route difference sits **3.5 to 4 times below** the fold-split difference at every
+`nonlinear` cell (`3.98e-02` against `1.65e-01`, `2.65e-02` against `9.34e-02`, `2.70e-02` against
+`9.68e-02`) and below it at every `weak-overlap` cell too. §4 called *"a route difference that is
+large but shrinks at the same rate as the reseed's"* the expected finding and the opposite of the
+falsifier; what these show is a route difference that is **smaller than** the reseed's at every
+size measured.
+
+**Clause 3 holds everywhere** — `0.9995` and `1.0024` at the largest size, and `nonlinear`'s `se`
+ratio is within `0.0006` of one at all three. **Clause 4 holds everywhere**, 0 of 36 in every cell
+of both arms with identities at `6.0e-17` and better; the lone control failure the twelve-draw run
+reported is *absent*, which is the non-nesting again — it belonged to a fold split this run does
+not contain. **Clause 2 is 7 of 36 and 12 of 36** at the largest size, both short of half rather
+than over.
+
+**So the verdict, stated once and not re-argued.** Clause 2 is not met on either process at either
+seed count, and clause 1 is met on one process at each seed count — a different one each time.
+Every miss is in the direction that supports the routes agreeing: the route moves `ψ` *less* than a
+refit of one route does, at every one of the twelve cells measured. **Item 22's numerical half is
+therefore not closed under the rule as written**, and what stands between it and closure is two
+clauses whose failures all point the wrong way for a route difference.
+
+That is a thing to say plainly rather than legislate away after the fact, and the rule may not be
+changed now. Two changes with reasons behind them, for a future revision to make **before** a
+further dispatch: clause 2 should be **one-sided**, since the alternative it was written against is
+"the route moves `ψ` further than a split does" and a count far below half is evidence for the
+conclusion rather than against it; and clause 1 should be stated **relative to the control** — the
+ratio of the two medians, which is stable here — rather than on the route median alone, which at
+these counts is not.
 
 ## What the B2a smoke runs measured
 
