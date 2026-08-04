@@ -395,8 +395,10 @@ The median round count fell with it, from 12–24 to 4–9, and that is where th
 comes from. Two things are worth keeping apart here, because the temptation is to read this as the
 alternation having been fixed: **what changed is which ruler the exit test uses**, not the
 iteration. [Item 7](../roadmap.md#closed-since-this-list-opened) let an equation stop on an
-absolutely negligible score rather than on a ratio to a covariate that vanishes, and the column
-below says how often that branch is what fires.
+absolutely negligible score rather than on a ratio to a covariate that vanishes, and the run's own
+trailer says how often that branch is what fires: **96 of 96**, against 68 of 96 under the old
+criterion. So it is not a branch that rescues a few hard draws — it is the branch every fit now
+exits on.
 
 **`ill>0` fell and kept its shape**, which is the more interesting half. It was 5/12 and 9/12 on
 `linear` against 0/12 on `nonlinear` at `n = 600`; it is now 3/12 and 3/12 against 0/12. The
@@ -410,7 +412,9 @@ there, and the median standardised worst score on those cells was `1.1e+00` and 
 the size of its own standard error. It is now `2.1e-07` and `2.4e-07`, five orders down and
 indistinguishable from the three processes whose bound never binds. That is
 [B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision) measured at scale rather than on
-four fixtures, and it settles the weak-overlap product decision below.
+four fixtures, and it is what [the roadmap's product
+decision](../roadmap.md#b2b--the-dispatch-and-what-it-decides) is taken on: no refusal under weak
+overlap, because the evidence that motivated one no longer exists.
 
 ### Where weak overlap enters, now that it does not fail
 
