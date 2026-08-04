@@ -461,6 +461,12 @@ identically zero in every cell — including the two `weak-overlap` cells where 
 at the initial mechanism. Items 11 and 20 were closed on four fixtures; this is the same closure at
 scale, and it is [stop-ship 3](../roadmap.md#stop-ship) reduced to a column a reader can check.
 
+The `weak-overlap` cells were also run at `n = 2,400` by the order dispatch below, and the trend
+continues without breaking: `clip share` `0.231`, `ess/n` `0.08`, `q99 h(8)` `9.0`, `min g` and
+`min gr1` still zero, `check fails` still `0/12`, and `closing capped` **11 of 12** — the first
+cell anywhere in which the closing pass's mechanism stage reached its tolerance on a fit rather
+than its cap.
+
 **The concentration columns are the caveat this dispatch adds rather than removes.** On
 `weak-overlap` the largest 1% of rows carry 28% and 33% of the worst score's absolute mass, against
 7–12% on the three easy processes, and the top 10% carry 60% and 71% against 40–56%. A score driven
@@ -469,6 +475,71 @@ rowwise, and only the second is something an interval rests on comfortably. Noth
 failure — the standardised scores are five orders below their thresholds — but *passing the score
 check* and *the score being well spread* are two properties, this dispatch measures both, and only
 the first is on the face of a fit.
+
+### The two update orders, against the yardstick of a fold split
+
+Item 22's numerical half, at the configuration [§4 froze for
+it](validation-plan.md#the-update-order-rule-frozen-before-the-dispatch) — three sizes, twelve
+seeds, the paper arm and the reseed control, paired on the draw. **Two dispatches rather than one,
+one process each**, `nonlinear` as [run
+30907485303](https://github.com/esbraun/cleverly-tmle/actions/runs/30907485303) (108 fits, 722s,
+9.8s a fit) and `weak-overlap` as [run
+30907995192](https://github.com/esbraun/cleverly-tmle/actions/runs/30907995192) (108 fits, 393s,
+6.4s a fit). **The split was a precaution against a 180-minute cap on a cost model that turned out
+to be wrong by a factor of seven**, and neither run came close to needing it; it is recorded
+because the validation plan promised one dispatch, and it changes nothing, since every table is
+keyed on `(process, n)` and every clause is stated per process.
+
+| process | n | med route `\|Δψ\|/se` | med reseed `\|Δψ\|/se` | route > reseed | paper `se` ratio | paper check fails | paper worst identity | reseed check fails |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| nonlinear | 600 | 1.54e-01 | 1.49e-01 | 6/12 | 0.9880 | 0/12 | 8.8e-18 | 0/12 |
+| nonlinear | 1,200 | 4.56e-02 | 8.81e-02 | 3/12 | 0.9940 | 0/12 | 4.0e-18 | 0/12 |
+| nonlinear | 2,400 | 1.97e-02 | 7.25e-02 | 2/12 | 0.9981 | 0/12 | 5.4e-18 | 0/12 |
+| weak-overlap | 600 | 1.64e-01 | 5.91e-01 | 3/12 | 1.0113 | 0/12 | 2.7e-17 | **1/12** |
+| weak-overlap | 1,200 | 3.44e-01 | 4.50e-01 | 6/12 | 0.9939 | 0/12 | 1.1e-16 | 0/12 |
+| weak-overlap | 2,400 | 1.15e-01 | 4.75e-01 | 3/12 | 0.9930 | 0/12 | 5.0e-17 | 0/12 |
+
+**The rule's four clauses, taken in order and before anything is concluded from them:**
+
+1. *median `|Δψ|/se` decreases across the three sizes in both processes* — **holds on `nonlinear`**
+   (`1.54e-01 → 4.56e-02 → 1.97e-02`, a factor of 7.8 over a fourfold `n`) and **fails on
+   `weak-overlap`**, which rises at `n = 1,200` before falling and ends only 30% below where it
+   started;
+2. *the count of draws where the route difference exceeds the reseed difference is compatible with
+   half the pairs at the largest size* — `weak-overlap` is 3 of 12, which a paired binomial puts
+   at `p ≈ 0.15` two-sided and is compatible; `nonlinear` is **2 of 12**, `p ≈ 0.04`, which is not
+   compatible with half and **misses on the favourable side** — the route moves `ψ` *less* than a
+   different fold split of one route does;
+3. *median `se` ratio inside `[0.95, 1.05]` at the largest size in both* — **holds**, `0.9981` and
+   `0.9930`;
+4. *no fit in either arm fails its score check or its state identity* — **holds for both routes**:
+   0 of 12 in all six paper cells and all six base cells, with worst identities at `1.1e-16` and
+   better. One *control* fit fails, at `weak-overlap`, `n = 600`, and the control is a third arm
+   rather than one of the two routes.
+
+**So the rule is not met, and neither is what would falsify it.** The falsifier named in §4 is a
+route difference that does not shrink while the reseed difference does; on `weak-overlap` the
+reseed difference does not shrink either (`5.91e-01 → 4.50e-01 → 4.75e-01`). Both arms are noisy
+at that overlap and the yardstick is as noisy as the thing being measured, so clause 1's failure
+there is an **evidence-quality** outcome and not a finding about the routes. Written the other way
+round: on the process where twelve draws resolve anything, every clause points the same way and the
+route difference shrinks faster than a refit's; on the process where they do not, nothing is
+resolved in either direction.
+
+**What §4 says to do about exactly this is raise `--seeds`**, and it is what was done — see the
+next subsection. Both readings are kept. Replacing a twelve-draw reading that failed with a
+larger one that passes, and reporting only the second, is the shape of the mistake the rule was
+frozen to prevent; the twelve-draw table above is therefore not deleted and its verdict is not
+amended.
+
+**Two things worth carrying beyond the rule.** The `weak-overlap` `se` ratio *ranges* are wide
+where the medians are not — `0.5449` to `2.1648` at `n = 600`, still `0.8048` to `1.1939` at
+`n = 2,400` — so a single weak-overlap fit's standard error is a good deal less stable than a
+median over twelve makes it look. And the one control failure is the useful negative result here:
+`weak-overlap`'s score checks pass on 0 of 24 in the main sweep and on 0 of 36 base fits at three
+sizes, but **a different fold split of one of those draws does fail**. That is a rate near 1 in 100
+rather than the 23 in 24 it used to be, and it is the reason the policy paragraph below stops short
+of saying such a fit cannot fail.
 
 ## What the B2a smoke runs measured
 
