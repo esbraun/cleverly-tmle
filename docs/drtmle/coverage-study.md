@@ -103,6 +103,15 @@ shortfall of `0.08` to `0.14`. That is comfortably clear of gate 2's predeclared
 size, and it is resolvable against 250 replicates' Monte Carlo error of `0.014`. **Provisional until
 the pilot**, which is the one point at which §5 permits it to move.
 
+> **The pilot checked it and it is wrong**, and not in its arithmetic: `bias/se ≈ n^(1/2−α)·c/σ`
+> reads `c` as the coefficient of the **estimator's bias**, and `c` is the coefficient of the
+> **plug-in** remainder. Measured, the two differ by a factor of about twenty and the predicted
+> shortfall does not appear at all — Tier 1's `TMLE` covers at `0.90` to `1.00`. [What the pilot
+> measured](#what-the-pilot-measured) has the numbers and
+> `benchmarks/drtmle_tier1_bias.py` is the measurement; the paragraph above is kept as written
+> because it is the prediction the pilot was run to test, and rewriting it would hide that it
+> was tested.
+
 The realised remainder, by quadrature:
 
 | cell | `n` | `R₂` (ATE) | `n^α R₂` | declared `c_ATE` |
@@ -401,3 +410,85 @@ Three consequences, and none of them is that a fit is wrong:
 Six draws per cell is a share and not a rate; the pilot is what turns it into one. What is *not*
 statistical is the pinned draw above — one fit, exhibited with its arithmetic, which is the right
 instrument for a mechanism rather than for a frequency.
+
+## What the pilot measured
+
+*Four dispatches of [`drtmle-coverage.yml`](../../.github/workflows/drtmle-coverage.yml), both
+tiers × both cells, 50 replicates per cell per size at `600 / 1,200 / 2,400`, seed `20250801`,
+`--evaluation-n 2000`, commit `5a474e8`, runs
+[30942738792](https://github.com/esbraun/cleverly-tmle/actions/runs/30942738792) (tier 1) and
+[30942745702](https://github.com/esbraun/cleverly-tmle/actions/runs/30942745702) (tier 2). 600
+fits. Wall clock 696s to 1,243s a job at `jobs=2`; median **2.1s** per fit at tier 2, so the
+re-timing above stands and a 250-replicate dispatch is affordable.*
+
+**A pilot is not evidence for any gate.** Fifty replicates carry a Monte Carlo standard error near
+`0.03` on a coverage estimate, which is enough to check that a design entered the regime it
+committed to and not enough to resolve `0.95` against `0.88`. What is below is read as a check on
+the *design*, which is what §5 runs a pilot for.
+
+### Tier 1 has no gap for the variant to close, and the reason is the design's
+
+| cell | `TMLE` ate coverage | `DRTMLE` | `TMLE` `√n` bias | `DRTMLE` `√n R_rem` |
+| --- | --- | --- | --- | --- |
+| `q-drift` | 1.000 / 1.000 / 0.980 | 0.920 / 0.920 / 0.940 | −0.22 / −0.56 / +0.11 | +0.28 / +0.51 / +0.39 |
+| `g-drift` | 0.920 / 0.940 / 0.900 | 0.940 / 0.940 / 0.860 | −0.31 / −0.40 / +0.30 | +0.04 / +0.14 / +0.27 |
+
+The injection is exactly what it committed to — `n^α R₂` reads `+0.4000` at every size — and the
+plain interval does not under-cover anywhere. It **over**-covers, at `se` ratios up to `1.52`.
+
+**The prediction and the column are about two different quantities**, and
+`benchmarks/drtmle_tier1_bias.py` is what settled it rather than an argument. Evaluating one
+expression at two regressions on the same rows of the same fits, `q-drift`, 24 draws:
+
+| `n` | mean bias | `R₂(Q̂)` | `R₂(Q̄*)` | declared |
+| --- | --- | --- | --- | --- |
+| 600 | −0.00362 ± 0.02032 | +0.08082 | −0.00391 | +0.08082 |
+| 1,200 | −0.00543 ± 0.00996 | +0.06797 | +0.01052 | +0.06796 |
+| 2,400 | +0.00833 ± 0.00905 | +0.05716 | −0.00154 | +0.05715 |
+
+`ψ̂ − ψ₀ = (Pₙ − P₀)D* + R₂(Q̄*)` and the first term is mean-zero across draws, so the bias has to
+track the **targeted** remainder — and it does, at all three sizes and within Monte Carlo error.
+`exact_remainder` integrates the **initial** one, which its docstring says and which is the honest
+name for it; what was wrong is the sizing paragraph's reading of it. The `R₂(Q̂)` column reproduces
+that quadrature to five decimals, which is what says both arms of the comparison are computed
+correctly rather than merely differently.
+
+So the consequence is structural rather than a constant to re-tune: **Tier 1 injects its drift into
+`Q̂`, and the fluctuation's own free parameter absorbs it.** No choice of `c` makes that tier
+produce a coverage gap, because the perturbation never reaches the estimate.
+
+### Tier 2 has a gap, in one cell, under a regime it did not commit to
+
+| cell, `n = 2,400` | `TMLE` | `DRTMLE` | paired difference | `√n R_rem`, 600 → 2,400 |
+| --- | --- | --- | --- | --- |
+| `q-drift` | 0.540 | 0.760 | **+0.220 ± 0.072**, resolved | 1.54 → 1.42 → 1.19 |
+| `g-drift` | 0.700 | 0.740 | +0.040 ± 0.040 | 4.17 → 3.91 → **5.07** |
+
+`q-drift` is the shape the variant exists for and `g-drift` is not: at `n = 600` there `DRTMLE` is
+**worse** than `TMLE`, by `−0.120 ± 0.055`, resolved. And the realised `n^α R₂` at the fitted
+nuisances is `0.59`–`0.68` against the committed `0.389`/`0.410`, drifting upward rather than
+settling, so neither cell is in the regime that was frozen.
+
+**Read against the gates, this pilot fails gate 1** — clause 4 (`g-drift`'s corrected remainder
+*rises* with `n`), clause 5 (`q-drift`'s `DRTMLE` `se` ratio is `0.817`) and clause 6 (`0.760` and
+`0.740` at the largest size, both incompatible with `0.95`). Gate 2's shortfall is met in `q-drift`
+alone.
+
+### Three things worked, and they are worth recording as such
+
+- **`identity` is `0` across all 600 fits**, so gate 1's clause 2 holds and the column C3 added to
+  read it earned itself on its first run. Every `score` failure is a fit that did not converge,
+  which is a different finding and now says so.
+- **The bound-active share as a rate is `0` to `20%`**, below C1's one-to-two-of-six, and it *falls*
+  with `n` in tier 1 (`20% / 10% / 10%`) as item 25's asymptotic argument says it should. The cells
+  are mixed, which is why §5's fourth rule exists; the strata never diverged by more than Monte
+  Carlo error at these counts.
+- **The invalid share is `0.000` to `0.060`**, so the proposed 2% threshold is exceeded once, at
+  `g-drift` tier 2 `n = 600`.
+
+**What this leaves open is a design decision and not a defect.** No score-check or state-identity
+failure appeared anywhere, and nothing here is evidence against the estimator. What the pilot
+falsified is the *instrument's* premise: Tier 1 cannot produce the gap it was built to produce, and
+Tier 2's regime is not the one that was committed. Both bear on whether the 250-replicate dispatch
+would measure the thing it is for, and §5 permits the design to move **before** that run and not
+after it.

@@ -383,7 +383,7 @@ So **C1** is the instrument, **C2** is Tier 2 and item 13, and **C3** is the stu
 | **the contract** — *documentation, and it has landed* | item 25: which options the theorem-backed guarantee is claimed for, and which are supported beside it. Not a piece and not research — the scope decision, its conditions as assumption rows, and the two review readings it corrects | [the table](#the-supported-contract-and-item-25); [the concordance's §7 scope decision](drtmle/theorem-concordance.md#the-scope-decision-item-25) and three new matrix rows; gate 1's clause 0. Its per-fit witness landed with C1 and **found the contract's condition is not the ordinary case it was read as** |
 | **C1** — *landed* | the study's instrument and Tier 1 complete: prescribed nuisance sequences with their drift coefficients committed analytically and verified by quadrature, the paired harness, the dispatch workflow, and item 25's per-fit truncation witness. Closes no numbered item on its own, which is why it is its own pull request rather than a first commit of C | `benchmarks/drtmle_injection.py`, `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, [`docs/drtmle/coverage-study.md`](drtmle/coverage-study.md); `CorrectionCheck.contract` with `initial_clipped` and `gr1_margin`; `DGP.expectation`; `tests/unit/test_drtmle_coverage.py` and `TestTheContractSaysWhichEstimator` |
 | **C2** — *landed* | item 13's **instrument**: Tier 2's prescribed-rate learners, the evaluation companion `P₀D̂` needs, and the two appendix branches reported apart. It does not close item 13, which is a *rate* and so C3's dispatch's | `DRTMLE(evaluation=…)`, `CompanionEstimates`, `cross_fit_companion`, carry-with-its-own-covariate in both fluctuation solvers; `benchmarks/drtmle_tier2.py` and `benchmarks/drtmle_remainder.py`; `--tier 2` and `--evaluation-n` on the harness and the workflow; `tests/unit/test_drtmle_companion.py`, `test_drtmle_tier2.py`, `test_drtmle_remainder_study.py` |
-| **C3** | item 3: the pilot, the freeze, the final study and its independent second seed batch | four dispatches of `drtmle-coverage.yml` and their tables; per-replicate results; gates 1 and 2 read out |
+| **C3** — *the pilot has run and it moved the design rather than a number* | item 3: the pilot, the freeze, the final study and its independent second seed batch. The freeze landed and **the pilot falsified the sizing it was run to check** — see below | the mixed-cell rule and two gate-1 clauses made readable; four dispatches of `drtmle-coverage.yml` and [what the pilot measured](drtmle/coverage-study.md#what-the-pilot-measured); `benchmarks/drtmle_tier1_bias.py`. The final study and second batch are **not** dispatched |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
 **A1 split into A1a and A1b for the reason B1 split into B1a and B1b**, and the reason is worth
@@ -1726,6 +1726,39 @@ What it did **not** land, by name: `R_remaining` and the two appendix-B branches
 since `--tier 2` was refused rather than approximated and Tier 1 is not the demonstration. Both of
 the first two landed with [C2](#what-c2-landed); the third is still true of C1's numbers and of
 C2's.
+
+##### What C3's pilot measured, and why the study is not dispatched behind it
+
+*The freeze landed and the pilot ran — 600 fits, both tiers, both cells, 50 replicates at three
+sizes. It did what a pilot is for and the answer was not a constant to re-tune.* [The
+numbers](drtmle/coverage-study.md#what-the-pilot-measured) are in the design note; what belongs
+here is what they do to the piece.
+
+**Tier 1 cannot produce the gap it was built to produce, and that is structural.** Its injection is
+exactly what it committed to — `n^α R₂` reads `+0.4000` at every size — and the plain interval does
+not under-cover anywhere: `TMLE` covers at `0.90` to `1.00`, over-covering at `se` ratios up to
+`1.52`, against a design that predicted `0.87 / 0.86 / 0.81`. The cause is a **reading** and not an
+arithmetic slip. `exact_remainder` integrates the *plug-in* remainder `R₂(Q̂)`, which its docstring
+says; a fit's bias is `ψ̂ − ψ₀ = (Pₙ − P₀)D* + R₂(Q̄*)`, the same expression at the **targeted**
+regression. `benchmarks/drtmle_tier1_bias.py` evaluates both on the same rows of the same fits and
+the mean bias tracks `R₂(Q̄*)` — `−0.004`, `+0.011`, `−0.002` — while `R₂(Q̂)` sits at `+0.081`,
+`+0.068`, `+0.057`. A factor of about twenty. So Tier 1 injects its drift into `Q̂`, where the
+fluctuation's own free parameter absorbs it, and no choice of `c` changes that.
+
+**Tier 2 has a gap in one cell of two, under a regime it did not commit to.** At `n = 2,400`
+`q-drift` reads `TMLE` `0.540` against `DRTMLE` `0.760`, a paired `+0.220 ± 0.072` — the shape the
+variant exists for. `g-drift` reads `0.700` against `0.740`, and at `n = 600` `DRTMLE` is *worse* by
+`−0.120 ± 0.055`. Its realised `n^α R₂` is `0.59`–`0.68` against the committed `0.389`/`0.410` and
+drifting upward. Read against the rules this pilot **fails gate 1** at clauses 4, 5 and 6.
+
+**No defect surfaced, and that is worth stating plainly.** `identity` is `0` across all 600 fits, so
+clause 2 holds and [B1a](#b1a--the-identity-and-safety-patch)'s distinction is doing its job the
+first time anything read it. Nothing here is evidence against the estimator; what it is evidence
+about is the **instrument**. That is why the 250-replicate dispatch is not queued behind it: §5's
+rules may be changed before the final run and not after it, so a study run now would be a study of a
+design whose premise its own pilot contradicts — and this is the one run on this page whose cost
+makes redoing it a decision rather than an errand. The open question is the design's, it is stated
+in the design note, and it is not research this page has answered.
 
 ##### What C2 landed
 
