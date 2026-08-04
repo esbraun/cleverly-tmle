@@ -599,6 +599,19 @@ those conditions — but they are not the same estimator, and Zheng & van der La
 their result for the fold-targeted construction specifically. See `targeting_scheme` in the
 API docs for the full statement.
 
+**The doubly-robust variant's reduced regressions need a further argument, and they have one.**
+A reduction is a regression *on* an out-of-fold prediction, so fold `k`'s fits on rows whose
+design and target came from models that saw fold `k` — the conditional independence the paragraph
+above turns on, broken by a generated regressor rather than by a shared row. The argument that the
+dependence is higher order is [the concordance's
+§8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-in-the-sources-and-the-argument-for-it-item-15),
+and it turns on the reductions being **univariate**: the entropy condition then falls on a class of
+functions of one scalar and not on the primary nuisances' complexity, so the Donsker condition
+cross-fitting exists to avoid is available for these regressions even where it is not for the
+regressions they are reductions *of*. It holds for every learner library this package ships except
+`"rich"`, and its remaining condition — that the reduction fit moves continuously with its design —
+is what `DRTMLE(reduced_crossfit="nested")` measures rather than assumes.
+
 ## What the score check proves, and what it does not
 
 `score_check()` is necessary, not sufficient: it verifies that the fluctuation reached the

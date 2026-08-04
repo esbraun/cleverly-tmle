@@ -721,6 +721,83 @@ green), and it reproduced this container's `9.97e-02`, `8.23e-02` and `1/2` exac
 arm is deterministic across machines too, which is what lets its numbers be read against a later
 dispatch's rather than only against themselves.
 
+## What the A1b dispatch measured
+
+The nested construction against the pooled one, paired on the draw, with the `reseed` arm as the
+yardstick — [run
+30925185344](https://github.com/esbraun/cleverly-tmle/actions/runs/30925185344), at
+`--processes linear nonlinear --sizes 600 1200 2400 --seeds 12 --order-control --reduced-crossfit
+nested`. 216 fits in 884s at `jobs=2`, 5.4s median. `weak-overlap` and `off-diagonal` are left out
+deliberately: [§7's rule](validation-plan.md#the-cross-fitting-rule-frozen-before-the-dispatch)
+refuses to read a weak-overlap difference as evidence about item 15 on its own, since two of the
+three reductions condition on `ĝ` and a third of that process's `(row, arm)` pairs clip, and the
+budget bought a third **size** instead — which is what clause 1 needs.
+
+| process | `n` | med nested `\|Δψ\|/se` | med reseed `\|Δψ\|/se` | ratio | nested > reseed | med se ratio |
+| --- | --- | --- | --- | --- | --- | --- |
+| linear | 600 | `2.13e-02` | `9.82e-02` | 0.22 | 3/12 | `1.0022` |
+| linear | 1,200 | `1.35e-02` | `9.16e-02` | 0.15 | 2/12 | `0.9988` |
+| linear | 2,400 | `1.82e-02` | `4.87e-02` | 0.37 | 3/12 | `0.9997` |
+| nonlinear | 600 | `1.44e-01` | `1.49e-01` | 0.97 | 5/12 | `1.0216` |
+| nonlinear | 1,200 | `9.64e-02` | `8.81e-02` | 1.09 | 7/12 | `1.0092` |
+| nonlinear | 2,400 | `6.40e-02` | `7.25e-02` | 0.88 | 5/12 | `1.0039` |
+
+**Three of the rule's four clauses pass and the primary one does not, so the rule does not
+resolve.** That verdict is stated first because it is the one a later reader will be tempted to
+soften.
+
+- **Clause 2 passes**: the median `se` ratio at the largest size is `0.9997` and `1.0039`, both
+  well inside `[0.95, 1.05]`.
+- **Clause 3 passes**: the count of draws where the construction moves `ψ` further than a redrawn
+  split does is 3/12 and 5/12 at the largest size, both at or below half — and below half in five
+  of the six cells.
+- **Clause 4 passes**: `0/12` score-check failures in every cell of both arms, and every state
+  identity at `1e-17` or better (worst `9.6e-18`). The nested construction does not break the loop:
+  across the base arm's 72 fits, 69 reached the tolerance, 1 stalled and 2 ran out of rounds.
+- **Clause 1 — the primary — passes on `nonlinear` and fails on `linear`.** `nonlinear` is monotone
+  and shrinks by 2.25x across the three sizes, faster than its own control's 2.06x. `linear` goes
+  `2.13e-02 → 1.35e-02 → 1.82e-02`: down, then up.
+
+**And on `linear` the failure has the literal shape of the falsifier**, which has to be said
+plainly: the reseed difference halves across the sizes (`9.82e-02 → 4.87e-02`, 2.02x) while the
+nested difference is flat (1.17x). *A construction difference that does not shrink while the reseed
+difference does* is what §7 wrote down as the outcome that would send `reduced_crossfit=` to a
+different default.
+
+**It is not being read that way, and the reason is a number rather than a preference.** On
+`linear` the nested difference sits **3 to 7 times below its own control at every size** — `0.22`,
+`0.15`, `0.37` of it. The falsifier was written for a construction difference that *persists* while
+split noise dies away; here the construction difference is a fraction of split noise throughout,
+and what fails to shrink is a quantity already below the floor the control establishes. A slope
+fitted to three medians of twelve draws at that magnitude is not measuring the construction. The
+`se ratio range` says the same thing from another direction: at `linear`, `n = 600` it is
+`0.1434 - 1.0185` in the nested arm and `0.1452 - 1.0395` in the reseed arm, so *one draw* is
+pathological in **both** arms and has nothing to do with the construction.
+
+**What is stable across all six cells, and it is the finding:** the construction difference is at
+or below what a redrawn split moves — at every cell by the count, and at five of six by the median
+— and on the process where the differences are large enough to have a trend, the two shrink
+together. `Δ_k` behaves like split noise rather than like a persistent bias, which is the shape the
+stability condition needs.
+
+**This is the second time a median-based clause at twelve draws has failed to carry a slope
+claim**, and that is worth filing against the instrument rather than against the estimator. [The
+update-order rule](#the-same-rule-at-thirty-six-draws-and-why-the-two-readings-are-not-nested) hit
+the same wall at twelve draws and again at thirty-six. The restatement §4 had already flagged as
+available *before* a further dispatch — state clause 1 on the **ratio** of the two medians rather
+than the arm's alone — does not rescue it either: the ratios are `0.22, 0.15, 0.37` and
+`0.97, 1.09, 0.88`, neither monotone. What a further dispatch would need is not more seeds at these
+sizes but the instrument §7 recorded as *not built*: the paired `L₂` distance between the two arms'
+reduced arrays, which measures `‖Δ_k‖` itself rather than its consequence on `ψ`. The consequence
+is where the cancellation and the noise are; the assumption is not.
+
+**So item 15's empirical half is supported and not resolved, and the wording matters.** The
+entropy condition is settled by the learner and is an argument rather than a run. The stability
+condition has evidence pointing one way in every cell and a primary clause that does not close.
+[Gate 1](../roadmap.md#c-the-demonstration)'s construction clause is met in the sense that the
+decision is *frozen* — C fits the pooled construction — and the thing that would reopen it is a
+`‖Δ_k‖` measurement, not another dispatch of this one.
+
 ## What one runner could and could not reach
 
 Kept here rather than in the roadmap because it is a property of one execution environment on one
@@ -743,7 +820,7 @@ this measurement**, and prefer a checked-in copy to either.
 
 ## What the sizings got wrong
 
-Twelve lessons, distilled from the per-item retrospectives that used to run to several hundred
+Thirteen lessons, distilled from the per-item retrospectives that used to run to several hundred
 lines. They are kept and the retrospectives are not, because the only thing a retrospective is
 for is the next sizing — the full pre-work read of what `drtmle` would touch, the per-seam record
 of what each cost, and the six landed refusals' own notes are in git history, last carried in full
@@ -944,3 +1021,28 @@ and no derivation separates them.
 The trap in the third is that a structural pin *reads* like the other two. It says the code is
 shaped a particular way, not that the shape is right, and a reader who finds one where an
 invariant would have fitted will believe more than was checked.
+
+**13. A stop-ship's stated *reason* can carry the very error the stop-ship was written to catch,
+and only building the thing it talks about will find that.** [Stop-ship
+14](../roadmap.md#stop-ship) exists so that `test_influence_gateaux_drtmle`'s agreement is not read
+as evidence about the cross-fitting construction. Its conclusion was right for two revisions. Its
+reason — "it runs at saturated reductions, where every conditioning cell is a singleton" — was
+wrong twice over, and so were the two other documents that repeated it: on that law the design
+takes three values over a thousand rows, and saturation of the *reduction* does not decide the
+question at all, since under a primary learner that learns any reduction learner returns different
+arrays. What makes the module silent is `cross_fit=False` **and** oracle primary learners.
+
+The damage a wrong reason does is not cosmetic, and it is the specific thing worth remembering.
+A conclusion protects only the case it was written about; a *reason* is what a reader generalises
+from. This one would have licensed reading a **cross-fitted** saturated fit as evidence about fold
+reuse — precisely the inference the clause forbids — so the guard-rail was pointing at the wrong
+hazard while looking like it pointed at the right one.
+
+It survived because nothing could fail against it. The claim was about a construction that did not
+exist, so no test could contradict it, and it read as a technical detail rather than as a claim
+anyone would check. What found it was [A1b](../roadmap.md#a1b--the-cross-fitting-construction)
+building the nested construction and asking what the pooled one had to agree with it *about* — at
+which point the singleton claim did not survive its first contact with the fixture. **The rule:
+when a document says an instrument is blind, the reason is a claim like any other, and the way to
+check it is to build the thing it says the instrument cannot see.** The corrected statement is now
+asserted rather than described, and is kept as a mutation watched to *pass*.

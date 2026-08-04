@@ -29,12 +29,17 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:  # the benchmarks package is not installed, only checked out
     sys.path.insert(0, str(ROOT))
 
-from benchmarks.bench_drtmle import Curve, Exit, comparison_rows  # noqa: E402
+from benchmarks.bench_drtmle import Curve, Exit, comparison_rows, route_rows  # noqa: E402
 
 #: Where ``worst identity`` sits in a row of :func:`comparison_rows`, counting from zero:
 #: ``process, n, pairs, med |dpsi|/se, max |dpsi|/se, med se ratio, se ratio range,
 #: check fails, worst identity, med rounds``.
 IDENTITY = 8
+
+#: Where the ``<arm> > reseed`` count sits in a row of :func:`route_rows`, counting from
+#: zero: ``process, n, pairs, med arm |dpsi|/se, med reseed |dpsi|/se, arm > reseed,
+#: mean arm +/- se``.
+COUNT = 5
 
 
 def _fit(variant: str, seed: int, *, identity: float, psi: float = 0.5) -> Exit:
@@ -118,3 +123,38 @@ class TestTheComparisonReportsTheVariantArmsIdentity:
         results = [_fit("paper", 0, identity=7e-08)]
 
         assert comparison_rows(results, "paper") == []
+
+
+class TestTheReseedYardstickReadsWhicheverArmItIsGiven:
+    """:func:`route_rows` serves two frozen rules, so the arm it reads is an argument.
+
+    §4's update-order rule and §7's cross-fitting rule ask the same *arithmetic* question --
+    is this arm's ``|dpsi|/se`` larger than a redrawn split's -- against the same ``reseed``
+    control, and differ only in which answer supports which conclusion.  One function with
+    an arm argument is what keeps the two rules reading one instrument; hard-coding
+    ``"paper"`` inside it, as it was, would have meant a second copy for §7 and two places
+    for the count to drift.
+    """
+
+    def test_the_count_column_answers_for_the_arm_it_was_asked_about(self) -> None:
+        """The `nested` arm moves psi further than the reseed does; `paper` does not.
+
+        Both arms are on the same results, so a builder that ignored its argument would
+        report one of these numbers twice -- which is the mutation: hard-code ``"paper"``
+        again and the ``nested`` assertion reads ``0/2``.
+        """
+        results = [_fit("base", seed, identity=0.0, psi=0.5) for seed in (0, 1)]
+        results += [_fit("reseed", seed, identity=0.0, psi=0.55) for seed in (0, 1)]
+        results += [_fit("paper", seed, identity=0.0, psi=0.51) for seed in (0, 1)]
+        results += [_fit("nested", seed, identity=0.0, psi=0.9) for seed in (0, 1)]
+
+        assert route_rows(results, "paper")[0][COUNT] == "0/2"
+        assert route_rows(results, "nested")[0][COUNT] == "2/2"
+
+    def test_the_default_arm_is_the_update_orders(self) -> None:
+        """§4's call site passes it explicitly now, but the default must not have moved."""
+        results = [_fit("base", 0, identity=0.0, psi=0.5)]
+        results += [_fit("reseed", 0, identity=0.0, psi=0.55)]
+        results += [_fit("paper", 0, identity=0.0, psi=0.51)]
+
+        assert route_rows(results) == route_rows(results, "paper")

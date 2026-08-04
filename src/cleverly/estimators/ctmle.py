@@ -222,7 +222,7 @@ from ..learners.screeners import correlation_strength
 from ..learners.super_learner import resolve_learner
 from ..utils.bounds import OutcomeScaler
 from ..utils.text import format_table
-from ._nuisance import NuisanceEstimates, Propensity, _fit_with_groups, cross_fit_predictions
+from ._nuisance import NuisanceEstimates, Propensity, cross_fit_predictions, fit_on_rows
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
@@ -624,7 +624,7 @@ class _Selector:
             )
             return predictions["g1"]
 
-        model = _fit_with_groups(
+        model = fit_on_rows(
             self.learner,
             design,
             data.treatment,

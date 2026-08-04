@@ -22,7 +22,7 @@ updated fit, which is what makes this the "iterative" TMLE.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -250,6 +250,19 @@ class Fluctuation:
     folds:
         Per-fold detail, populated only by the cross-validated (``targeting_scheme=
         "fold"``) targeting step and empty otherwise.
+    carried:
+        Further initial fits moved along the **same** submodel by the **same** steps, in
+        the order they were passed as ``carry``.  Empty on every fit that did not ask for
+        one, which is every fit but a
+        :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"``.
+
+        It exists because a step sequence cannot be reconstructed from its endpoint.  The
+        solve applies :func:`apply_logistic` once per Newton step and shrinks after each,
+        so a caller holding ``(initial, epsilon)`` recovers ``targeted`` only when no
+        intermediate iterate touched the shrinkage bound -- and the fits that reach it are
+        exactly the weak-overlap ones a reference construction is compared on.  Carrying the
+        arrays *through* the solver is the only way to move them by the transformation that
+        was actually applied rather than by one that usually equals it.
     """
 
     epsilon: FloatArray
@@ -260,6 +273,7 @@ class Fluctuation:
     trace: tuple[float, ...]
     method: TargetingLabel
     names: tuple[str, ...]
+    carried: tuple[InitialFit, ...] = ()
     score_scale: FloatArray | None = None
     folds: tuple[FoldFluctuation, ...] = ()
     score_initial: FloatArray | None = None
@@ -336,6 +350,7 @@ def solve_fluctuation(
     max_iter: int = 20,
     tol: float = 1e-10,
     warn: bool = True,
+    carry: Sequence[InitialFit] = (),
 ) -> Fluctuation:
     """Run the targeting step.
 
@@ -359,6 +374,12 @@ def solve_fluctuation(
         ``fluctuation="linear"``, and can leave the unit interval.
     target_weights:
         Use the weighted form of the fluctuation (R's ``target.gwt``).
+    carry:
+        Further initial fits to move along the same submodel by the same steps, returned
+        on :attr:`Fluctuation.carried`.  Nothing here reads them: they take the step and
+        contribute nothing to it, so a fit that passes none is unchanged in every array
+        and every diagnostic.  See :attr:`Fluctuation.carried` for why an endpoint plus
+        an ``epsilon`` is not a substitute.
     """
     y = np.asarray(outcome, dtype=float).reshape(-1)
     n = y.shape[0]
@@ -374,11 +395,12 @@ def solve_fluctuation(
 
     scoring_submodel = submodel
     if kind == "linear":
-        return _solve_linear(y, initial, submodel, w, mask)
+        return _solve_linear(y, initial, submodel, w, mask, carry=carry)
 
     fit_submodel, fit_weights = weighted_form(submodel, w) if target_weights else (submodel, w)
 
     current = initial.shrunk(alpha)
+    carried = tuple(fit.shrunk(alpha) for fit in carry)
     epsilon = np.zeros(fit_submodel.dim)
     scale = score_scale(scoring_submodel.observed, w, mask)
     # trace[0] is the score at epsilon = 0, so the same entry means the same thing
@@ -398,6 +420,7 @@ def solve_fluctuation(
         )
         epsilon = epsilon + step
         current = apply_logistic(current, fit_submodel, step, alpha)
+        carried = tuple(apply_logistic(fit, fit_submodel, step, alpha) for fit in carried)
         score = score_columns(y, current.observed, scoring_submodel.observed, w, mask)
         trace.append(relative_score(score, scale))
         if trace[-1] <= tol or (step_converged and np.max(np.abs(step)) <= tol):
@@ -421,6 +444,7 @@ def solve_fluctuation(
     return Fluctuation(
         epsilon=epsilon,
         targeted=current,
+        carried=carried,
         score=score,
         converged=converged,
         n_iter=iterations,
@@ -580,6 +604,8 @@ def _solve_linear(
     submodel: Submodel,
     weights: FloatArray,
     mask: BoolArray,
+    *,
+    carry: Sequence[InitialFit] = (),
 ) -> Fluctuation:
     """Fluctuate on the identity scale: a single weighted least-squares solve.
 
@@ -596,10 +622,14 @@ def _solve_linear(
     step = _solve_step(lhs, rhs)
     epsilon = np.zeros(submodel.dim) if step is None else step
 
-    targeted = InitialFit(
-        initial.observed + submodel.observed @ epsilon,
-        {level: values + submodel.arms[level] @ epsilon for level, values in initial.arms.items()},
-    )
+    def moved(fit: InitialFit) -> InitialFit:
+        return InitialFit(
+            fit.observed + submodel.observed @ epsilon,
+            {level: values + submodel.arms[level] @ epsilon for level, values in fit.arms.items()},
+        )
+
+    targeted = moved(initial)
+    carried = tuple(moved(fit) for fit in carry)
     escaped = any(values.min() < 0.0 or values.max() > 1.0 for values in targeted.arms.values())
     if escaped:
         warnings.warn(
@@ -616,6 +646,7 @@ def _solve_linear(
     return Fluctuation(
         epsilon=epsilon,
         targeted=targeted,
+        carried=carried,
         score=score,
         converged=converged,
         n_iter=1,

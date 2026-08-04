@@ -45,23 +45,34 @@ inverted and still plausible.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
-from .._typing import BoolArray, FloatArray, Learner
+from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..learners._fitting import Task
+from ..learners._fitting import Task, predict_mean
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import bound
-from ._nuisance import NuisanceEstimates, cross_fit_predictions
+from ..utils.parallel import map_parallel
+from ._nuisance import InnerDesigns, NuisanceEstimates, cross_fit_predictions, fit_on_rows
 
-__all__ = ["ReducedSet", "fit_reduced", "refuse_unsupported"]
+__all__ = ["REDUCED_CROSSFITS", "ReducedSet", "fit_reduced", "refuse_unsupported"]
 
 #: The reductions the sources derive.  ``"univariate"`` is Benkeser et al.'s three
 #: univariate regressions and ``drtmle``'s own default; ``"bivariate"`` is van der Laan
 #: (2014)'s original single :math:`g_r(a|w) = P(A = a \mid \hat{\bar Q}, \hat g)` in place
 #: of the pair.  Both are in scope for the variant; only the first is written.
 REDUCTIONS = ("univariate", "bivariate")
+
+#: How fold ``k``'s reduced regression gets its **training** rows' design and target.
+#: ``"pooled"`` reuses the primary split as it stands and is what ships; ``"nested"`` takes
+#: them from models that left fold ``k`` out as well, which is the reference construction
+#: ``docs/roadmap.md``'s item 15 measures the first against.  A diagnostic keyword rather
+#: than a tuning one, exactly as :data:`~cleverly.estimators.drtmle.UPDATE_ORDERS` is: what
+#: is in question is whether the cheap construction's induced dependence is higher order,
+#: and the expensive one exists so that is a run rather than an argument.
+REDUCED_CROSSFITS = ("pooled", "nested")
 
 
 def refuse_unsupported(kind: str, detail: str = "") -> None:
@@ -194,6 +205,7 @@ def fit_reduced(
     classification_learner: Learner,
     g_bounds: tuple[float, float],
     reduction: str = "univariate",
+    crossfit: str = "pooled",
     n_jobs: int = 1,
 ) -> tuple[ReducedSet, dict[str, list[SuperLearnerDiagnostics]]]:
     r"""Fit the three reduced-dimension regressions out of fold, one set per arm.
@@ -216,6 +228,12 @@ def fit_reduced(
         conditional means of a signed quantity.
     g_bounds:
         The truncation :math:`g_{r,2}`'s target divides by -- see below.
+    crossfit:
+        One of :data:`REDUCED_CROSSFITS`.  ``"pooled"`` reuses the primary split as it
+        stands and is what ships; ``"nested"`` reads fold ``k``'s training designs and
+        targets off :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner`, whose
+        models left fold ``k`` out as well.  A reference construction rather than a
+        production path -- see the last two paragraphs of the notes.
 
     Returns
     -------
@@ -233,21 +251,48 @@ def fit_reduced(
     :mod:`tests.unit.test_crossfit_leakage`'s dependence, arriving through the design
     matrix rather than through the target.
 
+    **Through the target as well**, which this paragraph used to leave out and which
+    ``docs/roadmap.md``'s item 15 left out after it.  :math:`Q_r`'s target is a residual of
+    :math:`\hat{\bar Q}` and :math:`g_{r,2}`'s is a quotient by :math:`\hat g`, so both
+    halves of two of these three regressions are generated regressors.  Only
+    :math:`g_{r,1}`'s target -- the arm indicator -- is data.  A construction that replaced
+    the designs and left the targets alone would remove half the dependence and report
+    itself as having removed it all; :func:`_roles` builds design and target off one pair of
+    primary arrays so that cannot happen quietly.
+
     Drawing an independent split for these regressions removes **none** of it: the
-    contamination is in the design values, not in which rows are trained on, so a second
-    split changes nothing and loses the alignment with the fits it is a reduction of.
-    The one construction that does remove it is per-fold designs -- predict
-    :math:`\hat g^{(-k)}` at *every* row, so fold ``k``'s reduced regression only ever
-    sees designs from the model that excluded fold ``k``.  It needs no extra fits, since
-    :func:`~cleverly.estimators._nuisance.cross_fit_predictions` already builds that
-    model and keeps only its test-fold slice.  What it costs is worse than what it buys:
-    the training designs would be that model's *in-sample* predictions and the test
-    design its out-of-sample one, and a reduced regression is a regression **of** the
-    design -- so it trades a second-order dependence for a first-order covariate shift.
-    So the split is reused, which is also what ``drtmle`` does, and ``groups`` is
-    forwarded so that the claim ``test_crossfit_leakage`` actually states -- a model must
-    not train on rows standing in for the ones it predicts -- holds at the level it is
-    stated.
+    contamination is in what the training rows carry, not in which rows are trained on, so
+    a second split changes nothing and loses the alignment with the fits it is a reduction
+    of.  Per-fold designs -- predict :math:`\hat g^{(-k)}` at *every* row -- do remove it
+    and cost more than they buy: the training designs would be that model's *in-sample*
+    predictions and the test design its out-of-sample one, and a reduced regression is a
+    regression **of** the design, so it trades a second-order dependence for a first-order
+    covariate shift.  So the split is reused, which is also what ``drtmle`` does, and
+    ``groups`` is forwarded so that the claim ``test_crossfit_leakage`` actually states --
+    a model must not train on rows standing in for the ones it predicts -- holds at the
+    level it is stated.
+
+    **And here is the argument that the reuse is second order, which this docstring owed
+    and did not have.**  Split fold ``k``'s empirical-process term into what the *nested*
+    construction contributes and a residual :math:`(P_n - P_0)\Delta_k`, where
+    :math:`\Delta_k` is the difference between the two.  The first is conditionally mean
+    zero by the ordinary cross-fitting argument.  The second needs asymptotic
+    equicontinuity, and the structural fact that supplies it is the one
+    :func:`_reduced_column` opens with: **the reduction is univariate**.  Composing with a
+    conditionally fixed :math:`\hat g^{(-k)}` transports brackets exactly, so the entropy
+    requirement falls on a class of functions of one scalar and not on the primary
+    nuisances' complexity at all -- and a fixed-dimension sieve, a monotone class or a
+    bounded-variation ball satisfies it under *every* measure, which is what the random
+    pushforward needs.  ``mean``, ``glm``, ``glmnet``, ``gam`` and ``boost`` are inside it;
+    ``forest`` is not, because its one-dimensional fits have :math:`O(n)` pieces.
+
+    What the argument does **not** settle is that :math:`\|\Delta_k\| \to 0`, which needs
+    the fit to move continuously with its design column -- free for a fixed-basis smoother
+    and not free for anything choosing a split point from the data.  That is why ``crossfit``
+    exists: :math:`\Delta_k` *is* the pooled-minus-nested difference, so the open condition
+    of the argument is the quantity the reference construction computes.
+    ``docs/drtmle/theorem-concordance.md`` §8 is the argument in full and
+    ``docs/drtmle/validation-plan.md`` §7 is the rule the measurement is read under.
 
     **One bound is chosen here rather than at targeting time**, and it is the only one in
     this package that is.  :math:`g_{r,2}`'s *target* is a quotient by the mechanism, so
@@ -281,18 +326,54 @@ def fit_reduced(
             "multi_arm",
             f"{data.treatment_name} has {data.n_arms} levels {list(data.treatment_levels)}.",
         )
+    if crossfit not in REDUCED_CROSSFITS:
+        raise ValueError(f"crossfit must be one of {list(REDUCED_CROSSFITS)}; got {crossfit!r}")
+    inner = nuisance.inner if crossfit == "nested" else None
+    if crossfit == "nested":
+        if inner is None:
+            raise ValueError(
+                "crossfit='nested' needs the fold-free primary designs on "
+                "NuisanceEstimates.inner, and this object carries none. They are built by "
+                "fit_inner_designs at the initial fit; a refit that dropped them would be "
+                "pooled while reporting itself as nested."
+            )
+        if inner.n_folds != nuisance.folds.n_folds:
+            # The designs are keyed to *a* split -- entry `k` is what left outer fold `k`
+            # out -- so a mismatch means they were built against a different one, and every
+            # fold would then train on arrays nested inside somebody else's partition. It
+            # cannot happen through `DRTMLE`, where one `_nuisances` call builds both; it can
+            # through `fit_reduced` directly, and a wrong answer here would look entirely
+            # ordinary.
+            raise ValueError(
+                f"the fold-free designs cover {inner.n_folds} outer folds and this fit's "
+                f"split has {nuisance.folds.n_folds}; they were built against a different "
+                "split and reusing them would nest each fold inside the wrong partition"
+            )
     arms = nuisance.arms
 
     scaled = nuisance.scaler.scale(data.outcome)
-    truncated = nuisance.bounded_propensity(g_bounds)
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = {"qr": [], "gr1": [], "gr2": []}
     columns: dict[str, list[FloatArray]] = {"qr": [], "gr1": [], "gr2": []}
 
     for arm in arms:
-        column = nuisance.propensity.column_for(arm)
-        mechanism = nuisance.propensity.arm(arm)
-        regression = nuisance.outcome.arms[arm]
         indicator = (np.asarray(data.treatment, dtype=float) == float(arm)).astype(float)
+        production = _roles(nuisance, arm, scaled=scaled, indicator=indicator, g_bounds=g_bounds)
+        training = (
+            None
+            if inner is None
+            else [
+                _roles(
+                    nuisance,
+                    arm,
+                    scaled=scaled,
+                    indicator=indicator,
+                    g_bounds=g_bounds,
+                    inner=inner,
+                    fold=fold,
+                )
+                for fold in range(inner.n_folds)
+            ]
+        )
 
         # Qr: the outcome residual on the estimated mechanism, fitted on the rows that
         # *took* this arm.  The mask is the whole of the `| A = a` in the definition --
@@ -300,52 +381,38 @@ def fit_reduced(
         # P(W) -- and it is invisible wherever the design takes a distinct value in every
         # covariate cell, since each group is then a singleton and the weight cancels.
         # `tests/unit/test_reduced_regressions.py` pins it structurally for that reason.
-        qr = _reduced_column(
-            regression_learner,
-            design=mechanism,
-            target=scaled - regression,
-            fit_mask=(indicator == 1.0) & np.asarray(data.observed, dtype=bool),
-            data=data,
-            nuisance=nuisance,
-            task="regression",
-            clip=None,
-            n_jobs=n_jobs,
-            diagnostics=diagnostics["qr"],
-        )
-
+        #
         # gr1: P(A = a | Qbar-hat).  Every row, including one whose outcome is missing:
         # A and W are recorded whatever happens to Y, which is the same reason `delta=`
         # leaves an incremental fit's dm/dg term untouched.  A probability, so clipped.
-        gr1 = _reduced_column(
-            classification_learner,
-            design=regression,
-            target=indicator,
-            fit_mask=None,
-            data=data,
-            nuisance=nuisance,
-            task="classification",
-            clip=(0.0, 1.0),
-            n_jobs=n_jobs,
-            diagnostics=diagnostics["gr1"],
-        )
-
+        #
         # gr2: the mechanism residual in inverse-probability form, on Qbar-hat.  Signed,
         # so no clip; and its target is the one quotient formed at fit time.
-        gr2 = _reduced_column(
-            regression_learner,
-            design=regression,
-            target=(indicator - truncated[:, column]) / truncated[:, column],
-            fit_mask=None,
-            data=data,
-            nuisance=nuisance,
-            task="regression",
-            clip=None,
-            n_jobs=n_jobs,
-            diagnostics=diagnostics["gr2"],
+        roles: tuple[tuple[str, Learner, Task, tuple[float, float] | None], ...] = (
+            ("qr", regression_learner, "regression", None),
+            ("gr1", classification_learner, "classification", (0.0, 1.0)),
+            ("gr2", regression_learner, "regression", None),
         )
-
-        for name, values in (("qr", qr), ("gr1", gr1), ("gr2", gr2)):
-            columns[name].append(values)
+        for name, learner, task, clip in roles:
+            design, target = production[name]
+            fit_mask = (
+                (indicator == 1.0) & np.asarray(data.observed, dtype=bool) if name == "qr" else None
+            )
+            columns[name].append(
+                _reduced_column(
+                    learner,
+                    design=design,
+                    target=target,
+                    training=None if training is None else [each[name] for each in training],
+                    fit_mask=fit_mask,
+                    data=data,
+                    nuisance=nuisance,
+                    task=task,
+                    clip=clip,
+                    n_jobs=n_jobs,
+                    diagnostics=diagnostics[name],
+                )
+            )
 
     return (
         ReducedSet(
@@ -360,11 +427,49 @@ def fit_reduced(
     )
 
 
+def _roles(
+    nuisance: NuisanceEstimates,
+    arm: float,
+    *,
+    scaled: FloatArray,
+    indicator: FloatArray,
+    g_bounds: tuple[float, float],
+    inner: InnerDesigns | None = None,
+    fold: int = 0,
+) -> dict[str, tuple[FloatArray, FloatArray]]:
+    r"""The ``(design, target)`` of each reduced regression, off one pair of primary arrays.
+
+    Written once and called twice -- at the production arrays, and at outer fold ``k``'s
+    fold-free copies -- because **both halves are generated regressors**, and the roadmap's
+    item 15 and this module's own docstring used to say only the design was.  :math:`Q_r`'s
+    target is a residual of :math:`\hat{\bar Q}` and :math:`g_{r,2}`'s is a quotient by
+    :math:`\hat g`, so a nested construction that replaced the designs and left the targets
+    alone would have removed half of the dependence and reported itself as having removed
+    it all.  Only :math:`g_{r,1}`'s target -- the arm indicator -- is data and not an
+    estimate.
+    """
+    if inner is None:
+        mechanism = nuisance.propensity.arm(arm)
+        regression = nuisance.outcome.arms[arm]
+        truncated = nuisance.propensity.bounded(g_bounds)[:, nuisance.propensity.column_for(arm)]
+    else:
+        source = inner.propensity[fold]
+        mechanism = source.arm(arm)
+        regression = inner.outcome[fold].arms[arm]
+        truncated = source.bounded(g_bounds)[:, source.column_for(arm)]
+    return {
+        "qr": (mechanism, scaled - regression),
+        "gr1": (regression, indicator),
+        "gr2": (regression, (indicator - truncated) / truncated),
+    }
+
+
 def _reduced_column(
     learner: Learner,
     *,
     design: FloatArray,
     target: FloatArray,
+    training: list[tuple[FloatArray, FloatArray]] | None,
     fit_mask: BoolArray | None,
     data: CausalData,
     nuisance: NuisanceEstimates,
@@ -378,8 +483,27 @@ def _reduced_column(
     The design is a nuisance prediction rather than a covariate, which is the whole of
     what makes these *reduced*: the regression is univariate however many covariates the
     fit adjusted for.
+
+    ``training`` is the nested construction: one ``(design, target)`` per outer fold, taken
+    from primary models that left that fold out as well, used for the rows a fold **trains**
+    on while the row it **predicts** keeps the production design.  ``None`` is the pooled
+    construction and goes through :func:`~cleverly.estimators._nuisance.cross_fit_predictions`
+    unchanged, which is what makes a pooled fit bit for bit what it was.
     """
     matrix = np.asarray(design, dtype=float).reshape(-1, 1)
+    if training is not None:
+        return _nested_column(
+            learner,
+            matrix=matrix,
+            training=training,
+            fit_mask=fit_mask,
+            data=data,
+            nuisance=nuisance,
+            task=task,
+            clip=clip,
+            n_jobs=n_jobs,
+            diagnostics=diagnostics,
+        )
     predictions, fitted = cross_fit_predictions(
         learner,
         matrix,
@@ -395,3 +519,67 @@ def _reduced_column(
     )
     diagnostics.extend(fitted)
     return predictions["values"]
+
+
+def _nested_column(
+    learner: Learner,
+    *,
+    matrix: FloatArray,
+    training: list[tuple[FloatArray, FloatArray]],
+    fit_mask: BoolArray | None,
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    task: Task,
+    clip: tuple[float, float] | None,
+    n_jobs: int,
+    diagnostics: list[SuperLearnerDiagnostics],
+) -> FloatArray:
+    """One reduced regression whose training rows never saw the fold it predicts.
+
+    A sibling of :func:`cross_fit_predictions`'s fold loop rather than a call into it, and
+    the reason is one line of it: that function fits and predicts on *one* design, and the
+    whole of this construction is that the two differ.  Fold ``k`` trains on
+    ``training[k]`` -- designs and targets from models that left fold ``k`` out -- and
+    predicts at ``matrix``, the production design, so the evaluation half is what the pooled
+    construction evaluates and only the estimation half moves.
+
+    Predicting at the *inner* design instead would be a different estimator and a silent
+    one: every array stays in range, and the fit would be answering for a mechanism no row
+    was assigned under.  ``tests/unit/test_nested_reductions.py`` pins the call site against
+    exactly that, and the longhand beside it against reading the wrong fold's copy.
+    """
+    folds = nuisance.folds
+    n = matrix.shape[0]
+    mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
+    weights = data.weights
+    groups = data.cluster
+
+    def run_fold(index: int, train: IntArray, test: IntArray) -> tuple[IntArray, FloatArray, Any]:
+        rows = train[mask[train]]
+        if rows.size == 0:
+            raise ValueError(
+                "a cross-fitting fold has no trainable rows for a reduced regression; "
+                "reduce n_folds or use reduced_crossfit='pooled'"
+            )
+        design, target = training[index]
+        model = fit_on_rows(
+            learner,
+            np.asarray(design, dtype=float).reshape(-1, 1),
+            np.asarray(target, dtype=float),
+            weights,
+            rows,
+            task,
+            groups,
+        )
+        values = np.asarray(predict_mean(model, matrix[test], task), dtype=float)
+        if clip is not None:
+            values = np.clip(values, clip[0], clip[1])
+        return test, values, getattr(model, "diagnostics_", None)
+
+    jobs = [(index, train, test) for index, (train, test) in enumerate(folds)]
+    out = np.empty(n, dtype=float)
+    for test, values, fitted in map_parallel(run_fold, jobs, n_jobs=n_jobs):
+        out[test] = values
+        if fitted is not None:
+            diagnostics.append(fitted)
+    return out

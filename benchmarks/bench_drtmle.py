@@ -257,8 +257,9 @@ class Exit:
     n: int
     data_seed: int
     fold_seed: int
-    #: Which arm of the sweep this fit is: ``"base"``, ``"paper"``, ``"reduced"`` or
-    #: ``"trunc=<lower>"``.  The comparison tables group on everything *but* this.
+    #: Which arm of the sweep this fit is: ``"base"``, ``"paper"``, ``"reseed"``,
+    #: ``"reduced"``, ``"nested"`` or ``"trunc=<lower>"``.  The comparison tables group on
+    #: everything *but* this.
     variant: str
     seconds: float
     exit_reason: str
@@ -708,15 +709,24 @@ def _shifts(results: list[Exit], variant: str) -> dict[tuple[str, int], list[tup
     return out
 
 
-def route_rows(results: list[Exit]) -> list[list[str]]:
-    r"""The update-order difference against the yardstick of a different fold split.
+def route_rows(results: list[Exit], variant: str = "paper") -> list[list[str]]:
+    r"""One arm's difference from base, against the yardstick of a different fold split.
 
-    Item 22's numerical half asks whether the two routes reach the same fixed point.  On its
-    own ``|dpsi|/se`` cannot answer that, because it has no scale: ``0.22`` was measured on
-    one draw, and until something says what a *different split of the same order* moves,
-    that number is equally consistent with "the routes disagree" and with "this is what any
-    refit does".  The ``reseed`` arm is that something, and this table is where the two are
-    read together.
+    Item 22's numerical half asks whether the two update orders reach the same fixed point.
+    On its own ``|dpsi|/se`` cannot answer that, because it has no scale: ``0.22`` was
+    measured on one draw, and until something says what a *different split of the same
+    order* moves, that number is equally consistent with "the routes disagree" and with
+    "this is what any refit does".  The ``reseed`` arm is that something, and this table is
+    where the two are read together.
+
+    ``variant`` is what makes it serve item 15 as well, and the generalisation is not a
+    convenience: the cross-fitting construction is the *same* question with a different arm
+    in it -- is the difference this change makes larger than the difference a redrawn split
+    makes -- so it wants this yardstick rather than a second one built beside it.  What the
+    two questions do **not** share is which answer supports which conclusion, and
+    ``docs/drtmle/validation-plan.md`` §7 is where that is written down: for the update
+    order agreement was the expected finding, and for the construction a difference that
+    *shrinks* is.
 
     Three columns carry the reading.  The two medians are the paired quantity per arm.  The
     **count** is distribution-free and is the one to trust at twelve draws: in how many of
@@ -729,7 +739,7 @@ def route_rows(results: list[Exit]) -> list[list[str]]:
     repository already uses for "is this real?".  There is no median-based Monte Carlo
     standard error here or anywhere in the package, which is why the count exists.
     """
-    route, noise = _shifts(results, "paper"), _shifts(results, "reseed")
+    route, noise = _shifts(results, variant), _shifts(results, "reseed")
     rows = []
     for key in sorted(set(route) & set(noise)):
         by_draw = {fit.draw: value for fit, value in noise[key]}
@@ -781,6 +791,11 @@ def _payloads(args: argparse.Namespace, seeds: list[tuple[int, int, int]]) -> li
                 False,
             )
         )
+    if args.reduced_crossfit:
+        # A plain `DRTMLE` keyword, so it needs no subclass the way the oracle reductions
+        # did -- the construction rides in the settings tuple like any other arm, and every
+        # comparison table picks it up unchanged.
+        arms.append(("nested", (("reduced_crossfit", args.reduced_crossfit),), False))
     for lower in args.truncation:
         arms.append((f"trunc={lower:g}", (("g_bounds", (lower, 1.0 - lower)),), False))
     for variant, settings, reseed in arms:
@@ -824,6 +839,14 @@ def main() -> None:
         "--reduced-learner",
         default=None,
         help="also fit every draw with this learner for the reduced regressions",
+    )
+    parser.add_argument(
+        "--reduced-crossfit",
+        choices=("nested",),
+        default=None,
+        help="also fit every draw with the reduced regressions nested inside each outer "
+        "fold's complement (item 15); read against --order-control, which is the yardstick "
+        "that says whether a construction difference is larger than a split's",
     )
     parser.add_argument(
         "--truncation",
@@ -1000,7 +1023,7 @@ def main() -> None:
                     "route > reseed",
                     "mean route +/- se",
                 ],
-                route_rows(results),
+                route_rows(results, "paper"),
             )
         )
         print(
@@ -1009,6 +1032,34 @@ def main() -> None:
             "  what looked like a route difference is what any refit does. A count near the pair\n"
             "  count is a route difference the split cannot account for -- and the rule it is\n"
             "  judged against is in docs/drtmle/validation-plan.md section 4, predeclared."
+        )
+
+    if {"nested", "reseed"} <= set(arms):
+        title = "The cross-fitting construction, against what a different fold split moves"
+        print(f"\n{title}")
+        print("=" * len(title))
+        print(
+            format_table(
+                [
+                    "process",
+                    "n",
+                    "pairs",
+                    "med nested |dpsi|/se",
+                    "med reseed |dpsi|/se",
+                    "nested > reseed",
+                    "mean nested +/- se",
+                ],
+                route_rows(results, "nested"),
+            )
+        )
+        print(
+            "\n  The same yardstick as the table above and the opposite reading, which is why the\n"
+            "  rule is written down before the run. There, two routes provably solve the same\n"
+            "  equations and agreement was the expected finding. Here the two constructions are\n"
+            "  different estimators, and what the pooled argument needs is not that they agree\n"
+            "  but that the difference *shrinks* with n -- a large but shrinking gap supports\n"
+            "  pooled cross-fitting and a small but stable one does not. Read the trend across\n"
+            "  sizes first; docs/drtmle/validation-plan.md section 7 is the predeclared rule."
         )
 
     print("\nReading the numbers")

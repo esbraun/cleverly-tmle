@@ -137,10 +137,10 @@ from ..data.causal_data import CausalData
 from ..learners.crossfit import Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
-from ._nuisance import NuisanceEstimates
+from ._nuisance import NuisanceEstimates, fit_inner_designs
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .ctmle import CTMLE
-from .reduced import REDUCTIONS, ReducedSet, fit_reduced, refuse_unsupported
+from .reduced import REDUCED_CROSSFITS, REDUCTIONS, ReducedSet, fit_reduced, refuse_unsupported
 from .targeting import ReductionOrder, ReductionSpec
 from .tmle import TMLE
 
@@ -243,6 +243,22 @@ class DRTMLE(TMLE):
         an ``epsilon`` from one is not an ``epsilon`` from the other.  And compare the two at
         the **same nuisances** -- the same data, the same ``random_state`` -- since the
         initial fits are all either route has in common.
+    reduced_crossfit:
+        How fold ``k``'s reduced regressions get their **training** rows' design and target:
+        ``"pooled"`` (default) reuses the primary split as it stands, and ``"nested"`` takes
+        them from primary models fitted with fold ``k`` left out as well.  **A diagnostic
+        keyword rather than a tuning one**, exactly as ``update_order`` is, and for the same
+        kind of reason: ``docs/roadmap.md``'s item 15 asks whether the cheap construction's
+        induced dependence is higher order, the argument for it needs one quantity to
+        vanish, and that quantity *is* the difference between these two.  So the expensive
+        one exists to be measured rather than to be used.
+
+        It is refused below ``n_folds=3`` and under ``cross_fit=False`` -- there is no
+        complement to leave a fold out of -- and, with ``targeting="one_step"``, by name.
+        It costs `K` times the primary nuisance fitting, paid once; what actually dominates
+        is that the nested reductions are noisier, so equation (10)'s near-singular solve
+        takes more rounds.  Measured at 1.3x to 17x a pooled fit's wall clock over four
+        draws, on two of which it reached the outer cap.
     reduced_outcome_learner, reduced_treatment_learner:
         Learners for the reduced-dimension regressions, defaulting to the specifications the
         primary nuisances use.  Two rather than one because the tasks differ:
@@ -312,6 +328,7 @@ class DRTMLE(TMLE):
         reduction: str = "univariate",
         reduced_outcome_learner: Any = None,
         reduced_treatment_learner: Any = None,
+        reduced_crossfit: str = "pooled",
         update_order: ReductionOrder = "cleverly",
         **kwargs: Any,
     ) -> None:
@@ -320,6 +337,7 @@ class DRTMLE(TMLE):
         self.reduction = reduction
         self.reduced_outcome_learner = reduced_outcome_learner
         self.reduced_treatment_learner = reduced_treatment_learner
+        self.reduced_crossfit = reduced_crossfit
         self.update_order = update_order
         self._validate_drtmle_settings()
 
@@ -346,6 +364,29 @@ class DRTMLE(TMLE):
             raise ValueError(f"reduction must be one of {list(REDUCTIONS)}; got {self.reduction!r}")
         if self.reduction != "univariate":
             refuse_unsupported(self.reduction)
+        if self.reduced_crossfit not in REDUCED_CROSSFITS:
+            raise ValueError(
+                f"reduced_crossfit must be one of {list(REDUCED_CROSSFITS)}; got "
+                f"{self.reduced_crossfit!r}. 'pooled' reuses the primary split for the "
+                "reduced regressions and is what ships; 'nested' refits the primary "
+                "nuisances leaving each outer fold out as well, so that whether the cheap "
+                "construction's induced dependence matters is measured rather than argued "
+                "(docs/roadmap.md item 15)."
+            )
+        if self.reduced_crossfit == "nested":
+            if not self.cross_fit:
+                raise ValueError(
+                    "reduced_crossfit='nested' needs cross-fitting: it trains each fold's "
+                    "reduced regression on primary models that left that fold out, and "
+                    "cross_fit=False has one fold and no complement to leave it out of. "
+                    "Pass cross_fit=True, or reduced_crossfit='pooled'."
+                )
+            if self.n_folds < 3:
+                raise ValueError(
+                    "reduced_crossfit='nested' leaves two folds out at a time -- the fold "
+                    "being predicted and the fold being trained on -- so it needs at least "
+                    f"three; got n_folds={self.n_folds}."
+                )
         if self.targeting_scheme == "fold" or self.cv_evaluation:
             raise NotImplementedError(
                 "DRTMLE targets pooled only. Fold-wise targeting would need each fold's "
@@ -387,6 +428,24 @@ class DRTMLE(TMLE):
         """
         self._check_drtmle(data)
         base = self._fit_nuisances(data, folds, scaler, intermediate_value, seed=seed)
+        if self.guard and self.reduced_crossfit == "nested":
+            # Before the reductions, because they read it. Once per fit rather than once
+            # per round: every refit inside the alternation moves these arrays by the
+            # fluctuation the production ones take rather than re-learning them.
+            base = replace(
+                base,
+                inner=fit_inner_designs(
+                    data,
+                    base,
+                    outcome_learner=self._resolve_learner(
+                        self.outcome_learner, task=base.outcome_task, seed=seed
+                    ),
+                    treatment_learner=self._resolve_learner(
+                        self.treatment_learner, task="classification", seed=seed
+                    ),
+                    n_jobs=self.n_jobs,
+                ),
+            )
         if not self.guard:
             # No extra equation to solve, so no reductions to fit and no alternation to
             # enter: `needs_reduction` is False and the fit goes down the ordinary path.
@@ -444,6 +503,7 @@ class DRTMLE(TMLE):
             ),
             g_bounds=g_bounds,
             reduction=self.reduction,
+            crossfit=self.reduced_crossfit,
             n_jobs=self.n_jobs,
         )
 

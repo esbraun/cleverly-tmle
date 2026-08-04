@@ -8,10 +8,20 @@ pieces of work, each of which is a pull request rather than an errand.
 
 **No known defect is live.** The last one — the reported curve was not centred wherever the
 mechanism truncation bound — closed with
-[B1b](#b1b--the-theorem-conforming-targeting-decision), and what is left is a demonstration, a
-cross-fitting construction, a **scope decision** and a widening of scope. That is a different kind
-of list from the one this page opened with, and it does not lower the bar: *done* still means a
-demonstration that the interval attains nominal coverage where a plain `TMLE`'s does not.
+[B1b](#b1b--the-theorem-conforming-targeting-decision), and what is left is **a demonstration and a
+widening of scope**. That is a different kind of list from the one this page opened with, and it
+does not lower the bar: *done* still means a demonstration that the interval attains nominal
+coverage where a plain `TMLE`'s does not.
+
+**The cross-fitting construction has come off that list**, and how it came off is worth a line
+because it is not what this page expected. [A1b](#a1b--the-cross-fitting-construction) held two
+tracks open — a proof for the pooled construction *or* a nested reference estimator — and writing
+the argument showed they are one track: the residual the proof cannot reach is `Δ_k`, which is by
+definition the difference between the two constructions. The entropy half then closes on a
+structural fact the module docstring had been stating all along, that **the reductions are
+univariate**, so the Donsker condition cross-fitting exists to avoid is available for them whatever
+the primary nuisances did. The stability half is measured, supported in all six cells, and **not
+shown** — which is why the wording throughout says so.
 
 **The scope decision is the newest of them and it came from reading this page against its own
 concordance.** B1b left the score and the curve one expression at one state; it did not make
@@ -26,9 +36,8 @@ measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured) closed ite
 the weak-overlap product decision, and rewrote limitations 4 and 6 from their own numbers. The
 headline is that the alternation's exit distribution **inverted** — 87 of 96 fits reach the
 tolerance where 2 did — and that `weak-overlap`'s score check now fails on **0 of 24** where it
-failed on 23, on draws whose overlap is unchanged. So what is left is a demonstration, a
-cross-fitting construction, a scope decision, a widening of scope, and one clause of one frozen
-rule. **That same dispatch supplies the scope decision's evidence**, in columns it was not run
+failed on 23, on draws whose overlap is unchanged. So what is left is a demonstration, a widening
+of scope, and one clause of one frozen rule. **That same dispatch supplies the scope decision's evidence**, in columns it was not run
 for: `clip share` is `0.000` on the three ordinary processes and `0.231` to `0.338` on
 `weak-overlap`, whose `margin` is exactly zero at both sizes it is recorded at. Those are the two
 regimes item 25 separates, already measured.
@@ -208,8 +217,9 @@ while another fails:
 1. **Theorem fidelity** — the equations solved and the curve reported are the ones the derivation
    gives, under conditions the fit actually meets. Items 1, 13, 15, 21, 22 and 25. The third review
    reported this link **broken** at the sign; reading the source closed item 21 and item 22's
-   theoretical half in the implementation's favour, and A1a closed item 1, so what is left of the
-   link is items 13, 15 and 25 — the empirical remainder rate, the cross-fitting construction and
+   theoretical half in the implementation's favour, A1a closed item 1, and A1b closed item 15 —
+   under a stated entropy condition the shipped libraries meet, with its stability half left to a
+   run — so what is left of the link is items 13 and 25 — the empirical remainder rate and
    **which fits the guarantee is claimed for at all** — and
    **item 22's numerical half, on one clause of a frozen rule that every measurement misses in the
    direction favourable to it**, which [B2b](#b2b--the-dispatch-and-what-it-decides) reads out.
@@ -321,7 +331,7 @@ be confused.
 ### The work, in four pieces and eight pull requests
 
 A and B are each split, so the four pieces are eight pull requests: **B1a**, **A1a**, **B1b**,
-**B2a** and **B2b** have landed, and **A1b**, **C** and **D** are open. **The contract is a ninth
+**B2a**, **B2b** and **A1b** have landed, and **C** and **D** are open. **The contract is a ninth
 row and is not a piece** — it is documentation, it closes no research, and it is in the table
 because it is an input to C that has to be frozen rather than produced. Small items are
 grouped where the *evidence* is shared — B2 is five items because one dispatch of the same
@@ -335,7 +345,7 @@ question needed three more and still did not close.
 | --- | --- | --- |
 | **B1a** — *landed* | the score/correction identities, the clipping diagnostic, and invalidation when either fails | `cleverly/validation/drtmle.py`; `res.validation.correction_check()`; `identity` and `correction` rows on `score_check`; tests in `tests/unit/test_drtmle_fit.py` and `test_influence_drtmle.py` |
 | **A1a** — *landed* | items 1 and 21, and item 22's theoretical half: the theorem read, mapped, graded, the sign adjudicated, every object pinned to the test that derives it, and the decomposition pinned against a perturbation of the law. Item 22's *numerical* half — both orders on real data — went to B2, whose dispatch it shares | `tests/unit/test_influence_gateaux_drtmle.py`; `TestTheReportedVarianceIsTheorem1s`; closes out [`docs/drtmle/theorem-concordance.md`](drtmle/theorem-concordance.md) — its object table's `evidence` column, its assumption matrix, and §7's finding for B1b |
-| **A1b** | item 15: a construction satisfying the empirical-process conditions, and whether fold reuse is one | a proof for the pooled construction, or a nested reference estimator to measure it against; [the concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) |
+| **A1b** — *landed* | item 15: the argument for the pooled construction **and** the reference estimator that measures its open condition, which turned out to be one deliverable rather than two. The entropy half closes on the learner; the stability half is **supported and not shown**, and the dispatch that read it is the second median-based clause at twelve draws to fail to carry a slope | `DRTMLE(reduced_crossfit="nested")`, `InnerDesigns`, `Fluctuation.carried` and `MechanismFluctuation.carried`; `tests/unit/test_nested_reductions.py`; `--reduced-crossfit` and a workflow input; [the concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-in-the-sources-and-the-argument-for-it-item-15) rewritten around the argument and its six new matrix rows; [the plan's §7](drtmle/validation-plan.md#7-the-cross-fitting-construction-piece-a1b) |
 | **B1b** — *landed* | items 11 and 20: the targeting convention, chosen on theorem fidelity against a fitted prototype that eliminated two candidates by construction and separated the other two by measurement | `solve_bounded_mechanism`, called from the two `DRTMLE` sites, with the truncated array carried forward and `"bounds_pinned"` where no constrained root exists; `tests/unit/test_bounded_mechanism.py`; `CorrectionRow.margin` in place of B1a's now-vacuous clipped-row witness |
 | **B2a** — *landed* | the instrument the dispatch needs: the columns §4 asks for, the working paper's update order beside this one, and the comparison arms. Closes nothing on its own, which is why it is its own pull request rather than a first commit of B2 | `DRTMLE(update_order="paper")` and `ReductionSpec.order`; three tables on `benchmarks/bench_drtmle.py` in place of one; `--order`, `--reduced-learner` and `--truncation` arms with workflow inputs; `TestBothUpdateOrdersReachTheTheoremsExit` |
 | **B2a′** — *landed* | the three things B2a left as prose rather than as something a run settles: the oracle reduction built where it exists, a **control** for the update-order difference, and the branch that hid a mutation deleted rather than guarded | `tests/unit/test_oracle_reductions.py` and item 24; the `reseed` arm, the route-against-noise table and [a frozen rule](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch); `_restated_outcome_score` made unconditional, `tests/unit/test_fluctuation_score.py`, and [lesson 12](drtmle/investigation-log.md#what-the-sizings-got-wrong) |
@@ -362,16 +372,19 @@ A1a theorem concordance ──> B1b  targeting  ──────┘  instrumen
                                  convention          landed      landed │
                                                                         ├─> C  demonstration
 contract + item 25  scope frozen ──────────────────────────────────────┤
-A1b cross-fitting construction ────────────────────────────────────────┘
+A1b cross-fitting construction ────────────────────────────────────────┘   landed
        (no logical block; a rework edge — C's fits are of A1b's construction)
 
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Everything on B's arm has landed**, so what is left of the graph is the scope freeze, the
-cross-fitting construction and the demonstration, with D outside it. What B2b leaves behind it is
-one open thread rather than a piece: item 22's numerical half is answered on `nonlinear` and
-unresolved on `weak-overlap`, and it gates [stop-ship 2](#stop-ship) rather than gating C.
+**Everything but C and D has landed**, so what is left of the graph is the demonstration, with D
+outside it. Two open threads sit behind it rather than pieces. Item 22's numerical half is answered
+on `nonlinear` and unresolved on `weak-overlap`, and it gates [stop-ship 2](#stop-ship) rather than
+gating C. And A1b's construction decision rests on its argument's **entropy** half, which the
+learner settles, plus its **stability** half, which a dispatch reads — so the rework edge into C is
+narrower than it was but is not gone: if the nested arm's difference does not shrink,
+`reduced_crossfit=` changes default and C's fits are of the other construction.
 
 **Two edges into C are new with this revision and neither is a logical block.** They are there
 because C is the one dispatch on this page whose *cost* makes redoing it a decision rather than an
@@ -380,7 +393,8 @@ errand — ~2,000 fits, re-timed but still a workflow of its own. The
 unstated scope is a number about an estimator nobody has named; it is a page of prose and freezing
 it costs nothing. **A1b is an edge because the estimator C fits is the pooled construction**: if
 A1b concludes that construction has to change, C's numbers are numbers about the wrong estimator
-and the study is rerun. This page said A1b "blocks nothing", which is true of every *other* piece
+and the study is rerun. **That edge is now discharged** — the decision is frozen at pooled — but it
+is not gone, since the condition it rests on is supported rather than shown. This page said A1b "blocks nothing", which is true of every *other* piece
 and was read as true of C — and A1b's own section already says the outcome may be that a nested
 reference implementation is needed. That is a rework edge, and the ordering rule it implies is
 narrower than "finish A1b first": **A1b's construction decision must be frozen before C's final
@@ -593,17 +607,100 @@ the several reasons item 2 was never going to earn its keep. Keep both tracks: i
 "pooled is fine, and here is why", the docstring gains a
 paragraph and the item closes; if it is not, the expensive nested version is the reference
 implementation to measure the cheap one against, and it need not become the default to be useful.
-[The concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) holds
+[The concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-in-the-sources-and-the-argument-for-it-item-15) holds
 the status.
 
-**A1a narrowed where this can be measured, and did not touch the item itself.** Its comparison
-runs at **saturated** reductions, where every conditioning cell is a singleton and the pooled
-construction and any nested one return the same arrays — so the decomposition closing to `1e-15`
-says nothing about fold reuse either way, and reading it as support here would be exactly the
-mistake [lesson 9](drtmle/investigation-log.md#what-the-sizings-got-wrong) names. What separates
-the constructions is a reduction that genuinely **pools**, which is
-`tests/unit/test_remainder_drtmle.py`'s `TIED_G` / `TIED_Q` territory and where a nested reference
-estimator would first be measured.
+**A1a narrowed where this can be measured, and did not touch the item itself** — but the reason it
+gave was wrong, and A1b found that by building the thing the reason was about. This paragraph used
+to say the comparison runs at **saturated** reductions "where every conditioning cell is a singleton
+and the pooled construction and any nested one return the same arrays". On that law the design takes
+three values over a thousand rows, so the cells are *not* singletons; and saturation of the
+reduction is not what decides it either, since under a primary learner that learns any reduction
+learner returns different arrays. What actually makes that module silent is `cross_fit=False` and
+oracle primary learners: one fold has no complement to nest inside, and a learner that ignores its
+training rows returns the same function whichever rows it saw. The conclusion survives and the
+reason is now the true one — which matters, because the false one would have licensed reading a
+*cross-fitted* saturated fit as evidence, and that is the mistake
+[stop-ship 14](#stop-ship) exists to prevent. `tests/unit/test_nested_reductions.py` asserts the
+corrected statement rather than describing it.
+
+###### What A1b landed
+
+*Closes item 15's reading and supplies the instrument for its measurement.* **Landed.** The entropy
+condition closes on the learner; the stability condition is **supported and not shown**, which is
+the honest state and not a hedge — see [what the dispatch
+measured](drtmle/investigation-log.md#what-the-a1b-dispatch-measured).
+
+`DRTMLE(reduced_crossfit="nested")` — a non-default reference construction in which fold `k`'s
+reduced regressions are trained on designs *and targets* from primary models that left fold `k` out
+as well, and still predict at the production design.
+[The concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-in-the-sources-and-the-argument-for-it-item-15)
+is the argument, [the validation plan's §7](drtmle/validation-plan.md#7-the-cross-fitting-construction-piece-a1b)
+is the frozen rule, and `--reduced-crossfit nested` is the arm that reads it.
+
+**The two tracks turned out to be one track, and that is the piece's finding.** This page kept them
+apart — a proof *or* a reference estimator — and the argument, once written, says why they are not
+alternatives. Splitting fold `k`'s empirical-process term leaves a residual `(P_n − P_0)Δ_k` that no
+cross-fitting lemma reaches, and `Δ_k` is *by definition* the difference between the pooled
+construction and a nested one. So the open condition of the proof is the quantity the reference
+estimator computes. Had only one been landed it should have been the arm: a proof whose key
+condition is unmeasured is item 13's shape one level up.
+
+**Four decisions in it are forks rather than transcription.**
+
+- **Both halves of a reduced regression are generated regressors**, and this page said only the
+  designs were. `Q_r`'s target is a residual of `Q̄̂` and `g_{r,2}`'s is a quotient by `ĝ`; only
+  `g_{r,1}`'s target is data. A construction replacing the designs alone would have removed half
+  the dependence and reported itself as having removed it all.
+- **The inner split is the outer split, used twice — leave two folds out.** One `fit_mask` keyword
+  of `cross_fit_predictions`, so no second split, no new randomness the `random_state` does not
+  determine, and cluster integrity inherited. The inner training set is `(K−2)/K` of the sample
+  against production's `(K−1)/K`, and that gap is between two *cross-fitted* models of one nuisance
+  — not the in-sample-versus-out-of-sample shift `fit_reduced` rejects per-outer-fold designs for.
+- **The fluctuation is carried through the solvers, not reconstructed from `(initial, ε)`.** The
+  reconstruction looks free and is wrong exactly where it matters: the outcome tilt is applied once
+  per Newton step and shrunk after each, and `solve_bounded_mechanism` clips into `g_bounds`, so a
+  net offset recovers the endpoint only on a fit where nothing touched a bound. The fits that touch
+  one are the weak-overlap fits this arm is compared on.
+- **`targeting="one_step"` is refused by name**, on cost rather than on derivation, and says so.
+
+**The entropy half of the argument is settled by the learner, and the answer is narrow and
+pleasant.** Because the reduction is univariate, the condition falls on a one-dimensional class and
+not on the primary nuisances at all. `mean`, `glm`, `glmnet`, `gam` and `boost` are inside it —
+boosting because this package pins its hyperparameters rather than tuning them, which is load-bearing
+rather than incidental. `forest` is not, so **`library="rich"` is outside the guarantee by
+declaration**, and `reduced_*_learner` defaults to the primary spec, so a caller reaches it without
+any keyword saying so. That is a scope row, not a defect, and it sits beside item 25's.
+
+**The dispatch supports the stability half and does not resolve it**, and the wording is the
+finding rather than a hedge. [What it
+measured](drtmle/investigation-log.md#what-the-a1b-dispatch-measured): three of §7's four clauses
+pass — the `se` ratios, the paired counts against the control, and zero score-check or identity
+failures in 144 fits — and **the primary clause passes on `nonlinear` and fails on `linear`**, where
+the nested difference is flat across three sizes while the control halves. That is the literal shape
+of the falsifier and is reported as such. It is not read as one because on that process the nested
+difference sits 3 to 7 times *below* its own control at every size: the falsifier was written for a
+construction difference that persists while split noise dies away, and this is a fraction of split
+noise throughout. What is stable in all six cells is that the construction moves `ψ` no further than
+a redrawn split does, and that where the differences are large enough to have a trend the two shrink
+together — `Δ_k` behaving like split noise rather than like a bias.
+
+**This is the second median-based clause at twelve draws to fail to carry a slope**, and it is
+filed against the instrument. The restatement §4 had pre-registered as available — read the *ratio*
+of the two medians — does not rescue it either. What a further dispatch needs is not more seeds but
+the instrument §7 recorded as **not built**: the paired `L₂` distance between the two arms' reduced
+arrays, which measures `‖Δ_k‖` rather than its consequence on `ψ`, where the cancellation and the
+noise are.
+
+**What it does not close, and neither is claimed for it.** `‖Δ_k‖ = o_p(1)` is supported, not
+shown. And `g_{r,2}`'s envelope is `1/lo` with `lo → 0` under `g_bounds="auto"`, so its class is
+bounded by a *rate* rather than by a fixed ball; that row pulls against item 25's "bound sequence
+eventually below δ", and both are now in the matrix.
+
+**The assumption matrix's cross-fitting row became six, and the count of `unverified` rows went
+up.** That is the column working as A1a's revision described: the old row said *nobody has an
+argument*, and the new ones say what the argument is, which conditions the learner settles, and
+which one a run has to.
 
 ##### What the component checklist is, now that it is not a parity run
 
@@ -1285,7 +1382,8 @@ statements, and this page had been running them together.
 | `weights=`, fixed | **inside**, by a transport argument written down and checked | item 17: the reductions are `P_w`-conditional expectations because they are fitted by weighted loss, and the mechanism they condition on and divide by is the `P_w` one; `test_remainder_drtmle.py` runs the whole expansion at two tilted laws and keeps the wrong transport as a failing control |
 | `weights=`, estimated (`weights_estimated=`) | **refused**, by name | nothing read here says what the reduced regressions of a random tilt are |
 | `repeats=` | **inside**, and it needs no DRTMLE-specific derivation | every row is out of fold in every draw, so each draw's fit is asymptotically linear with the same `D` and `mean_r ψ_r` is asymptotically linear with `mean_r IC_r → D`. That is the package-wide argument in [the guide](user-guide.md#cross-fitting-and-cv-tmle), composed with the theorem rather than replacing it; item 18 is the arithmetic under it |
-| pooled cross-fitting of the reductions | **unverified**, and it is [A1b](#a1b--the-cross-fitting-construction) | [the concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) |
+| pooled cross-fitting of the reductions, at `library` in `glm`/`fast`/`default` | **inside**, under a stated entropy condition on the reduction learner **and** a stability condition that is supported rather than shown | [A1b](#a1b--the-cross-fitting-construction)'s argument: the reduction is univariate, so the entropy condition falls on a one-dimensional class whatever the primary nuisances did, and those libraries' one-dimensional fits lie in a fixed bounded-variation ball or a fixed-dimension sieve — [the concordance's §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-in-the-sources-and-the-argument-for-it-item-15). Its stability half, `‖Δ_k‖ = o_p(1)`, is what `reduced_crossfit="nested"` measures: [the A1b dispatch](drtmle/investigation-log.md#what-the-a1b-dispatch-measured) puts the construction difference at or below a redrawn split's in all six cells, which supports it without closing it |
+| the same at `library="rich"`, or any saturated or nearest-neighbour reduction learner | **outside**, by declaration | `forest`'s one-dimensional fits have `O(n)` pieces, so the entropy condition fails. Not refused, because the estimator still computes something and a caller may want it; scoped, exactly as the truncation rows are |
 | `att`/`atc`, the other four axes, `delta=`, `intermediate=`, `targeting_scheme="fold"`, `cv_evaluation=True`, `K > 2` arms, `reduction="bivariate"`, composition with `CTMLE` | **refused**, by name | limitation 10 and [piece D](#d-widen-the-scope-to-what-the-sources-derive) |
 
 **Two rows of that table are a correction to a review's reading and are worth saying so.** A
@@ -1557,9 +1655,11 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
 6. **The [contract](#the-supported-contract-and-item-25)**, which is prose and is the cheapest
    thing on this list. It is ordered here rather than "anywhere" because it is what C's numbers are
    read under, and a scope inferred from a completed study is not a scope.
-7. **A1b**, which still waits on nothing — but whose construction decision has to be frozen before
-   C's *final* dispatch, because C fits the pooled construction and a study of a construction that
-   then changes is a study of the wrong estimator. Its pilot does not wait on this.
+7. **A1b**, which waited on nothing and has landed. Its construction decision is now **frozen at
+   the pooled construction**, which is what C's final dispatch needed — the argument closes on the
+   entropy condition and the dispatch supports the stability one without showing it, and the thing
+   that would reopen the decision is a `‖Δ_k‖` measurement rather than another sweep of this one.
+   [What it measured](drtmle/investigation-log.md#what-the-a1b-dispatch-measured).
 8. **C**, which is the point. Its sizing is the thing to redo first: it was costed from a 43s
    `DRTMLE` fit and that fit is now several times cheaper, so re-time before re-scoping. **Its
    design needs nothing added** — a review proposed two off-diagonal regimes, a known nonzero
@@ -1643,13 +1743,23 @@ outruns its instrument is how this variant has gone wrong twice:
     appendices — item 21 closed on the second, and the first says the opposite;
 12. an unsupported estimand or treatment structure is accepted without a derivation;
 13. a weak-overlap interval is reported as valid where the scores fail;
-14. any document reads A1a's agreement as evidence about the **cross-fitting** construction. It
-    runs at *saturated* reductions, where every conditioning cell is a singleton and the pooled
-    construction and a nested one return the same arrays — so it is silent on item 15 by
-    construction, and [the concordance's
-    §8](drtmle/theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) says so. This is new
-    with A1a and is exactly the shape of the mistake item 2 was retired for: a check agreeing
-    where it could not have disagreed;
+14. any document reads A1a's agreement as evidence about the **cross-fitting** construction. It is
+    silent on item 15 by construction, and [the concordance's
+    §8.5](drtmle/theorem-concordance.md#85-what-a1a-settled-and-the-reason-it-gave-was-wrong) says
+    so. This is exactly the shape of the mistake item 2 was retired for: a check agreeing where it
+    could not have disagreed.
+
+    **This clause used to give the wrong reason, and A1b found that by building what the reason
+    was about.** It said the module runs at *saturated* reductions "where every conditioning cell
+    is a singleton". On that law the design takes three values over a thousand rows, so the cells
+    are not singletons — and saturation of the *reduction* does not decide it in any case, since
+    under a primary learner that learns any reduction learner returns different arrays. What makes
+    the module silent is `cross_fit=False` **and** oracle primary learners: one fold has no
+    complement to nest inside, and a learner that ignores its training rows returns the same
+    function whichever rows it saw. The false reason would have licensed reading a *cross-fitted*
+    saturated fit as evidence about fold reuse, so this clause was carrying the error it was
+    written to catch. `tests/unit/test_nested_reductions.py::TestADataIndependentPrimaryLearnerMakesTheTwoConstructionsAgree`
+    is the corrected statement, asserted and kept as a mutation watched to **pass**;
 15. any document reads a **bound-active** fit's numbers as evidence that Theorem 1's expansion
     covers it. B1b made the solved score and the reported curve one expression at one state, which
     is internal coherence; the theorem has one mechanism and it is untruncated
@@ -2049,7 +2159,7 @@ carried forward as an item of its own.
 
 ## What the sizings got wrong
 
-Twelve lessons, and they now live in [the investigation
+Thirteen lessons, and they now live in [the investigation
 log](drtmle/investigation-log.md#what-the-sizings-got-wrong) with the rest of the record. They are
 kept because the only thing a retrospective is for is the next sizing, and they are not on this
 page because a plan is not a history. In one line each:
@@ -2080,7 +2190,13 @@ page because a plan is not a history. In one line each:
     loop was supposed to establish, no test of the output can test the loop, which is why item 12
     and B2a's stale-score restatement were both invisible to whole suites. Remove the asymmetry,
     then pin the invariant one level down; a structural pin is the third choice and reads like the
-    first two.
+    first two;
+13. a stop-ship's stated **reason** can carry the error the stop-ship was written to catch, and
+    only building the thing it talks about will find that. A conclusion protects the case it names;
+    a reason is what a reader generalises from, so a wrong one points the guard-rail at the wrong
+    hazard while looking right. When a document says an instrument is blind, check *why* by
+    building what it says the instrument cannot see — stop-ship 14 survived two revisions because
+    the construction it was about did not exist yet.
 
 ## On native acceleration
 
