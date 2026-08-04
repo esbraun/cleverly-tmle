@@ -192,9 +192,11 @@ while another fails:
 
 1. **Theorem fidelity** — the equations solved and the curve reported are the ones the derivation
    gives, under conditions the fit actually meets. Items 1, 13, 15, 21 and 22. The third review
-   reported this link **broken** at the sign; reading the source closed items 21 and 22 in the
-   implementation's favour, and A1a closed item 1, so what is left of the link is items 13 and
-   15 — the empirical remainder rate and the cross-fitting construction.
+   reported this link **broken** at the sign; reading the source closed item 21 and item 22's
+   theoretical half in the implementation's favour, and A1a closed item 1, so what is left of the
+   link is items 13 and 15 — the empirical remainder rate and the cross-fitting construction — and
+   **item 22's numerical half, on one clause of a frozen rule that every measurement misses in the
+   direction favourable to it**, which [B2b](#b2b--the-dispatch-and-what-it-decides) reads out.
 2. **Derivation-anchored correctness, component by component** — each object the curve is built
    from agrees with what the derivation gives for it, not merely `psi` and `se`, where several
    differences cancel. **This link is now closed except for item 13's rate.**
@@ -1419,12 +1421,21 @@ instrument is how this variant has gone wrong twice:
    implementation reaching a third fixed point would have answered a different question — and
    then A1's, which was right about the subject and wrong about the evidence: it is a second
    alternation over a sweep of draws, which is B2's dispatch and nothing A1a could share with.
-   **The second alternation now exists** — `DRTMLE(update_order="paper")`, landed with
-   [B2a](#b2a--the-sweep-instrument) — so what is left of this item is
-   [B2b](#b2b--the-dispatch-and-what-it-decides) reading it over a sweep. The two draws run so far
-   agree on `psi` to `9e-03` of a standard error at `n = 600` and differ by `0.22` of one at
-   `n = 400`, both fits solving all three equations, which is a spread to explain rather than a
-   result;
+   **The second alternation exists** — `DRTMLE(update_order="paper")`, landed with
+   [B2a](#b2a--the-sweep-instrument) — and [B2b](#b2b--the-dispatch-and-what-it-decides) has read
+   it over a sweep. **It stays on this list, and the reason is one clause.** Of [the rule frozen
+   before the dispatch](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch),
+   clauses 1, 3 and 4 hold on both processes — the route difference shrinks with `n`, the `se`
+   ratios sit at `0.998` and `1.002` at the largest size, and no fit in either route fails its
+   score check or its state identity. Clause 2 asks the count of draws where the route difference
+   exceeds a *fold split's* to be compatible with half, and it is 2 of 12 on `nonlinear` and 12 of
+   36 on `weak-overlap`: **not compatible, and short rather than over** — the route moving `ψ`
+   *less* than a refit of one route does. Every failure of the rule therefore points the way that
+   supports the routes agreeing, and none points the other. That is a state to describe rather than
+   to legislate away, so the item stays open with its evidence and [the
+   log](drtmle/investigation-log.md#the-same-rule-at-thirty-six-draws-and-why-the-two-readings-are-not-nested)
+   records the one-sided restatement a future revision could make **before** a further dispatch and
+   not after this one;
 3. a stored score and the term the curve carries are not the same functional of the same state —
    this was item 20, the one that was true and unnoticed, and it is **closed**:
    [B1a](#b1a--the-identity-and-safety-patch) made it reported and
