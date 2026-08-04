@@ -1071,9 +1071,12 @@ negligible order, so a fit's own answer to that question is on the face of its r
 carries the verdict — the same object `res.validation.score_check()` returns — whether it
 passed or not. A passing fit says nothing extra. This matters here more than anywhere else in
 the package, because such a fit returns a `psi`, an `se` and a confidence interval formatted like
-any other. The one measured rate of failure — 23 of 24 fits on `weak_overlap_dgp` — predates a
-fix to the targeting convention that accounts for it, and the sweep has not been rerun, so treat
-that number as history rather than as the rate you should expect.
+any other. The rate of failure that used to be quoted here — 23 of 24 fits on `weak_overlap_dgp` —
+predated a fix to the targeting convention that accounts for it. **The sweep has since been rerun
+on the same seeds and the rate is 0 of 24**, with the worst score five orders lower, on draws whose
+overlap is exactly as poor as before. So the number to carry is zero, and the reason to keep
+reading the verdict is that no argument here proves a fit must solve its equations — only its own
+diagnostics say whether it did.
 
 The check goes further on a doubly-robust fit than on any other, because there is more that can
 be wrong: it recomputes each arm's corrections from the state the fit returned and compares them

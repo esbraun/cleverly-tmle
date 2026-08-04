@@ -322,7 +322,10 @@ same equation, and that difference is itself why the library does not use a hand
 **These numbers measure the exit criterion [item 7](../roadmap.md#closed-since-this-list-opened)
 replaced**, not the current one. That is deliberate and is the order the item required — the
 failure had to be characterised before the threshold moved — and re-measuring under the current
-rule is [piece B2](../roadmap.md#b2--the-sweep-on-the-corrected-implementation)'s.
+rule is [piece B2](../roadmap.md#b2--the-sweep-on-the-corrected-implementation)'s. **It has been
+re-measured**, on the same grid and the same seeds, and every number below moved: [what the B2b
+dispatch measured](#what-the-b2b-dispatch-measured). Read this table as the *before*, and do not
+quote a cell of it as a live rate.
 
 | process | n | rounds med [range] | tol/stall/cap | ill>0 | closing capped | med eq10 at exit | med min `mean\|h\|` | med `\|score\|/(se/√n)` | check fails |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -355,6 +358,117 @@ about it.
 1 of 6 on the seeds item 20 measured, so this column is sampling a per-draw event at whatever rate
 the bound binds, not a per-process property. B2 re-runs the whole table with a clipped-row share
 beside it.
+
+## What the B2b dispatch measured
+
+The same grid as *How the alternation exits* above, on the same seeds — 96 fits, four processes by
+two sizes by twelve seeds, `glm` on both nuisances, `n_folds=5`, `learner_folds=3`, both the data
+seed and the fold seed varying — dispatched as `.github/workflows/drtmle-convergence.yml` from
+`benchmarks/bench_drtmle.py` at commit `6624e69`, and **no fit raised**. [Run
+30907478598](https://github.com/esbraun/cleverly-tmle/actions/runs/30907478598), **378s of runner at
+5.7s per fit**.
+
+**That cost is the first finding and it was not a question anyone asked.** The same 96 fits took
+2,588s and 42.6s apiece before, so the sweep is **seven times cheaper** — which is not a faster
+machine but the same machine doing a seventh of the work, and is the exit distribution below
+restated in seconds. Every sizing on this page and in [the validation
+plan](validation-plan.md#4-the-sweep-piece-b2) was written against 42.6s a fit and is now wrong by
+that factor; the 180-minute workflow cap, which the order arm was split in two to stay under, has
+about thirty times the headroom it was thought to have.
+
+### The exit distribution, under the rule that is actually in force
+
+| process | n | rounds med [range] | tol/stall/cap | ill>0 | closing capped | med eq10 at exit | med min `mean\|h\|` | med `\|score\|/(se/√n)` | check fails |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| linear | 600 | 9 [3–23] | 11/1/0 | 3/12 | 12/12 | 7.3e-05 | 1.6e-03 | 1.3e-07 | 0/12 |
+| linear | 1,200 | 6 [2–22] | 12/0/0 | 3/12 | 12/12 | 6.7e-05 | 7.8e-04 | 1.7e-07 | 0/12 |
+| nonlinear | 600 | 8 [4–33] | 12/0/0 | 0/12 | 12/12 | 4.5e-05 | 9.4e-03 | 4.4e-08 | 0/12 |
+| nonlinear | 1,200 | 6 [3–50] | 11/0/1 | 2/12 | 12/12 | 5.9e-05 | 2.7e-03 | 2.1e-07 | 0/12 |
+| off-diagonal | 600 | 4 [2–17] | 12/0/0 | 2/12 | 12/12 | 5.7e-05 | 5.1e-03 | 1.2e-07 | 0/12 |
+| off-diagonal | 1,200 | 9 [2–31] | 12/0/0 | 2/12 | 12/12 | 4.9e-05 | 1.4e-03 | 3.0e-07 | 0/12 |
+| weak-overlap | 600 | 5 [2–10] | 8/4/0 | 0/12 | 12/12 | 4.2e-06 | 3.4e-02 | 2.1e-07 | 0/12 |
+| weak-overlap | 1,200 | 5 [2–8] | 9/3/0 | 0/12 | 12/12 | 5.0e-06 | 2.0e-02 | 2.4e-07 | 0/12 |
+
+**`tol/stall/cap` has inverted.** It was 2 / 86 / 8 and it is **87 / 8 / 1**. Converging is what
+the loop now mostly does, stalling is the minority, and exactly one fit of 96 ran out of rounds.
+The median round count fell with it, from 12–24 to 4–9, and that is where the seven-fold saving
+comes from. Two things are worth keeping apart here, because the temptation is to read this as the
+alternation having been fixed: **what changed is which ruler the exit test uses**, not the
+iteration. [Item 7](../roadmap.md#closed-since-this-list-opened) let an equation stop on an
+absolutely negligible score rather than on a ratio to a covariate that vanishes, and the column
+below says how often that branch is what fires.
+
+**`ill>0` fell and kept its shape**, which is the more interesting half. It was 5/12 and 9/12 on
+`linear` against 0/12 on `nonlinear` at `n = 600`; it is now 3/12 and 3/12 against 0/12. The
+*prediction* [item 4](../roadmap.md#limitations-recorded-rather-than-fixed) makes — that `g_{r,2}`
+vanishes where the mechanism is right, so the easy process is the ill-conditioned one — survives at
+a third of the rate, and the rise with `n` on `linear` does not: 3/12 at both sizes. A
+near-singular round is now something a fit passes through rather than something it exits at.
+
+**`check fails` is flat zero. Every cell, both sizes, `weak-overlap` included.** It was 23 of 24
+there, and the median standardised worst score on those cells was `1.1e+00` and `1.0e+00` — a score
+the size of its own standard error. It is now `2.1e-07` and `2.4e-07`, five orders down and
+indistinguishable from the three processes whose bound never binds. That is
+[B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision) measured at scale rather than on
+four fixtures, and it settles the weak-overlap product decision below.
+
+### Where weak overlap enters, now that it does not fail
+
+| process | n | clip share | margin | min g | ess/n | q99 h(8) | q99 h(9) | q99 h(10) | q99 `\|Qr\|` | min gr1 | q99 `\|gr2\|` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| linear | 600 | 0.000 | 1.7e-01 | 0.226 | 0.46 | 3.1 | 2.61e-02 | 1.49e-01 | 1.24e-02 | 0.406 | 7.75e-02 |
+| linear | 1,200 | 0.000 | 2.0e-01 | 0.244 | 0.47 | 2.9 | 1.77e-02 | 5.58e-02 | 7.30e-03 | 0.426 | 2.83e-02 |
+| nonlinear | 600 | 0.000 | 1.3e-01 | 0.156 | 0.41 | 3.7 | 5.22e-02 | 2.28e-01 | 3.72e-02 | 0.128 | 1.63e-01 |
+| nonlinear | 1,200 | 0.000 | 1.1e-01 | 0.142 | 0.42 | 3.7 | 6.19e-02 | 1.56e-01 | 4.18e-02 | 0.117 | 8.69e-02 |
+| off-diagonal | 600 | 0.000 | 1.3e-01 | 0.156 | 0.43 | 3.5 | 1.71e-02 | 1.66e-01 | 6.44e-03 | 0.215 | 1.03e-01 |
+| off-diagonal | 1,200 | 0.000 | 1.2e-01 | 0.142 | 0.42 | 3.5 | 1.35e-02 | 8.59e-02 | 5.79e-03 | 0.202 | 5.64e-02 |
+| weak-overlap | 600 | 0.338 | 0.0e+00 | 0.000 | 0.13 | 10.7 | 1.40e-01 | 8.55e-01 | 8.61e-03 | 0.000 | 4.12e-01 |
+| weak-overlap | 1,200 | 0.288 | 0.0e+00 | 0.000 | 0.09 | 10.0 | 7.23e-02 | 2.49e+00 | 4.84e-03 | 0.000 | 3.36e-01 |
+
+**The draws are as hard as they ever were, and that is the point of reading this table beside the
+one above.** A third of `weak-overlap`'s `(row, arm)` pairs lie outside the truncation at the
+initial mechanism, the smallest `g` rounds to zero, the per-arm effective sample size is 9–13% of
+`n` against 41–47% elsewhere, equation (8)'s covariate reaches 10 at the 99th percentile against
+about 3, and `g_{r,1}` — a denominator — also rounds to zero. `margin` is `0.0e+00` on both cells
+and `1.1e-01` to `2.0e-01` on every other, which is [B1b's
+witness](../roadmap.md#what-b1b-landed) doing exactly what it was chosen to do: a constrained root
+sits *against* the boundary of the feasible set, so a draw whose tilt wanted to leave the bounds
+comes back pressed to one. So the fits that used to fail their score checks still have every
+property that was blamed for it. What they no longer have is the failure, which is what says the
+failure was the convention mismatch and not the overlap.
+
+**`q99 h(10)` at `2.49` is the one column that still separates `weak-overlap` from everything
+else** — an order above the `1.5e-01` to `2.3e-01` the other processes report, and *rising* with
+`n` where every other cell falls. `g_{r,2}/g_{r,1}` with a denominator whose minimum is zero is the
+third of §4's five places, and it is the one this dispatch does not clear. It does not currently
+cost a fit its score check; it is where to look first if one ever fails again.
+
+### What the reported curve rests on
+
+| process | n | worst identity | worst B_clip | med std score | max std score | top 1% | top 5% | top 10% | med hessian cond |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| linear | 600 | 4.3e-17 | 0.0e+00 | 8.40e-09 | 4.66e-08 | 0.10 | 0.34 | 0.56 | 7.5e+04 |
+| linear | 1,200 | 2.8e-18 | 0.0e+00 | 1.24e-08 | 3.79e-08 | 0.10 | 0.33 | 0.53 | 1.1e+05 |
+| nonlinear | 600 | 9.2e-18 | 0.0e+00 | 2.41e-09 | 3.16e-08 | 0.08 | 0.27 | 0.44 | 2.7e+03 |
+| nonlinear | 1,200 | 5.7e-18 | 0.0e+00 | 5.67e-09 | 1.91e-08 | 0.08 | 0.27 | 0.42 | 5.0e+04 |
+| off-diagonal | 600 | 1.9e-18 | 0.0e+00 | 1.24e-08 | 7.50e-08 | 0.07 | 0.23 | 0.40 | 1.0e+04 |
+| off-diagonal | 1,200 | 1.5e-18 | 0.0e+00 | 1.94e-08 | 1.03e-07 | 0.12 | 0.34 | 0.55 | 9.6e+04 |
+| weak-overlap | 600 | 1.6e-17 | 0.0e+00 | 1.83e-08 | 1.62e-07 | 0.28 | 0.46 | 0.60 | 1.3e+03 |
+| weak-overlap | 1,200 | 3.1e-17 | 0.0e+00 | 8.41e-09 | 2.79e-07 | 0.33 | 0.55 | 0.71 | 5.1e+03 |
+
+**Zero identity failures over 96 fits**, worst `4.3e-17` against a bar of `1e-12`, and `B_clip`
+identically zero in every cell — including the two `weak-overlap` cells where a third of rows clip
+at the initial mechanism. Items 11 and 20 were closed on four fixtures; this is the same closure at
+scale, and it is [stop-ship 3](../roadmap.md#stop-ship) reduced to a column a reader can check.
+
+**The concentration columns are the caveat this dispatch adds rather than removes.** On
+`weak-overlap` the largest 1% of rows carry 28% and 33% of the worst score's absolute mass, against
+7–12% on the three easy processes, and the top 10% carry 60% and 71% against 40–56%. A score driven
+to `2e-07` by a handful of large rows cancelling is a different object from one that is small
+rowwise, and only the second is something an interval rests on comfortably. Nothing here is a
+failure — the standardised scores are five orders below their thresholds — but *passing the score
+check* and *the score being well spread* are two properties, this dispatch measures both, and only
+the first is on the face of a fit.
 
 ## What the B2a smoke runs measured
 

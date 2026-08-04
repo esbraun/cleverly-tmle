@@ -12,23 +12,25 @@ exists so the numbers stop living as prose in a docstring.  It is the same reaso
 ``bench_tmle.py`` states for keeping its rows: a comparison nobody can rerun becomes
 folklore.
 
-**It has been run once, and the table is in ``docs/drtmle/investigation-log.md`` under *How
-the alternation exits*.**  What it found is worth knowing before running it again.  Item 4's
-"minority behaviour rather than the norm" named the wrong minority: 8 of 96 fits ran out of
-rounds, but only **2 reached the tolerance** and **86 stalled**.  Item 6 held exactly (94 of
-96).  Item 7's disagreement showed on 68 of 96 and the criterion was changed on the strength
-of it, so **a fresh sweep no longer measures what that table measures** -- rerun it to see
-the new exit distribution, not to reproduce the old one.  And it turned up something none of
-the three items was about: ``weak-overlap`` failed ``score_check`` on 23 of 24 fits, which
-became item 11.
+**It has been run twice on the same 96 draws, and both tables are in
+``docs/drtmle/investigation-log.md``** -- the first under *How the alternation exits*, the
+second under *What the B2b dispatch measured*.  The first was taken before the exit criterion
+item 7 replaced and before piece B1b; the second is the live one, and every column moved:
 
-**Everything above was measured before piece B1b, and that is the point of running it
-again.**  Items 11 and 20 were one defect -- equation (9) solved at the raw tilted mechanism
-while the reported curve read the truncated one -- and it is closed, so the 23-of-24 failure
-is on present evidence a convention mismatch rather than the estimator breaking down.  This
-script is [piece B2](../docs/roadmap.md)'s instrument for re-measuring that at scale, and it
-now records what ``docs/drtmle/validation-plan.md`` §4 asks for rather than the three
-columns the first sweep had.
+* **the exit distribution inverted**, from 2 tolerance / 86 stall / 8 cap to **87 / 8 / 1**,
+  at a median of 4 to 9 rounds against 12 to 24 and a seventh of the wall clock.  Nothing
+  about the iteration changed -- the exit test reads a different ruler;
+* **item 6 now holds universally**, 96 of 96 against 94 of 96, which is the one place a
+  bounded mechanism convention made a limitation slightly worse and is where that prediction
+  stopped being a guess;
+* **item 7's disagreement is 96 of 96**, against 68, which is that same ruler seen from the
+  other side;
+* **``weak-overlap``'s score check fails on 0 of 24**, against 23 of 24 -- items 11 and 20,
+  closed by B1b, measured at scale rather than on four fixtures.  Its overlap columns are
+  unchanged, which is what says the failure was the convention and not the draws.
+
+So **rerun this to see whether those hold, not to reproduce the first table**, and read the
+second before quoting any of it.
 
 The questions, and the columns that answer them:
 
@@ -1016,10 +1018,11 @@ def main() -> None:
     stalled = [r for r in ok if r.exit_reason == "stall"]
     print(
         f"{len(capped)} of {len(ok)} fits ran out of rounds and {len(stalled)} stalled; "
-        f"{len(ok) - len(capped) - len(stalled)} reached the tolerance. Item 4 of the "
-        "roadmap called a capped exit a minority behaviour of particular draws; the first "
-        "sweep found that true (8 of 96) and the contrast misleading -- only 2 of 96 "
-        "converged, and stalling is what the loop mostly does. Read all three counts."
+        f"{len(ok) - len(capped) - len(stalled)} reached the tolerance. Read all three "
+        "counts, and against both prior sweeps: 8/86/2 cap/stall/tolerance under the exit "
+        "criterion item 7 replaced, and 1/8/87 under the one in force. Item 4 of the roadmap "
+        "called a capped exit a minority behaviour of particular draws; it is that, and "
+        "stalling is no longer what the loop mostly does."
     )
     closing_capped = [r for r in ok if r.closing_capped]
     print(

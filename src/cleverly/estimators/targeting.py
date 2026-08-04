@@ -869,6 +869,32 @@ def solve_with_reduction(
     decreases.  Restarting would break the monotonicity and with it the reason this
     terminates.
 
+    **What that argument buys is termination, and it is not a convergence proof.**  It is
+    ``docs/roadmap.md`` item 19, and the distinction is easy to lose because the two
+    conclusions sound alike.  A bounded monotone sequence converges **in value** -- that is
+    why this loop stops, and it is the whole of what the ascent gives.  It says nothing about
+    the *iterates* approaching a common zero of the three score equations, and under a
+    direction that changes every round it cannot: the reductions are refitted mid-loop, which
+    leaves the current joint value where it is (they enter as the submodels' directions, not
+    as values of the objective, so monotonicity survives the refit) and makes the next step's
+    direction a different one.  A fixed point of an ascent whose search directions move need
+    not be a stationary point of anything.
+
+    So this is an **estimating-equation iteration with empirical convergence diagnostics**,
+    and the diagnostics are what say whether a given fit got there: the three scores at the
+    state the loop leaves, :attr:`ReductionFluctuation.exit_reason` for how it ended, and
+    :func:`~cleverly.validation.score_check` on the fit that comes out.  Not the argument
+    above.
+
+    **A stall is an ordinary exit and not a numerical disappointment.**  ``"stall"`` means the
+    objective would not climb and the worst relative score would not improve, which on a
+    problem whose covariate nearly vanishes is where the iteration is *supposed* to stop; what
+    decides whether such a fit is reportable is its scores, which is a separate question and
+    a separate reader (``score_check``).  Under the exit criterion this loop had until item 7
+    a stall was also the *usual* exit -- 86 of 96 swept fits -- and reading that as failure is
+    what the sentence above is written against.  It no longer is the usual exit, for the
+    reason below, but the wording would have been wrong either way.
+
     **Equations (8) and (10) are solved one after the other rather than as one wider
     submodel**, which is ``drtmle``'s ``Qsteps = 2`` -- backfitting, "found to be more
     stable in simulations".  It is also what keeps a ``Submodel`` column belonging to one
@@ -894,27 +920,29 @@ def solve_with_reduction(
     carries, which brings that to ``5.8e-7``, and moves a converged fit's ``psi`` and
     standard error by nothing.
 
-    **This loop does not reliably converge, and the reason is structural rather than
-    numerical.**  Equation (10)'s covariate is :math:`g_{r,2}/g_{r,1}`, and :math:`g_{r,2}`
-    vanishes exactly where the mechanism is right -- so on a fit whose :math:`\hat g` is
-    nearly right, which is every fit anybody wants, that covariate is nearly zero and its
-    Newton solve is near-singular: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching
-    280 and a singular Hessian in a third of the rounds on one unseeded draw.  Such a fit
-    exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.  ``drtmle``
-    sidesteps the question entirely by capping at three iterations and never claiming to
-    converge.  :attr:`ReductionFluctuation.ill_conditioned` reports the conditioning;
-    ``docs/roadmap.md`` lists this under *What is still open*, and
-    :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
+    **Equation (10)'s solve is near-singular on exactly the fits anybody wants, and that is
+    structural.**  Its covariate is :math:`g_{r,2}/g_{r,1}` and :math:`g_{r,2}` vanishes
+    exactly where the mechanism is right -- so on a fit whose :math:`\hat g` is nearly right
+    that covariate is nearly zero: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching 280
+    and a singular Hessian in a third of the rounds on one unseeded draw.  A fit that never
+    gets past it exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.
+    ``drtmle`` sidesteps the question entirely by capping at three iterations and never
+    claiming to converge.  :attr:`ReductionFluctuation.ill_conditioned` reports the
+    conditioning; :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
 
-    **Swept over 96 fits** -- four processes by two sizes by twelve seeds, the table under
-    *How the alternation exits* in ``docs/drtmle/investigation-log.md`` -- which replaced the
-    six-fit claim that stood here.  It
-    said the loop "converged in 15 to 45 rounds" on six seeded draws of *one* process, and
-    so ran to the cap only on a minority.  Running out of rounds is a minority (8 of 96),
-    but converging is rarer: **2 of 96 reached the tolerance and 86 stalled**.  The
-    conditioning is also worst on ``linear`` -- 5 of 12 draws at ``n = 600`` and 9 of 12 at
-    ``n = 1,200``, against 0 of 12 for ``nonlinear`` -- which is what "vanishes where the
-    mechanism is right" predicts, the easy process being the ill-conditioned one.
+    **Swept twice over the same 96 fits** -- four processes by two sizes by twelve seeds,
+    ``docs/drtmle/investigation-log.md``, first under the criterion item 7 replaced and then
+    under the one in force.  The first sweep replaced a six-fit claim that had stood here
+    ("converged in 15 to 45 rounds", one process) and found the loop mostly *stalling*: 2 of
+    96 reached the tolerance, 86 stalled, 8 ran out of rounds.  **The second inverts it: 87
+    reached the tolerance, 8 stalled and 1 ran out of rounds**, at a median of 4 to 9 rounds
+    against 12 to 24, and the whole sweep costs a seventh of what it did.  Nothing about the
+    iteration changed between them -- what changed is which ruler the exit test uses, which is
+    :func:`_negligible_bar`'s, and the honest reading is that the loop was reaching its fixed
+    point all along and being told it had not.  The conditioning survives at a third of the
+    rate and keeps its shape: worst on ``linear``, 3 of 12 draws at each size against 0 of 12
+    for ``nonlinear`` at ``n = 600``, which is what "vanishes where the mechanism is right"
+    predicts, the easy process being the ill-conditioned one.
 
     The exit test used to be a *relative* score alone, dividing by a ``mean|h|`` of order
     ``1e-3`` and so reading an absolutely negligible score as a large one;

@@ -1403,20 +1403,33 @@ lives in [gate 2](drtmle/validation-plan.md#the-decision-rules-frozen-before-the
 Real, understood, and worth writing down rather than fixing. None of them would change a
 coverage number, and each is stated where the code that has it lives as well as here.
 
-**4. The alternation does not reliably converge, and the reason is structural.** Equation (10)'s
-covariate is `gr2/gr1`, and `gr2` vanishes exactly where the mechanism is right — so on the fits
-anybody actually wants that covariate is nearly zero and its Newton solve is near-singular:
+**4. The alternation has no convergence guarantee, and equation (10)'s solve is near-singular by
+construction — but the loop now converges on 87 of 96 fits, where it used to on 2.** Equation
+(10)'s covariate is `gr2/gr1`, and `gr2` vanishes exactly where the mechanism is right — so on the
+fits anybody actually wants that covariate is nearly zero and its Newton solve is near-singular:
 observed at `mean|h| = 1e-3`, `|epsilon|` reaching 280 and a singular Hessian in a third of the
 rounds on one unseeded draw. Such a fit runs to the outer cap and reports
 `failure = "max_iter_reached"`. `ReductionFluctuation.ill_conditioned` reports it, and `drtmle`
 sidesteps the whole question by capping at three iterations and never claiming convergence.
 
-Over [96 fits](drtmle/investigation-log.md#how-the-alternation-exits) the conditioning is **worst
-where the reasoning predicted**, which is the part that had never been tested: `gr2` vanishes where
-the mechanism is *right*, so the easy process should be the ill-conditioned one, and it is.
-`linear` reports an ill-conditioned solve on **5 of 12** fits at `n = 600` and **9 of 12** at
-`n = 1,200`, against **0 of 12** for `nonlinear` at `n = 600`. Running out of rounds is a minority
-— 8 of 96 — but converging is rarer still: 2 of 96 reached the tolerance and 86 stalled.
+**The same 96 draws have now been swept twice**, and the entry above used to be written from the
+first: [before](drtmle/investigation-log.md#how-the-alternation-exits), 2 fits reached the
+tolerance, 86 stalled and 8 ran out of rounds;
+[after](drtmle/investigation-log.md#what-the-b2b-dispatch-measured), **87 reach the tolerance, 8
+stall and 1 runs out of rounds**, at a median of 4 to 9 rounds against 12 to 24 and a seventh of
+the wall clock. **Nothing about the iteration changed between them** — what changed is which ruler
+the exit test uses ([item 7](#closed-since-this-list-opened)), so the honest reading is that the
+loop was reaching its fixed point all along and being told it had not. What has *not* changed is
+that no argument here proves the iterates approach a common zero of the three equations, which is
+[item 19](#closed-since-this-list-opened) and is why the diagnostics decide rather than the
+argument.
+
+The conditioning survives at a third of the rate and **keeps its shape**, which is the part that
+had never been tested: `gr2` vanishes where the mechanism is *right*, so the easy process should be
+the ill-conditioned one, and it is. `linear` reports an ill-conditioned solve on **3 of 12** fits
+at each size — it was 5 of 12 and 9 of 12 — against **0 of 12** for `nonlinear` at `n = 600`. The
+rise with `n` on `linear` did not survive; a near-singular round is now something a fit passes
+through rather than something it exits at.
 
 **5. Equation (9) is never solved exactly.** Its covariate `Qr/g*` reads the very mechanism it
 tilts, so one solve zeroes the score at the pre-tilt covariate and leaves a residual at the
@@ -1442,11 +1455,13 @@ The stage does bind on the mechanism, and the uncentred draws are the ones where
 leaves the bounds, but the cap binds on 94 of 96 fits while the curve is uncentred on a quarter of
 them, so the cap cannot be what selects them. The two fits that stopped otherwise are both
 `weak-overlap`. This entry used to predict that a bounded-residual convention would make it
-*worse*, on the reasoning that a truncated residual is not the canonical logistic score. **B1b
-adopted one and it did not**: the stage binds on its cap on all four of that piece's fixtures,
-which is what it did on 94 of 96 before. Four fits are not 96, so the prediction is unconfirmed
-rather than refuted and [B2](#b2--the-sweep-on-the-corrected-implementation) re-measures — but it
-should stop being repeated as though it were a finding.
+*worse*, on the reasoning that a truncated residual is not the canonical logistic score. B1b
+adopted one and four fixtures could not tell; **[B2b](#b2b--the-dispatch-and-what-it-decides) can,
+and the prediction is confirmed in the smallest way it could be: 96 of 96, against 94.** The two
+that used to stop otherwise were both `weak-overlap` and no longer do. So this is the one place a
+bounded convention cost something, the cost is that a cap which nearly always bound now always
+binds, and item 5 remains why the stage cannot reach `spec.tol` at all. It is worth stating as a
+measurement precisely because it was carried as a guess for two revisions.
 
 **8. `retarget` is no longer arithmetic on cached arrays.** The reductions are refitted inside the
 alternation, so a truncation curve or an MNAR sweep costs about a fit per point rather than a
