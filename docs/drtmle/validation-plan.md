@@ -691,6 +691,29 @@ staying bounded away from zero; positivity stable across sizes; `√n·R₂` fai
 `TMLE` while `√n·R_remaining` does vanish for `DRTMLE`; and the realised drift coefficients above.
 Without these columns a correct coverage number is still only a number.
 
+**And the coefficient has to be verified at the *targeted* regression, not at the initial one.
+This clause is new, it is the second change these rules have taken, and the written reason is that
+[C3's pilot](coverage-study.md#what-the-pilot-measured) failed on exactly its absence.** The
+remainder a design commits a coefficient for is
+
+```text
+R_2(Q-hat)  = P_0[ (ĝ − g_0)/ĝ · (Q̂ − Q̄_0) ]        the plug-in remainder
+R_2(Qbar*)  = P_0[ (ĝ − g_0)/ĝ · (Q̄* − Q̄_0) ]       the estimator's bias
+```
+
+and **a design can hit the first exactly while the second is twenty times smaller**, because the
+fluctuation's score equation constrains a weighted offset of `Q̄* − Q̄₀` and the plug-in quantity is
+not subject to it. Measured: `n^α R₂(Q̂)` at `+0.4000` at every size, against a `√n` bias of `0.1`
+to `0.6` where the sizing predicted `2.5` to `4.2`. So a study that verifies only the plug-in
+coefficient has verified that its *injection* is what it says and **not** that the regime was
+entered — which is the one thing this section exists to establish.
+
+Operationally: report both columns, and read the *targeted* one against the declared `n^(−α)c`.
+`benchmarks/drtmle_tier1_bias.py` computes them side by side on the same rows of the same fits and
+runs in seconds a size, so this is a pre-flight check rather than a study — and it must pass
+**before** a coverage dispatch, not be inferred from one afterwards. The same discipline the
+invalid-fit rule already has: written down before the numbers exist.
+
 ### Evaluating `P₀D̂`, which is not automatic for a cross-fitted fit
 
 **Never substitute `P_nD̂`** — that is the quantity targeting drove to zero, so it answers a

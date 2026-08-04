@@ -953,7 +953,7 @@ the remainder table carries a Monte Carlo standard error. A reader who takes a s
 
 ## What the sizings got wrong
 
-Thirteen lessons, distilled from the per-item retrospectives that used to run to several hundred
+Fourteen lessons, distilled from the per-item retrospectives that used to run to several hundred
 lines. They are kept and the retrospectives are not, because the only thing a retrospective is
 for is the next sizing — the full pre-work read of what `drtmle` would touch, the per-seam record
 of what each cost, and the six landed refusals' own notes are in git history, last carried in full
@@ -1179,3 +1179,24 @@ which point the singleton claim did not survive its first contact with the fixtu
 when a document says an instrument is blind, the reason is a claim like any other, and the way to
 check it is to build the thing it says the instrument cannot see.** The corrected statement is now
 asserted rather than described, and is kept as a mutation watched to *pass*.
+
+**14. A column that reproduces its own quadrature exactly can still be about the wrong quantity,
+and being exactly right is what stops anyone checking.** C3's pilot found Tier 1's regime-entry
+column reading `n^a R2 = +0.4000` at every size — the declared coefficient, to four decimals — beside
+a plain `TMLE` that did not under-cover anywhere, against a design predicting a shortfall of `0.08`
+to `0.14`. Nothing was wrong with the arithmetic. `exact_remainder` integrates the **plug-in**
+remainder at the initial regression, which its own docstring says; a fit's bias is the same
+expression at the **targeted** one, and the fluctuation's score equation constrains the second
+while leaving the first alone. Measured on the same rows of the same fits, the bias tracked
+`R2(Qbar*)` at `-0.004`, `+0.011`, `-0.002` while `R2(Q-hat)` sat at `+0.081`, `+0.068`, `+0.057`.
+A factor of twenty, and a test suite that checked the column against its quadrature — which it
+should — could not have seen it, because both sides of that check were the same quantity.
+
+**The generalisable half is which check was missing.** Two arms were compared and agreed: the
+column and the analytic coefficient. What was never compared is the column against the thing it was
+*used for*, which was a prediction about coverage. This is [lesson 9](#what-the-sizings-got-wrong)'s
+shape in a new place — two checks that cannot fail against the same class of error are one check —
+and the instrument that broke the tie, `benchmarks/drtmle_tier1_bias.py`, is thirty lines and runs
+in seconds. **When a design predicts a number, check the prediction and not only the input to it.**
+[The validation plan's §5](validation-plan.md#verifying-the-regime-was-entered) now requires the
+targeted coefficient as a pre-flight condition for exactly this reason.

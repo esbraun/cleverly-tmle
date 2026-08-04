@@ -507,3 +507,124 @@ falsified is the *instrument's* premise: Tier 1 cannot produce the gap it was bu
 Tier 2's regime is not the one that was committed. Both bear on whether the 250-replicate dispatch
 would measure the thing it is for, and §5 permits the design to move **before** that run and not
 after it.
+
+## The repair, and what would say each half of it is wrong
+
+**The decision is to fix the design rather than to run it or to abandon it**, and [§5's
+rules](validation-plan.md#the-decision-rules-frozen-before-the-dispatch) permit exactly that:
+they may be changed *before* the final run, with a written reason. This section is the written
+reason. It is deliberately two halves, because the two tiers failed differently and one repair
+does not cover both.
+
+### Why the drift vanished, in algebra rather than in prose
+
+This is the part a future reader needs first, because it says what any candidate injection has to
+satisfy. Write the fluctuation's score equation in population form — it is what targeting solves:
+
+```text
+P_0[ 1{A=a}/ĝ_a · (Y − Q̄*_a) ] = 0   ⟹   P_0[ (g_0/ĝ)(Q̄* − Q̄_0) ] = 0
+```
+
+and put it beside the remainder the estimator's bias actually is:
+
+```text
+R_2(Q̄*) = P_0[ (1 − g_0/ĝ)(Q̄* − Q̄_0) ] = P_0[ Q̄* − Q̄_0 ] − 0
+```
+
+So **`R₂(Q̄*)` is the plain mean offset of the targeted regression**, and the score equation is
+precisely a constraint that drives a `g₀/ĝ`-*weighted* offset to zero. That is the same statement
+as `ψ̂ − ψ₀ = (Pₙ − P₀)Q̄* + P₀[Q̄* − Q̄₀]`, and it is why the measured bias tracked `R₂(Q̄*)`.
+
+Now carry the injection through. With `Q̄* − Q̄₀ = n^(−α)h + ε·s`, where `s` is the fluctuation's
+own direction, the score fixes `ε` and leaves
+
+```text
+R_2(Q̄*) = n^(−α) · ( P_0[h] − P_0[(g_0/ĝ)h] · P_0[s] / P_0[(g_0/ĝ)s] )
+```
+
+**which vanishes exactly when `h` and `s` carry the same weighted-to-unweighted ratio.** The design
+chose `h_a ∝ (g₁ − g₀)/g₁` to make `c_a = P₀[(g₁−g₀)/g₁ · h_a]` large — the right condition for the
+*plug-in* remainder and **no condition at all on the bracket above**. That bracket came out about
+twenty times smaller than `c_a`, which is the whole finding.
+
+*The display above is derived from the measurement rather than verified end to end.* What is
+measured is the two columns and their ratio; the algebra is what explains them, and a future agent
+should treat it as the hypothesis the repair is built on rather than as an established result.
+
+### Tier 1: give `h` a component the fluctuation cannot reach
+
+**The repair.** Keep the existing condition and add the missing one: choose `h_a` so that the
+*bracket* is bounded below, not merely `c_a`. Since the fluctuation contributes one free parameter
+per arm, that is one further linear condition on a function already chosen by quadrature — project
+the component that makes the bracket vanish out of `h_a` and renormalise, exactly as `h_a` is
+already normalised to hit its declared `c_a`.
+
+**Evidence for.** The condition is computable in the same quadrature the coefficients already use,
+so it costs a projection rather than a redesign. And it is **checkable before any dispatch**:
+`benchmarks/drtmle_tier1_bias.py` runs in seconds a size and reports `R₂(Q̄*)` beside `R₂(Q̂)`, so a
+candidate injection is accepted or rejected without a coverage study. The old design would have
+failed that check, which is the point of having it.
+
+**Evidence against, and it is the serious kind.** A single `ε` per arm removes a
+**one-dimensional** component, and the measurement says essentially the *whole* of `R₂(Q̂)` went —
+`0.081 → −0.004`, `0.068 → +0.011`, `0.057 → −0.002`. A one-dimensional projection removing 95% of
+a quantity means `h` and `s` were very nearly aligned in the relevant sense, and until somebody
+measures *how much* of the removal the projection explains, a repair that only re-orthogonalises
+may be treating a symptom. **The first thing to run is not a new injection but a decomposition of
+the existing one**: how much of `R₂(Q̂)` does the fitted `ε·s` account for, and what is left over.
+
+**And a possibility this page should not talk itself out of.** In an off-diagonal cell the good
+nuisance is consistent, so the `TMLE` is consistent and its bias is genuinely second order — that
+is double robustness working, not a defect. It may be that no injection into a single nuisance
+produces a first-order shortfall at these sizes, in which case Tier 1 is a **remainder anchor and
+was never a demonstration**, its coverage columns should not be read as one, and the repair is a
+scope correction rather than a new `h`. Nothing measured so far distinguishes that from the
+orthogonality story, and the decomposition above is what would.
+
+### Tier 2: make the committed rate the realised one
+
+**The problem is not the same problem.** Tier 2 *does* produce a gap — `q-drift` at `n = 2,400`
+reads `0.540` against `0.760`, a paired `+0.220 ± 0.072` — so its nuisances are not being absorbed
+the way Tier 1's are. What it does not do is enter the regime it committed to: the realised
+`n^α R₂` at the fitted nuisances is `0.59`–`0.68` against `0.389`/`0.410`, and it **drifts upward**
+across sizes rather than settling on a constant.
+
+**The repair.** The bandwidth sequence `h_n = 1.15·n^(−0.125)` is what sets the smoother's bias,
+and a coefficient that grows with `n` says the realised rate is slower than `n^(−α)` rather than
+merely mis-scaled. So the constant and the exponent are both in question, and the exponent is the
+one that matters — a constant that is 1.5× can be re-normalised, a drifting coefficient cannot.
+
+**Evidence for.** The quantity is measured directly by the harness's own regime-entry column at
+each size, a Tier-2 fit is `5.4`–`7.4s`, and a 12-draw check at three sizes is minutes rather than
+a dispatch. As with Tier 1 the acceptance test exists before the change.
+
+**Evidence against.** `g-drift`'s corrected remainder **rises** — `√n R_rem` of `4.17 → 3.91 →
+5.07` — and a smoother whose bias is re-tuned to hit a declared `α` does not obviously fix a
+*corrected* remainder that is growing. That growth is item 13's condition failing, and item 13 is a
+condition of Theorem 1 rather than of this design: if it survives the repair, then at these sizes
+the estimator is outside the conditions its own guarantee needs and a coverage number would be
+measuring something the theorem does not cover. **Fixing the rate and finding the remainder still
+rises would be a more interesting result than fixing it and finding it does not.**
+
+### What both halves have to clear before any 250-replicate dispatch
+
+1. `R₂(Q̄*)` at the declared `n^(−α)c`, not `R₂(Q̂)` — the check the old design would have failed;
+2. the realised `n^α R₂` at the fitted nuisances stable across the three sizes and near its
+   committed value;
+3. `√n R_rem` falling rather than rising in **both** cells.
+
+None of these needs a coverage study, all three are minutes, and the reason to state them here is
+that a study dispatched without them measures a design nobody has checked — which is what
+happened, and what the pilot cost was small enough to catch.
+
+### This is the second time a coverage study here has found no gap
+
+The first is on the roadmap already: a pilot over the off-diagonal grid put `TMLE` and `DRTMLE` at
+`0.958` apiece in one cell and `1.000` in the other, and the diagnosis was that a correctly
+specified *parametric* nuisance converges at `n^(−1/2)`, so `R₂` is `O(n^(−1))` and the product
+condition never binds. The whole Tier-1/Tier-2 construction exists to answer that. **It has now
+returned "no gap" a second time, for a different reason**, and a future agent should hold the two
+together: the first was the nuisance converging too fast, the second is the targeting step removing
+what was injected. Both are the study failing to *enter* the regime rather than the estimator
+failing in it, and a third recurrence would be evidence that the regime is hard to reach on purpose
+rather than by accident.
