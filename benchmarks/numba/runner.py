@@ -7,10 +7,18 @@ rebuilt per implementation with the same seed -- *the same object*.  A seed guar
 same values; sharing the object guarantees the same *pages*, so an implementation is not
 charged for the page faults of a fresh allocation that its predecessor was not.
 
-**Implementations are timed in a shuffled order, and the shuffle is seeded.**  Timing all
-of A then all of B attributes any drift in the machine to B.  The order is deterministic so
-a run is reproducible, and it is different per configuration so a systematic effect cannot
-line up with one implementation across the sweep.
+**Implementations are timed in a seeded rotation, not in shuffled blocks.**  Timing all of
+A then all of B attributes any drift in the machine to B, and shuffling which of them goes
+first does not fix it -- every sample of an arm still comes from one contiguous window.  So
+the arms are built here and handed to :func:`~benchmarks.numba.timing.measure_interleaved`
+as a set, which takes one step of each per round.  The seed fixes the order *within* a
+round and is different per configuration, so a systematic effect cannot line up with one
+implementation across the sweep.
+
+That splits this function into three passes.  Building the arms is where the skips are
+decided; the rotation is the only timed part and is the one that has to see every arm at
+once; the third pass produces each arm's output for the validator and its amortisation
+curve, both untimed and each under its own plan.
 
 A serial implementation is measured once and reused across the core counts.  It does not
 vary with them, and re-measuring it would produce a flat "scaling curve" that reads as a
@@ -19,6 +27,7 @@ finding about parallelism rather than as the tautology it is.
 
 from __future__ import annotations
 
+import contextlib
 import warnings
 from collections.abc import Iterator
 from typing import Any
@@ -35,7 +44,7 @@ from .resources import (
     logical_cores,
     numba_available,
 )
-from .timing import Measurement, measure, measure_amortised, shuffled
+from .timing import Arm, Measurement, measure_amortised, measure_interleaved
 from .validation import check
 
 __all__ = ["run"]
@@ -143,7 +152,12 @@ def _run_one(
     # is the finding, not a gap in the sweep.
     jobs.extend(("numpy_threaded_blas", cores) for cores in config.num_cores if cores > 1)
 
-    for name, cores in shuffled(jobs, config.seed + size + len(spec.name)):
+    # Three passes rather than one loop: build the arms, rotate over all of them together,
+    # then per arm produce the output the validator checks and the amortisation curve.
+    # Only the middle one is timed, and it is the one that has to see every arm at once.
+    arms: list[Arm] = []
+    plans: dict[tuple[str, int], ThreadPlan] = {}
+    for name, cores in jobs:
         # The control runs the *numpy* callable under a different thread plan, so it is
         # looked up by the implementation it aliases rather than by its own name.
         implementation = spec.implementations["numpy" if name == _THREADED_BLAS else name]
@@ -177,19 +191,44 @@ def _run_one(
             )
             continue
 
-        # Bound to the loop variables explicitly. A closure over `implementation` would
-        # be re-read at call time, and `measure` calls it after the loop has moved on --
-        # the classic late-binding bug, and one that would silently time the *last*
-        # implementation under every implementation's name.
+        # Bound to the loop variables explicitly. A closure over `implementation` would be
+        # re-read at call time, and the rotation calls it two passes later -- the classic
+        # late-binding bug, and one that would silently time the *last* implementation
+        # under every implementation's name. More load-bearing now than it was: these
+        # closures outlive the loop that built them rather than being consumed inside it.
         def call(fn=implementation, payload=inputs):
             return fn(payload)
 
-        # `cold` is deliberately None here rather than a timed first call. By the time
-        # the sweep reaches this point the module-level dispatchers have already compiled
-        # -- the numpy reference pass ran first, and a numba kernel compiles on its own
-        # first call whenever that was -- so a "cold" number taken now would be a warm
-        # one wearing a cold label. Compilation is measured in its own process by
-        # `cli --cold-compile`, which is the only place it can be measured honestly.
+        plans[name, cores] = plan
+        arms.append(
+            Arm(
+                key=(name, cores),
+                call=call,
+                context=lambda plan=plan: _quietly(plan),
+                # The plan is the group: arms sharing one enter `applied` together, which
+                # is what keeps a round's overhead off the fast kernels.
+                group=plan,
+            )
+        )
+
+    # No `cold` anywhere here rather than a timed first call. By the time the sweep reaches
+    # this point the module-level dispatchers have already compiled -- the numpy reference
+    # pass ran first, and a numba kernel compiles on its own first call whenever that was
+    # -- so a "cold" number taken now would be a warm one wearing a cold label.
+    # Compilation is measured in its own process by `cli --cold-compile`, which is the only
+    # place it can be measured honestly.
+    measurements = measure_interleaved(
+        arms,
+        warmups=config.warmups,
+        repeats=config.repeats,
+        min_total_seconds=config.min_total_seconds,
+        measure_memory=config.memory,
+        seed=config.seed + size + len(spec.name),
+    )
+
+    for arm in arms:
+        name, cores = arm.key
+        plan = plans[name, cores]
         with applied(plan), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             # Read inside the plan, or it is the boot ceiling wearing a core count's name:
@@ -197,16 +236,8 @@ def _run_one(
             # records what the process booted with rather than what this row ran at. On a
             # four-core sweep that filed every two-core measurement as a four-core one.
             effective = _effective_cores(plan)
-            measurement = measure(
-                call,
-                warmups=config.warmups,
-                repeats=config.repeats,
-                min_total_seconds=config.min_total_seconds,
-                cold=None,
-                measure_memory=config.memory,
-            )
-            output = call()
-            amortised = measure_amortised(call) if config.amortise and spec.amortise else {}
+            output = arm.call()
+            amortised = measure_amortised(arm.call) if config.amortise and spec.amortise else {}
 
         verdict = (
             check(reference_output, output, compare=spec.compare, tolerance=spec.tolerance)
@@ -222,7 +253,7 @@ def _run_one(
                 plan,
                 dimensions,
                 environment,
-                measurement,
+                measurements[arm.key],
                 verdict,
                 amortised,
                 inputs,
@@ -230,6 +261,14 @@ def _run_one(
             )
         )
     return rows
+
+
+@contextlib.contextmanager
+def _quietly(plan: ThreadPlan) -> Iterator[None]:
+    """``applied(plan)``, with the kernels' own warnings suppressed for the duration."""
+    with applied(plan), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        yield
 
 
 def _effective_cores(plan: ThreadPlan) -> int:
@@ -327,6 +366,7 @@ def _row(
     return Row(
         **_common(spec, name, size, cores, plan, dimensions, environment, effective),
         repeat_count=len(measurement.samples),
+        calls_per_sample=measurement.calls_per_sample,
         warm_seconds=measurement.median,
         warm_iqr_seconds=measurement.iqr,
         warm_min_seconds=measurement.minimum,

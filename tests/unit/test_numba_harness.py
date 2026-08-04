@@ -22,7 +22,9 @@ registry, so the whole file skips without it exactly as the correctness tier doe
 
 from __future__ import annotations
 
+import contextlib
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -35,6 +37,12 @@ numba = pytest.importorskip("numba", reason="numba lives in the `bench` extra")
 
 from benchmarks.numba import runner  # noqa: E402
 from benchmarks.numba.resources import ThreadPlan  # noqa: E402
+from benchmarks.numba.timing import (  # noqa: E402
+    Arm,
+    measure,
+    measure_interleaved,
+    speedup_interval,
+)
 
 
 class TestTheEffectiveThreadCount:
@@ -100,6 +108,194 @@ class TestTheEffectiveThreadCount:
 
         assert row.num_cores_effective is None
         assert row.skipped_reason.startswith("asked for 4 cores")
+
+
+class TestTheRotation:
+    """One step of every arm before a second step of any.
+
+    What this replaced is randomised *block* order: the whole implementations shuffled, then
+    each one's warmups and repetitions run back to back.  Every sample of an arm came from
+    one contiguous window, so machine drift slower than a block was confounded with arm
+    rather than spread over both -- and the module docstring said "interleaving" anyway.
+    """
+
+    def test_every_arm_advances_one_step_per_round(self):
+        """The claim in one assertion, and the one that fails against block order.
+
+        The log splits into ``repeats`` slices of ``len(arms)``, and each slice must be a
+        permutation of the arms.  Under the old loop the log was ``AAAABBBBCCCC`` and the
+        first slice alone fails it.
+        """
+        log: list[str] = []
+        arms = [_logging_arm(key, log) for key in "abc"]
+
+        measure_interleaved(arms, warmups=0, repeats=4, measure_memory=False)
+
+        timed = log[len(arms) :]  # the probe pass runs one call per arm first
+        rounds = [timed[i : i + len(arms)] for i in range(0, len(timed), len(arms))]
+        assert len(rounds) == 4
+        for taken in rounds:
+            assert sorted(taken) == ["a", "b", "c"], log
+
+    def test_no_arms_samples_are_contiguous(self):
+        """Stated directly, because it is the property a ratio's honesty rests on."""
+        log: list[str] = []
+        arms = [_logging_arm(key, log) for key in "ab"]
+
+        measure_interleaved(arms, warmups=0, repeats=5, measure_memory=False)
+
+        timed = "".join(log[len(arms) :])
+        assert "aaa" not in timed and "bbb" not in timed, timed
+
+    def test_the_warm_ups_all_precede_the_first_timed_call(self):
+        """Warmups are per arm and outside the rotation.
+
+        A numba kernel's compilation happens on its first call, and if that landed inside
+        round zero it would be charged to whichever arm the round started with -- and to
+        that round, which every other arm's sample zero is paired against.
+        """
+        log: list[str] = []
+        arms = [_logging_arm(key, log) for key in "ab"]
+
+        measure_interleaved(arms, warmups=3, repeats=2, measure_memory=False)
+
+        # Four calls per arm before any rotation: three warmups and one probe.
+        assert log[:8] == list("aaaabbbb"), log
+
+    def test_every_arm_gets_the_same_number_of_samples(self):
+        """Lockstep is what pairs sample ``r`` of one arm with sample ``r`` of another."""
+        arms = [_sleeping_arm("fast", 0.0), _sleeping_arm("slow", 0.002)]
+
+        out = measure_interleaved(
+            arms, warmups=0, repeats=6, min_total_seconds=0.05, measure_memory=False
+        )
+
+        assert len(out["fast"].samples) == len(out["slow"].samples) == 6
+
+    def test_a_fast_arm_is_batched_and_a_slow_one_is_not(self):
+        """``min_total_seconds`` became a batch size, and this is what that buys.
+
+        A microsecond kernel needs hundreds of calls before the clock stops dominating; a
+        millisecond one needs none.  Taking that out of the *sample count* is what lockstep
+        costs, so it goes into the batch instead.
+        """
+        arms = [_sleeping_arm("fast", 0.0), _sleeping_arm("slow", 0.03)]
+
+        out = measure_interleaved(
+            arms, warmups=0, repeats=4, min_total_seconds=0.08, measure_memory=False
+        )
+
+        # The slow arm already covers 0.08s in four single calls; the fast one needs
+        # thousands, and gets them without taking a fifth sample.
+        assert out["fast"].calls_per_sample > 1
+        assert out["slow"].calls_per_sample == 1
+        assert sum(out["slow"].samples) >= 0.08
+
+    def test_the_collector_is_re_enabled_when_an_arm_raises(self):
+        """One disable for the whole rotation means one ``finally`` to get right."""
+        import gc
+
+        def explode():
+            raise RuntimeError("deliberate")
+
+        was_enabled = gc.isenabled()
+        with pytest.raises(RuntimeError, match="deliberate"):
+            measure_interleaved(
+                [Arm(key="boom", call=explode)], warmups=0, repeats=1, measure_memory=False
+            )
+
+        assert gc.isenabled() == was_enabled
+
+    def test_the_plan_is_entered_once_per_group_per_round(self):
+        """The property that makes the rotation affordable at all.
+
+        Entering a thread plan builds a ``ThreadpoolController``, which this repository
+        measured at ~0.7 ms -- an order of magnitude more than a fast kernel's call.  So a
+        round rotates over *plan groups* and takes every arm sharing one inside a single
+        entry.  Rotating arm by arm would spend the run switching plans.
+        """
+        entries: list[str] = []
+
+        def context(tag):
+            @contextlib.contextmanager
+            def enter():
+                entries.append(tag)
+                yield
+
+            return enter
+
+        arms = [
+            Arm(key="a", call=lambda: None, context=context("x"), group="x"),
+            Arm(key="b", call=lambda: None, context=context("x"), group="x"),
+            Arm(key="c", call=lambda: None, context=context("y"), group="y"),
+        ]
+
+        measure_interleaved(arms, warmups=0, repeats=3, measure_memory=False)
+
+        # One entry per group for the warm-up/probe pass, then one per group per round.
+        assert entries.count("x") == 1 + 3
+        assert entries.count("y") == 1 + 3
+
+    def test_measure_is_the_one_arm_case(self):
+        """Kept as an entry point, implemented through the rotation, so there is one loop."""
+        calls = []
+        out = measure(lambda: calls.append(1), warmups=2, repeats=3, measure_memory=False)
+
+        assert len(out.samples) == 3
+        assert out.cold_seconds is None
+        assert out.calls_per_sample == 1
+
+    def test_measure_still_times_a_cold_call_separately(self):
+        arms_run = []
+        out = measure(
+            lambda: None,
+            warmups=0,
+            repeats=2,
+            cold=lambda: arms_run.append("cold"),
+            measure_memory=False,
+        )
+
+        assert arms_run == ["cold"]
+        assert out.cold_seconds is not None and out.cold_seconds >= 0.0
+
+
+class TestThePairedInterval:
+    """Under a rotation the samples are paired, so the bootstrap should be.
+
+    ``speedup_interval`` used to justify independent resampling with "the two
+    implementations were timed on interleaved calls, so there is no pairing to preserve".
+    That was true of block order and is exactly what the rotation retired: keeping it would
+    discard the correlation the rotation exists to create and report an interval wider than
+    the design earns.
+    """
+
+    def test_a_common_drift_cancels_out_of_a_paired_interval(self):
+        """Same ratio in every round, and a machine that wanders by a factor of three."""
+        drift = [1.0, 1.4, 3.0, 1.1, 2.2, 1.0, 2.8, 1.3, 1.9, 1.05]
+        baseline = [2.0 * d for d in drift]
+        candidate = [1.0 * d for d in drift]
+
+        _, low, high = speedup_interval(baseline, candidate, seed=0, paired=True)
+        _, wide_low, wide_high = speedup_interval(baseline, candidate, seed=0, paired=False)
+
+        # Every round says exactly 2.0, so a paired interval has nothing to be wide about.
+        assert low == high == 2.0
+        assert wide_high - wide_low > 0.0
+
+    def test_unequal_lengths_fall_back_to_independent_resampling(self):
+        """No pairing to preserve, and the honest construction says so rather than crashing."""
+        point, low, high = speedup_interval([2.0] * 8, [1.0] * 5)
+
+        assert point == 2.0
+        assert low <= point <= high
+
+
+def _logging_arm(key: str, log: list[str]) -> Arm:
+    return Arm(key=key, call=lambda k=key: log.append(k))
+
+
+def _sleeping_arm(key: str, seconds: float) -> Arm:
+    return Arm(key=key, call=lambda s=seconds: time.sleep(s) if s else None)
 
 
 class TestTheCoreListOverride:
