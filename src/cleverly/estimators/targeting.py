@@ -88,9 +88,11 @@ _STALL_FACTOR = 0.95
 #: error -- :func:`~cleverly.validation.score_check` makes that comparison properly.
 _UNSOLVED = 1e-6
 
-#: An **absolute** score below ``_NEGLIGIBLE / n`` counts an equation as solved, whatever
+#: An **absolute** score below :func:`_negligible_bar` counts an equation as solved, whatever
 #: its relative score says.  This exists because the relative test is the wrong instrument
-#: for two of the three, and the reason is structural rather than a matter of taste.
+#: for two of the three, and the reason is structural rather than a matter of taste.  What
+#: the bar *is* -- a numerical criterion rather than a proxy for what ``score_check`` applies
+#: to the reported fit -- is that function's, and is item 12.
 #:
 #: :func:`~cleverly.fluctuation._score.relative_score` divides by ``mean|w h|``, which
 #: :func:`~cleverly.fluctuation._score.score_scale` documents as "the largest the score
@@ -108,15 +110,44 @@ _UNSOLVED = 1e-6
 #: together -- so relaxing either alone stops nothing, which was measured before this was
 #: applied to all three.
 #:
-#: The bar here is the one the package already applies to the fit it reports:
-#: :func:`~cleverly.validation.score_check` passes a fluctuation whose score is under
-#: ``DEFAULT_TOLERANCE * se / sqrt(n)``, and with ``se = O(n**-0.5)`` on the scaled outcome
-#: that is this constant over ``n``.  Asymptotic linearity asks for ``P_n D = o(n**-0.5)``
-#: and nothing more; machine zero was never the requirement.  Where the covariate *is* of
-#: order one -- equation (8), whose ``1/g`` is bounded below by the truncation -- the
-#: relative test is the tighter of the two and still does the stopping, so a
-#: well-conditioned fit exits exactly where it used to.
+#: This is the *scale* of that bar and not the bar; :func:`_negligible_bar` is where the
+#: sequence is stated.  Where the covariate *is* of order one -- equation (8), whose ``1/g``
+#: is bounded below by the truncation -- the relative test is the tighter of the two and
+#: still does the stopping, so a well-conditioned fit exits exactly where it used to.
 _NEGLIGIBLE = 1e-3
+
+
+def _negligible_bar(n: int) -> float:
+    r"""The loop's absolute bar at ``n``: :math:`c_n/\sqrt n` with :math:`c_n \to 0` slowly.
+
+    **This is a numerical criterion in its own right and not a proxy for the reported one**,
+    which is ``docs/roadmap.md`` item 12 and the half of it B1a did not close.  Asymptotic
+    linearity asks for :math:`P_n D = o_p(n^{-1/2})`, and the honest finite-sample rendering
+    of an :math:`o` is a *deterministic* sequence :math:`c_n/\sqrt n` whose :math:`c_n` tends
+    to zero: here :math:`c_n = 10^{-3}/\sqrt n`, so the bar is ``1e-3 / n`` and
+    ``bar(n) * sqrt(n)`` vanishes, which is the property that makes it a rendering of the
+    ``o`` rather than of an ``O``.  Nothing about a standard error enters, and nothing needs
+    to: this says **when to stop iterating**.
+
+    It used to be justified the other way round -- as the bar
+    :func:`~cleverly.validation.score_check` applies to the reported fit,
+    ``DEFAULT_TOLERANCE * se / sqrt(n)``, *substituting* ``se = O(n**-0.5)`` on the scaled
+    outcome because the loop runs before the estimate exists.  The arithmetic is the same
+    number and the justification was circular: a stopping rule cannot be a proxy for a
+    quantity it precedes, the substitution was an assumption rather than a measurement, and
+    it is conservative exactly where it was checked -- under weak overlap ``se`` is large, so
+    the loop's bar is the stricter one -- while a fit with a very small ``se`` is the
+    direction nobody looked in.  Stating the criterion as its own thing removes the
+    assumption instead of tightening it, and costs no fit a different exit.
+
+    **Whether the fit that came out is entitled to a Wald interval is the other question**,
+    and it stays :func:`~cleverly.validation.score_check`'s, at the realised ``se``, with the
+    standardised score :math:`|P_n S_j|/\hat{sd}(S_j)` reported beside the stopping rule
+    rather than folded into it (``benchmarks/bench_drtmle.py``'s *What the reported curve
+    rests on*).  Conflating the two is what the old wording did, and it is why a fit whose
+    solver had done its job was read as one that needed more rounds.
+    """
+    return _NEGLIGIBLE / float(n)
 
 
 def _solved(relative: float, absolute: float, tol: float, negligible: float) -> bool:
@@ -886,8 +917,12 @@ def solve_with_reduction(
     mechanism is right" predicts, the easy process being the ill-conditioned one.
 
     The exit test used to be a *relative* score alone, dividing by a ``mean|h|`` of order
-    ``1e-3`` and so reading an absolutely negligible score as a large one; :data:`_NEGLIGIBLE`
-    and :func:`_solved` are what that became and say why.
+    ``1e-3`` and so reading an absolutely negligible score as a large one;
+    :func:`_negligible_bar` and :func:`_solved` are what that became and say why.  The bar it
+    became is a **numerical** criterion and not a proxy for what
+    :func:`~cleverly.validation.score_check` applies to the reported fit -- when to stop
+    iterating and whether the fit is entitled to a Wald interval are two questions, and this
+    loop answers only the first.
 
     Returns the final outcome submodel and the equation-(8) fluctuation, carrying equation
     (9)'s tilt on :attr:`~cleverly.fluctuation.Fluctuation.mechanism` and equation (10)'s on
@@ -1102,7 +1137,7 @@ def solve_with_reduction(
         # nothing. `worst` stays the *relative* max above, because it is what the stall
         # rule measures progress with and a mixed quantity would make "improving" mean two
         # things on alternate rounds.
-        negligible = _NEGLIGIBLE / float(data.n)
+        negligible = _negligible_bar(data.n)
         if (
             _solved(fluctuation.relative_score_norm, fluctuation.score_norm, spec.tol, negligible)
             and _solved(reduced_score, reduced_absolute, spec.tol, negligible)
