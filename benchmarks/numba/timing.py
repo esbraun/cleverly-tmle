@@ -181,9 +181,16 @@ def _grouped(arms: Sequence[Arm]) -> dict[Any, list[Arm]]:
 
 
 def _batch_size(probe_seconds: float, repeats: int, minimum_total: float, cap: int) -> int:
-    """Calls per sample, so that ``repeats`` samples cover ``minimum_total`` seconds."""
-    if minimum_total <= 0.0 or probe_seconds <= 0.0:
+    """Calls per sample, so that ``repeats`` samples cover ``minimum_total`` seconds.
+
+    A probe that reads zero is *faster* than the clock, not free, so it takes the cap
+    rather than a batch of one -- one would be the single case where the threshold is
+    silently unmet, and it would happen to whichever arm most needs the batching.
+    """
+    if minimum_total <= 0.0:
         return 1
+    if probe_seconds <= 0.0:  # pragma: no cover - perf_counter resolves a Python call
+        return max(1, cap)
     wanted = math.ceil(minimum_total / (repeats * probe_seconds))
     return max(1, min(cap, wanted))
 
