@@ -1520,6 +1520,16 @@ gate 1's clause 0 has to be read as a share per cell, and a cell's coverage numb
 evidence about the constrained rendering. Deciding how to report a mixed cell is C3's, before its
 dispatch and not after it.
 
+**C3 has taken that decision, before its dispatch**, and it is [the validation plan's fourth
+operational rule](drtmle/validation-plan.md#four-rules-that-make-the-gates-operational): the
+**pooled** number stays primary and is what gate 1's clauses 5 and 6 read, the **share** is what
+clause 0 reads, and coverage within the theorem-side and bound-active draws is reported *beside*
+them as description. Neither stratum may be quoted as the theorem-backed estimator's coverage —
+the contract label is a post-fit property of the draw, so conditioning on it selects a non-random
+subset exactly as excluding invalid fits does, and that is [stop-ship 15](#stop-ship) with a
+number attached. What the strata are for is the one question the share cannot answer: whether the
+two populations behave differently at all.
+
 **What is *not* claimed.** That the constrained expansion has been derived — it has not, and option
 one stays available to anyone who wants the bound-active regime inside the theorem rather than
 beside it. And that a bound-active fit is wrong: B1b's measurements say the opposite, which is why
