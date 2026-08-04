@@ -830,10 +830,12 @@ mechanism it tilts, so one solve leaves a residual at the post-tilt covariate �
 measured to be: the final scores sit at the same `1e-09` to `1e-10` they did before, because the
 outer loop is still what makes the direction self-consistent.
 [Limitation 6](#limitations-recorded-rather-than-fixed) was priced above as getting *worse* under
-a bounded convention. It does not, on these four: the closing pass's mechanism stage binds on its
-cap on all of them, exactly as it bound on 94 of 96 before. Four fits are not 96 and
-[B2](#b2--the-sweep-on-the-corrected-implementation) re-measures, but the prediction is
-unconfirmed and should stop being repeated as though it were a finding.
+a bounded convention. On these four fixtures it does not: the closing pass's mechanism stage binds
+on its cap on all of them, exactly as it bound on 94 of 96 before. Four fits were not 96, and
+[B2b](#b2b--the-dispatch-and-what-it-decides) has since re-measured: **96 of 96**, so the
+prediction is confirmed and the two fits that used to stop otherwise no longer do. It is the
+smallest confirmation available — a cap that nearly always bound now always binds — and it is the
+one place a bounded convention cost anything.
 
 **One of B1a's five conditions had to be replaced, and this is the only place that noticed.** Its
 fifth is that an identity be checked *on a fixture where the bound binds*, witnessed by
@@ -1522,15 +1524,16 @@ than assumed: the final scores on all four of that piece's fixtures sit at the s
 not the solve.
 
 **6. The closing pass's mechanism stage stops on its cap, not on its tolerance.** It settles
-around `1e-9` rather than reaching `spec.tol = 1e-10`, on **94 of 96** swept fits. Harmless *at
+around `1e-9` rather than reaching `spec.tol = 1e-10`, on **96 of 96** swept fits — it was 94 of 96
+before B1b, and the two fits that stopped otherwise were both `weak-overlap`. Harmless *at
 that size* — the steps are arithmetic, and item 5 is why it cannot get there — but a cap that
 always binds is worth knowing about rather than reading as convergence. The qualification this
 entry used to carry — that a cap always binding and `D*_g` being wrong by `2e-04` are "close
 enough together to be one story" — was a guess and has been checked: they are **not** one story.
-The stage does bind on the mechanism, and the uncentred draws are the ones where the tilted `g*`
-leaves the bounds, but the cap binds on 94 of 96 fits while the curve is uncentred on a quarter of
-them, so the cap cannot be what selects them. The two fits that stopped otherwise are both
-`weak-overlap`. This entry used to predict that a bounded-residual convention would make it
+The stage does bind on the mechanism, and the uncentred draws were the ones where the tilted `g*`
+leaves the bounds, but the cap bound on 94 of 96 fits while the curve was uncentred on a quarter of
+them, so the cap cannot have been what selected them. This entry used to predict that a
+bounded-residual convention would make it
 *worse*, on the reasoning that a truncated residual is not the canonical logistic score. B1b
 adopted one and four fixtures could not tell; **[B2b](#b2b--the-dispatch-and-what-it-decides) can,
 and the prediction is confirmed in the smallest way it could be: 96 of 96, against 94.** The two
