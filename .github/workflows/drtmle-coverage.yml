@@ -1,0 +1,129 @@
+name: drtmle-coverage
+
+# Dispatch only, with no schedule, for the reason `drtmle-convergence.yml` is: this is a
+# study rather than a check. It asserts nothing, its output is a set of tables a human
+# reads against the rules frozen in docs/drtmle/validation-plan.md section 5, and the
+# nightly tier must not absorb it -- a tier that silently grew a half-hour study would be
+# a tier nobody dispatches.
+#
+# It is **tier 1**, which is not the demonstration. Tier 1 hands the estimator a prescribed
+# nuisance sequence (benchmarks/drtmle_injection.py), so "the intended asymptotic regime was
+# entered" is true by construction and the remainder is exact; tier 2 is prescribed-rate
+# learners plus the fold-retained nuisances `P_0 D-hat` needs, and is piece C2. The script
+# refuses `--tier 2` by name rather than approximating it, so this workflow cannot produce a
+# number the harness has no learner for.
+#
+# The environment this repository is developed in cannot run a pilot (see CLAUDE.md), so this
+# is how piece C's numbers get produced.
+on:
+  workflow_dispatch:
+    inputs:
+      cells:
+        description: "space-separated: q-drift g-drift (both is the design; one is a debug run)"
+        default: "q-drift g-drift"
+      sizes:
+        description: "space-separated sample sizes; three carry a rate, two are suggestive"
+        default: "600 1200 2400"
+      replicates:
+        description: >-
+          draws per (cell, size). 50 is the pilot; the frozen study wants 250 at minimum and
+          500 if the budget reaches -- a coverage estimate's Monte Carlo standard error is
+          0.014 at 250 and 0.010 at 500, so 250 resolves 0.95-against-0.88 and does not
+          resolve 0.95-against-0.93
+        default: "50"
+      seed:
+        description: >-
+          the study's own seed. A different value is the independent second batch section 5
+          requires, and it is to be run *after* the first is complete rather than beside it
+        default: "20250801"
+      jobs:
+        description: "parallel draws; each fit is single-threaded, and 2 fits the runner"
+        default: "2"
+      rows:
+        description: "also print every replicate, not just the per-cell tables"
+        type: boolean
+        default: false
+
+jobs:
+  # One job to turn a space-separated input into a matrix, because there is no expression
+  # that splits a string and every attempt to write one is unreadable. `jq` does it in a
+  # line, and the input never reaches a shell as anything but an argument.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      cells: ${{ steps.split.outputs.cells }}
+    steps:
+      - id: split
+        env:
+          CELLS: ${{ inputs.cells }}
+        run: |
+          printf 'cells=' >> "$GITHUB_OUTPUT"
+          jq -cRn 'env.CELLS | split(" ") | map(select(length > 0))' >> "$GITHUB_OUTPUT"
+
+  # A matrix over the cells, which is the axis that parallelises without splitting a
+  # comparison: both estimators of a pair are fitted in the same worker on the same draw, so
+  # the paired shortfall is computed inside a job and never across two. Splitting by *size*
+  # as well would shard the rate columns, which are read down a cell.
+  study:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cell: ${{ fromJSON(needs.plan.outputs.cells) }}
+    # A tier-1 pair (TMLE plus DRTMLE) measured at ~2.4s on a four-core container, so the
+    # pilot's 150 draws per cell is well under an hour. Generous rather than tight, and for
+    # the sharper reason `drtmle-convergence.yml` gives: the script prints nothing until every
+    # draw has returned, so a run killed at the cap reports no table at all rather than a
+    # partial one. The frozen study's 750 draws per cell is what this cap is sized for.
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+      # Through the environment rather than interpolated into the command, so the inputs are
+      # arguments and not fragments of shell -- `nightly.yml` and `drtmle-convergence.yml`
+      # say the same.
+      - env:
+          CELL: ${{ matrix.cell }}
+          SIZES: ${{ inputs.sizes }}
+          REPLICATES: ${{ inputs.replicates }}
+          SEED: ${{ inputs.seed }}
+          JOBS: ${{ inputs.jobs }}
+          ROWS: ${{ inputs.rows && '--rows' || '' }}
+        run: >
+          python benchmarks/drtmle_coverage.py
+          --cells "$CELL"
+          --sizes $SIZES
+          --replicates "$REPLICATES"
+          --seed "$SEED"
+          --jobs "$JOBS"
+          $ROWS
+          | tee "coverage-$CELL.log"
+
+      # Where a reader will see it without opening a job log, `numba-benchmark.yml`'s pattern.
+      - name: Post the tables to the run summary
+        if: always()
+        env:
+          CELL: ${{ matrix.cell }}
+        run: |
+          {
+            echo "## drtmle-coverage: $CELL"
+            echo '```text'
+            cat "coverage-$CELL.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Section 5 asks for the per-replicate results and not only the summary tables, and
+      # `benchmarks/results/` is git-ignored generated output -- a file from a two-core runner
+      # reads as a fact about the package rather than about that box. So it travels as an
+      # artefact, which is where a rerun's numbers can be compared against this one's.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drtmle-coverage-${{ matrix.cell }}
+          path: |
+            benchmarks/results/drtmle-coverage/
+            coverage-${{ matrix.cell }}.log
+          retention-days: 90

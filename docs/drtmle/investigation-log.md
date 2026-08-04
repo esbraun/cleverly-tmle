@@ -798,6 +798,69 @@ condition has evidence pointing one way in every cell and a primary clause that 
 decision is *frozen* — C fits the pooled construction — and the thing that would reopen it is a
 `‖Δ_k‖` measurement, not another dispatch of this one.
 
+## What C1's witness measured on its first run
+
+[Item 25's witness](../roadmap.md#the-supported-contract-and-item-25) landed with piece C1 —
+`CorrectionCheck.contract` and the two columns it needed, the initial mechanism's clipped count and
+`g_{r,1}`'s signed margin — and it found something on its first run that the tables above could not
+have shown. Recorded here rather than in [the design note](coverage-study.md) because it is a
+measurement; the design note carries the consequence.
+
+**A sixth to a third of well-overlapped draws exit outside the contract, and the initial mechanism
+has nothing to do with it.** Six draws per cell of the Tier-1 coverage harness, on
+`linear_dgp` — the *easy* process, chosen for overlap precisely so the cells would be inside the
+contract:
+
+| cell | `n` | bound-active | worst clip share | min margin | min gr1 margin |
+| --- | --- | --- | --- | --- | --- |
+| q-drift | 600 | 1/6 | 0.0000 | **0.0e+00** | 0.216 |
+| q-drift | 1,200 | 2/6 | 0.0000 | **0.0e+00** | 0.406 |
+| g-drift | 600 | 2/6 | 0.0000 | **0.0e+00** | 0.263 |
+| g-drift | 1,200 | 0/6 | 0.0000 | 1.5e-01 | 0.344 |
+
+Read this against [*Where weak overlap enters*](#where-weak-overlap-enters-now-that-it-does-not-fail).
+That table puts `margin` at `1.1e-01` to `2.0e-01` on `linear`, `nonlinear` and `off-diagonal` and
+at `0.0e+00` on `weak-overlap`, which reads as a clean separation between an easy process and a hard
+one — and it is a table of **medians over twelve draws**. A minority at exactly zero is invisible to
+a median, and the minority is what item 25's condition is about, since one bound-active draw in a
+cell makes that cell's coverage number evidence about two estimators.
+
+**And the cause is not positivity.** Two draws of the `q-drift` cell at `n = 600`, same settings,
+same law, one pinned and one interior:
+
+| | pinned (data `368974633`, fold `403478673`) | interior (data `2002320325`, fold `4034082052`) |
+| --- | --- | --- |
+| initial `ĝ(1\|W)` | [0.3464, 0.8631] | [0.4195, 0.8688] |
+| `g_bounds="auto"` | (0.03191, 0.96809) | same |
+| targeted `g*` | **[0.031910, 0.968090]** — both bounds attained | [0.155000, 0.688179] |
+| mechanism `epsilon` | **24.47** | **0** |
+| q99 `\|Q_r/g*\|` | 0.00734 | 0.0346 |
+| `margin` | 0.0 exactly | 0.131 |
+| closing steps / capped | 21 / yes | 21 / yes |
+
+Equation (9)'s clever covariate is `Q_r/g*` and `Q_r = Q̄₀ − Q̄*` **vanishes where the outcome
+regression is right**, which in `q-drift` it asymptotically is. So the score
+`Pₙ[H₉(1_a − g*)] = 0` is solved against a covariate whose 99th percentile is `7e-03`, and its root
+is an `epsilon` of 24 on the logit scale — which drives rows to *both* truncation bounds on a draw
+whose initial mechanism never leaves `[0.35, 0.86]`. The interior sibling needed `epsilon = 0`:
+equation (9) was already solved, because `Q_r` was already near zero.
+
+**This is the mirror of [item 4](../roadmap.md#limitations-recorded-rather-than-fixed) and the half
+of it that had not been written down.** Item 4 says `g_{r,2}` vanishes where the mechanism is right,
+so equation (10)'s covariate is worst conditioned on the fits anybody wants. The same sentence with
+the nuisances swapped says `Q_r` vanishes where the outcome regression is right, so **equation (9)**
+is worst conditioned on exactly the off-diagonal cell in which `Q̄` is the consistent nuisance — the
+cell the variant exists for. Both equations degenerate at the truth; the tables above only ever
+recorded one of them doing it.
+
+**It is not a defect and the wording is deliberate.** Every fit in the table passes its score check
+and every state identity holds at roundoff, which is what `contract` being a *scope label* rather
+than a verdict is for: on this evidence a fit that is sound in every way the package can check is
+routinely outside the theorem's scope, and folding the label into `passed` would report a sixth of
+well-behaved draws as broken. Six draws per cell is a share and not a rate — the pilot turns it into
+one — but the pinned draw is one fit exhibited with its arithmetic, which is the right instrument for
+a mechanism rather than for a frequency.
+
 ## What one runner could and could not reach
 
 Kept here rather than in the roadmap because it is a property of one execution environment on one

@@ -13,6 +13,7 @@ One fit, shared: each class below reads a different part of the same result.
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import replace
 from itertools import pairwise
 
@@ -27,7 +28,7 @@ from cleverly.estimators.serialize import load
 from cleverly.estimators.targeting import _negligible_bar, _solved, build_submodel
 from cleverly.estimators.tmle import DEFAULT_NUISANCE_BOUND, correction_parts
 from cleverly.inference.influence import counterfactual_means, reduced_corrections
-from cleverly.validation.drtmle import correction_check
+from cleverly.validation.drtmle import MARGIN_ACTIVE, correction_check
 from cleverly.validation.score import DEFAULT_TOLERANCE
 from tests.conftest import FAST_KWARGS
 
@@ -906,8 +907,18 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
     ``CorrectionRow.clipped`` -- the count at the exit -- is now **zero on every fit by
     construction**, since a converged tilt sits inside the bounds.  Selecting a fixture on
     it would select nothing at all: ``docs/roadmap.md``'s stop-ship 14 in a second place.
-    ``initial_clipped`` is a property of the *draw* rather than of the convention, and it is
-    what says draw 1 is still the hard one.
+    :attr:`~cleverly.validation.CorrectionRow.margin` is what says draw 1 is still the hard
+    one, and this class asserts it below.
+
+    **And it is `margin` rather than `initial_clipped`, which is worth a line because this
+    docstring used to say the other thing.**  Item 25's witness now puts the initial
+    mechanism's clipped count on every fit, so the claim became checkable -- and it is
+    **zero on both draws here**: at ``g_bounds="auto"`` this frame's cross-fitted mechanism
+    never leaves the bounds, and what left them is the *tilt*.  So the two draws are
+    separated by the exit margin (``0.089`` against ``1.3e-06``, five orders) and not by a
+    clipped count, and the fixture's precondition is a property of the targeting step's
+    feasible set rather than of the draw's overlap.  ``TestTheContractSaysWhichEstimator``
+    is where a fit with the initial truncation active is fitted on purpose.
 
     ``repeats=`` was **not** the cause and refusing it would have been misdiagnosing this: a
     draw of a repeated fit is an ordinary fit, and the affected draws included first draws.
@@ -1035,6 +1046,117 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
 
         assert max(curves) < 1e-8
         assert worst < 1e-8
+
+
+@pytest.fixture(scope="module")
+def pinched():
+    """One fit whose three mechanism-side truncations are all active, on purpose.
+
+    A *lever* rather than a hard process: ``g_bounds=(0.3, 0.7)`` on this module's own
+    process clips the initial mechanism, pins the tilt to the boundary and floors
+    :math:`g_{r,1}`, which is all three of item 25's truncations at 400 rows and ~5s.
+    ``weak_overlap_dgp`` reaches the same state at ``g_bounds="auto"`` and costs several
+    times as much for a claim about a *witness* rather than about a process -- and the sweep
+    already measures it there (``clip share`` ``0.231`` to ``0.338``).
+
+    Cheaper than the module's other fixtures deliberately: 400 rows and a tight bound make
+    the alternation *shorter* here rather than longer, because a pinched mechanism leaves
+    equation (9) nothing to move.
+    """
+    with warnings.catch_warnings():
+        # A 0.3-0.7 bound on this process warns about extrapolation on a tenth of the rows,
+        # which is the fixture's precondition rather than a surprise.
+        warnings.simplefilter("ignore")
+        return (
+            DRTMLE(**SETTINGS, g_bounds=(0.3, 0.7))
+            .fit(nonlinear_dgp().sample(400, seed=3)[0], outcome="Y", treatment="A")
+            .single()
+        )
+
+
+class TestTheContractSaysWhichEstimator:
+    """Item 25: which estimator a fit's numbers are evidence about, on the face of the fit.
+
+    Truncation is not in Theorem 1's algorithm -- there is one mechanism, produced by an
+    unconstrained ``expit`` fluctuation, and boundedness is an assumption about :math:`g_0`
+    rather than an operation on :math:`\\hat g`.  So the theorem-backed guarantee is claimed
+    for a fit whose truncations are **inactive**, where ``solve_bounded_mechanism`` returns
+    the unconstrained solve bit for bit and the estimator *is* the theorem's; a fit where one
+    binds is empirically supported and outside the theorem.
+
+    Until this class there was no way to ask a fit which of the two it was.  ``margin``
+    covered the targeted mechanism at the exit and **nothing** covered the initial mechanism
+    or :math:`g_{r,1}` -- and the third is the one with no assumption in the theorem at all,
+    since it is a regression of an arm indicator on :math:`\\hat{\\bar Q}` and
+    :math:`g_0 > \\delta` says nothing about it.
+
+    **The pair of fits is the test.**  A label that only ever read ``"theorem"`` would be
+    stop-ship 14 for a third time -- a column that could not disagree -- so the class fits
+    one of each and asserts they disagree.
+    """
+
+    def test_an_ordinary_fit_is_the_theorems_estimator(self, fit) -> None:
+        """No truncation active, so Theorem 1 applies as written and the label says so."""
+        check = fit.validation.correction_check()
+
+        assert check.contract == "theorem"
+        assert check.truncations_active == ()
+        assert check.initial_clip_share == 0.0
+        assert check.margin > MARGIN_ACTIVE
+        assert check.gr1_margin > MARGIN_ACTIVE
+
+    def test_a_pinched_fit_is_outside_it_and_names_all_three(self, pinched) -> None:
+        """The other side of the label, with each truncation named rather than counted.
+
+        The three are different objects with different standing -- two are operations on a
+        mechanism the theorem assumes bounded and the third has no assumption behind it --
+        so a reader has to be able to see which bit.
+        """
+        check = pinched.validation.correction_check()
+
+        assert check.contract == "bound-active"
+        assert check.truncations_active == (
+            "g-hat at the initial fit",
+            "g* at the exit",
+            "g_r1",
+        )
+        assert check.initial_clip_share > 0.05
+        assert check.gr1_margin < 0.0, "gr1 is stored untruncated, so this column is signed"
+
+    def test_bound_active_is_a_scope_label_and_not_a_failure(self, pinched) -> None:
+        """The mistake this class exists not to make, asserted rather than promised.
+
+        Every identity holds and every score is negligible on exactly these fits -- that is
+        what B1b measured on ``weak_overlap`` at a forced bound -- so folding the label into
+        a verdict would report a sound fit as broken, and a reader would route around the
+        regime the variant is most needed in.
+        """
+        check = pinched.validation.correction_check()
+
+        assert check.passed
+        assert check.identity_failures() == ()
+        assert check.correction_failures() == ()
+        assert pinched.validation.score_check().passed
+        assert "score check: FAIL" not in pinched.summary()
+
+    def test_the_label_and_its_three_numbers_are_on_the_face_of_the_check(self, pinched) -> None:
+        """A user must not have to recompute ``clip share`` the way the sweep does.
+
+        Which is what item 25's remaining work was: the summary names the contract and the
+        frame carries the two new columns per draw, so "which side of the line is this fit
+        on" is a read rather than an analysis.
+        """
+        check = pinched.validation.correction_check()
+        summary = check.summary()
+        frame = check.to_frame()
+
+        assert "contract: bound-active" in summary
+        assert "outside Theorem 1" in summary
+        assert {"initial_clipped", "gr1_margin"} <= set(frame.columns)
+
+    def test_a_plain_tmle_has_no_contract_to_report(self, ordinary) -> None:
+        """No corrections, no mechanism tilt, nothing for the label to be about."""
+        assert ordinary.validation.correction_check().contract == "none"
 
 
 @pytest.fixture(scope="module")

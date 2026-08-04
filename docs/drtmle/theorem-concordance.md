@@ -581,12 +581,27 @@ Four things belong here rather than there, because they are properties of the de
    condition is *none of the three truncations active*, and the third is an assumption about an
    estimated object. This is the part no document had; the matrix's `hard truncation of ĝ` row
    named one of two.
-4. **The residue is a witness, not a derivation.** `CorrectionRow.margin` reports the targeted
-   mechanism's distance from the nearer bound and nothing on a fit reports the initial mechanism's
-   or `g_{r,1}`'s, so the condition is checkable in principle and not yet reported in practice —
-   `benchmarks/bench_drtmle.py`'s `clip share` and `min gr1` are the only places it is computed.
-   That, and a per-cell column on [piece C](../roadmap.md#c-the-demonstration), is what closes
-   item 25.
+4. ~~**The residue is a witness, not a derivation.**~~ **The witness exists**, and it changed the
+   answer. It used to read: `CorrectionRow.margin` reports the targeted mechanism's distance from
+   the nearer bound, nothing on a fit reports the initial mechanism's or `g_{r,1}`'s, and
+   `benchmarks/bench_drtmle.py` is the only place either is computed. Piece
+   [C1](../roadmap.md#what-c1-landed) put all three on the fit — `CorrectionCheck.contract`,
+   `initial_clip_share`, `margin`, `gr1_margin` — and asking a fit the question rather than
+   inferring it from a sweep's medians produced a finding: **one to two of six well-overlapped
+   draws are bound-active**, through the exit margin alone, with the initial mechanism never
+   clipping and `g_{r,1}` interior. The cause is item 4 with the nuisances swapped — equation (9)'s
+   covariate is `Q_r/g*` and `Q_r` vanishes where the outcome regression is right, so its score's
+   root is an `epsilon` of order 20 on the logit scale and pins rows to both bounds. [The
+   measurement](investigation-log.md#what-c1s-witness-measured-on-its-first-run).
+
+   So the condition is checkable *and* checked, and what it says is that it is **not** the ordinary
+   case at the exit. Item 25's third option is therefore the operative one on a share of ordinary
+   fits rather than only on weak overlap, which is a matter of how a study reports its cells rather
+   than of anything being wrong: every one of those fits satisfies every identity and every score
+   bound. The per-cell column is on
+   [the harness](https://github.com/esbraun/cleverly-tmle/blob/main/benchmarks/drtmle_coverage.py);
+   how a *mixed* cell is read is [piece C3](../roadmap.md#c-the-demonstration)'s to freeze before
+   its dispatch.
 
 Option one stays open to anyone who wants the bound-active regime inside the theorem rather than
 beside it, and nothing here argues a bound-active fit is *wrong*: B1b's measurements — identities
