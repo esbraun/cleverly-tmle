@@ -953,7 +953,7 @@ the remainder table carries a Monte Carlo standard error. A reader who takes a s
 
 ## What the sizings got wrong
 
-Fourteen lessons, distilled from the per-item retrospectives that used to run to several hundred
+Sixteen lessons, distilled from the per-item retrospectives that used to run to several hundred
 lines. They are kept and the retrospectives are not, because the only thing a retrospective is
 for is the next sizing — the full pre-work read of what `drtmle` would touch, the per-seam record
 of what each cost, and the six landed refusals' own notes are in git history, last carried in full
@@ -1189,8 +1189,15 @@ remainder at the initial regression, which its own docstring says; a fit's bias 
 expression at the **targeted** one, and the fluctuation's score equation constrains the second
 while leaving the first alone. Measured on the same rows of the same fits, the bias tracked
 `R2(Qbar*)` at `-0.004`, `+0.011`, `-0.002` while `R2(Q-hat)` sat at `+0.081`, `+0.068`, `+0.057`.
-A factor of twenty, and a test suite that checked the column against its quadrature — which it
-should — could not have seen it, because both sides of that check were the same quantity.
+A test suite that checked the column against its quadrature — which it should — could not have seen
+it, because both sides of that check were the same quantity.
+
+**C3b sharpened the size of it and the sharpening is its own small lesson.** *"A factor of twenty"*
+was what the pilot could see, and it was a **noise-floor artefact**: at 24 draws the measured
+`R2(Qbar*)` was consistent with zero, so the pilot had bounded the ratio rather than measured it.
+Computed exactly, `b_ATE = 0.00092` against `c_ATE = 0.40` — a factor of **436**. A ratio read off
+a column that is statistically indistinguishable from zero is a lower bound on the ratio and
+should be written as one.
 
 **The generalisable half is which check was missing.** Two arms were compared and agreed: the
 column and the analytic coefficient. What was never compared is the column against the thing it was
@@ -1200,3 +1207,33 @@ and the instrument that broke the tie, `benchmarks/drtmle_tier1_bias.py`, is thi
 in seconds. **When a design predicts a number, check the prediction and not only the input to it.**
 [The validation plan's §5](validation-plan.md#verifying-the-regime-was-entered) now requires the
 targeted coefficient as a pre-flight condition for exactly this reason.
+
+**15. The diagnosis said "project the absorbed component out"; the algebra said "solve for a second
+coefficient", and those are different pieces of work.** C3a's own repair section proposed
+projecting out the direction the fluctuation reaches and renormalising, and warned — rightly — that
+a one-dimensional projection removing 95% of a quantity might be treating a symptom. Writing the
+elimination out instead of describing it gives `b_a = P_0[v_a h_a]` against a computable weight:
+**a linear functional of the injected shape, exactly as `c_a` is**. So the repair is a 2x2 Gram
+solve for two declared coefficients, the old design is its one-condition special case, and there is
+no projection anywhere. The distinction is not stylistic — a projection has no declared target, so
+it could not have been checked against one, and the whole point of the repair is that a pre-flight
+now has a number to read against.
+
+**Two things fell out of writing it that describing it would not have found.** Declaring `b = c`
+forces `P_0[w_a h_a] = 0`, so the injection is exactly orthogonal to the score and the fluctuation
+absorbs nothing — an identity, not a tuning. And the design's opposite-arm signs, which make
+`c_ATE` a sum of magnitudes and cancellation impossible, **do not carry over to `b`**: both targeted
+arm coefficients came out positive, so `b_ATE` had been a *difference*. The no-cancellation
+guarantee was being enforced on the column that is not the estimand's, which is lesson 14 one level
+down. **When a diagnosis names a fix, derive the fix before costing it.**
+
+**16. A repair's obvious knob is worth one measurement before it is worth an argument.** Tier 2's
+realised coefficient came in at `1.5`–`1.6x` its prediction, and the prediction is the `h^2`
+leading term alone at a bandwidth of `h(600) = 0.517` — so the excess reads as an `h^4` truncation
+error and the fix reads as a smaller `c_h`. That is a clean story and it is wrong. Scanned over
+`c_h` of `1.15 / 1.00 / 0.90 / 0.80 / 0.70`, the ratio goes `1.61 / 1.78 / 1.91 / 2.05 / 2.21`: it
+**rises** as the bandwidth falls, which no bias-side omission does. The omitted term is
+variance-side — both nuisances are fitted on the same rows and their errors covary — so no
+bandwidth makes the leading-order prediction correct and shrinking it makes the agreement worse.
+The scan is forty lines and eight draws a cell. **The cost of checking a knob is usually below the
+cost of writing the paragraph defending it.**

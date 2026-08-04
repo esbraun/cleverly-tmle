@@ -676,6 +676,33 @@ rather than necessary here — and `α < 1/2` on its own is not sufficient eithe
 - **commit the coefficient calculation with the design**, before any fit is run;
 - verify empirically that `n^α·R_{2,a} → c_a` and `n^α·R_{2,ATE} → c_1 − c_0`.
 
+**And `c_a` is not the whole of it, which is C3b's correction to this list.** The three bullets
+above are conditions on the *plug-in* remainder, and a fit's bias is the same inner product at the
+**targeted** regression. Targeting solves `P_0[w_a(Q̄*_a − Q̄_{0,a})] = 0` with `w_a = g_{0,a}/ĝ_a`,
+and the remainder's weight is `u_a = 1 − w_a` — so the score removes precisely the component of
+`h_a` the fluctuation can reach, and a design satisfying the bullets above has constrained
+**nothing** about what survives it. Measured at C3's own Tier-1 design, `c_ATE` was `0.40` by
+construction and the surviving coefficient was `0.00092`.
+
+The repair is a *second* coefficient rather than a larger first one, and it is available on the
+same terms: eliminating `ε_a` through the score leaves
+
+```text
+b_a = P_0[ v_a · h_a ],      v_a = 1 − kappa_a w_a,     kappa_a = P_0[S_a] / P_0[w_a S_a]
+```
+
+with `S_a` the direction the fluctuation's one free parameter per arm moves `Q̄_a` in. So `b_a` is
+a linear functional of the shape exactly as `c_a` is, and a design can be *built* to hit it — a
+2×2 solve in the span of the two representers, not a projection and a renormalisation. **A fourth
+bullet, therefore: choose `h_a` so `|b_a|` and `|b_1 − b_0|` are bounded below too, declare both
+coefficients, and read the regime off the second.**
+
+Two consequences a design has to expect. **Declaring `b = c` makes the injection orthogonal to the
+score**, so `ε → 0` and the two columns coincide — a useful special case rather than a coincidence.
+And **the arms' opposite signs do not carry over**: `c_ATE` a sum of magnitudes says nothing about
+`b_ATE`, which at C3's Tier-1 design was a *difference* because both arm coefficients came out
+positive. Declare the sign structure on `b`, since that is the contrast the estimand has.
+
 Nuisance-error norms alone do not demonstrate that the intended drift was entered. What argues
 *against* pushing `α` very small is the other side of the ledger: the appendix-B terms `DRTMLE`
 needs to be negligible involve the reduced regressions, whose targets are built out of `Q̂` and
@@ -708,11 +735,20 @@ to `0.6` where the sizing predicted `2.5` to `4.2`. So a study that verifies onl
 coefficient has verified that its *injection* is what it says and **not** that the regime was
 entered — which is the one thing this section exists to establish.
 
-Operationally: report both columns, and read the *targeted* one against the declared `n^(−α)c`.
+Operationally: report both columns, and read the *targeted* one against **its own** declared
+coefficient — `n^(−α)b`, not `n^(−α)c`, which is the further correction
+[the coefficient section](#the-drift-coefficient-which-a-rate-alone-does-not-give-you) makes.
 `benchmarks/drtmle_tier1_bias.py` computes them side by side on the same rows of the same fits and
 runs in seconds a size, so this is a pre-flight check rather than a study — and it must pass
 **before** a coverage dispatch, not be inferred from one afterwards. The same discipline the
 invalid-fit rule already has: written down before the numbers exist.
+
+**C3b landed the instrument that reads it**, and read it: the harness prints a *"which regime the
+fits entered"* table beside the design's predictions, on **both** estimators — the plain `TMLE`'s
+row is the one this clause is about, since that is the estimator whose interval a shortfall is
+claimed against — and a **pre-flight table** carrying all three conditions as a verdict. The three
+are stated in [the design note's repair section](coverage-study.md#the-repair-and-what-would-say-each-half-of-it-is-wrong)
+and are not restated here, for this document's standing reason.
 
 ### Evaluating `P₀D̂`, which is not automatic for a cross-fitted fit
 

@@ -124,6 +124,7 @@ __all__ = [
     "nuisance_error",
     "settings",
     "summary_rows",
+    "targeted_coefficients",
 ]
 
 #: The two off-diagonal cells, named as Tier 1 names them so one harness reads both.
@@ -147,6 +148,32 @@ BANDWIDTH_EXPONENT = ALPHA / 2.0
 #: and ``h(2400) = 0.435``, at which a one-dimensional smoother's variance is two orders
 #: below its bias.
 BANDWIDTH_C = 1.15
+
+#: What the pre-flight reads condition 1 against, per cell: the ATE's **targeted** coefficient
+#: as this design realises it, rather than as :func:`targeted_coefficients` predicts it.
+#:
+#: **The two are not the same number here and C3b measured why.**  The prediction is the
+#: :math:`h_n^2` leading term alone, and the realised coefficient comes in at ``1.5`` to
+#: ``1.6`` times it -- stably, with a spread of ``0.06`` across the three sizes in ``q-drift``.
+#: The obvious reading is that :math:`h_n` is too large for the leading-order formula and the
+#: repair is a smaller :data:`BANDWIDTH_C`.  **That was run and it is wrong**: scanned over
+#: ``c_h`` of ``1.15 / 1.00 / 0.90 / 0.80 / 0.70`` at ``n = 600``, the ratio goes
+#: ``1.61 / 1.78 / 1.91 / 2.05 / 2.21`` -- it **rises** as the bandwidth falls, which is the
+#: opposite of an :math:`h^4` truncation error and identifies the omitted term as
+#: variance-side rather than bias-side.  Both nuisances are fitted on the same rows, so their
+#: estimation errors covary, and that covariance enters the remainder's inner product without
+#: shrinking with :math:`h`.
+#:
+#: So **no bandwidth makes the leading-order prediction correct**, shrinking it makes the
+#: agreement worse, and :data:`BANDWIDTH_C` stays where it was committed.  What moves instead
+#: is the number the pre-flight reads, which §5 permits at the pilot and only there:
+#: measured over 12 draws at ``600 / 1,200 / 2,400`` with seed ``20250801``, ``q-drift`` reads
+#: ``+0.624 / +0.586 / +0.617`` and ``g-drift`` ``+0.520 / +0.672 / +0.677``.
+#:
+#: This is not the shortfall being tuned for.  The drift is *stronger* than the design
+#: predicted, not weaker: ``q-drift``'s ``TMLE`` covers ``0.750 / 0.583 / 0.500`` against
+#: ``DRTMLE``'s ``0.833 / 0.917 / 0.917``, a gap far past gate 2's predeclared ``0.05``.
+COMMITTED_B_ATE = {"q-drift": 0.61, "g-drift": 0.62}
 
 #: How far the kernel's neighbours are taken, in bandwidths.  Beyond four the Gaussian
 #: weight is ``3e-4`` of the centre's and the sum is unchanged to five figures; the cap
@@ -488,6 +515,137 @@ def _arm(values: Any, arm: float) -> Any:
     return values if arm == 1.0 else 1.0 - values
 
 
+# ------------------------------------------------- what targeting does to the predicted drift
+#
+# Tier 1's finding applies here unchanged, and the arithmetic below is deliberately the same
+# arithmetic: the fluctuation's population score removes the part of *any* outcome-regression
+# error it can reach, whether that error was injected or is a smoother's bias.  What differs is
+# that Tier 1 can *choose* its shape to survive and this tier cannot -- a kernel's bias is what
+# it is -- so here the targeted coefficient is a prediction to be read, not a target to be hit.
+
+
+def _limit_mechanism(cell: str, w: Any, arm: float) -> np.ndarray:
+    r""":math:`\lim \hat g_a`: the wrong projection in ``q-drift``, the truth in ``g-drift``."""
+    dgp = base_law()
+    values = (
+        wrong_mechanism(w)
+        if cell == "q-drift"
+        else np.asarray(dgp.propensity(np.asarray(w, dtype=float)), dtype=float)
+    )
+    return np.asarray(_arm(values, arm), dtype=float)
+
+
+def _limit_outcome(cell: str, w: Any, arm: float) -> np.ndarray:
+    r""":math:`\lim \hat Q_a`, on the outcome's own scale.
+
+    The truth in ``q-drift``, where the kernel is consistent and only its *bias* drifts; the
+    **wrong** subset regression in ``g-drift``, whose error does not shrink.  Tier 1's
+    convention and for its reason: evaluating the fluctuation's direction at a regression no
+    fit holds would answer for a different sequence.
+    """
+    dgp = base_law()
+    truth = np.asarray(dgp.outcome_mean(np.asarray(w, dtype=float), arm, None), dtype=float)
+    return truth if cell == "q-drift" else truth + outcome_error(w, arm)
+
+
+def _fluctuation_direction(cell: str, w: Any, arm: float) -> np.ndarray:
+    r""":math:`S_a`, the raw-scale direction the single :math:`\varepsilon_a` moves the
+    regression in -- ``benchmarks/drtmle_injection._fluctuation_direction``'s twin."""
+    scaler = OutcomeScaler(*Q_BOUNDS)
+    scaled = scaler.scale(_limit_outcome(cell, w, arm))
+    return np.asarray(
+        (Q_BOUNDS[1] - Q_BOUNDS[0]) * scaled * (1.0 - scaled) / _limit_mechanism(cell, w, arm),
+        dtype=float,
+    )
+
+
+def _outcome_offset(cell: str, w: Any, arm: float) -> np.ndarray:
+    r""":math:`\hat Q_a - \bar Q_{0,a}` with any :math:`h_n^2` divided out.
+
+    The kernel's analytic bias shape in ``q-drift``; the fixed subset error in ``g-drift``.
+    """
+    if cell == "q-drift":
+        return BANDWIDTH_C**2 * _kernel_bias(base_law(), w, arm, mechanism=False)
+    return np.asarray(outcome_error(w, arm), dtype=float)
+
+
+@cache
+def _absorbed(cell: str) -> tuple[float, ...]:
+    r""":math:`\varepsilon_a` at the population score, per arm, in the order ``(1.0, 0.0)``.
+
+    Solved from the offset the design predicts rather than chosen, since nothing here is free:
+    :math:`\varepsilon_a = -P_0[w_a \Delta_a]/P_0[w_a S_a]` with
+    :math:`\Delta_a = \hat Q_a - \bar Q_{0,a}`.  In ``q-drift`` that offset carries the
+    :math:`h_n^2` this divides out, so the ratio is scale-free and the constant is a limit --
+    which is why the cache key is the cell alone.
+    """
+    dgp = base_law()
+    if cell not in CELLS:
+        raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
+    out = []
+    for arm in (1.0, 0.0):
+
+        def weight(w: Any, a: float = arm) -> np.ndarray:
+            truth = _arm(np.asarray(dgp.propensity(np.asarray(w, float)), float), a)
+            return np.asarray(truth / _limit_mechanism(cell, w, a), dtype=float)
+
+        numerator = dgp.expectation(lambda w, a=arm: weight(w, a) * _outcome_offset(cell, w, a))
+        denominator = dgp.expectation(
+            lambda w, a=arm: weight(w, a) * _fluctuation_direction(cell, w, a)
+        )
+        out.append(-numerator / denominator)
+    return tuple(out)
+
+
+def targeted_coefficients(cell: str) -> dict[str, float]:
+    r"""The predicted :math:`b_1`, :math:`b_0` and :math:`b_{ATE}`: the **estimator's bias**.
+
+    :math:`b_a = \lim n^{\alpha} P_0[u_a(\bar Q^*_a - \bar Q_{0,a})]`, the same limit
+    :func:`drift_coefficients` takes at the *initial* regression.  With
+    :math:`\bar Q^*_a - \bar Q_{0,a} = \Delta_a + \varepsilon_a S_a` and :math:`\varepsilon_a`
+    from :func:`_absorbed`, it is one further quadrature over shapes this module already has.
+
+    A **prediction** rather than a target, which is the difference from Tier 1: there the shape
+    is free and is solved to make this come out at a declared number, and a kernel's bias is
+    what it is.  So what a run reports is the measured column against this, and
+    ``benchmarks/drtmle_remainder.targeted_remainder`` is the measurement.
+
+    **And on this law it comes out at the plug-in coefficient**, ``0.3895`` against ``0.3886``
+    in ``q-drift`` and equal to five figures in ``g-drift``, where Tier 1's two differ by a
+    factor of 436.  That is not luck and it is the same fact this module's own docstring
+    already states for a different purpose: ``linear_dgp``'s covariates are independent
+    standard normals and both error shapes here are **linear** in them, so each has population
+    mean zero, and the fluctuation's step is driven by exactly that mean.  In ``g-drift`` the
+    score weight is identically one at the limit, so :math:`\varepsilon_a` is the mean of the
+    outcome error and is zero exactly.
+
+    So Tier 2 never had Tier 1's problem, and this column is what says so rather than what
+    fixes anything -- which is also why Tier 2 produced a coverage gap in C3a's pilot while
+    Tier 1 could not.  Absorption is a property of whether the nuisance's error is aligned with
+    the fluctuation's direction, and a smoother's bias on a symmetric law is not.
+    """
+    if cell not in CELLS:
+        raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
+    dgp = base_law()
+    epsilons = dict(zip((1.0, 0.0), _absorbed(cell), strict=True))
+    per_arm = {}
+    for arm in (1.0, 0.0):
+
+        def integrand(w: Any, a: float = arm) -> np.ndarray:
+            truth = np.asarray(_arm(np.asarray(dgp.propensity(np.asarray(w, float)), float), a))
+            weight = (_limit_mechanism(cell, w, a) - truth) / _limit_mechanism(cell, w, a)
+            offset = _outcome_offset(cell, w, a) + epsilons[a] * _fluctuation_direction(cell, w, a)
+            if cell == "q-drift":
+                return np.asarray(weight * offset, dtype=float)
+            # In `g-drift` the *mechanism* drifts, so the n^-alpha sits in the weight rather
+            # than in the offset and the limit is taken of the weight's shape instead.
+            bias = BANDWIDTH_C**2 * _kernel_bias(dgp, w, a, mechanism=True)
+            return np.asarray(bias / truth * offset, dtype=float)
+
+        per_arm[arm] = dgp.expectation(integrand)
+    return {"b1": per_arm[1.0], "b0": per_arm[0.0], "b_ate": per_arm[1.0] - per_arm[0.0]}
+
+
 def drift_coefficients(cell: str) -> dict[str, float]:
     r"""The predicted :math:`c_1`, :math:`c_0` and :math:`c_{ATE}` for a cell, by quadrature.
 
@@ -605,6 +763,7 @@ def summary_rows() -> list[list[str]]:
     rows = []
     for cell in CELLS:
         predicted = drift_coefficients(cell)
+        targeted = targeted_coefficients(cell)
         rows.append(
             [
                 cell,
@@ -612,7 +771,10 @@ def summary_rows() -> list[list[str]]:
                 f"{predicted['c1']:+.4f}",
                 f"{predicted['c0']:+.4f}",
                 f"{predicted['c_ate']:+.4f}",
-                f"{min(abs(predicted[key]) for key in ('c1', 'c0', 'c_ate')):.4f}",
+                f"{targeted['b1']:+.4f}",
+                f"{targeted['b0']:+.4f}",
+                f"{targeted['b_ate']:+.4f}",
+                f"{min(abs(targeted[key]) for key in ('b1', 'b0', 'b_ate')):.4f}",
             ]
         )
     return rows
@@ -624,7 +786,10 @@ SUMMARY_HEADERS: tuple[str, ...] = (
     "c1 (pred)",
     "c0 (pred)",
     "c_ate (pred)",
-    "min |c|",
+    "b1 (pred)",
+    "b0 (pred)",
+    "b_ate (pred)",
+    "min |b|",
 )
 
 
@@ -643,6 +808,37 @@ def exact_remainder(cell: str, n: int) -> dict[str, float]:
         "r2_1": factor * coefficients["c1"],
         "r2_0": factor * coefficients["c0"],
         "r2_ate": factor * coefficients["c_ate"],
+    }
+
+
+def committed_coefficient(cell: str) -> float:
+    """What the pre-flight reads condition 1 against -- :data:`COMMITTED_B_ATE`.
+
+    A **measured** constant here and a declared one at Tier 1, which is the same distinction
+    the two tiers already have: Tier 1 normalises its shape so the coefficient comes out at a
+    number, and here the estimator's bias is what it is.  ``targeted_coefficients`` stays the
+    analytic leading-order prediction and is reported beside it, so a run shows both and a
+    reader can see how far apart they are rather than being handed one of them.
+    """
+    if cell not in CELLS:
+        raise ValueError(f"cell must be one of {list(CELLS)}; got {cell!r}")
+    return COMMITTED_B_ATE[cell]
+
+
+def exact_targeted_remainder(cell: str, n: int) -> dict[str, float]:
+    """The *predicted* bias at this size, :math:`n^{-\\alpha}b_a`.
+
+    Named as Tier 1's is so one harness reads both, and **not** the same kind of number for
+    that tier's reason: Tier 1 solves its population score exactly at each size, and this is
+    the design's leading-order prediction for a fitted sequence.  What the study compares it
+    against is :func:`benchmarks.drtmle_remainder.targeted_remainder`.
+    """
+    coefficients = targeted_coefficients(cell)
+    factor = float(n) ** -ALPHA
+    return {
+        "r2_1": factor * coefficients["b1"],
+        "r2_0": factor * coefficients["b0"],
+        "r2_ate": factor * coefficients["b_ate"],
     }
 
 

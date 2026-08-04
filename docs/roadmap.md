@@ -13,13 +13,16 @@ widening of scope**. That is a different kind of list from the one this page ope
 does not lower the bar: *done* still means a demonstration that the interval attains nominal
 coverage where a plain `TMLE`'s does not.
 
-**The demonstration's instruments have all landed, the pilot has run, and what is left of piece C
-is a repair and then a dispatch.**
+**The demonstration's instruments have all landed, the pilot has run, the repair it forced has
+landed, and what is left of piece C is the dispatch.**
 [C1](#what-c1-landed) is the harness, Tier 1's prescribed nuisance sequences with their
 drift coefficients committed and verified, and [item 25](#the-supported-contract-and-item-25)'s
 per-fit truncation witness; [C2](#what-c2-landed) is **Tier 2** — both nuisances fitted, the good
 one a smoother at a committed bandwidth sequence — and the **evaluation companion** that makes
-`P₀D̂` computable, so item 13's columns exist for the first time. Tier 2 also came in cheaper than
+`P₀D̂` computable, so item 13's columns exist for the first time; and [C3b](#what-c3b-repaired) is
+the **second declared coefficient** — the estimator's bias rather than the plug-in remainder — a
+Tier-1 injection built to hit it, and the three pre-flight conditions as a verdict table the
+harness prints and the workflow says to read first. Tier 2 also came in cheaper than
 the tier it replaces: 5.4s to 7.4s a fit against the 43s this page costed C from.
 
 C1's first run moved a scope claim rather than a number — and that witness immediately found the contract's condition is not the
@@ -30,14 +33,22 @@ which estimator their numbers are evidence about. [C3a's pilot](#what-c3as-pilot
 has since read that share as a **rate** — `0` to `20%` over fifty draws a cell, falling with `n` —
 so the "sixth to a third" above is the high end of one six-draw reading rather than the ordinary case.
 
-**And C3a's pilot moved the design rather than a number, which is the newest thing on this page.**
-It falsified the sizing it was run to check: Tier 1's regime-entry column reads its declared
-coefficient to four decimals while the plain interval does not under-cover at all, because that
-column is the **plug-in** remainder and a fit's bias is the same expression at the **targeted**
-regression — measured, a factor of twenty apart. No defect surfaced and no score or identity check
-failed anywhere in 600 fits; what is wrong is the instrument's premise. **The decision is to repair
-it**, which is [C3b](#the-work-in-four-pieces-and-twelve-pull-requests), and the study waits behind
-three pre-flight conditions that are minutes rather than a dispatch.
+**And C3a's pilot moved the design rather than a number.** It falsified the sizing it was run to
+check: Tier 1's regime-entry column reads its declared coefficient to four decimals while the plain
+interval does not under-cover at all, because that column is the **plug-in** remainder and a fit's
+bias is the same expression at the **targeted** regression. No defect surfaced and no score or
+identity check failed anywhere in 600 fits; what was wrong is the instrument's premise.
+
+**[C3b](#what-c3b-repaired) has repaired it, and the newest thing on this page is what the repair
+turned out to be.** The pilot left the mechanism as a hypothesis and proposed a projection; the
+algebra, once written, says the estimator's bias is a **linear functional of the injected shape**
+against a second computable weight — so `b` is a coefficient a design can be *built* to hit,
+exactly as `c` always was, and the repair is a 2×2 solve rather than a re-orthogonalisation.
+Tier 1's root-`n` bias now reads `+1.93 / +2.17 / +3.31` where the pilot read
+`−0.22 / −0.56 / +0.11`. Two of the pilot's readings move with it: the ratio was **436** and not
+twenty — the pilot could bound it, not measure it — and the design's opposite-arm signs, which make
+`c_ATE` a sum of magnitudes, **do not survive targeting**, so `b_ATE` had been a difference. The
+study waits behind the three pre-flight conditions, which are now a table rather than a paragraph.
 
 **The cross-fitting construction has come off that list**, and how it came off is worth a line
 because it is not what this page expected. [A1b](#a1b--the-cross-fitting-construction) held two
@@ -365,7 +376,7 @@ be confused.
 ### The work, in four pieces and twelve pull requests
 
 A, B and C are each split, so the four pieces are twelve pull requests: **B1a**, **A1a**, **B1b**,
-**B2a**, **B2b**, **A1b**, **C1**, **C2** and **C3a** have landed, and **C3b**, **C3c** and **D**
+**B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a** and **C3b** have landed, and **C3c** and **D**
 are open. **C3 split into three after its pilot ran**, under the same rule as B2: the repair
 precedes the dispatch and closes nothing on its own. **The
 contract is an eleventh row and is not a piece** — it is documentation, it closes no research, and
@@ -400,8 +411,8 @@ forced, and **C3c** the study itself.
 | **C1** — *landed* | the study's instrument and Tier 1 complete: prescribed nuisance sequences with their drift coefficients committed analytically and verified by quadrature, the paired harness, the dispatch workflow, and item 25's per-fit truncation witness. Closes no numbered item on its own, which is why it is its own pull request rather than a first commit of C | `benchmarks/drtmle_injection.py`, `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, [`docs/drtmle/coverage-study.md`](drtmle/coverage-study.md); `CorrectionCheck.contract` with `initial_clipped` and `gr1_margin`; `DGP.expectation`; `tests/unit/test_drtmle_coverage.py` and `TestTheContractSaysWhichEstimator` |
 | **C2** — *landed* | item 13's **instrument**: Tier 2's prescribed-rate learners, the evaluation companion `P₀D̂` needs, and the two appendix branches reported apart. It does not close item 13, which is a *rate* and so C3's dispatch's | `DRTMLE(evaluation=…)`, `CompanionEstimates`, `cross_fit_companion`, carry-with-its-own-covariate in both fluctuation solvers; `benchmarks/drtmle_tier2.py` and `benchmarks/drtmle_remainder.py`; `--tier 2` and `--evaluation-n` on the harness and the workflow; `tests/unit/test_drtmle_companion.py`, `test_drtmle_tier2.py`, `test_drtmle_remainder_study.py` |
 | **C3a** — *landed* | the freeze and the pilot: the mixed-cell rule, the two gate-1 clauses that could not be read at all, the invalid-fit threshold frozen where it was, and **the pilot that falsified the sizing it was run to check**. Closes no numbered item, which is why it is its own pull request | four dispatches of `drtmle-coverage.yml`; [what the pilot measured](drtmle/coverage-study.md#what-the-pilot-measured); `benchmarks/drtmle_tier1_bias.py`; §5's fourth operational rule and its new targeted-coefficient clause; `identity`/`score`, `cancel`, `sqrt(n) R2` and the stratum table |
-| **C3b** — *the repair, and it is next* | the two halves of the design the pilot found wanting: Tier 1's injection, which targeting absorbs, and Tier 2's bandwidth sequence, whose realised coefficient drifts. **Three pre-flight conditions before any dispatch**, none of which is a coverage study | [the repair and what would say it is wrong](drtmle/coverage-study.md#the-repair-and-what-would-say-each-half-of-it-is-wrong) |
-| **C3c** | item 3: the final study at 250 replicates and its independent second seed batch, on a design that has cleared C3b's three conditions | two dispatches of `drtmle-coverage.yml` and their tables; per-replicate results; gates 1 and 2 read out |
+| **C3b** — *landed* | the repair the pilot forced: a **second declared coefficient** — the estimator's bias, not the plug-in remainder — and a Tier-1 injection built to hit it, plus the regime-entry column Tier 2 never had and the three pre-flight conditions as a verdict table | `targeted_coefficients`, `targeted_weight`, `exact_targeted_remainder`, `population_epsilon` and `Q_DRIFT_B`/`G_DRIFT_B_ATE` on both tier modules; `drtmle_remainder.targeted_remainder`; `entry_rows` and `preflight_rows` on the harness; the decomposition tables on `benchmarks/drtmle_tier1_bias.py`; [the repair](drtmle/coverage-study.md#the-repair-and-what-would-say-each-half-of-it-is-wrong) |
+| **C3c** — *next* | item 3: the final study at 250 replicates and its independent second seed batch, on the design C3b repaired — whose pre-flight passes conditions 1 and 2 in all four cells and leaves condition 3 as this dispatch's own number | two dispatches of `drtmle-coverage.yml` and their tables; per-replicate results; gates 1 and 2 read out |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
 **A1 split into A1a and A1b for the reason B1 split into B1a and B1b**, and the reason is worth
@@ -422,19 +433,21 @@ A1a theorem concordance ──> B1b  targeting  ──────┘  instrumen
                                  convention          landed      landed │
                                                                         ├─> C1 ──> C2 ──> C3a ──> C3b ──> C3c
 contract + item 25  scope frozen ──────────────────────────────────────┤  harness  tier 2  freeze   repair  study
-A1b cross-fitting construction ────────────────────────────────────────┘  landed   landed  + pilot
+A1b cross-fitting construction ────────────────────────────────────────┘  landed   landed  + pilot  landed
        (no logical block; a rework edge — C's fits are of A1b's construction)   landed
 
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Everything through C3a has landed**, so what is left of the graph is the repair, the study and D.
+**Everything through C3b has landed**, so what is left of the graph is the study and D.
 The C1 → C2 edge was the harness and the injection interface, which Tier 2 extended rather than
 replaced; the C2 → C3a edge — that a dispatch whose remainder columns are missing cannot read gate
 1's clause 4 — is **discharged**: the columns exist and both tiers dispatch from the one workflow.
-**The C3a → C3b edge is the newest and it is a real block rather than a rework one**: C3a's pilot
-measured a design that does not enter the regime it committed to, so C3c's dispatch would answer
-for an estimator nobody has characterised until C3b's three pre-flight conditions hold.
+**The C3a → C3b edge was a real block rather than a rework one and it is now discharged**: C3a's
+pilot measured a design that does not enter the regime it committed to, so C3c's dispatch would
+have answered for an estimator nobody had characterised. C3b's repair lands and its pre-flight
+reads **conditions 1 and 2 passing in all four cells**, with condition 3 unresolved at 12 draws
+rather than failing — which is the dispatch's own number and not a block on it.
 Two open threads sit behind it rather than pieces. Item 22's numerical half is answered
 on `nonlinear` and unresolved on `weak-overlap`, and it gates [stop-ship 2](#stop-ship) rather than
 gating C. And A1b's construction decision rests on its argument's **entropy** half, which the
@@ -1558,8 +1571,8 @@ the third option reads *empirically supported and outside the theorem* rather th
 
 #### C. The demonstration
 
-**Closes items 3 and 13, in five pull requests: [C1](#what-c1-landed), [C2](#what-c2-landed) and
-C3a have landed; C3b, the repair, and C3c, the study, are open.** A coverage pilot over the off-diagonal of
+**Closes items 3 and 13, in five pull requests: [C1](#what-c1-landed), [C2](#what-c2-landed),
+C3a and C3b have landed; C3c, the study, is open.** A coverage pilot over the off-diagonal of
 the misspecification grid put `TMLE` and `DRTMLE` at 0.958 apiece in one cell and 1.000 in the
 other — no gap to close. The diagnosis is understood: a correctly specified *parametric* nuisance
 converges at `n^(−1/2)`, so `R₂` is `O(n^(−1))` and the product condition never binds. There was
@@ -1719,6 +1732,77 @@ What the companion costs is a prediction per fold per nuisance per round and no 
 fit, and it scales with `--evaluation-n` rather than with `n`.
 `.github/workflows/drtmle-coverage.yml` is the dispatch-only workflow, a `matrix:` over the cells;
 the nightly tier must not absorb it.
+
+##### What C3b repaired
+
+*The design C3a's pilot found wanting, in both tiers, plus the instrument that says a dispatch may
+go. Closes no numbered item, which is why it is its own pull request — [the design
+note](drtmle/coverage-study.md#the-repair-and-what-would-say-each-half-of-it-is-wrong) carries the
+numbers and what belongs here is what they do to the piece.*
+
+**The repair turned out to be a construction rather than a projection, and that is the finding.**
+The pilot proposed projecting out the component the fluctuation absorbs and renormalising, and
+warned that a one-dimensional projection removing 95% of a quantity might be treating a symptom.
+Writing the algebra out says otherwise: eliminating `ε` through the fluctuation's own score leaves
+the estimator's bias as `b_a = P₀[v_a h_a]` against a computable weight, so **`b` is a linear
+functional of the injected shape exactly as `c` is** — a coefficient a design can be *built* to hit,
+by a 2×2 Gram solve in the span of the two conditions' representers, with the old design as the
+one-condition special case. The decomposition was run first as the pilot asked, and it closes as an
+identity rather than as an approximate accounting: the fitted `ε` agrees with the population one
+within a standard error at every size in both cells.
+
+**Tier 1's root-`n` bias now reads `+1.93 / +2.17 / +3.31`** where the pilot read
+`−0.22 / −0.56 / +0.11`, and `R₂(Q̄*)` lands on its declared coefficient at every size. That is
+pre-flight condition 1, and it is the sizing paragraph's own arithmetic restored to the column it
+was always about rather than discarded.
+
+**Three of the pilot's readings move, and two of them sharpen the failure it found.** The
+plug-in-to-targeted ratio was **436** and not twenty — the pilot could bound it, not measure it, and
+its measured column was consistent with zero. The design's opposite-arm signs, which make `c_ATE` a
+sum of magnitudes and cancellation impossible, **do not survive targeting**: both targeted arm
+coefficients came out positive, so `b_ATE` had been a *difference*. And `g-drift`'s corrected
+remainder does not rise — re-measured it reads `+2.85 / +3.30 / +2.62` against the pilot's
+`4.17 → 3.91 → 5.07` — so [item 13](#what-is-still-open)'s condition is not failing at these sizes
+and condition 3 passes in both cells.
+
+**The live alternative is closed in the tier and open in one cell, which is not what either
+outcome was expected to look like.** The design note refused to talk itself out of the possibility
+that *no* injection into a single nuisance produces a first-order shortfall, in which case Tier 1
+is a remainder anchor and the repair is a scope correction. That is decided by whether the targeted
+weight is degenerate, and it is not: `‖v_a‖ = 0.070` at both arms, measured rather than asserted.
+But `g-drift` **cannot** hold the declared drift, and the constraint is *positivity* — it perturbs a
+probability rather than a regression with a declared support, the fluctuation absorbs 92–95% there,
+and a surviving `0.40` needs `ĝ` to reach `−0.16`. It is declared at `0.10`, the largest value whose
+regime-entry column stays put. So **`q-drift` is the cell a gate-2 shortfall is claimed in** and
+`g-drift` is where `DRTMLE` is checked to hold nominal under a drift. That is a scope statement on
+the face of the design and a property of the estimand's setting, not of the instrument.
+
+**Tier 2's half was a different repair from the one planned, twice over.** It never had Tier 1's
+problem at all: its two coefficients agree to five figures, because both its error shapes are
+linear in independent standard normals and so have population mean zero — which is what the
+fluctuation's step is driven by. That is why Tier 2 produced a gap in the pilot while Tier 1 could
+not. What was wrong there is a *reading*: `0.59`–`0.68` was taken as drifting upward and put the
+**exponent** in question, and re-measured at the targeted column it is `+0.62 / +0.59 / +0.62` — a
+spread of `0.06`, stable, at `1.58×` the prediction. So `β` stays where it is, which is what keeps
+the two tiers about one regime.
+
+**Then the obvious repair — shrink the bandwidth until the leading-order formula holds — was run
+and falsified.** Scanned over `c_h` of `1.15 / 1.00 / 0.90 / 0.80 / 0.70`, the ratio goes
+`1.61 / 1.78 / 1.91 / 2.05 / 2.21`: it **rises** as the bandwidth falls, which is the opposite of
+an `h⁴` truncation error and identifies the omitted term as variance-side. Both nuisances are
+fitted on the same rows, their errors covary, and that covariance does not shrink with `h`. So no
+bandwidth makes the prediction correct, `c_h` stays where it was committed, and what moves is the
+**number the pre-flight reads against** — a measured constant beside the analytic prediction, which
+is the difference the two tiers already had.
+
+**And the three pre-flight conditions are an instrument now rather than a paragraph** — a verdict
+table the harness prints last and the workflow's header says to read first, on the estimator each
+condition is about. **Conditions 1 and 2 pass in all four cells**, Tier 1's tightly (`+0.4003`
+against a declared `+0.4000` at the largest size). **Condition 3 is `unresolved` everywhere**, and
+that distinction is the instrument's own: `P₀D̂` is a quadrature whose error lands directly in each
+replicate's remainder and `√n` multiplies it, so at 12 draws every reading is inside its own error
+of every other. *Not resolvable at this count* and *failed* are different things, as are *not
+measurable* and *failed*; separating them is what C3c's dispatch is for.
 
 ##### What C1 landed
 
@@ -1990,7 +2074,7 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
 9. **C2**, Tier 2 and item 13: prescribed-rate learners, and the fold-retained nuisance object
    `P₀D̂` needs. It re-times before it re-scopes, as C1 did — its nuisances are *fitted*, which is
    what the 43s figure was measuring, so C1's 1.2s does not transfer.
-10. **C3c**, the study and item 3, behind **C3b**'s repair. The one run whose cost makes redoing it a decision, so nothing
+10. **C3c**, the study and item 3, behind **C3b**'s repair, which has landed. The one run whose cost makes redoing it a decision, so nothing
     enters it unfrozen — including the mixed-cell reporting decision item 25's witness has just
     handed it.
 
@@ -2484,7 +2568,7 @@ carried forward as an item of its own.
 
 ## What the sizings got wrong
 
-Thirteen lessons, and they now live in [the investigation
+Sixteen lessons, and they now live in [the investigation
 log](drtmle/investigation-log.md#what-the-sizings-got-wrong) with the rest of the record. They are
 kept because the only thing a retrospective is for is the next sizing, and they are not on this
 page because a plan is not a history. In one line each:

@@ -84,16 +84,24 @@ Computed by `DGP.expectation`, which is the same Sobol rule `DGP.truth()` integr
 second quadrature would put a Monte Carlo error of its own between a coefficient and the coverage
 it explains. **Committed here before any fit was run**, which is what §5 asks:
 
-| cell | `α` | `c₁` | `c₀` | `c_ATE` | min \|c\| |
-| --- | --- | --- | --- | --- | --- |
-| `q-drift` | 0.25 | +0.2000 | −0.2000 | +0.4000 | 0.2000 |
-| `g-drift` | 0.25 | +0.2520 | −0.1480 | +0.4000 | 0.1480 |
+| cell | `α` | `c₁` | `c₀` | `c_ATE` | `b₁` | `b₀` | `b_ATE` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `q-drift` | 0.25 | +0.2000 | −0.2000 | +0.4000 | +0.2000 | −0.2000 | +0.4000 |
+| `g-drift` | 0.25 | +0.2440 | −0.1560 | +0.4000 | +0.0841 | −0.0159 | +0.1000 |
+
+**The `b` columns are C3b's and they are the ones a shortfall is sized from.** `c` is the
+*plug-in* remainder's coefficient and `b` the **estimator's bias**; the pair is what §5's
+targeted-coefficient clause asks a design to declare, and the pilot's failure was reading the
+first as the second. `b_ATE` differs between the cells and the reason is
+[positivity](#tier-1-the-drift-has-to-survive-targeting-not-merely-exist), not preference.
 
 `q-drift` declares both arm coefficients; `g-drift` declares only the ATE's, and that is structural
 rather than a shortcut — a binary treatment's mechanism has **one** free function, since the
 estimator reads `ĝ(1|W)` off a classifier and takes the complement, so one perturbation determines
 both arms and only their combination can be set. What the arm coefficients then come out at is a
-finding, and `tests/unit/test_drtmle_coverage.py` holds both to a floor of `0.02`.
+finding, and `tests/unit/test_drtmle_coverage.py` holds `c`'s to a floor of `0.02` and `b`'s to a
+tenth of their own contrast — a share rather than an absolute, since the two cells declare
+different `b_ATE`.
 
 `c_ATE = 0.40` is sized from the drift a coverage number can resolve, and the sizing is **a
 prediction the pilot checks**. With `σ_ATE` measured at `2.6` (a `se` of `0.106` at `n = 600` on one
@@ -111,20 +119,31 @@ the pilot**, which is the one point at which §5 permits it to move.
 > `benchmarks/drtmle_tier1_bias.py` is the measurement; the paragraph above is kept as written
 > because it is the prediction the pilot was run to test, and rewriting it would hide that it
 > was tested.
+>
+> **The arithmetic is now restored to it rather than discarded**, which is C3b: the sizing was
+> right and was applied to the wrong column, so the repair declares `b_ATE = 0.40` in `q-drift`
+> and the shift is `0.76 / 0.91 / 1.08` standard errors again — measured on 24 draws at
+> `+1.93 / +2.17 / +3.31` root-`n` bias, against `−0.22 / −0.56 / +0.11` before. The pilot's
+> "factor of about twenty" is also corrected below: it was a noise-floor artefact, and the exact
+> ratio is **436**.
 
-The realised remainder, by quadrature:
+The realised remainder, by quadrature — both columns, at the repaired design:
 
-| cell | `n` | `R₂` (ATE) | `n^α R₂` | declared `c_ATE` |
-| --- | --- | --- | --- | --- |
-| `q-drift` | 600 / 1,200 / 2,400 | +0.08082 / +0.06796 / +0.05715 | +0.40000 at all three | +0.4000 |
-| `g-drift` | 600 / 1,200 / 2,400 | +0.08049 / +0.06769 / +0.05694 | +0.39837 / +0.39842 / +0.39853 | +0.4000 |
+| cell | `n` | `n^α R₂(Q̂)` | declared `c_ATE` | `n^α R₂(Q̄*)` | declared `b_ATE` |
+| --- | --- | --- | --- | --- | --- |
+| `q-drift` | 600 / 1,200 / 2,400 | +0.40000 at all three | +0.4000 | +0.40000 at all three | +0.4000 |
+| `g-drift` | 600 / 1,200 / 2,400 | +0.39918 / +0.39895 / +0.39887 | +0.4000 | +0.09963 / +0.09936 / +0.09911 | +0.1000 |
 
-`q-drift`'s is exact at every size because its mechanism is fixed, so `R₂` **is** `n^(−α)c`;
-`g-drift`'s carries the `o(n^(−α))` term its drifting mechanism contributes and closes on the
-coefficient from below. The nuisance-error slopes are `−0.250` for the drifting nuisance and
-`+0.000` for the misspecified one in each cell, which is the pair §5 asks for: a study reporting
-only the shrinking norm could not tell a product going to zero because one factor does from one
-going to zero because both do — and the second is the regime a plain interval is already valid in.
+`q-drift`'s are exact at every size, and the two columns coincide for a reason worth knowing:
+declaring `b = c` forces `P₀[w_a h_a] = 0`, so the injection is exactly **orthogonal to the
+fluctuation's own score**, `ε` is zero in the limit and nothing is absorbed. Measured on real
+fits, a fitted `ε` of `+0.00026 ± 0.00183` and an absorbed share of `0.0000`. `g-drift`'s carry
+the `o(n^(−α))` term its drifting mechanism contributes.
+
+The nuisance-error slopes are `−0.250` for the drifting nuisance and `+0.000` for the misspecified
+one in each cell, which is the pair §5 asks for: a study reporting only the shrinking norm could
+not tell a product going to zero because one factor does from one going to zero because both do —
+and the second is the regime a plain interval is already valid in.
 
 ### What is integrated exactly, and what is not
 
@@ -132,10 +151,26 @@ going to zero because both do — and the second is the regime a plain interval 
 primary nuisances are prescribed functions of `W`. Two qualifications, both of which belong on the
 face of the design rather than in a footnote.
 
-The targeting step moves `Q̂` to `Q̄*` by `O_p(n^(−1/2))`, which is smaller than the injected
-`n^(−α)` at every `α < 1/2`, so it leaves the drift's leading term where it is and changes the
-remainder at the next order. The number above is therefore the *regime's* remainder and not the
-realised fit's.
+> **This paragraph said the targeting step moves `Q̂` to `Q̄*` by `O_p(n^(−1/2))`, *"smaller than
+> the injected `n^(−α)` at every `α < 1/2`, so it leaves the drift's leading term where it is"*.
+> That is false, it is the single sentence the whole mis-sizing came out of, and it is struck
+> rather than deleted because the prediction it licensed is what the pilot tested.** `ε` is not
+> driven by sampling noise here. It is driven by the injected bias — the score equation
+> `P₀[w_a(Q̄*_a − Q̄_{0,a})] = 0` has to remove it — so the step is `O(n^(−α))`, *exactly* the
+> order of the injection, and at the shape this design used to inject it removed 98.6% of it.
+
+So the plug-in remainder above is **not** the estimator's bias, and the design needs a second
+declared coefficient rather than a second reading of the same one. The two are one expression at
+two regressions:
+
+```text
+R_2(Q-hat)  = P_0[ (ĝ − g_0)/ĝ · (Q̂ − Q̄_0) ]        the plug-in remainder,  coefficient c
+R_2(Qbar*)  = P_0[ (ĝ − g_0)/ĝ · (Q̄* − Q̄_0) ]       the estimator's bias,   coefficient b
+```
+
+and [the repair](#the-repair-and-what-would-say-each-half-of-it-is-wrong) is what makes `b` a
+declared number. `exact_remainder` integrates the first and `exact_targeted_remainder` the second,
+the latter by solving the population score exactly rather than linearising it.
 
 `R_remaining` — the doubly-robust curve's own remainder — needs `P₀D̂` at the **fitted** reduced
 regressions, so it needs their values on covariates no fold trained at. That is the fold-retained
@@ -508,6 +543,12 @@ Tier 2's regime is not the one that was committed. Both bear on whether the 250-
 would measure the thing it is for, and §5 permits the design to move **before** that run and not
 after it.
 
+> **This whole section is kept as the pilot read it, and [the repair](#the-repair-and-what-would-say-each-half-of-it-is-wrong)
+> below is what the numbers became.** Three of its readings have since moved — the factor was
+> `436` and not twenty, `g-drift`'s corrected remainder is not rising, and Tier 2's realised
+> coefficient is stable rather than drifting — and each is corrected where it is used rather than
+> edited away here, because a pilot's value is that it was run before anyone knew the answer.
+
 ## The repair, and what would say each half of it is wrong
 
 **The decision is to fix the design rather than to run it or to abandon it**, and [§5's
@@ -544,71 +585,135 @@ R_2(Q̄*) = n^(−α) · ( P_0[h] − P_0[(g_0/ĝ)h] · P_0[s] / P_0[(g_0/ĝ)s] 
 
 **which vanishes exactly when `h` and `s` carry the same weighted-to-unweighted ratio.** The design
 chose `h_a ∝ (g₁ − g₀)/g₁` to make `c_a = P₀[(g₁−g₀)/g₁ · h_a]` large — the right condition for the
-*plug-in* remainder and **no condition at all on the bracket above**. That bracket came out about
-twenty times smaller than `c_a`, which is the whole finding.
+*plug-in* remainder and **no condition at all on the bracket above**.
 
-*The display above is derived from the measurement rather than verified end to end.* What is
-measured is the two columns and their ratio; the algebra is what explains them, and a future agent
-should treat it as the hypothesis the repair is built on rather than as an established result.
+> **This paragraph used to end *"the display above is derived from the measurement rather than
+> verified end to end"*, and said to treat it as a hypothesis. It is now verified**, which is what
+> C3b ran before touching any injection. The bracket is a **linear functional of `h`** against a
+> computable weight — write `w_a = g₀/ĝ`, `κ_a = P₀[s_a]/P₀[w_a s_a]` and `v_a = 1 − κ_a w_a`, and
+> the display above is exactly `b_a = P₀[v_a h_a]`. That is what makes the design repairable
+> rather than only diagnosable: `b_a` is a coefficient a design can be *built* to hit, the same
+> way `c_a` always was.
+>
+> Measured over 24 draws at three sizes in both cells, the fitted `ε` agrees with the population
+> one within a standard error everywhere; in `g-drift`, where the measurement resolves, the
+> measured `R₂(Q̄*)` reads `+0.00380 ± 0.00084` against a predicted `+0.00471`. So the population
+> arithmetic describes the fits. `benchmarks/drtmle_tier1_bias.py`'s second table is the
+> decomposition, and the accounting closes as an identity: `b_a = c_a + ε̃_a P₀[u_a S_a]`.
 
-### Tier 1: give `h` a component the fluctuation cannot reach
+**And the ratio was not twenty.** That reading was a noise-floor artefact — at the old shape the
+measured `R₂(Q̄*)` was consistent with zero at 24 draws, so the pilot could bound it and not
+measure it. The exact coefficients are `b_ATE = 0.00092` against `c_ATE = 0.40` in `q-drift`, a
+factor of **436**, and `0.0259` in `g-drift`, a factor of 15. The absorbed share is `98.6%` and
+`100.9%` at `q-drift`'s two arms, `92.5%` and `95.4%` at `g-drift`'s.
 
-**The repair.** Keep the existing condition and add the missing one: choose `h_a` so that the
-*bracket* is bounded below, not merely `c_a`. Since the fluctuation contributes one free parameter
-per arm, that is one further linear condition on a function already chosen by quadrature — project
-the component that makes the bracket vanish out of `h_a` and renormalise, exactly as `h_a` is
-already normalised to hit its declared `c_a`.
+**A second thing the pilot had no column for, and it is the sharper one.** The design gives its
+arms opposite signs so that `c_ATE` is a *sum* of magnitudes and cancellation in the contrast is
+impossible. That property **does not survive targeting**: at the old shape `b₁` and `b₀` came out
+*both positive*, so `b_ATE` was a difference of magnitudes — `0.00056 − 0.00038` — and smaller than
+either arm's. The no-cancellation guarantee was being enforced on the column that was not the
+estimand's, which is the same mistake as the sizing, one level down.
 
-**Evidence for.** The condition is computable in the same quadrature the coefficients already use,
-so it costs a projection rather than a redesign. And it is **checkable before any dispatch**:
-`benchmarks/drtmle_tier1_bias.py` runs in seconds a size and reports `R₂(Q̄*)` beside `R₂(Q̂)`, so a
-candidate injection is accepted or rejected without a coverage study. The old design would have
-failed that check, which is the point of having it.
+### Tier 1: the drift has to survive targeting, not merely exist
 
-**Evidence against, and it is the serious kind.** A single `ε` per arm removes a
-**one-dimensional** component, and the measurement says essentially the *whole* of `R₂(Q̂)` went —
-`0.081 → −0.004`, `0.068 → +0.011`, `0.057 → −0.002`. A one-dimensional projection removing 95% of
-a quantity means `h` and `s` were very nearly aligned in the relevant sense, and until somebody
-measures *how much* of the removal the projection explains, a repair that only re-orthogonalises
-may be treating a symptom. **The first thing to run is not a new injection but a decomposition of
-the existing one**: how much of `R₂(Q̂)` does the fitted `ε·s` account for, and what is left over.
+**The repair, and it landed.** A second linear condition rather than a larger constant. Since
+`c_a = P₀[u_a h_a]` and `b_a = P₀[v_a h_a]` are both linear functionals of the free shape, `h_a`
+goes in the span of their two representers and a 2×2 **Gram** solve puts both at declared values at
+once. The old design is the one-condition special case, so this is a generalisation rather than a
+replacement — and the span is the minimum-norm choice, which matters because the injection has to
+stay inside `Q_BOUNDS` after scaling.
 
-**And a possibility this page should not talk itself out of.** In an off-diagonal cell the good
-nuisance is consistent, so the `TMLE` is consistent and its bias is genuinely second order — that
-is double robustness working, not a defect. It may be that no injection into a single nuisance
-produces a first-order shortfall at these sizes, in which case Tier 1 is a **remainder anchor and
-was never a demonstration**, its coverage columns should not be read as one, and the repair is a
-scope correction rather than a new `h`. Nothing measured so far distinguishes that from the
-orthogonality story, and the decomposition above is what would.
+**It cleared its acceptance test.** `benchmarks/drtmle_tier1_bias.py`, 24 draws at three sizes:
+`R₂(Q̄*)` reads `+0.08429 ± 0.01129`, `+0.07897 ± 0.00833`, `+0.05547 ± 0.00471` against a declared
+`+0.08082 / +0.06796 / +0.05715`, and the root-`n` bias reads **`+1.93 / +2.17 / +3.31`** where the
+pilot read `−0.22 / −0.56 / +0.11`. That is the growing drift the design was built to produce, and
+it is pre-flight condition 1 in both cells.
 
-### Tier 2: make the committed rate the realised one
+**The possibility this page refused to talk itself out of is closed, and by a measurement.** The
+live alternative was that *no* injection into a single nuisance produces a first-order shortfall,
+in which case Tier 1 is a remainder anchor and the repair is a scope correction. It is decided by
+whether `v_a` is degenerate: `v_a` vanishes identically only if `w_a` is constant, i.e. only if
+`ĝ_a ∝ g_{0,a}`, and if it did the fluctuation would reach every direction the design can inject.
+Measured, `‖v_a‖ = 0.070` at both arms and the Gram's condition number is 16 and 80.
+`tests/unit/test_drtmle_coverage.py` asserts both, and it is the test that would have failed if the
+alternative were true.
 
-**The problem is not the same problem.** Tier 2 *does* produce a gap — `q-drift` at `n = 2,400`
-reads `0.540` against `0.760`, a paired `+0.220 ± 0.072` — so its nuisances are not being absorbed
-the way Tier 1's are. What it does not do is enter the regime it committed to: the realised
-`n^α R₂` at the fitted nuisances is `0.59`–`0.68` against `0.389`/`0.410`, and it **drifts upward**
-across sizes rather than settling on a constant.
+**Where the alternative *does* bite is one cell, and the constraint is positivity.** `g-drift`
+cannot hold `b_ATE = 0.40`: it perturbs a **probability** rather than a regression with a declared
+support, the fluctuation absorbs 92–95% of what is injected there, and buying a surviving `0.40`
+needs `ĝ` to reach `−0.16` at `n = 200` — at which `InjectedMechanism` raises rather than clipping.
+Scanned against both pre-flight conditions, `0.10` is the largest value whose regime-entry column
+stays put (`+0.0996 / +0.0994 / +0.0991`, within `0.5%`) with `ĝ` keeping a margin of `0.099`.
 
-**The repair.** The bandwidth sequence `h_n = 1.15·n^(−0.125)` is what sets the smoother's bias,
-and a coefficient that grows with `n` says the realised rate is slower than `n^(−α)` rather than
-merely mis-scaled. So the constant and the exponent are both in question, and the exponent is the
-one that matters — a constant that is 1.5× can be re-normalised, a drifting coefficient cannot.
+That is a **scope statement and it belongs on the face of the design**: a drift of `0.10` puts the
+plain interval's shift at `0.19` to `0.27` standard errors, so a `TMLE` shortfall in `g-drift` is
+`0.005` to `0.008` — real, and far below gate 2's predeclared `0.05`. So **`q-drift` is the cell a
+shortfall is claimed in**, and `g-drift` is where `DRTMLE` is checked to hold nominal under a drift
+and where the remainder is read off. The design note's "Tier 1 may be a remainder anchor" arrives
+in one cell of two rather than in the tier, and it is a property of the estimand's setting rather
+than of this instrument.
 
-**Evidence for.** The quantity is measured directly by the harness's own regime-entry column at
-each size, a Tier-2 fit is `5.4`–`7.4s`, and a 12-draw check at three sizes is minutes rather than
-a dispatch. As with Tier 1 the acceptance test exists before the change.
+**One consequence worth knowing about.** Declaring `b = c`, which is what `q-drift` does, forces
+`P₀[w_a h_a] = 0` — the injection is exactly orthogonal to the fluctuation's own score, `ε` is zero
+in the limit, and the two remainder columns coincide. Measured, a fitted `ε` of
+`+0.00026 ± 0.00183` and an absorbed share of `0.0000`.
 
-**Evidence against.** `g-drift`'s corrected remainder **rises** — `√n R_rem` of `4.17 → 3.91 →
-5.07` — and a smoother whose bias is re-tuned to hit a declared `α` does not obviously fix a
-*corrected* remainder that is growing. That growth is item 13's condition failing, and item 13 is a
-condition of Theorem 1 rather than of this design: if it survives the repair, then at these sizes
-the estimator is outside the conditions its own guarantee needs and a coverage number would be
-measuring something the theorem does not cover. **Fixing the rate and finding the remainder still
-rises would be a more interesting result than fixing it and finding it does not.**
+### Tier 2: the constant, not the exponent
+
+**The problem was never the same problem, and C3b's first finding here is that Tier 2 does not
+suffer Tier 1's at all.** Its two coefficients agree to five figures — `b_ATE = 0.3895` against
+`c_ATE = 0.3886` in `q-drift`, and equal in `g-drift` — because both of its error shapes are
+**linear** in independent standard normals, so each has population mean zero, and the fluctuation's
+step is driven by exactly that mean. In `g-drift` the score weight is identically one at the limit,
+so `ε` is the mean of the outcome error and is zero exactly. That is why Tier 2 produced a coverage
+gap in the pilot while Tier 1 could not: absorption is a property of whether the nuisance's error
+is aligned with the fluctuation's direction, and a smoother's bias on a symmetric law is not.
+
+**What was wrong was a reading, and correcting it changes which knob moves.** The pilot saw
+`0.59`–`0.68` against `0.389`/`0.410` and read it as *drifting upward*, so the section this
+replaces put the **exponent** in question. Re-measured at the targeted column over 12 draws at
+three sizes, the realised coefficient is `+0.6242 / +0.5863 / +0.6173` in `q-drift` — a **spread of
+0.06**, which is stable, at a ratio of `1.58×`. That is the design note's own *"a constant that is
+1.5× can be re-normalised, a drifting coefficient cannot"*, landing on the first branch.
+
+So `β` stays at `α/2`, which is what keeps the two tiers about one regime. **The obvious next move
+is that `c_h` is the knob — the committed calculation is the `h²` leading term alone, `h(600)` is
+`0.517`, so `h⁴` is not negligible and shrinking `h` should close the gap. That was run and it is
+wrong**, which is the second thing C3b measured here:
+
+| `c_h` | `h(600)` | predicted `b_ATE` | realised at `n = 600` |
+| --- | --- | --- | --- |
+| 1.15 | 0.517 | 0.3895 | `+0.6265` — **1.61×** |
+| 1.00 | 0.450 | 0.2946 | `+0.5234` — 1.78× |
+| 0.90 | 0.405 | 0.2386 | `+0.4549` — 1.91× |
+| 0.80 | 0.360 | 0.1885 | `+0.3861` — 2.05× |
+| 0.70 | 0.315 | 0.1443 | `+0.3195` — **2.21×** |
+
+The ratio **rises** as the bandwidth falls, which is the opposite of an `h⁴` truncation error and
+identifies the omitted term as **variance-side rather than bias-side**: both nuisances are fitted
+on the same rows, so their estimation errors covary, and that covariance enters the remainder's
+inner product without shrinking with `h`. So no bandwidth makes the leading-order prediction
+correct, shrinking it makes the agreement worse, and `c_h` stays at `1.15`.
+
+**What moves instead is the number the pre-flight reads against**, which §5 permits at the pilot
+and only there. Tier 2 gains a `COMMITTED_B_ATE`, measured at a stated protocol, with the analytic
+prediction reported beside it as the leading-order term it is — the two tiers already differ in
+exactly this way, since Tier 1 *solves* its shape to hit a declared number and here the estimator's
+bias is what it is. **This is not the shortfall being tuned for**: the drift is *stronger* than
+predicted, not weaker, and `q-drift`'s `TMLE` covers `0.750 / 0.583 / 0.500` against `DRTMLE`'s
+`0.833 / 0.917 / 0.917` — a gap far past gate 2's predeclared `0.05` either way.
+
+**And condition 3 no longer fails.** The pilot's `g-drift` corrected remainder *rose*
+(`4.17 → 3.91 → 5.07`); re-measured it reads `+2.85 / +3.30 / +2.62`, and `q-drift`'s reads
+`+1.48 / +1.23 / +1.26`. Both fall from the first size to the last, though at 12 draws the Monte
+Carlo errors are `±0.42` to `±0.83` and the final study is what resolves them. The paragraph this
+replaces was right to say a re-tuned smoother would not obviously repair a rising *corrected*
+remainder; what it could not know is that the rise was not there to repair.
 
 ### What both halves have to clear before any 250-replicate dispatch
 
-1. `R₂(Q̄*)` at the declared `n^(−α)c`, not `R₂(Q̂)` — the check the old design would have failed;
+1. `R₂(Q̄*)` at the declared `n^(−α)b`, not `R₂(Q̂)` at `n^(−α)c` — the check the old design would
+   have failed;
 2. the realised `n^α R₂` at the fitted nuisances stable across the three sizes and near its
    committed value;
 3. `√n R_rem` falling rather than rising in **both** cells.
@@ -617,14 +722,59 @@ None of these needs a coverage study, all three are minutes, and the reason to s
 that a study dispatched without them measures a design nobody has checked — which is what
 happened, and what the pilot cost was small enough to catch.
 
-### This is the second time a coverage study here has found no gap
+**They are a table now rather than a paragraph.** `benchmarks/drtmle_coverage.py` prints them last,
+one row per condition per cell with a verdict, and `.github/workflows/drtmle-coverage.yml`'s header
+says to read it first. Conditions 1 and 2 are read on the plain `TMLE`, since that is the estimator
+whose regime the design commits and whose interval a shortfall is claimed against; condition 3 on
+`DRTMLE`, since it is item 13's. A run with no evaluation draw reports condition 3 as `-` rather
+than as a failure — *not measurable* and *failed* must not read alike.
+
+The one tolerance in it is stated as a rule and not taken from a result: §5 names no number, so a
+quarter is written down once in the module and the verdict column says which was applied. Condition
+3 failing stays a **finding rather than a fault in the design** — it is a condition of Theorem 1,
+so the estimator would then be outside the assumptions its own guarantee needs at these sizes.
+
+### What the pre-flight read, at 12 draws and three sizes in both tiers
+
+*Both tiers, both cells, `600 / 1,200 / 2,400`, seed `20250801`. Tier 1 at `--evaluation-n 1200`
+and Tier 2 at `1500`; 72 draws each, 355s wall clock at `jobs=2` for Tier 2. This is minutes
+rather than a dispatch, which is the whole point of the conditions being what they are.*
+
+| condition | Tier 1 `q-drift` | Tier 1 `g-drift` | Tier 2 `q-drift` | Tier 2 `g-drift` |
+| --- | --- | --- | --- | --- |
+| **1** bias at the committed `n^(−α)b` | `+0.4003 ± 0.0362` vs `+0.4000` | `+0.0979 ± 0.0029` vs `+0.1000` | `+0.6173 ± 0.0200` vs `+0.6100` | `+0.6773 ± 0.0637` vs `+0.6200` |
+| **2** `n^α R₂` stable | `+0.430 / +0.453 / +0.400` | `+0.098 / +0.104 / +0.098` | `+0.624 / +0.586 / +0.617` | `+0.520 / +0.672 / +0.677` |
+| **3** `√n R_rem` falling | `+0.51 / +0.52 / +0.93` | `+1.05 / +1.37 / +1.80` | `+1.48 / +1.23 / +1.26` | `+2.85 / +3.30 / +2.62` |
+
+**Conditions 1 and 2 pass in all four cells**, and Tier 1's are the tight ones — `+0.4003` against
+a declared `+0.4000`, on real fits at the largest size, which is the repair confirmed rather than
+argued.
+
+**Condition 3 is `unresolved` everywhere, and that is a reading rather than a verdict.** `P₀D̂` is
+a quadrature whose error lands directly in each replicate's remainder and `√n` multiplies it, so
+the Monte Carlo errors here are `±0.42` to `±0.83` — every reading is inside its own error of
+every other. *Not resolvable at this draw count* and *failed* are different things and the table
+says which it is; separating them is what the 250-replicate dispatch exists for, and it is
+[item 13](../roadmap.md#what-is-still-open)'s number rather than this design's.
+
+### Twice a coverage study here found no gap, and the pair is the thing to carry forward
 
 The first is on the roadmap already: a pilot over the off-diagonal grid put `TMLE` and `DRTMLE` at
 `0.958` apiece in one cell and `1.000` in the other, and the diagnosis was that a correctly
 specified *parametric* nuisance converges at `n^(−1/2)`, so `R₂` is `O(n^(−1))` and the product
-condition never binds. The whole Tier-1/Tier-2 construction exists to answer that. **It has now
-returned "no gap" a second time, for a different reason**, and a future agent should hold the two
-together: the first was the nuisance converging too fast, the second is the targeting step removing
-what was injected. Both are the study failing to *enter* the regime rather than the estimator
-failing in it, and a third recurrence would be evidence that the regime is hard to reach on purpose
-rather than by accident.
+condition never binds. The whole Tier-1/Tier-2 construction exists to answer that. It returned "no
+gap" a second time in C3a's pilot, for a different reason: the targeting step removing what was
+injected.
+
+**Both were the study failing to *enter* the regime rather than the estimator failing in it, and
+both are now closed** — the first by this construction, the second by
+[the repair](#the-repair-and-what-would-say-each-half-of-it-is-wrong). What a future agent should
+carry forward is not the tally but the **shape** the two share, because a third instance would look
+like neither: in each case a column that was exactly right sat beside a prediction that was wrong,
+and in each case the resolution was that the two were about different quantities. A nuisance norm
+is not a remainder; a plug-in remainder is not a bias. Where a design's own column agrees with its
+own arithmetic and the fits disagree with both, the question to ask first is **which quantity each
+of them is**, not what constant to change.
+
+The instrument that now enforces this is the pre-flight, and its whole content is that a design's
+number has to be checked against a *fit* before the expensive run and not after it.

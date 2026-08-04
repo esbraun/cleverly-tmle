@@ -25,21 +25,42 @@ varies between the two columns but which array goes into them.
 replication count is sized to the gap being resolved, which is ``0.08`` against ``0`` at a
 per-draw standard deviation near ``0.10``.
 
+**The second table is why the design could be repaired rather than only diagnosed.**  The
+pilot left the mechanism as a hypothesis -- ``coverage-study.md`` says its own display is
+*"derived from the measurement rather than verified end to end"* and asks for a decomposition
+of the existing injection before any new one.  This is that decomposition, and it closes as an
+**identity** rather than as an approximate accounting:
+
+.. math::
+
+    b_a = c_a + \tilde\varepsilon_a P_0[u_a S_a],
+    \qquad \tilde\varepsilon_a = -\frac{P_0[w_a h_a]}{P_0[w_a S_a]}
+
+with :math:`S_a` the direction the fluctuation's one free parameter per arm moves
+:math:`\bar Q_a` in.  So *"how much of* :math:`R_2(\hat Q)` *does the fitted* :math:`\varepsilon
+\cdot s` *account for"* has an exact answer per arm, and what is left over is the coefficient
+the repaired design declares.
+
 **What it found**, at ``q-drift`` over 24 draws -- the mean bias tracks :math:`R_2(\bar Q^*)`
-and not :math:`R_2(\hat Q)`, which overstates it roughly twentyfold:
+and not :math:`R_2(\hat Q)`:
 
-===========  =======================  ===============  =================
+===========  =======================  ===================  =====================
 ``n``        mean bias                :math:`R_2(\hat Q)`  :math:`R_2(\bar Q^*)`
-===========  =======================  ===============  =================
-600          ``-0.0036 +/- 0.0203``   ``+0.08082``     ``-0.0039``
-1,200        ``-0.0054 +/- 0.0100``   ``+0.06797``     ``+0.0105``
-2,400        ``+0.0083 +/- 0.0091``   ``+0.05716``     ``-0.0015``
-===========  =======================  ===============  =================
+===========  =======================  ===================  =====================
+600          ``-0.0036 +/- 0.0203``   ``+0.08082``         ``-0.0039``
+1,200        ``-0.0054 +/- 0.0100``   ``+0.06797``         ``+0.0105``
+2,400        ``+0.0083 +/- 0.0091``   ``+0.05716``         ``-0.0015``
+===========  =======================  ===================  =====================
 
-The consequence is a **design** finding rather than a defect: Tier 1 injects its drift into
-:math:`\hat Q`, where the fluctuation's own free parameter can absorb it, so the perturbation
-never reaches the estimate and no choice of ``c`` makes that tier produce a coverage gap.  The
-measured :math:`R_2(\hat Q)` column reproduces
+That reading said *"roughly twentyfold"*, and the decomposition says it was an artefact of the
+noise floor: the measured column is consistent with zero at those draw counts, and the
+**exact** targeted coefficient is ``b_ATE = 0.00092`` against ``c_ATE = 0.40`` -- a factor of
+``436``, not of twenty.  ``g-drift``'s is ``0.0259``, a factor of ``15``.
+
+The consequence is a **design** finding rather than a defect: Tier 1 injects its drift where
+the fluctuation's own free parameter can absorb it, so the perturbation never reaches the
+estimate and no choice of ``c`` makes that tier produce a coverage gap.  The measured
+:math:`R_2(\hat Q)` column reproduces
 :func:`~benchmarks.drtmle_injection.exact_remainder`'s quadrature to five decimals, which is
 what says the two arms of this comparison are computed correctly rather than merely
 differently.
@@ -100,12 +121,13 @@ def remainder(cell: str, n: int, covariates: Any, arms: dict[float, Any]) -> flo
     return per_arm[1.0] - per_arm[0.0]
 
 
-def one_size(cell: str, n: int, draws: int, seed: int) -> list[str]:
-    """One row: the mean bias against the same remainder at both regressions."""
+def one_size(cell: str, n: int, draws: int, seed: int) -> tuple[list[str], list[list[str]]]:
+    """One bias row, and one decomposition row per arm."""
     dgp = injection.base_law()
     truth = dgp.truth()["ate"]
     scaler = OutcomeScaler(*injection.Q_BOUNDS)
     collected = []
+    epsilons = []
     for data_seed in np.random.SeedSequence(seed).generate_state(draws):
         frame, _ = dgp.sample(n, seed=int(data_seed))
         fit = (
@@ -113,12 +135,18 @@ def one_size(cell: str, n: int, draws: int, seed: int) -> list[str]:
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
+        fluctuation = fit.repeats[0].fluctuations["mean"]
         covariates = np.asarray(fit.data.covariates, dtype=float)
-        targeted_arms = fit.repeats[0].fluctuations["mean"].targeted.arms
+        targeted_arms = fluctuation.targeted.arms
         initial = {
             a: scaler.unscale_level(np.asarray(fit.nuisance.outcome.arms[a], float)) for a in ARMS
         }
         targeted = {a: scaler.unscale_level(np.asarray(targeted_arms[a], float)) for a in ARMS}
+        # `names` is the submodel's column order and is not the arm order this module reports
+        # in, so the step is read *by name* rather than positionally -- reading it the other
+        # way round is a mistake no assertion here would catch.
+        by_name = dict(zip(fluctuation.names, np.asarray(fluctuation.epsilon, float), strict=True))
+        epsilons.append([by_name[f"h{int(arm)}"] for arm in ARMS])
         collected.append(
             (
                 float(fit.estimates["ate"].psi) - truth,
@@ -128,19 +156,63 @@ def one_size(cell: str, n: int, draws: int, seed: int) -> list[str]:
         )
     bias, initial_r2, targeted_r2 = (np.asarray(column) for column in zip(*collected, strict=True))
     error = float(np.std(bias, ddof=1) / np.sqrt(draws))
+    targeted_error = float(np.std(targeted_r2, ddof=1) / np.sqrt(draws))
     root = np.sqrt(n)
-    return [
+    declared_c = injection.drift_coefficients(cell)["c_ate"]
+    declared_b = injection.targeted_coefficients(cell)["b_ate"]
+    bias_row = [
         cell,
         f"{n:,}",
         str(draws),
         f"{bias.mean():+.5f} +/- {error:.5f}",
         f"{initial_r2.mean():+.5f}",
-        f"{targeted_r2.mean():+.5f}",
-        f"{injection.exact_remainder(cell, n)['r2_ate']:+.5f}",
+        f"{targeted_r2.mean():+.5f} +/- {targeted_error:.5f}",
+        f"{injection.exact_targeted_remainder(cell, n)['r2_ate']:+.5f}",
+        f"{float(n) ** -injection.ALPHA * declared_c:+.5f}",
+        f"{float(n) ** -injection.ALPHA * declared_b:+.5f}",
         f"{root * bias.mean():+.3f}",
-        f"{root * initial_r2.mean():+.3f}",
         f"{root * targeted_r2.mean():+.3f}",
     ]
+    return bias_row, _decomposition(cell, n, np.asarray(epsilons))
+
+
+def _decomposition(cell: str, n: int, epsilons: Any) -> list[list[str]]:
+    r"""How much of :math:`c_a` the fluctuation absorbs, and what survives it.
+
+    The accounting is an **identity** -- ``absorbed = b_a - c_a`` by construction, since
+    :math:`b_a = P_0[v_a h_a]` and :math:`v_a = 1 - \kappa_a w_a` -- so the column that means
+    something is the *fitted* step beside the population one.  Where those agree, the
+    population accounting describes the fits; where they do not, the fluctuation is doing
+    something at this size that no coefficient predicts.
+    """
+    dgp = injection.base_law()
+    scale = float(n) ** -injection.ALPHA
+    rows = []
+    for index, arm in enumerate(ARMS):
+        c = dgp.expectation(
+            lambda w, a=arm: injection.plugin_weight(cell, w, a) * injection.free_shape(cell, w, a)
+        )
+        b = dgp.expectation(
+            lambda w, a=arm: (
+                injection.targeted_weight(cell, w, a) * injection.free_shape(cell, w, a)
+            )
+        )
+        fitted = float(np.mean(epsilons[:, index]))
+        error = float(np.std(epsilons[:, index], ddof=1) / np.sqrt(epsilons.shape[0]))
+        rows.append(
+            [
+                cell,
+                f"{n:,}",
+                f"{arm:.0f}",
+                f"{fitted:+.5f} +/- {error:.5f}",
+                f"{injection.population_epsilon(cell, n, arm):+.5f}",
+                f"{scale * c:+.5f}",
+                f"{scale * (b - c):+.5f}",
+                f"{scale * b:+.5f}",
+                f"{1.0 - b / c:.4f}" if c else "-",
+            ]
+        )
+    return rows
 
 
 def main() -> None:
@@ -151,7 +223,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20250801)
     args = parser.parse_args()
 
-    rows = [one_size(args.cell, n, args.draws, args.seed) for n in args.sizes]
+    measured = [one_size(args.cell, n, args.draws, args.seed) for n in args.sizes]
+    print("What the mean bias tracks")
+    print("=========================")
     print(
         format_table(
             [
@@ -161,21 +235,47 @@ def main() -> None:
                 "mean bias",
                 "R2(Q-hat)",
                 "R2(Qbar*)",
-                "declared",
+                "predicted R2(Qbar*)",
+                "declared n^-a c",
+                "declared n^-a b",
                 "sqrt(n) bias",
-                "sqrt(n) R2(Q-hat)",
                 "sqrt(n) R2(Qbar*)",
             ],
-            rows,
+            [row for row, _ in measured],
         )
     )
     print(
-        "\n`R2(Q-hat)` is the plug-in remainder and must reproduce `declared`, which is what\n"
-        "says this comparison is computed correctly. `R2(Qbar*)` is the same expression at the\n"
-        "targeted regression, and it is the one the mean bias has to track -- because\n"
+        "\n`R2(Q-hat)` is the plug-in remainder and must reproduce `declared n^-a c`, which is\n"
+        "what says this comparison is computed correctly. `R2(Qbar*)` is the same expression at\n"
+        "the targeted regression, and it is the one the mean bias has to track -- because\n"
         "`psi-hat - psi_0 = (Pn - P0)D* + R2(Qbar*)` and the first term is mean-zero across\n"
-        "draws. Where the two columns differ by an order of magnitude, a design that sized a\n"
-        "coverage gap off `declared` sized it off the wrong quantity."
+        "draws. It is read against `declared n^-a b`, which is the pre-flight condition\n"
+        "`docs/drtmle/validation-plan.md` section 5 requires before any coverage dispatch."
+    )
+
+    print("\n\nWhat the fluctuation absorbs, per arm")
+    print("=====================================")
+    print(
+        format_table(
+            [
+                "cell",
+                "n",
+                "arm",
+                "fitted epsilon",
+                "population epsilon",
+                "n^-a c",
+                "absorbed",
+                "n^-a b (survives)",
+                "share absorbed",
+            ],
+            [row for _, block in measured for row in block],
+        )
+    )
+    print(
+        "\n`absorbed` is `n^-a (b - c)`, the part of the plug-in remainder the fluctuation's one\n"
+        "free parameter per arm removes; `n^-a b` is what survives it and is the estimator's\n"
+        "bias. The accounting is an identity, so the column to read is `fitted epsilon` beside\n"
+        "`population epsilon`: where they agree the population arithmetic describes the fits."
     )
 
 

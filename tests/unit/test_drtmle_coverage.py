@@ -231,6 +231,139 @@ class TestTheDriftCoefficientsAreTheOnesTheDesignDeclared:
         assert len({round(errors[size][fixed], 9) for size in errors}) == 1
 
 
+#: The floor each arm's **targeted** coefficient clears, as a share of its cell's declared ATE
+#: one rather than as an absolute number.  A share because the two cells declare different
+#: targeted coefficients -- ``g-drift``'s is bounded by positivity at a quarter of
+#: ``q-drift``'s -- so one absolute floor would be a different demand in each.  Fixed by the
+#: rule and not by what was measured: an arm carrying under a tenth of the contrast's drift is
+#: an arm the contrast is not really about.
+B_ARM_SHARE = 0.10
+
+
+class TestTheTargetedCoefficientsAreTheOnesTheDesignDeclared:
+    r"""C3b's repair, as arithmetic: the coefficient a fit's **bias** has, not the plug-in one.
+
+    The class above is necessary and was never sufficient, and C3a's pilot is what showed it.
+    Targeting solves :math:`P_0[w_a(\bar Q^*_a - \bar Q_{0,a})] = 0` with
+    :math:`w_a = g_{0,a}/\hat g_a`, and the estimator's bias is the same offset against
+    :math:`u_a = 1 - w_a` -- so a shape chosen to make :math:`c_a = P_0[u_a h_a]` large has
+    constrained *nothing* about what survives the fluctuation.  Measured at the old design, it
+    survived ``0.00092`` of a declared ``0.40``.
+
+    So the design declares both, and this class is what says the second one worked.  The
+    quadrature is the same Sobol rule everything else here uses, so a coefficient and the
+    coverage it explains cannot disagree through two quadratures.
+    """
+
+    def test_the_q_drift_cell_realises_its_declared_per_arm_coefficients(self) -> None:
+        """Exactly, because the shape is solved for both conditions rather than scaled for one."""
+        realised = injection.targeted_coefficients("q-drift")
+
+        assert realised["b1"] == pytest.approx(injection.Q_DRIFT_B[1.0], rel=1e-9)
+        assert realised["b0"] == pytest.approx(injection.Q_DRIFT_B[0.0], rel=1e-9)
+
+    def test_the_g_drift_cell_realises_its_declared_ate_coefficient(self) -> None:
+        """One target rather than two, for the plug-in coefficient's structural reason."""
+        realised = injection.targeted_coefficients("g-drift")
+
+        assert realised["b_ate"] == pytest.approx(injection.G_DRIFT_B_ATE, rel=1e-9)
+
+    @pytest.mark.parametrize("cell", injection.CELLS)
+    def test_no_targeted_coefficient_vanishes_or_cancels_in_the_contrast(self, cell) -> None:
+        """The opposite-sign property, which the *plug-in* coefficients having it did not buy.
+
+        This is the sharpest thing the pilot found and it had no column: at the old design the
+        arms' plug-in coefficients were opposite-signed, so ``c_ate`` was a sum of magnitudes --
+        and their targeted ones came out **both positive**, so ``b_ate`` was a difference.  The
+        design's own no-cancellation property did not survive the step it was never checked
+        through.  Declaring ``b`` per arm is what restores it, and this is the assertion.
+        """
+        realised = injection.targeted_coefficients(cell)
+
+        assert abs(realised["b_ate"]) > injection.C_MIN
+        assert abs(realised["b1"]) > B_ARM_SHARE * abs(realised["b_ate"])
+        assert abs(realised["b0"]) > B_ARM_SHARE * abs(realised["b_ate"])
+        assert realised["b1"] > 0.0 > realised["b0"], "opposite signs, so the ATE cannot cancel"
+        assert realised["b_ate"] == pytest.approx(realised["b1"] - realised["b0"])
+
+    @pytest.mark.parametrize("cell", injection.CELLS)
+    def test_the_bias_approaches_the_targeted_coefficient_at_the_declared_rate(self, cell) -> None:
+        r"""Pre-flight condition 1: :math:`n^{\alpha}R_2(\bar Q^*) \to b`, at the study's sizes.
+
+        ``docs/drtmle/validation-plan.md`` §5 requires this be read **before** a coverage
+        dispatch rather than inferred from one afterwards, and requires it at the *targeted*
+        regression -- the clause whose absence C3a's pilot failed on.  Exact here rather than
+        empirical, because :func:`population_epsilon` solves the score by quadrature.
+
+        The tolerance is looser than the plug-in column's ``5e-3`` and that is a statement
+        about ``g-drift``: its mechanism perturbation is inside a probability, so the
+        :math:`o(n^{-\alpha})` terms it carries do not vanish the way ``q-drift``'s do.
+        """
+        declared = injection.targeted_coefficients(cell)
+        for size in (600, 1200, 2400):
+            scaled = (
+                size**injection.ALPHA * injection.exact_targeted_remainder(cell, size)["r2_ate"]
+            )
+            assert scaled == pytest.approx(declared["b_ate"], rel=1e-2)
+
+    @pytest.mark.parametrize("cell", injection.CELLS)
+    def test_the_targeted_weight_is_a_direction_the_fluctuation_cannot_reach(self, cell) -> None:
+        r"""The measurement that says Tier 1 can be a demonstration at all.
+
+        The design note kept one alternative live and refused to talk itself out of it: that
+        *no* injection into a single nuisance produces a first-order shortfall, because a
+        ``TMLE`` with one consistent nuisance is consistent and that is double robustness
+        working.  Under that reading the repair would be a scope correction and not a new shape.
+
+        It is decided by whether the targeted weight is degenerate.  :math:`v_a` vanishes
+        identically only if :math:`w_a` is constant -- only if :math:`\hat g_a \propto g_{0,a}`
+        -- and if it did, the fluctuation would reach every direction the design can inject and
+        no shape would survive it.  So this measures :math:`\|v_a\|` and the conditioning of the
+        2x2 solve, and it is the test that would fail if the alternative were true.
+        """
+        dgp = injection.base_law()
+        for arm in (1.0, 0.0):
+            plugin = dgp.expectation(lambda w, a=arm: injection.plugin_weight(cell, w, a) ** 2)
+            targeted = dgp.expectation(lambda w, a=arm: injection.targeted_weight(cell, w, a) ** 2)
+            cross = dgp.expectation(
+                lambda w, a=arm: (
+                    injection.plugin_weight(cell, w, a) * injection.targeted_weight(cell, w, a)
+                )
+            )
+            assert np.sqrt(targeted) > 0.01, "the fluctuation reaches every injectable direction"
+            gram = np.array([[plugin, cross], [cross, targeted]])
+            assert np.linalg.cond(gram) < 1e3, "the two conditions are nearly the same condition"
+
+    @pytest.mark.parametrize("cell", injection.CELLS)
+    def test_the_injected_outcome_stays_inside_its_declared_support(self, cell) -> None:
+        """The repair's own hazard, and the reason ``g-drift``'s coefficient is the smaller one.
+
+        A shape that survives targeting is a **larger** shape, since only a fraction of it does
+        -- ``q-drift``'s perturbation is four times what it was -- so the injection has more room
+        to leave the support it has to stay inside.  The mechanism's side of this is
+        ``test_the_mechanism_stays_interior_at_the_smallest_size`` above and predates C3b; this
+        is the outcome's, which had no test because the old injection came nowhere near.
+
+        The two cells have very different room, which is exactly why they declare different
+        targeted coefficients: ``q-drift`` moves the outcome regression, whose support is
+        declared as :data:`~benchmarks.drtmle_injection.Q_BOUNDS` and wide on purpose, and
+        ``g-drift`` moves a probability.  :class:`~benchmarks.drtmle_injection.InjectedOutcome`
+        **raises** rather than clipping, so a breach would surface as a study that cannot run
+        rather than as a silently distorted drift -- but it would surface at dispatch time,
+        which is what this is here to prevent.
+        """
+        dgp = injection.base_law()
+        frame, _ = dgp.sample(4_000, seed=11)
+        covariates = np.column_stack(
+            [np.asarray(frame[name], dtype=float) for name in dgp.covariate_names]
+        )
+        scaler = OutcomeScaler(*injection.Q_BOUNDS)
+        for size in (200, 600, 1200, 2400):
+            for arm in (1.0, 0.0):
+                outcome = scaler.scale(injection.injected_outcome(cell, size, covariates, arm))
+                assert outcome.min() > 0.0 and outcome.max() < 1.0
+
+
 class TestTheReducedRegressionsAreFittedAndNotInjected:
     """The refusal ``DRTMLE``'s own docstring warns about, as a test rather than a comment.
 
@@ -279,9 +412,14 @@ class TestTheReducedRegressionsAreFittedAndNotInjected:
         """The other half: with them named, the reductions are fitted and are residual-scaled.
 
         :math:`Q_r = \\bar Q_0 - \\bar Q^*` on the ``[0, 1]`` scale, so its magnitude is that of
-        a *residual* -- three orders below the outcome regression's own values here, since this
-        cell's injected :math:`\\hat Q` is nearly right by construction.  An injected
-        :math:`Q_r` would carry the conditional mean's magnitude instead.
+        a *residual*: it is made of the injected perturbation and the fluctuation's own step,
+        and an **injected** :math:`Q_r` would carry the conditional mean's magnitude instead.
+
+        So the bar is read off the design rather than written down as a constant.  It used to
+        be a bare ``0.05``, calibrated to the injection C3b replaced -- whose perturbation is
+        four times larger, since it now has to survive targeting rather than only exist -- and
+        a number like that goes stale silently every time the design moves.  The comparison
+        that carries the claim is against the *scaled perturbation*, which moves with it.
         """
         dgp = injection.base_law()
         frame, _ = dgp.sample(N, seed=5)
@@ -297,7 +435,16 @@ class TestTheReducedRegressionsAreFittedAndNotInjected:
         )
         reduced = fit.repeats[0].fluctuations["mean"].reduction.reduced
 
-        assert np.abs(np.asarray(reduced.qr)).max() < 0.05
+        covariates = np.asarray(fit.data.covariates, dtype=float)
+        scaled_range = injection.Q_BOUNDS[1] - injection.Q_BOUNDS[0]
+        injected = (
+            max(
+                float(np.abs(injection.outcome_perturbation("q-drift", N, covariates, arm)).max())
+                for arm in (1.0, 0.0)
+            )
+            / scaled_range
+        )
+        assert np.abs(np.asarray(reduced.qr)).max() < 2.0 * injected
         assert np.abs(np.asarray(fit.nuisance.outcome.arms[1.0])).min() > 0.05
 
 
@@ -516,7 +663,18 @@ class TestTheTierIsSelectedRatherThanRefused:
     def test_a_tier_selects_a_module_and_both_supply_one_interface(self) -> None:
         assert set(study.TIERS) == {1, 2}
         for tier in study.TIERS.values():
-            for name in ("CELLS", "ALPHA", "base_law", "settings", "drift_coefficients"):
+            for name in (
+                "CELLS",
+                "ALPHA",
+                "base_law",
+                "settings",
+                "drift_coefficients",
+                # C3b's two: a tier that supplied only the plug-in coefficient would print a
+                # regime-entry table about a quantity no fit's bias is, which is the whole of
+                # what C3a's pilot measured.
+                "targeted_coefficients",
+                "exact_targeted_remainder",
+            ):
                 assert hasattr(tier, name)
 
     def test_tier_two_runs_and_reports_the_same_tables(self, monkeypatch, tmp_path) -> None:
@@ -638,18 +796,24 @@ class TestEveryTablesRowsMatchItsHeaders:
                 branch_q=float("nan") if name == "tmle" else 0.004,
                 branch_g=float("nan") if name == "tmle" else -0.001,
                 branch_error=1e-5,
+                # On **both** arms, unlike every other remainder column: the targeted
+                # remainder needs no companion, and the row a shortfall is read against is
+                # the plain `TMLE`'s.
+                r2_targeted=0.08,
             )
             for i in range(4)
             for name in ("tmle", "drtmle")
         ]
         builders = {
             study.REGIME_HEADERS: study.regime_rows(records, [600]),
+            study.ENTRY_HEADERS: study.entry_rows(records),
             study.COVERAGE_HEADERS: study.coverage_rows(records),
             study.SHORTFALL_HEADERS: study.shortfall_rows(records),
             study.REMAINDER_HEADERS: study.remainder_rows(records),
             study.CONTRACT_HEADERS: study.contract_rows(records),
             study.STRATUM_HEADERS: study.stratum_rows(records),
             study.VALIDITY_HEADERS: study.validity_rows(records),
+            study.PREFLIGHT_HEADERS: study.preflight_rows(records),
             study.REPLICATE_HEADERS: study.replicate_rows(records),
         }
 

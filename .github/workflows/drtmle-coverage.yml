@@ -16,6 +16,13 @@ name: drtmle-coverage
 #
 # The environment this repository is developed in cannot run a pilot (see CLAUDE.md), so this
 # is how piece C's numbers get produced.
+#
+# **Read the pre-flight table first.** It is the last one printed and it is the gate on the
+# 250-replicate dispatch: docs/drtmle/coverage-study.md's repair section states three
+# conditions, none of them a coverage study, and section 5 requires they pass *before* a run
+# rather than be inferred from one afterwards. C3a's pilot is what that rule is written from --
+# it dispatched 600 fits against a design whose drift the targeting step was absorbing whole,
+# and no other table on this page would have said so.
 on:
   workflow_dispatch:
     inputs:
