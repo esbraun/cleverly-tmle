@@ -691,6 +691,29 @@ staying bounded away from zero; positivity stable across sizes; `√n·R₂` fai
 `TMLE` while `√n·R_remaining` does vanish for `DRTMLE`; and the realised drift coefficients above.
 Without these columns a correct coverage number is still only a number.
 
+**And the coefficient has to be verified at the *targeted* regression, not at the initial one.
+This clause is new, it is the second change these rules have taken, and the written reason is that
+[C3's pilot](coverage-study.md#what-the-pilot-measured) failed on exactly its absence.** The
+remainder a design commits a coefficient for is
+
+```text
+R_2(Q-hat)  = P_0[ (ĝ − g_0)/ĝ · (Q̂ − Q̄_0) ]        the plug-in remainder
+R_2(Qbar*)  = P_0[ (ĝ − g_0)/ĝ · (Q̄* − Q̄_0) ]       the estimator's bias
+```
+
+and **a design can hit the first exactly while the second is twenty times smaller**, because the
+fluctuation's score equation constrains a weighted offset of `Q̄* − Q̄₀` and the plug-in quantity is
+not subject to it. Measured: `n^α R₂(Q̂)` at `+0.4000` at every size, against a `√n` bias of `0.1`
+to `0.6` where the sizing predicted `2.5` to `4.2`. So a study that verifies only the plug-in
+coefficient has verified that its *injection* is what it says and **not** that the regime was
+entered — which is the one thing this section exists to establish.
+
+Operationally: report both columns, and read the *targeted* one against the declared `n^(−α)c`.
+`benchmarks/drtmle_tier1_bias.py` computes them side by side on the same rows of the same fits and
+runs in seconds a size, so this is a pre-flight check rather than a study — and it must pass
+**before** a coverage dispatch, not be inferred from one afterwards. The same discipline the
+invalid-fit rule already has: written down before the numbers exist.
+
 ### Evaluating `P₀D̂`, which is not automatic for a cross-fitted fit
 
 **Never substitute `P_nD̂`** — that is the quantity targeting drove to zero, so it answers a
@@ -888,6 +911,20 @@ a diagnostic correlated with the fit having gone wrong, and reporting it as *the
 same class of error as reporting a per-protocol analysis as intention-to-treat. The rule has to be
 written down before the numbers exist, because a demonstration whose exclusion rule was chosen
 after seeing which cells it helped is not a demonstration.
+
+**Frozen at 2%, after the pilot and before the final study, exactly where this paragraph says to
+freeze it.** [The pilot](coverage-study.md#what-the-pilot-measured) measured an invalid share of
+`0.000` to `0.060` over 600 fits, and the bar is **left where it was** rather than raised to the
+number that was seen. That is the whole discipline of this rule: `0.060` appears in one cell of
+twelve — `g-drift`, Tier 2, `n = 600` — and moving the threshold to 6% so that cell passes would be
+choosing the rule after seeing which cells it helped, which is the failure the paragraph above
+names. So the threshold stands and that cell is a **live gate-2 risk** to be read out rather than
+accommodated. Two things qualify it and neither changes it: `0.060` is 3 fits of 50, whose Monte
+Carlo error is about `0.034`, so it is barely separated from `0.02` and the final study's 250
+replicates are what resolve it; and **every invalid fit in the pilot was a `score` failure and none
+was an `identity` failure**, so what the rate measures is fits that did not converge rather than a
+software defect — which is the distinction gate 1's clauses 2 and 3 are worded apart for, and it is
+now a column rather than an inference.
 
 **A mixed cell's coverage number is reported pooled, with the two contract populations beside
 it.** This is the fourth rule, it is [piece C3](../roadmap.md#c-the-demonstration)'s decision
