@@ -16,6 +16,19 @@ is fast and wrong, so what is checked here is the *behaviour* the cache could br
 
 The reuse itself is asserted by identity rather than by timing: "the same object came
 back" is deterministic where "it was faster" is a measurement on a shared box.
+
+Then a second thing the cache did *not* break and did not fix either: a limiter writes back
+whatever it snapshotted, so two overlapping blocks used to restore each other's saved
+state.  The concurrency test above cannot see that, because it never enters a limit at all
+-- :class:`TestOverlappingBlocks` is what does, and
+``test_nested_limits_restore_the_enclosing_one_not_the_original`` is what keeps the
+single-threaded LIFO semantics the fix had to preserve.
+
+That class also pins the reason the obvious version of the fix is wrong.  "The limits are
+process-global" is only half true: the BLAS pools are, and OpenMP's count is an ICV per
+*calling thread*, so a block that took a reference on another thread's instead of applying
+its own would leave OpenMP unlimited.  Every block applies; only the outermost snapshot is
+kept and restored.
 """
 
 from __future__ import annotations
@@ -38,16 +51,31 @@ threadpoolctl = pytest.importorskip("threadpoolctl")
 
 @pytest.fixture(autouse=True)
 def _restore_global_state():
-    """Every test here mutates process-global state; put it back."""
+    """Every test here mutates process-global state; put it back.
+
+    The stack is asserted empty *after* each test rather than merely cleared, so a leaked
+    entry is reported by the test that leaked it instead of by whichever unrelated one
+    runs next and finds the process still limited.
+    """
     limit = get_thread_limit()
     yield
     set_thread_limit(limit)
     refresh_thread_pools()
+    assert _threads._STACK == [], "a block was left open"
+    assert _threads._ROOT is None, "the root limiter was left holding the original"
 
 
 def _limits() -> list[int | None]:
     """The current thread count of every pool threadpoolctl can see."""
     return [info["num_threads"] for info in threadpoolctl.threadpool_info()]
+
+
+def _needs_a_multi_thread_pool() -> list[int | None]:
+    """The pools, skipping unless one of them has room to be limited."""
+    before = _limits()
+    if not before or all(count == 1 for count in before):  # pragma: no cover
+        pytest.skip("need a pool with more than one thread to tell the two apart")
+    return before
 
 
 def test_the_controller_is_built_once_and_reused():
@@ -207,3 +235,160 @@ def test_without_threadpoolctl_the_block_is_a_no_op(monkeypatch):
     with thread_limit(1):
         pass
     assert _threads._CONTROLLER is None
+
+
+class TestOverlappingBlocks:
+    """Two blocks open at once, which is what the limits being process-global costs.
+
+    ``thread_limit`` is public and an ambient ``joblib.parallel_backend("threading")``
+    reaches it in one step, so this is a supported use rather than a hypothetical one --
+    even though nothing inside the package produces it, every ``map_parallel`` call
+    leaving ``prefer=None`` and joblib therefore dispatching to processes.
+    """
+
+    def test_one_thread_leaving_does_not_unlimit_another_that_is_still_inside(self):
+        """The failure the refcount exists for, and it failed on both counts.
+
+        Without it: B snapshots A's limit rather than the process's, so A's exit writes
+        back the original *while B is still in its block*, and B's exit then writes back
+        A's limit and leaves the process limited for good.  Both assertions below are what
+        that broke.
+        """
+        before = _needs_a_multi_thread_pool()
+        both_inside = threading.Barrier(2, timeout=30)
+        a_has_left = threading.Event()
+        seen: dict[str, list[int | None]] = {}
+        failures: list[BaseException] = []
+
+        def first() -> None:
+            try:
+                with thread_limit(1):
+                    both_inside.wait()
+                    seen["a"] = _limits()
+            except BaseException as error:  # pragma: no cover - reported below
+                failures.append(error)
+            finally:
+                a_has_left.set()
+
+        def second() -> None:
+            try:
+                with thread_limit(1):
+                    both_inside.wait()
+                    assert a_has_left.wait(timeout=30), "the first thread never left"
+                    seen["b"] = _limits()
+            except BaseException as error:  # pragma: no cover - reported below
+                failures.append(error)
+
+        threads = [threading.Thread(target=target) for target in (first, second)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+
+        assert not failures, failures
+        assert all(count == 1 for count in seen["a"]), seen
+        # Read *after* the other thread's block closed: this is the assertion that fails
+        # without the refcount, because the exit above restored the original.
+        assert all(count == 1 for count in seen["b"]), seen
+        assert _limits() == before
+
+    def test_every_block_applies_and_only_the_outermost_snapshot_is_restored(self, monkeypatch):
+        """The design in one assertion: refcount the *snapshots*, not the applies.
+
+        Skipping the apply for a block that asks for the limit already in force is the
+        obvious optimisation and it is wrong, because the limits are not uniformly
+        process-global: OpenMP's count is an ICV that ``omp_set_num_threads`` sets for the
+        calling thread, so a block that took a reference instead of applying would run its
+        OpenMP regions unlimited.  ``test_a_second_thread_limits_its_own_thread_local_pool``
+        is the same claim measured rather than argued.
+
+        What must not repeat is the *restore*: only the outermost block's snapshot is the
+        process's own setting, so it is the only one kept and the only one written back.
+        """
+        calls: list[str] = []
+
+        class RecordingLimiter:
+            def restore_original_limits(self) -> None:
+                calls.append("restore")
+
+        class RecordingController:
+            def limit(self, *, limits: int) -> RecordingLimiter:
+                calls.append(f"apply {limits}")
+                return RecordingLimiter()
+
+        monkeypatch.setattr(_threads, "_CONTROLLER", RecordingController())
+        with thread_limit(1), thread_limit(1), thread_limit(1):
+            pass
+
+        # Three applies going in; coming out, two re-applies of the limit that is now
+        # innermost, and exactly one restore -- of the first block's snapshot.
+        assert calls == ["apply 1", "apply 1", "apply 1", "apply 1", "apply 1", "restore"]
+        assert calls.count("restore") == 1
+
+    def test_a_second_thread_limits_its_own_thread_local_pool(self):
+        """OpenMP's thread count is per-thread, so a second block cannot be a no-op.
+
+        Skipped where no OpenMP pool is loaded, which is a build without LightGBM or
+        scikit-learn's histogram boosting -- there the claim has nothing to be about.  The
+        BLAS pools alongside it *are* process-global, which is why the two have to be
+        checked by name rather than by "all the pools are at 1".
+        """
+        pools = threadpoolctl.threadpool_info()
+        openmp = [info for info in pools if info["user_api"] == "openmp"]
+        if not openmp or all(info["num_threads"] == 1 for info in openmp):  # pragma: no cover
+            pytest.skip("no OpenMP pool with more than one thread")
+
+        seen: list[int] = []
+        with thread_limit(1):
+
+            def inner() -> None:
+                with thread_limit(1):
+                    seen.extend(
+                        info["num_threads"]
+                        for info in threadpoolctl.threadpool_info()
+                        if info["user_api"] == "openmp"
+                    )
+
+            thread = threading.Thread(target=inner)
+            thread.start()
+            thread.join(timeout=30)
+
+        assert seen and all(count == 1 for count in seen), seen
+
+    def test_an_out_of_order_exit_still_restores_the_original(self):
+        """Non-LIFO release, which one thread cannot produce and two can.
+
+        The inner exit re-*applies* what is now outermost rather than restoring its own
+        snapshot, and only the first block's limiter is kept -- so the process's own
+        setting comes back whichever order the exits arrive in.
+        """
+        before = _needs_a_multi_thread_pool()
+
+        outer = thread_limit(2)
+        inner = thread_limit(1)
+        outer.__enter__()
+        inner.__enter__()
+        assert all(count == 1 for count in _limits())
+
+        outer.__exit__(None, None, None)  # the *enclosing* block leaves first
+        assert all(count == 1 for count in _limits()), "the inner block lost its limit"
+        inner.__exit__(None, None, None)
+
+        assert _limits() == before
+
+    def test_a_forked_child_starts_with_no_open_blocks(self):
+        """Called directly rather than by forking: pytest under xdist is a poor place to.
+
+        A child inheriting the stack would record blocks no frame in it will ever exit, so
+        its own first block would refcount onto one of them and never restore.
+        """
+        with thread_limit(1):
+            assert _threads._STACK
+            _threads._before_fork()
+            _threads._after_fork_in_child()
+            assert _threads._STACK == []
+            assert _threads._ROOT is None
+            # The locks came back free, so the child's first entry does not deadlock.
+            with thread_limit(1):
+                pass
+        assert _threads._STACK == []
