@@ -883,7 +883,7 @@ corrected wording, and the corrected statement is now asserted rather than descr
 
 Item 15 asks whether the reduced regressions' **pooled** cross-fitting satisfies the
 empirical-process conditions of the DRTMLE expansion. [The concordance's
-§8](theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) carries the argument; this
+§8](theorem-concordance.md#8-cross-fitting-is-not-in-the-sources-and-the-argument-for-it-item-15) carries the argument; this
 section carries what a run can say about it, and the rule that run is read under.
 
 **What the argument needs measured, and it is not the thing a comparison usually measures.** The

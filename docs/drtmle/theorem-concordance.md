@@ -594,7 +594,7 @@ at `1e-17`, final scores at `1e-10`, `check fails` flat zero across 96 fits incl
 `weak-overlap` cells — say the opposite. They say it about an estimating equation this file's own
 finding puts outside the theorem, which is exactly the distinction the third option exists to keep.
 
-## 8. Cross-fitting is not covered (item 15)
+## 8. Cross-fitting is not in the sources, and the argument for it (item 15)
 
 The theorem uses Donsker and `L_2`-convergence conditions for the empirical-process terms. **It
 presents no cross-fitted version**, so the working paper does not close item 15. The 2023
@@ -606,42 +606,149 @@ What is specifically unaddressed is this package's **pooled** construction, in w
 observation influences other rows' generated regressors and then returns to its own
 reduced-regression prediction through those rows. Generic cross-fitting results do not
 automatically cover that, because the conditional independence they turn on is exactly what the
-generated design breaks. `fit_reduced`'s docstring reaches the right conclusion for the wrong kind
-of reason: it shows an independent split removes *none* of the induced dependence (the
-contamination is in the design values, not in which rows train) and that per-fold designs would
-trade a second-order dependence for a first-order covariate shift. Both are sound and neither
-establishes that the induced dependence is higher order in the DRTMLE expansion, which is what the
-theorem needs.
+generated design breaks.
 
 ```text
 cross-validation claimed applicable by Benkeser & Hejazi (2023):  YES
 exact pooled construction analysed anywhere in the sources:       NO
 theorem or proof for that construction:                           ABSENT
-status:                                                           UNVERIFIED
+argument for it, with its conditions stated:                      BELOW — A1b's
+status:                                                           MET UNDER A STATED
+                                                                  ENTROPY CONDITION, WITH
+                                                                  ONE CONDITION UNVERIFIED
 ```
 
-Both tracks stay live: a proof or expansion for the pooled construction, **and** a
-nested/per-outer-fold reference estimator. The nested version need not become the default; it
-provides a construction with clearer conditional independence, an empirical comparator for the
-cheap one, and a way to see whether the pooled dependence changes bias, variance or remainder
-rates. **Agreement with R would not have been evidence here** — that package predates this
+### 8.1 The decomposition, and which term needs what
+
+Write `ĥ_k = Q̂_r^(−k) ∘ ĝ^(−k)` for what fold `k`'s reduced regression contributes, and `h̃_k` for
+the same object built **nested** — trained on designs *and targets* from models that left fold `k`
+out too. Then
+
+```text
+(P_{n,k} − P_0) ĥ_k  =  (P_{n,k} − P_0) h̃_k          [A]
+                      + (P_{n,k} − P_0) Δ_k ∘ ĝ^(−k)  [B],   Δ_k = Q̂_r^(−k) − Q̃_r^(−k)
+```
+
+**[A] is the ordinary cross-fitting argument.** Conditional on the fold-`k` complement, `ĝ^(−k)` is
+a fixed function and `h̃_k` is a fixed function, so the term has conditional mean zero and
+conditional variance `‖h̃_k − h̄‖²/|V_k|` — `O_p(n^(−1/2)‖h̃_k − h̄‖)`, which is `o_p(n^(−1/2))` under
+the `L_2` convergence Theorem 1 already assumes. This is Zheng & van der Laan (2011)'s argument
+composed with the theorem rather than replacing it, exactly as
+[the methodology page](../methodology.md)'s package-wide one is. Note what it needs and the
+theorem supplies: a **deterministic limit**, and convergence in `L_2` of the *pushforward*
+`P_0 ∘ ḡ^(−1)` — a measure that moves with `n`, which is the non-obvious part.
+
+**[B] is the whole of item 15**, because `Δ_k` is precisely the object that depends on fold `k`. It
+is not conditionally mean zero and no cross-fitting lemma reaches it. What does reach it is
+asymptotic equicontinuity, which needs two things.
+
+### 8.2 The two conditions, and the structural fact that makes the first available
+
+**The reductions are univariate.** That is the fact the argument turns on, and it is already the
+first thing `_reduced_column`'s docstring says: the regression is on one scalar however many
+covariates the fit adjusted for. Composition with the fixed map `ĝ^(−k)` transports brackets
+exactly — `‖u∘T − l∘T‖_{L_2(P_0)} = ‖u − l‖_{L_2(Q)}` for `Q = P_0 ∘ T^(−1)` — so the entropy
+requirement falls entirely on a class of functions of **one variable**, and not at all on the
+primary nuisances' complexity. *The Donsker condition cross-fitting exists to avoid is available
+here, because the reduction is one-dimensional whatever the primary nuisances did.*
+
+One subtlety decides how the condition must be phrased. `T` is fixed only *conditionally*, so `Q`
+is a **random** measure, and a bound holding at `P_0` says nothing. The condition is therefore:
+
+> **(E)** the reduction learner's fitted functions of one scalar lie, with probability tending to
+> one, in a class whose bracketing entropy is bounded **uniformly in the underlying measure**, and
+> whose difference class inherits that bound.
+
+That is not a technicality dressed up: bounded variation with a non-growing bound, monotone
+functions, and a fixed-dimension bounded sieve all satisfy it *for every* probability measure,
+which is why those are the examples and "a fixed `P_0`-Donsker class" is not the right phrase.
+
+> **(S)** `‖Δ_k‖_{L_2} = o_p(1)` — the reduction fit is `L_2`-continuous in the design and target
+> columns it is handed.
+
+Given (E) and (S), `(P_n − P_0)Δ_k = o_p(n^(−1/2))` and the pooled construction satisfies what
+Theorem 1 asks for.
+
+### 8.3 Which learners are inside (E), and it is better than it looks
+
+Every hyperparameter below is a **hard-coded constant** in `learners/library.py`, and that is
+load-bearing rather than incidental — a CV-selected round count would take boosting out of the
+class.
+
+| candidate | its fitted function of one scalar | inside (E)? |
+| --- | --- | --- |
+| `mean` | a constant | yes, trivially |
+| `glm`, `glmnet` | linear in one scalar | yes — a fixed-dimension sieve |
+| `gam` | a fixed-knot penalised spline | yes — knots are not chosen from the design |
+| `boost` | a step function, at most `max_iter × max_leaf_nodes` jumps, total variation bounded by `max_iter × learning_rate × range` | yes — `max_iter=200`, `learning_rate=0.05`, `max_leaf_nodes=15`, `early_stopping=False` are all constants |
+| `forest` | a step function with `≈ n/min_samples_leaf` pieces per tree | **no** — the class grows with `n` |
+| a nearest-neighbour or saturated interpolator | `n` pieces | **no**, badly |
+
+So `library="glm"`, `"fast"` and `"default"` are inside — a Super Learner is a convex combination
+of its candidates and the convex hull of a class with entropy exponent below two is Donsker — and
+**only `"rich"` steps outside, via `forest`**. It is not refused, because a caller may want it and
+the estimator still computes something; it is *scoped*, in the matrix rows below.
+
+### 8.4 What is not settled, and what measures it
+
+**(S) is the open condition.** It splits in two and only one half is free. That
+`ĝ^(−k)` and the fold-free `ĝ` converge to a common limit is implied by the limit assumption [A]
+already needs, so it costs nothing. That the *fit* moves continuously with its design column does
+not: for a fixed-basis linear smoother it follows from a matrix perturbation bound, and for
+anything that **selects** structure from the data — a split point, a bandwidth, a neighbour, a
+CV-chosen candidate — an arbitrarily small design perturbation can move the selection discretely
+and leave `Δ_k` of order one on a region. **Boosting is entropy-safe and design-continuity-unsafe**,
+and it is the default reduction learner whenever the primary one is boosting, since
+`reduced_*_learner` falls back to it.
+
+That is the point at which an argument stops and an instrument starts, and **`Δ_k` is a computable
+array**: it is exactly the difference between `reduced_crossfit="pooled"` and `"nested"`. So the
+open condition of the pooled proof is the thing the reference construction estimates, which is why
+the two tracks this section used to hold open are one track — see
+[the validation plan's §7](validation-plan.md#7-the-cross-fitting-construction-piece-a1b) for the
+rule that reads it.
+
+**A further condition sits beside (E) and is a rate rather than an entropy bound.** `g_{r,2}`'s
+target is `(1_a − ĝ)/ĝ` at the *bounded* mechanism, so its envelope is `1/lo − 1`; equation (10)'s
+covariate is `g_{r,2}/g_{r,1}` with `g_{r,1}` truncated at the same bound, so that envelope is
+`O(1/lo²)`. Under `g_bounds="auto"`, `lo = 5/(√n·log n) → 0` and the envelope **grows with `n`** —
+so "a fixed ball with a non-growing bound" is false for `g_{r,2}` by construction under the shipped
+default. It pulls against [§7's](#7-truncation-is-not-in-the-theorems-algorithm) *bound sequence
+eventually below δ* row, which wants exactly that shrinkage; both are now matrix rows rather than a
+paragraph here.
+
+**And neither construction makes the *targeted* collection fold-independent.** `epsilon` is solved
+on all `n` rows — `targeting_scheme="fold"` is refused by name — so a nested fit is *nested in the
+nuisance models and pooled in the tilt*. That residual dependence is finite-dimensional and is
+handled by the expansion [the methodology page](../methodology.md) already gives for pooled
+targeting; it is a row below so that "nested" is not read as "independent".
+
+### 8.5 What A1a settled, and the reason it gave was wrong
+
+The comparison in `tests/unit/test_influence_gateaux_drtmle.py` is silent about this construction.
+That much stood and stands. **The reason recorded here was wrong twice over**, and A1b found it by
+building the thing the reason was about.
+
+It said the module runs at *saturated* reductions, "where each conditioning cell is a singleton, so
+there is no fold-borrowing left to differ about". On this law the design takes **three** values over
+a thousand rows, so the cells are not singletons — `_saturated_reductions` computes a value per cell
+precisely because they are not. And saturation of the *reduction* is not what decides it: under a
+primary learner that learns, an inner model and an outer model disagree, so the reduced regressions
+are fitted on different designs and any learner returns different arrays — a saturated one more so,
+since it keys on exact design values.
+
+What actually makes that module silent is `cross_fit=False` **and** oracle primary learners: one
+fold has no complement to nest inside, and a learner that ignores its training rows returns the same
+function whichever rows it saw. `tests/unit/test_nested_reductions.py` asserts that corrected
+statement rather than describing it, and keeps it as a mutation watched to **pass**.
+
+The correction matters beyond tidiness. The false reason would have licensed reading a
+*cross-fitted* saturated fit as evidence about fold reuse, which is the shape of mistake
+[stop-ship 14](../roadmap.md#stop-ship) exists to prevent — so the stop-ship's own wording was
+carrying the error it was written to catch.
+
+**Agreement with R would not have been evidence here** either — that package predates this
 construction — which is one of several reasons the parity piece was never going to earn its keep.
-
-**This is [A1b](../roadmap.md#a1b--the-cross-fitting-construction)'s work and it is the only part of
-piece A that is.** A1a closed the rest of this file without touching it, which is what the split
-was for: every other row here was a test to write or a reading to record, and this one is a proof
-to find or a second estimator to build. Nothing on the critical path to
-[B1b](../roadmap.md#b1b--the-theorem-conforming-targeting-decision) or to
-[C](../roadmap.md#c-the-demonstration) waits on it; [gate 1](../roadmap.md#c-the-demonstration) does.
-
-One thing A1a settled that narrows it. The comparison in
-`tests/unit/test_influence_gateaux_drtmle.py` runs at **saturated** reductions, where the pooled
-construction and any nested one return the same arrays — each conditioning cell is a singleton, so
-there is no fold-borrowing left to differ about. That is why the decomposition check closed without
-this item: it says nothing about the pooled construction either way, and it is worth writing down
-so the agreement is not read as evidence here. What separates the constructions is a reduction
-that genuinely **pools**, which is `tests/unit/test_remainder_drtmle.py`'s `TIED_G` / `TIED_Q`
-territory and where a nested reference estimator would first be measured.
 
 ## 9. What was read out of the R source, and what is still owed
 
@@ -804,7 +911,7 @@ than from the paper.
 
 Two rows are still open and neither is a gap in this piece. `R_{Q,n}`/`R_{g,n}` is item 13, which
 A1 *opens* and [piece C](../roadmap.md#c-the-demonstration) closes, because only that study knows
-`ψ_0`. And the reduced regressions' cross-fitting is [§8](#8-cross-fitting-is-not-covered-item-15),
+`ψ_0`. And the reduced regressions' cross-fitting is [§8](#8-cross-fitting-is-not-in-the-sources-and-the-argument-for-it-item-15),
 which is [A1b](../roadmap.md#a1b--the-cross-fitting-construction). Writing "open, owned by C" where a
 row used to read `TODO` is not a downgrade of the bar: `TODO` said *nobody has looked*, and these
 two say *this is whose it is*.
@@ -852,7 +959,7 @@ filled in from optimism, exactly as §15's `unverified` column says of itself.
 | empirical-process conditions | yes | 2016 working paper | — |
 | recursive algorithm | yes | 2016 working paper | — |
 | **truncation theorem** | **no** | not stated anywhere in hand | an original derivation, and it is **no longer owed**: [§7's scope decision](#the-scope-decision-item-25) restricts the guarantee to the inactive-bound regime, where the estimator is the theorem's, and puts the active one beside the theorem rather than inside it. Wanted only by someone who wants that regime covered |
-| **pooled cross-fitting theorem** | **no** | general CV claim only | a new argument or a reference construction — [§8](#8-cross-fitting-is-not-covered-item-15) |
+| **pooled cross-fitting theorem** | **no** | general CV claim only | **supplied here** rather than found: [§8](#8-cross-fitting-is-not-in-the-sources-and-the-argument-for-it-item-15)'s argument, whose entropy half turns on the reductions being univariate and whose stability half `reduced_crossfit="nested"` measures |
 | **multi-arm theorem** | **no** | software example only | the 2017 paper's multi-arm case, or a derivation |
 | weights, estimated or fixed | **no** | — | item 17 closed the transport on the exact law; the theorem says nothing |
 | repeated sample splitting | **no** | — | item 18 closed the arithmetic; the theorem says nothing |
@@ -878,7 +985,12 @@ than nothing at all, and one row that read **violated** now reads violated-and-m
 | `B_{Y,n} = o_p(n^(−1/2))` | Thm 1 | eq (10) | solved exactly | tests | met |
 | `R_{Q,n} = o_p(n^(−1/2))` | app. A | asymptotic linearity | unmeasured | `test_remainder_drtmle.py` has the *arithmetic* at saturated reductions; the empirical rate is [piece C](../roadmap.md#c-the-demonstration)'s column | **unverified** — item 13 |
 | `R_{g,n} = o_p(n^(−1/2))` | app. B | asymptotic linearity | unmeasured | as above, and the two branches must be reported **apart** — [§5](#5-the-remaining-remainder-terms) | **unverified** — item 13 |
-| Donsker / `L_2` for `D_A`, `D_Y` | app. A/B | the empirical-process terms | cross-fitting, pooled | `fit_reduced` docstring | **unverified** — item 15, and [A1b](../roadmap.md#a1b--the-cross-fitting-construction)'s whole content |
+| Donsker / `L_2` for `D_A`, `D_Y` | app. A/B | the empirical-process terms | cross-fitting, pooled | [§8.1](#81-the-decomposition-and-which-term-needs-what) splits it: the nested term is conditionally mean zero by the ordinary argument, and what is left is `(P_n − P_0)Δ_k` | **met for term [A]**; term [B] is the four rows below, which is what item 15 became |
+| **(E)** the reductions' univariate fitted class has a **measure-free** bracketing-entropy bound | not Thm 1's — A1b's | term [B]'s equicontinuity | fixed by the learner: `mean`/`glm`/`glmnet`/`gam` are bounded fixed-dimension sieves and `boost` is a fixed bounded-variation ball, since `max_iter=200`, `learning_rate=0.05`, `max_leaf_nodes=15` and `early_stopping=False` are constants in `learners/library.py` | [§8.3](#83-which-learners-are-inside-e-and-it-is-better-than-it-looks)'s table | **met for `library` in `glm`/`fast`/`default`**. This is the row the whole argument buys: the reduction is univariate, so the entropy condition falls on a one-dimensional class and *not* on the primary nuisances' complexity |
+| …and `library="rich"`, a nearest-neighbour or a saturated candidate is **outside** it | as above | as above | not refused and not warned — `reduced_*_learner` falls back to the primary spec | `_forest(min_samples_leaf=10)` gives `≈ n/10` pieces on one column | **outside the guarantee by declaration** where a caller asks for it. Scope, not a defect, and the same shape as [§7's](#the-scope-decision-item-25) truncation rows |
+| **(S)** `‖Δ_k‖ = o_p(1)` — the reduction fit is `L_2`-continuous in its design and target columns | not Thm 1's — A1b's | term [B]'s equicontinuity | not checked. Free for a fixed-basis smoother; **not** free for anything selecting a split, a bandwidth or a candidate from the data, which includes the default `boost` | **`Δ_k` is exactly the pooled-minus-nested difference**, so `DRTMLE(reduced_crossfit="nested")` computes it and [the plan's §7](validation-plan.md#7-the-cross-fitting-construction-piece-a1b) is the rule that reads it | **unverified**, and it is the one condition of the argument that a run rather than a reading settles |
+| `g_{r,2}`'s envelope is `1/lo` and `lo → 0` under `g_bounds="auto"` | not Thm 1's — A1b's | equation (10)'s block | the fit-time quotient by `bounded_propensity`, and `bounded_gr1` at the same bound, so the covariate's envelope is `O(1/lo²)` | `min gr1` is `0.000` on both `weak-overlap` cells | **unverified**, and a **rate** condition rather than an entropy one. It pulls *against* the `bound sequence eventually below δ` row above: the shrinkage that makes the truncation asymptotically inactive is what makes this envelope grow |
+| pooled targeting: no fold's arrays are conditionally independent of `epsilon` | **nowhere** | both constructions | `targeting_scheme="fold"` refused by name, so `epsilon` is solved on all `n` rows | [the methodology page](../methodology.md)'s finite-dimensional expansion, which this composes with rather than replaces | **not covered by the source**, and the reason a nested fit is *nested in the nuisance models and pooled in the tilt* rather than independent |
 | reduced regressions consistent | Thm 1 | the corrections' limits | estimated, unmeasured rates | `test_reduced_regressions.py` shows a **saturated** learner recovers them exactly on the exact law; that is consistency at one learner on one law and not a rate | **unverified** |
 | exact zeros vs `o_p(n^(−1/2))` | Thm 1 | the stopping rule | numerical criterion | item 12 | met under a stated restriction |
 | arm-level means / ATE contrast | Thm 1 + adaptation | the reported parameters | rowwise difference of arm curves | `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` — the contrast's variance is the difference's, not the sum of the arms' | met; the adaptation is stated, not cited |
@@ -892,8 +1004,13 @@ than nothing at all, and one row that read **violated** now reads violated-and-m
 | missing outcomes | **nowhere**; `drtmle` masks `D*_g` and this package does not | a lifted `delta=` | refused, so the two conventions never differ on a fit either package accepts | [§9](#9-what-was-read-out-of-the-r-source-and-what-is-still-owed) | **not covered by the source** — settle from the derivation *before* lifting the refusal; no run could ever have settled it |
 | composition with `CTMLE` | **nowhere** | — | refused | `test_drtmle_fit.py::TestTheRefusals` | **not covered by the source** |
 
-**Five rows read *not covered by the source*** — the truncation of `ĝ`, the truncation of
-`g_{r,1}`, `K` arms, missing outcomes and composition with `CTMLE` — and seven read `unverified`.
+**Six rows read *not covered by the source*** — the truncation of `ĝ`, the truncation of
+`g_{r,1}`, pooled targeting's `epsilon`, `K` arms, missing outcomes and composition with
+`CTMLE` — and eight read `unverified`. **A1b split the cross-fitting row into six and the count of
+`unverified` rows went up rather than down**, which is what this column is for and is the same thing
+A1a's revision recorded: the old single row said *nobody has an argument*, and the new ones say what
+the argument is, which of its conditions the learner settles, and which one a run has to. Two of
+them read **met under a stated restriction** — the first time this cell has moved on item 15.
 The two truncation rows were one row until item 25, and splitting them is the substance rather than
 bookkeeping: `ĝ`'s truncation has an assumption in the theorem to be scoped against (`g_0 > δ`) and
 `g_{r,1}`'s has none.

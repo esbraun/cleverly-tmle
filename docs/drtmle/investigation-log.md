@@ -743,7 +743,7 @@ this measurement**, and prefer a checked-in copy to either.
 
 ## What the sizings got wrong
 
-Twelve lessons, distilled from the per-item retrospectives that used to run to several hundred
+Thirteen lessons, distilled from the per-item retrospectives that used to run to several hundred
 lines. They are kept and the retrospectives are not, because the only thing a retrospective is
 for is the next sizing — the full pre-work read of what `drtmle` would touch, the per-seam record
 of what each cost, and the six landed refusals' own notes are in git history, last carried in full
@@ -944,3 +944,28 @@ and no derivation separates them.
 The trap in the third is that a structural pin *reads* like the other two. It says the code is
 shaped a particular way, not that the shape is right, and a reader who finds one where an
 invariant would have fitted will believe more than was checked.
+
+**13. A stop-ship's stated *reason* can carry the very error the stop-ship was written to catch,
+and only building the thing it talks about will find that.** [Stop-ship
+14](../roadmap.md#stop-ship) exists so that `test_influence_gateaux_drtmle`'s agreement is not read
+as evidence about the cross-fitting construction. Its conclusion was right for two revisions. Its
+reason — "it runs at saturated reductions, where every conditioning cell is a singleton" — was
+wrong twice over, and so were the two other documents that repeated it: on that law the design
+takes three values over a thousand rows, and saturation of the *reduction* does not decide the
+question at all, since under a primary learner that learns any reduction learner returns different
+arrays. What makes the module silent is `cross_fit=False` **and** oracle primary learners.
+
+The damage a wrong reason does is not cosmetic, and it is the specific thing worth remembering.
+A conclusion protects only the case it was written about; a *reason* is what a reader generalises
+from. This one would have licensed reading a **cross-fitted** saturated fit as evidence about fold
+reuse — precisely the inference the clause forbids — so the guard-rail was pointing at the wrong
+hazard while looking like it pointed at the right one.
+
+It survived because nothing could fail against it. The claim was about a construction that did not
+exist, so no test could contradict it, and it read as a technical detail rather than as a claim
+anyone would check. What found it was [A1b](../roadmap.md#a1b--the-cross-fitting-construction)
+building the nested construction and asking what the pooled one had to agree with it *about* — at
+which point the singleton claim did not survive its first contact with the fixture. **The rule:
+when a document says an instrument is blind, the reason is a claim like any other, and the way to
+check it is to build the thing it says the instrument cannot see.** The corrected statement is now
+asserted rather than described, and is kept as a mutation watched to *pass*.

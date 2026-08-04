@@ -243,6 +243,22 @@ class DRTMLE(TMLE):
         an ``epsilon`` from one is not an ``epsilon`` from the other.  And compare the two at
         the **same nuisances** -- the same data, the same ``random_state`` -- since the
         initial fits are all either route has in common.
+    reduced_crossfit:
+        How fold ``k``'s reduced regressions get their **training** rows' design and target:
+        ``"pooled"`` (default) reuses the primary split as it stands, and ``"nested"`` takes
+        them from primary models fitted with fold ``k`` left out as well.  **A diagnostic
+        keyword rather than a tuning one**, exactly as ``update_order`` is, and for the same
+        kind of reason: ``docs/roadmap.md``'s item 15 asks whether the cheap construction's
+        induced dependence is higher order, the argument for it needs one quantity to
+        vanish, and that quantity *is* the difference between these two.  So the expensive
+        one exists to be measured rather than to be used.
+
+        It is refused below ``n_folds=3`` and under ``cross_fit=False`` -- there is no
+        complement to leave a fold out of -- and, with ``targeting="one_step"``, by name.
+        It costs `K` times the primary nuisance fitting, paid once; what actually dominates
+        is that the nested reductions are noisier, so equation (10)'s near-singular solve
+        takes more rounds.  Measured at 1.3x to 17x a pooled fit's wall clock over four
+        draws, on two of which it reached the outer cap.
     reduced_outcome_learner, reduced_treatment_learner:
         Learners for the reduced-dimension regressions, defaulting to the specifications the
         primary nuisances use.  Two rather than one because the tasks differ:

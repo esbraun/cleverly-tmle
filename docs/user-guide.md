@@ -1183,6 +1183,17 @@ which the estimates agree to within a fifth of a standard error and the *standar
 by up to 2.3%; the sweep that would say whether that is typical is
 [still open](roadmap.md#b2b--the-dispatch-and-what-it-decides).
 
+`reduced_crossfit=` is the **second** diagnostic keyword and is here for the same kind of reason.
+The reduced regressions are fitted on the primary cross-fitting split, so fold `k`'s regression
+trains on rows whose design *and target* came from models that saw fold `k`. Whether that matters
+is [item 15](roadmap.md#a1b--the-cross-fitting-construction), the argument that it does not needs
+one quantity to vanish, and that quantity is exactly the difference between this construction and
+`reduced_crossfit="nested"` — which refits the primary nuisances leaving each outer fold out as
+well. So the expensive one exists to be measured against, not to be used: leave it at `"pooled"`
+unless you are running that comparison. It costs `n_folds` times the primary nuisance fitting and,
+more than that, more alternation rounds — 1.3x to 17x a pooled fit's wall clock on the draws
+measured so far.
+
 **A single guard reports a shorter curve, and the report says which.** One correction per
 equation the guard asks for: `guard=("g",)` solves equation (10) and reports
 `D = D* - D*_Q`, and the verdict names that rather than the both-guards curve. The other

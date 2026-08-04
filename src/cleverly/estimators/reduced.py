@@ -228,6 +228,12 @@ def fit_reduced(
         conditional means of a signed quantity.
     g_bounds:
         The truncation :math:`g_{r,2}`'s target divides by -- see below.
+    crossfit:
+        One of :data:`REDUCED_CROSSFITS`.  ``"pooled"`` reuses the primary split as it
+        stands and is what ships; ``"nested"`` reads fold ``k``'s training designs and
+        targets off :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner`, whose
+        models left fold ``k`` out as well.  A reference construction rather than a
+        production path -- see the last two paragraphs of the notes.
 
     Returns
     -------
@@ -245,21 +251,48 @@ def fit_reduced(
     :mod:`tests.unit.test_crossfit_leakage`'s dependence, arriving through the design
     matrix rather than through the target.
 
+    **Through the target as well**, which this paragraph used to leave out and which
+    ``docs/roadmap.md``'s item 15 left out after it.  :math:`Q_r`'s target is a residual of
+    :math:`\hat{\bar Q}` and :math:`g_{r,2}`'s is a quotient by :math:`\hat g`, so both
+    halves of two of these three regressions are generated regressors.  Only
+    :math:`g_{r,1}`'s target -- the arm indicator -- is data.  A construction that replaced
+    the designs and left the targets alone would remove half the dependence and report
+    itself as having removed it all; :func:`_roles` builds design and target off one pair of
+    primary arrays so that cannot happen quietly.
+
     Drawing an independent split for these regressions removes **none** of it: the
-    contamination is in the design values, not in which rows are trained on, so a second
-    split changes nothing and loses the alignment with the fits it is a reduction of.
-    The one construction that does remove it is per-fold designs -- predict
-    :math:`\hat g^{(-k)}` at *every* row, so fold ``k``'s reduced regression only ever
-    sees designs from the model that excluded fold ``k``.  It needs no extra fits, since
-    :func:`~cleverly.estimators._nuisance.cross_fit_predictions` already builds that
-    model and keeps only its test-fold slice.  What it costs is worse than what it buys:
-    the training designs would be that model's *in-sample* predictions and the test
-    design its out-of-sample one, and a reduced regression is a regression **of** the
-    design -- so it trades a second-order dependence for a first-order covariate shift.
-    So the split is reused, which is also what ``drtmle`` does, and ``groups`` is
-    forwarded so that the claim ``test_crossfit_leakage`` actually states -- a model must
-    not train on rows standing in for the ones it predicts -- holds at the level it is
-    stated.
+    contamination is in what the training rows carry, not in which rows are trained on, so
+    a second split changes nothing and loses the alignment with the fits it is a reduction
+    of.  Per-fold designs -- predict :math:`\hat g^{(-k)}` at *every* row -- do remove it
+    and cost more than they buy: the training designs would be that model's *in-sample*
+    predictions and the test design its out-of-sample one, and a reduced regression is a
+    regression **of** the design, so it trades a second-order dependence for a first-order
+    covariate shift.  So the split is reused, which is also what ``drtmle`` does, and
+    ``groups`` is forwarded so that the claim ``test_crossfit_leakage`` actually states --
+    a model must not train on rows standing in for the ones it predicts -- holds at the
+    level it is stated.
+
+    **And here is the argument that the reuse is second order, which this docstring owed
+    and did not have.**  Split fold ``k``'s empirical-process term into what the *nested*
+    construction contributes and a residual :math:`(P_n - P_0)\Delta_k`, where
+    :math:`\Delta_k` is the difference between the two.  The first is conditionally mean
+    zero by the ordinary cross-fitting argument.  The second needs asymptotic
+    equicontinuity, and the structural fact that supplies it is the one
+    :func:`_reduced_column` opens with: **the reduction is univariate**.  Composing with a
+    conditionally fixed :math:`\hat g^{(-k)}` transports brackets exactly, so the entropy
+    requirement falls on a class of functions of one scalar and not on the primary
+    nuisances' complexity at all -- and a fixed-dimension sieve, a monotone class or a
+    bounded-variation ball satisfies it under *every* measure, which is what the random
+    pushforward needs.  ``mean``, ``glm``, ``glmnet``, ``gam`` and ``boost`` are inside it;
+    ``forest`` is not, because its one-dimensional fits have :math:`O(n)` pieces.
+
+    What the argument does **not** settle is that :math:`\|\Delta_k\| \to 0`, which needs
+    the fit to move continuously with its design column -- free for a fixed-basis smoother
+    and not free for anything choosing a split point from the data.  That is why ``crossfit``
+    exists: :math:`\Delta_k` *is* the pooled-minus-nested difference, so the open condition
+    of the argument is the quantity the reference construction computes.
+    ``docs/drtmle/theorem-concordance.md`` §8 is the argument in full and
+    ``docs/drtmle/validation-plan.md`` §7 is the rule the measurement is read under.
 
     **One bound is chosen here rather than at targeting time**, and it is the only one in
     this package that is.  :math:`g_{r,2}`'s *target* is a quotient by the mechanism, so
