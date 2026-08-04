@@ -5,12 +5,17 @@ roadmap](../roadmap.md) says which pull request lands which of these and in what
 the detail those pull requests are executed from, so that a rule is written down before the number
 it judges exists.
 
-Four sections match four pieces of work: [B1a](#1-the-invariants-piece-b1a) is the identity patch,
+Six sections match six pieces of work: [B1a](#1-the-invariants-piece-b1a) is the identity patch,
 [B1b](#2-the-targeting-candidates-piece-b1b) is the targeting decision,
 [A1a](#3-the-component-checklist-piece-a1a) is the component checklist,
-[B2](#4-the-sweep-piece-b2) is the convergence and overlap sweep, and
-[C](#5-the-controlled-study-piece-c) is the demonstration. [The mutation
+[B2](#4-the-sweep-piece-b2) is the convergence and overlap sweep,
+[C](#5-the-controlled-study-piece-c) is the demonstration, and
+[A1b](#7-the-cross-fitting-construction-piece-a1b) is the cross-fitting construction. [The mutation
 table](#6-what-each-new-test-has-to-be-watched-to-fail) is what makes any of it evidence.
+
+§7 sits after §6 rather than before it because §6 was already numbered when A1b's section was
+written, and renumbering a page every document on this site links into by section number costs more
+than an out-of-order heading does.
 
 §3 used to be `drtmle` parity. That piece is
 [retired](../roadmap.md#closed-since-this-list-opened) — no R here and none in CI — and what took its
@@ -819,6 +824,12 @@ rather than being found afterwards.
 | unit | a fluctuation's recorded `score` **is** `score_columns` at the state it returned | **run**: score on the *weighted fit* submodel rather than the scoring one — reddens only the `target_weights=True` cases, which is why they are parametrised. The obvious mutation, recording the loop's in-loop score, was run and is **inert**: it is taken after the step, at the iterate the loop returns |
 | unit | every round reads equation (8) at the state it **exits** at, not the state it was solved at | **run**: delete the restatement — before it was made unconditional this reddened nothing but its own call-site pin, 68 of 69 tests passing, which is [lesson 12](investigation-log.md#what-the-sizings-got-wrong) |
 | unit | a weighted fit transports (item 17) | reductions taken at the sampling law (already done, item 17) |
+| unit | fold `k`'s nested reduced regression **trains** on fold-free arrays | **run**: hand the training rows the production design and target, and 12 of `tests/unit/test_nested_reductions.py`'s tests go red, including both agreement classes |
+| unit | …and **predicts** at the production design | **run**: predict at the inner design instead. One test red — the longhand — and nothing else, which is why that longhand is written out rather than trusted |
+| unit | it reads **its own** fold's copy | **run**: read fold `k+1`'s. Caught by the call-site pin and by nothing else, because every other fixture here uses copies that are equal across folds; the fixture's per-fold `spread` exists for this mutation alone |
+| unit | the fold-free arrays are moved by the fluctuation the production ones took | **run**: drop the `carry` in either funnel, and the degenerate control diverges after the first refit. That control — inner copies set *equal* to the production arrays — is what pins the whole transfer in one equality: `psi`, the variance, the curve, every `epsilon` and the round count, bit for bit |
+| unit | a saturated reduction on a finite law **cannot** see the construction in `g_{r,1}` | **run, and it must *pass***: both designs induce the partition by `W`, and `g_{r,1}` is the one reduction whose target is data rather than an estimate. `TestASaturatedReductionOnAFiniteLawCannotSeeItInGr1` is that kept as a test, so a later reader finds a named degeneracy rather than a defect |
+| unit | the `reseed` yardstick answers for the arm it was asked about | **run**: hard-code `"paper"` inside `route_rows` again, and the `nested` count reads `0/2` where it should read `2/2` |
 | oracle | the drift decomposition | delete one correction term |
 | component | each object of the curve equals what the derivation gives for it, **at a value where it does not vanish** | perturb one component and watch only that row move; and evaluate the whole checklist at the *truth* instead, where every row passes and the check is vacuous — the mutation that says the law is misspecified on purpose |
 | unit | the corrected curve **is** the Gateaux derivative in each half of the union model (A1a) | **run**: negate `CorrectionParts.total()` under each guard separately — `g_right` goes red on one and `q_right` on the other, so the two cells are not one test twice; and swap `gr1`/`gr2` inside `fit_reduced`, which reddens `q_right` only |
@@ -854,3 +865,95 @@ mistakes for coverage. Four of them are named in that module's docstring — ite
 the first two measured by running the mutation rather than reasoned about, and each with the
 module that *does* cover it, or with the piece that still owes it. Add to that list when a new instrument lands
 here; do not quietly narrow a parametrisation instead.
+
+**The fourth of those now has its module, and the reason it was blind was not the one recorded.**
+`tests/unit/test_nested_reductions.py` is what covers the cross-fitting construction, and building
+it found that the stated reason for `test_influence_gateaux_drtmle`'s silence — "at a saturated
+reduction every conditioning cell is a singleton" — is wrong twice over. On that law the design
+takes three values over a thousand rows, so the cells are not singletons; and saturation of the
+*reduction* is not what decides it, since under a primary learner that learns any reduction learner
+returns different arrays. What makes that module silent is `cross_fit=False` and oracle primary
+learners: one fold has no complement to nest inside, and a learner that ignores its training rows
+returns the same function whichever rows it saw. The conclusion is unchanged and the reason is now
+the true one — which matters, because the false one would have licensed reading a *cross-fitted*
+saturated fit as evidence about fold reuse. [Stop-ship 14](../roadmap.md#stop-ship) carries the
+corrected wording, and the corrected statement is now asserted rather than described.
+
+## 7. The cross-fitting construction (piece A1b)
+
+Item 15 asks whether the reduced regressions' **pooled** cross-fitting satisfies the
+empirical-process conditions of the DRTMLE expansion. [The concordance's
+§8](theorem-concordance.md#8-cross-fitting-is-not-covered-item-15) carries the argument; this
+section carries what a run can say about it, and the rule that run is read under.
+
+**What the argument needs measured, and it is not the thing a comparison usually measures.** The
+argument splits fold `k`'s empirical process into a term that is conditionally mean zero — the
+*nested* construction's — and a residual `(P_n − P_0)Δ_k`, where
+
+```text
+Δ_k = (fold k's reduced regression, as fitted) − (the same regression, fitted fold-free)
+```
+
+Given a bounded-entropy univariate class the residual is `o_p(n^(−1/2))` **provided `‖Δ_k‖ → 0`**.
+So `Δ_k` is not a diagnostic of the comparison, it *is* the assumption; and
+`reduced_crossfit="nested"` is the only thing that computes it.
+
+**The direction is the opposite of §4's and that is the whole reason to freeze this in advance.**
+There, two update orders provably solve the same three equations, so agreement was the expected
+finding and a persistent difference was the surprise. Here the two constructions are genuinely
+different estimators, and what the pooled argument needs is not that they agree but that the gap
+**shrinks**. A large but shrinking difference is the "pooled is fine" outcome; a small but stable
+one is not. Choosing that reading after seeing the numbers would be exactly the failure the frozen
+rules exist against.
+
+### The cross-fitting rule, frozen before the dispatch
+
+**It may be changed before the dispatch with a written reason, and not after it.**
+
+> **The pooled construction is the one [C](../roadmap.md#c-the-demonstration)'s final dispatch fits
+> if:**
+>
+> 1. the median `|Δψ|/se` between `nested` and `base` **decreases across the sizes** on both
+>    processes;
+> 2. the median `se` ratio is inside `[0.95, 1.05]` at the largest size on both processes;
+> 3. the **count** of draws in which the construction difference exceeds the *reseed* difference is
+>    at or below half the pairs at the largest size — the construction moving `psi` no further than
+>    a redrawn split of one construction does;
+> 4. no fit in either arm fails its score check or its state identity.
+>
+> The **primary** evidence is clause 1's slope. Clause 3 is supporting and is stated that way
+> *before* the run rather than after it, because [B2b](investigation-log.md#the-same-rule-at-thirty-six-draws-and-why-the-two-readings-are-not-nested)
+> measured the identical count clause underpowered at twelve draws and again at thirty-six; writing
+> it as primary here would be repeating a mistake this page has already recorded. Clause 3 is also
+> **one-sided** from the outset — a count far below half is evidence *for* the conclusion — which is
+> one of the two restatements §4 says may be made before a further dispatch and never after one.
+
+**What would falsify it**: a construction difference that **does not shrink** while the reseed
+difference does. That says the two constructions converge to different limits, that `Δ_k` is not
+`o_p(1)`, and that Theorem 1's expansion is not available for the pooled construction at the
+reduction learner in use. The nested construction then becomes the reference,
+`reduced_crossfit=` changes default, and C's dispatch is rerun — which is the rework edge
+[the roadmap](../roadmap.md#a1b--the-cross-fitting-construction) already prices.
+
+**Three readings this rule deliberately refuses.**
+
+- **A `weak-overlap` difference is not evidence about item 15 on its own.** Two of the three
+  reductions condition on `ĝ`, `g_{r,2}`'s target is a quotient by it, and a third of that
+  process's `(row, arm)` pairs clip at the initial mechanism. So the two arms there differ for a
+  truncation reason as well as a construction reason. Read `clip share` and `min gr1` beside it.
+- **`library="rich"` is outside the entropy condition by declaration**, so a `rich` cell would
+  measure a construction whose pooled argument was never claimed. The sweep runs at `glm`, which is
+  inside — see the concordance's §15 rows.
+- **A round-count or wall-clock difference is not a validity finding.** The nested arm runs 1.3x to
+  17x the base arm's wall clock and reaches the outer cap more often, because its reductions are
+  noisier and equation (10)'s solve is near-singular by construction
+  ([limitation 4](../roadmap.md#limitations-recorded-rather-than-fixed)). Clause 4 is what that
+  bears on, and clause 4 is about the *scores*, not about how many rounds it took to solve them.
+
+**What is not on this list, and could be.** A direct estimate of `‖Δ_k‖` — the paired `L₂` distance
+between the two arms' reduced arrays, which are row-aligned by construction since the arms share a
+draw and a fold seed. Clauses 1–3 measure its *consequence* on `ψ` and `se`, and a consequence can
+hold by cancellation. Reporting the norm itself would need each fit's `(n, 3K)` reduced block kept
+and paired after the sweep; it is a `--keep-reductions` flag and a table, it is not research, and it
+is the sharpest instrument this section could have. It is recorded here rather than built because
+the rule above is evaluable without it.
