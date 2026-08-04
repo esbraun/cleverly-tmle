@@ -34,8 +34,10 @@ package, and a pure-numpy rewrite of it beats the compiled parallel kernel on on
 
 > **Provenance for every number in §1.** Taken while writing this, on the four-core Intel
 > Xeon @ 2.80 GHz container these sessions run in, `/proc/loadavg` under 0.6, Python 3.11,
-> numpy 2.4.6, numba 0.66.0, threadpoolctl 3.6.0. Timings are medians of interleaved
-> repetitions. This is the same box `findings.md` was measured on, which is what makes the
+> numpy 2.4.6, numba 0.66.0, threadpoolctl 3.6.0. Timings are medians of repetitions taken in
+> randomised **block** order -- described here and in `findings.md` as interleaved, which the
+> harness did not do; see
+> [the reading note](README.md#reading-a-number-out-of-any-of-them). This is the same box `findings.md` was measured on, which is what makes the
 > comparisons below comparisons rather than anecdotes.
 
 ---
@@ -60,7 +62,8 @@ writing 205 MB, in numpy, in `src/`, today. Two consequences, and the second is 
 changes the plan.
 
 **A blocked numpy rewrite is most of the win, with no dependency.** Through the production
-arithmetic at `n = 100,000`, `m = 7`, `B = 1,000`, interleaved, three repetitions each:
+arithmetic at `n = 100,000`, `m = 7`, `B = 1,000`, three repetitions each in randomised block
+order:
 
 | implementation | seconds | speed-up | critical value |
 | --- | ---: | ---: | --- |

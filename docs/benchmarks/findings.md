@@ -4,25 +4,28 @@ The recommendation half of the investigation whose profile is
 [`candidate_inventory.md`](candidate_inventory.md). Read that first — it is what the work
 was sized against, and three of the things it is natural to expect turn out to be false.
 
-> ### Superseded in four places — read this first
+> ### How these conclusions changed, and the lesson under all of it
 >
-> Acting on this document produced [`production_plan.md`](production_plan.md) and four
-> changes, and each of them contradicts something below. The measurements here are
-> reproducible; several of the **conclusions** are not what they should have been, because
-> the numpy baseline they were measured against was the shipped implementation rather than
-> a competent one.
+> **The corrections below are applied in the body of this document**, section by section,
+> so a reader does not need another one open to trust a number here. This table is the
+> summary and the history, not a redirect: acting on this document produced
+> [`production_plan.md`](production_plan.md) and four changes, and each contradicted
+> something it said.
 >
-> | below | now | where |
+> The measurements were reproducible. Several of the **conclusions** were not what they
+> should have been, and the reason is one mistake made three times: **a ratio measured
+> against the shipped shape is not a ratio against numpy.** Two of the three largest "adopt
+> numba" recommendations here dissolved when the numpy side was written properly, and the
+> third was a share of the wrong denominator. Before quoting anything below, check what the
+> *production* function costs and what a competent numpy version of it would.
+>
+> | as issued | as it stands | where |
 > | --- | --- | --- |
-> | `multiplier_bootstrap`: **adopt numba parallel**, 2.4–2.5× serial | The numpy path is now **3.4–3.9×** faster than it was and allocates a fixed 32 MB at any `n`. The cost was never the draw (2%) but the float64 expansion (89%). A compiled kernel must beat *that*; the one measured for the plan does not. **Unresolved.** | [`bootstrap_numpy.md`](bootstrap_numpy.md) |
-> | `cluster_sums`: **adopt numba**, 5.5–10.2× serial | Measured against the codes production actually passes — the container densifies them once — the compiled kernel is **1.02× at five estimands and 0.74× at a million rows**. The 5.5–10.2× was mostly an `np.unique` the package no longer runs. **Retain numpy** below ~20 estimands. | [`cluster_integration.md`](cluster_integration.md) |
+> | `multiplier_bootstrap`: **adopt numba parallel**, 2.4–2.5× serial | The numpy path is now **3.4–3.9×** faster than it was and holds its buffer to a 32 MB budget with a four-replicate floor. The cost was never the draw (2%) but the float64 expansion (89%). A compiled kernel must beat *that*; the one measured for the plan does not. **Unresolved.** | [`bootstrap_numpy.md`](bootstrap_numpy.md) |
+> | `cluster_sums`: **adopt numba**, 5.5–10.2× serial | Measured against the codes production actually passes — the container densifies them once — the compiled kernel is **1.02× at five estimands and 0.74× at a million rows**. The 5.5–10.2× was mostly an `np.unique` the package no longer runs. **Retain numpy**, on a fit-level share; the crossover in `m` is not located. | [`cluster_integration.md`](cluster_integration.md) |
 > | `ltmle_backward_recursion`: fix the masks, then **adopt numba parallel** | The mask fix is made and is `O(T²n)` → `O(Tn)`, 8.7× on the mask term at `T = 20`. In a **fit** it is 0.06% of the runtime at every `T` up to 40. The recursion's whole package-owned arithmetic is 1.5% of a `glm` fit; `inference` is 20%. | [`longitudinal_masks.md`](longitudinal_masks.md) |
 > | §3.2's memory column and §6's thread limiter | `tracemalloc` **does** see numba's allocations, so the caveat under that table is wrong. And the thread limiter is fixed: 59× per entry, **49% of a DR-TMLE `retarget`**. | [`thread_limit_profile.md`](thread_limit_profile.md) |
->
-> The pattern in the first three rows is one mistake made three times: **a ratio measured
-> against the shipped shape is not a ratio against numpy.** Two of the three largest
-> "adopt numba" recommendations here dissolved when the numpy side was written properly,
-> and the third was a share of the wrong denominator.
+> | the timing method, described throughout as *interleaved* | It was randomised **block** order: each arm's repetitions back to back, the order of the arms shuffled. The harness now rotates properly, so a rerun is a different instrument — see the provenance note below. | — |
 
 Everything here is **post-nuisance**: learner fits are outside every timed region. That is
 what makes `n = 1,000,000` a couple of seconds and the scaling questions answerable by
@@ -35,6 +38,14 @@ share before it means anything about a fit.
 > shared box is a poor place to measure efficiency past two threads and a fine place to
 > measure a serial speed-up; `benchmarks/configs/full.yaml` is the sweep to run on a
 > machine with cores to spare. Results from different hardware are different measurements.
+>
+> **And from a different harness.** Every number below was taken in randomised *block*
+> order — each arm's repetitions run back to back, the order of the arms shuffled — which
+> this document and the harness's own docstring both called interleaving and which is not.
+> `measure_interleaved` now rotates properly, so **a rerun is a different instrument rather
+> than a replication**, and the ratios here that sit within a few percent of 1.0 were never
+> resolved by them. The large ones are not in doubt: block order confounds drift with arm,
+> and no plausible drift on this box turns a 10× into a 1×.
 
 ---
 
@@ -50,7 +61,7 @@ where it differs from the one this table shipped with, the banner above says why
 | kernel | serial vs numpy-1 | 4 cores vs numpy-1 | memory | classification |
 | --- | ---: | ---: | --- | --- |
 | `multiplier_bootstrap` | 2.4–2.5× | 7.4–7.6× | 427.6 MB → 1.6 MB per call | **unresolved** — the numpy path is now 3.4–3.9× faster than the one measured here |
-| `cluster_sums` | 5.5–10.2× | 9.5–20.7× | 1.22× (a hash table where numpy sorts) | **retain numpy** below ~20 estimands — measured against densified codes it is 1.02× |
+| `cluster_sums` | 5.5–10.2× | 9.5–20.7× | 1.22× (a hash table where numpy sorts) | **retain numpy** — measured against densified codes it is 1.02x at five estimands, and the crossover in `m` is unlocated |
 | `ltmle_backward_recursion` | **2.1–4.7×** | **7.9–15.2×** | 0.61× | **promising prototype** — the region it speeds up is 1.5% of a fit |
 | `survival_incidence` | **3.4×** | **9.5×** | 0.87× | **promising prototype**; integrated gain unresolved |
 | `one_step_walk` | **2.6–3.0×** | **3.8–4.1×** | 0.50× | **semantic change first** — which estimator is intended when the shrink bound binds |
@@ -84,7 +95,7 @@ And the one that is not a compilation question at all:
 > **The cost is not the draw.** Split at `n = 100,000`: `rng.integers` 3.5 ms (2%),
 > `np.unpackbits` 1.7 ms (1%), expanding those bits into a 205 MB float64 array 159 ms
 > (**89%**), the `dgemm` 12.6 ms (7%). Expanding in place into a reused buffer, with the
-> block sized by bytes, is **3.4–3.9×** in numpy alone and holds a fixed 32 MB at any `n` —
+> block sized by bytes, is **3.4–3.9×** in numpy alone and holds its buffer to a 32 MB budget —
 > faster than the compiled kernel below is here, with no dependency and the seeded stream
 > untouched. See [`bootstrap_numpy.md`](bootstrap_numpy.md).
 
@@ -135,7 +146,7 @@ every later one reads a delta of zero. The numbers above are per-call allocation
 an untimed pass with `tracemalloc` — which sees numba's NRT allocations as well as numpy's;
 see §3.2.)
 
-**And the numpy figure has since fallen to a fixed 32 MB budget at any `n` without a
+**And the numpy figure has since fallen to a 32 MB buffer budget without a
 compiler**, which is what makes this row *unresolved* rather than an adoption: see
 [`bootstrap_numpy.md`](bootstrap_numpy.md). The capability claim in the paragraph above
 survives; what does not is the attribution of it to compilation.
@@ -567,7 +578,7 @@ numpy side of both candidates, is **not yet**:
 3. ~~**`cluster_sums`** and the **multiplier bootstrap** (§2.1–2.2)~~. Both were rewritten
    in numpy first, as the plan's own rule required, and both ratios collapsed. The
    bootstrap's numpy path is now 3.4–3.9× faster than the one measured here and allocates a
-   fixed 32 MB at any `n` — so the capability change is had without the dependency, and a
+   a 32 MB buffer budget — so the capability change is had without the dependency, and a
    compiled kernel now has to beat *that*. `cluster_sums` against the codes the container
    actually produces is 1.02× at five estimands and 0.74× at a million rows; its 5.5–10.2×
    was mostly an `np.unique` the package no longer runs.
@@ -579,8 +590,11 @@ numpy side of both candidates, is **not yet**:
    where `inference` is 20%. A 10× on 1.5% is not a dependency.
 
 **Retain numpy** for the targeting Newton, the fused influence curves, the DR-TMLE
-alternation arithmetic, and — added by the work above — cluster aggregation below about
-twenty estimands.
+alternation arithmetic, and — added by the work above — cluster aggregation, whose
+kernel-level win is real from about seven estimands and whose *fit-level* share is not worth
+a dependency: 2.3–2.8× on `influence_covariance`, ~1.1× on a clustered `retarget` at
+`n = 10⁵`, and nothing at `n = 20,000`. The crossover in `m` itself is **unlocated** — see
+[`cluster_integration.md`](cluster_integration.md), which named twenty and should not have.
 
 **Defer** the CTMLE candidate scoring until candidates are cheap enough for it to be
 visible, and the MSM Gram until something else makes the projection matter.
@@ -622,7 +636,23 @@ Stated so a reader does not mistake a gap for a covered case.
   the second applied to the result. Neither the composition nor its index generation has a
   kernel of its own, because neither adds arithmetic to what those two already measure.
 - **Core counts stop at four**, because the box has four. Several kernels are still above
-  0.7 efficiency there and their curves have not turned over.
+  0.7 efficiency there and their curves have not turned over. **And nothing in CI reaches
+  even that**: both jobs in `.github/workflows/numba-benchmark.yml` ran `--num-cores 1 2`,
+  and the `full` one passed it *alongside* `full.yaml`'s own `[1, 2, 4, 8]`, which the flag
+  replaces rather than narrows — so the config's 4 and 8 were discarded and no run anywhere
+  has produced an eight-core point. The flag is gone from that job and the core counts above
+  a runner's are now recorded as skipped rows rather than silently dropped, but the *gap* is
+  unchanged until someone dispatches it at a larger `runner:`. So: **nothing here says numba
+  would not help a large repeated workload on 8–32 physical cores.** It says the measured
+  serial and low-core workloads do not justify it.
+- **Every number was taken in randomised block order**, not in the rotation the harness now
+  uses — see the provenance note in §1. Ratios of 3× and above are not in doubt; ratios
+  within a few percent of 1.0, such as `cluster_sums`'s 1.02× at five estimands, are not
+  resolved by this run and would need a paired rerun on the current harness.
+- **`cluster_sums` has a reproducible discontinuity between five and seven estimands** that
+  nothing here explains, and the harness grid (`n_estimands: [1, 5, 20]`) has no point
+  between 7 and 20. So its crossover in `m` is unlocated rather than known; see
+  [`cluster_integration.md`](cluster_integration.md).
 - **`n` stops at 10⁶** for the row-indexed kernels and lower for the recursions, which is
   where a `numpy` reference at `T = 20` reaches four seconds a call. Nothing here is
   extrapolated past what was run.

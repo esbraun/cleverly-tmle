@@ -1917,7 +1917,9 @@ thing.** "92–95% multiplier generation" reads as an argument about the random 
 n=100,000 it is 3.5 ms drawing the packed bits, 1.7 ms unpacking them, 12.6 ms in the `dgemm` —
 and **159 ms, 89%, expanding one bit per element into a 205 MB float64 array**. Expanding in
 place into a buffer sized by a byte budget rather than by a replicate count makes the path
-3.4–3.9× faster and caps its working set at **32 MB whatever `n` is**, with the seeded stream
+3.4–3.9× faster and puts its buffer on a **32 MB budget with a four-replicate floor** — so it
+is 32 MB up to `n = 2²⁰` and `32n` bytes above that, 160 MB at five million rather than 9.5 GB,
+and it is a buffer figure rather than a working set. With the seeded stream
 untouched and the critical value bit-identical. So the allocation that broke first at scale is
 gone without a compiler, and the remaining one — the density learner's long design — is now the
 binding constraint on its own. `docs/benchmarks/bootstrap_numpy.md` has the measurement.

@@ -9,7 +9,8 @@ This is the numpy change and what it leaves for a compiler.
 
 > Measured on the four-core Intel Xeon @ 2.80 GHz container this repository's cloud sessions
 > run in, `/proc/loadavg` under 0.6, Python 3.11, numpy 2.4.6, OpenBLAS 0.3.31. Medians of
-> interleaved repetitions; memory is `tracemalloc` peak over one untimed call.
+> repetitions taken in randomised **block** order, not interleaved -- see [the reading note](README.md#reading-a-number-out-of-any-of-them);
+> memory is `tracemalloc` peak over one untimed call.
 
 ## 1. The profile the previous one pointed the wrong way
 
@@ -72,9 +73,32 @@ here has to be worth.
 
 The memory column is the more durable half. `docs/roadmap.md` names the `(chunk, n)`
 multiplier matrix as one of two allocations that break before any arithmetic does — 9.5 GB at
-`n = 5,000,000`. What is left is a buffer with a **fixed 32 MB budget at any `n`**, so the
-allocation no longer grows with the sample at all. That is the same capability change
-`findings.md` attributed to the compiled kernel, obtained without it.
+`n = 5,000,000`. What is left is a buffer with a **32 MB budget and a four-replicate floor**,
+which is the same capability change `findings.md` attributed to the compiled kernel, obtained
+without it.
+
+**It is a target, not a constant, and this document said "fixed … at any `n`" four paragraphs
+after deriving the clamp that contradicts it.** `_MIN_BLOCK = 4` keeps the `dgemm` wide enough
+to be worth calling, so the budget binds only while a 4-replicate block fits inside it — up to
+`n = 2²⁰ = 1,048,576`. Above that the buffer is `4 × n × 8 = 32n` bytes and grows linearly
+forever:
+
+| `n` | block | buffer | what bound it |
+| ---: | ---: | ---: | --- |
+| 100,000 | 40 | 32.0 MB | the byte budget |
+| 1,000,000 | 4 | 32.0 MB | `_MIN_BLOCK`, just |
+| 5,000,000 | 4 | **160 MB** | `_MIN_BLOCK` |
+| 10,000,000 | 4 | **320 MB** | `_MIN_BLOCK` |
+
+And it was never a *working-set* figure, which is the stronger form of the same overclaim.
+The buffer's own peak is about `1.14×` its size — `np.unpackbits` materialises a `block × n`
+uint8 temporary before the copy — and the `(n, m)` arrays around it are larger than the buffer
+at scale: `centred` is `8nm` bytes, and `simultaneous_bands` stacks a second one, so at
+`n = 5,000,000, m = 7` those two are ~560 MB against the buffer's 180 MB. The measured
+direction of the change is unaffected — 1,881 MB to 92 MB at `n = 10⁶` is what the table
+above says, and 9.5 GB to 160 MB is what it says at five million — but "the allocation no
+longer grows with the sample at all" was wrong, and the package's own test already encoded
+the correct rule: `assert block * n * 8 <= _BLOCK_BYTES or block in (4, 256)`.
 
 ## 4. The seeded stream is unchanged, and the block does not move it
 

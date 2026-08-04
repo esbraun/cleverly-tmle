@@ -339,8 +339,8 @@ the package's own arithmetic help? Its write-ups are
 and [what acting on it found](https://github.com/esbraun/cleverly-tmle/blob/main/docs/benchmarks/production_plan.md).
 The short answer so far is **numpy**: the two kernels the measurement rated clearest for
 compilation were rewritten in numpy first, as its own rule required, and both ratios
-collapsed — a Rademacher bootstrap 3.4–3.9× faster at a fixed 32 MB of working memory at any
-`n`, and a cluster aggregation that no longer re-derives an encoding it was already given.
+collapsed — a Rademacher bootstrap 3.4–3.9× faster on a 32 MB buffer budget rather than an
+allocation that grew with the sample, and a cluster aggregation that no longer re-derives an encoding it was already given.
 The largest single win in the whole investigation was not arithmetic at all: building
 `threadpoolctl`'s controller once per process rather than once per learner fit, which was
 **49% of a DR-TMLE `retarget`**. `numba` remains a benchmark-only dependency.

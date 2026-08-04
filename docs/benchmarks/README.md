@@ -27,7 +27,7 @@ And the four results of executing that plan, each a step of its §4:
 | document | what it found |
 | --- | --- |
 | [`thread_limit_profile.md`](thread_limit_profile.md) | building `threadpoolctl`'s controller once per process rather than once per learner fit: **59× per entry**, 49% of a DR-TMLE `retarget` |
-| [`bootstrap_numpy.md`](bootstrap_numpy.md) | the multiplier bootstrap rewritten in numpy: **3.4–3.9×**, and 1,881 MB down to a 32 MB budget at `n = 10⁶`, with the seeded stream bit-identical |
+| [`bootstrap_numpy.md`](bootstrap_numpy.md) | the multiplier bootstrap rewritten in numpy: **3.4–3.9×**, and 1,881 MB down to 92 MB at `n = 10⁶`, on a 32 MB buffer budget with a four-replicate floor, with the seeded stream bit-identical |
 | [`cluster_integration.md`](cluster_integration.md) | `cluster_sums` against the codes the container actually produces, where the compiled kernel's advantage largely disappears |
 | [`longitudinal_masks.md`](longitudinal_masks.md) | the LTMLE mask rebuild, `O(T²n)` → `O(Tn)` — real, and 0.06% of a fit |
 
