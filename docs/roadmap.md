@@ -8,10 +8,20 @@ pieces of work, each of which is a pull request rather than an errand.
 
 **No known defect is live.** The last one — the reported curve was not centred wherever the
 mechanism truncation bound — closed with
-[B1b](#b1b--the-theorem-conforming-targeting-decision), and what is left is a demonstration, a
-cross-fitting construction, a **scope decision** and a widening of scope. That is a different kind
-of list from the one this page opened with, and it does not lower the bar: *done* still means a
-demonstration that the interval attains nominal coverage where a plain `TMLE`'s does not.
+[B1b](#b1b--the-theorem-conforming-targeting-decision), and what is left is **a demonstration and a
+widening of scope**. That is a different kind of list from the one this page opened with, and it
+does not lower the bar: *done* still means a demonstration that the interval attains nominal
+coverage where a plain `TMLE`'s does not.
+
+**The cross-fitting construction has come off that list**, and how it came off is worth a line
+because it is not what this page expected. [A1b](#a1b--the-cross-fitting-construction) held two
+tracks open — a proof for the pooled construction *or* a nested reference estimator — and writing
+the argument showed they are one track: the residual the proof cannot reach is `Δ_k`, which is by
+definition the difference between the two constructions. The entropy half then closes on a
+structural fact the module docstring had been stating all along, that **the reductions are
+univariate**, so the Donsker condition cross-fitting exists to avoid is available for them whatever
+the primary nuisances did. The stability half is measured, supported in all six cells, and **not
+shown** — which is why the wording throughout says so.
 
 **The scope decision is the newest of them and it came from reading this page against its own
 concordance.** B1b left the score and the curve one expression at one state; it did not make
@@ -26,9 +36,8 @@ measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured) closed ite
 the weak-overlap product decision, and rewrote limitations 4 and 6 from their own numbers. The
 headline is that the alternation's exit distribution **inverted** — 87 of 96 fits reach the
 tolerance where 2 did — and that `weak-overlap`'s score check now fails on **0 of 24** where it
-failed on 23, on draws whose overlap is unchanged. So what is left is a demonstration, a
-cross-fitting construction, a scope decision, a widening of scope, and one clause of one frozen
-rule. **That same dispatch supplies the scope decision's evidence**, in columns it was not run
+failed on 23, on draws whose overlap is unchanged. So what is left is a demonstration, a widening
+of scope, and one clause of one frozen rule. **That same dispatch supplies the scope decision's evidence**, in columns it was not run
 for: `clip share` is `0.000` on the three ordinary processes and `0.231` to `0.338` on
 `weak-overlap`, whose `margin` is exactly zero at both sizes it is recorded at. Those are the two
 regimes item 25 separates, already measured.
@@ -384,7 +393,8 @@ errand — ~2,000 fits, re-timed but still a workflow of its own. The
 unstated scope is a number about an estimator nobody has named; it is a page of prose and freezing
 it costs nothing. **A1b is an edge because the estimator C fits is the pooled construction**: if
 A1b concludes that construction has to change, C's numbers are numbers about the wrong estimator
-and the study is rerun. This page said A1b "blocks nothing", which is true of every *other* piece
+and the study is rerun. **That edge is now discharged** — the decision is frozen at pooled — but it
+is not gone, since the condition it rests on is supported rather than shown. This page said A1b "blocks nothing", which is true of every *other* piece
 and was read as true of C — and A1b's own section already says the outcome may be that a nested
 reference implementation is needed. That is a rework edge, and the ordering rule it implies is
 narrower than "finish A1b first": **A1b's construction decision must be frozen before C's final
@@ -1645,9 +1655,11 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
 6. **The [contract](#the-supported-contract-and-item-25)**, which is prose and is the cheapest
    thing on this list. It is ordered here rather than "anywhere" because it is what C's numbers are
    read under, and a scope inferred from a completed study is not a scope.
-7. **A1b**, which still waits on nothing — but whose construction decision has to be frozen before
-   C's *final* dispatch, because C fits the pooled construction and a study of a construction that
-   then changes is a study of the wrong estimator. Its pilot does not wait on this.
+7. **A1b**, which waited on nothing and has landed. Its construction decision is now **frozen at
+   the pooled construction**, which is what C's final dispatch needed — the argument closes on the
+   entropy condition and the dispatch supports the stability one without showing it, and the thing
+   that would reopen the decision is a `‖Δ_k‖` measurement rather than another sweep of this one.
+   [What it measured](drtmle/investigation-log.md#what-the-a1b-dispatch-measured).
 8. **C**, which is the point. Its sizing is the thing to redo first: it was costed from a 43s
    `DRTMLE` fit and that fit is now several times cheaper, so re-time before re-scoping. **Its
    design needs nothing added** — a review proposed two off-diagonal regimes, a known nonzero
