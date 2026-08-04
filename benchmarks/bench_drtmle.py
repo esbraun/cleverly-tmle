@@ -12,23 +12,25 @@ exists so the numbers stop living as prose in a docstring.  It is the same reaso
 ``bench_tmle.py`` states for keeping its rows: a comparison nobody can rerun becomes
 folklore.
 
-**It has been run once, and the table is in ``docs/drtmle/investigation-log.md`` under *How
-the alternation exits*.**  What it found is worth knowing before running it again.  Item 4's
-"minority behaviour rather than the norm" named the wrong minority: 8 of 96 fits ran out of
-rounds, but only **2 reached the tolerance** and **86 stalled**.  Item 6 held exactly (94 of
-96).  Item 7's disagreement showed on 68 of 96 and the criterion was changed on the strength
-of it, so **a fresh sweep no longer measures what that table measures** -- rerun it to see
-the new exit distribution, not to reproduce the old one.  And it turned up something none of
-the three items was about: ``weak-overlap`` failed ``score_check`` on 23 of 24 fits, which
-became item 11.
+**It has been run twice on the same 96 draws, and both tables are in
+``docs/drtmle/investigation-log.md``** -- the first under *How the alternation exits*, the
+second under *What the B2b dispatch measured*.  The first was taken before the exit criterion
+item 7 replaced and before piece B1b; the second is the live one, and every column moved:
 
-**Everything above was measured before piece B1b, and that is the point of running it
-again.**  Items 11 and 20 were one defect -- equation (9) solved at the raw tilted mechanism
-while the reported curve read the truncated one -- and it is closed, so the 23-of-24 failure
-is on present evidence a convention mismatch rather than the estimator breaking down.  This
-script is [piece B2](../docs/roadmap.md)'s instrument for re-measuring that at scale, and it
-now records what ``docs/drtmle/validation-plan.md`` §4 asks for rather than the three
-columns the first sweep had.
+* **the exit distribution inverted**, from 2 tolerance / 86 stall / 8 cap to **87 / 8 / 1**,
+  at a median of 4 to 9 rounds against 12 to 24 and a seventh of the wall clock.  Nothing
+  about the iteration changed -- the exit test reads a different ruler;
+* **item 6 now holds universally**, 96 of 96 against 94 of 96, which is the one place a
+  bounded mechanism convention made a limitation slightly worse and is where that prediction
+  stopped being a guess;
+* **item 7's disagreement is 96 of 96**, against 68, which is that same ruler seen from the
+  other side;
+* **``weak-overlap``'s score check fails on 0 of 24**, against 23 of 24 -- items 11 and 20,
+  closed by B1b, measured at scale rather than on four fixtures.  Its overlap columns are
+  unchanged, which is what says the failure was the convention and not the draws.
+
+So **rerun this to see whether those hold, not to reproduce the first table**, and read the
+second before quoting any of it.
 
 The questions, and the columns that answer them:
 
@@ -654,6 +656,14 @@ def comparison_rows(results: list[Exit], variant: str) -> list[list[str]]:
     Paired on the draw rather than compared cell-mean to cell-mean: the two arms fit the
     *same* data with the *same* fold seed, so the difference is the arm's and pairing is
     what removes the draw-to-draw variation that would otherwise swamp it.
+
+    ``worst identity`` is here because :func:`curve_rows` is base-only, and the update-order
+    rule frozen in ``docs/drtmle/validation-plan.md`` §4 asks for the state identity in
+    **either** arm rather than in the one that happens to be the reference.  Every
+    :class:`Exit` already carries a populated :class:`Curve` -- :func:`one_fit` computes it
+    whatever the arm -- so the number existed and only the table dropped it.  The column
+    makes that clause measurable; it does not move the rule, and reading it as a change to
+    one would be the thing §4 was frozen to prevent.
     """
     base = {
         (r.process, r.n, r.data_seed): r for r in results if r.variant == "base" and not r.error
@@ -675,6 +685,10 @@ def comparison_rows(results: list[Exit], variant: str) -> list[list[str]]:
                 f"{_median(ratios):.4f}",
                 f"{min(ratios):.4f} - {max(ratios):.4f}",
                 _share([not other.score_ok for _, other in paired]),
+                # A max rather than a median, as `curve_rows` takes it: the identity's right
+                # value is zero, so the cell's verdict is its worst row and an average would
+                # let one broken fit hide behind eleven sound ones.
+                f"{max(other.curve.identity for _, other in paired):.1e}",
                 f"{_median([other.rounds for _, other in paired]):.0f}",
             ]
         )
@@ -827,6 +841,15 @@ def main() -> None:
     # the one pathological fit on record was "a fit whose fold split was drawn unseeded", so
     # a sweep holding `random_state` at FAST_KWARGS's 0 would sweep straight past the thing
     # it is measuring; the third is the control arm's, and is only read when it is asked for.
+    #
+    # **That stability is across a third *stream*, not across `--seeds`, and the difference
+    # bites.** The blocks are `[:s]`, `[s:2s]` and `[2s:]`, so raising `s` leaves the data
+    # seeds' prefix alone and moves the fold and control blocks wholesale: a 36-seed run
+    # shares its first twelve *datasets* with a 12-seed one and not one of their fold splits.
+    # Two such runs are therefore not nested, and neither supersedes the other -- read them
+    # as separate samples that happen to share some draws. Measured: raising `--seeds` from
+    # 12 to 36 moved `weak-overlap`'s median route shift at `n = 600` from `1.6e-01` to
+    # `5.0e-01`, most of which is this rather than the extra draws.
     drawn = np.random.SeedSequence(args.seed).generate_state(3 * args.seeds)
     seeds = [
         (int(data), int(fold), int(control))
@@ -955,6 +978,7 @@ def main() -> None:
                     "med se ratio",
                     "se ratio range",
                     "check fails",
+                    "worst identity",
                     "med rounds",
                 ],
                 comparison_rows(results, variant),
@@ -1003,10 +1027,11 @@ def main() -> None:
     stalled = [r for r in ok if r.exit_reason == "stall"]
     print(
         f"{len(capped)} of {len(ok)} fits ran out of rounds and {len(stalled)} stalled; "
-        f"{len(ok) - len(capped) - len(stalled)} reached the tolerance. Item 4 of the "
-        "roadmap called a capped exit a minority behaviour of particular draws; the first "
-        "sweep found that true (8 of 96) and the contrast misleading -- only 2 of 96 "
-        "converged, and stalling is what the loop mostly does. Read all three counts."
+        f"{len(ok) - len(capped) - len(stalled)} reached the tolerance. Read all three "
+        "counts, and against both prior sweeps: 8/86/2 cap/stall/tolerance under the exit "
+        "criterion item 7 replaced, and 1/8/87 under the one in force. Item 4 of the roadmap "
+        "called a capped exit a minority behaviour of particular draws; it is that, and "
+        "stalling is no longer what the loop mostly does."
     )
     closing_capped = [r for r in ok if r.closing_capped]
     print(

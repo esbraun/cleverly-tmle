@@ -13,10 +13,13 @@ demonstration, a cross-fitting construction and a widening of scope. That is a d
 list from the one this page opened with, and it does not lower the bar: *done* still means a
 demonstration that the interval attains nominal coverage where a plain `TMLE`'s does not.
 
-**The sweep is now a dispatch rather than a piece of work**: its instrument landed with
-[B2a](#b2a--the-sweep-instrument), which built the columns
-[§4](drtmle/validation-plan.md#4-the-sweep-piece-b2) asks for and the second update order item 22
-needs, and verified the workflow on a four-fit run.
+**The sweep has run**, four dispatches of it, and [what it
+measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured) closed items 12 and 19, took
+the weak-overlap product decision, and rewrote limitations 4 and 6 from their own numbers. The
+headline is that the alternation's exit distribution **inverted** — 87 of 96 fits reach the
+tolerance where 2 did — and that `weak-overlap`'s score check now fails on **0 of 24** where it
+failed on 23, on draws whose overlap is unchanged. So what is left is a demonstration, a
+cross-fitting construction, a widening of scope, and one clause of one frozen rule.
 
 That grouping and its order are a revision, three times over. An [external
 review](drtmle/review.md) of this page and the code behind it read the plan against Theorem 1 of
@@ -192,9 +195,11 @@ while another fails:
 
 1. **Theorem fidelity** — the equations solved and the curve reported are the ones the derivation
    gives, under conditions the fit actually meets. Items 1, 13, 15, 21 and 22. The third review
-   reported this link **broken** at the sign; reading the source closed items 21 and 22 in the
-   implementation's favour, and A1a closed item 1, so what is left of the link is items 13 and
-   15 — the empirical remainder rate and the cross-fitting construction.
+   reported this link **broken** at the sign; reading the source closed item 21 and item 22's
+   theoretical half in the implementation's favour, and A1a closed item 1, so what is left of the
+   link is items 13 and 15 — the empirical remainder rate and the cross-fitting construction — and
+   **item 22's numerical half, on one clause of a frozen rule that every measurement misses in the
+   direction favourable to it**, which [B2b](#b2b--the-dispatch-and-what-it-decides) reads out.
 2. **Derivation-anchored correctness, component by component** — each object the curve is built
    from agrees with what the derivation gives for it, not merely `psi` and `se`, where several
    differences cancel. **This link is now closed except for item 13's rate.**
@@ -287,11 +292,14 @@ be confused.
 
 ### The work, in four pieces and eight pull requests
 
-A and B are each split, so the four pieces are eight pull requests: **B1a**, **A1a**, **B1b** and
-**B2a** have landed, and **A1b**, **B2b**, **C** and **D** are open. Small items are
+A and B are each split, so the four pieces are eight pull requests: **B1a**, **A1a**, **B1b**,
+**B2a** and **B2b** have landed, and **A1b**, **C** and **D** are open. Small items are
 grouped where the *evidence* is shared — B2 is five items because one dispatch of the same
 sweep answers all of them — not where the subject matter merely rhymes; and the three splits are
-that same rule applied to a piece rather than to an item.
+that same rule applied to a piece rather than to an item. **B2's grouping was right about four of
+its five and wrong about the fifth**: the exit distribution, the closing cap, the weak-overlap
+policy and the overlap attribution all fell out of one dispatch as planned, and the update-order
+question needed three more and still did not close.
 
 | PR | what it lands | new artefacts |
 | --- | --- | --- |
@@ -301,7 +309,7 @@ that same rule applied to a piece rather than to an item.
 | **B1b** — *landed* | items 11 and 20: the targeting convention, chosen on theorem fidelity against a fitted prototype that eliminated two candidates by construction and separated the other two by measurement | `solve_bounded_mechanism`, called from the two `DRTMLE` sites, with the truncated array carried forward and `"bounds_pinned"` where no constrained root exists; `tests/unit/test_bounded_mechanism.py`; `CorrectionRow.margin` in place of B1a's now-vacuous clipped-row witness |
 | **B2a** — *landed* | the instrument the dispatch needs: the columns §4 asks for, the working paper's update order beside this one, and the comparison arms. Closes nothing on its own, which is why it is its own pull request rather than a first commit of B2 | `DRTMLE(update_order="paper")` and `ReductionSpec.order`; three tables on `benchmarks/bench_drtmle.py` in place of one; `--order`, `--reduced-learner` and `--truncation` arms with workflow inputs; `TestBothUpdateOrdersReachTheTheoremsExit` |
 | **B2a′** — *landed* | the three things B2a left as prose rather than as something a run settles: the oracle reduction built where it exists, a **control** for the update-order difference, and the branch that hid a mutation deleted rather than guarded | `tests/unit/test_oracle_reductions.py` and item 24; the `reseed` arm, the route-against-noise table and [a frozen rule](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch); `_restated_outcome_score` made unconditional, `tests/unit/test_fluctuation_score.py`, and [lesson 12](drtmle/investigation-log.md#what-the-sizings-got-wrong) |
-| **B2b** | items 12, 19 and item 22's numerical half, re-measures 4 and 6, decides the overlap policy | a dispatch of `drtmle-convergence.yml`, and its tables in the investigation log |
+| **B2b** — *landed* | items 12 and 19, re-measures 4 and 6, takes the overlap policy — no refusal — and reads item 22's numerical half, which stays open on one clause | four dispatches of `drtmle-convergence.yml` and their tables in [the investigation log](drtmle/investigation-log.md#what-the-b2b-dispatch-measured); `_negligible_bar`; a `worst identity` column on `comparison_rows` and `tests/unit/test_bench_drtmle.py` |
 | **C** | items 3 and 13: the demonstration | `benchmarks/drtmle_coverage.py`, `.github/workflows/drtmle-coverage.yml`, `docs/drtmle-coverage-study.md`, per-replicate results |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
@@ -320,14 +328,16 @@ rhymes* — applied to a piece rather than to an item.
 B1a  identity + safety patch ─────────────────────┐   landed
                                                   ├─> B2a ──> B2b ──> C  demonstration
 A1a theorem concordance ──> B1b  targeting  ──────┘  instrument  sweep
-                                 convention          landed      dispatch
+                                 convention          landed      landed
 
 A1b cross-fitting construction   blocks nothing; gate 1 requires it
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Everything upstream of B2b has landed**, so what is left of the graph is the dispatch, then C,
-with A1b and D outside it.
+**Everything upstream of C has landed**, so what is left of the graph is the demonstration, with
+A1b and D outside it. What B2b leaves behind it is one open thread rather than a piece: item 22's
+numerical half is answered on `nonlinear` and unresolved on `weak-overlap`, and it gates
+[stop-ship 2](#stop-ship) rather than gating C.
 
 **B1a first**, because every number B2 and C produce is read *through* the reported curve, and
 until it lands a share of every cell's fits report a curve the fit did not solve for. It is also
@@ -820,10 +830,12 @@ mechanism it tilts, so one solve leaves a residual at the post-tilt covariate �
 measured to be: the final scores sit at the same `1e-09` to `1e-10` they did before, because the
 outer loop is still what makes the direction self-consistent.
 [Limitation 6](#limitations-recorded-rather-than-fixed) was priced above as getting *worse* under
-a bounded convention. It does not, on these four: the closing pass's mechanism stage binds on its
-cap on all of them, exactly as it bound on 94 of 96 before. Four fits are not 96 and
-[B2](#b2--the-sweep-on-the-corrected-implementation) re-measures, but the prediction is
-unconfirmed and should stop being repeated as though it were a finding.
+a bounded convention. On these four fixtures it does not: the closing pass's mechanism stage binds
+on its cap on all of them, exactly as it bound on 94 of 96 before. Four fits were not 96, and
+[B2b](#b2b--the-dispatch-and-what-it-decides) has since re-measured: **96 of 96**, so the
+prediction is confirmed and the two fits that used to stop otherwise no longer do. It is the
+smallest confirmation available — a cap that nearly always bound now always binds — and it is the
+one place a bounded convention cost anything.
 
 **One of B1a's five conditions had to be replaced, and this is the only place that noticed.** Its
 fifth is that an identity be checked *on a fixture where the bound binds*, witnessed by
@@ -990,27 +1002,54 @@ median and this package has no estimator for one.
 
 ###### B2b — the dispatch, and what it decides
 
-*Closes items 12, 19 and item 22's numerical half, re-measures items 4 and 6, and decides the
-weak-overlap product policy.* **Open, and it is a run rather than a patch.** The workflow has
-already been dispatched with every new input at a four-fit smoke configuration and came back green
-in 89 seconds, reproducing this container's numbers to every digit printed — so what is left is the
-real sweep and its reading, not a debugging round. Dispatch
-`.github/workflows/drtmle-convergence.yml`, read the tables out of the job log, and put them in
-[the investigation log](drtmle/investigation-log.md#how-the-alternation-exits) beside the first
-sweep's — which measured a criterion that has since changed and an implementation that has since
-been fixed, so it is a *record* rather than a baseline to reproduce.
+*Closes items 12 and 19, re-measures items 4 and 6, decides the weak-overlap product policy, and
+leaves item 22's numerical half answered on one process of two.* **Landed.** [What it
+measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured) is in the investigation log
+beside the first sweep's, which stays as the *before*: it measured a criterion that has since
+changed and an implementation that has since been fixed, so it is a record rather than a baseline
+to reproduce.
 
-What it has to come back with, and the rest of this section is the reasoning for each: the exit
-distribution under the current rule; whether the closing cap still binds on 94 of 96; whether
-`weak-overlap`'s 23-of-24 score-check failures survive B1b; `|Δψ|/se` between the update orders,
-whether it shrinks with `n`, and how it compares with what a different fold split moves; and the
-overlap columns that say *which* of the five places a surviving failure came from.
+**Five questions were put to it and four came back settled.** Each is below with the number that
+settled it, and the fifth is the one to read carefully.
 
-**It is two dispatches, not one.** The main sweep keeps four processes at two sizes with the arms
-off. The update-order question is its own — two processes, **three** sizes, the paper arm and the
-reseed control — because a rate needs three sizes and three sizes across four processes and three
-arms does not fit the runner. Both configurations, the rule the second is judged by, and what would
-falsify it are [in the validation
+- **the exit distribution under the current rule** — it *inverted*. `tol/stall/cap` was 2 / 86 / 8
+  and is **87 / 8 / 1**, at a median of 4 to 9 rounds against 12 to 24. Nothing about the iteration
+  changed; the exit test reads a different ruler. [Limitation 4](#limitations-recorded-rather-than-fixed)
+  is rewritten around it, and the incidental consequence is that the whole sweep costs a **seventh**
+  of what it did — 378s against 2,588s — which makes every runtime estimate on this page and in the
+  validation plan stale in the same direction, [piece C](#c-the-demonstration)'s included;
+- **whether the closing cap still binds on 94 of 96** — it binds on **96 of 96** on that grid, so
+  [limitation 6](#limitations-recorded-rather-than-fixed)'s standing prediction that a bounded
+  convention would make it worse is confirmed, in the smallest way it could be. It had been carried
+  as a guess for two revisions. Adding `n = 2,400` shows it is *not* universal — 102 of 108 on
+  `nonlinear`, every exception at the largest size — which nothing had looked for and which makes
+  it a limitation that weakens with `n`;
+- **whether `weak-overlap`'s 23-of-24 score-check failures survive B1b** — they do not. **0 of 24**,
+  and 0 of 36 again at three sizes, with the worst standardised score down from `1.1e+00` to
+  `2.1e-07` on draws whose overlap columns are unchanged. That is what takes the product decision
+  above;
+- **the overlap columns that say which of the five places a failure came from** — with no failures
+  left to attribute they instead say what did *not* change, which is the load-bearing half: a third
+  of `(row, arm)` pairs still clip, `min g` and `min gr1` still round to zero, `ess/n` is 8–13%.
+  One column still separates the process from every other and is recorded rather than acted on:
+  `q99 h(10)` at `2.49`, an order above the rest and rising with `n` where they fall;
+- **`|Δψ|/se` between the update orders, whether it shrinks with `n`, and how it compares with what
+  a different fold split moves** — this is item 22's numerical half and it is **not** closed. The
+  [rule frozen before the
+  dispatch](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch) is a
+  conjunction over both processes and its first clause fails on `weak-overlap`. Neither is the
+  falsifier met: the *reseed* difference fails to shrink there too, so the yardstick is as noisy as
+  the thing measured. On `nonlinear` every clause points one way and the route difference shrinks
+  by 7.8 over a fourfold `n` while a refit's shrinks by 2. [The
+  reading](drtmle/investigation-log.md#the-two-update-orders-against-the-yardstick-of-a-fold-split)
+  keeps both, and the sharpener the rule itself names — more seeds — is what was dispatched next.
+
+**It was four dispatches, not the two this section planned.** The main sweep is four processes at
+two sizes with the arms off. The update-order question is its own — two processes, **three** sizes,
+the paper arm and the reseed control — because a rate needs three sizes; it ran as one dispatch per
+process against a runner cap that turned out to have thirty times the headroom it was thought to,
+and then again at three times the seeds because twelve did not resolve `weak-overlap`. Both
+configurations, the rule, and what would falsify it are [in the validation
 plan](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch).
 
 **24. An oracle reduction on the continuous processes needs the fitted learners, and nothing here
@@ -1036,12 +1075,13 @@ among them — the run that separates a noisy reduction from a wrong equation, a
 the truncation-curve caveat are in [the validation
 plan](drtmle/validation-plan.md#4-the-sweep-piece-b2).
 
-*The sweep measures the criterion that was replaced.* [The
+*The first sweep measured the criterion that was replaced, and the rerun has happened.* [That
 table](drtmle/investigation-log.md#how-the-alternation-exits) is the evidence item 7's change was
 argued from, which is the right way round — the failure had to be characterised before the
-threshold moved — but it means the exit distribution under the current rule is uncharacterised. A
-rerun is one dispatch and about 45 minutes, and would say whether `tolerance` is now the norm at
-scale or only on the six fits looked at. It re-measures items 4 and 6 for free.
+threshold moved — and it left the exit distribution under the current rule uncharacterised. The
+rerun was one dispatch and **six minutes**, not the 45 this paragraph budgeted, and it says
+`tolerance` is now the norm at scale rather than on the six fits looked at: **87 of 96**, against
+2. It re-measured items 4 and 6 for free, as predicted.
 
 *The absolute bar is a proxy for the one it cites.* `score_check` compares against
 `DEFAULT_TOLERANCE * se / sqrt(n)` using the fit's actual `se`; `targeting._solved` substitutes
@@ -1059,33 +1099,58 @@ separates the two things `_NEGLIGIBLE / n` conflates: when to stop iterating, an
 that came out is entitled to a Wald interval. The second is `score_check`'s job and
 [item 16](#closed-since-this-list-opened)'s.
 
-**The product decision belongs to this piece**, and B1 changes what it is likely to be. If the
-sweep still finds no stable region, `DRTMLE` should refuse or invalidate under weak overlap on a
-**predeclared** diagnostic rather than warn — a warning is easy to miss, and this is a method
-whose only purpose is inference. The reporting half of that is
-[item 16](#closed-since-this-list-opened), which has landed; what this piece adds is the threshold
-and the name of the state, decided from evidence. But the evidence that motivated the refusal was
-23 of 24 failed score checks, and on present measurement those are the convention mismatch rather
-than the estimator breaking down — so **do not predeclare the refusal before B2 re-measures**.
-What survives regardless is the ordinary positivity warning, which fires on these fits already
-(29% of units outside the bounds on the seed-0 draw).
+**The product decision belonged to this piece and is taken: `DRTMLE` does not refuse under weak
+overlap, and no diagnostic is predeclared for it.** The proposal was that if the sweep still found
+no stable region the estimator should refuse or invalidate on a predeclared diagnostic rather than
+warn — a warning being easy to miss on a method whose only purpose is inference. The whole
+evidence for it was 23 of 24 failed score checks on `weak_overlap_dgp`, and
+[B2b](#b2b--the-dispatch-and-what-it-decides) re-measured that on the same seeds: **0 of 24**, and
+0 of 36 again at three sizes on the order dispatch, with the worst standardised score falling from
+`1.1e+00` to `2.1e-07`. The draws did not get easier — a third of their `(row, arm)` pairs still
+clip at the initial mechanism, `min g` and `min gr1` both round to zero, and the per-arm effective
+`n` is 8–13% against 41–47% elsewhere — so the failure was
+[B1b](#b1b--the-theorem-conforming-targeting-decision)'s convention mismatch and refusing on
+overlap would be refusing on the symptom's former proxy. **A refusal has to be argued from evidence
+that exists**, and after B1b none does.
 
-**19. The alternation's convergence argument proves less than it is read as proving.**
-`solve_with_reduction`'s docstring argues that equation (9) is a weighted logistic MLE of `A | W`
-and equations (8) and (10) are the outcome quasi-likelihood — separate factors of the likelihood
-of `(A, Y) | W` — so each step maximises its own factor with the others held fixed and "the joint
-value never decreases". The first review reads the mid-loop refit of the reductions as breaking
-that, and it does not: the reductions enter as the *directions* of the submodels, not as values of
-the objective, so refitting them changes the next step's direction and leaves the current joint
-value where it is, and monotonicity survives. What does not survive is what the argument is used
-for. A bounded monotone sequence converges *in value*; that is why the loop terminates, and it is
-not why the iterates approach a common zero of three score equations — under a direction that
-changes each round, the fixed point of the ascent need not be a stationary point of anything. The
-sweep already shows the gap in numbers: **86 of 96 fits stalled** at a point the objective would
-not climb from, against 2 that reached the tolerance. So the wording is the fix — state it as an
-estimating-equation iteration with empirical convergence diagnostics, keep the monotonicity claim
-for what it does buy (termination, and the reason not to restart from `Q̄⁰`), and drop the
-implication that stalling is a numerical disappointment rather than the expected exit.
+Three things stand in its place rather than nothing:
+
+- **the ordinary positivity warning**, which fires on these fits already (29% of units outside the
+  bounds on the seed-0 draw) and is the honest signal that the *design* is thin;
+- **`score_check` on the face of the fit**, [item 16](#closed-since-this-list-opened), which is the
+  per-fit answer a predeclared population-level threshold would have been a poor substitute for.
+  It is not vacuous here: one *control* fit — a different fold split of a `weak-overlap` draw whose
+  base fit passes — does fail, at a rate near 1 in 100 rather than 23 in 24. Such a fit says so;
+- **two columns that still separate `weak-overlap` from everything else, recorded rather than
+  acted on.** `q99 h(10)` reaches `2.49` against `0.06`–`0.23`, and the largest 1% of rows carry
+  28–37% of the worst score's absolute mass against 7–12%. Neither costs a fit its score check
+  today. A score driven to `2e-07` by a handful of large rows cancelling is not the same object as
+  one that is small rowwise, and if a predeclared diagnostic is ever wanted here, the concentration
+  share is the candidate with a reason behind it — not the clipped-row share, which is a property
+  of the draw that B1b made harmless.
+
+**19. The alternation's convergence argument proved less than it was read as proving —
+[closed](#closed-since-this-list-opened) by B2b.** The diagnosis stays here because it is the
+reasoning the wording was changed on. `solve_with_reduction`'s docstring argues that equation (9)
+is a weighted logistic MLE of `A | W` and equations (8) and (10) are the outcome quasi-likelihood —
+separate factors of the likelihood of `(A, Y) | W` — so each step maximises its own factor with the
+others held fixed and "the joint value never decreases". The first review reads the mid-loop refit
+of the reductions as breaking that, and it does not: the reductions enter as the *directions* of
+the submodels, not as values of the objective, so refitting them changes the next step's direction
+and leaves the current joint value where it is, and monotonicity survives. What does not survive is
+what the argument is used for. A bounded monotone sequence converges *in value*; that is why the
+loop terminates, and it is not why the iterates approach a common zero of three score equations —
+under a direction that changes each round, the fixed point of the ascent need not be a stationary
+point of anything. The sweep showed the gap in numbers: **86 of 96 fits stalled** at a point the
+objective would not climb from, against 2 that reached the tolerance.
+
+**The fix was the wording and the numbers behind it have since moved, which is worth keeping
+straight.** The docstring now states the loop as an estimating-equation iteration with empirical
+convergence diagnostics, keeps the monotonicity claim for what it does buy — termination, and the
+reason not to restart from `Q̄⁰` — and names a stall as an ordinary exit rather than a numerical
+disappointment. **That last sentence was written against 86 of 96 and the count is now 8**; the
+correction it makes is unaffected, because what was wrong was reading a stall as failure and not
+how often one happened.
 
 **20. The reported curve was not centred wherever the mechanism truncation binds, and the
 fluctuation rows said it was — [closed](#closed-since-this-list-opened) by B1b.** Kept here in
@@ -1318,10 +1383,17 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
    things the first left as prose: the oracle reduction is built where it exists and **item 24**
    says what it would take elsewhere, the update-order difference has a control and a rule frozen
    before the dispatch that judges it, and the branch that let a mutation hide is gone.
-5. **B2b**, on the corrected implementation, because poor overlap may be where the demonstration
-   has to happen and because the exit distribution under the current rule is uncharacterised. It
-   is a dispatch and a reading rather than a patch.
-6. **C**, which is the point.
+5. ~~**B2b**~~ — landed. The exit distribution under the current rule was uncharacterised and now
+   is not: it inverted, 87 of 96 fits reaching the tolerance where 2 did, and the sweep costs a
+   seventh of what it did. `weak-overlap` was the reason to run this before the demonstration, and
+   it turned out not to be a problem to route around — 0 of 24 score-check failures against 23 of
+   24, on draws whose overlap is unchanged — so no refusal is predeclared. Items 12 and 19 closed;
+   limitations 4 and 6 were rewritten from their own numbers rather than from the first sweep's.
+   [What it measured](drtmle/investigation-log.md#what-the-b2b-dispatch-measured). The one thing it
+   did not settle is item 22's numerical half on `weak-overlap`, where twelve draws resolve nothing
+   in either direction.
+6. **C**, which is the point. Its sizing is the thing to redo first: it was costed from a 43s
+   `DRTMLE` fit and that fit is now several times cheaper, so re-time before re-scoping.
 7. **A1b**, anywhere: nothing waits on it and [gate 1](#c-the-demonstration) does not open
    without it. Ordered last because it blocks nothing, not because it matters least.
 
@@ -1360,12 +1432,25 @@ instrument is how this variant has gone wrong twice:
    implementation reaching a third fixed point would have answered a different question — and
    then A1's, which was right about the subject and wrong about the evidence: it is a second
    alternation over a sweep of draws, which is B2's dispatch and nothing A1a could share with.
-   **The second alternation now exists** — `DRTMLE(update_order="paper")`, landed with
-   [B2a](#b2a--the-sweep-instrument) — so what is left of this item is
-   [B2b](#b2b--the-dispatch-and-what-it-decides) reading it over a sweep. The two draws run so far
-   agree on `psi` to `9e-03` of a standard error at `n = 600` and differ by `0.22` of one at
-   `n = 400`, both fits solving all three equations, which is a spread to explain rather than a
-   result;
+   **The second alternation exists** — `DRTMLE(update_order="paper")`, landed with
+   [B2a](#b2a--the-sweep-instrument) — and [B2b](#b2b--the-dispatch-and-what-it-decides) has read
+   it over a sweep. **It stays on this list, and the reason is one clause.** Of [the rule frozen
+   before the dispatch](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch),
+   clauses 1, 3 and 4 hold on both processes — the route difference shrinks with `n`, the `se`
+   ratios sit at `0.998` and `1.002` at the largest size, and no fit in either route fails its
+   score check or its state identity. **Clause 2 fails on both processes at both seed counts** —
+   the count of draws where the route difference exceeds a *fold split's* is 2 of 12 and 7 of 36 on
+   `nonlinear`, 3 of 12 and 12 of 36 on `weak-overlap`, all **short of half rather than over**,
+   which is the route moving `ψ` *less* than a refit of one route does. **And clause 1 is met on
+   one process at each seed count, a different one each time**, which says the median it reads is
+   underpowered at twelve draws and at thirty-six. Every miss points the way that supports the
+   routes agreeing and none points the other; what is stable across all twelve cells is that the
+   route difference sits *below* the fold-split difference, by a factor of 3.5 to 4 on `nonlinear`.
+   That is a state to describe rather than to legislate away, so the item stays open with its
+   evidence and [the
+   log](drtmle/investigation-log.md#the-same-rule-at-thirty-six-draws-and-why-the-two-readings-are-not-nested)
+   records the two restatements a future revision could make **before** a further dispatch and not
+   after this one;
 3. a stored score and the term the curve carries are not the same functional of the same state —
    this was item 20, the one that was true and unnoticed, and it is **closed**:
    [B1a](#b1a--the-identity-and-safety-patch) made it reported and
@@ -1403,20 +1488,33 @@ lives in [gate 2](drtmle/validation-plan.md#the-decision-rules-frozen-before-the
 Real, understood, and worth writing down rather than fixing. None of them would change a
 coverage number, and each is stated where the code that has it lives as well as here.
 
-**4. The alternation does not reliably converge, and the reason is structural.** Equation (10)'s
-covariate is `gr2/gr1`, and `gr2` vanishes exactly where the mechanism is right — so on the fits
-anybody actually wants that covariate is nearly zero and its Newton solve is near-singular:
+**4. The alternation has no convergence guarantee, and equation (10)'s solve is near-singular by
+construction — but the loop now converges on 87 of 96 fits, where it used to on 2.** Equation
+(10)'s covariate is `gr2/gr1`, and `gr2` vanishes exactly where the mechanism is right — so on the
+fits anybody actually wants that covariate is nearly zero and its Newton solve is near-singular:
 observed at `mean|h| = 1e-3`, `|epsilon|` reaching 280 and a singular Hessian in a third of the
 rounds on one unseeded draw. Such a fit runs to the outer cap and reports
 `failure = "max_iter_reached"`. `ReductionFluctuation.ill_conditioned` reports it, and `drtmle`
 sidesteps the whole question by capping at three iterations and never claiming convergence.
 
-Over [96 fits](drtmle/investigation-log.md#how-the-alternation-exits) the conditioning is **worst
-where the reasoning predicted**, which is the part that had never been tested: `gr2` vanishes where
-the mechanism is *right*, so the easy process should be the ill-conditioned one, and it is.
-`linear` reports an ill-conditioned solve on **5 of 12** fits at `n = 600` and **9 of 12** at
-`n = 1,200`, against **0 of 12** for `nonlinear` at `n = 600`. Running out of rounds is a minority
-— 8 of 96 — but converging is rarer still: 2 of 96 reached the tolerance and 86 stalled.
+**The same 96 draws have now been swept twice**, and the entry above used to be written from the
+first: [before](drtmle/investigation-log.md#how-the-alternation-exits), 2 fits reached the
+tolerance, 86 stalled and 8 ran out of rounds;
+[after](drtmle/investigation-log.md#what-the-b2b-dispatch-measured), **87 reach the tolerance, 8
+stall and 1 runs out of rounds**, at a median of 4 to 9 rounds against 12 to 24 and a seventh of
+the wall clock. **Nothing about the iteration changed between them** — what changed is which ruler
+the exit test uses ([item 7](#closed-since-this-list-opened)), so the honest reading is that the
+loop was reaching its fixed point all along and being told it had not. What has *not* changed is
+that no argument here proves the iterates approach a common zero of the three equations, which is
+[item 19](#closed-since-this-list-opened) and is why the diagnostics decide rather than the
+argument.
+
+The conditioning survives at a third of the rate and **keeps its shape**, which is the part that
+had never been tested: `gr2` vanishes where the mechanism is *right*, so the easy process should be
+the ill-conditioned one, and it is. `linear` reports an ill-conditioned solve on **3 of 12** fits
+at each size — it was 5 of 12 and 9 of 12 — against **0 of 12** for `nonlinear` at `n = 600`. The
+rise with `n` on `linear` did not survive; a near-singular round is now something a fit passes
+through rather than something it exits at.
 
 **5. Equation (9) is never solved exactly.** Its covariate `Qr/g*` reads the very mechanism it
 tilts, so one solve zeroes the score at the pre-tilt covariate and leaves a residual at the
@@ -1433,20 +1531,29 @@ than assumed: the final scores on all four of that piece's fixtures sit at the s
 not the solve.
 
 **6. The closing pass's mechanism stage stops on its cap, not on its tolerance.** It settles
-around `1e-9` rather than reaching `spec.tol = 1e-10`, on **94 of 96** swept fits. Harmless *at
+around `1e-9` rather than reaching `spec.tol = 1e-10`, on **96 of 96** swept fits at `n ≤ 1,200` —
+it was 94 of 96 before B1b, and the two fits that stopped otherwise were both `weak-overlap`.
+**It is not quite universal once `n = 2,400` is swept**: 102 of 108 on `nonlinear` and 108 of 108
+on `weak-overlap` over three sizes, so every exception is at the largest size, which is what
+"harmless at that size" would predict of a residual that shrinks with `n`. Harmless *at
 that size* — the steps are arithmetic, and item 5 is why it cannot get there — but a cap that
 always binds is worth knowing about rather than reading as convergence. The qualification this
 entry used to carry — that a cap always binding and `D*_g` being wrong by `2e-04` are "close
 enough together to be one story" — was a guess and has been checked: they are **not** one story.
-The stage does bind on the mechanism, and the uncentred draws are the ones where the tilted `g*`
-leaves the bounds, but the cap binds on 94 of 96 fits while the curve is uncentred on a quarter of
-them, so the cap cannot be what selects them. The two fits that stopped otherwise are both
-`weak-overlap`. This entry used to predict that a bounded-residual convention would make it
-*worse*, on the reasoning that a truncated residual is not the canonical logistic score. **B1b
-adopted one and it did not**: the stage binds on its cap on all four of that piece's fixtures,
-which is what it did on 94 of 96 before. Four fits are not 96, so the prediction is unconfirmed
-rather than refuted and [B2](#b2--the-sweep-on-the-corrected-implementation) re-measures — but it
-should stop being repeated as though it were a finding.
+The stage does bind on the mechanism, and the uncentred draws were the ones where the tilted `g*`
+leaves the bounds, but the cap bound on 94 of 96 fits while the curve was uncentred on a quarter of
+them, so the cap cannot have been what selected them. This entry used to predict that a
+bounded-residual convention would make it
+*worse*, on the reasoning that a truncated residual is not the canonical logistic score. B1b
+adopted one and four fixtures could not tell; **[B2b](#b2b--the-dispatch-and-what-it-decides) can,
+and the prediction is confirmed in the smallest way it could be: 96 of 96 against 94, on the grid
+the 94 was measured on.** The two that used to stop otherwise were both `weak-overlap` and no
+longer do. So this is the one place a bounded convention cost something, the cost is that a cap
+which nearly always bound now binds on every fit at the sizes the prediction was made about, and
+item 5 remains why the stage cannot reach `spec.tol` at all. It is worth stating as a measurement
+precisely because it was carried as a guess for two revisions — and the `n = 2,400` exceptions are
+worth keeping beside it, because a limitation that weakens with `n` is a different object from one
+that does not, and nothing here had looked.
 
 **8. `retarget` is no longer arithmetic on cached arrays.** The reductions are refitted inside the
 alternation, so a truncation curve or an MNAR sweep costs about a fit per point rather than a
@@ -1710,8 +1817,24 @@ every assertion in it is about the *reported* fit and the closing pass makes tha
 either way. `TestAnEquationStopsOnEitherRuler` in `tests/unit/test_drtmle_fit.py` unit-tests
 `_solved` directly, and the absolute branch was deleted and the suite watched to fail — two of the
 four assertions go red — before the test was kept. Asserting `exit_reason == "tolerance"` on a
-fitted result was rejected: which exit fires is a property of the draw. The item's two other loose
-ends are open and are in [piece B2](#b2--the-sweep-on-the-corrected-implementation).
+fitted result was rejected: which exit fires is a property of the draw.
+
+**The item's two loose ends closed with B2b, and the honest report of one of them is that it was a
+restatement.** *The exit distribution under the current rule was uncharacterised* — it is now, and
+it inverted: 87 of 96 fits reach the tolerance where 2 did. And *the loop's absolute bar was a
+proxy for the one it cites*: `_NEGLIGIBLE / n` was justified as `score_check`'s
+`DEFAULT_TOLERANCE · se/√n` with `se = O(n^(−1/2))` on the scaled outcome substituted in, which is
+circular, since the loop runs before the estimate exists. It is now `_negligible_bar(n)`, stated as
+a numerical criterion in its own right — a deterministic `c_n/√n` with `c_n = 1e-3/√n`, which is
+the finite-sample rendering of the `o` in `P_n D = o_p(n^(−1/2))`. **The arithmetic is unchanged
+and no fit takes a different exit**; what changed is that the criterion now rests on a property a
+test can check rather than on an assumption about a quantity it precedes.
+`test_the_bar_renders_an_o_and_not_an_O` asserts `bar(n)·√n` decreases and crosses a fixed level,
+and the mutation is a bar of `1e-3/√n` — a legitimate-looking sequence rendering an `O` — under
+which that product is flat and two of the class's five tests go red. The other half of the
+separation was already in place: the standardised score `|P_n S_j|/sd̂(S_j)` is reported *beside*
+the stopping rule by the sweep's *What the reported curve rests on*, not folded into it, and
+whether a fit is entitled to a Wald interval stays `score_check`'s question at the realised `se`.
 
 ## Refusals worth lifting
 

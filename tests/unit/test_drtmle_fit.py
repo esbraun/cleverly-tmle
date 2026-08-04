@@ -12,6 +12,7 @@ One fit, shared: each class below reads a different part of the same result.
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from itertools import pairwise
 
@@ -23,7 +24,7 @@ from cleverly.data import CausalData
 from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.serialize import load
-from cleverly.estimators.targeting import _solved, build_submodel
+from cleverly.estimators.targeting import _negligible_bar, _solved, build_submodel
 from cleverly.estimators.tmle import DEFAULT_NUISANCE_BOUND, correction_parts
 from cleverly.inference.influence import counterfactual_means, reduced_corrections
 from cleverly.validation.drtmle import correction_check
@@ -631,6 +632,10 @@ class TestAnEquationStopsOnEitherRuler:
     gave up at had equation (10) at ``2.3e-8`` relative -- six orders above ``spec.tol`` --
     while its absolute score was near ``1.1e-10``, against a negligible bar of ``1e-3/400``.
     That gap is the item-7 defect in two numbers.
+
+    The last case is item **12**'s and is about the bar rather than the predicate: what
+    ``_negligible_bar`` *is*, now that it is stated as a numerical criterion in its own right
+    rather than as a proxy for the one ``score_check`` applies to the reported fit.
     """
 
     TOL = 1e-10
@@ -657,18 +662,42 @@ class TestAnEquationStopsOnEitherRuler:
         assert not _solved(relative=2.3e-8, absolute=1e-3, tol=self.TOL, negligible=self.NEGLIGIBLE)
 
     def test_the_bar_tightens_with_the_sample_size(self) -> None:
-        """``_NEGLIGIBLE / n``, so a score that is negligible at 400 rows need not be at 40,000.
-
-        The bar stands in for ``score_check``'s ``tolerance * se / sqrt(n)`` with
-        ``se = O(n**-0.5)``; item 12 records that this is an assumption rather than a
-        measurement. What the substitution must not lose is the direction, which is what
-        this pins.
-        """
+        """The bar falls with ``n``, so a score negligible at 400 rows need not be at 40,000."""
         absolute = 1.1e-10
-        assert _solved(relative=1.0, absolute=absolute, tol=self.TOL, negligible=1e-3 / 400)
-        assert not _solved(
-            relative=1.0, absolute=absolute, tol=self.TOL, negligible=1e-3 / 40_000_000
+        assert _solved(
+            relative=1.0, absolute=absolute, tol=self.TOL, negligible=_negligible_bar(400)
         )
+        assert not _solved(
+            relative=1.0, absolute=absolute, tol=self.TOL, negligible=_negligible_bar(40_000_000)
+        )
+
+    def test_the_bar_renders_an_o_and_not_an_O(self) -> None:
+        r"""``bar(n) * sqrt(n) -> 0``, which is what makes it a rendering of :math:`o_p(n^{-1/2})`.
+
+        This is item 12's second half and the property the bar's *own* justification now
+        rests on.  It used to rest on ``score_check``'s ``tolerance * se / sqrt(n)`` with
+        ``se = O(n**-0.5)`` substituted in -- an assumption, and a circular one, since the
+        loop runs before the estimate exists.  Asymptotic linearity asks for
+        :math:`P_n D = o_p(n^{-1/2})`, and the finite-sample rendering of an :math:`o` is a
+        deterministic :math:`c_n/\sqrt n` with :math:`c_n \to 0`.  Nothing here reads a
+        standard error, and that is the point: whether the fit is entitled to a Wald interval
+        is ``score_check``'s question, at the realised ``se``, and is not this one.
+
+        The mutation is a bar of ``1e-3/sqrt(n)`` -- a legitimate-looking sequence rendering
+        an :math:`O` instead.  ``bar(n) * sqrt(n)`` is then flat at ``1e-3``, so both
+        assertions below fail: the sequence stops decreasing and never crosses.  It was run.
+
+        The second assertion straddles rather than taking a ratio, because a ratio here is a
+        fact about the two sizes chosen: :math:`c_n` falls as :math:`n^{-1/2}`, so over the
+        five decades below it drops by ``632`` and any threshold written as a multiple of the
+        first entry is a restatement of that arithmetic rather than of the limit.  Crossing a
+        fixed level is the property, and it is the one an :math:`O` cannot have.
+        """
+        sizes = (100, 400, 1_600, 40_000, 40_000_000)
+        scaled = [_negligible_bar(n) * math.sqrt(n) for n in sizes]
+
+        assert all(later < earlier for earlier, later in pairwise(scaled))
+        assert scaled[0] > 1e-6 > scaled[-1]
 
 
 class TestTheRefusals:

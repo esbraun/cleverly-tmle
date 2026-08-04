@@ -26,16 +26,21 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
    2. **Nothing demonstrates that the interval is better.**  A coverage study over the
       off-diagonal of the misspecification grid found no gap for this variant to close at
       the sizes it could reach; the regime it is for is out of reach of a nightly budget.
-   3. **The alternation does not reliably converge.**  Equation (10)'s covariate is
-      near-singular on exactly the fits anybody wants -- see
-      :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so some draws exit at
-      the outer cap and report ``failure = "max_iter_reached"``.  Over a 96-fit sweep 8 did
-      that, 86 stalled at a fixed point and 2 reached the tolerance.  Which of those a
-      given fit did is on its own report: ``summary()`` ends with the score check whenever
-      the check fails, and ``res.score_verdict`` carries the verdict either way.  It used
-      to say "read ``res.validation.score_check()`` on every fit rather than assuming",
-      which was documentation standing in for reporting -- an unlicensed interval was
-      formatted exactly like a licensed one and the reader had to know to go looking.
+   3. **The alternation is not guaranteed to converge, though it now mostly does.**
+      Equation (10)'s covariate is near-singular on exactly the fits anybody wants -- see
+      :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so a draw can exit at
+      the outer cap and report ``failure = "max_iter_reached"``.  Over the same 96-fit sweep
+      run twice: under the exit criterion this package had until roadmap item 7, 8 draws did
+      that, 86 stalled and 2 reached the tolerance; under the one in force, **87 reach the
+      tolerance, 8 stall and 1 runs out of rounds**.  Nothing about the iteration changed
+      between the two -- what changed is the ruler the exit test uses.  What is still true is
+      that no argument here *proves* the iterates approach a common zero of the three
+      equations, which is why the diagnostics rather than the argument decide: ``summary()``
+      ends with the score check whenever the check fails, and ``res.score_verdict`` carries
+      the verdict either way.  It used to say "read ``res.validation.score_check()`` on every
+      fit rather than assuming", which was documentation standing in for reporting -- an
+      unlicensed interval was formatted exactly like a licensed one and the reader had to
+      know to go looking.
    4. **The reported curve was not centred wherever the mechanism truncation binds, and it
       is now.**  Equation (9) used to be solved against the raw tilted :math:`g^*` while the
       :math:`D^*_g` the curve subtracts reads the truncated one, so the two agreed on every
@@ -54,6 +59,13 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       where 375 rows clipped -- every state identity holds at ``1e-17`` or better and every
       final correction score is ``1e-10`` against a bar near ``5e-06``.  A fit whose bound
       never binds is bit for bit what it was.
+
+      **And measured again at scale**, on the 96-fit sweep: **zero** state identities above
+      ``1e-12``, worst ``4.3e-17``, ``B_clip`` identically zero, and ``weak_overlap``'s score
+      check failing on **0 of 24** where it failed on 23.  The draws are as hard as they were
+      -- a third of their ``(row, arm)`` pairs still clip at the initial mechanism and the
+      per-arm effective ``n`` is 9-13% -- so what went away is the failure and not the
+      overlap, which is what says the failure was this convention mismatch.
 
       **The instrument that found it stays**, and is why the fix is checkable rather than
       asserted: :func:`~cleverly.validation.drtmle.correction_check` recomputes each arm's

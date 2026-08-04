@@ -88,9 +88,11 @@ _STALL_FACTOR = 0.95
 #: error -- :func:`~cleverly.validation.score_check` makes that comparison properly.
 _UNSOLVED = 1e-6
 
-#: An **absolute** score below ``_NEGLIGIBLE / n`` counts an equation as solved, whatever
+#: An **absolute** score below :func:`_negligible_bar` counts an equation as solved, whatever
 #: its relative score says.  This exists because the relative test is the wrong instrument
-#: for two of the three, and the reason is structural rather than a matter of taste.
+#: for two of the three, and the reason is structural rather than a matter of taste.  What
+#: the bar *is* -- a numerical criterion rather than a proxy for what ``score_check`` applies
+#: to the reported fit -- is that function's, and is item 12.
 #:
 #: :func:`~cleverly.fluctuation._score.relative_score` divides by ``mean|w h|``, which
 #: :func:`~cleverly.fluctuation._score.score_scale` documents as "the largest the score
@@ -108,15 +110,44 @@ _UNSOLVED = 1e-6
 #: together -- so relaxing either alone stops nothing, which was measured before this was
 #: applied to all three.
 #:
-#: The bar here is the one the package already applies to the fit it reports:
-#: :func:`~cleverly.validation.score_check` passes a fluctuation whose score is under
-#: ``DEFAULT_TOLERANCE * se / sqrt(n)``, and with ``se = O(n**-0.5)`` on the scaled outcome
-#: that is this constant over ``n``.  Asymptotic linearity asks for ``P_n D = o(n**-0.5)``
-#: and nothing more; machine zero was never the requirement.  Where the covariate *is* of
-#: order one -- equation (8), whose ``1/g`` is bounded below by the truncation -- the
-#: relative test is the tighter of the two and still does the stopping, so a
-#: well-conditioned fit exits exactly where it used to.
+#: This is the *scale* of that bar and not the bar; :func:`_negligible_bar` is where the
+#: sequence is stated.  Where the covariate *is* of order one -- equation (8), whose ``1/g``
+#: is bounded below by the truncation -- the relative test is the tighter of the two and
+#: still does the stopping, so a well-conditioned fit exits exactly where it used to.
 _NEGLIGIBLE = 1e-3
+
+
+def _negligible_bar(n: int) -> float:
+    r"""The loop's absolute bar at ``n``: :math:`c_n/\sqrt n` with :math:`c_n \to 0` slowly.
+
+    **This is a numerical criterion in its own right and not a proxy for the reported one**,
+    which is ``docs/roadmap.md`` item 12 and the half of it B1a did not close.  Asymptotic
+    linearity asks for :math:`P_n D = o_p(n^{-1/2})`, and the honest finite-sample rendering
+    of an :math:`o` is a *deterministic* sequence :math:`c_n/\sqrt n` whose :math:`c_n` tends
+    to zero: here :math:`c_n = 10^{-3}/\sqrt n`, so the bar is ``1e-3 / n`` and
+    ``bar(n) * sqrt(n)`` vanishes, which is the property that makes it a rendering of the
+    ``o`` rather than of an ``O``.  Nothing about a standard error enters, and nothing needs
+    to: this says **when to stop iterating**.
+
+    It used to be justified the other way round -- as the bar
+    :func:`~cleverly.validation.score_check` applies to the reported fit,
+    ``DEFAULT_TOLERANCE * se / sqrt(n)``, *substituting* ``se = O(n**-0.5)`` on the scaled
+    outcome because the loop runs before the estimate exists.  The arithmetic is the same
+    number and the justification was circular: a stopping rule cannot be a proxy for a
+    quantity it precedes, the substitution was an assumption rather than a measurement, and
+    it is conservative exactly where it was checked -- under weak overlap ``se`` is large, so
+    the loop's bar is the stricter one -- while a fit with a very small ``se`` is the
+    direction nobody looked in.  Stating the criterion as its own thing removes the
+    assumption instead of tightening it, and costs no fit a different exit.
+
+    **Whether the fit that came out is entitled to a Wald interval is the other question**,
+    and it stays :func:`~cleverly.validation.score_check`'s, at the realised ``se``, with the
+    standardised score :math:`|P_n S_j|/\hat{sd}(S_j)` reported beside the stopping rule
+    rather than folded into it (``benchmarks/bench_drtmle.py``'s *What the reported curve
+    rests on*).  Conflating the two is what the old wording did, and it is why a fit whose
+    solver had done its job was read as one that needed more rounds.
+    """
+    return _NEGLIGIBLE / float(n)
 
 
 def _solved(relative: float, absolute: float, tol: float, negligible: float) -> bool:
@@ -838,6 +869,32 @@ def solve_with_reduction(
     decreases.  Restarting would break the monotonicity and with it the reason this
     terminates.
 
+    **What that argument buys is termination, and it is not a convergence proof.**  It is
+    ``docs/roadmap.md`` item 19, and the distinction is easy to lose because the two
+    conclusions sound alike.  A bounded monotone sequence converges **in value** -- that is
+    why this loop stops, and it is the whole of what the ascent gives.  It says nothing about
+    the *iterates* approaching a common zero of the three score equations, and under a
+    direction that changes every round it cannot: the reductions are refitted mid-loop, which
+    leaves the current joint value where it is (they enter as the submodels' directions, not
+    as values of the objective, so monotonicity survives the refit) and makes the next step's
+    direction a different one.  A fixed point of an ascent whose search directions move need
+    not be a stationary point of anything.
+
+    So this is an **estimating-equation iteration with empirical convergence diagnostics**,
+    and the diagnostics are what say whether a given fit got there: the three scores at the
+    state the loop leaves, :attr:`ReductionFluctuation.exit_reason` for how it ended, and
+    :func:`~cleverly.validation.score_check` on the fit that comes out.  Not the argument
+    above.
+
+    **A stall is an ordinary exit and not a numerical disappointment.**  ``"stall"`` means the
+    objective would not climb and the worst relative score would not improve, which on a
+    problem whose covariate nearly vanishes is where the iteration is *supposed* to stop; what
+    decides whether such a fit is reportable is its scores, which is a separate question and
+    a separate reader (``score_check``).  Under the exit criterion this loop had until item 7
+    a stall was also the *usual* exit -- 86 of 96 swept fits -- and reading that as failure is
+    what the sentence above is written against.  It no longer is the usual exit, for the
+    reason below, but the wording would have been wrong either way.
+
     **Equations (8) and (10) are solved one after the other rather than as one wider
     submodel**, which is ``drtmle``'s ``Qsteps = 2`` -- backfitting, "found to be more
     stable in simulations".  It is also what keeps a ``Submodel`` column belonging to one
@@ -863,31 +920,37 @@ def solve_with_reduction(
     carries, which brings that to ``5.8e-7``, and moves a converged fit's ``psi`` and
     standard error by nothing.
 
-    **This loop does not reliably converge, and the reason is structural rather than
-    numerical.**  Equation (10)'s covariate is :math:`g_{r,2}/g_{r,1}`, and :math:`g_{r,2}`
-    vanishes exactly where the mechanism is right -- so on a fit whose :math:`\hat g` is
-    nearly right, which is every fit anybody wants, that covariate is nearly zero and its
-    Newton solve is near-singular: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching
-    280 and a singular Hessian in a third of the rounds on one unseeded draw.  Such a fit
-    exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.  ``drtmle``
-    sidesteps the question entirely by capping at three iterations and never claiming to
-    converge.  :attr:`ReductionFluctuation.ill_conditioned` reports the conditioning;
-    ``docs/roadmap.md`` lists this under *What is still open*, and
-    :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
+    **Equation (10)'s solve is near-singular on exactly the fits anybody wants, and that is
+    structural.**  Its covariate is :math:`g_{r,2}/g_{r,1}` and :math:`g_{r,2}` vanishes
+    exactly where the mechanism is right -- so on a fit whose :math:`\hat g` is nearly right
+    that covariate is nearly zero: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching 280
+    and a singular Hessian in a third of the rounds on one unseeded draw.  A fit that never
+    gets past it exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.
+    ``drtmle`` sidesteps the question entirely by capping at three iterations and never
+    claiming to converge.  :attr:`ReductionFluctuation.ill_conditioned` reports the
+    conditioning; :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
 
-    **Swept over 96 fits** -- four processes by two sizes by twelve seeds, the table under
-    *How the alternation exits* in ``docs/drtmle/investigation-log.md`` -- which replaced the
-    six-fit claim that stood here.  It
-    said the loop "converged in 15 to 45 rounds" on six seeded draws of *one* process, and
-    so ran to the cap only on a minority.  Running out of rounds is a minority (8 of 96),
-    but converging is rarer: **2 of 96 reached the tolerance and 86 stalled**.  The
-    conditioning is also worst on ``linear`` -- 5 of 12 draws at ``n = 600`` and 9 of 12 at
-    ``n = 1,200``, against 0 of 12 for ``nonlinear`` -- which is what "vanishes where the
-    mechanism is right" predicts, the easy process being the ill-conditioned one.
+    **Swept twice over the same 96 fits** -- four processes by two sizes by twelve seeds,
+    ``docs/drtmle/investigation-log.md``, first under the criterion item 7 replaced and then
+    under the one in force.  The first sweep replaced a six-fit claim that had stood here
+    ("converged in 15 to 45 rounds", one process) and found the loop mostly *stalling*: 2 of
+    96 reached the tolerance, 86 stalled, 8 ran out of rounds.  **The second inverts it: 87
+    reached the tolerance, 8 stalled and 1 ran out of rounds**, at a median of 4 to 9 rounds
+    against 12 to 24, and the whole sweep costs a seventh of what it did.  Nothing about the
+    iteration changed between them -- what changed is which ruler the exit test uses, which is
+    :func:`_negligible_bar`'s, and the honest reading is that the loop was reaching its fixed
+    point all along and being told it had not.  The conditioning survives at a third of the
+    rate and keeps its shape: worst on ``linear``, 3 of 12 draws at each size against 0 of 12
+    for ``nonlinear`` at ``n = 600``, which is what "vanishes where the mechanism is right"
+    predicts, the easy process being the ill-conditioned one.
 
     The exit test used to be a *relative* score alone, dividing by a ``mean|h|`` of order
-    ``1e-3`` and so reading an absolutely negligible score as a large one; :data:`_NEGLIGIBLE`
-    and :func:`_solved` are what that became and say why.
+    ``1e-3`` and so reading an absolutely negligible score as a large one;
+    :func:`_negligible_bar` and :func:`_solved` are what that became and say why.  The bar it
+    became is a **numerical** criterion and not a proxy for what
+    :func:`~cleverly.validation.score_check` applies to the reported fit -- when to stop
+    iterating and whether the fit is entitled to a Wald interval are two questions, and this
+    loop answers only the first.
 
     Returns the final outcome submodel and the equation-(8) fluctuation, carrying equation
     (9)'s tilt on :attr:`~cleverly.fluctuation.Fluctuation.mechanism` and equation (10)'s on
@@ -1102,7 +1165,7 @@ def solve_with_reduction(
         # nothing. `worst` stays the *relative* max above, because it is what the stall
         # rule measures progress with and a mixed quantity would make "improving" mean two
         # things on alternate rounds.
-        negligible = _NEGLIGIBLE / float(data.n)
+        negligible = _negligible_bar(data.n)
         if (
             _solved(fluctuation.relative_score_norm, fluctuation.score_norm, spec.tol, negligible)
             and _solved(reduced_score, reduced_absolute, spec.tol, negligible)

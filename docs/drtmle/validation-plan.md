@@ -389,12 +389,15 @@ deliverable as much as the assertions are, for the reason
 One dispatch of `benchmarks/bench_drtmle.py`, **after B1**, because every conclusion it could draw
 today is read through a curve that a share of fits have wrong.
 
-**The piece split into B2a and B2b, and this section is what B2a was executed from.** The dispatch
-this section describes could not happen until the script recorded what the section asks for, and
-the paper's update order did not exist to be run at all — so the instrument is one pull request
-([B2a](../roadmap.md#b2a--the-sweep-instrument), landed) and the dispatch and its reading are the
+**The piece split into B2a and B2b, and this section is what both were executed from.** The
+dispatch this section describes could not happen until the script recorded what the section asks
+for, and the paper's update order did not exist to be run at all — so the instrument was one pull
+request ([B2a](../roadmap.md#b2a--the-sweep-instrument)) and the dispatch and its reading were the
 next ([B2b](../roadmap.md#b2b--the-dispatch-and-what-it-decides)). That is the same split B1 took and
-for the same reason: one half precedes the other and depends on it.
+for the same reason: one half precedes the other and depends on it. **Both have landed**, and the
+dispatch was four runs rather than the one this section planned: the main sweep, one order run per
+process, and the order arm again at three times the seeds. [What they
+measured](investigation-log.md#what-the-b2b-dispatch-measured).
 
 **One instruction here could not be executed as written, and the correction is B2a's.** This
 section asks whether the failures persist "when the reductions are handed the **oracle** values",
@@ -497,11 +500,43 @@ prescribes a fixed point rather than a route — would not survive it. A route d
 large but shrinks at the same rate as the reseed's is the *opposite* finding, and is the expected
 one.
 
+**Clause 4 needed a column, and adding one is not changing the rule.** The identity lives on *What
+the reported curve rests on*, and that table is base-only — so at the time this rule was frozen
+three of its four clauses were answerable from the printed tables and the fourth was answerable for
+one arm of the two it names. Every `Exit` already carried the number, since `one_fit` computes the
+whole `Curve` whatever the arm; only `comparison_rows` dropped it. It now carries a `worst identity`
+column, a **max** over the cell as `curve_rows` takes it, since an identity's right value is zero and
+a median would let one broken fit hide behind eleven sound ones. The distinction this paragraph
+exists to hold is that the *rule* is unchanged and what moved is what can be read against it —
+`tests/unit/test_bench_drtmle.py` pins the column, watched to fail. A clause nobody can evaluate is
+not a frozen rule, it is a frozen intention.
+
 **Why a count rather than an interval.** `comparison_rows` reports a median, and this repository has
 no Monte Carlo standard error for a median — `EstimandSummary.bias_se` is a mean's. At twelve draws
 a distribution-free paired count is honest where an invented interval would not be, so clause 2 is
 stated on the count and the mean with `sd/√M` is reported beside it for continuity. Raising `--seeds`
 for this arm is the way to sharpen it; reading its median as though it were a coverage number is not.
+
+**That sharpener was taken and the rule still did not resolve, which is worth recording against the
+rule rather than against the estimator.** [B2b](../roadmap.md#b2b--the-dispatch-and-what-it-decides)
+ran the arm at twelve draws and again at thirty-six. Clause 2 fails on both processes at both
+counts, always *short* of half. Clause 1 is met on one process at each count — a different one each
+time — because a median over twelve or thirty-six draws is not stable enough to carry the claim; on
+`nonlinear` at 36 draws it rises by 2% in the last step while the control's median rises in the same
+place. What *is* stable is the route difference sitting 3.5 to 4 times below the control's at every
+cell. **Two restatements have reasons behind them and may be made before a further dispatch, never
+after one**: clause 2 should be **one-sided**, since a count far below half is evidence for the
+conclusion rather than against it; and clause 1 should be stated on the **ratio of the two medians**
+rather than on the route's alone, since the control exists precisely to absorb what a refit does and
+the route median inherits its noise otherwise. Neither is made here. [The
+reading](investigation-log.md#the-same-rule-at-thirty-six-draws-and-why-the-two-readings-are-not-nested)
+carries both seed counts.
+
+**And the two readings are not nested, which is a property of the instrument.**
+`bench_drtmle.py` slices its three seed streams as `[:s]`, `[s:2s]` and `[2s:]`, so raising `--seeds`
+holds the *data* seeds' prefix and moves the fold and control blocks wholesale: the 36-draw run
+shares its first twelve datasets with the 12-draw one and none of their fold splits. Neither
+supersedes the other and both are kept. The script's comment now says so.
 
 **The dispatch it is judged from** is its own, because three sizes across four processes and three
 arms does not fit the runner:
@@ -514,6 +549,28 @@ order: true    order_control: true
 2 processes × 3 sizes × 12 seeds × 3 arms = 216 fits, ≈ 100 minutes at `jobs: 2` against the
 180-minute cap, with the paper arm's longer route allowed for. The main four-process sweep keeps its
 two sizes and runs with the arms **off**.
+
+**It was dispatched as two runs, one process each, and the precaution turned out to be
+unnecessary.** The reasoning was the cap: the estimate above is against the base arm's 42.6s per
+fit, the paper arm took 22 rounds against 8 on the draw the two were first compared on, so a *draw*
+costs base + reseed + paper and 72 draws at `jobs: 2` reaches ~118 minutes before the `n = 2,400`
+cell is allowed for — and the workflow prints nothing until every fit has returned, so a run killed
+at the cap reports no table at all rather than a truncated one. Every table here is keyed on
+`(process, n)` and every clause of the rule above is stated per process, so two dispatches produce
+exactly the rows one would have. **The split changes the run and not the rule**, and it is recorded
+here rather than in the log because a reader checking the rule against the evidence will otherwise
+find one dispatch promised and two delivered.
+
+**What the cost model got wrong is worth more than the split.** The two runs took **722s and 393s**
+for 108 fits each, at 9.8s and 6.4s a fit — against the 42.6s every sizing on this page was written
+from. The main four-process sweep is likewise 378s where it was 2,588s. The cause is
+[item 7](../roadmap.md#closed-since-this-list-opened)'s exit criterion: the alternation now reaches
+its tolerance in 4 to 9 rounds where it stalled after 12 to 24, so the sweep does about a seventh of
+the work. **Every runtime estimate in §4 and §5 is therefore stale in the same direction**, and the
+consequence for [§5's study](#5-the-controlled-study-piece-c) is the significant one: it was sized
+at "~24 hours serial and about two on a 12-way `matrix:`" from a 43s `DRTMLE` fit at `n = 1,200`,
+and that fit is now several times cheaper. Re-time before re-sizing rather than dividing by seven —
+piece C fits both estimators over every replicate at three sizes, and only the `DRTMLE` half moved.
 
 **Stopping and validity are two questions and the sweep must report them separately.**
 Asymptotic linearity asks for `P_n D = o_p(n^(−1/2))`; the honest finite-sample rendering of `o`
