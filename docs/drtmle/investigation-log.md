@@ -479,7 +479,7 @@ paper 356) and `arxiv.org` each returned **403 at the agent proxy's `CONNECT`** 
 denial, not a paywall — while `raw.githubusercontent.com` and `pypi.org` returned 200.
 
 Two documents have since been supplied by hand and neither required that network:
-`docs/pdf.pdf` is Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using drtmle*,
+The first is Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using drtmle*,
 Observational Studies 9(2):43–78, and the 2016 Berkeley working-paper version of Benkeser, Carone,
 van der Laan & Gilbert was read by the second review and transcribed into
 [the concordance](theorem-concordance.md). **Check the network again rather than inheriting

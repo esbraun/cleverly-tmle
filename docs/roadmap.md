@@ -36,7 +36,7 @@ patch valid under every eventual convention, and **B1b**, the targeting decision
 for the theorem. It no longer does: [A1a](#a1a--the-theoretical-audit) answered what it was waiting
 for, and the answer was that the theorem offers no convention to match.
 
-**Then the working paper itself arrived**, at `docs/viewcontent.cgi.pdf`, and reading it rather
+**Then the working paper itself arrived** — UCB Biostatistics paper 356 — and reading it rather
 than a transcription of it closed both of the third review's items — the **sign in favour of the
 implementation**, on that paper's own appendices, which contradict the display the charge was
 filed from; and the **update order**, because the paper states its own exit as the three score
@@ -131,7 +131,7 @@ registry.
 
   - ~~the mechanism correction's sign disagrees with Theorem 1~~ (item 21) — **closed, and the
     curve agrees with the theorem.** The working paper is now in the repository
-    (`docs/viewcontent.cgi.pdf`) and read. Its §3.1 display does define `D_A = −(Q_r/g)(A − g)`
+    (UCB Biostatistics paper 356, p. 9) and read. Its §3.1 display does define `D_A = −(Q_r/g)(A − g)`
     while Theorem 1 subtracts `D_A`, which read together flips the mechanism correction — but the
     paper's **own appendices** derive each block in a form satisfiable only with the *positive*
     correction, and Theorem 1's variance formula then reads exactly as this package computes it.
@@ -369,9 +369,9 @@ item 15 alone.
 *decomposition*, and that has moved here: the components are checked against the derivation
 instead of against another implementation.
 
-**The document-access problem is gone and was never a paywall.** `docs/pdf.pdf` is the 2023
-software article and `docs/viewcontent.cgi.pdf` is the **2016 Berkeley working paper**, supplied
-by hand and now read first-hand rather than through a transcription — which is what closed item
+**The document-access problem is gone and was never a paywall.** The 2023 software article and the
+**2016 Berkeley working paper** were both supplied by hand and both read first-hand rather than
+through a transcription — which is what closed item
 21, and which changed the answer: the transcription was faithful and the display it transcribed is
 contradicted by the same paper's appendices. What remains unobtained is the **published 2017**
 article, an NIH author manuscript in PubMed Central as **PMC5793673**, and van der Laan (2014)
@@ -381,6 +381,14 @@ depends on the edition. One runner's network measurements are in [the investigat
 log](drtmle/investigation-log.md#what-one-runner-could-and-could-not-reach) rather than here,
 because they are a property of an execution environment on a date and this page carried an
 obstacle it had inherited for two revisions.
+
+**The two files themselves are no longer in the repository**, and neither is anything they were
+cited for: what was read out of them is transcribed into
+[the concordance](drtmle/theorem-concordance.md), which now carries a **page number** on every
+section, display and appendix it quotes. That is what the file paths were standing in for and
+doing badly — a path resolves for a reader who already has the file, and a page number resolves
+for one who does not. [`references.md`](references.md) is where every source in the package is
+listed.
 
 ##### A1a — the theoretical audit
 

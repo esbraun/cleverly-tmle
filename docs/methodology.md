@@ -563,7 +563,7 @@ whether the fit is corrected and says which equations it solved.
 **The influence curve was a fidelity claim about `drtmle`, and it has now been checked against
 the theorem.** The form above is what that package computes, read off its implementation;
 Theorem 1 of Benkeser, Carone, van der Laan & Gilbert is where the influence function is
-derived, and the 2016 working paper is now in the repository at `docs/viewcontent.cgi.pdf` and
+derived, and the 2016 working paper — UCB Biostatistics paper 356 — has been obtained and
 read. The two **agree**, and the reason that took an argument is that the paper's §3.1 display
 prints the mechanism correction with a leading minus its own appendices contradict — see
 [the concordance's §4](drtmle/theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved),
@@ -851,6 +851,9 @@ and the registry must cover each other exactly.
 
 ## References
 
+The full list, with the locators the `DRTMLE` prose cites, is
+[`references.md`](references.md); what follows is the same set grouped by where it is used.
+
 - van der Laan & Rubin (2006), *Targeted Maximum Likelihood Learning*.
 - Gruber & van der Laan (2010), *A targeted maximum likelihood estimator of a causal effect on a
   bounded continuous outcome*.
@@ -883,7 +886,7 @@ The last three are for `DRTMLE`, and
 [doubly-robust inference](#doubly-robust-inference-what-the-extra-equations-remove) rests on
 them — on the first two for the estimating equations and on the third's implementation for
 the influence curve. **Theorem 1 has now been read**, in the 2016 working-paper version kept at
-`docs/viewcontent.cgi.pdf`, and the curve agrees with it; that section and
+UCB Biostatistics paper 356, and the curve agrees with it; that section and
 [the concordance](drtmle/theorem-concordance.md) say what the agreement took and what is still
 open without it.
 

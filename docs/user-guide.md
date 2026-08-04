@@ -1209,7 +1209,7 @@ parameter axes, `delta=`, `intermediate=`, fold-wise targeting,
 **What is not visible from the output**, and is why this section opens with a warning. The
 influence curve's form is read off `drtmle`'s implementation rather than derived. It has since
 been checked against Theorem 1 — in the 2016 working-paper version, kept at
-`docs/viewcontent.cgi.pdf` — and it agrees, though the paper's own display of one correction
+UCB Biostatistics paper 356 — and it agrees, though the paper's own display of one correction
 prints a sign its appendices contradict, so the check took an argument rather than a glance
 ([the concordance's §4](drtmle/theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)).
 It has since also been checked against a *perturbation of the law*, which is the check every

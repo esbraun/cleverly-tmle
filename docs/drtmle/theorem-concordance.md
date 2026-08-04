@@ -16,13 +16,22 @@ says where it came from. A row with no source is not a row.
 
 ## 0. Source inventory
 
-| document | in hand | what it supplies |
+| document | read first-hand | what it supplies, and where |
 | --- | --- | --- |
-| Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using drtmle*, Observational Studies 9(2):43–78 | **yes**, `docs/pdf.pdf` | equations (5)–(10), both reduced-regression constructions, the package workflow, the qualitative doubly-robust claims, the multi-level and cross-validation claims |
-| Benkeser, Carone, van der Laan & Gilbert (2016), the Berkeley working paper, UCB Biostatistics paper 356 | **yes**, `docs/viewcontent.cgi.pdf` — it was transcribed by the second review before the document itself was in hand | Theorem 1, `D_A`, `D_Y`, `D^{*,#}`, the variance formula, the recursive algorithm, appendix A's bivariate remainder, appendix B's univariate remainder and its sufficient conditions, appendix C on unnecessary one-step corrections |
-| Benkeser, Carone, van der Laan & Gilbert (2017), Biometrika 104(4):863–880, PMC5793673 | **no** | the *published* Theorem 1, which is authoritative wherever the working paper and it differ |
-| van der Laan (2014), IJB 10(1):29–57, Theorem 3 | **no** | the bivariate construction's regularity conditions |
-| `benkeser/drtmle` 1.1.2 source | **yes**, read | where several formulae here were transcribed from, and the names they carry there — provenance, not a check |
+| Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using `drtmle`*, Observational Studies 9(2):43–78 | **yes** | equations (5)–(10) and both reduced-regression constructions; the package workflow; the qualitative doubly-robust claims; multi-level treatments (§4.6, pp. 66–67) and cross-validation (§4.7, p. 69) |
+| Benkeser, Carone, van der Laan & Gilbert (2016), *Doubly-robust Nonparametric Inference on the Average Treatment Effect*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper 356 | **yes** | §3.1's bivariate construction and its `D_A`/`D_Y` displays (p. 9); equation (2) (p. 9); §3.2's univariate `D_Y`, Theorem 1, `D^{*,#}`, `σ̂²_n` and the recursive algorithm (pp. 10–11); appendix A's bivariate remainder and rate conditions (pp. 19–20); appendix B's univariate remainder (p. 21); appendix C on unnecessary correction terms (pp. 21–22) |
+| Benkeser, Carone, van der Laan & Gilbert (2017), *Doubly robust nonparametric inference on the average treatment effect*, Biometrika 104(4):863–880, PMC5793673 | **no** | the *published* Theorem 1, which is authoritative wherever the working paper and it differ |
+| van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical inference*, International Journal of Biostatistics 10(1):29–57, Theorem 3 | **no** | the bivariate construction's regularity conditions |
+| `benkeser/drtmle` 1.1.2 source, and its own reference documentation | **yes**, read | where several formulae here were transcribed from, and the names they carry there — provenance, not a check. The `Qsteps = 2` backfitting that `fluctuation/reduced.py` and `estimators/targeting.py` quote as "found to be more stable in simulations" is that documentation's phrase, not either paper's |
+
+**Everything the two papers are cited for is transcribed below, and neither file is kept in the
+repository.** Both were, and were cited by path from here and from `methodology.md`,
+`user-guide.md`, `roadmap.md`, `investigation-log.md`, `fluctuation/reduced.py` and
+`test_theorem_drtmle.py`. What replaced them is a **page number on every locator**, which is the
+work those paths were doing badly: a path resolves for a reader who already has the file, and a
+page number resolves for one who does not. The transcriptions that closed the gap are §4's
+equation (2) and §3.1 displays, §4a's appendix C, §5's appendix A remainder terms and rate
+conditions, and §12's sequential-binomial construction.
 
 Two consequences, and they are the reason this file exists rather than a paragraph:
 
@@ -37,7 +46,7 @@ Two consequences, and they are the reason this file exists rather than a paragra
 
 ```text
 Benkeser et al., Theorem 1
-- theorem statement available:                  YES (2016 working paper, docs/viewcontent.cgi.pdf)
+- theorem statement available:                  YES (2016 working paper, pp. 10-11)
 - corrected influence function available:       YES
 - appendix A and B remainder terms available:   YES
 - the sign question (item 21):                  RESOLVED, on the paper's own appendices
@@ -249,6 +258,85 @@ later reader will otherwise re-derive:
   one, is collected into `R_{Q,n}`, while (2) pairs `D_A` with `R_{g,n}`. Harmless for the
   implementation — nothing here reads those labels — and worth knowing before quoting (2).
 
+Both observations are about a display, so here it is, transcribed from p. 9 rather than paraphrased
+— the warning above is unusable without it:
+
+```text
+(2)   R(Q̄_n, Q̄, g_n, g)
+        = R*_n
+        + I(g = g_0)  { (P_n − P_0) D_A(Q̄_{0,r}, g) − B_{A,n}(Q̄_{n,r}, g_n) + R_{g,n} }
+        + I(Q̄ = Q̄_0) { (P_n − P_0) D_Y(Q̄, g_{0,r}) − B_{Y,n}(Q̄_n, g_{n,r}) + R_{Q,n} }
+
+with   B_{A,n}(Q̄_{n,r}, g_n) := P_n D_A(Q̄_{n,r}, g_n)
+       B_{Y,n}(Q̄_n, g_{n,r}) := P_n D_Y(Q̄_n, g_{n,r})
+```
+
+and `R*_n`, `R_{g,n}`, `R_{Q,n}` second-order. Read it beside §5: the `I(g = g_0)` line is
+appendix A's `D_A` derivation, whose second-order remainder that appendix names `R_{Q,n}` — which
+is the crossing, visible in one place once both are on the page.
+
+And the §3.1 bivariate `D_Y`, the other half of the internal-inconsistency argument, which §4 above
+asserts the sign of and which is otherwise nowhere in this repository. Both displays, p. 9,
+verbatim in orientation:
+
+```text
+D_A(Q̄_{0,r}, g)(o) := − ( Q̄_{0,r}(w) / g(w) ) · { a − g(w) }
+
+D_Y(Q̄, g_{0,r})(o) := − ( a / g_{0,r}(w) )
+                        · { (g_{0,r}(w) − g(w)) / g(w) }
+                        · { y − Q̄(w) }
+```
+
+Both carry the leading minus. §3.2's redefinition — the univariate one this package implements —
+does not:
+
+```text
+D_Y(Q̄, g_{1,0,r}, g_{2,0,r})(o) := ( a / g_{1,0,r}(w) ) · g_{2,0,r}(w) · { y − Q̄(w) }
+```
+
+So the two `D_Y`s differ by a sign *within the paper*, twelve lines apart, and Theorem 1 subtracts
+both under one name. That is the internal inconsistency; the appendices are what break the tie.
+
+## 4a. Appendix C: what happens to a correction that is not needed
+
+*Source: the 2016 working paper, appendix C, pp. 21–22.* Cited in §0 as one of the things that
+paper supplies, and until now transcribed nowhere — which mattered, because it is the paper's own
+statement of the property `tests/unit/test_influence_gateaux*` relies on and cannot see.
+
+The question is what `B_{A,n}` does when `Q̄ = Q̄_0`, and what `B_{Y,n}` does when `g = g_0` — that
+is, what the *unnecessary* correction costs. Both answers rest on a vanishing:
+
+```text
+D_A(Q̄_{0,r}, g) = 0  for every g,   because Q̄_{0,r} = 0 when Q̄ = Q̄_0
+D_Y(Q̄, g_{1,0,r}, g_{2,0,r}) = 0  for every Q̄,   because g_{2,0,r} = 0 when g = g_0
+```
+
+and each then decomposes into an empirical-process term plus a second-order one:
+
+```text
+B_{A,n}(Q̄_{n,r}, g_n) = P_0 D_A(Q̄_{n,r}, g_n) + M_{A,n},
+    M_{A,n} := (P_n − P_0){ D_A(Q̄_{n,r}, g_n) − D_A(Q̄_{0,r}, g) }
+    P_0 D_A(Q̄_{n,r}, g_n) = P_0[ (Q̄_{n,r}/g)·(g_0 − g) ] + R_{A,n}
+    R_{A,n} := P_0[ Q̄_{n,r}·((g − g_n)/(g_n·g))·(g_0 − g_n) ] + P_0[ (Q̄_{n,r}/g)·(g − g_n) ]
+
+B_{Y,n}(Q̄_n, g_{1,n,r}, g_{2,n,r}) = P_0 D_Y(Q̄_n, g_{1,n,r}, g_{2,n,r}) + M_{Y,n},
+    M_{Y,n} := (P_n − P_0){ D_Y(Q̄_n, g_{1,n,r}, g_{2,n,r}) − D_Y(Q̄, g_{1,0,r}, g_{2,0,r}) }
+    P_0 D_Y(…) = P_0[ (A/g_{1,0,r})·(Q̄_0 − Q̄)·g_{2,n,r} ] + R_{Y,n}
+    R_{Y,n} := P_0[ A·((g_{1,0,r} − g_{1,n,r})/(g_{1,0,r}·g_{1,n,r}))·g_{2,n,r}·(Q̄_0 − Q̄_n) ]
+             + P_0[ (A/g_{1,0,r})·g_{2,n,r}·(Q̄ − Q̄_n) ]
+```
+
+with `R_{A,n}` and `R_{Y,n}` `o_p(n^(−1/2))` under the rate conditions of appendices A and B, and
+`M_{A,n}`, `M_{Y,n}` "reasonably assumed" to be so.
+
+**Why this is worth having on the page.** It is the paper's own account of why solving an equation
+you did not need does not cost you anything asymptotically — the guard that is not required
+contributes a term that is already `o_p(n^(−1/2))` at the truth. It is also the source of the trap
+CLAUDE.md records: `Q̄_r` and `g_{r,2}` are **zero row by row** at correct nuisances, so any check
+taken there is blind to a flipped sign. Appendix C is where that vanishing is stated, and it is why
+[`test_theorem_drtmle.py`](../../tests/unit/test_theorem_drtmle.py) has to be taken at values where
+the corrections do not vanish.
+
 ## 5. The remaining remainder terms
 
 *Source: the 2016 working paper, appendix A (bivariate) and appendix B (univariate).*
@@ -263,7 +351,26 @@ M̃_{2,n} = (P_n − P_0)[ D_Y(Q̄_n, g_{1,n,r}, g_{2,n,r}) − D_Y(Q̄_0, g_{1,
 R_{g,n} = R̃_{5,n} + R̃_{6,n} + M̃_{2,n}
 ```
 
-and the outcome-misspecification branch retains appendix A's `R_{Q,n} = R_{3,n} + R_{4,n} + M_{1,n}`.
+and the outcome-misspecification branch retains appendix A's `R_{Q,n} = R_{3,n} + R_{4,n} + M_{1,n}`,
+which that appendix defines as
+
+```text
+R_{3,n} = P_0[ { (Q̄_{0n,r} − Q̄_{0,r}) / g_0 } · (g_0 − g_n) ]
+R_{4,n} = P_0[ { Q̄_{0,r}/g_0 − Q̄_{n,r}/g_n }  · (g_0 − g_n) ]
+M_{1,n} = (P_n − P_0)[ D_A(Q̄_{n,r}, g_n) − D_A(Q̄_{0,r}, g_0) ]
+```
+
+with `Q̄_{0n,r}(w) := E_0{ Y − Q̄(W) | g_n(W) = g_n(w), g_0(W) = g_0(w) }` — the reduced outcome
+regression evaluated at the *estimated* propensity as well as the true one, which is what makes
+`R_{3,n}` an approximation error rather than a fitted one.
+
+Appendix A's first branch also carries `R^*_n = R_{1,n} + R_{2,n}`, the part that is second-order
+whichever nuisance is right:
+
+```text
+R_{1,n} = P_0[ (Q̄_n − Q̄_0)·(g_n − g_0)·(g − g_n) / (g_n·g) ]
+R_{2,n} = P_0[ (Q̄_n − Q̄)·(g_n − g) / g ]
+```
 
 **The paper's rate conditions are illustrative, not necessary.** For `R_{g,n} = o_p(n^(−1/2))` it
 states that it *generally suffices* that
@@ -275,9 +382,26 @@ states that it *generally suffices* that
 ```
 
 together with a `P_0`-Donsker condition on the estimated `D_Y` class and `L_2(P_0)` convergence of
-the estimated `D_Y` to its limit. Appendix A gives the analogous examples for `R_{Q,n}`, involving
-the reduced outcome regression's approximation error, its fitted error, the primary propensity
-error, and a Donsker plus `L_2` condition for `D_A`.
+the estimated `D_Y` to its limit. Appendix A's analogous conditions for `R_{Q,n}` are, in the same
+"if, for example" form:
+
+```text
+‖Q̄_{0n,r} − Q̄_{n,r}‖_2 = o_p(n^(−1/4))     the reduced regression's approximation error
+‖Q̄_{n,r}  − Q̄_{0,r}‖_2 = o_p(n^(−1/4))     its fitted error
+‖g_n      − g_0‖_2      = o_p(n^(−1/4))     the primary propensity's error
+```
+
+which give `R_{3,n}` and `R_{4,n}`; and for `M_{1,n}`, that `D_A(Q̄_{n,r}, g_n)` falls in a
+`P_0`-Donsker class with probability tending to one, together with
+
+```text
+P_0{ D_A(Q̄_{n,r}, g_n) − D_A(Q̄_{0,r}, g_0) }² = o_p(1)
+```
+
+The empirical-process pair is stated in exactly that shape in both appendices — a Donsker class
+containing the *estimated* curve, and `L_2(P_0)` convergence of the estimated curve to its limit —
+and appendix B's `M̃_{2,n}` takes the same form with `D_Y(Q̄_n, g_{1,n,r}, g_{2,n,r})` in place of
+`D_A`.
 
 **Consequence for item 13**, which [A1](../roadmap.md#a1a--the-theoretical-audit) opens and
 [C](../roadmap.md#c-the-demonstration) closes. The single diagnostic
@@ -312,7 +436,7 @@ the procedure is:
 7. iterate until the empirical means of `D*`, `D_A` and `D_Y` are approximately zero;
 8. return the final targeted collection.
 
-The transcription above is confirmed against `docs/viewcontent.cgi.pdf` first-hand. Two details it
+The transcription above is confirmed against the working paper (pp. 10-11) first-hand. Two details it
 did not carry, both worth having: the outcome fluctuations at steps 2 and 4 are fitted **using
 only data points with `A = 1`**, which is the package's per-arm indicator design; and the
 procedure has no closing pass and no truncation anywhere in it
@@ -580,10 +704,33 @@ is what earns it.
 
 ## 12. Multi-valued treatment and the simplex
 
-The 2023 article states that `drtmle` handles an arbitrary finite number of discrete levels and
-describes a sequential-binomial construction for the *initial* propensity that ensures
-`Σ_a g_n(a|w) = 1`. It works a three-level example and builds a covariance matrix for the
-treatment-specific means and their contrasts.
+The 2023 article (§4.6, pp. 66–67) states that `drtmle` handles an arbitrary finite number of
+discrete levels and describes a sequential-binomial construction for the *initial* propensity that
+ensures `Σ_a g_n(a|w) = 1` — which the article calls the estimates being **compatible**. It works a
+three-level example and builds a covariance matrix for the treatment-specific means and their
+contrasts.
+
+The construction itself, since it is short and is the thing a multi-arm implementation here would
+have to match. Rather than one multinomial regression — which would put the PS outside the reach of
+every binary-outcome learner the package can use, and that is the article's stated motivation — a
+series of *binomial* regressions is fitted. At `A ∈ {0, 1, 2}` with no missingness:
+
+```text
+g_n(0|w)   estimates P_0(A = 0 | W = w)                  a binary regression on all rows
+g̃_n(1|w)   estimates P_0(A = 1 | A > 0, W = w)           I(A = 1) on W, among rows with A > 0
+g_n(1|w) = g̃_n(1|w) · { 1 − g_n(0|w) }                   by the chain rule
+g_n(2|w) = 1 − g_n(0|w) − g_n(1|w)                       by subtraction
+```
+
+Compatibility is then true by construction rather than by a projection afterwards, and the pattern
+generalises to any number of levels: regress each level against the ones above it, multiply by the
+mass not yet allocated, and take the last level as the remainder. Every regression in it has a
+binary outcome, which is the whole point.
+
+Two things this does **not** settle, and both are why the block below still reads NO. It is the
+*initial* propensity only — the article says nothing about whether the **targeted** `g*` retains
+compatibility, which is the open question §12 is really about. And a compatible PS is not a
+multi-arm theorem: the article reproduces none.
 
 ```text
 software support in the article:                       YES

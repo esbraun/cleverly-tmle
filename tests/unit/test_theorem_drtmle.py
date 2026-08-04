@@ -6,7 +6,7 @@ else here can catch -- all three empirical means are driven to zero, so no repor
 :math:`\hat\Psi` moves however the signs go, and what a wrong sign moves is the variance,
 which is the only product this variant has.
 
-**The source is** ``docs/viewcontent.cgi.pdf``, the 2016 Berkeley working paper (UCB
+**The source is** Benkeser, Carone, van der Laan & Gilbert (2016), the Berkeley working paper (UCB
 Biostatistics paper 356).  Its display equations and its own appendices do not agree, and that
 disagreement is the whole of item 21.  Writing :math:`u` and :math:`v` for the two
 **positive** quantities the software computes,
