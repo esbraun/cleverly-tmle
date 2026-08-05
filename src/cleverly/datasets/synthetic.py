@@ -120,6 +120,38 @@ class DGP:
         """
         return dict(_cached_truth(self, intermediate_value))
 
+    def quadrature(self, points: int = _TRUTH_POINTS) -> FloatArray:
+        """The ``(points, n_latent)`` latent matrix :meth:`expectation` integrates on.
+
+        :meth:`expectation` is the escape hatch for a population *scalar*; this is the one
+        for a population quantity that is not a scalar -- a whole evaluation frame, say, whose
+        rows a fitted model has to be predicted at before anything can be averaged.
+        ``benchmarks/drtmle_remainder.py`` is the caller: :math:`P_0\\hat D` is an integral of
+        a *fitted* curve, so it cannot be written as a closure over the law and handed to
+        :meth:`expectation` -- the integrand has to be materialised, predicted at, and only
+        then averaged.
+
+        **The grids are nested, and that is the property to preserve.**  The underlying
+        sequence is scrambled Sobol at a fixed seed, so ``quadrature(2**12)`` is the first
+        4,096 rows of ``quadrature(2**14)`` and both are prefixes of the rule :meth:`truth`
+        uses.  A ladder of grids is therefore a sequence of *refinements* of one rule rather
+        than a set of unrelated draws, so the movement between two of them is discretisation
+        error and nothing else.  Only powers of two keep that -- and Sobol's balance
+        properties hold only at powers of two in any case -- so anything else is refused
+        rather than silently rebalanced.
+
+        >>> dgp = linear_dgp()
+        >>> coarse, fine = dgp.quadrature(2**10), dgp.quadrature(2**12)
+        >>> bool(np.array_equal(coarse, fine[: 2**10]))
+        True
+        """
+        if points <= 0 or points & (points - 1):
+            raise ValueError(
+                f"quadrature points must be a positive power of two, so that a coarser grid "
+                f"is a prefix of a finer one; got {points}"
+            )
+        return _sobol_normal(self.n_latent, points)
+
     def expectation(self, integrand: Callable[[FloatArray], FloatArray]) -> float:
         r"""``E_0[integrand(latent)]``, by the rule :meth:`truth` integrates with.
 
@@ -145,7 +177,7 @@ class DGP:
         >>> bool(0.4 < mean_g < 0.6)
         True
         """
-        latent = _sobol_normal(self.n_latent, _TRUTH_POINTS)
+        latent = self.quadrature()
         values = np.asarray(integrand(latent), dtype=float).reshape(-1)
         if values.size != _TRUTH_POINTS:
             raise ValueError(
@@ -155,7 +187,7 @@ class DGP:
         return float(np.mean(values))
 
     def _integrate(self, intermediate_value: float | None) -> dict[str, float]:
-        latent = _sobol_normal(self.n_latent, _TRUTH_POINTS)
+        latent = self.quadrature()
         g = np.clip(np.asarray(self.propensity(latent), dtype=float), 0.0, 1.0)
         q1 = np.asarray(self.outcome_mean(latent, 1.0, intermediate_value), dtype=float)
         q0 = np.asarray(self.outcome_mean(latent, 0.0, intermediate_value), dtype=float)
@@ -180,7 +212,7 @@ class DGP:
         up as overlap fails.  The first delta is the reference, matching the estimator's
         rule that contrasts are taken against the first declared.
         """
-        latent = _sobol_normal(self.n_latent, _TRUTH_POINTS)
+        latent = self.quadrature()
         g = np.clip(np.asarray(self.propensity(latent), dtype=float), 0.0, 1.0)
         q1 = np.asarray(self.outcome_mean(latent, 1.0, None), dtype=float)
         q0 = np.asarray(self.outcome_mean(latent, 0.0, None), dtype=float)

@@ -118,6 +118,39 @@ class TestTruth:
         with pytest.raises(ValueError, match="one value per integration point"):
             nonlinear_dgp().expectation(lambda w: np.zeros(3))
 
+    def test_the_grids_are_prefixes_of_one_another(self) -> None:
+        """The property a convergence ladder rests on, and it is exact or it is nothing.
+
+        Three grids that are not nested are three rules, and the movement between two of
+        them is then reshuffling rather than refinement.  ``benchmarks/drtmle_remainder.py``
+        reads a whole ladder off one companion by slicing prefixes, which is only the same
+        integral at a coarser grid because of this.
+        """
+        dgp = nonlinear_dgp()
+        coarse, fine, whole = dgp.quadrature(2**10), dgp.quadrature(2**13), dgp.quadrature()
+
+        assert np.array_equal(coarse, fine[: 2**10])
+        assert np.array_equal(coarse, whole[: 2**10])
+
+    def test_the_default_grid_is_the_rule_the_truth_is_integrated_with(self) -> None:
+        """Bit for bit, and it is the *composition* being pinned rather than the point set.
+
+        ``benchmarks/drtmle_remainder.truth_at`` integrates :math:`\\psi_0` on the companion's
+        own grid so that it cancels against :math:`P_0\\hat D`'s plug-in half, and the whole
+        cancellation rests on ``quadrature`` returning the points ``truth`` uses.  Those are
+        two methods that could drift apart -- the reason there is one call rather than two
+        literals -- so this asserts the identity rather than a tolerance.
+        """
+        dgp = nonlinear_dgp()
+
+        levels = dgp.outcome_mean(dgp.quadrature(), 1.0, None)
+        assert dgp.truth()["ey1"] == float(np.mean(levels))
+
+    def test_a_grid_that_is_not_a_power_of_two_is_refused(self) -> None:
+        """Nesting is only meaningful between powers of two, and so is Sobol's balance."""
+        with pytest.raises(ValueError, match="positive power of two"):
+            nonlinear_dgp().quadrature(1000)
+
     def test_binary_outcome_truth_includes_marginal_ratios(self) -> None:
         truth = binary_outcome_dgp().truth()
         assert 0.0 < truth["ey0"] < truth["ey1"] < 1.0

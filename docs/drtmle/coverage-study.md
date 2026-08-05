@@ -224,6 +224,14 @@ generous rather than tight. The companion is what the remainder columns cost, an
 prediction per fold per nuisance per round with no further learner fit — a few seconds at the
 pilot's evaluation size, and it scales with `--evaluation-n` rather than with `n`.
 
+**E1 measured that scaling rather than reasoning about it, and it is flatter than the sentence
+above implies.** Two to four times the companion rows costs two to six per cent of the fit at
+either tier — `20.6s` against `19.8s` in the worst cell measured, Tier 2 `g-drift` at `n = 2,400`
+with 4,096 rows against 2,000. The kernel smoother's cost is dominated by the rows it *trains* on
+rather than by the rows it predicts at, so a finer evaluation rule is close to free and the grid
+could be taken several rungs beyond what any cell has needed. [The
+table](investigation-log.md#what-it-cost-which-is-nearly-nothing).
+
 ## The rules
 
 Frozen in [the validation plan's §5](validation-plan.md#the-decision-rules-frozen-before-the-dispatch)
@@ -373,6 +381,40 @@ error is `sd(D)/√m` and it lands *directly* in a replicate's `R_remaining`: at
 error is `0.026` against a remainder of order `0.007`, so a single draw's column is mostly noise.
 The harness draws an **independent** evaluation sample per replicate, so it averages down across
 them, and every entry in the remainder table carries its Monte Carlo standard error.
+
+### The rule that quadrature is taken by, which E1 changed
+
+**Averaging down across replicates is not the same as being small**, and C3c is where the
+difference cost something: the draw's error is inside the spread every Monte Carlo error in the
+remainder table is computed from, so `1.427 ± 0.091` is a number about the estimator *and* the
+instrument together. [E1](../roadmap.md#what-e1-landed) separates them, and
+[the specification's rule](validation-plan.md#evaluating-pd-which-is-not-automatic-for-a-cross-fitted-fit)
+is where the change and its written reason live. Three things belong here, because they are
+properties of *this design* rather than of the specification.
+
+**`--quadrature-points` is the lever and the i.i.d. draw is still the default.** The dispatch table
+below is not edited: `evaluation_n = 2000` is what C3c ran and its four artefacts reproduce under
+it. Which rule produced a row is now a field on the row (`companion_rule`, `companion_rows`), so a
+later run and C3c's are distinguishable without reading an invocation.
+
+**On this law the deterministic rule is exact in two of three coordinates.** Both cells are drawn
+from `linear_dgp`, whose outcome is gaussian with additive error and whose treatment is binary —
+so `E₀[Y | A, W] = Q̄₀(A, W)` closes the `Y` integral and a two-term sum closes the `A` one, leaving
+a Sobol quadrature in `W` on the same grid `truth()` uses. A cell drawn from a law with a nonlinear
+outcome link would need that paragraph rewritten rather than reused, and
+`benchmarks/drtmle_remainder.quadrature_frame` refuses such a law by name rather than integrating
+it.
+
+**What the ladder measured, which is the number this section could not previously give.**
+`benchmarks/drtmle_companion_grid.py` reads a nested ladder off one fit per draw and compares it
+against the i.i.d. rule at C3c's own `m = 2,000`. The tables are in
+[the investigation log](investigation-log.md#what-the-e1-ladder-measured); the reading is that a
+large share of the across-draw variance of `√n R_rem` in C3c's tables was the evaluation draw
+rather than the estimator, and that the deterministic grid's own contribution is smaller by orders.
+**That does not make C3c's flat column false, and it does not say whether the decline resolves** —
+which is a rate, and rates are read at E5. The remaining spread is the estimator's own second-order
+sampling variation; how it compares against a decline is exactly the measurement E1 declines to
+substitute for. What it does is make E5's reading of the same column a reading about the estimator.
 
 ## What Tier 1 already showed, and it is not what the design expected
 
