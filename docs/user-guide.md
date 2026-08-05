@@ -1059,8 +1059,10 @@ Why this is the right number, and how it is checked:
 > **In progress.** `DRTMLE` is written and tested, and it is not finished. Its influence
 > curve was transcribed from R's `drtmle` rather than derived — it has since been checked
 > against Theorem 1's appendices *and* against the Gateaux derivative of the parameter, and
-> agrees with both — and no study in this repository shows the interval it
-> reports is better than a plain TMLE's. The full list is in
+> agrees with both. A coverage study over 6,000 fits **does** now show the interval it
+> reports is much better than a plain TMLE's where one nuisance is badly estimated —
+> `0.844` against `0.532` in the cell built for it — and also that it **attains nominal
+> coverage nowhere in that study**, the best reading being `0.880`. The full list is in
 > [the roadmap](roadmap.md#what-is-still-open); the short version is at the end of this
 > section. Use it where you have a reason to think one nuisance is badly estimated, and do
 > not treat the interval as settled.

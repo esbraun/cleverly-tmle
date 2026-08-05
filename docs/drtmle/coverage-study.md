@@ -703,12 +703,19 @@ bias is what it is. **This is not the shortfall being tuned for**: the drift is 
 predicted, not weaker, and `q-drift`'s `TMLE` covers `0.750 / 0.583 / 0.500` against `DRTMLE`'s
 `0.833 / 0.917 / 0.917` — a gap far past gate 2's predeclared `0.05` either way.
 
-**And condition 3 no longer fails.** The pilot's `g-drift` corrected remainder *rose*
-(`4.17 → 3.91 → 5.07`); re-measured it reads `+2.85 / +3.30 / +2.62`, and `q-drift`'s reads
-`+1.48 / +1.23 / +1.26`. Both fall from the first size to the last, though at 12 draws the Monte
-Carlo errors are `±0.42` to `±0.83` and the final study is what resolves them. The paragraph this
-replaces was right to say a re-tuned smoother would not obviously repair a rising *corrected*
-remainder; what it could not know is that the rise was not there to repair.
+**And condition 3 appeared not to fail.** The pilot's `g-drift` corrected remainder *rose*
+(`4.17 → 3.91 → 5.07`); re-measured it read `+2.85 / +3.30 / +2.62`, and `q-drift`'s
+`+1.48 / +1.23 / +1.26`. Both appeared to fall from the first size to the last, though at 12 draws
+the Monte Carlo errors are `±0.42` to `±0.83` and the final study is what resolves them.
+
+> **This reading did not survive the dispatch, and it is left standing with the correction beside
+> it rather than rewritten.** [C3c](investigation-log.md#what-the-c3c-dispatch-measured) read the
+> same column at 250 draws and got `4.13 / 4.12 / 4.83` in `g-drift` — back at the pilot's level,
+> not falling. The `+2.85 / +3.30 / +2.62` was inside its own error of the pilot's numbers all
+> along, which is exactly what the verdict table said by reading condition 3 `unresolved` rather
+> than `pass`. The sentence to have written is *the rise is not resolvable at this count*; the one
+> written was *the rise was not there to repair*. **`unresolved` is not a weak `pass`**, and the
+> table's whole purpose is to keep those apart — the summary prose is where they got merged.
 
 ### What both halves have to clear before any 250-replicate dispatch
 
@@ -796,19 +803,39 @@ the first of three attempts to enter the regime it named. And the gap the whole 
 to produce is there, in `q-drift`, at `+0.312 ± 0.031` and `+0.376 ± 0.033` paired on the draw at
 `n = 2,400` — `TMLE` at `0.532` and `0.472` against `DRTMLE` at `0.844` and `0.848`.
 
-**The estimator did not clear**, and the reason is one quantity. `√n R_remaining` is flat in
-`q-drift` (`1.43 / 1.26 / 1.25`, and `1.28 / 1.19 / 1.17` in the second batch) and does not fall in
-`g-drift` (`4.13 / 4.12 / 4.83`, and `4.04 / 3.93 / 4.31`). Theorem 1 assumes it negligible; at
-these sizes it is not. Everything else follows from that: `DRTMLE`'s own `√n` bias descends onto
-that plateau rather than through it, so its coverage rises to `0.844`–`0.848` and stops, and
-[the extrapolation](investigation-log.md#why-drtmle-stops-short-of-nominal-in-the-columns-rather-than-in-prose)
-puts this design's ceiling near `0.87`–`0.88`.
+**The estimator did not clear**, and **two** measured quantities account for it rather than one.
+The first is `√n R_remaining`, flat in `q-drift` (`1.43 / 1.26 / 1.25`, and `1.28 / 1.19 / 1.17` in
+the second batch) and not falling in `g-drift` (`4.13 / 4.12 / 4.83`, and `4.04 / 3.93 / 4.31`).
+Theorem 1 assumes it negligible; at these sizes and at these reductions it is not. The second is
+the interval's own width: `σ²ₙ` is the empirical variance of the estimated curve and **treats the
+reduced regressions as known**, so their estimation error is in `ψ̂`'s spread and not in the
+variance estimate — the `se ratio` of `0.903`, reproduced to the digit. The split of `q-drift`'s
+eleven points at the largest size is about six to the first and five to the second.
+
+**An earlier revision of this paragraph said "everything else follows from that", and the section
+two below is where it stops being true.** The `se` shortfall has its own mechanism, the 99 invalid
+fits have a third, and `cancel` at `1.99x` is the branch decomposition failing to separate the two
+remainder terms rather than either failing to vanish. Four failing clauses, three mechanisms — and
+attributing all four to the remainder is what would send the repair to the wrong one.
 
 **That is a finding rather than a fault in the design, and this note said so before any number
 existed**: *"Condition 3 failing stays a finding rather than a fault in the design — it is a
 condition of Theorem 1, so the estimator would then be outside the assumptions its own guarantee
 needs at these sizes."* It is now measured rather than anticipated, at 250 replicates and two
 seeds.
+
+**And the measurement is of a configuration, which is the sentence this note most needs to keep
+straight.** The three reduced regressions were fitted by `glm` —
+`benchmarks/drtmle_coverage.REDUCED_LEARNER`, named explicitly because `DRTMLE` would otherwise
+hand the *injected* primary specification to them — and
+[the concordance](theorem-concordance.md)'s `reduced regressions consistent` row reads *estimated,
+unmeasured rates* and `unverified`, before this dispatch and after it. Since Tier 2's two primaries
+are injected analytic sequences, the reductions are the only nuisances a learner fits here at all.
+So the study establishes *this estimator, at this reduction, does not meet the condition at these
+sizes*. It does not establish that the condition is unmeetable, and
+[piece E](../roadmap.md#e-what-c3c-handed-back) is that distinction turned into work — starting
+with an **oracle** reduction, which decides in one quadrature whether the learner is where the
+remainder lives.
 
 **`g-drift`'s reading is narrower than it looks and the entry column is why.** `DRTMLE` is
 resolvably *worse* than `TMLE` at `n = 600` in both batches. But conditions 1 and 2 are read on the
@@ -833,7 +860,7 @@ reader can check the verdict against the log rather than take it.*
 | **1.4** `√n R_rem → 0` in both cells, no cancellation | remainder table, `sqrt(n) R_rem`, `cancel` | flat in `q-drift`, not falling in `g-drift`; `cancel` reaching `1.99x` | **fail** |
 | **1.5** `se ratio` in `[0.90, 1.10]`, largest size, both cells | coverage table | `q-drift` `0.903` / `0.903`; `g-drift` `1.157` / `1.156` | **fail** in `g-drift` |
 | **1.6** coverage compatible with `0.95`, largest size, both cells | coverage table, `compatible` | `0.844` / `0.848` and `0.780` / `0.784`; `NO` in all four | **fail** |
-| **1.7** reproduces in the second seed batch | batch B against batch A | every qualitative claim reproduces; `se ratio` and entry column to the digit | **pass** |
+| **1.7** reproduces in the second seed batch | batch B against batch A | every qualitative claim reproduces; `se ratio` and entry column to the digit | **pass**, and see the note below on which batch is the fresh one |
 | **2.1** a `≥ 0.05` shortfall, difference excluding zero, `√n R₂` not vanishing | shortfall and remainder tables | `q-drift`: shortfall `+0.418` / `+0.478`, difference `+0.312 ± 0.031` / `+0.376 ± 0.033`, `√n R₂` `4.31` / `4.26` and rising | **pass** |
 | **2.2** invalid-fit rate below its threshold | validity table, `invalid share` | over `2%` in ten of twelve cell-runs | **fail** |
 | **2.3** computational cost acceptable | wall clock | `2.7s`–`4.7s` median per fit; a 250-replicate cell is 77–112 minutes on one runner | pass |
@@ -857,6 +884,24 @@ stratum is quoted here as the theorem-backed estimator's coverage — doing so i
 harness's stratum table for the one question the share cannot answer, which is whether the
 populations behave differently. They do not visibly: `0.850` against `0.667` at `q-drift`'s largest
 size in batch B, on 247 draws against 3.
+
+**And the reading that clause earns is that the *design* did not meet its own intent.** The
+harness's header says of these cells that *"the cells here are designed to be inside it; the column
+is what checks that rather than assuming it"* — and the column came back mixed in all four
+cell-runs. Doing the right thing with the result (pooled primary, strata as description, neither
+quoted as the theorem-backed estimator's coverage) does not turn a mixed population into a clean
+theorem reading. **One study cannot be both**, and
+[E4](../roadmap.md#e-what-c3c-handed-back) is that split: a *theorem* design whose bounds are
+inactive under a predeclared rule, and a *stress* design that keeps them active and says so.
+
+**Two batches, and only one of them is a fresh confirmation.** The `SeedSequence` streams are
+prefix-stable, so **batch A shares the pilot's data seeds** — drawing its own fold splits, which is
+part of the procedure being measured, but not its own draws — and the pilot is what forced the
+design change [C3b](#the-repair-and-what-would-say-each-half-of-it-is-wrong) landed. Batch B's
+stream is fresh. The two agree on every qualitative claim, so this does not weaken the result; it
+names which batch carries the weight. The design table said this before the dispatch and clause
+1.7's verdict reads the two symmetrically, which is the gap this note closes. E5's dispatch uses
+streams no pilot has touched, on either batch.
 
 ### Twice a coverage study here found no gap, and the pair is the thing to carry forward
 

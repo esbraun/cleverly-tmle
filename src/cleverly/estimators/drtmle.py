@@ -23,14 +23,20 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       *not* planned is a comparison against that package's numbers: both descend from one
       source, so agreement would be evidence about the transcription and blind to exactly
       this error.  See :func:`~cleverly.inference.influence.reduced_corrections`.
-   2. **Nothing demonstrates that the interval is better, and the instruments that would are
-      now built.**  A coverage study over the off-diagonal of the misspecification grid found
-      no gap for this variant to close at the sizes it could reach.  ``docs/roadmap.md``'s
-      piece C is the demonstration that would: its harness and prescribed nuisance sequences
-      landed with C1, and its prescribed-*rate* learners and the evaluation companion item
-      13's remainder needs landed with C2 -- ``evaluation=`` below.  What is left is the
-      dispatch, which is C3.  Until it runs, this is still an estimator with no demonstration
-      rather than one with a negative result.
+   2. **The interval is demonstrably better than a plain TMLE's, and it is not nominal.**  The
+      study ran -- ``docs/roadmap.md``'s piece C, 6,000 fits over two independent seed
+      batches.  In the cell built for it the plain interval covers ``0.532``/``0.472`` against
+      this estimator's ``0.844``/``0.848`` at ``n = 2,400``, a paired ``+0.312`` and
+      ``+0.376``.  **And it reaches ``0.95`` nowhere in the study**, the best reading anywhere
+      being ``0.880``, so the variant is not finished and this docstring is not hedging when
+      it says so.  Two measured quantities account for the shortfall: the second-order
+      remainder Theorem 1 assumes negligible does not vanish at these sizes, and ``sigma^2_n``
+      treats the reduced regressions as known, which leaves the reported ``se`` about 10%
+      short of the spread it covers.  **What the study did not establish is why**: the three
+      reduced regressions were fitted by ``glm``, whose consistency is itself unverified, so
+      the measurement is of a configuration rather than of the theorem's condition.  Piece E
+      on the roadmap is that question.  Use this where you have a reason to think one nuisance
+      is badly estimated; do not treat the interval as settled.
    3. **The alternation is not guaranteed to converge, though it now mostly does.**
       Equation (10)'s covariate is near-singular on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so a draw can exit at
@@ -219,9 +225,10 @@ class DRTMLE(TMLE):
     *provenance*, and its *evidence* is that it has since been checked against Theorem 1's
     appendices and against the Gateaux derivative of the parameter, and agrees with both;
     nothing has been compared against that package's *numbers*, which is a decision rather
-    than a gap -- and no study here demonstrates the interval is better than a plain
-    TMLE's.  What the module docstring says about what this does and does not buy is not
-    hedging: it is the current state of the evidence.
+    than a gap.  A study here now **does** demonstrate the interval is better than a plain
+    TMLE's, by a wide and reproduced margin, and also that it does not attain nominal
+    coverage anywhere in that study.  What the module docstring says about what this does
+    and does not buy is not hedging: it is the current state of the evidence.
 
     Every :class:`~cleverly.TMLE` keyword is accepted and behaves identically except the
     ones listed under *Notes*, which are refused rather than approximated.
