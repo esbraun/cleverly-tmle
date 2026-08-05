@@ -951,6 +951,156 @@ error averages down across them rather than biasing every row the same way — a
 the remainder table carries a Monte Carlo standard error. A reader who takes a single row's
 `√n R_remaining` as a measurement of the remainder is reading the quadrature.
 
+**Those two figures are the ones on record, and E1 measured the same quantity a different way and
+got a larger answer.** `sd(D)/√m` above was evaluated at an **assumed** `sd(D) ≈ 1.0`. Differencing
+the two rules' measured spreads puts the draw's per-replicate error at `m = 2,000` at `0.033`
+(`n = 600`) and `0.041` (`n = 2,400`) — `1.4x` to `1.8x` the figures above, which implies an
+`sd(D̂)` between `1.5` and `1.8`. The direction is what matters: the paragraph above
+**understates** how much of a replicate's column is the instrument.
+[The ladder](#what-the-e1-ladder-measured) is the measurement.
+
+## What the E1 ladder measured
+
+*Two sweeps of `benchmarks/drtmle_companion_grid.py` at `8341b78`, on the four-core container
+`CLAUDE.md` describes rather than on a runner, which is what the sizes and draw counts are chosen
+for. Tier 1, both cells, `n ∈ {600, 2400}`, 16 draws, ladder `512/1024/2048/4096` Sobol points
+against the i.i.d. rule at `m = 2,000`; 320 rungs in 382s at `jobs=3`. Tier 2, both cells, the same
+sizes, 8 draws, ladder `512/1024/2048`; 128 rungs in 264s. Per-rung rows are in each run's JSONL
+under `benchmarks/results/`, which is git-ignored generated output. Both are **sandbox** runs at
+the counts a four-core box allows, which is what the eight-draw caveat below is about;
+`.github/workflows/drtmle-companion-grid.yml` is the dispatch for a reading that needs more.*
+
+### The instrument was most of the spread, and at the size that matters it was almost all of it
+
+The column is `var removed`: one minus the ratio of two measured across-draw variances of
+`√n R_rem`, the deterministic grid's over the i.i.d. rule's, on **the same draws through the same
+primary fits** — the companion is inert to the fit, so the estimator's own contribution is common
+to both and what is left is the rule. Tier 1:
+
+| cell | `n` | spread, draw at `m = 2,000` | spread, grid at 8,192 rows | `var removed` |
+| --- | --- | --- | --- | --- |
+| `q-drift` | 600 | `1.0147` | `0.6192` | `0.628` |
+| `q-drift` | 2,400 | `2.0505` | `0.3320` | **`0.974`** |
+| `g-drift` | 600 | `0.9329` | `0.5018` | `0.711` |
+| `g-drift` | 2,400 | `2.0969` | `0.2425` | **`0.987`** |
+
+**At `n = 2,400` — the size every rate on this page is read at — 97% to 99% of the across-draw
+variance of `√n R_rem` was the evaluation draw.** The reason it grows with `n` is arithmetic rather
+than a finding: the rule's error is `√n · sd(D̂)/√m` with `m` fixed, so it scales like `√n`, while
+the estimator's own second-order spread does not.
+
+**What that would have bought a 250-draw dispatch**, arithmetically and at Tier 1: a Monte Carlo
+error on the mean of `2.05/√250 = 0.130` under the draw against `0.332/√250 = 0.021` under the
+grid in `q-drift`, and `0.133` against `0.015` in `g-drift` — a **sixfold** and an **eightfold**
+narrowing. C3c is a Tier-2 dispatch and reported `1.252 ± 0.139` at `n = 2,400`, so these are not
+its numbers; what transfers is the order, and Tier 2's own `q-drift` reading below reproduces the
+share exactly.
+
+### The ladder flattens, which is what says the grid's own error is bounded rather than assumed
+
+`delta` is the paired movement of the column between a rung and the next coarser one. Tier 1,
+`q-drift`, and all four of Tier 1's cell-and-size pairs behave the same way:
+
+| `n` | 512 pts | 1,024 pts | 2,048 pts | 4,096 pts |
+| --- | --- | --- | --- | --- |
+| 600 | — | `0.01334` | `0.00663` | `0.00727` |
+| 2,400 | — | `0.01641` | `0.01157` | `0.00875` |
+
+Against a spread of `0.33` to `0.62`, so the finest rung's own error is between one and three
+percent of the column's across-draw standard deviation — and `var removed` is flat down the ladder
+(`0.633 / 0.627 / 0.632 / 0.628` at `n = 600`), which says the grid was already fine enough at its
+**coarsest** rung, 1,024 rows, and the ladder is confirming that rather than chasing it.
+
+**Tier 2's `g-drift` at `n = 2,400` is the one place the ladder does not visibly flatten** —
+`0.302` then `0.154` — and at eight draws a mean of eight absolute paired differences is itself a
+noisy statistic, so that is a count rather than a grid still moving. It is the reading a runner
+dispatch would settle and the sandbox cannot.
+
+**This is the column that makes the deterministic rule usable rather than merely smaller.** Its
+error is a *bias* — the same points at every replicate — so unlike the draw's it does not average
+down over a study, and a dispatch that could not bound it would be trading a measured noise for an
+unmeasured one.
+
+### Tier 2 agrees where it matters and is equivocal elsewhere, and the equivocation is the draw count
+
+Tier 1's nuisances are prescribed, so its numbers are about the instrument and not about a fit a
+learner produced; Tier 2 is the tier every rate on this page is quoted from and is where the reading
+has to hold. Eight draws rather than sixteen, because a Tier-2 fit at `n = 2,400` in `g-drift` is
+`20s` here — so these are **four estimates of a variance ratio from eight draws each**, and a share
+read off them carries a wide error nothing in the table states.
+
+| cell | `n` | spread, draw | spread, grid at 4,096 rows | `var removed` |
+| --- | --- | --- | --- | --- |
+| `q-drift` | 600 | `0.6900` | `0.7136` | `−0.069` |
+| `q-drift` | 2,400 | `1.6183` | `0.2611` | **`0.974`** |
+| `g-drift` | 600 | `1.6062` | `1.4327` | `0.204` |
+| `g-drift` | 2,400 | `2.7971` | `1.8787` | `0.549` |
+
+**The one cell that reproduces Tier 1 exactly is the one the rate is read in**: `q-drift` at
+`n = 2,400`, `0.974` against Tier 1's `0.974`. The others do not contradict it so much as fail to
+resolve it. `q-drift` at `n = 600` reads **negative**, which is not a share of anything — it is two
+variance estimates from eight draws each, whose ratio has a standard error of roughly `0.5`, and
+the honest reading is *no detectable difference at this count*. It is also the direction the
+arithmetic points: the rule's error grows like `√n` at fixed `m`, so its share is smallest at the
+smallest size — and Tier 2's own remainder spread is the larger of the two there (`1.43` against
+Tier 1's `0.50` in `g-drift`), which shrinks the share again.
+
+**A second finding, which was not what the sweep was run for.** The appendix branches are resolved
+an order better by the deterministic rule — `branch err` of `0.007` against `0.062` in `g-drift` at
+`n = 600` — and under the draw that error *exceeds* `|R_g|`, so the branch is unresolvable there and
+resolvable under the grid. In both `g-drift` rows the two rules disagree about `R_g`'s **sign**
+(`+0.091` against `−0.014`, and `+0.066` against `−0.030`). The binned limits put 2,000 rows into
+576 cells, which is three per cell; four times the rows is what buys the sign. That is a direct
+reading on C3c's `branches resolved` falling to `192/250`, and it is the reason
+[the specification](validation-plan.md#reporting-r_q-and-r_g-separately) now records `branch_error`
+rather than only recording it.
+
+### What it cost, which is nearly nothing
+
+| tier | `n` | rule | rows | secs/fit |
+| --- | --- | --- | --- | --- |
+| 1 | 600 | grid | 8,192 | `7.5` – `8.1` |
+| 1 | 600 | draw | 2,000 | `7.0` – `7.9` |
+| 1 | 2,400 | grid | 8,192 | `5.6` – `12.0` |
+| 1 | 2,400 | draw | 2,000 | `5.5` – `11.9` |
+| 2 | 600 | grid | 4,096 | `5.1` – `8.4` |
+| 2 | 600 | draw | 2,000 | `4.9` – `7.7` |
+| 2 | 2,400 | grid | 4,096 | `9.9` – `20.6` |
+| 2 | 2,400 | draw | 2,000 | `8.9` – `19.8` |
+
+**Two to four times the companion rows for two to six per cent of the fit**, because the companion
+costs a prediction per fold per nuisance and no learner fit — which is what
+[C2's re-timing](../roadmap.md#what-c2-landed) already said and is why the grid could be taken
+several rungs finer if a cell ever needed it. Tier 2 is the expensive tier and even there the
+kernel smoother's cost is dominated by its training rows rather than by the rows it predicts at.
+
+### What this table refuses to say, including in the direction that would flatter it
+
+**It does not read the rate, and that refusal has to hold both ways.** The Tier-2 `q-drift` rows
+have `√n R_rem` at `+1.62` at `n = 600` and `+1.05` at `n = 2,400` — a decline of `0.57` where
+C3c's was `0.175` — and at eight draws with spreads of `0.71` and `0.26` that is about two Monte
+Carlo standard errors. It is written down here because it is in the table and a table published
+with a number nobody comments on is a number a reader will quote; it is **not** a rate, it is not
+two seed batches, it is not 250 draws, and no clause of any gate is read off it. E1's scope is the
+precision of the instrument and E5 is where the rate is read.
+
+**What can honestly be said about resolvability is arithmetic and not a result.** At 250 draws the
+Monte Carlo error on this column would be several-fold smaller under the grid than under the draw:
+sixfold and eightfold at Tier 1, and `0.261/√250 = 0.017` against `1.618/√250 = 0.102` in Tier 2's
+`q-drift` at `n = 2,400`. Whether that separates a decline depends on the decline, which is the
+thing not being measured here.
+
+**The trap runs both ways, and this section was drafted into it once before it landed.** The
+tempting sentence is *"and it still would not resolve"*, which the record's own
+`sd(D)/√m ≈ 0.023` would have supported — and which [lesson
+19](#what-the-sizings-got-wrong) finds was an assumed figure rather than a measured one. It is as
+much a reading of the rate as the opposite, and the tables above happen to point the other way.
+Neither belongs here.
+
+**And a flat ladder bounds the quadrature and nothing else.** No refinement of an integration rule
+can detect a defect in the estimator, and every column here integrates `dgp.propensity` and
+`dgp.outcome_mean` against predictions of the same functions.
+
 ## What the C3c dispatch measured
 
 *Two dispatches of `.github/workflows/drtmle-coverage.yml` at tier 2, seeds `20250801` and
@@ -1104,7 +1254,7 @@ strata are reported beside the pooled number as description and neither is quote
 
 ## What the sizings got wrong
 
-Eighteen lessons, distilled from the per-item retrospectives that used to run to several hundred
+Nineteen lessons, distilled from the per-item retrospectives that used to run to several hundred
 lines. They are kept and the retrospectives are not, because the only thing a retrospective is
 for is the next sizing — the full pre-work read of what `drtmle` would touch, the per-seam record
 of what each cost, and the six landed refusals' own notes are in git history, last carried in full
@@ -1400,6 +1550,22 @@ remove. The two columns sit side by side in the same table and one of them was t
 the other was not. **A verdict table with a per-estimator column is only a verdict about the
 estimator whose row is being read**, and the fix here is not a new instrument — both numbers were
 already printed — but reading the second one before believing the first.
+
+**19. An error budget written from an assumed constant is not a measurement, and the measurement
+is usually a subtraction of two spreads you can already produce.** The record here said a
+replicate's `P₀D̂` carried `sd(D)/√m ≈ 0.023` at `m = 2,000`, computed from an assumed
+`sd(D) ≈ 1.0`, and that number was quoted for three revisions as the reason a single row's column
+was mostly noise. It was the right shape and the wrong size: `D̂` on this law has a standard
+deviation nearer `1.7`, so the true figure is `0.033` to `0.041`, and at `n = 2,400` the draw
+turned out to be **97% to 99%** of the across-draw variance rather than a share of it. Nothing
+exotic was needed to find that out — the two rules run on the same draws through the same primary
+fits, so differencing their measured spreads is the decomposition, and it was available from the
+moment there were two rules. **The corollary is about diagnostics rather than about budgets**: the
+first witness written for this was the movement when half the rows are dropped, which is a fair
+reading of a *bias* and a `1.4x` overstatement of a *noise* — it reported the i.i.d. rule as more
+than 100% of its own variance, which is not a share of anything. A derived diagnostic carries the
+model it was derived under; two measured spreads carry none. **Before optimising a term you
+believe dominates an error bar, difference two runs that differ only in that term.**
 
 **18. Producing the gap and clearing the gate are different results, and a study can do the first
 while failing the second.** Three attempts found no gap; this one found a large, reproducible one —

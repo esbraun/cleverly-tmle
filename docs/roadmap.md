@@ -30,6 +30,20 @@ question. `√n R_remaining` — item 13, and Theorem 1's own assumption — is 
 estimator, at this reduction, does not meet the condition at these sizes*; it does not say the
 condition is unmeetable, and item 13 stays open on exactly that distinction.
 
+**The newest thing on this page is that a share of that flatness was the instrument, and how large
+a share.** [E1](#what-e1-landed) has landed: `P₀D̂` is now integrated **deterministically** — the
+corrected curve is affine in `Y` and binary in `A`, so two of its three coordinates close in closed
+form and a Sobol quadrature in `W` is all that is left — and a nested ladder bounds what remains at
+one to three per cent of the column's own spread. What the ladder measured on the way is the
+correction: at `n = 2,400`, **97% to 99% of the across-draw variance of `√n R_remaining` under
+C3c's evaluation rule was the draw rather than the estimator** — that reading is Tier 1's, in both
+cells, and Tier 2 reproduces it exactly in `q-drift` at `n = 2,400` (`0.974` against `0.974`) and
+is **equivocal in the other three cells at eight draws**, which is a draw count rather than a
+disagreement. **It does not overturn the flat reading and E1 declines to say whether the sharper
+column resolves the decline** — that is a rate, it is E5's, and asserting it either way from a
+sandbox sweep would repeat the mistake this piece corrected. What it does mean is that the number
+above was read through an instrument no one had sized.
+
 **The instruments that got there all landed first.**
 [C1](#what-c1-landed) is the harness, Tier 1's prescribed nuisance sequences with their
 drift coefficients committed and verified, and [item 25](#the-supported-contract-and-item-25)'s
@@ -286,6 +300,17 @@ candidates behind it were interchangeable. Neither is right, and the study's own
 say so — [the ranked list](#the-three-candidates-ranked-by-what-the-study-measured) is where each
 candidate's evidence and its deciding pull request are.
 
+**There was a fourth candidate nobody had listed, and [E1](#what-e1-landed) has removed it.** It is
+the *instrument*: the evaluation draw's own quadrature error lands directly in every replicate's
+remainder and is then multiplied by `√n`, so a column reported as flat and a column too coarsely
+measured to show a decline look identical. The ladder measured the share and it is not small — at
+`n = 2,400`, **97% to 99% of the across-draw variance of `√n R_remaining` under C3c's rule was the
+draw** at Tier 1, and `0.974` at Tier 2 in the cell the rate is read in. `P₀D̂` is now integrated
+deterministically and what is left of the quadrature is between one and three per cent of the
+column's spread. **Whether that resolves the decline is a rate and E1 does not read one**, in
+either direction. What it does is make E5's reading of the same column a reading about the
+estimator.
+
 1. **Theorem fidelity** — the equations solved and the curve reported are the ones the derivation
    gives, under conditions the fit actually meets. Items 1, 13, 15, 21, 22 and 25. The third review
    reported this link **broken** at the sign; reading the source closed item 21 and item 22's
@@ -300,10 +325,14 @@ candidate's evidence and its deciding pull request are.
    and it is one of the two reasons link 4 below fails.
 
    **Three things separate that measurement from the condition it is read against, and each is a
-   piece-E task rather than a caveat.** *One*: the reductions were fitted by `glm` and the row two
-   tables down reads `reduced regressions consistent — unverified`, so the theorem's own premise
-   was not established in the run that tested its conclusion. *Two*: `R_remaining` is an
-   **aggregate** expansion residual, and Theorem 1 asks for `R_{Q,n}` and `R_{g,n}` separately —
+   piece-E task rather than a caveat.** *Zero, and it is discharged*: the number was read at a
+   precision that could not tell a plateau from a slow decline, most of it the evaluation draw's —
+   [E1](#what-e1-landed) has since integrated `P₀D̂` deterministically and bounded what is left, so
+   the reading above stands as a reading about the estimator rather than about the instrument, and
+   the same column at E5 will be a great deal sharper. *One*: the reductions were fitted by `glm`
+   and the row two tables down reads `reduced regressions consistent — unverified`, so the
+   theorem's own premise was not established in the run that tested its conclusion.
+   *Two*: `R_remaining` is an **aggregate** expansion residual, and Theorem 1 asks for `R_{Q,n}` and `R_{g,n}` separately —
    which stay two `unverified` rows, since `branch_products` reports only each branch's
    second-order half and **refuses the `M` terms** rather than approximating them. *Three*: at the
    largest size the decomposition does not separate the two anyway — `cancel` reaches `1.99x` and
@@ -434,9 +463,9 @@ be confused.
 ### The work, in five pieces and eighteen pull requests
 
 A, B, C and E are each split, so the five pieces are eighteen pull requests: **B1a**, **A1a**, **B1b**,
-**B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a**, **C3b** and **C3c** have landed, and **D** and
-the new **piece E** are open. **C3 split into three after its pilot ran**, under the same rule as
-B2: the repair precedes the dispatch and closes nothing on its own. **E is the fifth piece and it
+**B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a**, **C3b**, **C3c**, **E0** and **E1** have landed,
+and **D** and the rest of **piece E** are open. **C3 split into three after its pilot ran**, under
+the same rule as B2: the repair precedes the dispatch and closes nothing on its own. **E is the fifth piece and it
 exists because C3c measured rather than settled** — a study whose premise was `unverified` cannot
 close the item it read, and the alternative to a piece was leaving that as a paragraph. **The
 contract is an eleventh row and is not a piece** — it is documentation, it closes no research, and
@@ -509,7 +538,7 @@ C3c ──> E0 ──> E1 ──> E2 ──> E3 ──> E4 ──> E5   <──�
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Every piece of the graph except D and the new E has landed, and the demonstration is *made and
+**Every piece of the graph except D and E2 onwards has landed, and the demonstration is *made and
 not passed*.**
 [C3c](drtmle/coverage-study.md#what-the-study-measured) entered the regime, produced the gap, and
 read the gates out: gate 1 fails at four clauses and gate 2 passes its shortfall clause and fails
@@ -1623,7 +1652,7 @@ taken together, and the reason is that the condition is checkable rather than me
 **What closed it.** Three things had to agree on one sentence: this page, the concordance, and the
 estimator's own output. The first two were done in the revision that opened item 25 — the table
 above, and the matrix rows behind it — and the third is the **witness**, which landed with
-[C1](#the-work-in-four-pieces-and-twelve-pull-requests). `CorrectionRow.margin` covered the targeted
+[C1](#the-work-in-five-pieces-and-eighteen-pull-requests). `CorrectionRow.margin` covered the targeted
 mechanism at the exit and **nothing on a fit covered the initial mechanism or `g_{r,1}`**, so a user
 could not ask a fit which side of the contract it was on without recomputing `clip share` the way
 `bench_drtmle.py` does. Now `CorrectionCheck.contract` answers it, `initial_clipped` and
@@ -2184,7 +2213,7 @@ estimator change.
 | | scope | what it closes | must not include |
 | --- | --- | --- | --- |
 | **E0** — *landed* | the record: item 13 reopened, the ceiling demoted to exploratory, the two mechanisms separated, C3b's condition-3 sentence corrected, batch A relabelled, and the four stale status-prose sites. Plus [the study manifest](drtmle/study-manifest.md) | nothing — it is the page saying what the study showed | any estimator or benchmark change |
-| **E1** — *landed* | the remainder instrument: `P₀D̂` by deterministic integration — the curve is affine in `Y` and binary in `A`, so two of its three coordinates close in closed form — a nested-grid convergence ladder read off one fit per draw, and the full score row per fit serialised beside the replicates. [What it landed](#what-e1-landed) | the precision half of the quadrature question: **most of C3c's across-draw spread was the draw**, and the deterministic grid's own error is smaller by orders. It does **not** make the decline resolvable | learner selection; any coverage claim |
+| **E1** — *landed* | the remainder instrument: `P₀D̂` by deterministic integration — the curve is affine in `Y` and binary in `A`, so two of its three coordinates close in closed form — a nested-grid convergence ladder read off one fit per draw, and the full score row per fit serialised beside the replicates. [What it landed](#what-e1-landed) | the precision half of the quadrature question: **most of C3c's across-draw spread was the draw**, and the deterministic grid's own error is smaller by orders. Whether the sharper column resolves the decline is a rate, and E1 reads none | learner selection; any coverage claim |
 | **E2** | **the oracle reduction, and it is the branch point.** Build `Q_r`, `g_{r,1}`, `g_{r,2}` at their population limits and refit both cells with them injected. **If the oracle does not move `√n R_remaining`, candidate 1 is dead and the learner road is shut** — E2 ends there and the diagnosis moves to E3 | whether item 13's failure is a *learner* failure at all | a learner comparison. That is E2b's and only if this fires |
 | **E2b** — *conditional* | growing-basis deterministic spline against `glm`, `boost` and the E2 oracle, judged on reduced-function `L₂` loss and on the theorem's products — **never on coverage** | the reduction learner | promoting a data-adaptive learner to the **pooled** construction. See the refusal below |
 | **E3** | `‖Δ_k‖` measured directly rather than through `ψ`; pooled against nested; update order against a prospective equivalence margin; the 99 failing seeds replayed and classified *before* the solver is touched; and an inference-validity flag that suppresses a Wald interval rather than emitting an ordinary-looking one | item 15's stability half, item 22's numerical half, and the invalid-fit rate | scope widening. The narrowest evidenced fix, not a larger `max_iter` |
@@ -2231,6 +2260,75 @@ ships the spline expansion to build it from.
   second reduction *construction* is not a response to an unvalidated reduction *learner*.
 - **Conditioning any primary number on the post-fit bound label.** E4 separates the designs; it
   does not stratify a result after the fact, which is [stop-ship 15](#stop-ship).
+
+##### What E1 landed
+
+The remainder instrument, and it **closes no numbered item** — item 13 is a rate and closes at E5.
+What it closes is the *precision half* of the quadrature question, and the finding is larger than
+the page expected: at `n = 2,400`, **97% to 99% of the across-draw variance of `√n R_remaining`
+under C3c's evaluation rule was the evaluation draw**, not the estimator. That is Tier 1 in both
+cells; Tier 2 reproduces it exactly in `q-drift` at `n = 2,400` and is equivocal in its other three
+cells, which at eight sandbox draws is a variance ratio estimated with a standard error of about
+`0.5` rather than a disagreement — one of them reads *negative*, and a negative share is a count
+too small rather than a finding. [What the ladder
+measured](drtmle/investigation-log.md#what-the-e1-ladder-measured), and
+[the workflow](../.github/workflows/drtmle-companion-grid.yml) is the dispatch for a reading that
+needs more draws than a four-core box allows.
+
+- **`P₀D̂` by deterministic integration**, `benchmarks/drtmle_remainder.quadrature_frame`, and it is
+  a **reduction of the problem rather than a bigger draw** — which is the piece's one real design
+  decision. The corrected curve is *affine in `Y` given `(A, W)`* and reads `A` *only through the
+  indicator*: `reduced_correction_parts` builds `D*_g = (Q_r/g)(1_a − g)`, which has no `Y` in it,
+  and `D*_Q = 1_a·(g_{r,2}/g_{r,1})(Y − Q̄*)`, which is affine in it. So
+  `P₀D̂ = E_W[Σ_a g₀(a|W)·D̂(W, a, Q̄₀(a,W))]` is an **identity**: the sum over `A` is finite, the
+  integral over `Y` is closed form, and what is left is a quadrature in `W` alone — taken on the
+  Sobol rule `truth()` already integrates with, so `ψ₀` and `P₀D̂` come off one grid;
+- **and `ψ₀` moving onto that grid is most of what the rule buys**, which was not obvious and is
+  worth the sentence. Substituting the curve's centring, `R_remaining = E₀[D̂ᵘ − Q̄₀] − PₙD̂`, and
+  the equality holds *only if both expectations are one integral* — under which every term of the
+  integrand is a product of two nuisance errors rather than an `O(1)` quantity. Take `ψ₀` from the
+  default rule instead and two grids are differenced, and the `O(1)` part of the error survives.
+  `DGP.quadrature` exists for that and is the piece's only change under `src/`;
+- **a convergence ladder, and it is one fit per draw.** The grids are nested prefixes and the
+  companion interleaves the arms, so the first `2k` rows *are* the grid at `k` points and a rung is
+  a `limit=` slice — which makes the movement between two rungs the discretisation rather than a
+  difference between two fits that would have to be argued bit-identical. Pinned against an actual
+  refit, bit for bit on every column. The ladder is not optional beside the rule: the grid's error
+  is a **bias** where the draw's is noise, so no replicate count removes it and a dispatch that
+  could not bound it would be trading a measured error for an unmeasured one;
+- **the full score row per fit**, `<stamp>-scores.jsonl` beside the replicates from one timestamp.
+  `valid` and its two failure counts stay exactly as they are, because gate 1's clauses 2 and 3
+  read them apart; the rows are *in addition*. A count cannot say which equation missed, by what
+  ratio, or whether it started large and was driven down — and that last is what E3 replays the 99
+  invalid fits with;
+- **and `branch_error` is read by a table for the first time.** It has been on every replicate
+  since C2 and was displayed nowhere, which is why C3c's `branches resolved` falling to `192/250`
+  arrived with no discretisation size beside it. That column is also where the sweep found the
+  thing it was not run for: under the draw the binned limits put 2,000 rows into 576 cells, and in
+  both `g-drift` rows of Tier 2 the two rules **disagree about `R_g`'s sign**. Four times the rows
+  is what buys it, and it is a direct reading on clause 4's second half.
+
+What it does **not** land, by name. **Any coverage claim, and any rate**: a flat ladder bounds the
+*quadrature* and says nothing whatever about the remainder. **Any learner selection**, which is E2's
+and E2b's. And **no status moves in the concordance**: an instrument landing is not a condition
+being met, and neither is a sharper instrument.
+
+**A reading it declines to make in either direction**, because the temptation runs both ways here.
+E1 does not say whether the sharper column resolves C3c's decline. What it can say is arithmetic:
+at 250 draws the Monte Carlo error on `√n R_remaining` would be several-fold smaller under the grid
+— sixfold and eightfold at Tier 1 — and whether that separates a decline depends on the decline,
+which E5 measures. The tempting sentence is *"and it still would not"*, which this page's own
+`sd(D)/√m ≈ 0.023` would have supported and which [lesson
+19](drtmle/investigation-log.md#what-the-sizings-got-wrong) has since found was an assumed figure
+rather than a measured one; the sandbox sweep's own point estimates point the other way, and
+reporting *that* would be the same mistake with the sign flipped. Both are readings of a rate and
+neither is this piece's.
+
+**One thing it corrects in the record**, and it is [lesson
+19](drtmle/investigation-log.md#what-the-sizings-got-wrong): the `sd(D)/√m ≈ 0.023` this page has
+quoted for three revisions was computed from an *assumed* `sd(D) ≈ 1.0` and is `1.4x` to `1.8x` too
+small. Differencing two measured spreads is the decomposition, and it needed nothing that did not
+already exist.
 
 #### D. Widen the scope to what the sources derive
 

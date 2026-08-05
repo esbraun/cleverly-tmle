@@ -842,11 +842,14 @@ strongest check this section has and the same argument `plain_remainder` is chec
 quadrature under. It also remains the default, so every invocation the
 [study manifest](study-manifest.md) records reproduces bit for bit.
 
-**What it does not fix, stated because the temptation is to claim it does.** The rule's error is
-*part* of a replicate's spread and not the whole of it; the rest is the estimator's own second-order
+**What it does not fix, stated because the temptation runs both ways.** The rule's error is *part*
+of a replicate's spread and not the whole of it; the rest is the estimator's own second-order
 sampling variation, which only a replicate count reduces. Removing the quadrature narrows the bar
 condition 3 is read against by whatever share the ladder measures, and the honest reading of a
-column still flat afterwards is that the flatness is the estimator's.
+column still flat afterwards is that the flatness is the estimator's. **Whether it will still be
+flat is not a question this rule change answers**, and neither the claim that it will nor the claim
+that it will not belongs to a pull request whose subject is the instrument — both are readings of
+the rate, and the rate is read once, at the final dispatch, against clauses frozen before it.
 
 ### Reporting `R_Q` and `R_g` separately
 
