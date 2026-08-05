@@ -1,0 +1,134 @@
+name: drtmle-companion-grid
+
+# Dispatch only, for the reason `drtmle-coverage.yml` is: this is a measurement rather than a
+# check, and it asserts nothing.
+#
+# **What it measures is the instrument and not the estimator.** docs/roadmap.md's E1: C3c read
+# `sqrt(n) R_remaining` as flat, and the reading could not separate the estimator's own
+# sampling spread from the evaluation rule's error, which lands directly in every replicate's
+# remainder and is then multiplied by `sqrt(n)`. This runs a ladder of nested Sobol grids
+# against the i.i.d. draw C3c used and reports how much of the across-draw variance each rule
+# accounts for. A flat ladder bounds the *quadrature*; it says nothing whatever about the
+# remainder, and no table here is a coverage claim.
+#
+# **The ladder is one fit per draw.** The grids are nested prefixes of one companion, so every
+# rung but the finest is a slice rather than a refit -- which is what makes the movement
+# between two rungs the discretisation rather than a difference between two fits.
+#
+# Read `delta` and `share` first. `delta` is the paired movement of the column between a rung
+# and the next coarser one, so it is the rule's error read off the ladder rather than asserted;
+# `share` is the fraction of the across-draw variance the rule accounts for, and it is what
+# sizes E5's replicate count.
+on:
+  workflow_dispatch:
+    inputs:
+      cells:
+        description: "space-separated: q-drift g-drift"
+        default: "q-drift g-drift"
+      sizes:
+        description: >-
+          space-separated sample sizes. Two is enough here -- the rule's error is a property of
+          the grid rather than of n, and the sizes are there to show it does not depend on n
+        default: "600 2400"
+      points:
+        description: >-
+          the ladder, in Sobol points, each a power of two so the grids nest. The finest is
+          the only one that costs a companion; the rest are prefixes of it
+        default: "512 1024 2048 4096"
+      control_n:
+        description: >-
+          rows of the i.i.d. companion the ladder is read against. 2000 is what C3c ran, so
+          the control row is the recorded configuration rather than a convenient one
+        default: "2000"
+      draws:
+        description: >-
+          draws per (cell, size). The rule's error is paired within a draw, so this sizes the
+          *spread* column rather than the delta -- a dozen resolves a share to within a few
+          points and there is no rate being read here
+        default: "12"
+      jobs:
+        description: "parallel draws; each fit is single-threaded, and 2 fits the runner"
+        default: "2"
+      seed:
+        default: "20250801"
+      tier:
+        description: >-
+          2 is the tier the study's numbers are quoted from and is the default here for that
+          reason; 1 is cheaper and is where the ladder can be checked against an exact
+          quadrature over a prescribed sequence
+        default: "2"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      cells: ${{ steps.split.outputs.cells }}
+    steps:
+      - id: split
+        env:
+          CELLS: ${{ inputs.cells }}
+        run: |
+          printf 'cells=' >> "$GITHUB_OUTPUT"
+          jq -cRn 'env.CELLS | split(" ") | map(select(length > 0))' >> "$GITHUB_OUTPUT"
+
+  grid:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cell: ${{ fromJSON(needs.plan.outputs.cells) }}
+    # Two fits a draw, and the companion's cost is a prediction per fold per nuisance -- so
+    # the finest grid is what this is priced by. Generous rather than tight for the reason
+    # `drtmle-coverage.yml` gives: the script prints nothing until every draw has returned.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+      # `bash -euo pipefail` rather than the default, since the run is piped through `tee`:
+      # without it a crashed run exits on `tee`'s zero and reports a green job with a
+      # truncated log.
+      - shell: bash -euo pipefail {0}
+        env:
+          CELL: ${{ matrix.cell }}
+          SIZES: ${{ inputs.sizes }}
+          POINTS: ${{ inputs.points }}
+          CONTROL_N: ${{ inputs.control_n }}
+          DRAWS: ${{ inputs.draws }}
+          JOBS: ${{ inputs.jobs }}
+          SEED: ${{ inputs.seed }}
+          TIER: ${{ inputs.tier }}
+        run: >
+          python -m benchmarks.drtmle_companion_grid
+          --cells "$CELL"
+          --sizes $SIZES
+          --points $POINTS
+          --control-n "$CONTROL_N"
+          --draws "$DRAWS"
+          --jobs "$JOBS"
+          --seed "$SEED"
+          --tier "$TIER"
+          | tee "companion-grid-$CELL.log"
+
+      - name: Post the tables to the run summary
+        if: always()
+        env:
+          CELL: ${{ matrix.cell }}
+        run: |
+          {
+            echo "## drtmle-companion-grid: tier ${{ inputs.tier }}, $CELL"
+            echo '```text'
+            cat "companion-grid-$CELL.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drtmle-companion-grid-${{ matrix.cell }}
+          path: |
+            benchmarks/results/drtmle-companion-grid/
+            companion-grid-${{ matrix.cell }}.log
+          retention-days: 90
