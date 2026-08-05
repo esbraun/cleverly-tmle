@@ -30,7 +30,18 @@ question. `√n R_remaining` — item 13, and Theorem 1's own assumption — is 
 estimator, at this reduction, does not meet the condition at these sizes*; it does not say the
 condition is unmeetable, and item 13 stays open on exactly that distinction.
 
-**The newest thing on this page is how much of that flatness was the instrument, and it is now
+**The newest thing on this page is that [E2 is built and not yet
+run](#what-e2-has-landed-and-what-it-now-waits-on), which is a status worth naming rather than
+rounding either way.** The reference reduction, its **three fidelity gates**, the **equivalence
+margin frozen in its own commit** and the dispatch workflow have all landed; nothing has been
+dispatched, so E2 decides nothing yet and candidate 1 is neither alive nor dead. The gate that
+turned out to have the most teeth is the exact-law control: the provider reproduces the law's own
+reductions at the alternation's exit state to `3e-14`, and the same law makes exact the reason the
+gates exist at all — a two-bin reference is wrong about `Q_r` by more than half its own magnitude
+while its `ψ` sits inside a twentieth of one standard error of an exact reference's. **A gate
+reading the estimate would have passed it.**
+
+**The other newest thing is how much of that flatness was the instrument, and it is now
 measured rather than inferred.** `P₀D̂` is integrated on a **randomised** quasi-Monte Carlo rule —
 the corrected curve is affine in `Y` and binary in `A`, so two of its three coordinates close in
 closed form and a Sobol quadrature in `W` is all that is left, with an independent scramble per
@@ -469,7 +480,7 @@ be confused.
 
 A, B, C and E are each split, so the five pieces are eighteen pull requests: **B1a**, **A1a**, **B1b**,
 **B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a**, **C3b**, **C3c**, **E0**, **E1** and **E1b** have landed,
-and **D** and the rest of **piece E** are open. **C3 split into three after its pilot ran**, under
+**E2** is built and not yet run, and **D** and the rest of **piece E** are open. **C3 split into three after its pilot ran**, under
 the same rule as B2: the repair precedes the dispatch and closes nothing on its own. **E is the fifth piece and it
 exists because C3c measured rather than settled** — a study whose premise was `unverified` cannot
 close the item it read, and the alternative to a piece was leaving that as a paragraph. **The
@@ -512,7 +523,7 @@ exactly as the repair did, and E5 is the only row in it that costs a run.
 | **C3c** — *landed* | **item 3, answered**: the study entered its regime for the first time in three attempts and produced the gap — `+0.312 ± 0.031` and `+0.376 ± 0.033` paired in `q-drift`. **Item 13 gets its first number and stays open**: `√n R_remaining` does not vanish at these sizes *at `glm` reductions*, which is a measurement of this configuration rather than of the theorem's condition | two dispatches of `drtmle-coverage.yml` at 250 replicates and their tables; per-replicate results as four artefacts, now [manifested](drtmle/study-manifest.md); [what it measured](drtmle/investigation-log.md#what-the-c3c-dispatch-measured); [the gate readout](drtmle/coverage-study.md#the-gates-read-out-clause-by-clause); lessons 17 and 18 |
 | **E0** – **E1b** — *landed* | [what C3c handed back](#e-what-c3c-handed-back)'s first three: the record, and the remainder instrument. E1 integrates `P₀D̂` deterministically, which takes most of the instrument off the list of candidate explanations for the flat column. **Its two readings of *how much* are withdrawn** and are E1b's | `DGP.quadrature`; `quadrature_frame`, `truth_at`, `corrected_curve` and `row_weights`/`limit` on every remainder column; `benchmarks/drtmle_companion_grid.py` and its workflow; `--quadrature-points`; `ScoreRow` and a second artefact; `tests/unit/test_drtmle_companion_grid.py` |
 | **E1b** — *landed* | the same question measured rather than asserted: an independent scramble per replicate, so the grid's error is mean-zero and estimable *conditionally on each fit*, with an interval on every share. **At `n = 2,400` the draw accounted for `0.99`–`1.01` of the column's across-draw variance** | `DGP.quadrature(scramble=…)`; stacked companions and a row `Window`; `rule sd` and `share`; two dispatches, [manifested](drtmle/study-manifest.md#e1b-what-was-run) |
-| **E2** – **E5** | the oracle reduction, the construction and solver, the two designs, and the fresh dispatch. **E5** is where item 13 closes either way | the piece's own table below |
+| **E2** – **E5** | the reference reduction, the construction and solver, the two designs, and the fresh dispatch. **E5** is where item 13 closes either way. **E2 is built and not run**: its instrument, its three gates, its frozen rule and its workflow have landed and nothing has been dispatched, so it closes nothing yet | `benchmarks/drtmle_reference.py` and `drtmle_reference_study.py`; `.github/workflows/drtmle-reference.yml`; [§8 of the validation plan](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2); `tests/unit/test_reference_exact_law.py` and `test_drtmle_reference_study.py`; the piece's own table below |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
 **A1 split into A1a and A1b for the reason B1 split into B1a and B1b**, and the reason is worth
@@ -537,15 +548,17 @@ A1b cross-fitting construction ────────────────�
        (no logical block; a rework edge — C's fits are of A1b's construction)   landed          │
                                                                                                 │
 C3c ──> E0 ──> E1 ──> E1b ──> E2 ──> E3 ──> E4 ──> E5  <──────────────────────────────────────────┘
-       record  P₀D̂   rule's  oracle  build  two     fresh   E2 is a branch point, not a stage:
-       landed  rule   error   first  +solve designs dispatch  if the oracle does not move the
-              landed  landed                                  remainder, the learner road is shut
+       record  P₀D̂   rule's  refer- build  two     fresh   E2 is a branch point, not a stage:
+       landed  rule   error   ence   +solve designs dispatch  if the reference does not move the
+              landed  landed  built                           remainder, the learner road is shut
 
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Every piece of the graph except D and E2 onwards has landed, and the demonstration is *made and
-not passed*.**
+**Every piece of the graph except D and E3 onwards has landed or is built, and the demonstration is
+*made and not passed*.** E2 is the "built" one: its instrument, its three fidelity gates, its frozen
+margin and its workflow are all in, and nothing has been dispatched — so it decides nothing yet.
+[What it landed](#what-e2-has-landed-and-what-it-now-waits-on) says which half is which.
 [C3c](drtmle/coverage-study.md#what-the-study-measured) entered the regime, produced the gap, and
 read the gates out: gate 1 fails at four clauses and gate 2 passes its shortfall clause and fails
 its invalid-rate one. What is left is [piece E](#e-what-c3c-handed-back), whose question is not
@@ -2187,7 +2200,8 @@ error, which needs the dispatch.
 #### E. What C3c handed back
 
 **Closes item 13 either way, in seven pull requests — E0 to E5 with E1b between the second and the
-third, of which E0, E1 and E1b have landed — and an eighth that fires only if E2 branches.**
+third, of which E0, E1 and E1b have landed and E2 is built but not run — and an eighth that fires
+only if E2 branches.**
 [C3c](#what-c3c-measured)
 measured `√n R_remaining` and found it flat. It did not find out *why*, and the difference is the
 whole of this piece: a run whose reduced regressions were fitted by `glm`, whose consistency the
@@ -2237,8 +2251,8 @@ estimator change.
 | **E0** — *landed* | the record: item 13 reopened, the ceiling demoted to exploratory, the two mechanisms separated, C3b's condition-3 sentence corrected, batch A relabelled, and the four stale status-prose sites. Plus [the study manifest](drtmle/study-manifest.md) | nothing — it is the page saying what the study showed | any estimator or benchmark change |
 | **E1** — *landed*, in part | the remainder instrument: `P₀D̂` by deterministic integration — the curve is affine in `Y` and binary in `A`, so two of its three coordinates close in closed form — a nested-grid ladder read off one fit per draw, and the full score row per fit serialised beside the replicates. [What it landed, and what E1b withdrew](#what-e1-landed-and-what-e1b-withdrew) | the *mechanism* half of the quadrature question. **Its two quantitative readings are withdrawn** — the ladder was read as a bound and the variance ratio as a share, and neither is what those statistics are | learner selection; any coverage claim |
 | **E1b** — *landed* | the precision half, measured: an **independent scramble per replicate**, which makes the grid's error mean-zero rather than a fixed bias, so it can be estimated *conditionally on each fit* from replication rather than inferred from a successive difference. Every share prints with an interval, and the numbers come from a dispatched run with retained artefacts. [What it measures](#what-e1b-measures) | how much of C3c's across-draw spread was the evaluation rule — the number E5 sizes a replicate count against | learner selection; any coverage claim; any rate |
-| **E2** | **the reference reduction, and it is the branch point.** Build `Q_r`, `g_{r,1}`, `g_{r,2}` at their population limits — a *univariate* projection each, on the companion, injected through `ReductionSpec.refit` at the current targeted pair every round — and refit both cells with them. **A reference is a numerical estimate and not an oracle, so its own fidelity is gated first**: an exact-law control, a validation loss on an independent finer companion, and a randomisation budget — none of them a refinement difference. Then, against a **precommitted** equivalence margin: if the reference does not move `√n R_remaining`, candidate 1 is dead and the learner road is shut, and the diagnosis moves to E3. **`unresolved` is a third verdict and is not a weak "dead"** | whether item 13's failure is a *learner* failure at all | a learner comparison. That is E2b's and only if this fires. Any margin chosen after a number exists. Calling the reference an oracle |
-| **E2b** — *conditional* | growing-basis deterministic spline against `glm`, `boost` and the E2 oracle, judged on reduced-function `L₂` loss and on the theorem's products — **never on coverage** | the reduction learner | promoting a data-adaptive learner to the **pooled** construction. See the refusal below |
+| **E2** — *built, not yet run* | **the reference reduction, and it is the branch point.** Build `Q_r`, `g_{r,1}`, `g_{r,2}` at their population limits — a *univariate* projection each, on the companion, injected through `ReductionSpec.refit` at the current targeted pair every round — and refit both cells with them. **A reference is a numerical estimate and not an oracle, so its own fidelity is gated first**: an exact-law control, a validation loss on an independent finer companion, and a randomisation budget — none of them a refinement difference. Then, against a **precommitted** equivalence margin: if the reference does not move `√n R_remaining`, candidate 1 is dead and the learner road is shut, and the diagnosis moves to E3. **`unresolved` is a third verdict and is not a weak "dead"**. [What it has landed](#what-e2-has-landed-and-what-it-now-waits-on) is all four of those; what it waits on is the dispatch, which needs its workflow on the default branch | whether item 13's failure is a *learner* failure at all | a learner comparison. That is E2b's and only if this fires. Any margin chosen after a number exists. Calling the reference an oracle |
+| **E2b** — *conditional* | growing-basis deterministic spline against `glm`, `boost` and E2's reference, judged on reduced-function `L₂` loss and on the theorem's products — **never on coverage** | the reduction learner | promoting a data-adaptive learner to the **pooled** construction. See the refusal below |
 | **E3** | `‖Δ_k‖` measured directly rather than through `ψ`; pooled against nested; update order against a prospective equivalence margin; the 99 failing seeds replayed and classified *before* the solver is touched; and an inference-validity flag that suppresses a Wald interval rather than emitting an ordinary-looking one | item 15's stability half, item 22's numerical half, and the invalid-fit rate | scope widening. The narrowest evidenced fix, not a larger `max_iter` |
 | **E4** | **two designs where there was one**: a *theorem* cell whose bounds are inactive under a predeclared rule, and a *stress* cell that keeps them active and is labelled empirical support for the constrained estimator. Preregistration frozen in its own commit, on seed streams no pilot has touched | the mixed-cell reading — C3c's clause 1.0, which is `mixed` in all four cell-runs | any result |
 | **E5** | the fresh two-batch confirmatory dispatch, at four sizes if an exponent is claimed rather than three, with durable artefacts and a clause-by-clause readout | **item 13**, and item 3's second half | any rule changed after a number exists |
@@ -2275,7 +2289,66 @@ declared before the fit ([item 24](#the-open-items)), `A` and `Y` are integrated
 exact law. What it costs beyond that is a companion grid and a fidelity gate — cheaper than a
 learner sweep.
 
-##### What E2 has landed so far, and what it still owes
+##### What E2 has landed, and what it now waits on
+
+**The instrument, the three gates, the frozen rule and the dispatch have all landed, and what is
+left is a run.** E2 is now in the position C1 put C in: everything an answer needs exists except
+the answer, and the reason it is not here is mechanical rather than a judgement — `workflow_dispatch`
+is offered only for a workflow file that is already on the default branch, so
+`.github/workflows/drtmle-reference.yml` cannot be dispatched until it is merged. **Tried rather
+than assumed**: the dispatch was attempted from the branch and the API returned `404 Not Found`,
+and the workflow list at that moment held the other six and not this one. That is the same
+sequencing C1 → C3a followed, and it is why **this row still closes nothing**.
+
+**The three gates, and the point of each is what it is blind to.**
+
+| gate | what it bounds | where it lives | blind to |
+| --- | --- | --- | --- |
+| **A** — the exact-law control | the **construction**: the weights, `qr`'s `\| A = a` mask, the arm columns, the recomputation at the current targeted pair | `tests/unit/test_reference_exact_law.py`, so it runs in CI rather than in a dispatch | the smoother and the quadrature, neither of which exists on a discrete law |
+| **B** — the held-out weighted risk | the **smoothing bias**, by ranking candidates fitted on the reference block and scored on an independent finer one | `benchmarks/drtmle_reference_study.py`, per reduced regression, arm and fold | anything about the fit; it is a statement about three regressions |
+| **C** — the randomisation budget | the **finite point count**, by independent scrambles of the reference block | the same module, on a declared subset of draws | the smoothing bias, which every scramble shares |
+
+**Gate A is the one that turned out to have the most teeth, and it is worth saying why it works at
+all.** The provider's own docstring said the object was owed a control "where the conditioning is
+discrete and the answer is a finite sum", and the reason such a control is available is that under
+`quadrature_frame` two of the three integrals are exact rather than approximate — `qr`'s `| A = a`
+is a *weight* and not a subsample, and `gr1`'s target integrates to `g_0` through those same
+weights. The discrete analogue of that frame is the exact law's own support at both arms, and a
+`SaturatedCells` average over it **is** `_reduced`'s finite sum. The provider reproduces the law's
+own reductions at the *exit* state of the alternation to `3e-14`. Two mutations were watched to
+fail: extending the mask to `gr1` turns eight tests red, and flipping `qr`'s target sign turns two.
+
+**And the trap the gates exist for is now exact rather than anecdotal.** The measurement below —
+that a coarse reference lands a close `psi` — is now a statement on a law where the truth is
+known: a two-bin reference is wrong about `qr` by more than **half its own magnitude** while its
+`psi` sits inside a **twentieth of one standard error** of an exact reference's. A gate reading the
+estimate would have passed it.
+
+**Two things about gate B that a first draft would get wrong**, both recorded because each is a
+claim. It is a **difference** of risks and never a ratio: a held-out risk is
+`E_0[w(T − m)²] + E_0[w(m − m̂)²]`, and the first term is the irreducible variance of the target,
+common to every candidate and able to dominate both — so a ratio sits near one whatever the
+candidates are. And the three reductions are read **apart**, because `qr`'s target is a residual and
+`gr1`'s is an indicator, so a mean over them is a number with no units and a gate on it is a gate on
+whichever is larger.
+
+**Gate C is E1b's device transported, and the one thing that does not transport is the cost.** There
+the companion was inert to the fit, so eight replicates came off one fit; here the reference *enters*
+the fit, so a scramble is a refit. Hence a declared subset of draws, its own flag, and a cost table
+that prices a **fit** rather than a draw.
+
+**The rule is frozen and it is [§8 of the validation plan](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2).**
+On the paired per-draw difference of `√n R_remaining`, against a margin of **a quarter of the `glm`
+arm's own level** in that cell and size: `moved` if the bootstrap interval lies wholly outside the
+band — candidate 1 alive, E2b fires; `equivalent` if wholly inside — candidate 1 dead, the learner
+road shut, the diagnosis moves to E3; **`unresolved` otherwise, and it is a third verdict rather
+than a weak `equivalent`**. A cell whose gates failed is `unresolved` however large its difference
+is. Movement in *either* direction counts, because a reference that makes the remainder larger is
+still a learner effect and E2's question is whether item 13's failure is a learner failure at all.
+What is frozen is the **fraction**; the level it scales is the run's own control arm, which is a
+measurement, and §8 says so rather than leaving a reader to notice.
+
+**The record of what the instrument was, before the gates existed.**
 
 **The instrument**, in `benchmarks/drtmle_reference.py`: a deterministic univariate
 `SplineProjection` on the fitted index, injected through both hooks
@@ -2300,10 +2373,10 @@ five times. Any routing test taken on Tier 1 passes against any routing whatever
 same shape of blindness `CLAUDE.md` records for a saturated learner and a redundant column. The
 routing test therefore runs on fitted primaries.
 
-**What is still owed before any paired number is read**: the three fidelity gates, the
+**What was owed before any paired number could be read** was the three fidelity gates, the
 precommitted equivalence margin and reference-uncertainty budget frozen in their own commit, and
-the dispatch. A paired reference-against-`glm` comparison run before those is not evidence about
-the reduction learner.
+the dispatch. All four have landed and the paragraphs above are what they came to; **what is owed
+now is the run**, which needs the workflow on the default branch first.
 
 **And it is the only instrument that can return a *negative* answer worth having.** A faster
 learner that fails leaves "try a faster one still"; an oracle that fails says candidate 1 is not
