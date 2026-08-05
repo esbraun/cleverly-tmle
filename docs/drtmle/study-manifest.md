@@ -66,10 +66,14 @@ measured and no longer a way to obtain it.
 > Retrieving it needs a machine with ordinary outbound access, before the retention date:
 >
 > ```bash
-> gh run download 30979765029 --repo esbraun/cleverly-tmle --dir evidence/c3c/batch-a
-> gh run download 30987423687 --repo esbraun/cleverly-tmle --dir evidence/c3c/batch-b
-> sha256sum evidence/c3c/batch-*/*.jsonl   # against the table above, on the zip as fetched
+> scripts/fetch_evidence.sh c3c        # the four artefacts, as zips, digests checked
 > ```
+>
+> **The command this replaced could not check what it claimed to.** It was `gh run download`,
+> which extracts rather than saving the archive, followed by `sha256sum` over the unpacked
+> `*.jsonl` — while the digests in the table above are the API's digests of the **artefact zip**.
+> So the check compared a number this file records against a file it does not describe. The
+> script fetches the zip endpoint, which is the byte stream those digests are of.
 >
 > That is the first task of [E0's follow-up](../roadmap.md#e-what-c3c-handed-back), and until it
 > is done this manifest names evidence it does not carry.
@@ -177,7 +181,7 @@ The companion grid's dispatch, and the section this file gained because
 | tiers | 1 (prescribed nuisances) and 2 (both fitted) — dispatched separately, tables read apart |
 | cells | `q-drift`, `g-drift` |
 | sizes | `600`, `2400` |
-| draws | 16 per `(cell, size)` |
+| draws | **32** per `(cell, size)` — the value dispatched, which is *not* the workflow's `16` default |
 | scrambles | 8 independent randomisations of the quasi-random rule per fit, from `SCRAMBLE_SEED = 92_000_000` |
 | draw replicates | 8 independent i.i.d. companions per fit at 2,000 rows, from `CONTROL_SEED = 91_000_000` |
 | ladder | `512 1024 2048` at tier 2, `512 1024 2048 4096` at tier 1 — windows on one fit, not refits |
@@ -185,9 +189,18 @@ The companion grid's dispatch, and the section this file gained because
 | `--jobs` | `2` |
 | seed | `20250801` |
 
-**One fit per draw**, so the totals are 64 fits a tier and not `64 × replicates`: every replicate
+**One fit per draw**, so the totals are 128 fits a tier and not `128 × replicates`: every replicate
 of both rules is a row block of one stacked companion. That is what makes a spread across
 replicates the rule's own error rather than a difference between two fits.
+
+**The `draws` row is the dispatched input and not the workflow's default**, which is `16`
+(`.github/workflows/drtmle-companion-grid.yml`'s `draws` input). Both runs were dispatched at `32`
+and their logs print it — `draws 32  reps 8` in every job's table, against `1,024` or `1,280`
+replicate rows and `fits 32` in the cost row. The default is left where it is: it is a starting
+point for the next dispatch, not a record of this one, and editing it would make this section
+harder to check rather than easier. Three lines of this file said `16` until they were corrected
+against those logs; the arithmetic under [the spot checks](#e1b-numbers-checkable-against-this-manifest)
+is what settles it either way.
 
 ### E1b's artefacts
 
@@ -215,10 +228,15 @@ and no longer a way to obtain it.
 > ordinary outbound access, before the retention date:
 >
 > ```bash
-> gh run download 31021187807 --repo esbraun/cleverly-tmle --dir evidence/e1b/tier-1
-> gh run download 31021176323 --repo esbraun/cleverly-tmle --dir evidence/e1b/tier-2
-> sha256sum evidence/e1b/tier-*/*.zip   # against the table above, on the zip as fetched
+> scripts/fetch_evidence.sh e1b        # the eight artefacts, as zips, digests checked
 > ```
+>
+> **`gh run download` is the wrong command here and this is the correction**: it *extracts*, so
+> it leaves no archive to hash, and the digests in the table above are the API's digests of the
+> **artefact zip**. The script fetches
+> `/repos/{owner}/{repo}/actions/artifacts/{id}/zip` instead, which is the byte stream those
+> digests are of, and checks each against this table before unpacking beside it. Hashing the
+> unpacked `.jsonl` would compare against a number nothing here records.
 
 **Two earlier runs of the same sweep are on the branch and are superseded.** `31020774280` (tier 2)
 and `31020786013` (tier 1) ran at `d2982501` with 16 draws, and `79d11d3` fixed a `cost_rows` bug
@@ -257,7 +275,7 @@ rather than a re-read — there is no `--rows` re-read path here, because the ro
 ```bash
 python -m benchmarks.drtmle_companion_grid --tier 2 --cells q-drift g-drift \
     --sizes 600 2400 --points 512 1024 2048 --scrambles 8 \
-    --control-n 2000 --draw-replicates 8 --draws 16 --seed 20250801 --jobs 2
+    --control-n 2000 --draw-replicates 8 --draws 32 --seed 20250801 --jobs 2
 ```
 
 **Do not run that in a small container.** `CLAUDE.md` says why. A reduced form is fine there and is
