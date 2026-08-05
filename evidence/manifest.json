@@ -1,0 +1,132 @@
+{
+  "_comment": [
+    "The machine-readable half of docs/drtmle/study-manifest.md's artefact tables.",
+    "Two representations of one record, which is a duplication and is deliberate: a shell",
+    "script cannot check a digest it has to parse out of a markdown table, and a reader",
+    "cannot audit a study from a JSON file. What keeps them from drifting is",
+    "tests/unit/test_evidence_manifest.py, which asserts the two cover each other in both",
+    "directions -- a row here with no row there fails, and so does the reverse.",
+    "",
+    "`sha256` is the GitHub Actions API's digest of the artefact **zip**, which is the byte",
+    "stream scripts/fetch_evidence.sh fetches. It is not the digest of the unpacked JSONL,",
+    "and the command that used to be documented here hashed the latter against the former."
+  ],
+  "retention_expires": "2026-11-03",
+  "repo": "esbraun/cleverly-tmle",
+  "studies": {
+    "c3c": {
+      "code": "0033c824e9e7b9cc0049001c19ed7ab45eb0eb5c",
+      "artefacts": [
+        {
+          "batch": "A",
+          "cell": "q-drift",
+          "run": 30979765029,
+          "artefact": 8921415297,
+          "bytes": 527401,
+          "sha256": "611335776f97c554f2ac209be14933f35df1b4ed57cc2739f1575812133c55f1"
+        },
+        {
+          "batch": "A",
+          "cell": "g-drift",
+          "run": 30979765029,
+          "artefact": 8922309841,
+          "bytes": 522473,
+          "sha256": "88c07fe57646983c227ef5dbbbc1c3669968c8bd75d2f2cc19dd2c178410102c"
+        },
+        {
+          "batch": "B",
+          "cell": "q-drift",
+          "run": 30987423687,
+          "artefact": 8924840239,
+          "bytes": 527418,
+          "sha256": "197eac8ba3f39f4419662925875da182f5527ff41d9396c9128ed610ffa52aba"
+        },
+        {
+          "batch": "B",
+          "cell": "g-drift",
+          "run": 30987423687,
+          "artefact": 8925807320,
+          "bytes": 523708,
+          "sha256": "4781692d0799daf1c7499846e6d27612a40af6ee764c9387c6f7b4f0de041531"
+        }
+      ]
+    },
+    "e1b": {
+      "code": "79d11d3252d784c2c0f93c67aa4f7e31630f22c6",
+      "artefacts": [
+        {
+          "tier": 1,
+          "cell": "q-drift",
+          "n": 600,
+          "run": 31021187807,
+          "artefact": 8936835562,
+          "bytes": 102256,
+          "sha256": "340c3f04b506fa7c0f19ec58a00b651455a6b9eab45582e21a47518a739b0e53"
+        },
+        {
+          "tier": 1,
+          "cell": "q-drift",
+          "n": 2400,
+          "run": 31021187807,
+          "artefact": 8936767554,
+          "bytes": 101683,
+          "sha256": "570e30391607fb3047d4623667b573a9ccab0ddec6bcf94a89eeb148179720d6"
+        },
+        {
+          "tier": 1,
+          "cell": "g-drift",
+          "n": 600,
+          "run": 31021187807,
+          "artefact": 8936854290,
+          "bytes": 102424,
+          "sha256": "4f6f97664c442485893de3c7cc2758a3fc2d173674596f7dd3ac82c55986cd4b"
+        },
+        {
+          "tier": 1,
+          "cell": "g-drift",
+          "n": 2400,
+          "run": 31021187807,
+          "artefact": 8936912727,
+          "bytes": 100428,
+          "sha256": "ee9b79659b5a51dae28f8ad44866030ee75beb6153c1954fcff9012be097d8ca"
+        },
+        {
+          "tier": 2,
+          "cell": "q-drift",
+          "n": 600,
+          "run": 31021176323,
+          "artefact": 8936876056,
+          "bytes": 82269,
+          "sha256": "91d92f7dc8939f1800ab192075f54f1ff76dba09da8ee9ae7ff7d30c58acb90c"
+        },
+        {
+          "tier": 2,
+          "cell": "q-drift",
+          "n": 2400,
+          "run": 31021176323,
+          "artefact": 8937243701,
+          "bytes": 82533,
+          "sha256": "f6dc08bdee8565bf63fb23812173800222711682d1521d73597a3c65a1da9eb2"
+        },
+        {
+          "tier": 2,
+          "cell": "g-drift",
+          "n": 600,
+          "run": 31021176323,
+          "artefact": 8936886653,
+          "bytes": 82932,
+          "sha256": "ca1198c362d0d9301ddd27dc09c857e35cb3c5d0a3b45190a0d91abd5c7adf8a"
+        },
+        {
+          "tier": 2,
+          "cell": "g-drift",
+          "n": 2400,
+          "run": 31021176323,
+          "artefact": 8937239644,
+          "bytes": 82187,
+          "sha256": "c617653c7234352bcebc760b5959155ec3d53ab49ce065fd212d5c272d08b550"
+        }
+      ]
+    }
+  }
+}

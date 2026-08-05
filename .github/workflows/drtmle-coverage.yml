@@ -56,17 +56,18 @@ on:
         description: >-
           rows of the independent draw P_0 D-hat is integrated over -- item 13's instrument,
           a quadrature rule rather than a sample size, so it appears in no root-n scaling.
-          0 turns the remainder columns off, and 0 is also what taking the deterministic rule
+          0 turns the remainder columns off, and 0 is also what taking the quasi-random rule
           below needs
         default: "2000"
       quadrature_points:
         description: >-
-          Sobol points of the *deterministic* evaluation rule (E1), which replaces the draw
-          above and needs it set to 0. The companion is twice this many rows, since every
-          point is carried at both arms -- which is what makes the A and Y coordinates exact
-          rather than sampled. Its error is a bias rather than noise, so a study cannot
-          average it down; drtmle-companion-grid.yml is what bounds it. 0 keeps the draw,
-          which is what C3c ran and what the study manifest's invocations reproduce
+          Sobol points of the *quasi-random* evaluation rule, which replaces the draw above
+          and needs it set to 0. The companion is twice this many rows per scramble, since
+          every point is carried at both arms -- which is what makes the A and Y coordinates
+          exact rather than sampled. The scramble is independent per replicate (E1b), so the
+          rule's error is mean-zero rather than a fixed bias, and a study averages it down;
+          drtmle-companion-grid.yml is what *measures* it. 0 keeps the draw, which is what
+          C3c ran and what the study manifest's invocations reproduce
         default: "0"
       rows:
         description: "also print every replicate, not just the per-cell tables"

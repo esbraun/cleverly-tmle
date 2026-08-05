@@ -60,7 +60,7 @@ def row(**overrides) -> grid.GridRow:
         "companion_se": 1.19,
         "branch_q": -0.001,
         "branch_g": 0.019,
-        "branch_error": 0.002,
+        "branch_movement": 0.002,
         "seconds": 4.7,
     }
     return grid.GridRow(**{**defaults, **overrides})  # type: ignore[arg-type]

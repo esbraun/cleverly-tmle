@@ -888,11 +888,35 @@ make the branches computable and one keeps the rest honest.
 The branch **sums** need fewer limits than the terms do: writing out `R₃ + R₄` and `R̃₅ + R̃₆`, the
 univariate limits `Q̄_{0,r}`, `g_{1,0,r}` and `g_{2,0,r}` **cancel**, leaving the fitted reductions
 — which the companion has exactly — and the two `0n` limits. A `0n` limit is a population
-conditional mean of a computable quantity given two computable scalars, so it is a **quadrature and
-not a fit**: estimated by a binned average over the evaluation draw, at two bin counts, with the
-difference reported beside the column as its own error. **A branch smaller than that error is
-reported as not resolvable** rather than as a number — this section's *"where the DGP permits"*,
-said out loud rather than discovered after a dispatch.
+conditional mean of a computable quantity given two computable scalars, so it needs no *modelling*
+choice: estimated by a binned average over the evaluation draw, at two bin counts, with the
+difference reported beside the column. **A branch smaller than that difference is reported as not
+having settled** rather than as a number — this section's *"where the DGP permits"*, said out loud
+rather than discovered after a dispatch.
+
+> **This paragraph called that difference the limit's "own error" and called the estimate a
+> "quadrature and not a fit", and both are withdrawn.** A binned average over a continuous design
+> *is* a fit — a regressogram — and its error is a smoothing bias, not a quadrature error. And the
+> movement between two bin counts is a **successive difference between two rungs of a refinement**,
+> which is precisely the statistic
+> [E1b withdrew](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) for the quadrature ladder:
+> it says a sequence settled and not *where* it settled. Measured there, the finest rung's `delta`
+> ran four times below the true error and three orders above it two rungs earlier;
+> `tests/unit/test_drtmle_remainder_study.py`'s `test_settling_is_not_sufficient` constructs the
+> binned case, where the movement is `2e-15` and the residual is the whole of the target.
+>
+> **One direction of the inference survives, and the suppression uses only that one.** A branch
+> moving more than its own magnitude is an instrument visibly still moving and is not a number to
+> read. A branch that has settled may still be wrong by any amount, because a smoothing bias can
+> be stable across two resolutions and large at both. So settling is **necessary and not
+> sufficient**, and a settled branch's error is *unestablished* rather than small.
+>
+> **Randomisation does not rescue this one**, and that asymmetry is the reason E2 exists rather
+> than a second application of E1b. An independent scramble makes a *quadrature* error mean-zero
+> and estimable by replication; every randomisation here would share the same bin count and the
+> same edges-from-quantiles rule, so the across-scramble spread is orthogonal to the bias in the
+> partition. What establishes the error is a reference whose fidelity is measured against
+> something other than its own refinement — [E2](../roadmap.md#e-what-c3c-handed-back).
 
 The empirical-process terms `M₁` and `M̃₂` are **refused by name**. They are `(P_n − P_0)` of a
 difference of estimated curves, and under the fold convention above `P_n` and `P₀` are taken at
@@ -904,19 +928,34 @@ the theorem's term would be worse than not reporting it. What is reported is eac
 errors to cancel against.
 
 **The bin counts stay at `(12, 24)` and E1 did not move them, which is a decision rather than an
-omission.** C3c's `cancel` reaching `1.99x` and `branches resolved` falling to `192/250` are gate
-1's clause 4 failing on its second half, and moving the instrument that reads a clause inside the
+omission.** C3c's `cancel` reaching `1.99x` and `branches settled` falling to `192/250` are gate
+1's clause 4 straining on its second half, and moving the instrument that reads a clause inside the
 pull request that measures the instrument's *precision* would leave the two unattributable — the
 mistake [lesson 14](investigation-log.md#what-the-sizings-got-wrong) is about, in the other
 direction. There is also a coupling that makes a third count worse rather than better at the
 present rules: two designs at 24 bins is 576 cells, and at 48 it is 2,304, so a finer grid needs
 proportionally more rows before its cell averages mean anything, and a bin count raised without the
 rows behind it drives every branch toward its own target and reports a spuriously small one. What
-E1 does instead is **report the error that was already being recorded**: `branch_error` has been on
-every replicate since C2 and was read by no table, so `192/250` arrived with no discretisation size
-beside it. Both harnesses now print it, and the ladder prints it at every rung — which is where the
-coupling above becomes visible rather than argued. A third bin count is E5's pre-flight question,
-to be taken **with** the row count that supports it.
+E1 does instead is **report the movement that was already being recorded**: `branch_error` has been on
+every replicate since C2 and was read by no table, so `192/250` arrived with nothing beside it.
+Both harnesses now print it, and the ladder prints it at every rung — which is where the coupling
+above becomes visible rather than argued. A third bin count is E5's pre-flight question, to be
+taken **with** the row count that supports it.
+
+**What `192/250` is a count of**, now that the reading above is withdrawn: the replicates whose
+branches moved *less* between the two bin counts than the branch's own magnitude. It is a
+**stability** count. In 58 of 250 the two counts disagreed by more than the branch itself, which
+says the binned limits were still moving there and says nothing about how far either is from the
+truth. So clause 4's second half is **unread** rather than failed — and the clause's verdict does
+not move, because it fails on its first half alone: `√n R_rem` is flat in `q-drift` and does not
+fall in `g-drift`, and that column has a measured replicate spread beside it. *`unresolved` is not
+a weak `pass`*, and it is not a weak `fail` either.
+
+**The two candidate replacements, and this section does neither.** A randomised bin *origin* would
+make the partition's error mean-zero and estimable by replication — E1b's device one level down,
+available because the edges are the only thing that has to move. Or E2's reference reduction, which
+is a proper estimator of the conditional expectation with a fidelity gate that is not a refinement
+difference. The first is E5's pre-flight question with the third bin count; the second is E2's.
 
 ### What to report
 

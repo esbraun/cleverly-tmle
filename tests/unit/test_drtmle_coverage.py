@@ -982,7 +982,7 @@ class TestTheRemainderColumnsAreItemThirteens:
                 root_n_remaining=0.2,
                 branch_q=float("nan"),
                 branch_g=float("nan"),
-                branch_error=0.5,
+                branch_movement=0.5,
             )
             for i in range(4)
         ]
@@ -995,7 +995,7 @@ class TestTheRemainderColumnsAreItemThirteens:
         # where they did not resolve it must not resolve either: a number here would say the
         # total rests on no cancellation, which is a claim about two quantities nobody measured.
         assert cell["cancel"] == "-"
-        assert cell["branches resolved"] == "0/4"
+        assert cell["branches settled"] == "0/4"
 
 
 class TestEveryTablesRowsMatchItsHeaders:
@@ -1021,7 +1021,7 @@ class TestEveryTablesRowsMatchItsHeaders:
                 root_n_remaining=float("nan") if name == "tmle" else 0.2,
                 branch_q=float("nan") if name == "tmle" else 0.004,
                 branch_g=float("nan") if name == "tmle" else -0.001,
-                branch_error=1e-5,
+                branch_movement=1e-5,
                 # On **both** arms, unlike every other remainder column: the targeted
                 # remainder needs no companion, and the row a shortfall is read against is
                 # the plain `TMLE`'s.

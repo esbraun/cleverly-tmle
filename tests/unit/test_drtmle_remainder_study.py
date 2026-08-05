@@ -320,18 +320,54 @@ class TestTheFoldWeightingIsTheEstimators:
                 call()
 
 
-class TestTheBinnedLimitsSayHowWellTheyResolved:
-    """The branch columns are approximations and the module reports their own error."""
+class TestTheBinnedLimitsSayWhetherTheySettled:
+    """The branch columns are approximations, and the module reports whether they settled.
 
-    def test_a_branch_is_dropped_when_it_does_not_separate_from_its_discretisation(
+    **Not their error**, which is the correction this class is named after.  ``branch_movement``
+    is the limits' movement between :data:`~benchmarks.drtmle_remainder.BIN_COUNTS`, and a
+    successive difference between two rungs of a refinement says a sequence settled and not
+    where -- the same statistic ``docs/roadmap.md``'s E1b withdrew for the quadrature ladder.
+    The suppression below uses the one direction that does follow: a branch moving more than
+    its own magnitude is an instrument visibly still moving.  The converse does not, so
+    ``test_settling_is_not_sufficient`` is here to stop the class being read as though it did.
+    """
+
+    def test_a_branch_is_dropped_when_it_moves_more_than_its_own_magnitude(
         self, rows: dict[str, Any]
     ) -> None:
         for row in rows.values():
-            resolved = np.isfinite(row.branch_q)
-            assert resolved == (
-                row.branch_error <= max(abs(row.branch_q), abs(row.branch_g)) if resolved else True
-            )
-            assert np.isfinite(row.branch_error)
+            settled = row.branch_movement <= max(abs(row.branch_q), abs(row.branch_g))
+            assert np.isfinite(row.branch_q) == settled
+            assert np.isfinite(row.branch_g) == settled
+            assert np.isfinite(row.branch_movement)
+
+    def test_settling_is_not_sufficient(self) -> None:
+        r"""Zero movement between the two bin counts, and the whole of the target as error.
+
+        Constructed rather than measured, because the claim is about what the *statistic*
+        can say and not about this law.  Take a target with **one full period per fine
+        bin**: each of the 24 cells averages it to zero, and so does each of the 12 coarse
+        cells, which span two periods.  The two grids therefore agree to machine precision
+        while both recover *nothing* -- the residual's root mean square is the target's own.
+
+        So a movement of ``2e-15`` is consistent with an error of ``0.71``, and the gate
+        above is necessary and not sufficient.  This is the concrete form of why
+        :attr:`~benchmarks.drtmle_remainder.RemainderRow.branch_movement` is a stability
+        diagnostic: refining a regressogram moves it only where the refinement happens to
+        resolve something, and a bias invisible to both resolutions is invisible to their
+        difference.  It is also why randomising a scramble does not help here the way it
+        helps the quadrature -- this is a smoothing bias and not a mean-zero error.
+        """
+        design = np.arange(480) / 480.0
+        target = np.sin(2.0 * np.pi * float(remainder.BIN_COUNTS[1]) * design)
+        coarse = remainder.conditional_mean(target, design, bins=remainder.BIN_COUNTS[0])
+        fine = remainder.conditional_mean(target, design, bins=remainder.BIN_COUNTS[1])
+
+        movement = float(np.max(np.abs(fine - coarse)))
+        residual = float(np.sqrt(np.mean((fine - target) ** 2)))
+        assert movement < 1e-12
+        assert residual == pytest.approx(float(np.sqrt(np.mean(target**2))), rel=1e-9)
+        assert residual > 0.7
 
     def test_the_conditional_mean_is_a_conditional_mean(self) -> None:
         """The quadrature the ``0n`` limits are estimated by, checked on a law it knows.

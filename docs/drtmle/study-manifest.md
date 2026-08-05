@@ -66,10 +66,14 @@ measured and no longer a way to obtain it.
 > Retrieving it needs a machine with ordinary outbound access, before the retention date:
 >
 > ```bash
-> gh run download 30979765029 --repo esbraun/cleverly-tmle --dir evidence/c3c/batch-a
-> gh run download 30987423687 --repo esbraun/cleverly-tmle --dir evidence/c3c/batch-b
-> sha256sum evidence/c3c/batch-*/*.jsonl   # against the table above, on the zip as fetched
+> scripts/fetch_evidence.sh c3c        # the four artefacts, as zips, digests checked
 > ```
+>
+> **The command this replaced could not check what it claimed to.** It was `gh run download`,
+> which extracts rather than saving the archive, followed by `sha256sum` over the unpacked
+> `*.jsonl` — while the digests in the table above are the API's digests of the **artefact zip**.
+> So the check compared a number this file records against a file it does not describe. The
+> script fetches the zip endpoint, which is the byte stream those digests are of.
 >
 > That is the first task of [E0's follow-up](../roadmap.md#e-what-c3c-handed-back), and until it
 > is done this manifest names evidence it does not carry.
@@ -91,7 +95,7 @@ record would need a schema before a reader could do anything with it. Fields, as
 | `r2`, `r2_targeted` | the plain remainder at the initial and at the targeted regression — the regime-entry column |
 | `p0_curve`, `pn_curve` | `P₀D̂` off the evaluation draw, and `PₙD̂`, which targeting drove to zero |
 | `remaining`, `root_n_remaining` | the corrected remainder Theorem 1 assumes negligible, and its `√n` scaling — **item 13's column** |
-| `branch_q`, `branch_g`, `branch_error` | the two appendix branches' second-order halves and their binning error. The `M` terms are refused rather than approximated, so these are not the full theorem terms |
+| `branch_q`, `branch_g`, `branch_error` | the two appendix branches' second-order halves and their movement between the two bin counts. The `M` terms are refused rather than approximated, so these are not the full theorem terms |
 
 **A reader deriving a rate from a single row's `√n R_remaining` is reading the quadrature, not the
 remainder**: at `m = 2,000` the companion's own error is of order `1.0/√m ≈ 0.023` per replicate,
@@ -177,7 +181,7 @@ The companion grid's dispatch, and the section this file gained because
 | tiers | 1 (prescribed nuisances) and 2 (both fitted) — dispatched separately, tables read apart |
 | cells | `q-drift`, `g-drift` |
 | sizes | `600`, `2400` |
-| draws | 16 per `(cell, size)` |
+| draws | **32** per `(cell, size)` — the value dispatched, which is *not* the workflow's `16` default |
 | scrambles | 8 independent randomisations of the quasi-random rule per fit, from `SCRAMBLE_SEED = 92_000_000` |
 | draw replicates | 8 independent i.i.d. companions per fit at 2,000 rows, from `CONTROL_SEED = 91_000_000` |
 | ladder | `512 1024 2048` at tier 2, `512 1024 2048 4096` at tier 1 — windows on one fit, not refits |
@@ -185,9 +189,18 @@ The companion grid's dispatch, and the section this file gained because
 | `--jobs` | `2` |
 | seed | `20250801` |
 
-**One fit per draw**, so the totals are 64 fits a tier and not `64 × replicates`: every replicate
+**One fit per draw**, so the totals are 128 fits a tier and not `128 × replicates`: every replicate
 of both rules is a row block of one stacked companion. That is what makes a spread across
 replicates the rule's own error rather than a difference between two fits.
+
+**The `draws` row is the dispatched input and not the workflow's default**, which is `16`
+(`.github/workflows/drtmle-companion-grid.yml`'s `draws` input). Both runs were dispatched at `32`
+and their logs print it — `draws 32  reps 8` in every job's table, against `1,024` or `1,280`
+replicate rows and `fits 32` in the cost row. The default is left where it is: it is a starting
+point for the next dispatch, not a record of this one, and editing it would make this section
+harder to check rather than easier. Three lines of this file said `16` until they were corrected
+against those logs; the arithmetic under [the spot checks](#e1b-numbers-checkable-against-this-manifest)
+is what settles it either way.
 
 ### E1b's artefacts
 
@@ -215,10 +228,15 @@ and no longer a way to obtain it.
 > ordinary outbound access, before the retention date:
 >
 > ```bash
-> gh run download 31021187807 --repo esbraun/cleverly-tmle --dir evidence/e1b/tier-1
-> gh run download 31021176323 --repo esbraun/cleverly-tmle --dir evidence/e1b/tier-2
-> sha256sum evidence/e1b/tier-*/*.zip   # against the table above, on the zip as fetched
+> scripts/fetch_evidence.sh e1b        # the eight artefacts, as zips, digests checked
 > ```
+>
+> **`gh run download` is the wrong command here and this is the correction**: it *extracts*, so
+> it leaves no archive to hash, and the digests in the table above are the API's digests of the
+> **artefact zip**. The script fetches
+> `/repos/{owner}/{repo}/actions/artifacts/{id}/zip` instead, which is the byte stream those
+> digests are of, and checks each against this table before unpacking beside it. Hashing the
+> unpacked `.jsonl` would compare against a number nothing here records.
 
 **Two earlier runs of the same sweep are on the branch and are superseded.** `31020774280` (tier 2)
 and `31020786013` (tier 1) ran at `d2982501` with 16 draws, and `79d11d3` fixed a `cost_rows` bug
@@ -240,7 +258,7 @@ recomputable from this file. The record is `benchmarks.drtmle_companion_grid.Gri
 | `points`, `rows` | Sobol points and companion rows in this replicate's block; `points` is `0` on a draw row |
 | `p0_curve`, `remaining`, `root_n_remaining` | item 13's three columns at this rule, refinement and replicate |
 | `companion_se` | the i.i.d. rule's error from the `sd(D̂)/√m` formula. Read on the draw rows only — on a quasi-random rule it is an enormous overstatement |
-| `branch_q`, `branch_g`, `branch_error` | the two appendix branches and their binning error, which has a grid dependence of its own |
+| `branch_q`, `branch_g`, `branch_error` | the two appendix branches and their movement between the two bin counts, which has a grid dependence of its own |
 | `seconds` | the fit's wall clock, which is per draw and repeats across that draw's rows |
 | `error` | the exception type where a replicate could not be computed, `""` otherwise. A failure is a row rather than a gap |
 
@@ -248,6 +266,15 @@ recomputable from this file. The record is `benchmarks.drtmle_companion_grid.Gri
 interval are functions of a whole `(cell, n, rule, points)` group, so putting them on a row would
 store one number many times and invite a reader to average them. `decompose` and `bootstrap_share`
 are the arithmetic, and they read exactly the fields above.
+
+> **`branch_error` is this field's name in the retained rows, and the code now writes
+> `branch_movement`.** The quantity is unchanged — the larger of the two branches' movement between
+> the `(12, 24)` bin counts — and only the name and the reading are. It was called an error and is
+> a *successive difference between two rungs of a refinement*, which is the statistic
+> [E1b withdrew](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) for the quadrature ladder; the
+> tables' `branch err` column is now `branch move`, and `branches resolved` is `branches settled`.
+> A reader of the archived JSONL should expect the old key and read it as the new one. Both
+> studies' rows predate the rename; nothing in them needs recomputing.
 
 ### Regenerating E1b's tables
 
@@ -257,7 +284,7 @@ rather than a re-read — there is no `--rows` re-read path here, because the ro
 ```bash
 python -m benchmarks.drtmle_companion_grid --tier 2 --cells q-drift g-drift \
     --sizes 600 2400 --points 512 1024 2048 --scrambles 8 \
-    --control-n 2000 --draw-replicates 8 --draws 16 --seed 20250801 --jobs 2
+    --control-n 2000 --draw-replicates 8 --draws 32 --seed 20250801 --jobs 2
 ```
 
 **Do not run that in a small container.** `CLAUDE.md` says why. A reduced form is fine there and is

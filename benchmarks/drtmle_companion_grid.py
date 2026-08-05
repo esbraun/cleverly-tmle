@@ -161,10 +161,16 @@ class GridRow:
         Carried on every row because it is free, and read only on the draw rows -- on a
         quasi-random rule it is an enormous overstatement, and the honest number for that rule
         is the spread across these rows.
-    branch_q, branch_g, branch_error:
+    branch_q, branch_g, branch_movement:
         The appendix branches at this refinement, because the binned limits have a grid
         dependence of their own and it is coupled to this one: the cell count is fixed at
         ``BIN_COUNTS`` while the rows per cell grow with the rule.
+
+        ``branch_movement`` is their movement between the two bin counts and is a
+        **stability diagnostic rather than an error bound**, for the reason ``delta`` is
+        one column to its left: a successive difference between two rungs says a sequence
+        settled and not where.  It was called ``branch_error`` until this module's own
+        argument was turned on it.
     """
 
     cell: str
@@ -181,7 +187,7 @@ class GridRow:
     companion_se: float
     branch_q: float
     branch_g: float
-    branch_error: float
+    branch_movement: float
     seconds: float
     error: str = ""
 
@@ -288,7 +294,7 @@ def _row(
         companion_se=measured.companion_se,
         branch_q=measured.branch_q,
         branch_g=measured.branch_g,
-        branch_error=measured.branch_error,
+        branch_movement=measured.branch_movement,
         seconds=seconds,
     )
 
@@ -340,7 +346,7 @@ def _failed(payload: Payload, block: Any, points: int, error: str) -> GridRow:
         companion_se=nan,
         branch_q=nan,
         branch_g=nan,
-        branch_error=nan,
+        branch_movement=nan,
         seconds=nan,
         error=error,
     )
@@ -463,7 +469,7 @@ GRID_HEADERS = (
     "est sd",
     "R_Q",
     "R_g",
-    "branch err",
+    "branch move",
 )
 
 
@@ -575,7 +581,7 @@ def _rung(
         f"{np.sqrt(max(decomposed.estimator_variance, 0.0)):.4f}",
         f"{_mean([r.branch_q for r in selected]):+.5f}",
         f"{_mean([r.branch_g for r in selected]):+.5f}",
-        f"{_mean([r.branch_error for r in selected]):.5f}",
+        f"{_mean([r.branch_movement for r in selected]):.5f}",
     ]
 
 
@@ -761,6 +767,13 @@ def main() -> None:
         "integrand at this geometry, the finest rung's delta ran four times below the true\n"
         "error -- and three orders above it two rungs earlier. It is here to show a rule\n"
         "still moving, and `rule sd` is the column that says how large its error is.\n"
+        "\n"
+        "`branch move` is the same shape of statistic and carries the same caveat, one\n"
+        "level down: the binned limits' movement between the two bin counts. It has no\n"
+        "`rule sd` beside it, because randomising a scramble makes a QUADRATURE error\n"
+        "mean-zero and does nothing to a SMOOTHING bias -- a regressogram's bias is stable\n"
+        "across two resolutions and can be large at both. So a settled branch's error is\n"
+        "unestablished rather than small, and establishing it is what E2 is for.\n"
         "\n"
         "The randomised scramble is what makes any of this identified: it puts the grid's\n"
         "error at mean zero given the fit, so the rule's contribution neither biases the\n"
