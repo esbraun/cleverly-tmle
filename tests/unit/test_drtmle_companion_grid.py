@@ -200,6 +200,28 @@ class TestEveryShareCarriesAnInterval:
 class TestTheTableSaysWhatWasMeasured:
     """Arithmetic on hand-built rows; nothing here fits."""
 
+    def test_the_cost_row_prices_one_fit_rather_than_the_sweep(self) -> None:
+        """The companion a *fit* paid for, which is what a dispatch is billed in.
+
+        A replicate's seed is offset by its draw's, so ``(rule, replicate)`` does not collapse
+        across draws -- summing block widths over the whole sweep multiplies the answer by the
+        draw count and reads as a companion nobody built.  Two draws here, so the wrong
+        version reads double.
+        """
+        records = [
+            row(data_seed=seed, replicate=seed * 10 + rep, points=512, rows=1_024)
+            for seed in range(2)
+            for rep in range(2)
+        ] + [
+            row(data_seed=seed, replicate=seed * 10 + 5, rule="draw", points=0, rows=2_000)
+            for seed in range(2)
+        ]
+
+        (built,) = grid.cost_rows(records)
+
+        assert built[2] == f"{2 * 1_024 + 2_000:,}"
+        assert built[3] == "2"
+
     def test_the_rows_are_the_width_of_the_headers(self) -> None:
         records = [
             row(data_seed=seed, replicate=rep, points=points, rows=2 * points)

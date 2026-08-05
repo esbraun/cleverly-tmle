@@ -596,10 +596,15 @@ def cost_rows(records: Sequence[GridRow]) -> list[list[str]]:
         if not here:
             continue
         per_draw = {r.data_seed: r.seconds for r in here}
-        # The companion is every block at its full width, and a rung is a window on one of
-        # them -- so the rows a fit paid for are the widest window per block, summed.
+        # The companion **one fit** paid for, so the widest window per block within a single
+        # draw. Summing across draws would multiply it by the draw count -- and a replicate
+        # seed is offset by its draw's, so `(rule, replicate)` is not a key that collapses
+        # them. What this column prices is a fit, which is what a dispatch is billed in.
+        one = min(per_draw)
         widest: dict[tuple[str, int], int] = {}
         for r in here:
+            if r.data_seed != one:
+                continue
             key = (r.rule, r.replicate)
             widest[key] = max(widest.get(key, 0), r.rows)
         rows.append(
