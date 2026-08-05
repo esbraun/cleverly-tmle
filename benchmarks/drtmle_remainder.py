@@ -509,7 +509,7 @@ def _grid(dgp: DGP, points: int, scramble: int | None) -> np.ndarray:
 def stacked_companion(
     dgp: DGP,
     *,
-    points: int = 0,
+    points: int | Sequence[int] = 0,
     scrambles: Sequence[int] = (),
     draw_rows: int = 0,
     draw_seeds: Sequence[int] = (),
@@ -534,8 +534,25 @@ def stacked_companion(
     Independent replicates of a *randomised* rule are unbiased for the same integral, so their
     spread is a standard error under no assumption about a rate -- which is what the error of
     a piecewise-smooth integrand needs, since it has no rate to appeal to.
+
+    **``points`` may be one count or one per scramble**, and the second form is E2's rather
+    than E1b's.  A study measuring an evaluation *rule* wants every block at the same
+    resolution, so the blocks are replicates of one thing; a study that also has to **score** a
+    candidate on rows it did not see wants that block finer than the one it was fitted on,
+    which is a different resolution in the same companion.  One count is broadcast, so every
+    existing call is unchanged.
     """
-    if points and not scrambles:
+    counts = (
+        [int(points)] * len(scrambles)
+        if isinstance(points, int)
+        else [int(each) for each in points]
+    )
+    if len(counts) != len(scrambles):
+        raise ValueError(
+            f"{len(scrambles)} scramble(s) and {len(counts)} point count(s); a per-block "
+            "resolution has to name one count per block or one count for all of them"
+        )
+    if any(counts) and not scrambles:
         raise ValueError("a Sobol block needs a scramble; pass scrambles= or leave points at 0")
     if draw_rows and not draw_seeds:
         raise ValueError("a draw block needs a seed; pass draw_seeds= or leave draw_rows at 0")
@@ -544,11 +561,11 @@ def stacked_companion(
     masses: list[np.ndarray] = []
     blocks: list[Block] = []
     start = 0
-    for scramble in scrambles:
-        frame, weights = quadrature_frame(dgp, points, scramble=scramble)
+    for scramble, count in zip(scrambles, counts, strict=True):
+        frame, weights = quadrature_frame(dgp, count, scramble=scramble)
         frames.append(frame)
         masses.append(weights)
-        blocks.append(Block("sobol", scramble, points, Window(start, start + weights.size)))
+        blocks.append(Block("sobol", scramble, count, Window(start, start + weights.size)))
         start += weights.size
     for seed in draw_seeds:
         frames.append(evaluation_frame(dgp, draw_rows, seed))

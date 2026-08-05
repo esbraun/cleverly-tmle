@@ -289,7 +289,7 @@ class TestTheMaskAndTheWeightsAreLoadBearing:
         r""":math:`Q_r` alone carries a mask, and it is the whole of the ``| A = a``.
 
         Watched to fail rather than argued: the mutation is applied to the shipped
-        :func:`benchmarks.drtmle_reference._fit_mask` and the reductions are rebuilt at the same
+        :func:`benchmarks.drtmle_reference.fit_mask` and the reductions are rebuilt at the same
         state.  ``gr1`` and ``gr2`` must be untouched, which is the half that says the mask is
         in the right place rather than merely present somewhere.
         """
@@ -308,7 +308,7 @@ class TestTheMaskAndTheWeightsAreLoadBearing:
             )[0]
 
         straight = build()
-        monkeypatch.setattr(reference, "_fit_mask", lambda name, indicator: None)
+        monkeypatch.setattr(reference, "fit_mask", lambda name, indicator: None)
         mutated = build()
 
         assert float(np.max(np.abs(straight.qr - mutated.qr))) > 1e-3
