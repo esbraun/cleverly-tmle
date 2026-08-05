@@ -1438,7 +1438,13 @@ band the comparison is judged against while contributing nothing to the comparis
   on one and beaten on another — says the reference's resolution is not one choice, and the
   repair is a per-regression resolution rather than a verdict. A gate-C spread that does not
   fall when `--reference-points` rises says the spread is not the quadrature, which would
-  contradict the unbiasedness the randomisation rests on.
+  contradict the unbiasedness the randomisation rests on. **That second one has been run**: a
+  three-draw Tier-2 `q-drift` pilot at `n = 600` reads `0.0637` at 4,096 points and `0.0315` at
+  8,192, roughly halved for a doubling, against an allowance of `0.1420` — so the premise holds
+  at the resolutions the dispatch uses, and `4096` is the default because it clears the budget
+  with about a factor of two in hand at `13.7` seconds a fit rather than `25.5`. The pilot's
+  comparison columns are **not** read: three draws bought `unresolved` on the primary estimand,
+  which is what this rule says three draws buy.
 - *The comparison.* An `equivalent` verdict alongside a **large** paired difference in `ey1`
   or `ey0` would say the ATE cancelled a movement the arms made, which is the reason those two
   rows are printed at all.

@@ -2337,6 +2337,21 @@ the companion was inert to the fit, so eight replicates came off one fit; here t
 the fit, so a scramble is a refit. Hence a declared subset of draws, its own flag, and a cost table
 that prices a **fit** rather than a draw.
 
+**Its own premise has been checked rather than assumed, and that is the one number this section
+takes from a sandbox.** §8 names the falsifier: *a gate-C spread that does not fall when
+`--reference-points` rises says the spread is not the quadrature, which would contradict the
+unbiasedness the randomisation rests on*. A three-draw Tier-2 `q-drift` pilot at `n = 600` reads
+`0.0637` at 4,096 points and `0.0315` at 8,192 — **roughly halved for a doubling**, which is the
+shape a randomised quasi-Monte Carlo rule should have and is not the shape a smoothing bias would
+have. Both pass the budget, whose allowance in that cell is `0.1420`, and the cheaper one does it at
+`13.7` seconds a fit against `25.5` — so the default stays at 4,096 with about a factor of two in
+hand. **The ratio is three draws' worth and carries no rate**, and the pilot's *comparison* columns
+are not quoted anywhere: its primary verdict was `unresolved`, which is what three draws buy, and a
+difference read under an `unresolved` verdict is the thing §8 refuses. Its rows were written to
+git-ignored output and are gone, which is why nothing above depends on them beyond the flag's
+sizing — [E1's own lesson](drtmle/study-manifest.md#the-study-manifest), applied to a knob rather
+than to a study.
+
 **The rule is frozen and it is [§8 of the validation plan](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2).**
 On the paired per-draw difference of `√n R_remaining`, against a margin of **a quarter of the `glm`
 arm's own level** in that cell and size: `moved` if the bootstrap interval lies wholly outside the

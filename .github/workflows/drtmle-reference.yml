@@ -47,7 +47,9 @@ on:
         description: >-
           Sobol points the reduced regressions are fitted on. Sized by the reference's own
           points-per-parameter budget, which it refuses to be fitted thinner than -- spline(32)
-          needs 2,240 rows and qr's mask keeps about half a block. Raise this if gate C fails
+          needs 2,240 rows and qr's mask keeps about half a block. Raise this if gate C fails:
+          a three-draw pilot read the spread at 0.0637 here and 0.0315 at 8192, at 13.7s and
+          25.5s a fit
         default: "4096"
       scoring_points:
         description: >-
