@@ -2273,8 +2273,37 @@ count worse in two dimensions (576 cells, then 2,304) largely goes away in one.
 declared before the fit ([item 24](#the-open-items)), `A` and `Y` are integrated in closed form by
 `quadrature_frame`, and `tests/unit/test_oracle_reductions.py` already runs this override on the
 exact law. What it costs beyond that is a companion grid and a fidelity gate — cheaper than a
-learner sweep, and it is still **the only instrument that can return a *negative* answer worth
-having**.
+learner sweep.
+
+##### What E2 has landed so far, and what it still owes
+
+**The instrument**, in `benchmarks/drtmle_reference.py`: a deterministic univariate
+`SplineProjection` on the fitted index, injected through both hooks
+(`ReferenceReductionDRTMLE`), with the `SaturatedCells` smoother the exact-law control needs and
+the `EqualCountBins` negative control the gate must reject. `tests/unit/test_drtmle_reference.py`
+pins the routing, the weights, linearity in the target, row-order invariance and the
+points-per-parameter budget; three provider mutations — fitting off the reference block, routing
+every row through one fold, and dropping `qr`'s `| A = a` — were each watched to fail.
+
+**Two measurements from building it, and both change how the rest must be read.**
+
+*A coarse reference lands a close estimate.* On one Tier-1 `q-drift` draw at `n = 600`, an
+eight-bin reference reached `psi = +1.5108` against the spline's `+1.5129` and a truth of
+`+1.5000` — **nearer the truth than the good one**, while being a far worse estimate of the
+reduced functions and driving the alternation to its outer cap rather than to tolerance. So a
+gate that reads the estimate would have passed the bad reference, and E2's branch cannot be read
+off `√n R_remaining` until the *function* has been gated.
+
+*Fold routing is invisible on Tier 1.* Both nuisances there are injected analytic functions of
+`W`, so every outer fold's companion copy is identical — the fold sums came back `1402.0213`
+five times. Any routing test taken on Tier 1 passes against any routing whatever, which is the
+same shape of blindness `CLAUDE.md` records for a saturated learner and a redundant column. The
+routing test therefore runs on fitted primaries.
+
+**What is still owed before any paired number is read**: the three fidelity gates, the
+precommitted equivalence margin and reference-uncertainty budget frozen in their own commit, and
+the dispatch. A paired reference-against-`glm` comparison run before those is not evidence about
+the reduction learner.
 
 **And it is the only instrument that can return a *negative* answer worth having.** A faster
 learner that fails leaves "try a faster one still"; an oracle that fails says candidate 1 is not
