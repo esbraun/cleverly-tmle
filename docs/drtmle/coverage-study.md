@@ -387,7 +387,7 @@ them, and every entry in the remainder table carries its Monte Carlo standard er
 **Averaging down across replicates is not the same as being small**, and C3c is where the
 difference cost something: the draw's error is inside the spread every Monte Carlo error in the
 remainder table is computed from, so `1.427 ± 0.091` is a number about the estimator *and* the
-instrument together. [E1](../roadmap.md#what-e1-landed) separates them, and
+instrument together. [E1](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) separates them, and
 [the specification's rule](validation-plan.md#evaluating-pd-which-is-not-automatic-for-a-cross-fitted-fit)
 is where the change and its written reason live. Three things belong here, because they are
 properties of *this design* rather than of the specification.
@@ -405,13 +405,17 @@ outcome link would need that paragraph rewritten rather than reused, and
 `benchmarks/drtmle_remainder.quadrature_frame` refuses such a law by name rather than integrating
 it.
 
-**What the ladder measured, which is the number this section could not previously give.**
-`benchmarks/drtmle_companion_grid.py` reads a nested ladder off one fit per draw and compares it
-against the i.i.d. rule at C3c's own `m = 2,000`. The tables are in
-[the investigation log](investigation-log.md#what-the-e1-ladder-measured); the reading is that a
-large share of the across-draw variance of `√n R_rem` in C3c's tables was the evaluation draw
-rather than the estimator, and that the deterministic grid's own contribution is smaller by orders.
-**That does not make C3c's flat column false, and it does not say whether the decline resolves** —
+**What the ladder measured, and what it did not.**
+`benchmarks/drtmle_companion_grid.py` reads a ladder off one fit per draw and compares it against
+the i.i.d. rule at C3c's own `m = 2,000`. The tables are in
+[the investigation log](investigation-log.md#what-the-e1-ladder-measured), with the retraction
+attached to each: what they show is that the across-draw spread of `√n R_rem` is several-fold
+smaller under the grid than under the draw, which is two measured standard deviations. What they do
+**not** show is how that difference apportions between the rule and the estimator — E1 read
+`1 − s²_grid/s²_draw` as that share and it is not one — nor how large the grid's own error is,
+which a successive difference between rungs does not bound. Both are
+[E1b's](../roadmap.md#what-e1b-measures).
+**None of it makes C3c's flat column false, and none of it says whether the decline resolves** —
 which is a rate, and rates are read at E5. The remaining spread is the estimator's own second-order
 sampling variation; how it compares against a decline is exactly the measurement E1 declines to
 substitute for. What it does is make E5's reading of the same column a reading about the estimator.

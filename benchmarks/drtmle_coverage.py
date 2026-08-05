@@ -182,6 +182,21 @@ DEFAULT_EVALUATION_N = 2_000
 #: raising ``--evaluation-n`` cannot change which rows a replicate was fitted on.
 EVALUATION_SEED = 90_000_000
 
+#: The scramble stream the quasi-random rule's randomisations come from, disjoint from both
+#: of the above for the same reason and for one more: which scramble a replicate takes must
+#: not depend on which rows it was fitted on, or the rule's error and the estimator's would
+#: share a source and the study's Monte Carlo error would stop being a sum of the two.
+QUADRATURE_SEED = 92_000_000
+
+#: Independent scrambles per replicate under the quasi-random rule.  **Two rather than one**,
+#: and it is the difference between a study that reports its instrument's error and one that
+#: delegates it: a single scramble is unbiased but leaves no way to see how large its own
+#: error was, while two give a per-replicate spread whose mean over the study estimates it
+#: directly.  It also halves that error, since the reported column is their average.  The
+#: cost is one more block of companion predictions and no learner fit -- two to six per cent
+#: of a fit, per ``docs/drtmle/investigation-log.md``'s cost table.
+QUADRATURE_SCRAMBLES = 2
+
 
 @dataclass
 class Replicate:
@@ -249,14 +264,20 @@ class Replicate:
     branch_error: float = float("nan")
     #: The evaluation rule's **own** error, on the same root-``n`` scale as
     #: ``root_n_remaining``, so a reader can see how much of that column is the quadrature.
-    #: Two numbers because the two rules fail differently -- see
-    #: :class:`benchmarks.drtmle_remainder.RemainderRow` for which belongs to which.
+    #: Two numbers because they are arrived at two ways -- see
+    #: :class:`benchmarks.drtmle_remainder.RemainderRow`.  ``companion_se`` is the i.i.d.
+    #: rule's, from a formula; ``companion_replicate_se`` is measured from this fit's own
+    #: replicates of whichever rule produced the row, and is ``nan`` where there is one.
     companion_se: float = float("nan")
-    companion_halving: float = float("nan")
-    #: Which rule produced the row, and how many rows it held.  Self-describing on purpose:
-    #: C3c's artefacts do not carry either, so a reader of them has to know the invocation.
+    companion_replicate_se: float = float("nan")
+    #: Which rule produced the row, how many rows it held, and which randomisation it took.
+    #: Self-describing on purpose: C3c's artefacts carry none of them, so a reader of those
+    #: has to know the invocation.  ``companion_scramble`` is ``0`` under the i.i.d. rule and
+    #: is the **first** of a replicate's scrambles under the quasi-random one, the rest
+    #: following it consecutively.
     companion_rule: str = ""
     companion_rows: int = 0
+    companion_scramble: int = 0
     error: str = ""
 
 
@@ -318,9 +339,10 @@ class Payload:
     data_seed: int
     fold_seed: int
     evaluation_n: int = 0
-    #: Sobol points of the deterministic rule, ``0`` for the i.i.d. draw.  The companion is
-    #: ``2 * quadrature_points`` rows when it is set, since every point is carried at both
-    #: arms -- which is what makes the ``A`` and ``Y`` coordinates exact rather than sampled.
+    #: Sobol points of the quasi-random rule, ``0`` for the i.i.d. draw.  The companion is
+    #: ``2 * quadrature_points`` rows *per scramble* when it is set, since every point is
+    #: carried at both arms -- which is what makes the ``A`` and ``Y`` coordinates exact
+    #: rather than sampled.
     quadrature_points: int = 0
 
 
@@ -417,33 +439,70 @@ def _failed(
     ]
 
 
-def _companion(payload: Payload, dgp: Any) -> tuple[Any, Any, dict[str, float] | None, str, int]:
-    """The evaluation rule for one draw: its frame, its row weights, and its own ``psi_0``.
+@dataclass(frozen=True)
+class Companion:
+    """The evaluation rule for one draw: what to fit against, and how to read it back.
+
+    ``windows`` and ``truths`` are one per replicate of the rule and travel together, since
+    the cancellation :func:`~benchmarks.drtmle_remainder.truth_at` documents is *within* a
+    replicate: :math:`\\psi_0` and :math:`P_0\\hat D` have to come off one grid at one
+    randomisation, and a shared truth across two scrambles would difference two rules.
+    """
+
+    frame: Any
+    weights: Any
+    windows: list[Any] | None
+    truths: list[dict[str, float]] | None
+    rule: str
+    rows: int
+    scramble: int
+
+
+def _companion(payload: Payload, dgp: Any) -> Companion:
+    """The evaluation rule for one draw, built once and read per replicate.
 
     Two rules, and which one is in force is a **property of the row** rather than of the
-    invocation -- ``companion_rule`` and ``companion_rows`` travel on every record so an
-    artefact says what produced it.
+    invocation -- ``companion_rule``, ``companion_rows`` and ``companion_scramble`` travel on
+    every record so an artefact says what produced it.
 
     *The i.i.d. draw* is drawn per replicate rather than once, so its error is independent
     across replicates and averages down in the reported mean rather than biasing every row
     the same way.  The seed stream is disjoint from the study's -- see ``EVALUATION_SEED``.
 
-    *The deterministic grid* is the **same points at every replicate**, and that is the trade
-    rather than an oversight: its error is a bias no replicate count removes, where the
-    draw's is noise that averages down.  It is orders smaller -- which is the whole of E1 --
-    but it is bounded by a convergence ladder rather than by the study, and
-    ``benchmarks/drtmle_companion_grid.py`` is what bounds it.
+    *The quasi-random rule* takes an **independent scramble per replicate**, and E1b is why
+    that is the rule rather than one fixed grid.  A fixed grid's error is a bias no replicate
+    count removes, and E1 offered a nested convergence ladder as the thing that bounds it --
+    which a successive difference cannot do without a convergence result the integrand does
+    not have.  Randomising instead removes the bias rather than bounding it: a randomised
+    quasi-Monte Carlo rule is unbiased at every point count, so the error is mean-zero noise
+    again, far smaller than the draw's, and averaging down over the study exactly as the
+    draw's did.  Two scrambles per replicate, so the reported column is their average *and*
+    their spread says how large the rule's own error was -- see ``QUADRATURE_SCRAMBLES``.
     """
     if payload.quadrature_points > 0:
-        frame, weights = drtmle_remainder.quadrature_frame(dgp, payload.quadrature_points)
-        truth = drtmle_remainder.truth_at(dgp, payload.quadrature_points)
-        return frame, weights, truth, "sobol", 2 * payload.quadrature_points
+        first = QUADRATURE_SEED + payload.data_seed % 1_000_003
+        scrambles = tuple(first + i for i in range(QUADRATURE_SCRAMBLES))
+        stack = drtmle_remainder.stacked_companion(
+            dgp, points=payload.quadrature_points, scrambles=scrambles
+        )
+        return Companion(
+            frame=stack.frame,
+            weights=stack.weights,
+            windows=[block.window for block in stack.blocks],
+            truths=[
+                drtmle_remainder.truth_at(dgp, payload.quadrature_points, scramble=block.seed)
+                for block in stack.blocks
+            ],
+            rule="sobol",
+            rows=2 * payload.quadrature_points * QUADRATURE_SCRAMBLES,
+            scramble=first,
+        )
     if payload.evaluation_n > 0:
         frame = drtmle_remainder.evaluation_frame(
             dgp, payload.evaluation_n, EVALUATION_SEED + payload.data_seed % 1_000_003
         )
-        return frame, None, None, "draw", payload.evaluation_n
-    return None, None, None, "", 0
+        return Companion(frame, None, None, None, "draw", payload.evaluation_n, 0)
+    return Companion(None, None, None, None, "", 0, 0)
 
 
 def one_draw(payload: Payload) -> tuple[list[Replicate], list[ScoreRow]]:
@@ -462,7 +521,7 @@ def one_draw(payload: Payload) -> tuple[list[Replicate], list[ScoreRow]]:
     frame, _ = dgp.sample(payload.n, seed=payload.data_seed)
     truth = dgp.truth()
     shared = injection.settings(payload.cell, payload.n)
-    evaluation, row_weights, grid_truth, rule, rows = _companion(payload, dgp)
+    companion = _companion(payload, dgp)
 
     records: list[Replicate] = []
     scores: list[ScoreRow] = []
@@ -475,7 +534,7 @@ def one_draw(payload: Payload) -> tuple[list[Replicate], list[ScoreRow]]:
                 reduced_outcome_learner=REDUCED_LEARNER,
                 reduced_treatment_learner=REDUCED_LEARNER,
                 random_state=payload.fold_seed,
-                evaluation=evaluation,
+                evaluation=companion.frame,
             ),
         ),
     ):
@@ -506,7 +565,7 @@ def one_draw(payload: Payload) -> tuple[list[Replicate], list[ScoreRow]]:
         except Exception as exc:  # pragma: no cover - reported, never hidden
             print(f"targeted remainder unavailable on {payload.cell} n={payload.n}: {exc!r}")
             targeted = {}
-        if estimator == "drtmle" and evaluation is not None:
+        if estimator == "drtmle" and companion.frame is not None:
             # Never swallowed into the fit's own failure: a remainder that could not be
             # computed is a gap in item 13's evidence, not a draw the estimator raised on,
             # and the two must not be reported as one.
@@ -518,8 +577,10 @@ def one_draw(payload: Payload) -> tuple[list[Replicate], list[ScoreRow]]:
                         dgp,
                         n=payload.n,
                         bounds=fit.config.g_bounds,
-                        row_weights=row_weights,
-                        truth=grid_truth,
+                        row_weights=companion.weights,
+                        windows=companion.windows,
+                        truths=companion.truths,
+                        truth=None if companion.truths else truth,
                     )
                 }
             except Exception as exc:  # pragma: no cover - reported, never hidden
@@ -556,9 +617,12 @@ def one_draw(payload: Payload) -> tuple[list[Replicate], list[ScoreRow]]:
                     branch_g=float("nan") if row is None else row.branch_g,
                     branch_error=float("nan") if row is None else row.branch_error,
                     companion_se=float("nan") if row is None else row.companion_se,
-                    companion_halving=float("nan") if row is None else row.companion_halving,
-                    companion_rule=rule if row is not None else "",
-                    companion_rows=rows if row is not None else 0,
+                    companion_replicate_se=(
+                        float("nan") if row is None else row.companion_replicate_se
+                    ),
+                    companion_rule=companion.rule if row is not None else "",
+                    companion_rows=companion.rows if row is not None else 0,
+                    companion_scramble=companion.scramble if row is not None else 0,
                     **witnesses,
                     **alternation,
                 )
@@ -1320,19 +1384,25 @@ def _corrected(records: Sequence[Replicate], cell: str, size: int) -> tuple[floa
     """Mean of ``sqrt(n) R_remaining``, its Monte Carlo error, and the **rule's** own error.
 
     Three numbers rather than two, and the third is what
-    [E1](../docs/roadmap.md#e-what-c3c-handed-back) exists to expose.  The second is the
-    spread of the column across *draws* and carries the estimator's own sampling variation
-    **and** the evaluation rule's error together; the third is the rule's alone, read off
-    each replicate's own witness.  A reader who cannot see them apart cannot tell a column
-    that is flat from one whose instrument is too blunt to say -- which is exactly the
-    reading C3c's dispatch could not settle.
+    [E1](../docs/roadmap.md#e-what-e1-landed-and-what-e1b-withdrew) exists to expose.  The
+    second is the spread of the column across *draws* and carries the estimator's own
+    sampling variation **and** the evaluation rule's error together; the third is the rule's
+    alone.  A reader who cannot see them apart cannot tell a column that is flat from one
+    whose instrument is too blunt to say -- which is exactly the reading C3c's dispatch could
+    not settle.
 
-    The rule's error is a mean of per-replicate witnesses rather than a
-    :math:`\\sqrt{\\text{reps}}`-shrunk one, and that is deliberate on both rules: on the
-    i.i.d. draw it *does* average down and quoting the per-replicate size is conservative,
-    while on the deterministic grid it is the **same** points at every replicate and so does
-    not average down at all.  One column that is honest under the worse case beats two that
-    a reader has to pick between.
+    **The third number is now measured rather than derived**, which is E1b's correction.  It
+    was the movement of :math:`P_0\\hat D` when half the companion's rows are dropped -- a
+    :math:`\\sqrt 2`-inflated proxy for a noise and, on a fixed grid, not a bound on anything.
+    Under the randomised rule it is the standard error of the mean across that replicate's
+    own scrambles, averaged over replicates: a spread of independent randomisations of one
+    unbiased rule, which is what a standard error is.  Under the i.i.d. rule, which draws one
+    companion per replicate, there is nothing to spread and the column falls back to that
+    rule's own ``sd(D)/sqrt(m)`` formula -- honest for the rule it was derived under.
+
+    It stays a **per-replicate** size rather than a :math:`\\sqrt{\\text{reps}}`-shrunk one:
+    the question the column answers is how much of *one row's* remainder is the instrument,
+    which is what a reader of a single replicate needs and what sizes the next dispatch.
     """
     selected = [
         r for r in _select(records, cell, size, "drtmle", "ate") if np.isfinite(r.root_n_remaining)
@@ -1340,10 +1410,13 @@ def _corrected(records: Sequence[Replicate], cell: str, size: int) -> tuple[floa
     if not selected:
         return (float("nan"), float("nan"), float("nan"))
     values = np.array([r.root_n_remaining for r in selected], dtype=float)
-    witness = np.array([r.companion_halving for r in selected], dtype=float)
+    measured = np.array([r.companion_replicate_se for r in selected], dtype=float)
+    formula = np.array([r.companion_se for r in selected], dtype=float)
     error = float(np.std(values, ddof=1) / np.sqrt(values.size)) if values.size > 1 else 0.0
-    finite = witness[np.isfinite(witness)]
-    rule = float(np.mean(finite)) if finite.size else float("nan")
+    witness = measured[np.isfinite(measured)]
+    if not witness.size:
+        witness = formula[np.isfinite(formula)]
+    rule = float(np.mean(witness)) if witness.size else float("nan")
     return (float(values.mean()), error, rule)
 
 
@@ -1403,10 +1476,13 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
     estimator.**  ``rule err`` is the evaluation rule's own contribution to ``sqrt(n) R_rem``,
     so a reader can tell a column that is flat from one whose quadrature is too coarse to
     say -- the reading C3c could not settle, and what
-    [E1](../docs/roadmap.md#e-what-c3c-handed-back) is.  ``branch err`` is the same thing one
-    level down for the binned limits: it was recorded on every replicate from C2 onwards and
-    **read by no table**, which is why ``branches resolved`` falling to ``192/250`` in C3c
-    arrived without the size of the discretisation beside it.
+    [E1](../docs/roadmap.md#what-e1-landed-and-what-e1b-withdrew) is.  Under the randomised
+    rule it is **measured** from each replicate's own scrambles rather than derived from a
+    halving witness, which is [E1b](../docs/roadmap.md#what-e1b-measures)'s correction; see
+    :func:`_corrected`.  ``branch err`` is the same thing one level down for the binned
+    limits: it was recorded on every replicate from C2 onwards and **read by no table**,
+    which is why ``branches resolved`` falling to ``192/250`` in C3c arrived without the size
+    of the discretisation beside it.
     """
     rows = []
     for cell, n in _cells(records):
@@ -1432,7 +1508,11 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
             root_mean, root_error = column("root_n_remaining")
             branch_q, _ = column("branch_q")
             branch_g, _ = column("branch_g")
-            rule_error, _ = column("companion_halving")
+            # Measured where the rule replicates and the formula where it cannot, exactly
+            # as `_corrected` chooses -- one column, and it says which in the prose above.
+            rule_error, _ = column("companion_replicate_se")
+            if not np.isfinite(rule_error):
+                rule_error, _ = column("companion_se")
             branch_error, _ = column("branch_error")
             resolved = sum(1 for r in selected if np.isfinite(r.branch_q))
             rows.append(
@@ -1575,9 +1655,11 @@ def main() -> None:
         "--quadrature-points",
         type=int,
         default=0,
-        help="Sobol points of the deterministic evaluation rule, which replaces the i.i.d. "
-        "draw; the companion is twice this many rows, since every point is carried at both "
-        "arms. 0 keeps the draw, which is what C3c ran and what its artefacts reproduce",
+        help="Sobol points of the quasi-random evaluation rule, which replaces the i.i.d. "
+        "draw; the companion is twice this many rows per scramble, since every point is "
+        "carried at both arms, and the scramble is independent per replicate so the rule's "
+        "error is mean-zero rather than a fixed bias. 0 keeps the draw, which is what C3c "
+        "ran and what its artefacts reproduce",
     )
     parser.add_argument("--rows", action="store_true", help="print every replicate, not the cells")
     parser.add_argument(
@@ -1590,7 +1672,7 @@ def main() -> None:
     if args.quadrature_points > 0 and args.evaluation_n > 0:
         parser.error(
             "--quadrature-points and --evaluation-n are two rules for one companion; pass "
-            "--evaluation-n 0 to take the deterministic grid, or leave --quadrature-points "
+            "--evaluation-n 0 to take the quasi-random rule, or leave --quadrature-points "
             "unset to take the draw. A run under both would report a rule nobody chose"
         )
 
@@ -1611,10 +1693,11 @@ def main() -> None:
     ]
     payloads = _payloads(args.cells, args.sizes, seeds, args.evaluation_n, args.quadrature_points)
     companion = (
-        f"deterministic grid, {2 * args.quadrature_points:,} rows at "
-        f"{args.quadrature_points:,} Sobol points -- the same points every replicate, so its "
-        "error is a bias the study cannot average down and drtmle_companion_grid.py is what "
-        "bounds it"
+        f"randomised Sobol rule, {QUADRATURE_SCRAMBLES} scramble(s) of "
+        f"{2 * args.quadrature_points:,} rows at {args.quadrature_points:,} points -- an "
+        "independent scramble per replicate, so the rule's error is mean-zero noise the "
+        "study averages down rather than a bias it cannot, and the spread across a "
+        "replicate's scrambles is what `rule err` reports"
         if args.quadrature_points > 0
         else f"i.i.d. evaluation draw, {args.evaluation_n:,} rows, redrawn per replicate"
     )

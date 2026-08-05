@@ -64,6 +64,13 @@ __all__ = [
 #: quasi-Monte Carlo error well below any tolerance the tests apply.
 _TRUTH_POINTS = 2**18
 
+#: The scramble every reference value is taken at.  A *default* rather than a constant of
+#: the rule -- :meth:`DGP.quadrature` takes any scramble, and two of them are independent
+#: randomisations of one integration rule rather than two rules.  This one is fixed so that
+#: :meth:`DGP.truth` is reproducible across runs and platforms, which is what a reference
+#: value has to be; a caller measuring the rule's *own* error varies it instead.
+_SCRAMBLE_SEED = 20240101
+
 
 @dataclass(frozen=True)
 class DGP:
@@ -120,7 +127,9 @@ class DGP:
         """
         return dict(_cached_truth(self, intermediate_value))
 
-    def quadrature(self, points: int = _TRUTH_POINTS) -> FloatArray:
+    def quadrature(
+        self, points: int = _TRUTH_POINTS, *, scramble: int = _SCRAMBLE_SEED
+    ) -> FloatArray:
         """The ``(points, n_latent)`` latent matrix :meth:`expectation` integrates on.
 
         :meth:`expectation` is the escape hatch for a population *scalar*; this is the one
@@ -131,26 +140,40 @@ class DGP:
         :meth:`expectation` -- the integrand has to be materialised, predicted at, and only
         then averaged.
 
-        **The grids are nested, and that is the property to preserve.**  The underlying
-        sequence is scrambled Sobol at a fixed seed, so ``quadrature(2**12)`` is the first
-        4,096 rows of ``quadrature(2**14)`` and both are prefixes of the rule :meth:`truth`
-        uses.  A ladder of grids is therefore a sequence of *refinements* of one rule rather
-        than a set of unrelated draws, so the movement between two of them is discretisation
-        error and nothing else.  Only powers of two keep that -- and Sobol's balance
-        properties hold only at powers of two in any case -- so anything else is refused
-        rather than silently rebalanced.
+        **The grids are nested within a scramble, and that is the property to preserve.**  The
+        underlying sequence is scrambled Sobol, so ``quadrature(2**12)`` is the first 4,096
+        rows of ``quadrature(2**14)`` *at the same* ``scramble``, and at the default both are
+        prefixes of the rule :meth:`truth` uses.  A ladder of grids is therefore a sequence of
+        *refinements* of one rule rather than a set of unrelated draws.  Only powers of two
+        keep that -- and Sobol's balance properties hold only at powers of two in any case --
+        so anything else is refused rather than silently rebalanced.
+
+        **``scramble`` is what makes the rule randomised rather than merely deterministic**,
+        and the distinction is the one thing here that is easy to get backwards.  Two scrambles
+        are not two grids to be compared for a discretisation: they are **independent
+        randomisations of one rule**, each unbiased for the integral at every point count --
+        the randomisation is over the scramble and not over how many points are taken.  So the
+        spread of an integral across scrambles is a standard error, assuming nothing about a
+        convergence rate, where the movement between two *rungs* assumes one and is a
+        stability diagnostic only.  Owen's analysis of scrambled nets is where that unbiasedness
+        comes from, and ``docs/roadmap.md``'s E1b is where reading a ladder as the first cost
+        two withdrawn claims.  A caller that changes ``scramble`` between two quantities meant
+        to cancel -- :math:`\\psi_0` and :math:`P_0\\hat D`, say -- has differenced two rules and
+        put the :math:`O(1)` error back; pass one scramble to both.
 
         >>> dgp = linear_dgp()
         >>> coarse, fine = dgp.quadrature(2**10), dgp.quadrature(2**12)
         >>> bool(np.array_equal(coarse, fine[: 2**10]))
         True
+        >>> bool(np.array_equal(dgp.quadrature(2**10), dgp.quadrature(2**10, scramble=7)))
+        False
         """
         if points <= 0 or points & (points - 1):
             raise ValueError(
                 f"quadrature points must be a positive power of two, so that a coarser grid "
                 f"is a prefix of a finer one; got {points}"
             )
-        return _sobol_normal(self.n_latent, points)
+        return _sobol_normal(self.n_latent, points, scramble)
 
     def expectation(self, integrand: Callable[[FloatArray], FloatArray]) -> float:
         r"""``E_0[integrand(latent)]``, by the rule :meth:`truth` integrates with.
@@ -360,15 +383,23 @@ def _cached_truth(dgp: DGP, intermediate_value: float | None) -> tuple[tuple[str
     return tuple(dgp._integrate(intermediate_value).items())
 
 
-@lru_cache(maxsize=8)
-def _sobol_normal(dimension: int, count: int) -> FloatArray:
+# 32 rather than 8 because a caller measuring the rule's own error walks a *ladder* of point
+# counts across a *set* of scrambles, and the product of the two evicted the whole cache at 8.
+# What it costs to miss is one Sobol generation and one `norm.ppf` -- milliseconds at these
+# sizes -- so this is about not repeating that per fold and per estimand, not about the cost
+# of the sequence.
+@lru_cache(maxsize=32)
+def _sobol_normal(dimension: int, count: int, seed: int = _SCRAMBLE_SEED) -> FloatArray:
     """``count`` standard-normal quasi-random points in ``dimension`` dimensions.
 
-    A scrambled Sobol sequence mapped through the normal quantile function.  The
-    fixed seed makes the reference values reproducible; scrambling avoids the
-    pathological low-dimensional projections of an unscrambled sequence.
+    A scrambled Sobol sequence mapped through the normal quantile function.  Scrambling
+    avoids the pathological low-dimensional projections of an unscrambled sequence, and
+    the seed selects *which* scrambling: at the default the reference values are
+    reproducible across runs and platforms, and two other seeds give two independent
+    randomisations of the same rule.  See :meth:`DGP.quadrature` on why that difference
+    matters more than it looks.
     """
-    engine = stats.qmc.Sobol(d=dimension, scramble=True, seed=20240101)
+    engine = stats.qmc.Sobol(d=dimension, scramble=True, seed=seed)
     uniform = engine.random(count)
     clipped = np.clip(uniform, 1e-12, 1.0 - 1e-12)
     return np.asarray(stats.norm.ppf(clipped), dtype=float)

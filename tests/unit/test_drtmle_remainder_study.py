@@ -100,10 +100,39 @@ def _fit(cell: str, *, oracle: bool = False, rule: str = "sobol", points: int = 
     return result, weights
 
 
-def _rows(fit: Any, weights: Any, *, points: int = POINTS, limit: int | None = None) -> Any:
+def _fit_at(evaluation: Any, cell: str = "q-drift") -> Any:
+    """The same fit as :func:`_fit`, against a companion the caller has already built.
+
+    Separate because the stacking pins hand a frame over rather than ask for one to be
+    constructed, and because one set of fit settings has to serve both sides of a
+    bit-for-bit comparison.
+    """
+    dgp = injection.base_law()
+    frame, _ = dgp.sample(N, seed=SEED)
+    return (
+        DRTMLE(
+            **injection.settings(cell, N),
+            reduced_outcome_learner="glm",
+            reduced_treatment_learner="glm",
+            random_state=3,
+            evaluation=evaluation,
+        )
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def _rows(
+    fit: Any,
+    weights: Any,
+    *,
+    points: int = POINTS,
+    window: remainder.Window | None = None,
+    scramble: int | None = None,
+) -> Any:
     """Every remainder column, with the rule's weights and its own ``psi_0`` attached."""
     dgp = injection.base_law()
-    truth = remainder.truth_at(dgp, points) if weights is not None else None
+    truth = remainder.truth_at(dgp, points, scramble=scramble) if weights is not None else None
     return {
         row.estimand: row
         for row in remainder.remainder_rows(
@@ -112,7 +141,7 @@ def _rows(fit: Any, weights: Any, *, points: int = POINTS, limit: int | None = N
             n=N,
             bounds=fit.config.g_bounds,
             row_weights=weights,
-            limit=limit,
+            window=window,
             truth=truth,
         )
     }
@@ -442,17 +471,52 @@ class TestTheDeterministicRuleIsTheSameIntegral:
 
         assert abs(determined - drawn) < 1.96 * error, (determined, drawn, error)
 
-    def test_the_rules_own_error_is_orders_below_the_draws(self, fitted: Any, sampled: Any) -> None:
-        """E1's whole claim, as a number: the grid's error is not the column's spread.
+    def test_the_rules_own_error_is_orders_below_the_draws(self) -> None:
+        """E1's claim, measured the way E1b measures it rather than the way E1 did.
 
-        ``companion_halving`` is each rule's own witness -- how far ``P_0 D-hat`` moves when
-        half the rows are taken away.  On the deterministic grid that is discretisation; on
-        the draw it is noise, and the two are not the same size.
+        Both rules' errors come from **replication at a fixed fit** -- several independent
+        scrambles against several independent draws, read off one stacked companion -- so
+        each number is a standard error rather than a witness carrying a model.  E1's version
+        of this test compared two halving witnesses, which on the grid was not an error
+        estimate at all.
+
+        The comparison is the surviving half of E1's claim and is what makes the rule worth
+        having: the quasi-random rule's own error is far below the draw's at comparable rows.
         """
-        determined = _rows(*fitted)["ate"].companion_halving
-        drawn = _rows(*sampled)["ate"].companion_halving
+        dgp = injection.base_law()
+        stack = remainder.stacked_companion(
+            dgp,
+            points=POINTS,
+            scrambles=(11, 12, 13, 14),
+            draw_rows=2 * POINTS,
+            draw_seeds=(21, 22, 23, 24),
+        )
+        fit = _fit_at(stack.frame)
 
-        assert determined < 0.05 * drawn, (determined, drawn)
+        errors = {}
+        for rule in ("sobol", "draw"):
+            blocks = [b for b in stack.blocks if b.rule == rule]
+            (row,) = [
+                r
+                for r in remainder.remainder_rows(
+                    fit,
+                    dgp,
+                    n=N,
+                    bounds=fit.config.g_bounds,
+                    row_weights=stack.weights,
+                    windows=[b.window for b in blocks],
+                    truths=[
+                        remainder.truth_at(dgp, POINTS, scramble=b.seed)
+                        if rule == "sobol"
+                        else dgp.truth()
+                        for b in blocks
+                    ],
+                )
+                if r.estimand == "ate"
+            ]
+            errors[rule] = row.companion_replicate_se
+
+        assert errors["sobol"] < 0.2 * errors["draw"], errors
 
 
 class TestTheCurveIsAffineInTheOutcome:
@@ -505,20 +569,101 @@ class TestTheCurveIsAffineInTheOutcome:
 
 
 class TestAPrefixIsTheSameFitAtACoarserGrid:
-    """Why the convergence ladder is one fit rather than one fit per rung.
+    """Why the ladder is one fit rather than one fit per rung.
 
     Because :func:`~benchmarks.drtmle_remainder.quadrature_frame` interleaves the arms and
-    :meth:`~cleverly.datasets.DGP.quadrature`'s grids are nested, the first ``2 * k`` rows of
-    a companion **are** the grid at ``k`` points -- so ``limit=`` reads a coarser rung off a
-    finer fit.  If that were only approximately true, the movement between two rungs would be
-    a difference between two fits and would have to be argued bit-identical instead of being
-    the quadrature.
+    :meth:`~cleverly.datasets.DGP.quadrature`'s grids nest within a scramble, the first
+    ``2 * k`` rows of a companion **are** the grid at ``k`` points -- so a
+    :class:`~benchmarks.drtmle_remainder.Window` reads a coarser rung off a finer fit.  If
+    that were only approximately true, the movement between two rungs would be a difference
+    between two fits and would have to be argued bit-identical instead of being the
+    quadrature.
     """
 
     def test_the_prefix_equals_a_companion_built_at_that_grid(self, fitted: Any) -> None:
         coarse = POINTS // 4
-        sliced = _rows(*fitted, points=coarse, limit=2 * coarse)["ate"]
+        sliced = _rows(*fitted, points=coarse, window=remainder.Window.prefix(2 * coarse))["ate"]
         refitted = _rows(*_fit("q-drift", points=coarse), points=coarse)["ate"]
 
         for column in ("p0_curve", "remaining", "r2", "branch_q", "branch_g"):
             assert getattr(sliced, column) == getattr(refitted, column), column
+
+
+class TestABlockOfAStackIsTheSameFitAtThatReplicate:
+    """The assertion E1b's whole design rests on, and it is the stacking analogue of the above.
+
+    Measuring an integration rule's own error needs the **same fitted curve** integrated by
+    several independent replicates of that rule.  The affordable way to get that is one fit
+    whose companion holds every replicate, read a
+    :class:`~benchmarks.drtmle_remainder.Window` at a time -- and it is only the same thing a
+    refit per replicate would give because the companion contributes to no fit
+    (``tests/unit/test_drtmle_companion.py``) and every companion prediction is taken row by
+    row.  Neither of those is obvious from the call site, so this is pinned rather than
+    argued: exactly, not to a tolerance, since anything approximate here would put the
+    stacking itself inside the spread being reported as the rule's error.
+    """
+
+    def test_a_sobol_block_equals_that_scramble_fitted_alone(self) -> None:
+        dgp = injection.base_law()
+        stack = remainder.stacked_companion(dgp, points=POINTS, scrambles=(5, 6))
+        stacked = _fit_at(stack.frame)
+        block = stack.blocks[1]
+
+        (row,) = [
+            r
+            for r in remainder.remainder_rows(
+                stacked,
+                dgp,
+                n=N,
+                bounds=stacked.config.g_bounds,
+                row_weights=stack.weights,
+                window=block.window,
+                truth=remainder.truth_at(dgp, POINTS, scramble=block.seed),
+            )
+            if r.estimand == "ate"
+        ]
+
+        alone, weights = remainder.quadrature_frame(dgp, POINTS, scramble=block.seed)
+        expected = _rows(_fit_at(alone), weights, scramble=block.seed)["ate"]
+        for column in ("p0_curve", "remaining", "r2", "branch_q", "branch_g", "companion_se"):
+            assert getattr(row, column) == getattr(expected, column), column
+
+    def test_a_draw_block_is_the_plain_average_the_iid_rule_always_took(self) -> None:
+        """The shared weight vector must not change what a draw block integrates.
+
+        A stack carries one weight vector across both rules, ones on the draw blocks -- and
+        ones is what ``row_weights=None`` resolves to, so this is bit for bit and not nearly.
+        A stack that quietly reweighted the i.i.d. rule would make every comparison between
+        the two rules a comparison of two measures as well.
+        """
+        dgp = injection.base_law()
+        stack = remainder.stacked_companion(dgp, draw_rows=2 * POINTS, draw_seeds=(31,))
+        fit = _fit_at(stack.frame)
+
+        weighted = remainder.corrected_remainder(fit, dgp, stack.weights, stack.blocks[0].window)
+        plain = remainder.corrected_remainder(fit, dgp, None, None)
+
+        assert weighted == plain
+
+    def test_the_replicate_error_needs_more_than_one_replicate(self) -> None:
+        """``nan`` rather than zero, which is the difference between unmeasured and none."""
+        dgp = injection.base_law()
+        stack = remainder.stacked_companion(dgp, points=POINTS, scrambles=(5,))
+        fit = _fit_at(stack.frame)
+
+        (row,) = [
+            r
+            for r in remainder.remainder_rows(
+                fit,
+                dgp,
+                n=N,
+                bounds=fit.config.g_bounds,
+                row_weights=stack.weights,
+                windows=[stack.blocks[0].window],
+                truths=[remainder.truth_at(dgp, POINTS, scramble=5)],
+            )
+            if r.estimand == "ate"
+        ]
+
+        assert np.isnan(row.companion_replicate_se)
+        assert row.replicates == 1

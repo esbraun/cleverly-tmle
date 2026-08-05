@@ -97,14 +97,23 @@ multiplied by :math:`\sqrt n`.
 :func:`quadrature_frame` is the answer and it is a **reduction of the problem, not a bigger
 draw**: the curve is affine in :math:`Y` given :math:`(A, W)` and reads :math:`A` only through
 the indicator, so both of those coordinates integrate in closed form and what is left is a
-quadrature in :math:`W` -- taken on the Sobol rule :meth:`~cleverly.datasets.DGP.truth` already
-uses, so :math:`\psi_0` and :math:`P_0\hat D` come off one grid.  The derivation is in that
+quadrature in :math:`W` -- taken on the Sobol rule :meth:`~cleverly.datasets.DGP.quadrature`
+supplies, so :math:`\psi_0` and :math:`P_0\hat D` come off one grid.  The derivation is in that
 function's docstring.  :func:`evaluation_frame` stays beside it and is not legacy: it is the
-independent route the deterministic one is checked against, and
-``benchmarks/drtmle_companion_grid.py`` is the ladder that says how large either rule's own
-error is -- which the deterministic rule needs beside it rather than as an option, because
-its error is a **bias** where the draw's is noise: the same points at every replicate, so no
-replicate count removes it.
+independent route the quasi-random one is checked against.
+
+**The rule is randomised, and E1b is why that is a correction rather than a refinement.**  E1
+took one fixed scramble at every replicate, which makes the rule's error a **bias** no
+replicate count removes, and offered a nested convergence ladder as the thing that bounds it.
+A successive difference between two rungs bounds nothing without a convergence result that
+applies, and a piecewise-smooth integrand has none -- so that design traded a measured noise
+for an unmeasured bias and reported the trade as settled.  An **independent scramble per
+replicate** removes the problem instead of bounding it: a randomised quasi-Monte Carlo rule is
+unbiased at every point count, so the error is mean-zero noise again -- far smaller than the
+draw's, and averaging down over a study exactly as the draw's did.  ``scramble=`` on
+:func:`quadrature_frame` and :func:`truth_at` is that, :class:`CompanionStack` is how several
+replicates of a rule reach one fit, and ``benchmarks/drtmle_companion_grid.py`` is what
+measures each rule's own error from replication rather than from refinement.
 
 **What this instrument cannot see**, named here rather than left for a reader to discover,
 because an instrument whose blind spots are unlisted is how lesson 9 happens again:
@@ -132,9 +141,11 @@ returns numbers a table prints and a human reads against the rules frozen in §5
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import narwhals as nw
 import numpy as np
 
 from cleverly.datasets import DGP
@@ -143,7 +154,10 @@ from cleverly.utils.frames import frame_from_dict
 
 __all__ = [
     "BIN_COUNTS",
+    "Block",
+    "CompanionStack",
     "RemainderRow",
+    "Window",
     "branch_products",
     "conditional_mean",
     "corrected_curve",
@@ -152,6 +166,7 @@ __all__ = [
     "plain_remainder",
     "quadrature_frame",
     "remainder_rows",
+    "stacked_companion",
     "targeted_remainder",
     "truth_at",
 ]
@@ -164,6 +179,83 @@ BIN_COUNTS = (12, 24)
 
 #: The arm each per-arm column is reported at, and the contrast taken between them.
 ARMS = (1.0, 0.0)
+
+
+@dataclass(frozen=True)
+class Window:
+    """A contiguous run of companion rows, and the unit every integral here is taken over.
+
+    It replaces the ``limit`` a coarser grid used to be read by, and the reason is that a
+    companion now holds **more than one replicate of a rule**: several independent Sobol
+    scrambles, several independent i.i.d. draws, or both.  A prefix could address the first
+    of those and nothing else.
+
+    Two things follow and both are contracts rather than conveniences.  A window is
+    contiguous because the rows it selects have to be *a rule's own sample* -- under
+    :func:`quadrature_frame`'s interleaving the first :math:`2k` rows of a block are that
+    block's grid at :math:`k` points, so a rung is a shorter window with the same ``start``
+    and a scramble is a different ``start`` entirely.  And every integrator slices with one
+    of these **before** it does anything else, which matters most in
+    :func:`branch_products`: the binned limits take quantiles of the rows they are given, so
+    a window that arrived after the binning would report a limit conditioned on rows the
+    block does not contain.
+    """
+
+    start: int
+    stop: int
+
+    @classmethod
+    def prefix(cls, rows: int) -> Window:
+        """The first ``rows`` rows -- what ``limit=`` meant, kept for the ladder's coarse rungs."""
+        return cls(0, rows)
+
+    @property
+    def rows(self) -> int:
+        return self.stop - self.start
+
+    def head(self, rows: int) -> Window:
+        """The first ``rows`` rows *of this window*, which is a coarser rung of the same block."""
+        return Window(self.start, self.start + rows)
+
+
+@dataclass(frozen=True)
+class Block:
+    """One replicate of one rule inside a stacked companion.
+
+    ``rule`` is ``"sobol"`` or ``"draw"``; ``seed`` is the scramble or the draw seed, so a
+    row can say which randomisation produced it; ``points`` is the Sobol point count and is
+    ``0`` on a draw, because an i.i.d. sample has rows and no grid and writing the row count
+    in both fields would make a table look like a ladder it is not on.
+    """
+
+    rule: str
+    seed: int
+    points: int
+    window: Window
+
+
+@dataclass(frozen=True)
+class CompanionStack:
+    """Several replicates of one or both rules, in one frame, for **one** fit.
+
+    This is what makes a conditional measurement affordable.  Estimating an evaluation
+    rule's own error needs the *same fitted curve* integrated by several independent
+    replicates of that rule, and the naive way to get it is a refit per replicate -- which
+    would cost a fit each and, worse, would have to be argued bit-identical before the
+    spread across them could be called the rule's.
+
+    Neither is necessary.  The companion contributes to no fit, no fold and no score
+    (``tests/unit/test_drtmle_companion.py`` pins that bit for bit) and every companion
+    prediction is taken row by row from a model fitted on the fitting rows -- so stacking
+    the replicates into one frame and reading a :class:`Window` per replicate gives exactly
+    what a refit would, off one fit.  ``tests/unit/test_drtmle_remainder_study.py`` pins the
+    block against a companion fitted alone, which is the stacking analogue of the prefix's
+    own pin and the assertion the whole design rests on.
+    """
+
+    frame: Any
+    weights: np.ndarray
+    blocks: tuple[Block, ...]
 
 
 @dataclass(frozen=True)
@@ -197,20 +289,29 @@ class RemainderRow:
     branch_error:
         The larger of the two branches' bin-count sensitivities, which is what "did not
         resolve" is decided on.
-    companion_se, companion_halving:
+    companion_se, companion_replicate_se:
         The evaluation rule's **own** error, on the :math:`\\sqrt n` scale the column above
-        is read at -- two numbers because the two rules fail differently and one field with
-        two meanings is how a column comes to be misread.  ``companion_se`` is
-        :math:`\\sqrt n\\,\\mathrm{sd}(\\hat D)/\\sqrt m`, which is the i.i.d. draw's error and
-        an enormous overstatement of the deterministic grid's.  ``companion_halving`` is
-        :math:`\\sqrt n\\,|P_0\\hat D - P_0\\hat D\\text{ at half the rows}|`, which is the
-        grid's own witness and, on an i.i.d. draw, a :math:`\\sqrt 2`-inflated noisy proxy
-        for the first.  Read the one belonging to the rule that produced the row.
+        is read at -- two numbers because they are arrived at two ways and one field with
+        two meanings is how a column comes to be misread.
 
-        ``companion_halving`` moves :math:`P_0\\hat D` alone and not the truth beside it, so
-        under the same-grid convention :func:`truth_at` explains it is **conservative**: part
-        of a coarser grid's error cancels between the two and this does not see the
-        cancellation.
+        ``companion_se`` is :math:`\\sqrt n\\,\\mathrm{sd}(\\hat D)/\\sqrt m`, the i.i.d.
+        draw's error from a *formula*.  It is right for the rule it was derived under and an
+        enormous overstatement of a quasi-random rule's, and it needs no replication.
+
+        ``companion_replicate_se`` is the standard error of the mean **across the
+        replicates of the rule that this row averages**, at a fixed fit: the spread of
+        ``root_n_remaining`` over the windows of :class:`CompanionStack`, divided by
+        :math:`\\sqrt R`.  It assumes no convergence rate and no model of a witness -- it is
+        what a standard error is -- and it is ``nan`` when a row was read at a single window,
+        because one replicate has no spread and a number there would be an invention.
+
+        **What this field replaced, and why, is worth carrying here.**  It was the movement
+        of :math:`P_0\\hat D` when half the rows are dropped.  That is a fair reading of a
+        *noise* inflated by :math:`\\sqrt 2` and is not a bound on a deterministic grid's
+        error at all: a successive difference says a sequence settled, not where.  Measured
+        on this ladder's own geometry with a piecewise-smooth integrand, it ran four times
+        below the true error at the finest rung and three orders above it two rungs earlier.
+        ``docs/roadmap.md``'s E1b is the retraction.
     """
 
     estimand: str
@@ -226,7 +327,8 @@ class RemainderRow:
     branch_g: float
     branch_error: float
     companion_se: float = float("nan")
-    companion_halving: float = float("nan")
+    companion_replicate_se: float = float("nan")
+    replicates: int = 1
 
 
 def evaluation_frame(dgp: DGP, n: int, seed: int) -> Any:
@@ -244,8 +346,10 @@ def evaluation_frame(dgp: DGP, n: int, seed: int) -> Any:
     return dgp.sample(n, seed=seed)[0]
 
 
-def quadrature_frame(dgp: DGP, points: int) -> tuple[Any, np.ndarray]:
-    r"""The deterministic rule: the law's own Sobol grid, and the weight each row carries.
+def quadrature_frame(
+    dgp: DGP, points: int, *, scramble: int | None = None
+) -> tuple[Any, np.ndarray]:
+    r"""The quasi-random rule: the law's own Sobol grid, and the weight each row carries.
 
     Returns ``(frame, weights)``.  The frame is ``2 * points`` rows -- every Sobol point of
     :meth:`~cleverly.datasets.DGP.quadrature` at **both** arms -- with ``A`` set to the arm
@@ -262,12 +366,21 @@ def quadrature_frame(dgp: DGP, points: int) -> tuple[Any, np.ndarray]:
     **The rows are interleaved, and that is a contract rather than a layout.**  Row
     :math:`2j` is :math:`(W_j, A = 1)` and row :math:`2j + 1` is :math:`(W_j, A = 0)`, so
     the first :math:`2k` rows are *exactly* the grid at :math:`k` points -- and because
-    :meth:`~cleverly.datasets.DGP.quadrature`'s grids are nested prefixes, the first
+    :meth:`~cleverly.datasets.DGP.quadrature`'s grids nest within a scramble, the first
     :math:`2 \cdot 2^i` rows are the whole ladder of coarser grids, in one companion.  A
-    convergence sweep is therefore ``limit=`` on one fit rather than a fit per grid, which
-    is what makes the movement between two rungs *the quadrature* rather than a difference
+    ladder is therefore a :class:`Window` on one fit rather than a fit per grid, which is
+    what makes the movement between two rungs *the quadrature* rather than a difference
     between two fits that would have to be argued bit-identical.  Stacking the arms in two
     blocks instead would leave every prefix reading one arm only.
+
+    **``scramble`` selects the randomisation, and it is not a refinement knob.**  ``None``
+    takes the law's default -- the scramble :meth:`~cleverly.datasets.DGP.truth` is
+    integrated at, which is what keeps a lone call reproducible.  Any other value is an
+    *independent* randomisation of the same rule, unbiased for the same integral at the same
+    point count, so several of them at a fixed fit estimate the rule's own error directly.
+    :func:`truth_at` **must be given the same one**: the cancellation it documents holds only
+    if :math:`\psi_0` and :math:`P_0\hat D` are one integral, and that now means one
+    randomisation as well as one point count.
 
     **Why that is exact rather than a variance reduction with a bias.**  Every quantity this
     module integrates is *affine in* :math:`Y` *given* :math:`(A, W)` and reads :math:`A`
@@ -286,8 +399,8 @@ def quadrature_frame(dgp: DGP, points: int) -> tuple[Any, np.ndarray]:
     is an identity and not an approximation: the sum over :math:`A` is finite and the
     integral over :math:`Y` is closed form, because :math:`E_0[Y \mid A, W]` is
     :math:`\bar Q_0` and nothing here is nonlinear in :math:`Y`.  What is left is a
-    quadrature in :math:`W` alone, and the rule taken for it is the one
-    :meth:`~cleverly.datasets.DGP.truth` integrates with -- so :math:`\psi_0` and
+    quadrature in :math:`W` alone, and the rule taken for it is
+    :meth:`~cleverly.datasets.DGP.quadrature`'s at this ``scramble`` -- so :math:`\psi_0` and
     :math:`P_0\hat D` are read off one grid and a disagreement between them stays
     attributable, which is the whole reason
     :meth:`~cleverly.datasets.DGP.expectation` exists.
@@ -299,7 +412,7 @@ def quadrature_frame(dgp: DGP, points: int) -> tuple[Any, np.ndarray]:
     either has to redo this paragraph rather than reuse it.
     """
     _refuse_unsupported(dgp)
-    latent = dgp.quadrature(points)
+    latent = _grid(dgp, points, scramble)
     truth_g = np.clip(np.asarray(dgp.propensity(latent), dtype=float), 1e-9, 1.0 - 1e-9)
     stacked = np.repeat(latent, len(ARMS), axis=0)
     payload: dict[str, np.ndarray] = {
@@ -317,7 +430,7 @@ def quadrature_frame(dgp: DGP, points: int) -> tuple[Any, np.ndarray]:
     return frame_from_dict(payload), weights
 
 
-def truth_at(dgp: DGP, points: int) -> dict[str, float]:
+def truth_at(dgp: DGP, points: int, *, scramble: int | None = None) -> dict[str, float]:
     r""":math:`\psi_0` on the **companion's own grid**, which is not a refinement detail.
 
     :meth:`~cleverly.datasets.DGP.truth` integrates at :math:`2^{18}` points and this
@@ -340,14 +453,105 @@ def truth_at(dgp: DGP, points: int) -> dict[str, float]:
     rule, so a disagreement is attributable -- applied to a difference rather than to a
     comparison.
 
+    ``scramble`` is the other half of "the same integral", and it is the newer half: under a
+    randomised rule two scrambles are two unbiased estimates of :math:`\psi_0` differing by
+    the rule's own error, so taking the truth from one and the curve from another differences
+    two randomisations and puts back exactly the :math:`O(1)` term this function exists to
+    cancel.  Pass :func:`quadrature_frame` the same value.
+
     The three keys are :meth:`~cleverly.datasets.DGP.truth`'s, and
     ``test_drtmle_remainder_study.py`` pins them equal at :math:`2^{18}` so the duplicated
     arithmetic cannot drift from the method it mirrors.
     """
-    latent = dgp.quadrature(points)
+    latent = _grid(dgp, points, scramble)
     q1 = np.asarray(dgp.outcome_mean(latent, 1.0, None), dtype=float)
     q0 = np.asarray(dgp.outcome_mean(latent, 0.0, None), dtype=float)
     return {"ey1": float(np.mean(q1)), "ey0": float(np.mean(q0)), "ate": float(np.mean(q1 - q0))}
+
+
+def _grid(dgp: DGP, points: int, scramble: int | None) -> np.ndarray:
+    """The latent matrix at this point count and this randomisation.
+
+    ``None`` means the law's own default, which keeps every existing call bit for bit and
+    keeps a lone invocation reproducible.  One helper rather than two call sites spelling the
+    conditional out, since the two that read it -- the companion and its truth -- are the
+    pair that must not disagree.
+    """
+    return dgp.quadrature(points) if scramble is None else dgp.quadrature(points, scramble=scramble)
+
+
+def stacked_companion(
+    dgp: DGP,
+    *,
+    points: int = 0,
+    scrambles: Sequence[int] = (),
+    draw_rows: int = 0,
+    draw_seeds: Sequence[int] = (),
+) -> CompanionStack:
+    r"""Several replicates of the two rules, in one frame, for one fit.
+
+    One :class:`Block` per replicate, in the order given -- every scramble of the quasi-random
+    rule first, then every i.i.d. draw -- with a :class:`Window` addressing its rows.  Hand
+    ``frame`` to ``DRTMLE(evaluation=…)`` and each block's window to :func:`remainder_rows`,
+    and what comes back is what a refit per replicate would have produced.
+
+    **The weight vector covers both rules and that is not a compromise.**  A Sobol block
+    carries :math:`g_0(a \mid W)` and a draw block carries ones, and ones is exactly what
+    ``row_weights=None`` resolves to in :func:`_row_mass` -- so a draw block read through this
+    vector is the plain average the i.i.d. rule has always taken, to the bit.  What the shared
+    vector buys is that a caller cannot pair a window with the wrong rule's measure, which is
+    the stale-weights mistake ``_row_mass``'s row-count check exists to catch and which a
+    second vector would reintroduce.
+
+    **Why replicates rather than a finer grid.**  Refinement estimates nothing: it says a
+    sequence settled and not where, and ``docs/roadmap.md``'s E1b is the two claims that cost.
+    Independent replicates of a *randomised* rule are unbiased for the same integral, so their
+    spread is a standard error under no assumption about a rate -- which is what the error of
+    a piecewise-smooth integrand needs, since it has no rate to appeal to.
+    """
+    if points and not scrambles:
+        raise ValueError("a Sobol block needs a scramble; pass scrambles= or leave points at 0")
+    if draw_rows and not draw_seeds:
+        raise ValueError("a draw block needs a seed; pass draw_seeds= or leave draw_rows at 0")
+
+    frames: list[Any] = []
+    masses: list[np.ndarray] = []
+    blocks: list[Block] = []
+    start = 0
+    for scramble in scrambles:
+        frame, weights = quadrature_frame(dgp, points, scramble=scramble)
+        frames.append(frame)
+        masses.append(weights)
+        blocks.append(Block("sobol", scramble, points, Window(start, start + weights.size)))
+        start += weights.size
+    for seed in draw_seeds:
+        frames.append(evaluation_frame(dgp, draw_rows, seed))
+        masses.append(np.ones(draw_rows, dtype=float))
+        blocks.append(Block("draw", seed, 0, Window(start, start + draw_rows)))
+        start += draw_rows
+    if not frames:
+        raise ValueError("a companion stack needs at least one block")
+    return CompanionStack(_concatenate(frames), np.concatenate(masses), tuple(blocks))
+
+
+def _concatenate(frames: Sequence[Any]) -> Any:
+    """One frame from several, through the backend-neutral route the rest of the module uses.
+
+    Rebuilt column by column with :func:`~cleverly.utils.frames.frame_from_dict` rather than
+    with a narwhals concat, because that is what both companion builders already emit through
+    and the stack has to be indistinguishable from either -- the fit must not be able to tell
+    that a rule was stacked, exactly as it cannot tell that one was swapped.
+    """
+    if len(frames) == 1:
+        return frames[0]
+    tables = [nw.from_native(frame, eager_only=True) for frame in frames]
+    names = tables[0].columns
+    return frame_from_dict(
+        {
+            name: np.concatenate([table[name].to_numpy().astype(float) for table in tables])
+            for name in names
+        }
+    )
 
 
 def _interleave(blocks: list[np.ndarray]) -> np.ndarray:
@@ -462,14 +666,15 @@ def _fold_average(per_fold: list[float], weights: np.ndarray) -> float:
     return float(np.dot(np.asarray(per_fold, dtype=float), weights))
 
 
-def _head(values: np.ndarray, limit: int | None) -> np.ndarray:
-    """The first ``limit`` rows, or all of them.
+def _slice(values: np.ndarray, window: Window | None) -> np.ndarray:
+    """One block's rows, or all of them.
 
-    Under :func:`quadrature_frame`'s interleaving a prefix is a complete coarser grid, so
-    this is how a convergence ladder is read off **one** fit.  Under the i.i.d. rule it is a
-    smaller draw, which is the same thing statistically and not the same thing exactly.
+    Under :func:`quadrature_frame`'s interleaving a window starting at a block's own start is
+    a complete coarser grid of that block, so this is how a ladder is read off **one** fit.
+    Under the i.i.d. rule it is a smaller draw, which is the same thing statistically and not
+    the same thing exactly.
     """
-    return values if limit is None else values[:limit]
+    return values if window is None else values[window.start : window.stop]
 
 
 def _row_mass(row_weights: np.ndarray | None, rows: int) -> np.ndarray:
@@ -495,7 +700,7 @@ def plain_remainder(
     dgp: DGP,
     bounds: tuple[float, float],
     row_weights: np.ndarray | None = None,
-    limit: int | None = None,
+    window: Window | None = None,
 ) -> dict[str, float]:
     r"""``R_2`` per arm at the **fitted** nuisances, fold-weighted over the companion draw.
 
@@ -530,7 +735,7 @@ def plain_remainder(
     scaler = result.nuisance.scaler
     latent = _latent(companion.data, dgp)
     weights = companion.fold_weights
-    mass = _head(_row_mass(row_weights, latent.shape[0]), limit)
+    mass = _slice(_row_mass(row_weights, latent.shape[0]), window)
 
     out: dict[str, float] = {}
     for arm in ARMS:
@@ -544,7 +749,7 @@ def plain_remainder(
             estimated_q = scaler.unscale_levels(companion.outcome[fold].arms[arm])
             per_fold.append(
                 _average(
-                    _head((estimated_g - truth_g) / estimated_g * (estimated_q - truth_q), limit),
+                    _slice((estimated_g - truth_g) / estimated_g * (estimated_q - truth_q), window),
                     mass,
                 )
             )
@@ -666,7 +871,7 @@ def corrected_remainder(
     result: Any,
     dgp: DGP,
     row_weights: np.ndarray | None = None,
-    limit: int | None = None,
+    window: Window | None = None,
 ) -> dict[str, float]:
     r""":math:`P_0\hat D` per estimand, fold-weighted, on the outcome's own scale.
 
@@ -686,10 +891,10 @@ def corrected_remainder(
     scaler = result.nuisance.scaler
     evaluation = result.repeats[0].fluctuations["mean"].reduction.evaluation
     weights = evaluation.fold_weights
-    mass = _head(_row_mass(row_weights, curve[ARMS[0]][0].size), limit)
+    mass = _slice(_row_mass(row_weights, curve[ARMS[0]][0].size), window)
 
     means = {
-        arm: _fold_average([_average(_head(row, limit), mass) for row in rows], weights)
+        arm: _fold_average([_average(_slice(row, window), mass) for row in rows], weights)
         for arm, rows in curve.items()
     }
     return {
@@ -705,7 +910,7 @@ def branch_products(
     *,
     bins: int,
     row_weights: np.ndarray | None = None,
-    limit: int | None = None,
+    window: Window | None = None,
 ) -> dict[str, float]:
     r"""Appendix A's and appendix B's **second-order halves**, at one bin count.
 
@@ -739,12 +944,12 @@ def branch_products(
     scaler = result.nuisance.scaler
     data = evaluation.data
     full = _latent(data, dgp)
-    scaled = _head(scaler.scale(data.outcome), limit)
-    treatment = _head(np.asarray(data.treatment, dtype=float), limit)
-    latent = _head(full, limit)
+    scaled = _slice(scaler.scale(data.outcome), window)
+    treatment = _slice(np.asarray(data.treatment, dtype=float), window)
+    latent = _slice(full, window)
     weights = evaluation.fold_weights
     bounds = record.bounds
-    mass = _head(_row_mass(row_weights, full.shape[0]), limit)
+    mass = _slice(_row_mass(row_weights, full.shape[0]), window)
 
     truth_g_one = np.asarray(dgp.propensity(latent), dtype=float)
     per_arm: dict[str, dict[float, list[float]]] = {"q": {}, "g": {}}
@@ -755,12 +960,12 @@ def branch_products(
         branch_q, branch_g = [], []
         for fold in range(evaluation.n_folds):
             column = evaluation.propensity[fold].column_for(arm)
-            estimated_g = _head(evaluation.propensity[fold].bounded(bounds)[:, column], limit)
-            estimated_q = _head(evaluation.outcome[fold].arms[arm], limit)
+            estimated_g = _slice(evaluation.propensity[fold].bounded(bounds)[:, column], window)
+            estimated_q = _slice(evaluation.outcome[fold].arms[arm], window)
             reduced = evaluation.reduced[fold]
-            qr = _head(reduced.qr[:, reduced.column_for(arm)], limit)
-            gr1 = _head(reduced.bounded_gr1(bounds)[:, reduced.column_for(arm)], limit)
-            gr2 = _head(reduced.gr2[:, reduced.column_for(arm)], limit)
+            qr = _slice(reduced.qr[:, reduced.column_for(arm)], window)
+            gr1 = _slice(reduced.bounded_gr1(bounds)[:, reduced.column_for(arm)], window)
+            gr2 = _slice(reduced.gr2[:, reduced.column_for(arm)], window)
 
             # Appendix A. `Q_{0n,r}` conditions on the estimated mechanism *and* the true
             # one, which is what makes R_3 an approximation error rather than a fitted one;
@@ -816,8 +1021,10 @@ def remainder_rows(
     n: int,
     bounds: tuple[float, float],
     row_weights: np.ndarray | None = None,
-    limit: int | None = None,
+    window: Window | None = None,
     truth: dict[str, float] | None = None,
+    windows: Sequence[Window] | None = None,
+    truths: Sequence[dict[str, float]] | None = None,
 ) -> list[RemainderRow]:
     """Every remainder column for one fit, one row per estimand.
 
@@ -828,78 +1035,150 @@ def remainder_rows(
 
     ``row_weights`` is that rule's weight per companion row and travels to every column the
     companion feeds -- ``None`` for an i.i.d. draw, :func:`quadrature_frame`'s second return
-    value for the deterministic one.  It does **not** reach
-    :func:`targeted_remainder`, which is taken over the fitting rows and has no companion in
-    it at all.  ``limit`` reads a prefix of the companion, which under
-    :func:`quadrature_frame` is the same integral at a coarser grid.
+    value for the quasi-random one.  It does **not** reach :func:`targeted_remainder`, which
+    is taken over the fitting rows and has no companion in it at all.  ``window`` reads one
+    block of the companion, which under :func:`quadrature_frame` is the same integral at one
+    randomisation and, at a shorter window, at a coarser grid.
 
     ``truth`` is :math:`\\psi_0`, defaulting to :meth:`~cleverly.datasets.DGP.truth`.  **On
-    the deterministic path pass** :func:`truth_at` **at the same grid**: the cancellation it
-    documents is what keeps the quadrature acting on a product of nuisance errors rather than
-    on :math:`\\psi_0` itself, and it is most of what the rule buys.
+    the quasi-random path pass** :func:`truth_at` **at the same grid and the same scramble**:
+    the cancellation it documents is what keeps the quadrature acting on a product of nuisance
+    errors rather than on :math:`\\psi_0` itself, and it is most of what the rule buys.
+
+    **``windows`` and ``truths`` are how a row averages several replicates of one rule**, and
+    every column below is then the mean over them, at a fixed fit.  That is the estimate a
+    randomised rule wants -- :math:`R` independent randomisations average to the same integral
+    with :math:`R` times less variance -- and it is what puts an honest
+    :attr:`RemainderRow.companion_replicate_se` on the row, since a standard error needs
+    replication and cannot be had from one block by refining it.  Each window is paired with
+    its own :math:`\\psi_0`, because the cancellation is *within* a replicate: averaging the
+    remainders is right and averaging :math:`P_0\\hat D` against one shared truth is not.
     """
-    psi_0 = dgp.truth() if truth is None else truth
-    p0 = corrected_remainder(result, dgp, row_weights, limit)
-    r2 = plain_remainder(result, dgp, bounds, row_weights, limit)
+    if windows is not None and window is not None:
+        raise ValueError("pass window= for one block or windows= for several, not both")
+    selected = list(windows) if windows is not None else [window]  # type: ignore[list-item]
+    if truths is not None and len(truths) != len(selected):
+        raise ValueError(
+            f"{len(selected)} window(s) and {len(truths)} truth(s); each replicate's psi_0 is "
+            "read on its own grid, so the two travel together"
+        )
+    psi_0s = (
+        list(truths)
+        if truths is not None
+        else [dgp.truth() if truth is None else truth] * len(selected)
+    )
+
     targeted = targeted_remainder(result, dgp, bounds)
-    branches = {
-        bins: branch_products(result, dgp, bins=bins, row_weights=row_weights, limit=limit)
-        for bins in BIN_COUNTS
-    }
-    coarse, fine = branches[BIN_COUNTS[0]], branches[BIN_COUNTS[1]]
-    witness = _companion_witness(result, dgp, n, row_weights, limit)
+    per_window = [
+        _one_window(result, dgp, n=n, bounds=bounds, row_weights=row_weights, window=each)
+        for each in selected
+    ]
 
     rows = []
     for name in ("ate", "ey1", "ey0"):
         estimate = result.estimates[name]
         pn = float(np.mean(estimate.influence_curve))
-        remaining = float(estimate.psi) - psi_0[name] - (pn - p0[name])
-        error = max(
-            abs(fine[f"branch_q_{name}"] - coarse[f"branch_q_{name}"]),
-            abs(fine[f"branch_g_{name}"] - coarse[f"branch_g_{name}"]),
+        remaining = np.array(
+            [
+                float(estimate.psi) - psi[name] - (pn - block["p0"][name])
+                for block, psi in zip(per_window, psi_0s, strict=True)
+            ],
+            dtype=float,
         )
-        resolved = error <= max(abs(fine[f"branch_q_{name}"]), abs(fine[f"branch_g_{name}"]))
+        root_n = float(np.sqrt(n)) * remaining
+        error = float(np.mean([block["error"][name] for block in per_window]))
+        branch_q = float(np.mean([block["branch_q"][name] for block in per_window]))
+        branch_g = float(np.mean([block["branch_g"][name] for block in per_window]))
+        resolved = error <= max(abs(branch_q), abs(branch_g))
         rows.append(
             RemainderRow(
                 estimand=name,
                 psi=float(estimate.psi),
-                truth=psi_0[name],
-                p0_curve=p0[name],
+                truth=float(np.mean([psi[name] for psi in psi_0s])),
+                p0_curve=float(np.mean([block["p0"][name] for block in per_window])),
                 pn_curve=pn,
-                remaining=remaining,
-                root_n_remaining=float(np.sqrt(n)) * remaining,
-                r2=r2[_KEYS[name]],
+                remaining=float(remaining.mean()),
+                root_n_remaining=float(root_n.mean()),
+                r2=float(np.mean([block["r2"][_KEYS[name]] for block in per_window])),
                 r2_targeted=targeted[_KEYS[name]],
-                branch_q=fine[f"branch_q_{name}"] if resolved else float("nan"),
-                branch_g=fine[f"branch_g_{name}"] if resolved else float("nan"),
+                branch_q=branch_q if resolved else float("nan"),
+                branch_g=branch_g if resolved else float("nan"),
                 branch_error=error,
-                companion_se=witness[f"se_{name}"],
-                companion_halving=witness[f"halving_{name}"],
+                companion_se=float(np.mean([block["se"][name] for block in per_window])),
+                companion_replicate_se=_replicate_se(root_n),
+                replicates=len(selected),
             )
         )
     return rows
 
 
-def _companion_witness(
+def _replicate_se(values: np.ndarray) -> float:
+    """The standard error of the mean across a rule's replicates, or ``nan`` below two.
+
+    ``nan`` rather than zero, and the distinction is the point: one replicate has no spread,
+    and a zero there would read as a rule with no error rather than as an error nobody
+    measured.  That is the shape of mistake E1b exists to correct.
+    """
+    return float(np.std(values, ddof=1) / np.sqrt(values.size)) if values.size > 1 else float("nan")
+
+
+def _one_window(
     result: Any,
     dgp: DGP,
+    *,
+    n: int,
+    bounds: tuple[float, float],
+    row_weights: np.ndarray | None,
+    window: Window | None,
+) -> dict[str, Any]:
+    """Every companion-fed column at one block, before the averaging across blocks."""
+    branches = {
+        bins: branch_products(result, dgp, bins=bins, row_weights=row_weights, window=window)
+        for bins in BIN_COUNTS
+    }
+    coarse, fine = branches[BIN_COUNTS[0]], branches[BIN_COUNTS[1]]
+    return {
+        "p0": corrected_remainder(result, dgp, row_weights, window),
+        "r2": plain_remainder(result, dgp, bounds, row_weights, window),
+        "se": _companion_witness(result, n, row_weights, window),
+        "branch_q": {name: fine[f"branch_q_{name}"] for name in ("ate", "ey1", "ey0")},
+        "branch_g": {name: fine[f"branch_g_{name}"] for name in ("ate", "ey1", "ey0")},
+        "error": {
+            name: max(
+                abs(fine[f"branch_q_{name}"] - coarse[f"branch_q_{name}"]),
+                abs(fine[f"branch_g_{name}"] - coarse[f"branch_g_{name}"]),
+            )
+            for name in ("ate", "ey1", "ey0")
+        },
+    }
+
+
+def _companion_witness(
+    result: Any,
     n: int,
     row_weights: np.ndarray | None,
-    limit: int | None,
+    window: Window | None,
 ) -> dict[str, float]:
-    r"""The evaluation rule's own error per estimand, on the :math:`\sqrt n` scale.
+    r"""The i.i.d. rule's error per estimand from a formula, on the :math:`\sqrt n` scale.
 
-    Both numbers are about the *rule* and neither is about the estimator, which is the whole
-    of what E1 set out to separate: a reader who cannot see the quadrature's contribution
-    cannot tell a flat column from a noisy one.  See :class:`RemainderRow` for which of the
-    two belongs to which rule.
+    :math:`\sqrt n\,\mathrm{sd}(\hat D)/\sqrt m`, which is about the *rule* and not about the
+    estimator -- the whole of what E1 set out to separate, since a reader who cannot see the
+    quadrature's contribution cannot tell a flat column from a noisy one.
+
+    **It is the i.i.d. rule's error and nothing else**, and it is an enormous overstatement of
+    a quasi-random rule's.  What that rule's error is comes from replication, which is a
+    property of several windows rather than of one, so it lives in :func:`remainder_rows`
+    where the windows are.  The halving witness this once returned beside it is gone: a
+    successive difference is a stability diagnostic and was read as a bound, which is E1b's
+    first retraction.
     """
     curve = corrected_curve(result)
     scaler = result.nuisance.scaler
     evaluation = result.repeats[0].fluctuations["mean"].reduction.evaluation
     folds = evaluation.fold_weights
-    rows = curve[ARMS[0]][0].size if limit is None else limit
-    mass = _head(_row_mass(row_weights, curve[ARMS[0]][0].size), limit)
+    total = curve[ARMS[0]][0].size
+    rows = total if window is None else window.rows
+    mass = _slice(_row_mass(row_weights, total), window)
 
     spread: dict[float, float] = {}
     for arm, per_fold in curve.items():
@@ -907,15 +1186,13 @@ def _companion_witness(
         # across folds rather than pooled, because the folds hold different functions and a
         # pooled spread would charge their disagreement to the draw.
         variances = [
-            _average(_head(row, limit) ** 2, mass) - _average(_head(row, limit), mass) ** 2
+            _average(_slice(row, window) ** 2, mass) - _average(_slice(row, window), mass) ** 2
             for row in per_fold
         ]
         spread[arm] = float(np.sqrt(max(_fold_average(variances, folds), 0.0)))
 
     root_n = float(np.sqrt(n))
     scale = float(scaler.range)
-    half = corrected_remainder(result, dgp, row_weights, rows // 2)
-    full = corrected_remainder(result, dgp, row_weights, limit)
     # `ate`'s spread is bounded by the sum rather than computed from a per-row contrast: the
     # two arms' curves are the same rows, so a difference of standard deviations would
     # understate and their sum is the honest conservative reading of a witness column.
@@ -923,8 +1200,7 @@ def _companion_witness(
     out: dict[str, float] = {}
     for name in ("ate", "ey1", "ey0"):
         key: Any = "ate" if name == "ate" else (1.0 if name == "ey1" else 0.0)
-        out[f"se_{name}"] = root_n * scale * spread[key] / float(np.sqrt(rows))
-        out[f"halving_{name}"] = root_n * abs(full[name] - half[name])
+        out[name] = root_n * scale * spread[key] / float(np.sqrt(rows))
     return out
 
 

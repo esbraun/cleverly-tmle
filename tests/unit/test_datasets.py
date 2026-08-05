@@ -151,6 +151,50 @@ class TestTruth:
         with pytest.raises(ValueError, match="positive power of two"):
             nonlinear_dgp().quadrature(1000)
 
+    def test_the_default_scramble_is_bit_for_bit_what_it_was(self) -> None:
+        """The regression pin on E1b's only ``src/`` change, and it protects ``truth``.
+
+        ``scramble=`` is additive or it is a silent change to every reference value in the
+        package -- every ``truth()``, every committed drift coefficient, every fixture
+        tolerance sized against ``1e-5``.  A default argument makes that true by
+        construction, so what this pins is that the default *is* the constant the reference
+        values were taken at rather than merely some constant.
+        """
+        dgp = nonlinear_dgp()
+
+        assert np.array_equal(dgp.quadrature(2**10), dgp.quadrature(2**10, scramble=20240101))
+
+    def test_two_scrambles_are_independent_randomisations_rather_than_two_grids(self) -> None:
+        """Different points, same integral -- which is the whole of why a spread is an error.
+
+        A second scramble is not a finer or a coarser rule and the difference between two of
+        them is not a discretisation.  Both are unbiased for the same integral at the same
+        point count, so they agree to the rule's own accuracy while sharing no point: that
+        pairing is what makes an across-scramble spread a standard error rather than a
+        comparison of two things that might be converging to different answers.
+        """
+        dgp = nonlinear_dgp()
+        one, two = dgp.quadrature(2**13), dgp.quadrature(2**13, scramble=7)
+
+        assert not np.array_equal(one, two)
+        levels = [float(np.mean(dgp.outcome_mean(grid, 1.0, None))) for grid in (one, two)]
+        assert levels[0] == pytest.approx(levels[1], abs=5e-3)
+
+    def test_the_grids_nest_within_a_scramble_and_not_across_scrambles(self) -> None:
+        """The ladder still works per scramble, which is what lets one fit carry both.
+
+        The negative half is the point: a prefix of *another* scramble's grid is not a
+        coarser version of this one, so a caller that slices a ladder out of a stack of
+        scrambles has to slice within a block.  ``benchmarks/drtmle_remainder.Window`` is
+        that, and this is the property it exists for.
+        """
+        dgp = nonlinear_dgp()
+
+        assert np.array_equal(
+            dgp.quadrature(2**10, scramble=7), dgp.quadrature(2**13, scramble=7)[: 2**10]
+        )
+        assert not np.array_equal(dgp.quadrature(2**10), dgp.quadrature(2**13, scramble=7)[: 2**10])
+
     def test_binary_outcome_truth_includes_marginal_ratios(self) -> None:
         truth = binary_outcome_dgp().truth()
         assert 0.0 < truth["ey0"] < truth["ey1"] < 1.0
