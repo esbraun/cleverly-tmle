@@ -22,6 +22,7 @@ number rather than an error:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from itertools import pairwise
 from typing import Any
 
@@ -293,6 +294,203 @@ class TestGateBIsADifferenceOfRisksAndIsPaired:
         assert "spline(32)" not in study.risk_gaps(rows, "q-drift", 600, "qr")
 
 
+def _passing_gate(**overrides: Any) -> list[study.RiskRow]:
+    """Gate rows that pass both of B's clauses: the control rejected, no rung better.
+
+    Built from a helper rather than inline in each test, because what makes a gate *pass* is
+    two clauses rather than one and a test that spelled only the first would be exercising a
+    gate the module does not have.
+    """
+    rows: list[study.RiskRow] = []
+    for seed in range(8):
+        for name in study.REDUCTIONS:
+            rows.append(risk_row(data_seed=seed, reduction=name, risk=1e-3, **overrides))
+            for rung in study.RUNGS:
+                if rung.label == study.REFERENCE.label:
+                    continue
+                rows.append(
+                    risk_row(
+                        data_seed=seed,
+                        reduction=name,
+                        candidate=rung.label,
+                        risk=1e-3 + 1e-5 * (seed % 3),
+                        **overrides,
+                    )
+                )
+            rows.append(
+                risk_row(
+                    data_seed=seed,
+                    reduction=name,
+                    candidate=study.NEGATIVE_CONTROL.label,
+                    risk=5e-3 + 1e-5 * (seed % 3),
+                    **overrides,
+                )
+            )
+    return rows
+
+
+def _arms(differences: Sequence[float], *, level: float, scrambles: int) -> list[study.FitRow]:
+    """One paired draw per difference, plus a gate-C budget on the first few.
+
+    ``level`` is the ``glm`` arm's own column, which is what the margin is a quarter of, and
+    the budget draws carry a spread the caller controls through ``scrambles``.
+    """
+    rows: list[study.FitRow] = []
+    for seed, difference in enumerate(differences):
+        rows.append(fit_row(data_seed=seed, estimator="glm", root_n_remaining=level))
+        for index in range(scrambles if seed < 3 else 1):
+            rows.append(
+                fit_row(
+                    data_seed=seed,
+                    estimator="reference",
+                    scramble=90 + index,
+                    root_n_remaining=level + difference + 1e-4 * index,
+                )
+            )
+    return rows
+
+
+class TestTheFrozenRuleHasThreeVerdictsAndReachesEachOne:
+    """``unresolved`` is a **third** verdict, and a rule that cannot reach it has two.
+
+    Every case here is constructed to sit in one region of the frozen rule, so what is being
+    checked is the rule rather than any measurement: a margin of a quarter of the ``glm`` arm's
+    own level, a paired bootstrap interval, and the requirement that the interval lie *wholly*
+    on one side of the band.
+    """
+
+    def test_a_difference_far_outside_the_band_has_moved(self) -> None:
+        fits = _arms([-0.9, -0.95, -1.0, -0.92, -0.98, -0.9, -1.05, -0.94], level=2.0, scrambles=3)
+
+        assert study.comparison_verdict(fits, _passing_gate(), "q-drift", 600, "ate") == "moved"
+
+    def test_a_difference_wholly_inside_the_band_is_equivalent(self) -> None:
+        fits = _arms([0.01, -0.01, 0.02, -0.02, 0.0, 0.01, -0.015, 0.005], level=2.0, scrambles=3)
+
+        assert (
+            study.comparison_verdict(fits, _passing_gate(), "q-drift", 600, "ate") == "equivalent"
+        )
+
+    def test_an_interval_straddling_the_band_is_unresolved(self) -> None:
+        """Not a weak ``equivalent``: the run cannot tell the two apart at this precision."""
+        fits = _arms([-0.9, 0.8, -0.7, 0.6, -0.5, 0.9, -0.8, 0.4], level=2.0, scrambles=3)
+
+        assert (
+            study.comparison_verdict(fits, _passing_gate(), "q-drift", 600, "ate") == "unresolved"
+        )
+
+    def test_a_movement_in_either_direction_counts(self) -> None:
+        """A reference that makes the remainder *larger* is still a learner effect.
+
+        E2 asks whether item 13's failure is a learner failure at all, and a rule that only
+        counted improvement would report the awkward half of that answer as a null result.
+        """
+        fits = _arms([0.9, 0.95, 1.0, 0.92, 0.98, 0.9, 1.05, 0.94], level=2.0, scrambles=3)
+
+        assert study.comparison_verdict(fits, _passing_gate(), "q-drift", 600, "ate") == "moved"
+
+
+class TestAFailedGateMakesItsWholeCellUnresolved:
+    """The gates are what say the comparison is about the reduction learner at all."""
+
+    def test_a_negative_control_that_is_not_rejected_fails_gate_b(self) -> None:
+        """Without teeth the gate cannot discriminate, whatever the comparison then shows."""
+        rows = [
+            risk_row(data_seed=seed, reduction=name, candidate=label, risk=1e-3)
+            for seed in range(8)
+            for name in study.REDUCTIONS
+            for label in (study.REFERENCE.label, study.NEGATIVE_CONTROL.label)
+        ]
+        fits = _arms([-0.9] * 8, level=2.0, scrambles=3)
+
+        verdict, reason = study.gate_verdict(fits, rows, "q-drift", 600)
+
+        assert verdict == "fail"
+        assert "not rejected" in reason
+        assert study.comparison_verdict(fits, rows, "q-drift", 600, "ate") == "unresolved"
+
+    def test_a_rung_that_beats_the_reference_fails_gate_b(self) -> None:
+        """The comparison would then answer for a reference another resolution is better than.
+
+        The repair is to move the shipped rung *before* a number is read, which is why this is
+        a gate and not a footnote on the comparison.
+        """
+        rows = _passing_gate()
+        better = study.RUNGS[-1].label
+        rows = [row for row in rows if row.candidate != better]
+        rows += [
+            risk_row(data_seed=seed, reduction=name, candidate=better, risk=1e-4)
+            for seed in range(8)
+            for name in study.REDUCTIONS
+        ]
+        fits = _arms([-0.9] * 8, level=2.0, scrambles=3)
+
+        verdict, reason = study.gate_verdict(fits, rows, "q-drift", 600)
+
+        assert verdict == "fail"
+        assert "beats the reference" in reason
+
+    def test_a_reference_noisier_than_its_budget_fails_gate_c(self) -> None:
+        """The band is a quarter of the level and the budget is a third of the band.
+
+        A reference whose own scramble-to-scramble spread is that large decides the verdict
+        itself, which is the failure this clause exists against.
+        """
+        level, difference = 2.0, -0.9
+        rows = [
+            fit_row(data_seed=seed, estimator="glm", root_n_remaining=level) for seed in range(8)
+        ]
+        for seed in range(8):
+            for index in range(3 if seed < 3 else 1):
+                rows.append(
+                    fit_row(
+                        data_seed=seed,
+                        estimator="reference",
+                        scramble=90 + index,
+                        # A spread far past a third of the 0.5 margin.
+                        root_n_remaining=level + difference + 0.6 * index,
+                    )
+                )
+
+        verdict, reason = study.gate_verdict(rows, _passing_gate(), "q-drift", 600)
+
+        assert verdict == "fail"
+        assert reason.startswith("C:") or "; C:" in reason
+        assert (
+            study.comparison_verdict(rows, _passing_gate(), "q-drift", 600, "ate") == "unresolved"
+        )
+
+    def test_a_run_with_no_budget_draw_fails_gate_c(self) -> None:
+        """Unmeasured and small must not read alike, which is E1's lesson in its other form."""
+        fits = _arms([-0.9] * 8, level=2.0, scrambles=1)
+
+        verdict, reason = study.gate_verdict(fits, _passing_gate(), "q-drift", 600)
+
+        assert verdict == "fail"
+        assert "no budget draw" in reason
+
+
+class TestTheMarginIsAQuarterOfTheControlArmsLevel:
+    """The frozen fraction, and which rows the level it scales is taken over."""
+
+    def test_it_is_the_declared_fraction_of_the_glm_level(self) -> None:
+        fits = _arms([-0.5] * 6, level=2.0, scrambles=1)
+
+        margin = study.equivalence_margin(fits, "q-drift", 600, "ate")
+
+        assert margin == pytest.approx(study.EQUIVALENCE_FRACTION * 2.0)
+
+    def test_it_is_taken_over_the_paired_draws_only(self) -> None:
+        """A draw the reference arm failed on would otherwise move the band the comparison
+        is judged against, while contributing nothing to the comparison itself."""
+        fits = _arms([-0.5] * 4, level=2.0, scrambles=1)
+        fits += [fit_row(data_seed=99, estimator="glm", root_n_remaining=100.0)]
+
+        assert study.equivalence_margin(fits, "q-drift", 600, "ate") == pytest.approx(
+            study.EQUIVALENCE_FRACTION * 2.0
+        )
+
+
 class TestTheTablesAreWhatTheirHeadersSay:
     """The width pin every harness on this page carries, and for the same reason."""
 
@@ -314,7 +512,7 @@ class TestTheTablesAreWhatTheirHeadersSay:
 
         for built, headers in (
             (study.gate_rows(fits, risks), study.GATE_HEADERS),
-            (study.comparison_rows(fits), study.COMPARISON_HEADERS),
+            (study.comparison_rows(fits, risks), study.COMPARISON_HEADERS),
             (study.cost_rows(fits), study.COST_HEADERS),
         ):
             assert built

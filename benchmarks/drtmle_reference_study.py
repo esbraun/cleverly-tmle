@@ -13,13 +13,15 @@ does not establish: the result is a **numerical reference and not an oracle**, a
 after the construction is a smoothing bias and a finite point count.  A paired
 reference-against-``glm`` number read before those are bounded is not evidence about the
 reduction learner, and this module exists so that it cannot be read that way -- the gate table
-prints first, and the comparison prints a difference with an interval rather than a verdict.
+prints first, and a cell whose gates did not pass reads ``unresolved`` however large its
+difference is.
 
-**The verdict is not here yet, and that is the commit boundary rather than an omission.**
-``docs/roadmap.md``'s E2 requires the equivalence margin and the reference-uncertainty budget
-to be *frozen in their own commit*, so what this module prints is readings: the gates' two
-statistics and the paired difference, each with the draws behind it.  The rule those are read
-against arrives next, before any dispatch, which is the ordering C3c's own value rests on.
+**The rule the tables are read against is frozen above and in**
+``docs/drtmle/validation-plan.md`` **§8**, in a commit that precedes every number: an
+equivalence margin of a quarter of the ``glm`` arm's own level, a reference-uncertainty budget
+of a third of that margin, and three verdicts of which ``unresolved`` is one and is not a weak
+``equivalent``.  It may be changed before a dispatch with a written reason and not after one,
+which is the discipline C3c's own value rests on.
 
 **Why the gates cannot be a refinement difference, which is the trap here.**  The obvious
 fidelity statistic is the movement of the reference between two knot counts.  That is the
@@ -182,6 +184,53 @@ INTERVAL = (2.5, 97.5)
 
 #: Which reduced regression names are reported, in the order every table prints them.
 REDUCTIONS = ("qr", "gr1", "gr2")
+
+
+# ------------------------------------------------- the rule, frozen before the dispatch
+#
+# ``docs/drtmle/validation-plan.md`` §8 is this rule in prose, with what would falsify each
+# half of it and the three readings it refuses.  The constants live here so that a run's
+# banner and the record cannot come apart, and they may be changed before a dispatch with a
+# written reason and not after one -- the clause §4, §5 and §7 all carry.
+
+#: The equivalence margin, as a fraction of the ``glm`` arm's **own** level of
+#: :math:`\sqrt n R_{\text{remaining}}` in the same cell and size.
+#:
+#: A fraction rather than an absolute number, and the reason is that the alternative is worse
+#: rather than that this is ideal.  An absolute margin would have to be committed at one cell
+#: and one size -- C3c's ``q-drift`` column reads ``1.43 / 1.26 / 1.25`` and ``g-drift``'s does
+#: not fall at all -- and would then be arbitrary everywhere else.  A quarter of the level the
+#: column already sits at is the statement candidate 1 actually makes: *the reductions are why
+#: the remainder does not vanish*, so replacing them with their population limits should remove
+#: a substantial share of it, and a quarter is where "substantial" is committed.
+#:
+#: **What is frozen is the fraction**, which is in this commit and predates every number the
+#: comparison produces.  The level it scales is the run's own control arm, which is a
+#: measurement -- said out loud here rather than left for a reader to notice.
+EQUIVALENCE_FRACTION = 0.25
+
+#: Gate C's budget: the reference's own across-scramble spread may be at most this share of the
+#: margin.  A third, because a rule whose instrument's error is a comparable fraction of its own
+#: decision boundary is a rule that decides on the instrument -- and because two thirds is the
+#: point at which a single scramble's draw would move a verdict across the band on its own.
+#: Exceeding it makes every verdict in that cell ``unresolved``, which is a statement about the
+#: reference's resolution and is repaired by ``--reference-points`` rather than by a rerun.
+BUDGET_FRACTION = 1.0 / 3.0
+
+#: The estimand the verdict is read on, with the other two reported and **supporting**.
+#: Declared in advance for the reason ``validation-plan.md`` §7 declares its own primary clause:
+#: three estimands and two cells and two sizes is twelve readings, and a piece that chose which
+#: of them to lead with after seeing them would be choosing its own conclusion.  The ATE is
+#: primary because it is the contrast the demonstration is about; the two arm means carry
+#: different drift coefficients and are read for whether one of them moved where the contrast
+#: did not.
+PRIMARY_ESTIMAND = "ate"
+
+#: The three verdicts.  ``unresolved`` is a **third** verdict and is not a weak ``equivalent``:
+#: it says the run cannot tell the two apart at this precision, which is a statement about the
+#: study and not about the estimator, and the response to it is a larger draw count or a finer
+#: reference rather than a conclusion.
+VERDICTS = ("moved", "equivalent", "unresolved")
 
 
 # ------------------------------------------------------------------------------- the records
@@ -688,13 +737,116 @@ def interval(values: np.ndarray, seed: int = 20250801) -> tuple[float, float]:
     return (float(low), float(high))
 
 
+def equivalence_margin(rows: Sequence[FitRow], cell: str, n: int, estimand: str) -> float:
+    r""":data:`EQUIVALENCE_FRACTION` times the ``glm`` arm's own level of the column.
+
+    Read on the *paired* draws rather than on every ``glm`` row, so the margin and the
+    difference it judges are computed over one set of draws.  A margin taken over draws the
+    reference arm failed on would judge a comparison against a level no comparison was made at.
+    """
+    paired = {
+        row.data_seed
+        for row in rows
+        if (row.cell, row.n, row.estimand, row.estimator) == (cell, n, estimand, "reference")
+        and not row.error
+        and np.isfinite(row.root_n_remaining)
+    }
+    level = _mean(
+        [
+            row.root_n_remaining
+            for row in rows
+            if (row.cell, row.n, row.estimand, row.estimator) == (cell, n, estimand, "glm")
+            and row.data_seed in paired
+            and not row.error
+        ]
+    )
+    return float(EQUIVALENCE_FRACTION * abs(level))
+
+
+def gate_verdict(
+    fits: Sequence[FitRow], risks: Sequence[RiskRow], cell: str, n: int
+) -> tuple[str, str]:
+    """``(verdict, reason)`` for the two measured gates in one cell.
+
+    ``pass`` only if both hold.  Anything else is ``fail``, and a failed gate makes every
+    comparison verdict in the cell ``unresolved`` -- which is a statement about the reference
+    and not about the estimator, and is repaired by a finer reference or a larger draw count
+    rather than by reading the comparison anyway.
+
+    **B has two clauses and the second is the one that is easy to leave out.**  The negative
+    control must be *rejected* -- its held-out risk strictly worse at the interval's lower end,
+    on every reduction -- or the gate has no teeth and cannot discriminate at this draw count.
+    And no other rung may be strictly *better* at the interval's upper end, because a
+    comparison run at a reference another resolution beats is a comparison answering for the
+    wrong reference; the repair for that is to move the shipped rung before any number is read.
+
+    **C is one clause**: the reference's own across-scramble spread against
+    :data:`BUDGET_FRACTION` of the margin, read at the primary estimand.
+    """
+    reasons: list[str] = []
+    for reduction in REDUCTIONS:
+        gaps = risk_gaps(risks, cell, n, reduction)
+        control = gaps.get(NEGATIVE_CONTROL.label)
+        if control is None or control.size < 2:
+            reasons.append(f"B: {reduction} has no control reading")
+            continue
+        if interval(control)[0] <= 0.0:
+            reasons.append(f"B: {NEGATIVE_CONTROL.label} not rejected on {reduction}")
+        for label, values in sorted(gaps.items()):
+            if label == NEGATIVE_CONTROL.label or values.size < 2:
+                continue
+            if interval(values)[1] < 0.0:
+                reasons.append(f"B: {label} beats the reference on {reduction}")
+
+    spread, draws = budget_spread(fits, cell, n, PRIMARY_ESTIMAND)
+    margin = equivalence_margin(fits, cell, n, PRIMARY_ESTIMAND)
+    if not np.isfinite(spread) or draws == 0:
+        reasons.append("C: no budget draw")
+    elif not (spread <= BUDGET_FRACTION * margin):
+        reasons.append(f"C: sd {spread:.4f} over {BUDGET_FRACTION * margin:.4f}")
+    return ("pass", "") if not reasons else ("fail", "; ".join(reasons))
+
+
+def comparison_verdict(
+    fits: Sequence[FitRow], risks: Sequence[RiskRow], cell: str, n: int, estimand: str
+) -> str:
+    r"""``moved`` / ``equivalent`` / ``unresolved``, against the frozen margin.
+
+    The rule ``docs/drtmle/validation-plan.md`` §8 states, in code so that a table cannot say
+    something the rule does not:
+
+    * **moved** -- the paired interval lies wholly **outside** :math:`[-\delta, +\delta]`.  The
+      reduction learner materially changes item 13's column, candidate 1 is alive, and E2b
+      fires.  Movement in *either* direction counts: a reference that makes the remainder
+      larger is still a learner effect, and it is a finding E2b would have to explain rather
+      than a null result.
+    * **equivalent** -- the interval lies wholly **inside** it.  Candidate 1 is dead, the
+      learner road is shut, and the diagnosis moves to E3.
+    * **unresolved** -- anything else, and every cell whose gates did not pass.
+    """
+    if gate_verdict(fits, risks, cell, n)[0] != "pass":
+        return "unresolved"
+    differences = paired_differences(fits, cell, n, estimand)
+    if differences.size < 2:
+        return "unresolved"
+    low, high = interval(differences)
+    margin = equivalence_margin(fits, cell, n, estimand)
+    if not np.isfinite(margin) or margin <= 0.0:
+        return "unresolved"
+    if low > margin or high < -margin:
+        return "moved"
+    if -margin <= low and high <= margin:
+        return "equivalent"
+    return "unresolved"
+
+
 #: Headers for :func:`gate_rows`, declared beside it -- the same hazard every harness here
 #: guards against, and pinned the same way.
-GATE_HEADERS = ("gate", "cell", "n", "reading", "draws")
+GATE_HEADERS = ("gate", "cell", "n", "reading", "draws", "verdict")
 
 
 def gate_rows(fits: Sequence[FitRow], risks: Sequence[RiskRow]) -> list[list[str]]:
-    """Gates B and C as readings, printed **before** any paired number.
+    """Gates B and C, printed **before** any paired number, with the cell's verdict on each.
 
     Gate A is not here: it is an exact-law control and a test, so it has already either passed
     or turned the suite red before a dispatch could start.
@@ -703,8 +855,16 @@ def gate_rows(fits: Sequence[FitRow], risks: Sequence[RiskRow]) -> list[list[str
     the irreducible ``E_0[w(T - m)^2]`` of its own target, which is common to every candidate
     and can dominate both -- so a ratio of two risks is near one whatever the candidates are,
     and only the difference estimates a difference of squared weighted errors.
+
+    The ``verdict`` column is the **cell's**, repeated on each of its rows, and the reason is
+    that the two gates fail together: a comparison behind either is ``unresolved``, so a
+    per-row pass would invite a reader to take the rows that passed.
     """
     rows: list[list[str]] = []
+    verdicts = {
+        (cell, n): gate_verdict(fits, risks, cell, n)
+        for cell, n in sorted(set(_cells(risks)) | set(_cells(fits)))
+    }
     for cell, n in _cells(risks):
         for reduction in REDUCTIONS:
             gaps = risk_gaps(risks, cell, n, reduction)
@@ -718,19 +878,25 @@ def gate_rows(fits: Sequence[FitRow], risks: Sequence[RiskRow]) -> list[list[str
                         f"{n:,}",
                         f"{_mean(values):+.3e} [{low:+.2e}, {high:+.2e}] on {reduction}",
                         str(values.size),
+                        verdicts[(cell, n)][0],
                     ]
                 )
     for cell, n in _cells(fits):
-        spread, draws = budget_spread(fits, cell, n, "ate")
+        spread, draws = budget_spread(fits, cell, n, PRIMARY_ESTIMAND)
+        allowed = BUDGET_FRACTION * equivalence_margin(fits, cell, n, PRIMARY_ESTIMAND)
         rows.append(
             [
                 "C. reference sd",
                 cell,
                 f"{n:,}",
-                f"{spread:.4f}" if np.isfinite(spread) else "not measured",
+                f"{spread:.4f} against {allowed:.4f}" if np.isfinite(spread) else "not measured",
                 str(draws),
+                verdicts[(cell, n)][0],
             ]
         )
+    for (cell, n), (verdict, reason) in sorted(verdicts.items()):
+        if reason:
+            rows.append(["why", cell, f"{n:,}", reason, "-", verdict])
     return rows
 
 
@@ -744,12 +910,14 @@ COMPARISON_HEADERS = (
     "reference",
     "paired d",
     "d 95%",
+    "margin",
     "rule se",
+    "verdict",
 )
 
 
-def comparison_rows(rows: Sequence[FitRow]) -> list[list[str]]:
-    r"""The paired comparison, and it is **not** a verdict.
+def comparison_rows(rows: Sequence[FitRow], risks: Sequence[RiskRow]) -> list[list[str]]:
+    r"""The paired comparison against the frozen margin, with its verdict.
 
     ``glm`` and ``reference`` are the mean of :math:`\sqrt n R_{\text{remaining}}` in each arm,
     and ``paired d`` is the mean of the per-draw difference with a bootstrap interval over
@@ -761,12 +929,18 @@ def comparison_rows(rows: Sequence[FitRow]) -> list[list[str]]:
     ``rule se`` is the evaluation rule's error at a fit, averaged over fits -- the column that
     says how much of the two levels is the instrument.  It is *not* the error of ``paired d``,
     which is the interval beside it.
+
+    The ATE row is the one the piece branches on; ``ey1`` and ``ey0`` are supporting and are
+    printed because the two arm means carry different drift coefficients and a contrast can
+    cancel a movement one of them made.  Both statements are frozen in
+    :data:`PRIMARY_ESTIMAND` rather than chosen from this table.
     """
     out: list[list[str]] = []
     for cell, n in _cells(rows):
         for estimand in ("ate", "ey1", "ey0"):
             differences = paired_differences(rows, cell, n, estimand)
             low, high = interval(differences)
+            margin = equivalence_margin(rows, cell, n, estimand)
             here = [
                 row
                 for row in rows
@@ -786,7 +960,9 @@ def comparison_rows(rows: Sequence[FitRow]) -> list[list[str]]:
                     f"{levels['reference']:+.4f}",
                     f"{_mean(differences):+.4f}" if differences.size else "-",
                     f"[{low:+.4f}, {high:+.4f}]" if differences.size > 1 else "-",
+                    f"+/-{margin:.4f}" if np.isfinite(margin) else "-",
                     f"{_mean([row.companion_replicate_se for row in here]):.4f}",
+                    comparison_verdict(rows, risks, cell, n, estimand),
                 ]
             )
     return out
@@ -941,7 +1117,7 @@ def main() -> None:
         print(format_table(list(headers), rows))
 
     table("The fidelity gates, and read these first", GATE_HEADERS, gate_rows(fits, risks))
-    table("The paired comparison", COMPARISON_HEADERS, comparison_rows(fits))
+    table("The paired comparison", COMPARISON_HEADERS, comparison_rows(fits, risks))
     table("What it cost", COST_HEADERS, cost_rows(fits))
 
     failures = [row for row in fits if row.error]
@@ -967,6 +1143,17 @@ def main() -> None:
         "same draw, the same split and the same evaluation windows. Read it rather than the\n"
         "two levels beside it -- the evaluation rule's error is most of each level and\n"
         "cancels in the difference.\n"
+        "\n"
+        "`margin` is a QUARTER of the glm arm's own level, frozen as a fraction before any\n"
+        "of these numbers existed (docs/drtmle/validation-plan.md section 8). `moved` is the\n"
+        "interval wholly outside it -- candidate 1 alive, E2b fires; `equivalent` is wholly\n"
+        "inside -- candidate 1 dead, the diagnosis moves to E3; `unresolved` is anything else\n"
+        "and is a THIRD verdict, not a weak `equivalent`. A failed gate makes its whole cell\n"
+        "unresolved, and the repair is a finer reference or more draws rather than reading\n"
+        "the comparison anyway.\n"
+        "\n"
+        "The ATE row is the one the piece branches on and the two arm means are supporting;\n"
+        "both were declared before the run rather than chosen from the table.\n"
         "\n"
         "Nothing here is a coverage claim, nothing here selects a learner, and nothing here\n"
         "reads a rate. Item 13 is a rate and closes at E5."

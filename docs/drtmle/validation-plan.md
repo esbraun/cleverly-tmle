@@ -5,15 +5,16 @@ roadmap](../roadmap.md) says which pull request lands which of these and in what
 the detail those pull requests are executed from, so that a rule is written down before the number
 it judges exists.
 
-Six sections match six pieces of work: [B1a](#1-the-invariants-piece-b1a) is the identity patch,
+Seven sections match seven pieces of work: [B1a](#1-the-invariants-piece-b1a) is the identity patch,
 [B1b](#2-the-targeting-candidates-piece-b1b) is the targeting decision,
 [A1a](#3-the-component-checklist-piece-a1a) is the component checklist,
 [B2](#4-the-sweep-piece-b2) is the convergence and overlap sweep,
-[C](#5-the-controlled-study-piece-c) is the demonstration, and
-[A1b](#7-the-cross-fitting-construction-piece-a1b) is the cross-fitting construction. [The mutation
+[C](#5-the-controlled-study-piece-c) is the demonstration,
+[A1b](#7-the-cross-fitting-construction-piece-a1b) is the cross-fitting construction, and
+[E2](#8-the-reference-comparison-piece-e2) is the reference comparison. [The mutation
 table](#6-what-each-new-test-has-to-be-watched-to-fail) is what makes any of it evidence.
 
-§7 sits after §6 rather than before it because §6 was already numbered when A1b's section was
+§7 and §8 sit after §6 rather than before it because §6 was already numbered when A1b's section was
 written, and renumbering a page every document on this site links into by section number costs more
 than an out-of-order heading does.
 
@@ -1338,3 +1339,121 @@ and paired after the sweep; it is a `--keep-reductions` flag and a table, it is 
 is the sharpest instrument this section could have. It was recorded rather than built because the rule
 above is evaluable without it — and having evaluated it, **this is now the piece of work the next
 dispatch is**, rather than an optional sharpening.
+
+## 8. The reference comparison (piece E2)
+
+[C3c](coverage-study.md#what-the-study-measured) read `√n R_remaining` as flat with the three
+reduced regressions fitted by `glm`, a configuration whose own consistency [the concordance
+marks `unverified`](theorem-concordance.md). So the study tested Theorem 1's conclusion without
+establishing its premise, and [piece E](../roadmap.md#e-what-c3c-handed-back)'s first candidate
+is that the two are the same fact. **E2 decides it**: refit both cells with the reductions at
+their population limits and see whether the column moves.
+
+**A reference is a numerical estimate and not an oracle**, which is the whole reason this
+section is longer than the comparison it governs. `benchmarks/drtmle_reference.py` builds the
+three regressions as univariate projections on the companion, injected through
+`ReductionSpec.refit` at the current targeted pair every round; what is left after that
+construction is a **smoothing bias** and a **finite point count**, and a paired number read
+before those are bounded is not evidence about the reduction learner. The gates below are what
+bounds them.
+
+### The three gates, and why none of them is a refinement difference
+
+The obvious fidelity statistic is the reference's movement between two knot counts. It is the
+statistic [this repository withdrew](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) for the
+quadrature ladder and then again for the binned branches, and E2 inheriting it would rebuild the
+mistake it exists to repair. Measured on this ladder's own geometry a successive difference ran
+**four times below** the true error at the finest rung and three orders **above** it two rungs
+earlier; it is undefined for the rung a ladder starts on; and it is a *magnitude*, so it cannot
+say which of two rungs is nearer.
+
+| gate | what it bounds | where | blind to |
+| --- | --- | --- | --- |
+| **A** — the exact-law control | the **construction**: the weights, `qr`'s `\| A = a` mask, the arm columns, the recomputation at the current targeted pair | `tests/unit/test_reference_exact_law.py`, on the law of `tests/discrete_law.py` where a conditional expectation is a finite sum and `SaturatedCells` is exact | the smoother and the quadrature — neither exists on a discrete law |
+| **B** — the held-out weighted risk | the **smoothing bias**, by ranking: each candidate fitted on the reference block and scored on an independent finer one | `benchmarks/drtmle_reference_study.py`, per reduced regression, arm and fold | nothing about the *fit* — it is a statement about three regressions |
+| **C** — the randomisation budget | the **finite point count**: independent scrambles of the reference block, one refit each | the same module, on a declared subset of draws | the smoothing bias, which every scramble shares |
+
+**B is a difference and never a ratio**, and this is the clause most easily got wrong. A
+held-out risk is `E_0[w(T − m)²] + E_0[w(m − m̂)²]`, whose first term is the irreducible variance
+of the target and is common to every candidate; it can dominate both, so a *ratio* of two risks
+sits near one whatever the candidates are. Only the **difference** estimates a difference of
+squared weighted errors, and it does so with nothing assumed about either candidate — the cross
+term vanishes identically because `m` is the weighted conditional expectation and a reference is
+a weighted `L₂` projection. The three reductions are read **apart**, because `qr`'s target is a
+residual and `gr1`'s is an indicator and a mean over them is a number with no units.
+
+**C is not free and E1b's device is not transportable wholesale.** There the companion was inert
+to the fit, so eight replicates cost one fit; here the reference *enters* the fit, so a scramble
+is a refit. That is why the budget is its own flag and its own subset of draws, and why the
+cost table prices a **fit** rather than a draw.
+
+### The reference rule, frozen before the dispatch
+
+**It may be changed before the dispatch with a written reason, and not after it.** The
+constants are `benchmarks/drtmle_reference_study.py`'s `EQUIVALENCE_FRACTION`,
+`BUDGET_FRACTION` and `PRIMARY_ESTIMAND`, printed in every run's banner so that the record and
+the rule cannot come apart.
+
+> Per cell and size, on the paired per-draw difference
+> `d = √n R_rem(reference) − √n R_rem(glm)`, with margin `δ = 0.25 × |mean √n R_rem(glm)|` in
+> that cell and size and a 95% bootstrap interval over **draws**:
+>
+> 1. **moved** — the interval lies wholly **outside** `[−δ, +δ]`. The reduction learner
+>    materially changes item 13's column, candidate 1 is alive, and **E2b** fires.
+> 2. **equivalent** — the interval lies wholly **inside** it. Candidate 1 is dead, the learner
+>    road is shut, and the diagnosis moves to **E3**.
+> 3. **unresolved** — anything else. **A third verdict and not a weak `equivalent`**: it says
+>    the run cannot tell the two apart at this precision, which is a statement about the study
+>    rather than about the estimator.
+>
+> **A cell is `unresolved` whatever its difference if either measured gate failed.** Gate B
+> fails if the negative control is not rejected on every reduction — the gate then has no teeth
+> — or if any other rung is *better* than the shipped reference, since a comparison run at a
+> reference another resolution beats answers for the wrong reference. Gate C fails if the
+> reference's own across-scramble spread exceeds `δ/3`, or if no budget draw was taken:
+> unmeasured and small must not read alike.
+>
+> **The ATE is primary and the two arm means are supporting**, declared here rather than chosen
+> from the table. Three estimands over two cells and two sizes is twelve readings, and a piece
+> that picked which to lead with after seeing them would be choosing its own conclusion.
+>
+> **Movement in either direction counts as `moved`.** A reference that makes the remainder
+> *larger* is still a learner effect, and it is a finding E2b would have to explain rather than
+> a null result.
+
+**Why the margin is a fraction and what that costs.** An absolute margin would have to be
+committed at one cell and one size — C3c's `q-drift` column reads `1.43 / 1.26 / 1.25` and
+`g-drift`'s does not fall at all — and would be arbitrary everywhere else. A quarter of the
+level the column already sits at is the statement candidate 1 actually makes: *the reductions
+are why the remainder does not vanish*, so replacing them with their population limits should
+remove a substantial share of it. What is frozen is the **fraction**, which predates every
+number the comparison produces; the level it scales is the run's own control arm, which is a
+measurement, and that is said out loud here rather than left for a reader to notice. It is
+taken over the **paired** draws only, so a draw the reference arm failed on cannot move the
+band the comparison is judged against while contributing nothing to the comparison.
+
+**What would falsify each half.**
+
+- *The gates.* A gate-B ordering that disagrees between the reductions — the shipped rung best
+  on one and beaten on another — says the reference's resolution is not one choice, and the
+  repair is a per-regression resolution rather than a verdict. A gate-C spread that does not
+  fall when `--reference-points` rises says the spread is not the quadrature, which would
+  contradict the unbiasedness the randomisation rests on.
+- *The comparison.* An `equivalent` verdict alongside a **large** paired difference in `ey1`
+  or `ey0` would say the ATE cancelled a movement the arms made, which is the reason those two
+  rows are printed at all.
+
+**Three readings this rule refuses.**
+
+- **A verdict read off `ψ`.** Measured on the exact law: a two-bin reference is wrong about
+  `qr` by more than half its own magnitude while its `ψ` sits inside a twentieth of one
+  standard error of an exact reference's. The estimate does not separate a good reference from
+  a bad one, and the same measurement on the continuous law is what
+  `benchmarks/drtmle_reference.py` records.
+- **A coverage number.** The reduction learner's effect on an interval is not this question and
+  this run's inputs were not frozen for it.
+- **A learner comparison.** Growing-basis against `glm` against `boost` is E2b's and fires only
+  if this branches. The refusal to reach for `boost` first is [the roadmap's own
+  argument](../roadmap.md#why-the-oracle-comes-before-the-learner-and-why-boost-is-not-the-first-candidate):
+  a data-adaptive reduction forfeits A1b's entropy argument for the pooled construction, which
+  trades one `unverified` row for another.
