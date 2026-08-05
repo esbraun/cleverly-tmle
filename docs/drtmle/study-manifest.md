@@ -173,7 +173,7 @@ The companion grid's dispatch, and the section this file gained because
 | | |
 | --- | --- |
 | workflow | `.github/workflows/drtmle-companion-grid.yml`, `workflow_dispatch`, one job per `(cell, size)` |
-| code | `claude/rosdmap-variance-error-bounds-k9j6j3` at `PLACEHOLDER_SHA` |
+| code | `79d11d3252d784c2c0f93c67aa4f7e31630f22c6` — both runs report it as `head_sha` |
 | tiers | 1 (prescribed nuisances) and 2 (both fitted) — dispatched separately, tables read apart |
 | cells | `q-drift`, `g-drift` |
 | sizes | `600`, `2400` |
@@ -191,7 +191,40 @@ replicates the rule's own error rather than a difference between two fits.
 
 ### E1b's artefacts
 
-PLACEHOLDER_ARTEFACTS
+Digests, sizes and expiries are as reported by the GitHub Actions API on 2026-08-05. **Eight
+artefacts**, one per `(tier, cell, size)` job, each holding that job's per-replicate JSONL and its
+log.
+
+| tier | cell | `n` | run | artefact | bytes | `sha256` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `q-drift` | 600 | `31021187807` | `8936835562` | 102,256 | `340c3f04b506fa7c0f19ec58a00b651455a6b9eab45582e21a47518a739b0e53` |
+| 1 | `q-drift` | 2,400 | `31021187807` | `8936767554` | 101,683 | `570e30391607fb3047d4623667b573a9ccab0ddec6bcf94a89eeb148179720d6` |
+| 1 | `g-drift` | 600 | `31021187807` | `8936854290` | 102,424 | `4f6f97664c442485893de3c7cc2758a3fc2d173674596f7dd3ac82c55986cd4b` |
+| 1 | `g-drift` | 2,400 | `31021187807` | `8936912727` | 100,428 | `ee9b79659b5a51dae28f8ad44866030ee75beb6153c1954fcff9012be097d8ca` |
+| 2 | `q-drift` | 600 | `31021176323` | `8936876056` | 82,269 | `91d92f7dc8939f1800ab192075f54f1ff76dba09da8ee9ae7ff7d30c58acb90c` |
+| 2 | `q-drift` | 2,400 | `31021176323` | `8937243701` | 82,533 | `f6dc08bdee8565bf63fb23812173800222711682d1521d73597a3c65a1da9eb2` |
+| 2 | `g-drift` | 600 | `31021176323` | `8936886653` | 82,932 | `ca1198c362d0d9301ddd27dc09c857e35cb3c5d0a3b45190a0d91abd5c7adf8a` |
+| 2 | `g-drift` | 2,400 | `31021176323` | `8937239644` | 82,187 | `c617653c7234352bcebc760b5959155ec3d53ab49ce065fd212d5c272d08b550` |
+
+**Retention expires 2026-11-03**, at which point the digests here are a record of what was measured
+and no longer a way to obtain it.
+
+> **The rows are not in this commit, for the reason C3c's are not**: Actions artefacts are served
+> from `*.blob.core.windows.net`, which the sandbox this was dispatched from cannot reach — the
+> request is refused at the proxy rather than by GitHub. Retrieving them needs a machine with
+> ordinary outbound access, before the retention date:
+>
+> ```bash
+> gh run download 31021187807 --repo esbraun/cleverly-tmle --dir evidence/e1b/tier-1
+> gh run download 31021176323 --repo esbraun/cleverly-tmle --dir evidence/e1b/tier-2
+> sha256sum evidence/e1b/tier-*/*.zip   # against the table above, on the zip as fetched
+> ```
+
+**Two earlier runs of the same sweep are on the branch and are superseded.** `31020774280` (tier 2)
+and `31020786013` (tier 1) ran at `d2982501` with 16 draws, and `79d11d3` fixed a `cost_rows` bug
+that multiplied the reported companion width by the draw count. Their `share` and `rule sd` columns
+are unaffected by that fix and agree with the runs above; they are named here so that a reader who
+finds them knows which is the record and why.
 
 ### E1b's row schema
 
@@ -234,4 +267,20 @@ No number from such a run belongs in a document.
 
 ### E1b numbers checkable against this manifest
 
-PLACEHOLDER_CHECKS
+Spot checks a reader can do against the tables without the rows, and that a regeneration at this
+commit and these inputs must reproduce:
+
+- **The two rules' `est sd` agree within each cell**, since both estimate the same `Var(X)` from the
+  same fits: `0.7734` against `0.7543` in tier 2 `q-drift` at `n = 600`, `1.3079` against `1.1836`
+  in tier 2 `g-drift` at the same size. Where they do not — tier 1 at `n = 2,400`, where the draw
+  side reads `0.0000` — the draw rule's error swamps the estimator's and the difference of two large
+  variances is not resolvable at 32 draws. Both readings are printed rather than reconciled.
+- **The draw rule's `share` rises with `n`**, as the arithmetic requires: its error scales like
+  `√n` at fixed `m = 2,000` while the estimator's second-order spread does not. Tier 2 `q-drift`
+  goes `0.723 → 0.991`; tier 1 `q-drift` goes `0.821 → 1.003`.
+- **The quasi-random rule's `rule sd` falls with the point count** and the draw's does not fall at
+  all, because there is nothing to refine on an i.i.d. sample of fixed size.
+- **`P₀D̂` agrees between the rules to within the draw's own error** in every cell — the two-route
+  check `evaluation_frame` exists for.
+- **32 fits per `(tier, cell, size)`**, and 1,024 or 1,280 replicate rows depending on the ladder's
+  length (`8 × rungs + 8` rows a fit).

@@ -1168,6 +1168,96 @@ an integration rule can detect a defect in the estimator, and every column here 
 right in E1 and is untouched by either retraction — what the section got wrong is how large the
 instrument's error is, not what knowing it would license.
 
+## What the E1b dispatch measured
+
+*Two dispatches of `.github/workflows/drtmle-companion-grid.yml`, tier 1 and tier 2, at
+`79d11d3252d784c2c0f93c67aa4f7e31630f22c6`. Both cells, `n ∈ {600, 2400}`, **32 draws** a cell and
+size, **8 independent scrambles** of the quasi-random rule and **8 independent i.i.d. companions**
+of 2,000 rows per fit, ladder `512/1024/2048` at tier 2 and `512/1024/2048/4096` at tier 1. One fit
+a draw: 256 fits, and 1,024 or 1,280 replicate rows a job. Runs `31021187807` and `31021176323`;
+eight artefacts, [manifested](study-manifest.md#e1b-what-was-run) with their digests. Unlike
+[E1's](#what-the-e1-ladder-measured), these rows are retained.*
+
+### Each rule's own error, measured rather than derived
+
+`rule sd` is the standard deviation of `√n R_rem` across **that rule's independent replicates at a
+fixed fit**. It needs no convergence rate, no halving witness and no comparison with the other rule.
+`share` is `Var(e) / (Var(X) + Var(e))` with both terms estimated — the fraction of a
+**one-replicate** study's across-draw variance that the rule accounts for — and `share 90%` is a
+bootstrap over draws. At the finest rung of each ladder:
+
+| tier | cell | `n` | `rule sd`, grid | `share`, grid | `rule sd`, draw | `share`, draw |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `q-drift` | 600 | `0.0029` | `0.000` `[0.00, 0.00]` | `1.1299` | **`0.821`** `[0.73, 0.93]` |
+| 1 | `q-drift` | 2,400 | `0.0041` | `0.000` `[0.00, 0.00]` | `2.1656` | **`1.003`** `[0.95, 1.05]` |
+| 1 | `g-drift` | 600 | `0.0142` | `0.001` `[0.00, 0.00]` | `1.1382` | **`0.808`** `[0.69, 0.95]` |
+| 1 | `g-drift` | 2,400 | `0.0069` | `0.001` `[0.00, 0.00]` | `2.2033` | **`1.008`** `[0.96, 1.06]` |
+| 2 | `q-drift` | 600 | `0.0326` | `0.002` `[0.00, 0.00]` | `1.2181` | **`0.723`** `[0.60, 0.89]` |
+| 2 | `q-drift` | 2,400 | `0.1399` | `0.081` `[0.02, 0.11]` | `2.1839` | **`0.991`** `[0.94, 1.05]` |
+| 2 | `g-drift` | 600 | `0.1804` | `0.019` `[0.01, 0.04]` | `1.5778` | **`0.640`** `[0.53, 0.80]` |
+| 2 | `g-drift` | 2,400 | `0.4671` | `0.051` `[0.02, 0.10]` | `3.2591` | **`0.790`** `[0.69, 0.91]` |
+
+**At `n = 2,400` the evaluation draw accounts for essentially all of the across-draw variance of
+`√n R_rem` under C3c's rule** — `0.991 [0.94, 1.05]` in the tier-2 cell the rate is read in, and
+`1.003` and `1.008` at tier 1 — and for two thirds to four fifths of it at `n = 600`. Every one of
+those is a ratio of two estimated variances rather than a difference of two marginal ones, so
+nothing in it rests on how the rule's error relates to the estimator's.
+
+**E1's withdrawn column got the tier-1 headline about right and could not have known it.** Its
+`var removed` read `0.974` and `0.987` where these read `1.003` and `1.008`; its `−0.069` and
+`0.204` at `n = 600` are `0.723` and `0.808` here. The point of the retraction was never that the
+numbers were far out — it was that `1 − s²/s²` does not estimate that share and that a ladder does
+not bound the term it was corrected by, so two of the four cells came out uninformative and no cell
+came with an interval.
+
+**A share above one is a draw count and not a finding**, and three cells reach past it at the top of
+their intervals. `Var(X)` is estimated as a *difference* — the between-fit variance less
+`Var(e)/R` — and where the rule's error dominates by an order that difference is not resolvable at
+32 draws: the two rules' `est sd` read `0.3216` and `0.0000` in tier 1 `q-drift` at `n = 2,400`.
+Neither is clipped, because clipping would make an unresolved reading look resolved.
+
+### The grid's error is two to three orders below the draw's, and now that is a measurement
+
+At the finest rung, `rule sd` of `0.0029`–`0.0142` at tier 1 and `0.0326`–`0.4671` at tier 2,
+against `1.13`–`3.26` for the i.i.d. rule at `m = 2,000`. Tier 2's is the larger and the reason is
+its integrand: both nuisances are fitted there and the kernel smoother's cutoff makes the integrand
+only piecewise smooth, which is exactly the case a quasi-random rule handles least well — and
+exactly the case E1's ladder was least able to see.
+
+**The ladder still flattens and it is still not a bound.** Tier 1 `q-drift` at `n = 2,400` reads
+`delta` of `0.01391 / 0.00735 / 0.00386` down the rungs while `rule sd` reads
+`0.0158 / 0.0076 / 0.0041` — close, because a smooth integrand is the case where a successive
+difference happens to track the error. Tier 2 `g-drift` at `n = 2,400` reads `delta` of
+`0.28625 / 0.20600` against `rule sd` of `0.6919 / 0.4671`: the movement is **less than half** the
+error, in the cell whose integrand is the rough one. That is the retraction, reproduced on the
+estimator's own integrand rather than on a constructed one.
+
+### What it cost, which is more than E1 and still small
+
+| tier | `n` | companion rows a fit | secs/fit |
+| --- | --- | --- | --- |
+| 1 | 600 | 81,536 | `13.8`–`16.0` |
+| 1 | 2,400 | 81,536 | `7.3`–`21.4` |
+| 2 | 600 | 48,768 | `21.5`–`22.5` |
+| 2 | 2,400 | 48,768 | `60.5`–`60.6` |
+
+Ten to twenty times E1's companion rows for two to three times its wall clock, because a companion
+row is a prediction per fold per nuisance and no learner fit. The whole record above is 256 fits and
+about 70 minutes of runner time across eight jobs.
+
+### What this dispatch refuses to say
+
+**It reads no rate.** `√n R_rem` moves between the sizes in these tables and none of that is a
+finding: 32 draws is an instrument-sizing count, the cells are not two seed batches, and E5 is where
+a rate is read against clauses frozen before it. **It selects no learner**, which is E2's and E2b's.
+And a rule's own error, however well measured, says nothing whatever about the remainder — every
+column here integrates `dgp.propensity` and `dgp.outcome_mean` against predictions of the same
+functions.
+
+**What it does license is a sizing.** The draw's share at `n = 2,400` means C3c's `± 0.09` was
+almost entirely instrument, and that under the randomised rule the same replicate count buys a
+Monte Carlo error several-fold smaller. Whether that separates a decline depends on the decline.
+
 ## What the C3c dispatch measured
 
 *Two dispatches of `.github/workflows/drtmle-coverage.yml` at tier 2, seeds `20250801` and
