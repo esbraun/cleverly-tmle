@@ -757,6 +757,29 @@ every other. *Not resolvable at this draw count* and *failed* are different thin
 says which it is; separating them is what the 250-replicate dispatch exists for, and it is
 [item 13](../roadmap.md#what-is-still-open)'s number rather than this design's.
 
+### What the study was dispatched as, written down before its first fit
+
+*This subsection was committed **before** dispatch A and is not edited afterwards.* §5's rule is
+that the study's inputs may be changed before the final run and not after it, and a seed chosen
+once coverage is visible is a seed chosen for its answer — so both batches' inputs are here, in
+advance, including the second batch's.
+
+| input | value | why this value |
+| --- | --- | --- |
+| `tier` | `2` | the demonstration. Tier 1 hands the estimator a prescribed sequence, so its regime entry is true by construction rather than measured; the roadmap's C3c row is two dispatches and these are they |
+| `cells` | `q-drift g-drift` | both. `q-drift` is the cell a gate-2 shortfall is claimed in and `g-drift` is where `DRTMLE` is checked to hold nominal under a drift, which is the scope statement the repair put on the design |
+| `sizes` | `600 1200 2400` | three, because two are suggestive and three carry a rate |
+| `replicates` | `250` | §5's frozen minimum, at which a coverage estimate's Monte Carlo standard error is `0.014`. Not 500: the pilot's paired shortfall was `+0.220 ± 0.072`, which 250 resolves several times over, and a job that reaches the 300-minute cap prints **no** table rather than a partial one |
+| `seed` | `20250801`, then `20250802` | batch A is the harness default and the pilot's. The two `SeedSequence` streams are prefix-stable, so batch A shares the pilot's *data* seeds and not its fold splits — the split is part of the procedure whose coverage is being measured. Batch B is the independent second batch gate 1's clause 7 reads, dispatched **after** A completes |
+| `evaluation_n` | `2000` | the workflow default, above the pre-flight's `1500`. It is item 13's quadrature and scales with itself rather than with `n`, and its error is what left condition 3 unresolved at 12 draws |
+| `jobs` | `2` | each fit is single-threaded and two fit the runner |
+| `rows` | `false` | the per-replicate record §5 asks for travels as the JSONL artefact the workflow uploads. Three thousand printed rows would push the ten summary tables out of a readable log |
+
+**No code changes land before or between the two batches.** Gate 1's clause 7 asks whether the
+qualitative conclusion reproduces, and an instrument built between A and B would make the two
+batches runs of different code — which is the one thing a reproduction check cannot survive. The
+comparison is read across the two dispatches' tables.
+
 ### Twice a coverage study here found no gap, and the pair is the thing to carry forward
 
 The first is on the roadmap already: a pilot over the off-diagonal grid put `TMLE` and `DRTMLE` at
