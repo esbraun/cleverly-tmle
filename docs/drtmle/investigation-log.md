@@ -1032,9 +1032,18 @@ alone.
 `2.01 / 1.69 / 1.44`, falling at about `n^(−0.24)`; `√n R_rem` sits at `1.25`. Extrapolating the
 two, they meet near `n ≈ 4,000–5,000`, after which the bias has nowhere further to fall — which is
 `ψ̂ − ψ₀ = (Pₙ − P₀)D* + R_remaining` read as a prediction rather than as an identity. At that
-floor the standardised bias is about `0.58` and the implied coverage ceiling is **0.87 to 0.88**,
-not `0.95`. That extrapolation is the one number here that rests on a trend the harness itself
-calls unresolved, and it is stated as conditional for that reason.
+floor the standardised bias is about `0.58` and the implied coverage would be **0.87 to 0.88**,
+not `0.95`.
+
+**That extrapolation is exploratory, it is not a ceiling, and this paragraph's own arithmetic is
+what says so.** Two reasons, and the second is the one that was missed when the number was first
+written down. It rests on a trend the harness itself calls `unresolved` — that much was stated. And
+it treats `√n R_rem` as a **floor**, which contradicts the fit three lines above: `R_remaining ~
+n^(−0.59)` makes `√n R_rem` decline like `n^(−0.09)`, so there is no level for the bias to land on
+— coverage would go on improving, just slowly enough that no reachable `n` shows it. Over a
+fourfold `n` a `12%` decline and a plateau are the same picture, and this study cannot tell them
+apart. **Nothing else on this page depends on the number and no gate is read from it**; it is kept
+because the shape of the argument is worth having, not because `0.87`–`0.88` is a prediction.
 
 **The reported `se` runs short of the actual spread, and it is worth about half the gap.** In
 `q-drift` at `n = 2,400` `DRTMLE`'s spread is 4.5% below `TMLE`'s (`0.0443` against `0.0464`) while

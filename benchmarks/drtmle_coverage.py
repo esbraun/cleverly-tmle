@@ -43,8 +43,11 @@ What the tables answer, and why each is here rather than in a summary line:
   and ``min gr1`` off :func:`~cleverly.validation.correction_check` -- gate 1's clause 0 and
   item 25.  A cell with any of the three truncations active is *empirically supported and
   outside Theorem 1*, and a coverage number read without that label is a number about an
-  estimator nobody has named.  The cells here are designed to be inside it; the column is what
-  checks that rather than assuming it.
+  estimator nobody has named.  The cells here were *designed* to be inside it and the column
+  is what checks that rather than assuming it -- **and the check came back mixed in all four
+  cell-runs**, at 1.2% to 8.8% of draws.  So the design did not meet its intent, the pooled
+  number is the estimator as shipped rather than the theorem-backed one, and separating the
+  two needs two designs rather than one label: piece E4 of ``docs/roadmap.md``.
 * **coverage within each contract population**, beside the share and never in place of the
   pooled number.  Cells are *mixed* -- C1's witness found a sixth to a third of well-overlapped
   draws exiting bound-active -- and how that is read is the decision C3 froze before its
@@ -159,6 +162,14 @@ VALIDITY_TOLERANCE = DEFAULT_TOLERANCE
 #: The reduced regressions' learner.  Named rather than defaulted: ``DRTMLE`` falls back to the
 #: primary *specification*, which here is an injected instance -- see
 #: :func:`benchmarks.drtmle_injection.settings`.
+#:
+#: **This constant is a premise of the study and not a detail of it.**  Both primaries are
+#: injected analytic sequences, so these three regressions are the only thing a learner fits in
+#: a Tier-2 cell -- and ``reduced regressions consistent`` reads ``unverified`` in
+#: ``docs/drtmle/theorem-concordance.md``.  A run at this value tests Theorem 1's *conclusion*
+#: without establishing its *premise*, so a non-vanishing remainder here is a measurement of
+#: this configuration.  Piece E of ``docs/roadmap.md`` is that question, and E2 decides it
+#: against an **oracle** reduction rather than against a second learner.
 REDUCED_LEARNER = "glm"
 
 #: Rows of the independent draw ``P_0 D-hat`` is integrated over.  A quadrature rule rather

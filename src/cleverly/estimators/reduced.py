@@ -7,11 +7,17 @@ negligible, which needs *both* nuisances converging fast enough.  ``drtmle``
 estimating the first-order part of that remainder with regressions of each nuisance's
 residual on the *other* nuisance, and solving their score equations too.
 
-This module fits those regressions.  Nothing here solves anything: the extra score
-equations, the alternation they need and the influence curve they change are the commits
-after this one, and until they land a fit that carried a :class:`ReducedSet` and reported
-the ordinary estimates would be handing a reader a plain TMLE's number under a
-doubly-robust name.  So no estimator reaches this yet.
+This module fits those regressions and nothing here solves anything: the extra score
+equations, the alternation they need and the influence curve they change live in
+:mod:`cleverly.estimators.targeting` and :mod:`cleverly.inference.influence`, and
+:class:`~cleverly.DRTMLE` is what assembles the three.  (This paragraph once ended *"so no
+estimator reaches this yet"*, which was true for one commit and has not been since.)
+
+**These three are the only nuisances a learner fits in the validation study**, whose two
+primaries are injected analytic sequences -- and their consistency is the theorem premise
+that study did not establish.  ``reduced_outcome_learner=`` and
+``reduced_treatment_learner=`` are therefore not a tuning detail: see piece E of
+``docs/roadmap.md``, which is open on exactly that question.
 
 Written in this package's notation, with :math:`1_a = 1\{A = a\}` and both reduced
 mechanisms defined relative to a *given* :math:`\hat{\bar Q}` and :math:`\hat g`,
