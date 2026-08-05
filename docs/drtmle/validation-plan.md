@@ -1449,6 +1449,32 @@ band the comparison is judged against while contributing nothing to the comparis
   or `ey0` would say the ATE cancelled a movement the arms made, which is the reason those two
   rows are printed at all.
 
+### What the dispatch read, and which falsifier fired
+
+**The run has happened and the first falsifier above is the one that fired.**
+[What the E2 dispatch measured](investigation-log.md#what-the-e2-dispatch-measured) carries the
+tables; what belongs here is which clause of the rule above they landed on.
+
+Gate C passed in all four cells, by a factor of two to eight — the half the three-draw pilot sized.
+**Gate B failed in three**, every one on *no other rung may be strictly better*: `spline(8)` beat the
+shipped `spline(16)` on `gr2` at `q-drift` 600, on `gr1` and `gr2` at `q-drift` 2,400, and on `qr` at
+`g-drift` 2,400. `g-drift` at 2,400 also failed the teeth clause, with `bins(8)` not rejected on
+`gr2`. So three cells are `unresolved` however large their differences are — which is what this rule
+says, and the differences *are* large. The fourth cell, `g-drift` at `n = 600`, passed both gates and
+read **`moved`** on all three estimands.
+
+**The ordering disagreed between the reductions, which is this section's own first falsifier**, and
+the repair it names is the one to take: *a per-regression resolution rather than a verdict*. That is
+a change to the **reference**, permitted before a dispatch with a written reason — this paragraph is
+the reason — and it is not a change to the rule. `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION` and
+`PRIMARY_ESTIMAND` are unchanged and were unchanged when the numbers arrived.
+
+**What the run did not do**, since a rule is judged by what it refused as much as by what it read: it
+did not read the three unresolved cells' differences, it did not average a verdict across cells, and
+it did not promote the one `moved` cell into the study's answer. Nothing here reads `equivalent`, so
+the learner road is not shut; nothing here licenses `moved` where C3c's column was most sharply read,
+so candidate 1 is not established.
+
 **Three readings this rule refuses.**
 
 - **A verdict read off `ψ`.** Measured on the exact law: a two-bin reference is wrong about

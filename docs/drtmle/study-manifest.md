@@ -311,3 +311,125 @@ commit and these inputs must reproduce:
   check `evaluation_frame` exists for.
 - **32 fits per `(tier, cell, size)`**, and 1,024 or 1,280 replicate rows depending on the ladder's
   length (`8 × rungs + 8` rows a fit).
+
+## E2: what was run
+
+The reference comparison's dispatch, and the run
+[the gate table](investigation-log.md#what-the-e2-dispatch-measured) is read from. One run, four
+jobs, one commit.
+
+| | |
+| --- | --- |
+| workflow | `.github/workflows/drtmle-reference.yml`, `workflow_dispatch`, one job per `(cell, size)` |
+| code | `6f3aeb38ee1e23fc06ea598c6e511d2e686457bf` — all four jobs report it as `head_sha` |
+| inputs | **none passed.** Every value is the workflow file's own default, so the record and the rule cannot come apart |
+| tier | 2 — both nuisances fitted, reductions fitted; the tier C3c's numbers are quoted from |
+| cells | `q-drift`, `g-drift` |
+| sizes | `600`, `2,400` |
+| draws | 32 per `(cell, size)`, which **is** this workflow's default |
+| reference | `spline(16)` — `benchmarks/drtmle_reference_study.REFERENCE`, the middle rung of `KNOT_LADDER` |
+| compared against | `glm` — `REDUCED_LEARNER`, C3c's configuration unchanged, which is the thing under test |
+| gate B candidates | `spline(8)`, `spline(16)`, `spline(32)` and the negative control `bins(8)` |
+| blocks | reference 4,096 Sobol points, scoring 8,192, evaluation 2 × 2,048 — three disjoint scramble streams (`93/94/95_000_000`) |
+| gate C budget | 4 independent reference scrambles on the first 4 draws of the stream. **A refit each** |
+| frozen constants | `EQUIVALENCE_FRACTION = 0.25`, `BUDGET_FRACTION = 1/3`, `PRIMARY_ESTIMAND = "ate"`, printed in the banner |
+| `--jobs` | `2` |
+| seed | `20250801` |
+| totals | 128 draws, **304 fits**, 912 fit rows, 15,360 gate rows, four artefacts |
+
+**A draw buys two fits and a budget draw buys five**, so a job is `32 × 2 + 4 × 3 = 76` fits rather
+than 64 — the arithmetic the cost table prices in fits for. The `glm` arm is fitted **once** per draw
+whatever the budget is: it has no reference block, so a scramble cannot move it, and refitting it per
+scramble would price a control that cannot change.
+
+### E2's artefacts
+
+Digests, sizes and expiries are as reported by the GitHub Actions API on 2026-08-05. **Four
+artefacts**, one per `(cell, size)` job, each holding that job's two JSONL files and its log.
+
+| cell | `n` | run | artefact | bytes | `sha256` |
+| --- | --- | --- | --- | --- | --- |
+| `q-drift` | 600 | `31042558057` | `8945526880` | 74,798 | `8efd1d62adecdcd070cd0923f11c8ca455e9a05cd86092a75ce2680edb8e25dd` |
+| `q-drift` | 2,400 | `31042558057` | `8946074512` | 73,646 | `2fea3097fa69add9f4bc837d98441744267bc5dbd9d4aba6671cbbc3a56136f0` |
+| `g-drift` | 600 | `31042558057` | `8945526340` | 74,579 | `86d6fdb9e1cb3ca9bf4e0b50d1a2158c9e8c4aae0d8393463fef56b8933b7282` |
+| `g-drift` | 2,400 | `31042558057` | `8946024955` | 73,827 | `aebf92b7246be97537ec6fab939d1fe15601b8b56fe2cf49ed29b9d90badf7fb` |
+
+**Retention expires 2026-11-03**, at which point the digests here are a record of what was measured
+and no longer a way to obtain it.
+
+> **The rows are not in this commit, for the reason C3c's and E1b's are not**: Actions artefacts are
+> served from `*.blob.core.windows.net`, which the sandbox this was dispatched from cannot reach —
+> the request is refused at the proxy rather than by GitHub. Retrieving them needs a machine with
+> ordinary outbound access, before the retention date:
+>
+> ```bash
+> scripts/fetch_evidence.sh e2         # the four artefacts, as zips, digests checked
+> ```
+
+**Each job's log prints the same digest the API reports**, in its `actions/upload-artifact` step, so
+the four rows above were read twice from two places rather than transcribed once.
+
+### E2's row schema
+
+**Two files per job from one timestamp, `<stamp>.jsonl` and `<stamp>-risks.jsonl`, and the two are
+different grains.** That is deliberate and `write_records` says why: the comparison is per
+`(fit, estimand)` and the gate is per `(candidate, regression, arm, fold)`, so one file at the
+coarser grain would make the gate table unrecomputable from the evidence.
+
+`<stamp>.jsonl` is `benchmarks.drtmle_reference_study.FitRow`, one line per `(fit, estimand)`:
+
+| field | meaning |
+| --- | --- |
+| `cell`, `n`, `data_seed`, `fold_seed` | which draw, and which split |
+| `estimator` | `"glm"` or `"reference"`. The pairing key is `(cell, n, data_seed, estimand)` |
+| `scramble` | which reference block this fit's reductions were fitted on. **`0` on the `glm` arm**, which has no reference block — not the scramble it would have used, which is how a budget comes to be computed over the wrong rows |
+| `estimand` | `ate`, `ey1` or `ey0` |
+| `psi`, `truth`, `p0_curve`, `pn_curve`, `remaining`, `root_n_remaining` | item 13's columns at this fit, averaged over its evaluation replicates |
+| `companion_replicate_se` | the spread of that column across those replicates — the **evaluation rule's** error at this fit, and not the estimator's |
+| `companion_rows` | rows of the whole stacked companion, which differs between an ordinary draw and a budget draw |
+| `rounds`, `exit_reason`, `valid` | what the alternation did and whether the score check passed |
+| `seconds`, `error` | wall clock, and the exception type where a fit failed. **A failure is a row rather than a gap** |
+
+`<stamp>-risks.jsonl` is `RiskRow`, one line per `(candidate, reduction, arm, fold)` on the first
+reference scramble of each draw: `candidate`, `reduction` (`qr`/`gr1`/`gr2`), `treatment_arm`,
+`fold`, `risk`, `fitted_rows`, `scored_rows`, `error`. **The three reductions are stored apart and
+must be read apart** — `qr`'s target is a residual and `gr1`'s an indicator, so a mean over them is
+a number with no units.
+
+**What is not on a row is a verdict.** `gate_verdict`, `comparison_verdict` and
+`equivalence_margin` are functions of a whole `(cell, n)` group, so storing them per row would put
+one number in many places and invite a reader to average them. They read exactly the fields above.
+
+### Regenerating E2's tables
+
+The tables come from the module that writes the rows, so a regeneration is a re-fit rather than a
+re-read — there is no `--rows` path here.
+
+```bash
+python -m benchmarks.drtmle_reference_study --tier 2 --cells q-drift g-drift \
+    --sizes 600 2400 --draws 32 --reference-points 4096 --scoring-points 8192 \
+    --evaluation-points 2048 --evaluation-scrambles 2 --budget-scrambles 4 \
+    --budget-draws 4 --seed 20250801 --jobs 2
+```
+
+**Do not run that in a small container.** `CLAUDE.md` says why, and this is 304 fits at 19s to 48s
+each. A reduced form is what belongs in a sandbox — the three-draw `q-drift` pilot §8 records for
+gate C's premise was `--draws 3 --sizes 600`, and its comparison columns were deliberately not
+quoted, because three draws buy `unresolved`.
+
+### E2 numbers checkable against this manifest
+
+Spot checks a reader can do against the tables without the rows, and that a regeneration at this
+commit and these inputs must reproduce:
+
+- **76 fits per `(cell, size)`** and 228 fit rows — `32 × 2` paired fits plus `4 × 3` budget refits,
+  times three estimands. The cost table's `fits` column counts the `ate` rows only, so it reads 76.
+- **3,840 gate rows per job**: `32 draws × 2 arms × 5 folds × 3 reductions × 4 candidates`.
+- **Gate C passes in all four cells**, at `0.0665/0.1283`, `0.0091/0.0966`, `0.1662/0.2999` and
+  `0.1217/0.3401` — the allowance being `BUDGET_FRACTION × margin` at the `ate`.
+- **Every gate-B failure is the same clause** — a rung strictly better than the shipped reference —
+  and the reduction it fails on differs by cell: `gr2`, then `gr1` and `gr2`, then `qr`. `g-drift` at
+  `n = 2,400` adds the negative control not being rejected on `gr2`.
+- **The margin is a quarter of the `glm` level on the paired draws**: `+1.5401 → ±0.3850`,
+  `+1.1594 → ±0.2899`, `+3.5989 → ±0.8997`, `+4.0814 → ±1.0203`.
+- **One cell of four reads `moved`** and none reads `equivalent`.

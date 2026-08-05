@@ -25,6 +25,7 @@
 # Usage:
 #     scripts/fetch_evidence.sh e1b [destination]
 #     scripts/fetch_evidence.sh c3c [destination]
+#     scripts/fetch_evidence.sh e2  [destination]
 #
 set -euo pipefail
 
@@ -34,7 +35,7 @@ readonly MANIFEST="$ROOT/evidence/manifest.json"
 usage() {
     echo "usage: $(basename "$0") <study> [destination]" >&2
     echo >&2
-    echo "  study        a key of evidence/manifest.json's \"studies\" -- e.g. e1b, c3c" >&2
+    echo "  study        a key of evidence/manifest.json's \"studies\" -- e.g. e1b, c3c, e2" >&2
     echo "  destination  where to write; defaults to evidence/<study>" >&2
     exit 2
 }
