@@ -67,7 +67,7 @@ the analytic-index control and the held-out risk are for.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 import numpy as np
@@ -89,11 +89,16 @@ from benchmarks.drtmle_remainder import _arm_probability, _latent
 __all__ = [
     "KNOT_LADDER",
     "POINTS_PER_PARAMETER",
+    "ArmTruth",
     "EqualCountBins",
     "Reference",
     "ReferenceReductionDRTMLE",
     "SaturatedCells",
     "SplineProjection",
+    "arm_truth",
+    "fit_mask",
+    "fold_targets",
+    "held_out_risk",
     "reference_reductions",
 ]
 
@@ -300,7 +305,7 @@ class _FittedCells:
 # --------------------------------------------------------------- the provider
 
 
-def _fit_mask(name: str, indicator: np.ndarray) -> np.ndarray | None:
+def fit_mask(name: str, indicator: np.ndarray) -> np.ndarray | None:
     """Which rows the reference is *fitted* on, mirroring ``fit_reduced``'s own rule.
 
     ``qr`` alone carries a mask, and it is the whole of the ``| A = a`` in its definition --
@@ -348,6 +353,75 @@ def _check_the_weights_are_the_laws(
         )
 
 
+@dataclass(frozen=True)
+class ArmTruth:
+    r"""The law's own arrays at the companion rows, for one arm.
+
+    Split out because **two callers need exactly these three and must not spell them
+    twice**: the provider below, which fits a reference against them, and the held-out risk
+    in ``benchmarks/drtmle_reference_study.py``, which scores candidates against them on a
+    block the provider never touched.  A second spelling would be free to drift, and what it
+    would drift into is a gate scoring a different regression from the one it gates.
+
+    ``outcome`` is on the **scaled** scale, because that is what
+    :attr:`~cleverly.fluctuation.iterative.InitialFit.arms` carries and ``qr``'s target is a
+    difference of the two.
+    """
+
+    indicator: np.ndarray
+    mechanism: np.ndarray
+    outcome: np.ndarray
+
+
+def arm_truth(current: Any, *, dgp: Any, arm: float) -> ArmTruth:
+    r""":math:`1_a`, :math:`g_0(a|W)` and :math:`\bar Q_0(a, W)` at the companion rows."""
+    companion = current.companion
+    latent = _latent(companion.data, dgp)
+    treatment = np.asarray(companion.data.treatment, dtype=float)
+    truth_g_one = np.asarray(dgp.propensity(latent), dtype=float)
+    return ArmTruth(
+        indicator=(treatment == float(arm)).astype(float),
+        mechanism=_arm_probability(truth_g_one, float(arm)),
+        outcome=current.scaler.scale(
+            np.asarray(dgp.outcome_mean(latent, float(arm), None), dtype=float)
+        ),
+    )
+
+
+def fold_targets(
+    current: Any,
+    *,
+    fold: int,
+    arm: float,
+    truth: ArmTruth,
+    g_bounds: tuple[float, float],
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    r"""``(designs, targets)`` at the companion rows, for one arm and one outer fold.
+
+    The designs are :func:`~cleverly.estimators.reduced.reduced_designs`' -- ``qr`` on the
+    mechanism and the two reduced mechanisms on the outcome regression, the crossing the R
+    source names the other way round from the paper -- taken from **fold** :math:`k`'s copy,
+    which is the model that held fold :math:`k` out.
+
+    :math:`Y` never appears in a target, and that is the construction rather than a
+    convenience: :func:`~benchmarks.drtmle_remainder.quadrature_frame` carries
+    :math:`\bar Q_0(a, W)` in the companion's outcome column, so ``qr``'s population target is
+    a difference of two known functions of :math:`W` and the other two are functions of the
+    indicator alone.
+    """
+    companion = current.companion
+    column = companion.propensity[fold].column_for(arm)
+    bounded = companion.propensity[fold].bounded(g_bounds)[:, column]
+    fitted_q = np.asarray(companion.outcome[fold].arms[arm], dtype=float)
+    designs = reduced_designs(companion.propensity[fold], companion.outcome[fold], arm)
+    targets = {
+        "qr": truth.outcome - fitted_q,
+        "gr1": truth.indicator,
+        "gr2": (truth.indicator - bounded) / bounded,
+    }
+    return designs, targets
+
+
 def reference_reductions(
     current: Any,
     *,
@@ -379,11 +453,9 @@ def reference_reductions(
             "evaluation= so that every fold's nuisance is evaluated on the reference grid"
         )
     arms = tuple(current.arms)
-    scaler = current.scaler
     n_folds = companion.n_folds
     assignment = np.asarray(current.folds.assignment, dtype=int)
 
-    latent = _latent(companion.data, dgp)
     treatment = np.asarray(companion.data.treatment, dtype=float)
     mass = np.asarray(row_weights, dtype=float).reshape(-1)
     if mass.size != treatment.size:
@@ -392,16 +464,13 @@ def reference_reductions(
             "weight(s); a stale weight vector integrates against the wrong measure and "
             "reports the answer to five decimals"
         )
-    truth_g_one = np.asarray(dgp.propensity(latent), dtype=float)
 
     production: dict[str, list[np.ndarray]] = {"qr": [], "gr1": [], "gr2": []}
     elsewhere: dict[str, list[list[np.ndarray]]] = {"qr": [], "gr1": [], "gr2": []}
 
     for arm in arms:
-        indicator = (treatment == float(arm)).astype(float)
-        truth_g = _arm_probability(truth_g_one, float(arm))
-        truth_q = scaler.scale(np.asarray(dgp.outcome_mean(latent, float(arm), None), dtype=float))
-        _check_the_weights_are_the_laws(mass, truth_g, indicator, window, arm)
+        truth = arm_truth(current, dgp=dgp, arm=arm)
+        _check_the_weights_are_the_laws(mass, truth.mechanism, truth.indicator, window, arm)
         at_production = {name: np.zeros(assignment.size) for name in production}
         at_folds: dict[str, list[np.ndarray]] = {name: [] for name in production}
         # The production design is the fit's own out-of-fold array and does not depend on
@@ -415,19 +484,11 @@ def reference_reductions(
 
         for fold in range(n_folds):
             mine = assignment == fold
-            designs = reduced_designs(companion.propensity[fold], companion.outcome[fold], arm)
-            column = companion.propensity[fold].column_for(arm)
-            bounded = companion.propensity[fold].bounded(g_bounds)[:, column]
-            fitted_q = np.asarray(companion.outcome[fold].arms[arm], dtype=float)
-            # `Y` never appears: the frame carries `Qbar_0(a, W)` in its outcome column, so
-            # the residual's population value is a difference of two known functions of `W`.
-            targets = {
-                "qr": truth_q - fitted_q,
-                "gr1": indicator,
-                "gr2": (indicator - bounded) / bounded,
-            }
+            designs, targets = fold_targets(
+                current, fold=fold, arm=arm, truth=truth, g_bounds=g_bounds
+            )
             for name in production:
-                keep = _fit_mask(name, indicator)
+                keep = fit_mask(name, truth.indicator)
                 inside = block if keep is None else (block & keep)
                 fitted = reference.fit(designs[name][inside], targets[name][inside], mass[inside])
                 at_folds[name].append(fitted(designs[name]))

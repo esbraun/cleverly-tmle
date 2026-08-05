@@ -1,0 +1,179 @@
+name: drtmle-reference
+
+# Dispatch only, for the reason `drtmle-coverage.yml` and `drtmle-companion-grid.yml` are: this
+# is a measurement rather than a check, and it asserts nothing.
+#
+# **What it decides.** docs/roadmap.md's E2, which is piece E's branch point. C3c read
+# `sqrt(n) R_remaining` as flat with the three reduced regressions fitted by `glm`, a
+# configuration whose own consistency the concordance marks `unverified` -- so the study tested
+# Theorem 1's conclusion without establishing its premise. This refits both cells with the
+# reductions at their population limits and reads the paired difference against a margin frozen
+# in docs/drtmle/validation-plan.md section 8, before this workflow existed. If the reference
+# does not move the column, candidate 1 is dead, the learner road is shut and the diagnosis
+# moves to E3; if it does, E2b fires. `unresolved` is a third verdict and is not a weak "dead".
+#
+# **Read the gate table first, and it is the last thing that would be added under pressure.**
+# A reference is a numerical estimate and not an oracle: what is left after the construction is
+# a smoothing bias and a finite point count, and a paired number read before those are bounded
+# is not evidence about the reduction learner. Gate B is a held-out weighted risk against an
+# independent finer block -- a DIFFERENCE of risks, never a ratio, because a risk carries the
+# irreducible variance of its own target and that part is common to every candidate. Gate C is
+# the reference's own across-scramble spread. A cell whose gates fail reads `unresolved`
+# however large its difference is, and the module prints why.
+#
+# **Neither gate is a refinement difference**, which is the statistic this repository withdrew
+# twice -- once for the quadrature ladder and once for the binned branches. The third gate is an
+# exact-law control and is a test rather than a column: it runs in CI on every commit.
+#
+# The environment this repository is developed in cannot run a study (see CLAUDE.md), so this is
+# how E2's numbers get produced.
+on:
+  workflow_dispatch:
+    inputs:
+      cells:
+        description: "space-separated: q-drift g-drift (both is the design; one is a debug run)"
+        default: "q-drift g-drift"
+      sizes:
+        description: >-
+          space-separated sample sizes. Two, because this is a comparison rather than a rate --
+          item 13 is a rate and closes at E5
+        default: "600 2400"
+      draws:
+        description: >-
+          draws per (cell, size). This sizes the paired interval, which is what the margin is
+          read against; 32 is what E1b dispatched at
+        default: "32"
+      reference_points:
+        description: >-
+          Sobol points the reduced regressions are fitted on. Sized by the reference's own
+          points-per-parameter budget, which it refuses to be fitted thinner than -- spline(32)
+          needs 2,240 rows and qr's mask keeps about half a block. Raise this if gate C fails:
+          a three-draw pilot read the spread at 0.0637 here and 0.0315 at 8192, at 13.7s and
+          25.5s a fit
+        default: "4096"
+      scoring_points:
+        description: >-
+          Sobol points gate B scores on, from a disjoint scramble stream. Finer than the fitting
+          block on purpose: a held-out risk carries its own error and nothing pairs it away
+        default: "8192"
+      evaluation_points:
+        description: "Sobol points the remainder is integrated on, per evaluation scramble"
+        default: "2048"
+      evaluation_scrambles:
+        description: >-
+          independent randomisations of the evaluation rule, averaged into one reading per fit.
+          Both arms read the same ones, so this sharpens the pair rather than one side of it
+        default: "2"
+      budget_scrambles:
+        description: >-
+          gate C: independent reference scrambles on a budget draw. Each is a REFIT, unlike an
+          evaluation replicate, so this multiplies the cost of those draws
+        default: "4"
+      budget_draws:
+        description: "how many draws carry the budget. The first few of the stream, not a subset"
+        default: "4"
+      jobs:
+        description: "parallel draws; each fit is single-threaded, and 2 fits the runner"
+        default: "2"
+      seed:
+        default: "20250801"
+      tier:
+        description: >-
+          2 is the tier C3c's numbers are quoted from and is the default here for that reason;
+          1 is cheaper and injects both primaries, so the three reductions are the whole of what
+          a learner is being asked to fit
+        default: "2"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.split.outputs.matrix }}
+    steps:
+      # One job per (cell, size). A draw buys two fits and a budget draw buys several, so a job
+      # carrying both sizes of the expensive tier would run at the timeout.
+      - id: split
+        env:
+          CELLS: ${{ inputs.cells }}
+          SIZES: ${{ inputs.sizes }}
+        run: |
+          printf 'matrix=' >> "$GITHUB_OUTPUT"
+          jq -cn '[
+            (env.CELLS | split(" ") | map(select(length > 0))[]) as $cell
+            | (env.SIZES | split(" ") | map(select(length > 0))[]) as $size
+            | {cell: $cell, size: $size}
+          ]' >> "$GITHUB_OUTPUT"
+
+  reference:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    # Two fits a draw, plus `budget_scrambles - 1` more on each budget draw, each carrying a
+    # companion of `reference + scoring + evaluation` rows. Generous rather than tight for the
+    # reason `drtmle-coverage.yml` gives: the script prints nothing until every draw returns.
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+      # `bash -euo pipefail` rather than the default, since the run is piped through `tee`:
+      # without it a crashed run exits on `tee`'s zero and reports a green job with a
+      # truncated log.
+      - shell: bash -euo pipefail {0}
+        env:
+          CELL: ${{ matrix.cell }}
+          SIZE: ${{ matrix.size }}
+          DRAWS: ${{ inputs.draws }}
+          REFERENCE_POINTS: ${{ inputs.reference_points }}
+          SCORING_POINTS: ${{ inputs.scoring_points }}
+          EVALUATION_POINTS: ${{ inputs.evaluation_points }}
+          EVALUATION_SCRAMBLES: ${{ inputs.evaluation_scrambles }}
+          BUDGET_SCRAMBLES: ${{ inputs.budget_scrambles }}
+          BUDGET_DRAWS: ${{ inputs.budget_draws }}
+          JOBS: ${{ inputs.jobs }}
+          SEED: ${{ inputs.seed }}
+          TIER: ${{ inputs.tier }}
+        run: >
+          python -m benchmarks.drtmle_reference_study
+          --cells "$CELL"
+          --sizes "$SIZE"
+          --draws "$DRAWS"
+          --reference-points "$REFERENCE_POINTS"
+          --scoring-points "$SCORING_POINTS"
+          --evaluation-points "$EVALUATION_POINTS"
+          --evaluation-scrambles "$EVALUATION_SCRAMBLES"
+          --budget-scrambles "$BUDGET_SCRAMBLES"
+          --budget-draws "$BUDGET_DRAWS"
+          --jobs "$JOBS"
+          --seed "$SEED"
+          --tier "$TIER"
+          | tee "reference-$CELL-$SIZE.log"
+
+      - name: Post the tables to the run summary
+        if: always()
+        env:
+          CELL: ${{ matrix.cell }}
+          SIZE: ${{ matrix.size }}
+        run: |
+          {
+            echo "## drtmle-reference: tier ${{ inputs.tier }}, $CELL, n = $SIZE"
+            echo '```text'
+            cat "reference-$CELL-$SIZE.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The per-fit and per-candidate rows are the evidence and the tables are a transcription
+      # of them. docs/drtmle/study-manifest.md records each artefact's id and digest, which is
+      # the standing decision E1's lost sandbox output is the evidence for.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drtmle-reference-${{ matrix.cell }}-${{ matrix.size }}
+          path: |
+            benchmarks/results/drtmle-reference/
+            reference-${{ matrix.cell }}-${{ matrix.size }}.log
+          retention-days: 90
