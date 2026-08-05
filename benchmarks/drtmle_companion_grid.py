@@ -320,7 +320,7 @@ GRID_HEADERS = (
     "sqrt(n) R_rem",
     "spread",
     "rule err",
-    "share",
+    "var removed",
     "R_Q",
     "R_g",
     "branch err",
@@ -342,10 +342,20 @@ def grid_rows(records: Sequence[GridRow]) -> list[list[str]]:
     collapsed is a rule still moving.  The coarsest rung has no predecessor and reads ``-``.
 
     ``spread`` is the standard deviation of ``sqrt(n) R_rem`` **across draws**, which carries
-    the estimator's own sampling variation *and* the rule's error together; ``rule err`` is
-    the rule's alone, and ``share`` is what fraction of the spread's variance it accounts
-    for.  Those three are the reading E5 has to size against: what ``share`` says is how much
-    of C3c's :math:`\pm 0.09` was the instrument.
+    the estimator's own sampling variation *and* the rule's error together, and ``rule err``
+    is the rule's own witness -- the movement when half the rows are dropped, averaged over
+    draws.  On the deterministic grid that is a fair reading of the discretisation.  **On the
+    i.i.d. draw it is not**: halving a noise-dominated rule doubles a variance, so the witness
+    reads about :math:`1.4\times` the standard error it is standing in for, which is why
+    ``rule err`` on a control row can exceed ``spread`` and must not be read as a share.
+
+    ``var removed`` is the honest form of that share and it needs no model of the witness at
+    all: :math:`1 - s^2 / s_{\text{control}}^2`, the fraction of the **control rule's**
+    across-draw variance this rung removes.  It is a difference of two measured spreads on
+    the *same draws* through the *same primary fits* -- the companion is inert to the fit --
+    so the estimator's own contribution is common to both and what is left is the rule.  That
+    is the number E5 sizes a replicate count against: how much of C3c's :math:`\pm 0.09` was
+    the instrument.  ``-`` on the control row and wherever there is no control to compare to.
 
     Reported and not thresholded.  §5 sets no number for any of these and E1 is not the place
     to invent one -- a rule frozen after a number exists is the thing the coverage study's own
@@ -354,27 +364,46 @@ def grid_rows(records: Sequence[GridRow]) -> list[list[str]]:
     rows: list[list[str]] = []
     for cell, n in sorted({(r.cell, r.n) for r in records}):
         here = [r for r in records if r.cell == cell and r.n == n]
+        control = _spread(here, "draw", 0)
         ladder = sorted({r.points for r in here if r.rule == "sobol"})
         previous: int | None = None
         for points in ladder:
-            rows.append(_rung(here, cell, n, "sobol", points, previous))
+            rows.append(_rung(here, cell, n, "sobol", points, previous, control))
             previous = points
         if any(r.rule == "draw" for r in here):
-            rows.append(_rung(here, cell, n, "draw", 0, None))
+            rows.append(_rung(here, cell, n, "draw", 0, None, float("nan")))
     return rows
 
 
+def _spread(here: Sequence[GridRow], rule: str, points: int) -> float:
+    """The across-draw standard deviation of ``sqrt(n) R_rem`` at one rung."""
+    values = np.array(
+        [r.root_n_remaining for r in here if r.rule == rule and r.points == points and not r.error],
+        dtype=float,
+    )
+    finite = values[np.isfinite(values)]
+    return float(np.std(finite, ddof=1)) if finite.size > 1 else float("nan")
+
+
 def _rung(
-    here: Sequence[GridRow], cell: str, n: int, rule: str, points: int, previous: int | None
+    here: Sequence[GridRow],
+    cell: str,
+    n: int,
+    rule: str,
+    points: int,
+    previous: int | None,
+    control: float,
 ) -> list[str]:
     selected = [r for r in here if r.rule == rule and r.points == points and not r.error]
     if not selected:
         return [cell, f"{n:,}", rule, f"{points:,}", "-", "0"] + ["-"] * 9
-    values = np.array([r.root_n_remaining for r in selected], dtype=float)
-    finite = values[np.isfinite(values)]
-    spread = float(np.std(finite, ddof=1)) if finite.size > 1 else float("nan")
+    spread = _spread(here, rule, points)
     rule_error = _mean([r.companion_halving for r in selected])
-    share = rule_error**2 / spread**2 if np.isfinite(spread) and spread > 0 else float("nan")
+    removed = (
+        1.0 - spread**2 / control**2
+        if np.isfinite(spread) and np.isfinite(control) and control > 0
+        else float("nan")
+    )
 
     delta = "-"
     if previous is not None:
@@ -400,7 +429,7 @@ def _rung(
         f"{_mean([r.root_n_remaining for r in selected]):+.4f}",
         f"{spread:.4f}",
         f"{rule_error:.5f}",
-        f"{share:.4f}" if np.isfinite(share) else "-",
+        f"{removed:.3f}" if np.isfinite(removed) else "-",
         f"{_mean([r.branch_q for r in selected]):+.5f}",
         f"{_mean([r.branch_g for r in selected]):+.5f}",
         f"{_mean([r.branch_error for r in selected]):.5f}",
@@ -537,9 +566,16 @@ def main() -> None:
         "flattened has a grid whose refinement no longer moves the answer; one that has not\n"
         "is a grid still moving, and the response is a finer rung rather than a footnote.\n"
         "\n"
-        "`share` is what fraction of the across-draw variance the rule accounts for, and it\n"
-        "is the number E5 sizes against -- how much of C3c's +/-0.09 was the instrument. The\n"
-        "rest is the estimator's own sampling spread, which only a replicate count reduces.\n"
+        "`var removed` is the fraction of the *control* rule's across-draw variance a rung\n"
+        "removes, and it is the number E5 sizes against -- how much of C3c's +/-0.09 was the\n"
+        "instrument. It is two measured spreads on the same draws through the same primary\n"
+        "fits, so no model of the witness enters it. The rest is the estimator's own sampling\n"
+        "spread, which only a replicate count reduces.\n"
+        "\n"
+        "`rule err` is the halving witness and is a fair reading of the *grid's* error. On a\n"
+        "control row it is not: halving a noise-dominated rule doubles a variance, so it reads\n"
+        "about 1.4x the standard error it stands in for and can exceed the spread. Read it on\n"
+        "the sobol rows and read `var removed` on the comparison.\n"
         "\n"
         "The two rules fail differently and the control row is what shows it. The draw's\n"
         "error is noise, independent per replicate, so a study averages it down; the grid's\n"

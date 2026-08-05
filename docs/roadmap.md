@@ -476,7 +476,8 @@ exactly as the repair did, and E5 is the only row in it that costs a run.
 | **C3a** — *landed* | the freeze and the pilot: the mixed-cell rule, the two gate-1 clauses that could not be read at all, the invalid-fit threshold frozen where it was, and **the pilot that falsified the sizing it was run to check**. Closes no numbered item, which is why it is its own pull request | four dispatches of `drtmle-coverage.yml`; [what the pilot measured](drtmle/coverage-study.md#what-the-pilot-measured); `benchmarks/drtmle_tier1_bias.py`; §5's fourth operational rule and its new targeted-coefficient clause; `identity`/`score`, `cancel`, `sqrt(n) R2` and the stratum table |
 | **C3b** — *landed* | the repair the pilot forced: a **second declared coefficient** — the estimator's bias, not the plug-in remainder — and a Tier-1 injection built to hit it, plus the regime-entry column Tier 2 never had and the three pre-flight conditions as a verdict table | `targeted_coefficients`, `targeted_weight`, `exact_targeted_remainder`, `population_epsilon` and `Q_DRIFT_B`/`G_DRIFT_B_ATE` on both tier modules; `drtmle_remainder.targeted_remainder`; `entry_rows` and `preflight_rows` on the harness; the decomposition tables on `benchmarks/drtmle_tier1_bias.py`; [the repair](drtmle/coverage-study.md#the-repair-and-what-would-say-each-half-of-it-is-wrong) |
 | **C3c** — *landed* | **item 3, answered**: the study entered its regime for the first time in three attempts and produced the gap — `+0.312 ± 0.031` and `+0.376 ± 0.033` paired in `q-drift`. **Item 13 gets its first number and stays open**: `√n R_remaining` does not vanish at these sizes *at `glm` reductions*, which is a measurement of this configuration rather than of the theorem's condition | two dispatches of `drtmle-coverage.yml` at 250 replicates and their tables; per-replicate results as four artefacts, now [manifested](drtmle/study-manifest.md); [what it measured](drtmle/investigation-log.md#what-the-c3c-dispatch-measured); [the gate readout](drtmle/coverage-study.md#the-gates-read-out-clause-by-clause); lessons 17 and 18 |
-| **E0** – **E5** | [what C3c handed back](#e-what-c3c-handed-back): the record, the remainder instrument, the oracle reduction, the construction and solver, the two designs, and the fresh dispatch. **E5** is where item 13 closes either way | the piece's own table below |
+| **E0** – **E1** — *landed* | [what C3c handed back](#e-what-c3c-handed-back)'s first two: the record, and the remainder instrument. E1 integrates `P₀D̂` deterministically and bounds what is left on a nested ladder, which takes the instrument off the list of candidate explanations for the flat column | `DGP.quadrature`; `quadrature_frame`, `truth_at`, `corrected_curve` and `row_weights`/`limit` on every remainder column; `benchmarks/drtmle_companion_grid.py` and its workflow; `--quadrature-points`; `ScoreRow` and a second artefact; `tests/unit/test_drtmle_companion_grid.py` |
+| **E2** – **E5** | the oracle reduction, the construction and solver, the two designs, and the fresh dispatch. **E5** is where item 13 closes either way | the piece's own table below |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
 **A1 split into A1a and A1b for the reason B1 split into B1a and B1b**, and the reason is worth
@@ -502,8 +503,8 @@ A1b cross-fitting construction ────────────────�
                                                                                                 │
 C3c ──> E0 ──> E1 ──> E2 ──> E3 ──> E4 ──> E5   <────────────────────────────────────────────────┘
        record  P₀D̂   oracle  build  two     fresh      E2 is a branch point, not a stage:
-              rule   first  +solve designs dispatch    if the oracle does not move the
-                                                       remainder, the learner road is shut
+       landed  rule   first  +solve designs dispatch    if the oracle does not move the
+              landed                                    remainder, the learner road is shut
 
 D   independent of all of it, and gated on A1a alone
 ```
@@ -2135,8 +2136,8 @@ error, which needs the dispatch.
 
 #### E. What C3c handed back
 
-**Closes item 13 either way, in six pull requests — E0 to E5, none landed — and a seventh that
-fires only if E2 branches.** [C3c](#what-c3c-measured)
+**Closes item 13 either way, in six pull requests — E0 to E5, of which E0 and E1 have landed — and
+a seventh that fires only if E2 branches.** [C3c](#what-c3c-measured)
 measured `√n R_remaining` and found it flat. It did not find out *why*, and the difference is the
 whole of this piece: a run whose reduced regressions were fitted by `glm`, whose consistency the
 concordance marks `unverified`, tested Theorem 1's conclusion without establishing Theorem 1's
@@ -2182,8 +2183,8 @@ estimator change.
 
 | | scope | what it closes | must not include |
 | --- | --- | --- | --- |
-| **E0** — *this revision* | the record: item 13 reopened, the ceiling demoted to exploratory, the two mechanisms separated, C3b's condition-3 sentence corrected, batch A relabelled, and the four stale status-prose sites. Plus [the study manifest](drtmle/study-manifest.md) | nothing — it is the page saying what the study showed | any estimator or benchmark change |
-| **E1** | the remainder instrument: `P₀D̂` by deterministic integration or at an `m_n` that grows faster than `n`, a companion-convergence harness over at least three grids, and the full score row per fit serialised rather than a boolean | the precision half of the quadrature question — that a flat column is not the companion's noise | learner selection; any coverage claim |
+| **E0** — *landed* | the record: item 13 reopened, the ceiling demoted to exploratory, the two mechanisms separated, C3b's condition-3 sentence corrected, batch A relabelled, and the four stale status-prose sites. Plus [the study manifest](drtmle/study-manifest.md) | nothing — it is the page saying what the study showed | any estimator or benchmark change |
+| **E1** — *landed* | the remainder instrument: `P₀D̂` by deterministic integration — the curve is affine in `Y` and binary in `A`, so two of its three coordinates close in closed form — a nested-grid convergence ladder read off one fit per draw, and the full score row per fit serialised beside the replicates. [What it landed](#what-e1-landed) | the precision half of the quadrature question: **most of C3c's across-draw spread was the draw**, and the deterministic grid's own error is smaller by orders. It does **not** make the decline resolvable | learner selection; any coverage claim |
 | **E2** | **the oracle reduction, and it is the branch point.** Build `Q_r`, `g_{r,1}`, `g_{r,2}` at their population limits and refit both cells with them injected. **If the oracle does not move `√n R_remaining`, candidate 1 is dead and the learner road is shut** — E2 ends there and the diagnosis moves to E3 | whether item 13's failure is a *learner* failure at all | a learner comparison. That is E2b's and only if this fires |
 | **E2b** — *conditional* | growing-basis deterministic spline against `glm`, `boost` and the E2 oracle, judged on reduced-function `L₂` loss and on the theorem's products — **never on coverage** | the reduction learner | promoting a data-adaptive learner to the **pooled** construction. See the refusal below |
 | **E3** | `‖Δ_k‖` measured directly rather than through `ψ`; pooled against nested; update order against a prospective equivalence margin; the 99 failing seeds replayed and classified *before* the solver is touched; and an inference-validity flag that suppresses a Wald interval rather than emitting an ordinary-looking one | item 15's stability half, item 22's numerical half, and the invalid-fit rate | scope widening. The narrowest evidenced fix, not a larger `max_iter` |
@@ -2356,7 +2357,10 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
     the flat remainder lives, then the construction and the solver, then two designs where there
     was one, and only then a fresh dispatch. The ordering is the same rule the rest of this list
     is built on — a run whose inputs are not established measures a design nobody has checked, and
-    C3a and C3b are what that cost twice.
+    C3a and C3b are what that cost twice. ~~**E0**~~ and ~~**E1**~~ have landed; the instrument is
+    no longer a candidate explanation for the flat column, which is what had to be true before
+    E2's oracle could be read as a statement about the reductions. [What E1
+    landed](#what-e1-landed).
 
 **Item 23 was outside that order**, like **D**: a small fix with an oracle already in the
 repository, touching only the partial-guard path, which is why it did not wait on the theorem or on

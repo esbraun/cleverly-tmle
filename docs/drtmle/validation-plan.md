@@ -800,6 +800,54 @@ size. Its error lands directly in a replicate's `R_remaining` at `O(m^(−1/2))`
 draws an independent evaluation sample per replicate and reports the Monte Carlo standard error of
 the mean beside every entry.
 
+**E1 takes that sentence at its word, and the rule moves — before the final run and with the reason
+written down, which is what the freeze rule below permits.** The fold convention is unchanged; what
+changes is what `E₀` is taken by. `--evaluation-n` said *quadrature rule* and was an i.i.d. draw,
+which is the one kind of quadrature whose error does not fall faster than `m^(−1/2)`; the
+deterministic rule is that sentence's conclusion rather than a departure from it. Four things, and
+the third is the one that is easy to skip.
+
+*The reduction, which is why this is not simply a bigger draw.* The corrected curve is **affine in
+`Y` given `(A, W)`** and reads `A` **only through the indicator**: `D*_g = (Q_r/g)(1_a − g)` has no
+`Y` in it and `D*_Q = 1_a·(g_{r,2}/g_{r,1})(Y − Q̄*)` is affine in it, so
+
+```text
+P₀D̂  =  E_W[ Σ_{a ∈ {0,1}} g₀(a|W) · D̂(W, a, Q̄₀(a, W)) ]
+```
+
+is an **identity**. Two of the three coordinates integrate in closed form and a quadrature is left
+in `W` alone. `--quadrature-points` is the lever: the companion is every Sobol point of the law's
+own rule at both arms, `Y` at `Q̄₀(a, W)`, weighted by `g₀(a|W)`.
+
+*`ψ₀` moves onto the companion's grid, and that is most of what the rule buys.* Substituting the
+curve's centring, `R_remaining = E₀[D̂ᵘ − Q̄₀] − PₙD̂`, and the equality holds **only if both
+expectations are one integral** — under which every term of the integrand is a product of two
+nuisance errors rather than an `O(1)` quantity, so the grid's relative error acts on something of
+order `n^(−α)`. Taking `ψ₀` from the finer default rule instead differences two grids and the
+`O(1)` part survives. `benchmarks/drtmle_remainder.truth_at` is that, and it is why `DGP.quadrature`
+exists.
+
+*The error changes kind, and this is the cost of the trade rather than a footnote.* The draw's error
+is **noise** — independent per replicate, so a study averages it down and it inflates the spread
+each Monte Carlo error is computed from. The grid's is a **bias**: the same points at every
+replicate, so no replicate count removes it. It is orders smaller, and "orders smaller" is a claim
+that needs a number rather than an argument — which is why the deterministic rule ships **with** a
+convergence ladder (`benchmarks/drtmle_companion_grid.py`) rather than on its own, and why a
+dispatch that does not bound its grid is reporting an unquantified bias. A ladder that has not
+flattened means a finer rung, not a caveat.
+
+*Both rules stay, and passing both is refused.* The i.i.d. draw is the independent route the
+deterministic one is checked against — two renderings of one population integral, which is the
+strongest check this section has and the same argument `plain_remainder` is checked against Tier 1's
+quadrature under. It also remains the default, so every invocation the
+[study manifest](study-manifest.md) records reproduces bit for bit.
+
+**What it does not fix, stated because the temptation is to claim it does.** The rule's error is
+*part* of a replicate's spread and not the whole of it; the rest is the estimator's own second-order
+sampling variation, which only a replicate count reduces. Removing the quadrature narrows the bar
+condition 3 is read against by whatever share the ladder measures, and the honest reading of a
+column still flat afterwards is that the flatness is the estimator's.
+
 ### Reporting `R_Q` and `R_g` separately
 
 The single `R_remaining = ψ̂ − ψ_0 − (P_n − P_0)D̂_DR` is necessary and not sufficient: a total
@@ -829,6 +877,21 @@ the theorem's term would be worse than not reporting it. What is reported is eac
 `o_p(n^(−1/2))` under the Donsker and `L₂` conditions above and carries no product of nuisance
 errors to cancel against.
 
+**The bin counts stay at `(12, 24)` and E1 did not move them, which is a decision rather than an
+omission.** C3c's `cancel` reaching `1.99x` and `branches resolved` falling to `192/250` are gate
+1's clause 4 failing on its second half, and moving the instrument that reads a clause inside the
+pull request that measures the instrument's *precision* would leave the two unattributable — the
+mistake [lesson 14](investigation-log.md#what-the-sizings-got-wrong) is about, in the other
+direction. There is also a coupling that makes a third count worse rather than better at the
+present rules: two designs at 24 bins is 576 cells, and at 48 it is 2,304, so a finer grid needs
+proportionally more rows before its cell averages mean anything, and a bin count raised without the
+rows behind it drives every branch toward its own target and reports a spuriously small one. What
+E1 does instead is **report the error that was already being recorded**: `branch_error` has been on
+every replicate since C2 and was read by no table, so `192/250` arrived with no discretisation size
+beside it. Both harnesses now print it, and the ladder prints it at every rung — which is where the
+coupling above becomes visible rather than argued. A third bin count is E5's pre-flight question,
+to be taken **with** the row count that supports it.
+
 ### What to report
 
 Per estimator, per cell, per size, per seed batch: bias, `√n` bias, empirical sd, mean estimated
@@ -851,6 +914,28 @@ C1's first run put one to two of six *well-overlapped* draws on the far side of 
 means cells are **mixed** and a median of the margins would report a mixed cell as though it were a
 pure one. How to read a mixed cell's coverage number is C3's decision, to be taken **before** its
 dispatch under the rule that these may be changed before the final run and not after it.
+
+**Three things E1 adds, and each is about telling an instrument's error from an estimator's.**
+
+*The evaluation rule's own error, beside the column it lands in.* `rule err` on the remainder
+table and in pre-flight condition 3's reading, so that a column reported as flat can be read
+against the precision it was measured at. C3c's `√n R_rem` came with a replicate spread and
+nothing else, and the two candidate explanations for `1.427 ± 0.091` — a flat quantity and a
+quadrature too coarse to see the decline — could not be separated from that. The verdict rules are
+unchanged and still read the replicate spread, which is right, because the rule's error is inside
+it; what the column buys is **attribution**.
+
+*Which rule, and how many rows.* `companion_rule` and `companion_rows` on every record. C3c's
+artefacts carry neither, so a reader of them has to know the invocation — and once there are two
+rules that is a property of the row rather than of the run.
+
+*The full score row per fit, as a second artefact.* `valid` plus the two failure counts stay
+exactly as they are, because clauses 2 and 3 read them apart; the rows are **in addition**, keyed
+`(cell, n, data_seed, estimator)` and written under the same timestamp so the two files join. A
+count cannot say which equation missed, by what ratio against its threshold, or whether it started
+large and was driven down — `score_initial`, and it is the field that separates targeting having
+worked from targeting having had nothing to do. Nothing is filtered: writing only the failing rows
+would lose exactly that. This is what a replay of the invalid fits reads.
 
 ### Sizes and replications
 

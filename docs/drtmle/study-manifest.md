@@ -85,8 +85,44 @@ record would need a schema before a reader could do anything with it. Fields, as
 
 **A reader deriving a rate from a single row's `√n R_remaining` is reading the quadrature, not the
 remainder**: at `m = 2,000` the companion's own error is of order `1.0/√m ≈ 0.023` per replicate,
-which `√n` multiplies. Only the replicate mean with its Monte Carlo error means anything, and
-[E1](../roadmap.md#e-what-c3c-handed-back) is the pull request that removes the ambiguity.
+which `√n` multiplies. Only the replicate mean with its Monte Carlo error means anything.
+
+**[E1](../roadmap.md#what-e1-landed) has since put that error in a column**, and the schema above is
+therefore the schema **of these four artefacts** rather than of the harness as it now stands. A
+`0033c82` row has no `companion_se`, `companion_halving`, `companion_rule` or `companion_rows` in
+it, and a reader joining these files against a later run's has to know that: the four fields are
+absent rather than null. What they would have said, had they existed, is measured — at the i.i.d.
+rule these runs used, the evaluation draw accounts for a large share of each cell's across-draw
+spread, so the `± 0.09` above is not the estimator's alone.
+
+## The second artefact: score rows
+
+**Runs from [E1](../roadmap.md#what-e1-landed) onwards write two files**, `<stamp>.jsonl` and
+`<stamp>-scores.jsonl`, from one timestamp so they join. The four artefacts above predate it and
+have only the first.
+
+One JSON object per line, one line per `(cell, n, data_seed, estimator, score row)` — the grain is
+the **fit** rather than the estimand, which is why it is a second file: `Replicate` is per-estimand
+and nesting a per-fit fact inside it would store every row three times and break the flatness this
+schema rests on. The record is `benchmarks.drtmle_coverage.ScoreRow` and it carries every field of
+the library's `ScoreCheckRow`, which `tests/unit/test_drtmle_coverage.py` pins structurally so a
+field added there cannot silently stop being carried.
+
+| field | meaning |
+| --- | --- |
+| `cell`, `n`, `data_seed`, `fold_seed`, `estimator` | the fit, and the join key against the file above |
+| `tolerance`, `corrected`, `passed_overall` | the check's own context, repeated per row so a line means something on its own |
+| `name`, `kind` | which equation, and which of `correction` / `identity` / `diagnostic` |
+| `score`, `threshold`, `std_error`, `ratio` | the number, the bar it is read against, and their quotient |
+| `passed`, `converged`, `n_iter`, `method`, `failure` | what the solver did and why it stopped |
+| `score_initial`, `reduction` | the same score before targeting moved anything, and the factor. **This is the field a count cannot replace**: a score that started near zero had nothing to do, which is a different situation from one driven down, and only the second is evidence targeting worked |
+| `hessian_condition` | how well `epsilon` is identified, which can be poor where the score looks solved |
+| `folds_converged`, `folds_total` | the pair off `ScoreCheckRow.folds_converged`, split in two because a tuple in JSON is a list whose order a reader has to know |
+
+**Nothing is filtered.** Writing only the failing rows would make the file unable to answer the
+`score_initial` question above, and it is the file [E3](../roadmap.md#e-what-c3c-handed-back)
+classifies the 99 invalid fits from — `valid`, `identity_failures` and `score_failures` on the
+replicate rows say *how many* and say nothing about *which*.
 
 ## Regenerating the tables
 

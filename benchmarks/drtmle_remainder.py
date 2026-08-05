@@ -100,9 +100,11 @@ the indicator, so both of those coordinates integrate in closed form and what is
 quadrature in :math:`W` -- taken on the Sobol rule :meth:`~cleverly.datasets.DGP.truth` already
 uses, so :math:`\psi_0` and :math:`P_0\hat D` come off one grid.  The derivation is in that
 function's docstring.  :func:`evaluation_frame` stays beside it and is not legacy: it is the
-independent route the deterministic one is checked against, and the grid ladder
-``benchmarks/drtmle_coverage.py --companion-grid`` sweeps is what says how much either rule's
-own error is.
+independent route the deterministic one is checked against, and
+``benchmarks/drtmle_companion_grid.py`` is the ladder that says how large either rule's own
+error is -- which the deterministic rule needs beside it rather than as an option, because
+its error is a **bias** where the draw's is noise: the same points at every replicate, so no
+replicate count removes it.
 
 **What this instrument cannot see**, named here rather than left for a reader to discover,
 because an instrument whose blind spots are unlisted is how lesson 9 happens again:

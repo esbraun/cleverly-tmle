@@ -152,18 +152,47 @@ class TestTheTableSaysWhatTheLadderMeasured:
 
         assert cells[1]["delta"] == f"{0.02:.5f}"
 
-    def test_the_share_is_the_rules_variance_against_the_spread(self) -> None:
-        """What E5 sizes against, so it is read off the table rather than recomputed."""
+    def test_the_variance_removed_is_measured_against_the_control_and_not_the_witness(
+        self,
+    ) -> None:
+        """What E5 sizes against, and it is two measured spreads rather than a modelled one.
+
+        The witness-based version of this column read **above one** on every control row of
+        the first sweep, which is not a share of anything: halving a noise-dominated rule
+        doubles a variance, so the halving witness reads about ``1.4x`` the standard error it
+        stands in for.  A difference of two spreads on the same draws needs no such model.
+        """
         records = [
-            row(data_seed=seed, root_n_remaining=value, companion_halving=0.5)
+            row(data_seed=seed, root_n_remaining=value)
             for seed, value in enumerate((0.0, 2.0, 4.0))
+        ] + [
+            row(data_seed=seed, rule="draw", points=0, rows=2_000, root_n_remaining=value)
+            for seed, value in enumerate((0.0, 4.0, 8.0))
+        ]
+
+        cells = [dict(zip(grid.GRID_HEADERS, r, strict=True)) for r in grid.grid_rows(records)]
+
+        # sd 2 against the control's sd 4, so three quarters of the variance is the rule's.
+        assert cells[0]["spread"] == "2.0000"
+        assert cells[0]["var removed"] == "0.750"
+        assert cells[1]["var removed"] == "-"
+
+    def test_the_witness_is_not_read_as_a_share(self) -> None:
+        """The control row prints its witness and claims nothing about it.
+
+        A ``rule err`` above ``spread`` is a real reading of an inflated witness rather than a
+        rule accounting for more than the whole variance, and the table has to be able to
+        print the first without implying the second.
+        """
+        records = [
+            row(data_seed=seed, rule="draw", points=0, rows=2_000, root_n_remaining=value)
+            for seed, value in enumerate((0.0, 1.0, 2.0))
         ]
 
         (cell,) = [dict(zip(grid.GRID_HEADERS, r, strict=True)) for r in grid.grid_rows(records)]
 
-        # sd of (0, 2, 4) at ddof=1 is 2, so the share is 0.25 / 4.
-        assert cell["spread"] == "2.0000"
-        assert cell["share"] == "0.0625"
+        assert float(cell["rule err"]) > 0.0
+        assert cell["var removed"] == "-"
 
     def test_a_failed_rung_is_a_row_rather_than_a_gap(self, monkeypatch) -> None:
         """A ladder with a rung missing looks like a shorter ladder, which is a different claim.
