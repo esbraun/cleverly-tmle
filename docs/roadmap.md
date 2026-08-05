@@ -2323,7 +2323,7 @@ retraction attached to each.
   default rule instead and two grids are differenced, and the `O(1)` part of the error survives.
   `DGP.quadrature` exists for that and is the piece's only change under `src/`;
 - **a ladder, and it is one fit per draw.** The grids are nested prefixes and the companion
-  interleaves the arms, so the first `2k` rows *are* the grid at `k` points and a rung is a `limit=`
+  interleaves the arms, so the first `2k` rows *are* the grid at `k` points and a rung is a `Window`
   slice — which makes the movement between two rungs the discretisation rather than a difference
   between two fits that would have to be argued bit-identical. Pinned against an actual refit, bit
   for bit on every column. **What that movement is evidence of is where E1 overreached**: it says

@@ -89,7 +89,8 @@ which `√n` multiplies. Only the replicate mean with its Monte Carlo error mean
 
 **[E1](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) has since put that error in a column**, and the schema above is
 therefore the schema **of these four artefacts** rather than of the harness as it now stands. A
-`0033c82` row has no `companion_se`, `companion_halving`, `companion_rule` or `companion_rows` in
+`0033c82` row has no `companion_se`, `companion_replicate_se`, `companion_rule`, `companion_rows` or
+`companion_scramble` in
 it, and a reader joining these files against a later run's has to know that: the four fields are
 absent rather than null. What they would have said, had they existed, is measured — at the i.i.d.
 rule these runs used, the evaluation draw accounts for a large share of each cell's across-draw

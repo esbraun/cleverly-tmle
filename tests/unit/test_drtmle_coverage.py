@@ -751,11 +751,12 @@ class TestTheEvaluationRuleIsChosenRatherThanAssumed:
     """Two rules for the companion, and a row that says which one produced it.
 
     The i.i.d. draw is what C3c ran and is the default, so every recorded invocation
-    reproduces; the deterministic Sobol grid is
-    :func:`~benchmarks.drtmle_remainder.quadrature_frame`, whose error is orders smaller and
-    is a *bias* rather than noise -- see
-    [E1](../../docs/roadmap.md#e-what-c3c-handed-back).  What is under test here is the
-    wiring and the refusal, not the statistics: those are
+    reproduces; the quasi-random rule is
+    :func:`~benchmarks.drtmle_remainder.quadrature_frame`, whose error is orders smaller and,
+    under an **independent scramble per replicate**, is mean-zero noise the study averages
+    down rather than the bias a fixed grid left it -- see
+    [E1b](../../docs/roadmap.md#what-e1b-measures).  What is under test here is the wiring
+    and the refusal, not the statistics: those are
     ``tests/unit/test_drtmle_remainder_study.py``'s, where the identities are.
     """
 
@@ -794,7 +795,57 @@ class TestTheEvaluationRuleIsChosenRatherThanAssumed:
             if json.loads(line)["estimator"] == "drtmle"
         ]
         assert {row["companion_rule"] for row in rows} == {"sobol"}
-        assert {row["companion_rows"] for row in rows} == {256}
+        # Two arms per point, times the scrambles: the companion holds every replicate of the
+        # rule, which is what puts a measured error on the row rather than a derived one.
+        assert {row["companion_rows"] for row in rows} == {2 * 128 * study.QUADRATURE_SCRAMBLES}
+
+    def test_the_scramble_is_per_replicate_and_the_rule_error_is_measured(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """E1b's rule, at the two places a row can show it.
+
+        The scramble varies **across draws**, which is what makes the rule's error mean-zero
+        noise the study averages down instead of the same bias on every row; and
+        ``companion_replicate_se`` is finite, which is what says the error was measured from
+        this fit's own scrambles rather than derived from a halving witness.  A single fixed
+        grid passes neither.
+        """
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "drtmle_coverage.py",
+                "--tier",
+                "1",
+                "--cells",
+                "q-drift",
+                "--sizes",
+                "200",
+                "--replicates",
+                "2",
+                "--jobs",
+                "1",
+                "--evaluation-n",
+                "0",
+                "--quadrature-points",
+                "128",
+                "--out",
+                str(tmp_path),
+            ],
+        )
+        study.main()
+
+        (replicates,) = [
+            path for path in sorted(tmp_path.glob("*.jsonl")) if not path.stem.endswith("-scores")
+        ]
+        rows = [
+            json.loads(line)
+            for line in replicates.read_text().splitlines()
+            if json.loads(line)["estimator"] == "drtmle"
+        ]
+
+        assert len({row["companion_scramble"] for row in rows}) == 2
+        assert all(np.isfinite(row["companion_replicate_se"]) for row in rows)
 
     def test_both_rules_at_once_are_refused_by_name(self, monkeypatch) -> None:
         """A run under both would integrate against a rule nobody chose."""
