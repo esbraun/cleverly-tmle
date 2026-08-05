@@ -247,7 +247,66 @@ class Replicate:
     branch_q: float = float("nan")
     branch_g: float = float("nan")
     branch_error: float = float("nan")
+    #: The evaluation rule's **own** error, on the same root-``n`` scale as
+    #: ``root_n_remaining``, so a reader can see how much of that column is the quadrature.
+    #: Two numbers because the two rules fail differently -- see
+    #: :class:`benchmarks.drtmle_remainder.RemainderRow` for which belongs to which.
+    companion_se: float = float("nan")
+    companion_halving: float = float("nan")
+    #: Which rule produced the row, and how many rows it held.  Self-describing on purpose:
+    #: C3c's artefacts do not carry either, so a reader of them has to know the invocation.
+    companion_rule: str = ""
+    companion_rows: int = 0
     error: str = ""
+
+
+@dataclass
+class ScoreRow:
+    """One row of one fit's ``score_check()``, kept whole rather than counted.
+
+    ``Replicate`` reports the check as ``valid`` plus its two failure counts, which is what
+    gate 1's clauses 2 and 3 read and stays exactly as it was.  What a count cannot say is
+    **which** equation missed and by how far, and that is what
+    [E3](../docs/roadmap.md#e-what-c3c-handed-back) has to classify the invalid fits from.
+
+    A second artefact rather than a field on :class:`Replicate`, and the reason is the grain:
+    a score row is a fact about a *fit* and ``Replicate`` is per **estimand**, so nesting one
+    inside the other would store every row three times and break the flatness the manifest's
+    schema rests on.  This is flat too -- :class:`~cleverly.validation.score.ScoreCheckRow` is
+    already a flat frozen dataclass -- so one file per record type is that discipline kept
+    rather than departed from.
+    """
+
+    cell: str
+    n: int
+    data_seed: int
+    fold_seed: int
+    estimator: str
+    #: The check's own context, repeated per row so a line means something on its own.
+    tolerance: float
+    corrected: bool
+    passed_overall: bool
+    name: str
+    kind: str
+    score: float
+    threshold: float
+    std_error: float
+    passed: bool
+    converged: bool
+    n_iter: int
+    method: str
+    score_initial: float
+    hessian_condition: float
+    failure: str
+    #: ``ScoreCheckRow.folds_converged`` split in two, because a tuple in JSON is a list a
+    #: reader then has to know the order of.
+    folds_converged: int
+    folds_total: int
+    #: The two derived properties, carried rather than left to be recomputed: ``ratio`` is
+    #: what a threshold is read against and ``reduction`` is what says targeting had anything
+    #: to do, and a reader of the artefact should not have to rebuild either.
+    ratio: float
+    reduction: float
 
 
 @dataclass(frozen=True)
@@ -259,6 +318,10 @@ class Payload:
     data_seed: int
     fold_seed: int
     evaluation_n: int = 0
+    #: Sobol points of the deterministic rule, ``0`` for the i.i.d. draw.  The companion is
+    #: ``2 * quadrature_points`` rows when it is set, since every point is carried at both
+    #: arms -- which is what makes the ``A`` and ``Y`` coordinates exact rather than sampled.
+    quadrature_points: int = 0
 
 
 def _witnesses(fit: Any) -> dict[str, Any]:
@@ -354,12 +417,44 @@ def _failed(
     ]
 
 
-def one_draw(payload: Payload) -> list[Replicate]:
+def _companion(payload: Payload, dgp: Any) -> tuple[Any, Any, dict[str, float] | None, str, int]:
+    """The evaluation rule for one draw: its frame, its row weights, and its own ``psi_0``.
+
+    Two rules, and which one is in force is a **property of the row** rather than of the
+    invocation -- ``companion_rule`` and ``companion_rows`` travel on every record so an
+    artefact says what produced it.
+
+    *The i.i.d. draw* is drawn per replicate rather than once, so its error is independent
+    across replicates and averages down in the reported mean rather than biasing every row
+    the same way.  The seed stream is disjoint from the study's -- see ``EVALUATION_SEED``.
+
+    *The deterministic grid* is the **same points at every replicate**, and that is the trade
+    rather than an oversight: its error is a bias no replicate count removes, where the
+    draw's is noise that averages down.  It is orders smaller -- which is the whole of E1 --
+    but it is bounded by a convergence ladder rather than by the study, and
+    ``benchmarks/drtmle_companion_grid.py`` is what bounds it.
+    """
+    if payload.quadrature_points > 0:
+        frame, weights = drtmle_remainder.quadrature_frame(dgp, payload.quadrature_points)
+        truth = drtmle_remainder.truth_at(dgp, payload.quadrature_points)
+        return frame, weights, truth, "sobol", 2 * payload.quadrature_points
+    if payload.evaluation_n > 0:
+        frame = drtmle_remainder.evaluation_frame(
+            dgp, payload.evaluation_n, EVALUATION_SEED + payload.data_seed % 1_000_003
+        )
+        return frame, None, None, "draw", payload.evaluation_n
+    return None, None, None, "", 0
+
+
+def one_draw(payload: Payload) -> tuple[list[Replicate], list[ScoreRow]]:
     """Both estimators on one draw at one cell's injected nuisances.
 
     Paired inside the worker rather than across two passes, which is what makes the shortfall a
     paired quantity: the two fits see the same rows, the same prescribed nuisance functions and
     the same fold split, so every difference between them is the two extra score equations.
+
+    Returns the per-estimand records and the per-fit score rows, which go to two artefacts
+    for the reason :class:`ScoreRow` states.
     """
     import warnings
 
@@ -367,18 +462,10 @@ def one_draw(payload: Payload) -> list[Replicate]:
     frame, _ = dgp.sample(payload.n, seed=payload.data_seed)
     truth = dgp.truth()
     shared = injection.settings(payload.cell, payload.n)
-    # Drawn per replicate rather than once, so the quadrature error is independent across
-    # replicates and averages down in the reported mean rather than biasing every row the
-    # same way. The seed stream is disjoint from the study's -- see EVALUATION_SEED.
-    evaluation = (
-        None
-        if payload.evaluation_n <= 0
-        else drtmle_remainder.evaluation_frame(
-            dgp, payload.evaluation_n, EVALUATION_SEED + payload.data_seed % 1_000_003
-        )
-    )
+    evaluation, row_weights, grid_truth, rule, rows = _companion(payload, dgp)
 
     records: list[Replicate] = []
+    scores: list[ScoreRow] = []
     for estimator, factory in (
         ("tmle", lambda: TMLE(**shared, random_state=payload.fold_seed)),
         (
@@ -406,6 +493,7 @@ def one_draw(payload: Payload) -> list[Replicate]:
         check = fit.validation.score_check(tolerance=VALIDITY_TOLERANCE)
         valid = check.passed
         identity_failures, score_failures = _failure_counts(check)
+        scores.extend(_score_rows(payload, estimator, check))
         witnesses, alternation = _witnesses(fit), _alternation(fit)
         remainder: dict[str, Any] = {}
         # The regime-entry column, on **both** estimators.  It needs no companion -- the law
@@ -426,7 +514,12 @@ def one_draw(payload: Payload) -> list[Replicate]:
                 remainder = {
                     row.estimand: row
                     for row in drtmle_remainder.remainder_rows(
-                        fit, dgp, n=payload.n, bounds=fit.config.g_bounds
+                        fit,
+                        dgp,
+                        n=payload.n,
+                        bounds=fit.config.g_bounds,
+                        row_weights=row_weights,
+                        truth=grid_truth,
                     )
                 }
             except Exception as exc:  # pragma: no cover - reported, never hidden
@@ -462,11 +555,55 @@ def one_draw(payload: Payload) -> list[Replicate]:
                     branch_q=float("nan") if row is None else row.branch_q,
                     branch_g=float("nan") if row is None else row.branch_g,
                     branch_error=float("nan") if row is None else row.branch_error,
+                    companion_se=float("nan") if row is None else row.companion_se,
+                    companion_halving=float("nan") if row is None else row.companion_halving,
+                    companion_rule=rule if row is not None else "",
+                    companion_rows=rows if row is not None else 0,
                     **witnesses,
                     **alternation,
                 )
             )
-    return records
+    return records, scores
+
+
+def _score_rows(payload: Payload, estimator: str, check: Any) -> list[ScoreRow]:
+    """Every row of one fit's score check, flattened onto the draw that produced it.
+
+    Nothing is filtered.  Writing only the failing rows would make the artefact unable to
+    answer *"did this equation start large and get driven down, or start near zero"* -- which
+    is the distinction ``ScoreCheckRow.score_initial`` exists for and the one that separates
+    targeting having worked from targeting having had nothing to do.
+    """
+    folds = [0, 0]
+    return [
+        ScoreRow(
+            cell=payload.cell,
+            n=payload.n,
+            data_seed=payload.data_seed,
+            fold_seed=payload.fold_seed,
+            estimator=estimator,
+            tolerance=float(check.tolerance),
+            corrected=bool(check.corrected),
+            passed_overall=bool(check.passed),
+            name=row.name,
+            kind=row.kind,
+            score=float(row.score),
+            threshold=float(row.threshold),
+            std_error=float(row.std_error),
+            passed=bool(row.passed),
+            converged=bool(row.converged),
+            n_iter=int(row.n_iter),
+            method=row.method,
+            score_initial=float(row.score_initial),
+            hessian_condition=float(row.hessian_condition),
+            failure=row.failure,
+            folds_converged=int((row.folds_converged or folds)[0]),
+            folds_total=int((row.folds_converged or folds)[1]),
+            ratio=float(row.ratio),
+            reduction=float(row.reduction),
+        )
+        for row in check.rows
+    ]
 
 
 # ------------------------------------------------------------------ the reported rules
@@ -1143,17 +1280,27 @@ def preflight_rows(records: Sequence[Replicate]) -> list[list[str]]:
             ]
         )
         corrected = [_corrected(records, cell, size) for size in sizes]
-        if not any(np.isfinite(value) for value, _ in corrected):
+        if not any(np.isfinite(value) for value, _, _ in corrected):
             rows.append(["3. sqrt(n) R_rem falling", cell, "no evaluation draw", "-"])
             continue
         first, last = corrected[0], corrected[-1]
-        reading = " / ".join(f"{value:+.3f} +/- {error:.3f}" for value, error in corrected)
+        # The rule's own error travels beside the replicate spread rather than folded into
+        # it, because a reader who sees one number cannot tell which of the two an
+        # `unresolved` verdict is short on -- and the two have different repairs: the spread
+        # falls with the replicate count and the rule's error falls with the grid.
+        reading = " / ".join(
+            f"{value:+.3f} +/- {error:.3f} (rule {rule:.3f})" for value, error, rule in corrected
+        )
         # `P_0 D-hat` is a quadrature whose error lands directly in each replicate's remainder,
         # and `sqrt(n)` multiplies it -- so at a pre-flight's draw counts these columns are
         # mostly noise and a rise inside their own error says nothing.  Reported as unresolved
         # rather than as a failure, which is the same distinction the `-` above draws: a
         # condition nobody could read and a condition that did not hold are different things,
         # and only the dispatch separates them.
+        #
+        # The test is unchanged and reads the *replicate* spread, which is right: the rule's
+        # error is inside that spread by construction, so folding it in again would double
+        # count it.  What the new column buys is attribution, not a different verdict.
         separated = abs(last[0] - first[0]) > 1.96 * float(np.hypot(first[1], last[1]))
         if not separated:
             rows.append(["3. sqrt(n) R_rem falling", cell, reading, "unresolved"])
@@ -1169,20 +1316,35 @@ def preflight_rows(records: Sequence[Replicate]) -> list[list[str]]:
     return rows
 
 
-def _corrected(records: Sequence[Replicate], cell: str, size: int) -> tuple[float, float]:
-    """Mean and Monte Carlo error of ``sqrt(n) R_remaining`` over a cell and size's draws."""
-    values = np.array(
-        [
-            r.root_n_remaining
-            for r in _select(records, cell, size, "drtmle", "ate")
-            if np.isfinite(r.root_n_remaining)
-        ],
-        dtype=float,
-    )
-    if values.size == 0:
-        return (float("nan"), float("nan"))
+def _corrected(records: Sequence[Replicate], cell: str, size: int) -> tuple[float, float, float]:
+    """Mean of ``sqrt(n) R_remaining``, its Monte Carlo error, and the **rule's** own error.
+
+    Three numbers rather than two, and the third is what
+    [E1](../docs/roadmap.md#e-what-c3c-handed-back) exists to expose.  The second is the
+    spread of the column across *draws* and carries the estimator's own sampling variation
+    **and** the evaluation rule's error together; the third is the rule's alone, read off
+    each replicate's own witness.  A reader who cannot see them apart cannot tell a column
+    that is flat from one whose instrument is too blunt to say -- which is exactly the
+    reading C3c's dispatch could not settle.
+
+    The rule's error is a mean of per-replicate witnesses rather than a
+    :math:`\\sqrt{\\text{reps}}`-shrunk one, and that is deliberate on both rules: on the
+    i.i.d. draw it *does* average down and quoting the per-replicate size is conservative,
+    while on the deterministic grid it is the **same** points at every replicate and so does
+    not average down at all.  One column that is honest under the worse case beats two that
+    a reader has to pick between.
+    """
+    selected = [
+        r for r in _select(records, cell, size, "drtmle", "ate") if np.isfinite(r.root_n_remaining)
+    ]
+    if not selected:
+        return (float("nan"), float("nan"), float("nan"))
+    values = np.array([r.root_n_remaining for r in selected], dtype=float)
+    witness = np.array([r.companion_halving for r in selected], dtype=float)
     error = float(np.std(values, ddof=1) / np.sqrt(values.size)) if values.size > 1 else 0.0
-    return (float(values.mean()), error)
+    finite = witness[np.isfinite(witness)]
+    rule = float(np.mean(finite)) if finite.size else float("nan")
+    return (float(values.mean()), error, rule)
 
 
 def _verdict(passed: bool) -> str:
@@ -1202,9 +1364,11 @@ REMAINDER_HEADERS = (
     "declared c",
     "R_rem",
     "sqrt(n) R_rem",
+    "rule err",
     "R_Q",
     "R_g",
     "cancel",
+    "branch err",
     "branches resolved",
 )
 
@@ -1234,6 +1398,15 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
     no cancellation; a large value is the failure mode the clause names, and it is reported
     rather than thresholded because §5 sets no number for it.  ``-`` where the branches did
     not resolve, since a ratio of two unresolved quantities is not a measurement of anything.
+
+    **Two error columns beside those, and they are about the instrument rather than the
+    estimator.**  ``rule err`` is the evaluation rule's own contribution to ``sqrt(n) R_rem``,
+    so a reader can tell a column that is flat from one whose quadrature is too coarse to
+    say -- the reading C3c could not settle, and what
+    [E1](../docs/roadmap.md#e-what-c3c-handed-back) is.  ``branch err`` is the same thing one
+    level down for the binned limits: it was recorded on every replicate from C2 onwards and
+    **read by no table**, which is why ``branches resolved`` falling to ``192/250`` in C3c
+    arrived without the size of the discretisation beside it.
     """
     rows = []
     for cell, n in _cells(records):
@@ -1259,6 +1432,8 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
             root_mean, root_error = column("root_n_remaining")
             branch_q, _ = column("branch_q")
             branch_g, _ = column("branch_g")
+            rule_error, _ = column("companion_halving")
+            branch_error, _ = column("branch_error")
             resolved = sum(1 for r in selected if np.isfinite(r.branch_q))
             rows.append(
                 [
@@ -1272,9 +1447,11 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
                     f"{declared:+.4f}" if estimand == "ate" else "",
                     f"{column('remaining')[0]:+.5f}",
                     f"{root_mean:+.4f} +/- {root_error:.4f}",
+                    f"{rule_error:.4f}",
                     f"{branch_q:+.5f}" if resolved else "-",
                     f"{branch_g:+.5f}" if resolved else "-",
                     _cancellation(branch_q, branch_g) if resolved else "-",
+                    f"{branch_error:.5f}",
                     f"{resolved}/{len(selected)}",
                 ]
             )
@@ -1326,30 +1503,39 @@ def _payloads(
     sizes: Sequence[int],
     seeds: Sequence[tuple[int, int]],
     evaluation_n: int,
+    quadrature_points: int = 0,
 ) -> list[Payload]:
     return [
-        Payload(cell, n, data_seed, fold_seed, evaluation_n)
+        Payload(cell, n, data_seed, fold_seed, evaluation_n, quadrature_points)
         for cell in cells
         for n in sizes
         for data_seed, fold_seed in seeds
     ]
 
 
-def write_records(records: Sequence[Replicate], directory: Path) -> Path:
-    """Every replicate, one JSON object per line, in a git-ignored directory.
+def write_records(
+    records: Sequence[Replicate], scores: Sequence[ScoreRow], directory: Path
+) -> tuple[Path, Path]:
+    """Every replicate and every score row, one JSON object per line, in a git-ignored dir.
 
     §5 asks for the per-replicate results and not only the summary tables, and the reason is
     the one this whole page keeps running into: a table nobody can recompute becomes folklore.
     The directory is under ``benchmarks/results/``, which is generated output -- a file from a
     two-core container reads as a fact about the package rather than about that box -- so the
     workflow uploads it as an artefact rather than committing it.
+
+    **Two files from one timestamp**, which is why this is one function rather than two: the
+    replicates and the score rows are joined on ``(cell, n, data_seed, estimator)``, and two
+    calls a second apart would produce a pair a reader cannot tell belongs together.
     """
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{time.strftime('%Y%m%dT%H%M%S')}.jsonl"
-    with path.open("w") as handle:
-        for record in records:
-            handle.write(json.dumps(asdict(record)) + "\n")
-    return path
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    paths = (directory / f"{stamp}.jsonl", directory / f"{stamp}-scores.jsonl")
+    for path, rows in zip(paths, (records, scores), strict=True):
+        with path.open("w") as handle:
+            for record in rows:
+                handle.write(json.dumps(asdict(record)) + "\n")
+    return paths
 
 
 def main() -> None:
@@ -1385,6 +1571,14 @@ def main() -> None:
         help="rows of the independent draw P_0 D-hat is integrated over, which is item 13's "
         "instrument; 0 turns the remainder columns off",
     )
+    parser.add_argument(
+        "--quadrature-points",
+        type=int,
+        default=0,
+        help="Sobol points of the deterministic evaluation rule, which replaces the i.i.d. "
+        "draw; the companion is twice this many rows, since every point is carried at both "
+        "arms. 0 keeps the draw, which is what C3c ran and what its artefacts reproduce",
+    )
     parser.add_argument("--rows", action="store_true", help="print every replicate, not the cells")
     parser.add_argument(
         "--out",
@@ -1393,6 +1587,12 @@ def main() -> None:
         help="where the per-replicate JSONL goes; git-ignored generated output",
     )
     args = parser.parse_args()
+    if args.quadrature_points > 0 and args.evaluation_n > 0:
+        parser.error(
+            "--quadrature-points and --evaluation-n are two rules for one companion; pass "
+            "--evaluation-n 0 to take the deterministic grid, or leave --quadrature-points "
+            "unset to take the draw. A run under both would report a rule nobody chose"
+        )
 
     # Set before any draw is dispatched, and read by `one_draw` in the worker: the tier is a
     # module of designs rather than a branch, so every table below reads one interface.
@@ -1409,19 +1609,29 @@ def main() -> None:
         (int(data), int(fold))
         for data, fold in zip(drawn[: args.replicates], drawn[args.replicates :], strict=True)
     ]
-    payloads = _payloads(args.cells, args.sizes, seeds, args.evaluation_n)
+    payloads = _payloads(args.cells, args.sizes, seeds, args.evaluation_n, args.quadrature_points)
+    companion = (
+        f"deterministic grid, {2 * args.quadrature_points:,} rows at "
+        f"{args.quadrature_points:,} Sobol points -- the same points every replicate, so its "
+        "error is a bias the study cannot average down and drtmle_companion_grid.py is what "
+        "bounds it"
+        if args.quadrature_points > 0
+        else f"i.i.d. evaluation draw, {args.evaluation_n:,} rows, redrawn per replicate"
+    )
     print(
         f"tier {args.tier}: {len(payloads)} draws over cells {list(args.cells)} and sizes "
-        f"{list(args.sizes)}, two estimators each, jobs={args.jobs}, "
-        f"evaluation draw {args.evaluation_n:,} rows"
+        f"{list(args.sizes)}, two estimators each, jobs={args.jobs}, {companion}"
     )
+
+    remainder_on = args.evaluation_n > 0 or args.quadrature_points > 0
 
     started = time.perf_counter()
     collected = map_parallel(one_draw, [(payload,) for payload in payloads], n_jobs=args.jobs)
     elapsed = time.perf_counter() - started
-    records = [record for batch in collected for record in batch]
+    records = [record for batch, _ in collected for record in batch]
+    scores = [row for _, batch in collected for row in batch]
 
-    path = write_records(records, args.out)
+    path, score_path = write_records(records, scores, args.out)
 
     def table(title: str, headers: Sequence[str], rows: list[list[str]]) -> None:
         print(f"\n{title}")
@@ -1453,7 +1663,7 @@ def main() -> None:
         SHORTFALL_HEADERS,
         shortfall_rows(records),
     )
-    if args.evaluation_n > 0:
+    if remainder_on:
         table(
             "The remainder Theorem 1 assumes negligible (item 13)",
             REMAINDER_HEADERS,
@@ -1529,7 +1739,7 @@ def main() -> None:
         f"{VALIDITY_TOLERANCE:g},\nwhich is the predeclared validity rule this run was read "
         "under."
     )
-    if args.evaluation_n > 0:
+    if remainder_on:
         print(
             "\nThe remainder table is item 13. `sqrt(n) R_rem` is what gate 1's clause 4 reads\n"
             "and it has to trend to zero across the sizes; `R_Q` and `R_g` are the two\n"
@@ -1559,6 +1769,11 @@ def main() -> None:
         else f"\nNo fit completed in {elapsed:.0f}s."
     )
     print(f"Per-replicate rows: {path}")
+    print(
+        f"Per-fit score rows: {score_path} -- {len(scores):,} rows, joined to the file above "
+        "on (cell, n, data_seed, estimator). Which equation missed and by what ratio, which "
+        "the two failure counts cannot say"
+    )
 
 
 if __name__ == "__main__":

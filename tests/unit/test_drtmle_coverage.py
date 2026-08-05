@@ -39,8 +39,11 @@ is why this module is cheap despite testing a study.
 
 from __future__ import annotations
 
+import json
 import sys
+from dataclasses import fields
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -463,6 +466,37 @@ def check_row(name: str, kind: str, passed: bool) -> score.ScoreCheckRow:
     )
 
 
+def _score_row(**overrides) -> study.ScoreRow:
+    """A hand-built score row, so the artefact can be tested without fitting anything."""
+    defaults: dict[str, object] = {
+        "cell": "q-drift",
+        "n": 600,
+        "data_seed": 1,
+        "fold_seed": 2,
+        "estimator": "drtmle",
+        "tolerance": 1e-3,
+        "corrected": True,
+        "passed_overall": True,
+        "name": "ate",
+        "kind": "correction",
+        "score": 1e-11,
+        "threshold": 1e-6,
+        "std_error": 0.1,
+        "passed": True,
+        "converged": True,
+        "n_iter": 3,
+        "method": "newton",
+        "score_initial": 1e-3,
+        "hessian_condition": 12.0,
+        "failure": "",
+        "folds_converged": 0,
+        "folds_total": 0,
+        "ratio": 1e-5,
+        "reduction": 1e8,
+    }
+    return study.ScoreRow(**{**defaults, **overrides})  # type: ignore[arg-type]
+
+
 def record(**overrides) -> study.Replicate:
     """A hand-built replicate, so the accounting can be tested without fitting anything."""
     defaults: dict[str, object] = {
@@ -711,6 +745,147 @@ class TestTheTierIsSelectedRatherThanRefused:
         monkeypatch.setattr(sys, "argv", ["drtmle_coverage.py", "--tier", "3"])
         with pytest.raises(SystemExit):
             study.main()
+
+
+class TestTheEvaluationRuleIsChosenRatherThanAssumed:
+    """Two rules for the companion, and a row that says which one produced it.
+
+    The i.i.d. draw is what C3c ran and is the default, so every recorded invocation
+    reproduces; the deterministic Sobol grid is
+    :func:`~benchmarks.drtmle_remainder.quadrature_frame`, whose error is orders smaller and
+    is a *bias* rather than noise -- see
+    [E1](../../docs/roadmap.md#e-what-c3c-handed-back).  What is under test here is the
+    wiring and the refusal, not the statistics: those are
+    ``tests/unit/test_drtmle_remainder_study.py``'s, where the identities are.
+    """
+
+    def test_the_deterministic_rule_runs_end_to_end(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "drtmle_coverage.py",
+                "--tier",
+                "1",
+                "--cells",
+                "q-drift",
+                "--sizes",
+                "200",
+                "--replicates",
+                "2",
+                "--jobs",
+                "1",
+                "--evaluation-n",
+                "0",
+                "--quadrature-points",
+                "128",
+                "--out",
+                str(tmp_path),
+            ],
+        )
+        study.main()
+
+        written = sorted(tmp_path.glob("*.jsonl"))
+        assert len(written) == 2
+        (replicates,) = [path for path in written if not path.stem.endswith("-scores")]
+        rows = [
+            json.loads(line)
+            for line in replicates.read_text().splitlines()
+            if json.loads(line)["estimator"] == "drtmle"
+        ]
+        assert {row["companion_rule"] for row in rows} == {"sobol"}
+        assert {row["companion_rows"] for row in rows} == {256}
+
+    def test_both_rules_at_once_are_refused_by_name(self, monkeypatch) -> None:
+        """A run under both would integrate against a rule nobody chose."""
+        # Sized so that a *removed* refusal fails this test quickly rather than dispatching
+        # the study's defaults and hanging -- a mutation that has to be waited out is one
+        # nobody watches fail.
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "drtmle_coverage.py",
+                "--cells",
+                "q-drift",
+                "--sizes",
+                "200",
+                "--replicates",
+                "1",
+                "--jobs",
+                "1",
+                "--evaluation-n",
+                "400",
+                "--quadrature-points",
+                "128",
+            ],
+        )
+        with pytest.raises(SystemExit):
+            study.main()
+
+
+class TestTheScoreRowsAreKeptWholeRatherThanCounted:
+    """``valid`` plus two counts is what gate 1 reads; it is not what E3 can classify from.
+
+    The counts stay exactly as they are -- clauses 2 and 3 read them apart and every table
+    below does too -- and the rows are **in addition**, in a second artefact.  Which equation
+    missed, by what ratio against its threshold, and whether it started large and was driven
+    down or started near zero: none of that survives a count, and all of it is what
+    [E3](../../docs/roadmap.md#e-what-c3c-handed-back) has to replay the invalid fits with.
+    """
+
+    def test_the_two_artefacts_share_one_timestamp(self, tmp_path) -> None:
+        """Joinable by name, which is the whole value of the second file.
+
+        Two ``strftime`` calls a second apart produce a pair a reader cannot tell belongs
+        together, so the two paths come out of one call rather than two.
+        """
+        replicates = [record(data_seed=1), record(data_seed=2)]
+        scores = [_score_row(data_seed=1), _score_row(data_seed=2)]
+
+        path, score_path = study.write_records(replicates, scores, tmp_path)
+
+        assert score_path.name == f"{path.stem}-scores.jsonl"
+        assert len(score_path.read_text().splitlines()) == 2
+        assert json.loads(score_path.read_text().splitlines()[0])["data_seed"] == 1
+
+    def test_every_field_of_the_librarys_row_reaches_the_artefact(self) -> None:
+        """A **structural** pin, and it is the one that keeps the artefact honest.
+
+        The library's ``ScoreCheckRow`` is what a fit records; if it grows a field and this
+        record does not, the artefact silently stops carrying it and nobody finds out until
+        somebody needs it. ``folds_converged`` is the one shape change -- a pair in JSON is a
+        list whose order a reader has to know -- so it becomes two named ``int`` fields, and
+        both are checked for here rather than exempted.
+        """
+        library = {field.name for field in fields(score.ScoreCheckRow)}
+        recorded = {field.name for field in fields(study.ScoreRow)}
+
+        assert library <= recorded, library - recorded
+        assert {"folds_converged", "folds_total"} <= recorded
+        # The two derived properties as well: a reader of the artefact should not have to
+        # rebuild the ratio a threshold is read against.
+        assert {"ratio", "reduction"} <= recorded
+
+    def test_every_row_is_written_and_not_only_the_failing_ones(self) -> None:
+        """A passing row carries ``score_initial``, which is what says targeting had work."""
+        check = SimpleNamespace(
+            tolerance=1e-3,
+            corrected=True,
+            passed=False,
+            rows=(
+                check_row("ate", "correction", True),
+                check_row("ate", "identity", False),
+                check_row("ate", "diagnostic", True),
+            ),
+        )
+        payload = study.Payload("q-drift", 600, 1, 2)
+
+        rows = study._score_rows(payload, "drtmle", check)
+
+        assert [row.kind for row in rows] == ["correction", "identity", "diagnostic"]
+        assert all(row.data_seed == 1 and row.estimator == "drtmle" for row in rows)
+        assert all(row.passed_overall is False for row in rows)
 
 
 class TestTheRemainderColumnsAreItemThirteens:
