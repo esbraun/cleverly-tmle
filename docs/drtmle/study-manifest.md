@@ -87,7 +87,7 @@ record would need a schema before a reader could do anything with it. Fields, as
 remainder**: at `m = 2,000` the companion's own error is of order `1.0/√m ≈ 0.023` per replicate,
 which `√n` multiplies. Only the replicate mean with its Monte Carlo error means anything.
 
-**[E1](../roadmap.md#what-e1-landed) has since put that error in a column**, and the schema above is
+**[E1](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) has since put that error in a column**, and the schema above is
 therefore the schema **of these four artefacts** rather than of the harness as it now stands. A
 `0033c82` row has no `companion_se`, `companion_halving`, `companion_rule` or `companion_rows` in
 it, and a reader joining these files against a later run's has to know that: the four fields are
@@ -97,7 +97,7 @@ spread, so the `± 0.09` above is not the estimator's alone.
 
 ## The second artefact: score rows
 
-**Runs from [E1](../roadmap.md#what-e1-landed) onwards write two files**, `<stamp>.jsonl` and
+**Runs from [E1](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) onwards write two files**, `<stamp>.jsonl` and
 `<stamp>-scores.jsonl`, from one timestamp so they join. The four artefacts above predate it and
 have only the first.
 

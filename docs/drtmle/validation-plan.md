@@ -827,14 +827,37 @@ order `n^(−α)`. Taking `ψ₀` from the finer default rule instead difference
 `O(1)` part survives. `benchmarks/drtmle_remainder.truth_at` is that, and it is why `DGP.quadrature`
 exists.
 
-*The error changes kind, and this is the cost of the trade rather than a footnote.* The draw's error
-is **noise** — independent per replicate, so a study averages it down and it inflates the spread
-each Monte Carlo error is computed from. The grid's is a **bias**: the same points at every
-replicate, so no replicate count removes it. It is orders smaller, and "orders smaller" is a claim
-that needs a number rather than an argument — which is why the deterministic rule ships **with** a
-convergence ladder (`benchmarks/drtmle_companion_grid.py`) rather than on its own, and why a
-dispatch that does not bound its grid is reporting an unquantified bias. A ladder that has not
-flattened means a finer rung, not a caveat.
+*The error changes kind, and E1 got the second half of that wrong — so the rule moves once more.*
+The draw's error is **noise**: independent per replicate, so a study averages it down and it
+inflates the spread each Monte Carlo error is computed from. A grid at **one fixed scramble** is a
+**bias** — the same points at every replicate — so no replicate count removes it, and E1 shipped a
+nested convergence ladder as the thing that would bound it. A successive difference between two
+rungs bounds nothing without a convergence result the Tier-2 integrand does not have, so that
+paragraph asserted what it claimed to measure.
+
+**E1b's rule is therefore an independent scramble per replicate**, seeded from a stream disjoint
+from the data and fold streams, and it is a strictly better trade than the fixed grid rather than a
+retreat from it:
+
+- a randomised quasi-Monte Carlo rule is **unbiased at every point count** — the randomisation is
+  over the scramble and not over the points — so `E₀`'s estimate is mean-zero-error again and a
+  study averages the grid's error down exactly as it averaged the draw's, while being several-fold
+  smaller;
+- the error becomes **estimable by replication rather than by refinement**: independent scrambles
+  at one grid give a standard error assuming no rate, and `benchmarks/drtmle_companion_grid.py` is
+  where that is measured, conditionally on each fit;
+- and the same randomisation is what makes the *attribution* identified, since a fixed grid's error
+  is a deterministic function of the fitted curve and can covary with the remainder, where a
+  randomised one cannot.
+
+**The same scramble must serve `quadrature_frame` and `truth_at` within a replicate.** The
+cancellation two paragraphs up is the whole reason `ψ₀` moves onto the companion's grid, and it
+holds only if both expectations are one integral — which now means one *randomisation* as well as
+one point count. A replicate that drew its grid from one scramble and its truth from another would
+difference two rules and put the `O(1)` part of the error back.
+
+**Nesting is preserved within a scramble**, so a ladder is still a `Window` on one fit; what the
+ladder now reports is stability, and the error column beside it is the across-scramble spread.
 
 *Both rules stay, and passing both is refused.* The i.i.d. draw is the independent route the
 deterministic one is checked against — two renderings of one population integral, which is the
@@ -927,6 +950,14 @@ nothing else, and the two candidate explanations for `1.427 ± 0.091` — a flat
 quadrature too coarse to see the decline — could not be separated from that. The verdict rules are
 unchanged and still read the replicate spread, which is right, because the rule's error is inside
 it; what the column buys is **attribution**.
+
+**E1b changes what that column is.** E1's witness was the movement when half the companion's rows
+are dropped — a fair reading of a bias, a `1.4x` overstatement of a noise, and, on a deterministic
+grid, not a bound at all. Under the randomised rule the witness is the **across-scramble standard
+deviation at a fixed fit**, which needs no model of either failure mode and is the quantity a
+standard error is. A share of the column attributed to the rule must be reported **with an
+interval**, and never as one minus a ratio of two marginal variances, which identifies that share
+only when both rules' errors are mean-zero given the fit.
 
 *Which rule, and how many rows.* `companion_rule` and `companion_rows` on every record. C3c's
 artefacts carry neither, so a reader of them has to know the invocation — and once there are two
