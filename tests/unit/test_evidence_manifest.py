@@ -87,18 +87,19 @@ class TestTheTwoManifestsCoverEachOther:
 
         Both assertions above pass vacuously if the regex stops matching -- a table reformatted
         or a digest backticked differently -- and would then report agreement between two empty
-        sets.  Twelve is what is on record: four for ``c3c`` and eight for ``e1b``.
+        sets.  Sixteen is what is on record: four for ``c3c``, eight for ``e1b`` and four for
+        ``e2``.
         """
-        assert len(_prose_rows()) == 12
-        assert len(_json_rows()) == 12
+        assert len(_prose_rows()) == 16
+        assert len(_json_rows()) == 16
 
 
 class TestTheManifestSaysWhatTheFetchNeeds:
     """The fields ``scripts/fetch_evidence.sh`` reads, and the expiry a reader is owed."""
 
-    def test_the_studies_are_the_two_on_record(self) -> None:
+    def test_the_studies_are_the_three_on_record(self) -> None:
         payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        assert sorted(payload["studies"]) == ["c3c", "e1b"]
+        assert sorted(payload["studies"]) == ["c3c", "e1b", "e2"]
 
     def test_every_artefact_carries_the_fields_the_script_reads(self) -> None:
         payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -114,7 +115,7 @@ class TestTheManifestSaysWhatTheFetchNeeds:
         # Twice, because both studies expire on it and each says so where it is read.
         assert PROSE.read_text(encoding="utf-8").count(expires) >= 2
 
-    @pytest.mark.parametrize(("study", "count"), [("c3c", 4), ("e1b", 8)])
+    @pytest.mark.parametrize(("study", "count"), [("c3c", 4), ("e1b", 8), ("e2", 4)])
     def test_each_study_carries_the_artefact_count_it_dispatched(
         self, study: str, count: int
     ) -> None:

@@ -890,8 +890,16 @@ straight.** The three reduced regressions were fitted by `glm` —
 `benchmarks/drtmle_coverage.REDUCED_LEARNER`, named explicitly because `DRTMLE` would otherwise
 hand the *injected* primary specification to them — and
 [the concordance](theorem-concordance.md)'s `reduced regressions consistent` row reads *estimated,
-unmeasured rates* and `unverified`, before this dispatch and after it. Since Tier 2's two primaries
-are injected analytic sequences, the reductions are the only nuisances a learner fits here at all.
+unmeasured rates* and `unverified`, before this dispatch and after it.
+
+> **A sentence here said Tier 2's two primaries are injected analytic sequences, and that is Tier
+> 1's description rather than this one's.** `benchmarks/drtmle_tier2.py` **fits** both — an
+> oversmoothed additive kernel regression and a subset GLM — which is what makes it the tier the
+> demonstration is read from. The roadmap withdrew the same claim in its own copy; this one had
+> stood. What it was load-bearing for is the sharper form of the point, and that does not survive
+> it: the three reductions are not *the only* thing a learner fits at Tier 2. The weaker form is
+> what the paragraph needs and is true — they are fitted, by `glm`, and their rates are unmeasured.
+
 So the study establishes *this estimator, at this reduction, does not meet the condition at these
 sizes*. It does not establish that the condition is unmeetable, and
 [piece E](../roadmap.md#e-what-c3c-handed-back) is that distinction turned into work — starting

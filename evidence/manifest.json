@@ -127,6 +127,43 @@
           "sha256": "c617653c7234352bcebc760b5959155ec3d53ab49ce065fd212d5c272d08b550"
         }
       ]
+    },
+    "e2": {
+      "code": "6f3aeb38ee1e23fc06ea598c6e511d2e686457bf",
+      "artefacts": [
+        {
+          "cell": "q-drift",
+          "n": 600,
+          "run": 31042558057,
+          "artefact": 8945526880,
+          "bytes": 74798,
+          "sha256": "8efd1d62adecdcd070cd0923f11c8ca455e9a05cd86092a75ce2680edb8e25dd"
+        },
+        {
+          "cell": "q-drift",
+          "n": 2400,
+          "run": 31042558057,
+          "artefact": 8946074512,
+          "bytes": 73646,
+          "sha256": "2fea3097fa69add9f4bc837d98441744267bc5dbd9d4aba6671cbbc3a56136f0"
+        },
+        {
+          "cell": "g-drift",
+          "n": 600,
+          "run": 31042558057,
+          "artefact": 8945526340,
+          "bytes": 74579,
+          "sha256": "86d6fdb9e1cb3ca9bf4e0b50d1a2158c9e8c4aae0d8393463fef56b8933b7282"
+        },
+        {
+          "cell": "g-drift",
+          "n": 2400,
+          "run": 31042558057,
+          "artefact": 8946024955,
+          "bytes": 73827,
+          "sha256": "aebf92b7246be97537ec6fab939d1fe15601b8b56fe2cf49ed29b9d90badf7fb"
+        }
+      ]
     }
   }
 }

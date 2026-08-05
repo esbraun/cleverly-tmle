@@ -1266,6 +1266,140 @@ functions.
 almost entirely instrument, and that under the randomised rule the same replicate count buys a
 Monte Carlo error several-fold smaller. Whether that separates a decline depends on the decline.
 
+## What the E2 dispatch measured
+
+*One dispatch of `.github/workflows/drtmle-reference.yml` at tier 2, at the workflow's own defaults
+with **no inputs passed**, on `main` at `6f3aeb38ee1e23fc06ea598c6e511d2e686457bf`. Both cells,
+`n ∈ {600, 2400}`, 32 draws a cell and size, reference `spline(16)` on 4,096 Sobol points against
+`glm`, scored on 8,192, evaluated on 2 × 2,048, gate C at 4 scrambles on 4 draws. 76 fits a job,
+304 in all; run `31042558057`, four artefacts,
+[manifested](study-manifest.md#e2-what-was-run) with their digests.*
+
+**The headline is that three cells of four cannot be read, and the reason is the falsifier
+[§8](validation-plan.md#8-the-reference-comparison-piece-e2) wrote down before the run.** E2 was
+built to branch — `moved` fires E2b, `equivalent` shuts the learner road — and it branches on
+neither, because the reference whose gates fail is a reference no comparison answers for. **That is
+the gate doing its job rather than the run failing**, and the distinction is the whole reason the
+gates were specified before any paired number existed.
+
+### The gates, which is the table to read first
+
+`B. risk vs X` is candidate `X`'s held-out weighted risk **minus** the shipped reference's, on rows
+neither saw: positive means the reference is the better estimate of that function. A **difference**
+and never a ratio. The three reductions are read apart.
+
+| cell | `n` | reduction | `bins(8)` | `spline(32)` | `spline(8)` |
+| --- | --- | --- | --- | --- | --- |
+| `q-drift` | 600 | `qr` | `+2.036e-06` | `+3.702e-07` | `+6.125e-08` `[-2.42e-08, +1.55e-07]` |
+| `q-drift` | 600 | `gr1` | `+2.727e-05` | `+1.663e-05` | `-3.116e-06` `[-7.76e-06, +2.14e-06]` |
+| `q-drift` | 600 | `gr2` | `+9.603e-04` | `+8.974e-05` | **`-2.855e-05`** `[-4.72e-05, -1.21e-05]` |
+| `q-drift` | 2,400 | `qr` | `+8.086e-07` | `+6.428e-08` | `+9.462e-09` `[-2.27e-09, +2.33e-08]` |
+| `q-drift` | 2,400 | `gr1` | `+1.057e-05` | `+2.812e-05` | **`-1.550e-05`** `[-1.84e-05, -1.29e-05]` |
+| `q-drift` | 2,400 | `gr2` | `+6.362e-04` | `+5.065e-05` | **`-2.350e-05`** `[-2.79e-05, -1.94e-05]` |
+| `g-drift` | 600 | `qr` | `+4.896e-05` | `+3.832e-06` | `-2.180e-07` `[-9.04e-07, +5.96e-07]` |
+| `g-drift` | 600 | `gr1` | `+1.276e-04` | `-5.891e-06` | `+3.132e-05` `[+5.19e-06, +6.44e-05]` |
+| `g-drift` | 600 | `gr2` | `+3.487e-04` | `-8.039e-05` | `+1.412e-04` `[-2.53e-05, +3.84e-04]` |
+| `g-drift` | 2,400 | `qr` | `+5.384e-05` | `+4.551e-06` | **`-1.678e-06`** `[-2.05e-06, -1.35e-06]` |
+| `g-drift` | 2,400 | `gr1` | `+1.287e-04` | `-1.074e-05` | `+2.744e-05` `[-5.07e-07, +6.95e-05]` |
+| `g-drift` | 2,400 | `gr2` | **`-1.031e-04`** `[-4.35e-04, +1.12e-04]` | `+1.164e-04` | `-1.361e-04` `[-4.14e-04, +3.29e-06]` |
+
+| cell | `n` | gate B | gate C | why |
+| --- | --- | --- | --- | --- |
+| `q-drift` | 600 | **fail** | `0.0665` against `0.1283` | `spline(8)` beats the reference on `gr2` |
+| `q-drift` | 2,400 | **fail** | `0.0091` against `0.0966` | `spline(8)` beats it on `gr1` **and** on `gr2` |
+| `g-drift` | 600 | pass | `0.1662` against `0.2999` | — |
+| `g-drift` | 2,400 | **fail** | `0.1217` against `0.3401` | `spline(8)` beats it on `qr`; `bins(8)` **not rejected** on `gr2` |
+
+**Gate C passes in all four**, by a factor of two to eight, which is the half the
+[three-draw pilot](validation-plan.md#8-the-reference-comparison-piece-e2) sized `--reference-points`
+against and the half that came out as designed. **Gate B is where it fails**, and every failure is
+the same clause: *no other rung may be strictly better*.
+
+**Which rung wins differs by cell and by reduction, and that is the diagnosis rather than a
+detail.** §8 named it in advance — *"a gate-B ordering that disagrees between the reductions — the
+shipped rung best on one and beaten on another — says the reference's resolution is not one choice,
+and the repair is a per-regression resolution rather than a verdict."* That is exactly the pattern:
+`spline(8)` beats `spline(16)` on `gr2` at `q-drift` 600, on `gr1` and `gr2` at `q-drift` 2,400, and
+on `qr` at `g-drift` 2,400 — and on nothing at all at `g-drift` 600. **The coarser rung is the better
+estimate of some of these functions and the worse estimate of others**, so one knot count for three
+regressions is the thing that is wrong, not the ladder.
+
+**`g-drift` at `n = 2,400` fails a second clause and it is the more serious one.** `bins(8)` — the
+negative control the gate exists to reject — reads `-1.031e-04 [-4.35e-04, +1.12e-04]` on `gr2`,
+which is not a rejection: at that size and on that regression the gate cannot discriminate a
+deliberately coarse arm from the reference at all. A gate with no teeth is a gate that cannot pass
+anything, which is why it reads `fail` rather than being ignored.
+
+### The comparison, which three cells do not license reading
+
+| cell | `n` | estimand | `glm` | reference | `paired d` | `d 95%` | margin | `rule se` | verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `q-drift` | 600 | `ate` | `+1.5401` | `+0.1685` | `-1.3623` | `[-1.6564, -1.0821]` | `±0.3850` | `0.0094` | `unresolved` |
+| `q-drift` | 600 | `ey1` | `+0.8081` | `+0.1436` | `-0.6785` | `[-0.9075, -0.4635]` | `±0.2020` | `0.0061` | `unresolved` |
+| `q-drift` | 600 | `ey0` | `-0.7320` | `-0.0250` | `+0.6838` | `[+0.5508, +0.8190]` | `±0.1830` | `0.0043` | `unresolved` |
+| `q-drift` | 2,400 | `ate` | `+1.1594` | `+0.1114` | `-1.0491` | `[-1.1667, -0.9096]` | `±0.2899` | `0.0185` | `unresolved` |
+| `q-drift` | 2,400 | `ey1` | `+0.5568` | `+0.0512` | `-0.4985` | `[-0.6046, -0.3567]` | `±0.1392` | `0.0180` | `unresolved` |
+| `q-drift` | 2,400 | `ey0` | `-0.6027` | `-0.0602` | `+0.5507` | `[+0.4885, +0.6131]` | `±0.1507` | `0.0024` | `unresolved` |
+| `g-drift` | 600 | `ate` | `+3.5989` | `+1.9730` | `-1.7893` | `[-2.2739, -1.3569]` | `±0.8997` | `0.0417` | **`moved`** |
+| `g-drift` | 600 | `ey1` | `+1.6345` | `+0.9383` | `-0.7677` | `[-0.9343, -0.6032]` | `±0.4086` | `0.0354` | **`moved`** |
+| `g-drift` | 600 | `ey0` | `-1.9644` | `-1.0348` | `+1.0216` | `[+0.6675, +1.4366]` | `±0.4911` | `0.0147` | **`moved`** |
+| `g-drift` | 2,400 | `ate` | `+4.0814` | `+2.4033` | `-1.6570` | `[-2.1772, -1.1713]` | `±1.0203` | `0.2049` | `unresolved` |
+| `g-drift` | 2,400 | `ey1` | `+2.1089` | `+1.0987` | `-0.9655` | `[-1.3197, -0.6266]` | `±0.5272` | `0.1187` | `unresolved` |
+| `g-drift` | 2,400 | `ey0` | `-1.9725` | `-1.3046` | `+0.6914` | `[+0.4082, +1.0292]` | `±0.4931` | `0.0872` | `unresolved` |
+
+**One cell of four returns a primary verdict and it is `moved`.** `g-drift` at `n = 600`, gates
+passing, `ate` at `-1.7893 [-2.2739, -1.3569]` against a margin of `±0.8997` — the interval wholly
+outside the band, in the direction candidate 1 predicts, and the two arm means moving the same way
+rather than a contrast cancelling something. Under §8 that is *candidate 1 alive and E2b fires*.
+
+**And one cell is not the study.** The rule is stated per cell and size and there is no combination
+across them, so what E2 has is one licensed reading and three unlicensed ones — which is not the
+branch this piece was built to take. **Nothing here reads `equivalent`, so candidate 1 is not
+dead**; nothing here licenses `moved` in the cell C3c's flat column was most sharply read in, so it
+is not established either.
+
+**The unread numbers are large, and saying so is not reading them.** The reference takes `q-drift`'s
+column from `+1.1594` to `+0.1114` at `n = 2,400` — about a tenth of what it was, against a margin of
+`±0.2899` — and every one of the twelve rows moves in the same direction by several times its own
+margin. If those cells' gates had passed, this would be candidate 1 alive by a wide margin. They did
+not, and [§8's own worked example](../roadmap.md#what-e2-measured-and-why-it-did-not-branch) is why
+that sentence stops there: on the exact law a two-bin reference is wrong about `qr` by more than half
+its own magnitude while its `ψ` sits inside a twentieth of a standard error of an exact reference's.
+A large paired difference at a reference another resolution beats is a large difference **about the
+wrong reference**.
+
+### What it cost
+
+| cell | `n` | companion rows | fits | secs/fit | rounds | invalid | wall clock |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `q-drift` | 600 | 32,768 | 76 | `19.32` | `9.5` | 2 | 759s |
+| `g-drift` | 600 | 32,768 | 76 | `19.28` | `14.5` | 5 | 759s |
+| `q-drift` | 2,400 | 32,768 | 76 | `48.39` | `6.7` | 0 | 1,864s |
+| `g-drift` | 2,400 | 32,768 | 76 | `45.39` | `14.7` | 1 | 1,757s |
+
+304 fits and about 87 minutes of runner time across four parallel jobs — cheaper than the cost table
+sized it for, and cheap enough that the repair below is an errand rather than a decision. The eight
+invalid fits are 2.6% of the run and are counted per `(cell, n)` above; `g-drift` at `n = 600` is the
+one over the 2% bar, and it is also the cell whose gates passed, so nothing in the licensed reading
+turns on it.
+
+### What this dispatch refuses to say
+
+**It does not read the three unresolved cells' differences**, in either direction, and it does not
+average them with the fourth. **It changes no constant**: `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION`
+and `PRIMARY_ESTIMAND` are what they were before the run and the banner prints them. **It reads no
+rate** and makes no coverage claim — item 13 is a rate and closes at E5. **It selects no learner**,
+which is E2b's and fires only on a branch this run did not deliver. And it does not move the
+concordance's `reduced regressions consistent` row: a gated comparison that could not be read is not
+a condition being met.
+
+**What it hands to the next revision is a repair with a name.** §8 already says what a disagreeing
+gate-B ordering means — the reference's resolution is not one choice — so the next dispatch is the
+same design with **a rung chosen per reduced regression** rather than one for all three, and with the
+negative control checked to be rejected on `gr2` at the larger size before anything else is read.
+That is a change to the *reference*, which §8 permits before a dispatch with a written reason; it is
+not a change to the rule the comparison is judged by.
+
 ## What the C3c dispatch measured
 
 *Two dispatches of `.github/workflows/drtmle-coverage.yml` at tier 2, seeds `20250801` and
