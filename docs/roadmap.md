@@ -30,16 +30,54 @@ question. `√n R_remaining` — item 13, and Theorem 1's own assumption — is 
 estimator, at this reduction, does not meet the condition at these sizes*; it does not say the
 condition is unmeetable, and item 13 stays open on exactly that distinction.
 
-**The newest thing on this page is that [E2 has run and did not
+**The newest thing on this page is [a rebooted piece E](#the-reboot-and-the-three-work-packages),
+and it came from an external critique of the state after E2.** It reads the page against Theorem 1
+and against the study's own artefacts, and it lands four things. **Two are corrections this page
+has checked and accepted**, and both are about how the evidence was described rather than about a
+number:
+
+- **The `se` shortfall is a *symptom*, and every revision since C3c has called it a named defect.**
+  The sentence — `σ²ₙ` "treats the reduced regressions as known, so their estimation error is in
+  `ψ̂`'s spread and not in the variance estimate" — reads as though the variance estimator carried a
+  repair of its own. It does not. `σ²ₙ = Pₙ{D* − D_A − D_Y}²` **is** Theorem 1's variance, the
+  [concordance states it in the theorem itself](drtmle/theorem-concordance.md) and
+  `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s` pins the reported interval to it. What
+  is unestablished is the theorem's *premise* — which is the premise item 13 already fails — so the
+  `se` ratio and the remainder are **one** open question, not two. **The study's own column is what
+  settles it rather than the argument**: an omitted non-negative term predicts an `se ratio` below
+  one in *every* cell, and `g-drift`'s reads `1.157` and `1.156`.
+  [The withdrawal is here](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs).
+- **The split of `q-drift`'s eleven points into "about five `se`, six bias" is an artefact of the
+  order the two counterfactuals were applied in.** The `0.898` is reproducible —
+  `Φ(1.96r − b) − Φ(−1.96r − b)` at `r = 0.903` and `b = 0.664` gives `0.8982` to four places — and
+  the *same* arithmetic run the other way gives `0.9232` for removing the bias alone. `+0.040` then
+  `+0.052`, against `+0.065` then `+0.027`: they do not add, the split is not identified, and under
+  either ordering the bias is the larger term.
+
+**The third this page has checked and narrowed**, because it repeats a sentence of this page's own
+that the table under it does not carry: *the repair E2 names is a rung per **cell**, not a rung per
+reduced regression*. At the gate's own reading — a bootstrap interval over draws — no cell has one
+reduction favouring `spline(8)` while another favours `spline(16)`. What flips is the **cell**:
+`spline(8)` beats the reference in `q-drift` at both sizes and *loses* to it in `g-drift` at `600`,
+on `gr1`, `+3.132e-05 [+5.19e-06, +6.44e-05]`. The per-regression reading is a point-estimate
+reading of a gate defined on intervals.
+[The correction is here](#what-e2-measured-and-why-it-did-not-branch).
+
+**A fourth thing it does is close a candidate nobody had written down**, and that one needed no
+correction because [item 25's witness had already measured
+it](#the-three-candidates-ranked-by-what-the-study-measured): a small `g_{r,1}`, or an active
+truncation, is *not* what makes `q-drift` fail. `min gr1 margin` is `0.117` to `0.343` across all
+twelve cell-runs and the initial mechanism clips essentially nowhere. The column exists because C1
+was made its own pull request for it, which is the return on that decision.
+
+**Underneath all four, [E2 ran and did not
 branch](#what-e2-measured-and-why-it-did-not-branch), and the reason is the falsifier its own rule
 wrote down in advance.** Three cells of four are `unresolved` **on gate B**, every one on the same
-clause — a coarser rung is the better estimate of at least one reduced regression, and *which* one
-differs by cell. That is §8's own sentence: the reference's resolution is not one choice, and the
-repair is a rung per reduced regression rather than a verdict. The fourth cell, `g-drift` at
-`n = 600`, passes its gates and reads **`moved`** — `-1.7893 [-2.2739, -1.3569]` against a margin of
-`±0.8997`, in the direction candidate 1 predicts. **So candidate 1 is not dead — nothing reads
-`equivalent` — and it is not established either**, since the cell C3c's flat column is most sharply
-read in cannot be read at all. The unread differences are large, and
+clause — a coarser rung is the better estimate of at least one reduced regression. The fourth cell,
+`g-drift` at `n = 600`, passes its gates and reads **`moved`** — `-1.7893 [-2.2739, -1.3569]` against
+a margin of `±0.8997`, in the direction candidate 1 predicts. **So candidate 1 is not dead — nothing
+reads `equivalent` — and it is not established either**, since the cell C3c's flat column is most
+sharply read in cannot be read at all. The unread differences are large, and
 [the section says why that sentence stops there](#what-e2-measured-and-why-it-did-not-branch).
 
 **The gate that turned out to have the most teeth is still the exact-law control**, and the dispatch
@@ -424,15 +462,18 @@ the same column a reading much more nearly about the estimator.
    coverage is not nominal.** `TMLE` `0.532` / `0.472` against `DRTMLE` `0.844` / `0.848` at
    `n = 2,400` in `q-drift`, paired `+0.312 ± 0.031` and `+0.376 ± 0.033` — and `DRTMLE`'s own
    interval misses `0.95` in every cell at every size. So this link is **half closed**, and the
-   half that is not has **two measured mechanisms rather than one**. The study's own arithmetic
-   splits `q-drift`'s eleven points at the largest size into about six of residual bias — link 1's
-   remainder — and about five of interval width, because `σ²ₙ` is the empirical variance of the
-   estimated curve and **treats the reduced regressions as known**, so their estimation error is in
-   `ψ̂`'s spread and not in the variance estimate. That is why the `se ratio` reads `0.903` and why
-   a correctly sized interval at that size would give `0.898` rather than `0.844`. The two are
-   different repairs and only the first is item 13's. In
+   half that is not is **two measured shortfalls with one open premise behind them**, which is a
+   revision: three revisions of this page said *two mechanisms* and attributed the second to the
+   variance estimator. `q-drift` at the largest size misses nominal by eleven points and its
+   `se ratio` is `0.903`; both are real, both reproduced to the digit, and **neither has a repair
+   that is not item 13's** —
+   [the withdrawal](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs) is where the
+   arithmetic and the evidence are. What is licensed is the *ranking*: the bias term is the larger
+   under either ordering of the two counterfactuals, and the two are not additive. In
    `g-drift` at the two smaller sizes the improvement is *negative*, which the regime-entry column
-   explains — the correction removes 3–8% of the targeted remainder there.
+   explains — the correction removes 3–8% of the targeted remainder there — and its `se ratio` is
+   `1.157`, the other side of one, which is the observation that costs the variance-defect reading
+   its mechanism.
 
 The first review's summary of this is exactly right and worth keeping in its words: none of the
 four implies the others. A curve that matches the theorem proves nothing about whether the
@@ -490,7 +531,11 @@ be confused.
 A, B, C and E are each split, so the five pieces are eighteen pull requests: **B1a**, **A1a**, **B1b**,
 **B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a**, **C3b**, **C3c**, **E0**, **E1**, **E1b** and
 **E2** have landed — **E2 has run and did not branch**, which is a result and not a deferral — and
-**D** and the rest of **piece E** are open. **C3 split into three after its pilot ran**, under
+**D** and the rest of **piece E** are open. **The count is unchanged and its composition is not**:
+piece E's tail is now [a diagnostic, one branch and a
+study](#the-reboot-and-the-three-work-packages), so **E2R** is a row that did not exist and
+**E2b** and **E3** are alternatives of which at most one is ever written.
+**C3 split into three after its pilot ran**, under
 the same rule as B2: the repair precedes the dispatch and closes nothing on its own. **E is the fifth piece and it
 exists because C3c measured rather than settled** — a study whose premise was `unverified` cannot
 close the item it read, and the alternative to a piece was leaving that as a paragraph. **The
@@ -514,7 +559,9 @@ So **C1** is the instrument, **C2** is Tier 2 and item 13's columns, and **C3** 
 item 3 — which the pilot then split again into **C3a** the freeze-and-pilot, **C3b** the repair its
 numbers forced, and **C3c** the study itself. **E is the same rule applied once more**: the study
 returned a number that does not close the item it read, so the diagnosis splits from the dispatch
-exactly as the repair did, and E5 is the only row in it that costs a run.
+exactly as the repair did. **Two of its rows cost a run** — E2R the cheap diagnostic one and E5 the
+expensive confirmatory one — and the whole point of the ordering is that the second waits on the
+first.
 
 | PR | what it lands | new artefacts |
 | --- | --- | --- |
@@ -533,8 +580,8 @@ exactly as the repair did, and E5 is the only row in it that costs a run.
 | **C3c** — *landed* | **item 3, answered**: the study entered its regime for the first time in three attempts and produced the gap — `+0.312 ± 0.031` and `+0.376 ± 0.033` paired in `q-drift`. **Item 13 gets its first number and stays open**: `√n R_remaining` does not vanish at these sizes *at `glm` reductions*, which is a measurement of this configuration rather than of the theorem's condition | two dispatches of `drtmle-coverage.yml` at 250 replicates and their tables; per-replicate results as four artefacts, now [manifested](drtmle/study-manifest.md); [what it measured](drtmle/investigation-log.md#what-the-c3c-dispatch-measured); [the gate readout](drtmle/coverage-study.md#the-gates-read-out-clause-by-clause); lessons 17 and 18 |
 | **E0** – **E1b** — *landed* | [what C3c handed back](#e-what-c3c-handed-back)'s first three: the record, and the remainder instrument. E1 integrates `P₀D̂` deterministically, which takes most of the instrument off the list of candidate explanations for the flat column. **Its two readings of *how much* are withdrawn** and are E1b's | `DGP.quadrature`; `quadrature_frame`, `truth_at`, `corrected_curve` and `row_weights`/`limit` on every remainder column; `benchmarks/drtmle_companion_grid.py` and its workflow; `--quadrature-points`; `ScoreRow` and a second artefact; `tests/unit/test_drtmle_companion_grid.py` |
 | **E1b** — *landed* | the same question measured rather than asserted: an independent scramble per replicate, so the grid's error is mean-zero and estimable *conditionally on each fit*, with an interval on every share. **At `n = 2,400` the draw accounted for `0.99`–`1.01` of the column's across-draw variance** | `DGP.quadrature(scramble=…)`; stacked companions and a row `Window`; `rule sd` and `share`; two dispatches, [manifested](drtmle/study-manifest.md#e1b-what-was-run) |
-| **E2** — *landed, and it did not branch* | the reference reduction dispatched against its frozen rule. **Gate B fails in three cells of four**, each on a coarser rung beating the shipped one and each on a *different* reduction, so those cells are `unresolved`; the fourth reads **`moved`**. Candidate 1 is alive-but-unestablished rather than decided, and the named repair is a rung **per reduced regression** | run `31042558057`, four artefacts [manifested](drtmle/study-manifest.md#e2-what-was-run); [what it measured](drtmle/investigation-log.md#what-the-e2-dispatch-measured); `benchmarks/drtmle_reference.py` and `drtmle_reference_study.py`; `.github/workflows/drtmle-reference.yml`; [§8](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2); `tests/unit/test_reference_exact_law.py` and `test_drtmle_reference_study.py` |
-| **E3** – **E5** | the construction and solver, the two designs, and the fresh dispatch. **E5** is where item 13 closes either way | their rows below |
+| **E2** — *landed, and it did not branch* | the reference reduction dispatched against its frozen rule. **Gate B fails in three cells of four**, each on a coarser rung beating the shipped one, so those cells are `unresolved`; the fourth reads **`moved`**. Candidate 1 is alive-but-unestablished rather than decided, and the named repair is a rung **selected rather than shipped** — [at interval level a rung per *cell*](#what-e2-measured-and-why-it-did-not-branch), which is a correction to two earlier revisions | run `31042558057`, four artefacts [manifested](drtmle/study-manifest.md#e2-what-was-run); [what it measured](drtmle/investigation-log.md#what-the-e2-dispatch-measured); `benchmarks/drtmle_reference.py` and `drtmle_reference_study.py`; `.github/workflows/drtmle-reference.yml`; [§8](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2); `tests/unit/test_reference_exact_law.py` and `test_drtmle_reference_study.py` |
+| **E2R**, then **E2b** *or* **E3**, then **E4** + **E5** | [the three work packages](#the-reboot-and-the-three-work-packages): the repaired reference, **one** branch off its verdict, and the frozen confirmatory study. **E5** is where item 13 closes either way | their rows below |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
 **A1 split into A1a and A1b for the reason B1 split into B1a and B1b**, and the reason is worth
@@ -558,20 +605,28 @@ contract + item 25  scope frozen ───────────────�
 A1b cross-fitting construction ────────────────────────────────────────┘  landed   landed  + pilot  landed  landed
        (no logical block; a rework edge — C's fits are of A1b's construction)   landed          │
                                                                                                 │
-C3c ──> E0 ──> E1 ──> E1b ──> E2 ──> E3 ──> E4 ──> E5  <──────────────────────────────────────────┘
-       record  P₀D̂   rule's  refer- build  two     fresh   E2 was the branch point and it did
-       landed  rule   error   ence   +solve designs dispatch  not branch: 3 cells of 4 unresolved
-              landed  landed  ran, no                         on gate B, 1 `moved`. The learner
-                              branch                          road is neither shut nor open
+C3c ──> E0 ──> E1 ──> E1b ──> E2 ──> E2R ──> [ E2b | E3 ] ──> E4 ──> E5  <────────────────────────┘
+       record  P₀D̂   rule's  refer- repaired  one branch      two     fresh
+       landed  rule   error   ence  decision  of the two,     designs dispatch
+              landed  landed  ran,   run      never both
+                              no     ─ WP1 ─  ─── WP2 ───     ──── WP3 ────
+                              branch
 
-D   independent of all of it, and gated on A1a alone
+       E2b fires if the repaired reference improves the remainder and a feasible learner is
+       in reach; E3 if it does not, or if a repaired remainder still leaves the calibration
+       failing. A reference that stays unresolved, or a gap no feasible learner closes, stops
+       the release instead of advancing to the next box
+
+D   independent of all of it, and gated on A1a alone. Not a fallback inside this release
 ```
 
-**Every piece of the graph except D and E3 onwards has landed, and the demonstration is *made and
+**Every piece of the graph except D and E2R onwards has landed, and the demonstration is *made and
 not passed*.** E2 is the one that landed without deciding what it was built to decide: it ran, its
 gates held it to `unresolved` in three cells of four, and
 [what it measured](#what-e2-measured-and-why-it-did-not-branch) is the finding — a reference whose
-best resolution differs between the three reduced regressions.
+best resolution is not the one that was shipped. **E3 has moved from the trunk onto a branch**, and
+that is the reboot: it was going to run whatever E2 said, on a `se`-ratio mechanism
+[this revision withdraws](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs).
 [C3c](drtmle/coverage-study.md#what-the-study-measured) entered the regime, produced the gap, and
 read the gates out: gate 1 fails at four clauses and gate 2 passes its shortfall clause and fails
 its invalid-rate one. What is left is [piece E](#e-what-c3c-handed-back), whose question is not
@@ -1924,13 +1979,18 @@ already reports"*, and it is yes, decisively, in the regime the variant was buil
 
 **And `DRTMLE` does not attain nominal coverage anywhere in the study.** The best reading in either
 cell, at any size, in either batch is `0.880`. Gate 1's clause 6 fails, and so do clauses 3, 4 and
-5. **Two measured quantities account for the shortfall and they are different repairs.** The first
-is item 13's: `√n R_remaining` is **flat** — `1.43 / 1.26 / 1.25` in `q-drift` and `4.13 / 4.12 /
-4.83` in `g-drift`, reproduced within noise by the second batch — where Theorem 1 assumes it
-negligible. The second is the interval's width: `σ²ₙ` treats the reduced regressions as known, so
-the `se ratio` reads `0.903` and the interval is about 10% short of the spread it is covering. The
-log's split of `q-drift`'s eleven points at the largest size is about six to the first and five to
-the second, and **only the first is item 13**.
+5. **Two measured quantities account for the shortfall, and this revision withdraws the claim that
+they are different repairs.** The first is item 13's: `√n R_remaining` is **flat** —
+`1.43 / 1.26 / 1.25` in `q-drift` and `4.13 / 4.12 / 4.83` in `g-drift`, reproduced within noise by
+the second batch — where Theorem 1 assumes it negligible. The second is the interval's width: the
+`se ratio` reads `0.903` in `q-drift`, so the interval is about 10% short of the spread it is
+covering. Three revisions of this page attributed the second to `σ²ₙ` "treating the reduced
+regressions as known" and split the eleven points about six to one and five to the other. **Both
+halves of that are withdrawn** — the formula is Theorem 1's own, the same premise is behind both
+numbers, and the split is an artefact of the order the two counterfactuals were applied in;
+[the withdrawal](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs) carries the
+arithmetic. What stands is that the shortfall is measured, that `g-drift`'s `se ratio` is `1.157` on
+the other side of one, and that **the bias is the larger term under either ordering**.
 
 **So item 13 has its first number and stays open on it**, which is the correction this revision
 makes to the one before. What the design note called in advance a *finding rather than a fault in
@@ -2212,10 +2272,10 @@ error, which needs the dispatch.
 
 #### E. What C3c handed back
 
-**Closes item 13 either way, in seven pull requests — E0 to E5 with E1b between the second and the
-third, of which E0, E1, E1b and E2 have landed — and an eighth that fires only if E2 branches.
-**E2 has run and did not branch**, so the eighth is neither fired nor cancelled and the piece's
-next action is a repaired reference rather than E3.**
+**Closes item 13 either way. It was seven pull requests in a line — E0 to E5 — and after E2 ran it
+is four that have landed and [three work packages](#the-reboot-and-the-three-work-packages) with a
+branch in the middle**, which is a narrowing rather than a rescoping: the same question, with the
+route to it made conditional on the one experiment that can answer it.
 [C3c](#what-c3c-measured)
 measured `√n R_remaining` and found it flat. It did not find out *why*, and the difference is the
 whole of this piece: a run whose reduced regressions were fitted by `glm`, whose consistency the
@@ -2243,20 +2303,38 @@ were.** Ranked by the evidence actually in the tables:
    linear on a link scale. **E2 was to decide it and did not**: three of its four cells are
    `unresolved` on gate B and the fourth reads `moved`, so the candidate is
    [alive and unestablished](#what-e2-measured-and-why-it-did-not-branch) rather than settled. What
-   the run did establish is a **repair with a name** — one knot count for three reduced regressions
-   is the wrong shape — and that repair is the next dispatch.
+   the run did establish is a **repair with a name** — a rung chosen against a measured ranking
+   rather than assumed — and that repair is [E2R](#the-reboot-and-the-three-work-packages).
 2. **The construction or the solver adds first-order variation.** `‖Δ_k‖ = o_p(1)` is `unverified`
-   and what the A1b dispatch measured is its *consequence* on `ψ` rather than `‖Δ_k‖`; 99 of 3,000
-   fits exit invalid, ten of twelve cell-runs over the 2% bar; and the `se ratio` of `0.903` is a
-   variance estimator that treats the reductions as known. Each is a first-order effect on the
-   interval that is **not** the remainder, and together they are about half of `q-drift`'s shortfall
-   at the largest size. **E3** decides it.
+   and what the A1b dispatch measured is its *consequence* on `ψ` rather than `‖Δ_k‖`; and 99 of
+   3,000 fits exit invalid, ten of twelve cell-runs over the 2% bar. Both are effects on the
+   interval that are **not** the remainder. **This candidate used to carry a third piece of
+   evidence and no longer does**: the `se ratio` of `0.903` was read as a variance estimator that
+   treats the reductions as known, and it is not — it is the same unestablished premise as
+   candidate 1, seen through the second moment instead of through the mean
+   ([the withdrawal](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs)). So this
+   candidate is **weaker than the previous revision had it**, and it is now the branch **E3** takes
+   only if E2R comes back `equivalent`, or if a repaired remainder leaves the calibration still
+   failing.
 3. **`n` is simply too small.** The residual candidate, the only one no repair reaches, and the
    only one whose test is the expensive dispatch. It is listed last because it is not *testable*
    until the first two are excluded — a rate read through an inconsistent reduction and a short
    interval is a rate for neither.
 
-##### The seven pull requests
+**A fourth was proposed and the artefacts contradict it**, and it is recorded here because it is
+the one an experienced reader reaches for on seeing `g_{r,2}/g_{r,1}` in a covariate: *a small
+`g_{r,1}`, or an active truncation, is what makes `q-drift` fail*. Every C3c fit carries
+`gr1_margin` and `initial_clipped` — [item 25's witness](#the-supported-contract-and-item-25),
+which is why C1 is its own pull request — and the columns say no. `min gr1 margin` is `0.117` to
+`0.343` across all twelve cell-runs and the initial mechanism's `worst clip share` is `0.0000` in
+eleven of them; the critique's own read of the manifested rows puts `q-drift` at `n = 2,400` at a
+minimum margin of `0.274` with zero clipping activations in 500 fits, and the bound-active exit at
+`7/500`, whose `se ratio` is `0.904` against the pooled `0.908`. **The denominator is not where this
+failure is, and no further cycle goes on tuning that bound for it.** What that does *not* license is
+dropping the columns: they are what makes the sentence checkable, and item 25's scope decision reads
+the same witness.
+
+##### The four that landed
 
 **E0 is not a piece**, under the rule the contract row is held to: it is documentation, it closes
 no research, and it is separate so that a correction to the record cannot arrive entangled with an
@@ -2267,11 +2345,186 @@ estimator change.
 | **E0** — *landed* | the record: item 13 reopened, the ceiling demoted to exploratory, the two mechanisms separated, C3b's condition-3 sentence corrected, batch A relabelled, and the four stale status-prose sites. Plus [the study manifest](drtmle/study-manifest.md) | nothing — it is the page saying what the study showed | any estimator or benchmark change |
 | **E1** — *landed*, in part | the remainder instrument: `P₀D̂` by deterministic integration — the curve is affine in `Y` and binary in `A`, so two of its three coordinates close in closed form — a nested-grid ladder read off one fit per draw, and the full score row per fit serialised beside the replicates. [What it landed, and what E1b withdrew](#what-e1-landed-and-what-e1b-withdrew) | the *mechanism* half of the quadrature question. **Its two quantitative readings are withdrawn** — the ladder was read as a bound and the variance ratio as a share, and neither is what those statistics are | learner selection; any coverage claim |
 | **E1b** — *landed* | the precision half, measured: an **independent scramble per replicate**, which makes the grid's error mean-zero rather than a fixed bias, so it can be estimated *conditionally on each fit* from replication rather than inferred from a successive difference. Every share prints with an interval, and the numbers come from a dispatched run with retained artefacts. [What it measures](#what-e1b-measures) | how much of C3c's across-draw spread was the evaluation rule — the number E5 sizes a replicate count against | learner selection; any coverage claim; any rate |
-| **E2** — *landed; ran; did not branch* | **the reference reduction, and it is the branch point.** Build `Q_r`, `g_{r,1}`, `g_{r,2}` at their population limits — a *univariate* projection each, on the companion, injected through `ReductionSpec.refit` at the current targeted pair every round — and refit both cells with them. **A reference is a numerical estimate and not an oracle, so its own fidelity is gated first**: an exact-law control, a validation loss on an independent finer companion, and a randomisation budget — none of them a refinement difference. Then, against a **precommitted** equivalence margin: if the reference does not move `√n R_remaining`, candidate 1 is dead and the learner road is shut, and the diagnosis moves to E3. **`unresolved` is a third verdict and is not a weak "dead"**, and it is the verdict three cells of four returned — on **gate B**, each on a coarser rung beating the shipped one and each on a different reduced regression. [What it measured](#what-e2-measured-and-why-it-did-not-branch) | it was to close whether item 13's failure is a *learner* failure at all, and it **did not**: the branch is unmade and the repair is a rung per reduced regression | a learner comparison. That is E2b's and only if this fires. Any margin chosen after a number exists. Calling the reference an oracle |
-| **E2b** — *conditional* | growing-basis deterministic spline against `glm`, `boost` and E2's reference, judged on reduced-function `L₂` loss and on the theorem's products — **never on coverage** | the reduction learner | promoting a data-adaptive learner to the **pooled** construction. See the refusal below |
-| **E3** | `‖Δ_k‖` measured directly rather than through `ψ`; pooled against nested; update order against a prospective equivalence margin; the 99 failing seeds replayed and classified *before* the solver is touched; and an inference-validity flag that suppresses a Wald interval rather than emitting an ordinary-looking one | item 15's stability half, item 22's numerical half, and the invalid-fit rate | scope widening. The narrowest evidenced fix, not a larger `max_iter` |
-| **E4** | **two designs where there was one**: a *theorem* cell whose bounds are inactive under a predeclared rule, and a *stress* cell that keeps them active and is labelled empirical support for the constrained estimator. Preregistration frozen in its own commit, on seed streams no pilot has touched | the mixed-cell reading — C3c's clause 1.0, which is `mixed` in all four cell-runs | any result |
-| **E5** | the fresh two-batch confirmatory dispatch, at four sizes if an exponent is claimed rather than three, with durable artefacts and a clause-by-clause readout | **item 13**, and item 3's second half | any rule changed after a number exists |
+| **E2** — *landed; ran; did not branch* | **the reference reduction, and it is the branch point.** Build `Q_r`, `g_{r,1}`, `g_{r,2}` at their population limits — a *univariate* projection each, on the companion, injected through `ReductionSpec.refit` at the current targeted pair every round — and refit both cells with them. **A reference is a numerical estimate and not an oracle, so its own fidelity is gated first**: an exact-law control, a validation loss on an independent finer companion, and a randomisation budget — none of them a refinement difference. Then, against a **precommitted** equivalence margin: if the reference does not move `√n R_remaining`, candidate 1 is dead and the learner road is shut, and the diagnosis moves to E3. **`unresolved` is a third verdict and is not a weak "dead"**, and it is the verdict three cells of four returned — on **gate B**, each on a coarser rung beating the shipped one and each on a different reduced regression. [What it measured](#what-e2-measured-and-why-it-did-not-branch) | it was to close whether item 13's failure is a *learner* failure at all, and it **did not**: the branch is unmade and the repair is [a rung selected rather than shipped](#the-reboot-and-the-three-work-packages) | a learner comparison. That is E2b's and only if this fires. Any margin chosen after a number exists. Calling the reference an oracle |
+
+##### The reboot, and the three work packages
+
+**What the reboot changes is not the destination but the *conditionality*.** The old list ran
+E2 → E2b → E3 → E4 → E5 as a sequence in which E3 was going to happen whatever E2 said, because the
+`se` ratio was believed to be a second mechanism with a repair of its own. It is not
+([the withdrawal](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs)), so the work is one
+diagnostic, **one branch**, and one confirmatory study — and the branch decides whether E3 happens at
+all.
+
+| | what it is | fires when | closes |
+| --- | --- | --- | --- |
+| **WP1 — E2R** | the repaired reference experiment, and the *only* action that separates reduction error from estimator construction | now. It is the piece's next dispatch | whether item 13's failure is a learner failure at all — the question E2 was built for and did not answer |
+| **WP2 — E2b *or* E3** | a feasible-learner comparison, **or** the narrow construction/stability diagnosis. **Not both, and which one is E2R's output** | on E2R's verdict, per [the branch table](#the-branch-e2r-decides) | the reduction learner, or item 15's stability half and item 22's numerical half |
+| **WP3 — E4 + E5** | the frozen confirmatory study: the preregistered two-design split, then the fresh two-batch dispatch | only after WP2 resolves. **A coverage number taken before it is not the release number** | **item 13**, and item 3's second half |
+
+**The old letters are kept rather than renumbered**, because
+[`docs/drtmle/study-manifest.md`](drtmle/study-manifest.md) cites E3 by name for the 99 replayed
+seeds and [the coverage study](drtmle/coverage-study.md) cites E4 and E5 for the design split and
+the rate. What moved is when each fires, and E2R is the one genuinely new row.
+
+**WP1 — E2R, one conclusive reference experiment.** The same design as E2, repaired at five points
+and dispatched once. **PR #74 is demoted to a pilot** and its seed streams are spent: the decision
+run takes fresh ones.
+
+1. **The rung is selected rather than assumed, and per `(cell, size)` at least.** E2 shipped one
+   `spline(16)` for three regressions in four cells; what its intervals reject is *one rung across
+   the two cells*, and the per-regression reading is [a point-estimate reading of an interval
+   gate](#what-e2-measured-and-why-it-did-not-branch). Selecting independently for `qr`, `gr1` and
+   `gr2` is the right *procedure* — it subsumes the case where they agree — but the pilot's winners
+   are **not** hard-coded, because a rung chosen on the run that certifies it is a rung that
+   certified itself.
+2. **Fit, select, audit and evaluate are four blocks, and E2 has three.** Reference `4,096`,
+   scoring `8,192`, evaluation `2 × 2,048`, on disjoint scramble streams — which was enough because
+   E2 never *selected*: it shipped a rung and used gate B to check it. Turn that ranking into a
+   selection and the block that chose the rung becomes the block that certifies it. **The audit
+   block must not have chosen what it certifies**, so the scoring block splits.
+3. **Two composite gates beside the three component ones.** Gate B scores `qr`, `gr1` and `gr2`
+   apart, which is right and stays — it is what detects an individually bad reduction and prevents
+   two errors cancelling. But none of the three is what the fit reads: `reduced_correction_parts`
+   builds
+   `H₂ = g_{r,2}/g_{r,1}` and `H₃ = q_r/g`, per arm, **at the bounded denominators**. So the audit
+   gets those two as losses in their own right, computed at the same `g_bounds` the fit used — at
+   any other bound it is a loss on a different object — with the denominators' margins and
+   truncation rates recorded beside them. *Componentwise risks are theorem-relevant and incomplete,
+   not wrong.*
+4. **The negative control must be detectably inferior on the metric it is meant to test**, `gr2` at
+   `g-drift` `2,400` included, where E2's `bins(8)` read `-1.031e-04 [-4.35e-04, +1.12e-04]` and the
+   gate had no teeth. A gate that cannot reject the deliberately coarse arm cannot certify anything,
+   and the composite gates get the same clause.
+5. **More reference points is a lever and not only a finer rung.** Gate B ranks candidates at a
+   *fixed* block size, so "`spline(8)` beats `spline(16)`" says the extra knots cost more variance
+   than they buy in bias **at 4,096 points** — the two repairs are one bias–variance trade seen from
+   two sides, and only the block size moves the reference towards its limit rather than towards
+   internal consistency. It is affordable: the pilot priced a doubling at `25.5s` a fit against
+   `13.7s`. **The falsifier is stated in advance**: if doubling the block moves the gate-B ordering
+   towards the finer rungs, the pilot's rung was a statement about the block and not about the
+   function.
+
+*The rule the comparison is judged by does not move.* `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION` and
+`PRIMARY_ESTIMAND` are what they were before E2 ran. Every item above is a change to the
+**reference** or an **addition to the gates**, which [§8](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2)
+permits before a dispatch with a written reason and this list is the reason; and each makes a verdict
+*harder* to reach, which is the only direction a gate may be added in after numbers exist.
+
+**Bound: one instrument repair and one decision run.** If the repaired reference still cannot
+establish equivalence, E2R reports `unresolved` and **stops being cited as motivation for a
+production change**. That is a real outcome and the page will say so.
+
+##### The branch E2R decides
+
+| E2R comes back | WP2 is | why |
+| --- | --- | --- |
+| gates pass, remainder **materially improves** | **E2b** — compare feasible reduction learners, then freeze the winner | the reference is the existence proof; the open question becomes attainability |
+| gates pass, remainder **does not improve** | **E3** — the narrow pooled-versus-nested construction and stability test | candidate 1 is dead and the learner road shuts, which is E2's `equivalent` arm reached at last |
+| gates pass, reference improves it, **no feasible learner approaches it at `n = 2,400`** | **stop.** Record a negative learnability result | "an oracle would fix it" is not a shippable estimator, and saying so is a result — the same standard `bench_tmle.py`'s no-Rust conclusion is held to |
+| gates still **fail** | **stop.** More coverage runs cannot answer this | a comparison at a reference another resolution beats answers for the wrong reference, at any replicate count |
+
+**If the learner branch opens it is a small, already-justified set**: the current `glm`, a
+deterministic growing-basis spline, and the frozen `boost` candidate. Selection is on the component
+losses, the `H₂`/`H₃` losses and predeclared remainder diagnostics — **never on coverage**. The
+winner is serialised with its resolved parameters, seeds and thread settings, and the simplest
+learner that closes the gap wins ties. A boosted learner additionally clears the direct stability
+check or pins `reduced_crossfit="nested"`, for [the reason below](#why-the-oracle-comes-before-the-learner-and-why-boost-is-not-the-first-candidate).
+
+**WP3 — the frozen confirmatory study.** E4's preregistration and E5's dispatch, run once, in that
+order, after WP2 resolves and never before.
+
+- the estimator and every learner **frozen before any result is generated**, on fresh seeds, two
+  independent batches, both off-diagonal cells, `n = 600 / 1,200 / 2,400`;
+- the primary design **predeclared and bound-inactive by construction**, with the bound-active
+  stress cell reported separately — never as a post-hoc stratification of a mixed cell, which is
+  [stop-ship 15](#stop-ship);
+- zero score-identity failures and no more than the predeclared **2%** invalid-fit budget;
+- a negligible or clearly vanishing `√n R_remaining`, an `se`/empirical-`sd` ratio inside its
+  predeclared band, and batchwise coverage compatible with `0.95`.
+
+**One of those is a proposed *tightening* of a frozen clause and is flagged rather than applied
+here.** Gate 1's clause 1.5 currently reads `se ratio` in **`[0.90, 1.10]`**, which `q-drift`'s
+`0.903` passes while the interval is ten per cent short of the spread it covers — a band wide enough
+to pass a calibration this page has just spent a section on. `[0.95, 1.05]` is the band to commit,
+and the place to commit it is [§5 of the validation
+plan](drtmle/validation-plan.md#the-decision-rules-frozen-before-the-dispatch) **in E4's
+preregistration commit, before E5 is dispatched** — the rules may move before the final run with a
+written reason and not after it, and tightening is the direction that cannot buy a pass. Until that
+commit exists the frozen band is still `[0.90, 1.10]`; this paragraph is a plan, not a rule.
+
+**If the remainder gate passes and the `se` ratio still fails, that — and only that — is when the
+calibration becomes its own question**, and it is E3's narrow form: paired pooled against nested
+reductions, `‖Δ_k‖` measured directly, and a full-pipeline bootstrap as a *diagnostic*. Ship nested
+reductions if they resolve it; otherwise derive and validate an estimator-specific correction. **A
+blanket `se` multiplier is refused** — [see below](#what-this-piece-refuses-by-name).
+
+##### The `se` shortfall is a symptom, and what withdrawing it costs
+
+**The claim being withdrawn**, in the words it was made in, at
+[link 4](#what-is-still-open), [the C3c reading](#what-c3c-measured) and
+[stop-ship](#stop-ship): *`σ²ₙ` is the empirical variance of the estimated curve and treats the
+reduced regressions as known, so their estimation error is in `ψ̂`'s spread and not in the variance
+estimate.* Read as a description of the formula it is true and empty; read as this page read it — a
+**second mechanism with a repair of its own**, worth about half the coverage gap — it is
+unsupported, and three things say so.
+
+*One, the formula is the theorem's.* Theorem 1's own last line is
+`σ̂²_n = Pₙ[D*(Q*_n, g*_n) − D_A(Q̄*_{n,r}, g*_n) − D_Y(Q̄*_n, g*_{1,n,r}, g*_{2,n,r})]²` — the
+uncentred second moment of the estimated corrected curve, [transcribed in the
+concordance](drtmle/theorem-concordance.md) and pinned to the reported interval by
+`test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s`, which also measures that the
+uncentred and centred forms differ by exactly `(Pₙ D)²`. The concordance's object table records
+`drtmle`'s covariance block as the same object. **There is no missing term to name**: the
+reductions' estimation error
+enters the theorem through `R_{Q,n}` and `R_{g,n}`, which the theorem *assumes away* and which
+item 13 measures as not negligible. The plug-in variance is first-order valid exactly when that
+assumption holds, so a failing `se` ratio and a failing remainder are one premise failing twice, not
+two defects.
+
+*Two, the direction is not what an omitted term predicts.* A variance that omits a non-negative
+component understates — in every cell, at every size. `g-drift`'s `se ratio` is **`1.157` and
+`1.156`**: the reported `se` is 16% *larger* than the spread it is covering, in the same study, at
+the same size, in both seed batches, against `q-drift`'s `0.903`. Strictly that does not prove the
+term absent; what it proves is that something **larger and of the opposite sign** is in the column,
+so the column is not a reading of an omitted variance term and the mechanism cannot be inferred from
+it. One sign in each direction is what a *mis-estimated curve* looks like.
+
+*Three, the split it licensed is order-dependent.* Model the interval as Wald at a standardised bias
+`b` and an `se` ratio `r`, so coverage is `Φ(1.96r − b) − Φ(−1.96r − b)`. At `q-drift`, `n = 2,400`:
+`sd = 0.0443`, `se = 0.0400`, `√n bias = 1.44`, hence `r = 0.903` and `b = 0.664`.
+
+| counterfactual | model | gain |
+| --- | --- | --- |
+| as fitted | `0.8582` (observed `0.844`) | — |
+| `se` correctly sized, bias kept | **`0.8982`** | `+0.040` |
+| bias removed, `se` kept | **`0.9232`** | `+0.065` |
+| both | `0.9500` | — |
+
+The `0.8982` **is** the page's own `0.898`, reproduced to four places, so this is that arithmetic
+rather than a rival one. Run the other way it says `+0.065` then `+0.027`. The two gains sum to
+`0.105` against a gap of `0.092`: **they are not additive, so there is no split to report** — and
+under either ordering the bias is the larger term. The critique's independent recomputation on the
+495 valid `q-drift` fits agrees on the ordering and is more lopsided still, `0.885` for rescaling
+against `0.927` for recentring.
+
+**What this costs, said plainly.** No gate verdict moves: clause 1.5 failed in `g-drift` and still
+does, clause 1.6 failed on coverage and still does, and `q-drift`'s `0.903` was always *inside*
+`[0.90, 1.10]`. What moves is the *plan* — E3 stops being unconditional — and one sentence of
+description in three documents. A retraction that moved a verdict would be a retraction doing work
+it is not entitled to do, which is
+[the rule this page already applies to `cancel`](drtmle/coverage-study.md).
+
+> **On the artefact-level numbers quoted from the critique.** Its re-reading of the 3,000 C3c fit
+> rows and the E2 rows — the `0.274` minimum margin, the `0/500` clipping, the `7/500` bound-active
+> exit, the `0.885`/`0.927` counterfactuals — **cannot be reverified in the sandbox this page is
+> written from**: Actions artefacts are served from `*.blob.core.windows.net`, which the proxy
+> refuses (`CONNECT tunnel failed, response 403`), which is [why the manifest exists and why it
+> carries digests](drtmle/study-manifest.md). They are cited as the critique's readings and each is
+> corroborated by a published column that *is* in this repository — `min gr1 margin` `0.117`–`0.343`,
+> `worst clip share` `0.0000` in eleven of twelve cell-runs, the Tier-2 bound-active rate of `2%` at
+> that cell and size, and the `0.898` above. Nothing on this page turns on a number that exists only
+> in the critique.
 
 ##### Why the oracle comes before the learner, and why `boost` is not the first candidate
 
@@ -2333,9 +2586,22 @@ and on nothing at `g-drift` 600. `g-drift` at 2,400 fails a second clause too: t
 fired**, and it is worth quoting because it was written before the numbers: *"a gate-B ordering that
 disagrees between the reductions — the shipped rung best on one and beaten on another — says the
 reference's resolution is not one choice, and the repair is a per-regression resolution rather than a
-verdict."* Which rung wins differs by cell **and** by reduced regression, which is exactly that. So
-the finding is about the *reference*, and E2's question — whether item 13's failure is a learner
-failure at all — is not answered.
+verdict."* So the finding is about the *reference*, and E2's question — whether item 13's failure is
+a learner failure at all — is not answered.
+
+**Two revisions of this page then read that falsifier at a precision the table does not carry, and
+the correction is worth more than the sentence it repairs.** They said *which rung wins differs by
+cell **and** by reduced regression*. At the gate's own reading — a bootstrap interval over draws,
+which is what `gate_verdict` tests and what the table prints — **no cell contains a disagreement
+between its reductions**. Every interval that excludes zero within a cell points the same way:
+`q-drift` `600` has `gr2` at `-2.855e-05 [-4.72e-05, -1.21e-05]` and nothing favouring the shipped
+rung; `q-drift` `2,400` has `gr1` and `gr2` favouring `spline(8)` and `qr`'s interval straddling
+zero; `g-drift` `2,400` has `qr` favouring `spline(8)` and the other two straddling. **What flips is
+the cell**: at `g-drift` `600` the shipped rung is significantly the better one, `gr1` at
+`+3.132e-05 [+5.19e-06, +6.44e-05]`. So the licensed statement is *one rung does not serve both
+cells* — the per-regression pattern is real in the point estimates and is not resolved at 32 draws.
+The repair changes accordingly: [E2R](#the-reboot-and-the-three-work-packages) selects per
+`(cell, size)` **at least**, and per regression as a *procedure* rather than as a finding.
 
 **What the run does and does not license, stated apart.** Nothing reads `equivalent`, so **candidate
 1 is not dead and the learner road is not shut**. One cell reads `moved` with its gates passing, in
@@ -2353,10 +2619,12 @@ twentieth of a standard error of an exact reference's. **A large paired differen
 another resolution beats is a large difference about the wrong reference.**
 
 **The next action is a repaired reference and not a larger study**, and it is cheap: the same design
-with a rung chosen **per reduced regression** rather than one for all three, with the negative
-control confirmed rejected on `gr2` at the larger size first. That is a change to the *reference*,
-which §8 permits before a dispatch with a written reason; the rule the comparison is judged by does
-not move, and no constant in it was touched after a number existed.
+with the rung **selected against a measured ranking** rather than shipped, on blocks that separate
+selecting from certifying, with two composite gates on the covariates the estimator actually
+consumes, and with the negative control confirmed rejected on `gr2` at the larger size first. That
+is [E2R](#the-reboot-and-the-three-work-packages), it is a change to the *reference* and an addition
+to the gates, which §8 permits before a dispatch with a written reason; the rule the comparison is
+judged by does not move, and no constant in it was touched after a number existed.
 
 **The three gates, and the point of each is what it is blind to.**
 
@@ -2451,7 +2719,8 @@ precommitted equivalence margin and reference-uncertainty budget frozen in their
 the dispatch. All four landed, the run has happened, and **the gates are what stopped the paired
 numbers being read** in three cells of four — which is the instrument working rather than the run
 failing, and is the whole return on specifying them before any number existed. What is owed now is a
-reference whose resolution is chosen **per reduced regression**.
+reference whose resolution is **selected and then certified by a block that did not select it**,
+which is [E2R](#the-reboot-and-the-three-work-packages).
 
 **And it is the only instrument that can return a *negative* answer worth having.** A faster
 learner that fails leaves "try a faster one still"; an oracle that fails says candidate 1 is not
@@ -2472,16 +2741,28 @@ ships the spline expansion to build it from.
 
 - **A larger `n` on the same configuration.** Named first because it is the intuitive next step and
   the measurements rule it out.
-- **A bootstrap or sandwich variance to widen the interval.** The `se ratio` has a *known*
-  mechanism — `σ²ₙ` treating the reductions as known — and widening an interval before that is
-  understood buys coverage by inflation rather than by correctness. E3 addresses the mechanism.
+- **A bootstrap or sandwich variance to widen the interval, and a blanket `se` multiplier most of
+  all.** The refusal stands and **its reason has changed**: the previous revision said the `se`
+  ratio has a *known* mechanism that E3 addresses, and
+  [it does not](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs). The reason is now
+  the stronger one — the calibration and the remainder are **the same unestablished premise**, so
+  an independent variance inflation would mask the mechanism rather than repair it, and it cannot
+  touch the bias, which is the larger of the two terms under either ordering. A full-pipeline
+  bootstrap is admissible **as a diagnostic** in WP3's conditional branch, and only there.
 - **Tuning any learner on the final coverage**, and **selecting the reduction learner on anything
   but reduced-function loss and the theorem products**. C3c's own value is that its rules were
   frozen before its numbers existed.
-- **Piece D — bivariate reductions and the wider treatment scope — stays deferred behind E5.** A
-  second reduction *construction* is not a response to an unvalidated reduction *learner*.
+- **Piece D — bivariate reductions and the wider treatment scope — stays deferred behind WP3, and
+  it is not a fallback *inside* this release.** A second reduction *construction* is not a response
+  to an unvalidated reduction *learner*; and if no feasible univariate learner reaches the reference
+  at `n = 2,400`, that is [a stop result](#the-branch-e2r-decides) and the bivariate estimator is a
+  separately specified algorithm project, not the rescue for this one.
 - **Conditioning any primary number on the post-fit bound label.** E4 separates the designs; it
   does not stratify a result after the fact, which is [stop-ship 15](#stop-ship).
+- **Citing E2's three `unresolved` cells as motivation for a production change.** Their differences
+  are large and they are about a reference another rung beats; the piece may cite them as the reason
+  E2R exists and for nothing else. **The same bound applies to E2R itself**: an `unresolved` decision
+  run ends the reduction road as evidence, rather than earning a third dispatch.
 
 ##### What E1 landed, and what E1b withdrew
 
@@ -2797,9 +3078,15 @@ any of it.
 ### Stop-ship
 
 Any one of these blocks calling `DRTMLE` finished, and they are the four links restated as things
-a reader could check rather than as claims. Three of them are about how the *evidence* is described
-rather than about the code — 11, 14 and the new 15 — and all three exist because a claim that
-outruns its instrument is how this variant has gone wrong twice.
+a reader could check rather than as claims. **Four** of them are about how the *evidence* is
+described rather than about the code — 11, 14, 15 and the new **16** — and all four exist because a
+claim that outruns its instrument is how this variant has gone wrong three times now.
+
+**Two further stop conditions are not clauses here because they are outcomes of an experiment
+rather than properties of a document**, and [the branch table](#the-branch-e2r-decides) is where
+they live: a repaired reference that still cannot say whether the reductions are causal, and a
+reference that repairs the remainder with no feasible learner reaching it at `n = 2,400`. Each ends
+the release attempt with a recorded result rather than with a further dispatch.
 
 **Four of them are now live on measurements rather than open for want of one.** Before
 [C3c](#what-c3c-measured) this list was mostly a set of things a study might find; the study found
@@ -2807,14 +3094,20 @@ them. Clauses 4, 5, 6 and 7 are live, on 6,000 fits over two seed batches, and c
 checked and are not. That is a better state than it sounds: a list of blockers with numbers
 attached is a list somebody can work on.
 
-**They do not all trace back to one quantity, and the revision that said they did was wrong about
-three of the four.** Clause 6 — coverage — is the one the remainder drives. Clause 5 is the
-`se ratio`, and its mechanism is the *variance estimator*: `σ²ₙ` treats the reduced regressions as
-known. Clause 4's second half is `cancel` at `1.99x`, which is the branch decomposition failing to
-*separate* the two remainder terms rather than either of them failing to vanish. Clause 3 is 99
-invalid fits, which is the solver. Four clauses, three mechanisms, and
-[piece E](#e-what-c3c-handed-back) splits them across E2, E3 and E5 for that reason — a single-cause
-reading is what would send all of the work to the wrong one.
+**They do not all trace back to one quantity — and this revision moves clause 5 back towards the
+one they mostly do.** Clause 6 — coverage — is the one the remainder drives. **Clause 5 is the
+`se ratio`, and it no longer has a mechanism of its own**: the previous revision named the variance
+estimator, `σ²ₙ` "treating the reduced regressions as known", and that is Theorem 1's own formula
+rather than a defect
+([the withdrawal](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs)). It is the same
+unestablished premise as clause 6, read through the second moment, and `g-drift`'s `1.157` is why
+it cannot be an omitted variance term. Clause 4's second half is `cancel` at `1.99x`, which is the
+branch decomposition failing to *separate* the two remainder terms rather than either of them
+failing to vanish. Clause 3 is 99 invalid fits, which is the solver. **Four clauses, three
+mechanisms, and now two of the four share one** — which is why
+[piece E](#the-reboot-and-the-three-work-packages) is a diagnostic, a branch and a study rather
+than four parallel repairs. A single-cause reading would still send work to the wrong place; so
+would inventing a cause per clause.
 
 1. a correction term disagrees with Theorem 1 or the appendix — this was item 21 and it is
    **closed**: the appendices force the positive reading, which is the one implemented, and
@@ -2906,6 +3199,15 @@ reading is what would send all of the work to the wrong one.
     theorem — however good its identities and its scores look. This is new with the contract and it
     is 14's shape one level up: 14 is a check that could not have disagreed, and this is a check
     that agreed about something else.
+16. any document names a **separate defect in the variance estimator** as the mechanism of the
+    `se` shortfall, or repairs the shortfall with an inflation factor, a sandwich or a bootstrap
+    applied to the released interval. `σ²ₙ` is Theorem 1's own `Pₙ{D* − D_A − D_Y}²`, pinned by
+    `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s`, and it is first-order valid
+    exactly when the conditions item 13 measures hold. **This page carried the opposite for three
+    revisions** and it is the third entry on this list of the same shape as 14 and 15 — a claim
+    that outruns its instrument — with the additional feature that it prescribed a repair. The
+    check a reader makes is the `se ratio` column in both cells: `0.903` beside `1.157` is not what
+    a missing non-negative term looks like.
 
 Note what is **not** on this list any more: a coverage gap over `TMLE` of at least 0.05. That is a
 product judgment about whether the variant earns its cost, it has no theorem behind it, and it now
