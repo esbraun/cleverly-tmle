@@ -171,10 +171,17 @@ __all__ = [
     "truth_at",
 ]
 
-#: The two bin counts every branch is computed at.  Not a tuning knob: the pair *is* the
-#: reported error of the binned limits, so a branch smaller than the gap between them is a
-#: branch this design cannot resolve.  A power of two apart, so the coarse grid is a strict
-#: coarsening of the fine one and the difference is discretisation rather than reshuffling.
+#: The two bin counts every branch is computed at.  Not a tuning knob: the pair is what says
+#: whether the binned limits had **settled**, so a branch smaller than the gap between them
+#: is one this design was still visibly moving on.  A power of two apart, so the coarse grid
+#: is a strict coarsening of the fine one and the difference is discretisation rather than
+#: reshuffling.
+#:
+#: **The pair is not the reported *error* of the binned limits, and it was described as one
+#: here.**  A successive difference between two rungs says a sequence settled and not where
+#: -- ``docs/roadmap.md``'s E1b is the same retraction for the quadrature ladder, and
+#: :attr:`RemainderRow.branch_movement` carries the reasoning and the one direction of the
+#: inference this pair does support.
 BIN_COUNTS = (12, 24)
 
 #: The arm each per-arm column is reported at, and the contrast taken between them.
@@ -285,10 +292,29 @@ class RemainderRow:
         is the point: C3a's pilot had only the first and read it as the second.
     branch_q, branch_g:
         Appendix A's and appendix B's second-order halves, or ``nan`` where the binned
-        limits did not resolve them.
-    branch_error:
-        The larger of the two branches' bin-count sensitivities, which is what "did not
-        resolve" is decided on.
+        limits had not **settled** between the two bin counts.
+    branch_movement:
+        The larger of the two branches' movements between :data:`BIN_COUNTS`, which is what
+        "had not settled" is decided on.
+
+        **It is not an error bound, and this field was called ``branch_error`` until it
+        was.**  It is a successive difference between two rungs of a refinement, which is
+        the statistic ``docs/roadmap.md``'s E1b withdrew for the quadrature ladder --
+        measured there at four times *below* the true error at the finest rung and three
+        orders *above* it two rungs earlier.  Nothing about the binned limits makes their
+        version of it better behaved: :func:`conditional_mean` is a regressogram in a
+        two-dimensional design, and its bias is a smoothing bias with no monotonicity in
+        the bin count to lean on.
+
+        **What it can carry is one direction of the inference, and the suppression above
+        uses only that direction.**  A branch that moves more between 12 and 24 bins than
+        its own magnitude is not a number to read -- the instrument is visibly still
+        moving.  A branch that moves less may still be wrong by any amount, because a
+        smoothing bias can be stable across two resolutions and large at both.  So
+        settling is **necessary and not sufficient**, and a settled branch's actual error
+        is *unestablished* rather than small.  What would establish it is a reference whose
+        own fidelity is measured against something other than its own refinement, which is
+        ``docs/roadmap.md``'s E2.
     companion_se, companion_replicate_se:
         The evaluation rule's **own** error, on the :math:`\\sqrt n` scale the column above
         is read at -- two numbers because they are arrived at two ways and one field with
@@ -325,7 +351,7 @@ class RemainderRow:
     r2_targeted: float
     branch_q: float
     branch_g: float
-    branch_error: float
+    branch_movement: float
     companion_se: float = float("nan")
     companion_replicate_se: float = float("nan")
     replicates: int = 1
@@ -1086,10 +1112,14 @@ def remainder_rows(
             dtype=float,
         )
         root_n = float(np.sqrt(n)) * remaining
-        error = float(np.mean([block["error"][name] for block in per_window]))
+        movement = float(np.mean([block["movement"][name] for block in per_window]))
         branch_q = float(np.mean([block["branch_q"][name] for block in per_window]))
         branch_g = float(np.mean([block["branch_g"][name] for block in per_window]))
-        resolved = error <= max(abs(branch_q), abs(branch_g))
+        # One direction of the inference only -- see `RemainderRow.branch_movement`. A
+        # branch moving more between the two bin counts than its own magnitude is an
+        # instrument still visibly moving and is suppressed; a branch that has settled is
+        # *not* thereby resolved, and nothing here claims it is.
+        settled = movement <= max(abs(branch_q), abs(branch_g))
         rows.append(
             RemainderRow(
                 estimand=name,
@@ -1101,9 +1131,9 @@ def remainder_rows(
                 root_n_remaining=float(root_n.mean()),
                 r2=float(np.mean([block["r2"][_KEYS[name]] for block in per_window])),
                 r2_targeted=targeted[_KEYS[name]],
-                branch_q=branch_q if resolved else float("nan"),
-                branch_g=branch_g if resolved else float("nan"),
-                branch_error=error,
+                branch_q=branch_q if settled else float("nan"),
+                branch_g=branch_g if settled else float("nan"),
+                branch_movement=movement,
                 companion_se=float(np.mean([block["se"][name] for block in per_window])),
                 companion_replicate_se=_replicate_se(root_n),
                 replicates=len(selected),
@@ -1143,7 +1173,10 @@ def _one_window(
         "se": _companion_witness(result, n, row_weights, window),
         "branch_q": {name: fine[f"branch_q_{name}"] for name in ("ate", "ey1", "ey0")},
         "branch_g": {name: fine[f"branch_g_{name}"] for name in ("ate", "ey1", "ey0")},
-        "error": {
+        # A *movement* between two bin counts and not an error: see
+        # `RemainderRow.branch_movement` for why the difference matters and which half of
+        # the inference this column can carry.
+        "movement": {
             name: max(
                 abs(fine[f"branch_q_{name}"] - coarse[f"branch_q_{name}"]),
                 abs(fine[f"branch_g_{name}"] - coarse[f"branch_g_{name}"]),

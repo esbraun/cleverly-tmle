@@ -261,7 +261,7 @@ class Replicate:
     root_n_remaining: float = float("nan")
     branch_q: float = float("nan")
     branch_g: float = float("nan")
-    branch_error: float = float("nan")
+    branch_movement: float = float("nan")
     #: The evaluation rule's **own** error, on the same root-``n`` scale as
     #: ``root_n_remaining``, so a reader can see how much of that column is the quadrature.
     #: Two numbers because they are arrived at two ways -- see
@@ -615,7 +615,7 @@ def one_draw(payload: Payload) -> tuple[list[Replicate], list[ScoreRow]]:
                     root_n_remaining=float("nan") if row is None else row.root_n_remaining,
                     branch_q=float("nan") if row is None else row.branch_q,
                     branch_g=float("nan") if row is None else row.branch_g,
-                    branch_error=float("nan") if row is None else row.branch_error,
+                    branch_movement=float("nan") if row is None else row.branch_movement,
                     companion_se=float("nan") if row is None else row.companion_se,
                     companion_replicate_se=(
                         float("nan") if row is None else row.companion_replicate_se
@@ -1441,8 +1441,8 @@ REMAINDER_HEADERS = (
     "R_Q",
     "R_g",
     "cancel",
-    "branch err",
-    "branches resolved",
+    "branch move",
+    "branches settled",
 )
 
 
@@ -1479,10 +1479,14 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
     [E1](../docs/roadmap.md#what-e1-landed-and-what-e1b-withdrew) is.  Under the randomised
     rule it is **measured** from each replicate's own scrambles rather than derived from a
     halving witness, which is [E1b](../docs/roadmap.md#what-e1b-measures)'s correction; see
-    :func:`_corrected`.  ``branch err`` is the same thing one level down for the binned
-    limits: it was recorded on every replicate from C2 onwards and **read by no table**,
-    which is why ``branches resolved`` falling to ``192/250`` in C3c arrived without the size
-    of the discretisation beside it.
+    :func:`_corrected`.  ``branch move`` is **not** the same thing one level down, and saying
+    it was is the reading this column carried until E1b's argument was applied to it: it is
+    the binned limits' movement between :data:`~benchmarks.drtmle_remainder.BIN_COUNTS`, a
+    successive difference between two rungs of a refinement, which says a sequence settled and
+    not where it settled.  ``branches settled`` counts the replicates whose branches moved less
+    than their own magnitude -- a *necessary* condition for reading one and not a sufficient
+    one, so a settled branch's error is **unestablished** rather than small.  See
+    :attr:`~benchmarks.drtmle_remainder.RemainderRow.branch_movement`.
     """
     rows = []
     for cell, n in _cells(records):
@@ -1513,8 +1517,8 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
             rule_error, _ = column("companion_replicate_se")
             if not np.isfinite(rule_error):
                 rule_error, _ = column("companion_se")
-            branch_error, _ = column("branch_error")
-            resolved = sum(1 for r in selected if np.isfinite(r.branch_q))
+            branch_movement, _ = column("branch_movement")
+            settled = sum(1 for r in selected if np.isfinite(r.branch_q))
             rows.append(
                 [
                     cell,
@@ -1528,11 +1532,11 @@ def remainder_rows(records: Sequence[Replicate]) -> list[list[str]]:
                     f"{column('remaining')[0]:+.5f}",
                     f"{root_mean:+.4f} +/- {root_error:.4f}",
                     f"{rule_error:.4f}",
-                    f"{branch_q:+.5f}" if resolved else "-",
-                    f"{branch_g:+.5f}" if resolved else "-",
-                    _cancellation(branch_q, branch_g) if resolved else "-",
-                    f"{branch_error:.5f}",
-                    f"{resolved}/{len(selected)}",
+                    f"{branch_q:+.5f}" if settled else "-",
+                    f"{branch_g:+.5f}" if settled else "-",
+                    _cancellation(branch_q, branch_g) if settled else "-",
+                    f"{branch_movement:.5f}",
+                    f"{settled}/{len(selected)}",
                 ]
             )
     return rows
@@ -1832,10 +1836,15 @@ def main() -> None:
             "where a small total rests on two large branches of opposite sign. `sqrt(n) R2`\n"
             "is the plain remainder and is gate 2's clause 1, whose third condition is that\n"
             "it fails to vanish in the cell the shortfall is claimed in.\n"
-            "Where `branches resolved` is short of the replicate count, the\n"
-            "binned limits those two are built from did not separate from their own\n"
-            "discretisation error, which is a statement about this design and not about the\n"
-            "estimator -- benchmarks/drtmle_remainder.py says what is approximated in them."
+            "Where `branches settled` is short of the replicate count, the binned limits\n"
+            "those two are built from were still moving between the two bin counts by more\n"
+            "than the branch's own magnitude, which is a statement about this design and not\n"
+            "about the estimator. `branch move` is that movement and is a STABILITY\n"
+            "diagnostic, not an error bound: it says the limits settled, not where. So a\n"
+            "settled branch's error is unestablished rather than small, and no reading here\n"
+            "may treat `branch move` as bounding it -- the same correction E1b made to the\n"
+            "quadrature ladder's `delta`. benchmarks/drtmle_remainder.py says what is\n"
+            "approximated in the branches and what would establish their error."
         )
     errored = [r for r in records if r.error]
     if errored:

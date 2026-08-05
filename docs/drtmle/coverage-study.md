@@ -864,6 +864,21 @@ fits have a third, and `cancel` at `1.99x` is the branch decomposition failing t
 remainder terms rather than either failing to vanish. Four failing clauses, three mechanisms — and
 attributing all four to the remainder is what would send the repair to the wrong one.
 
+> **`cancel` is withdrawn as evidence for clause 1.4, and the clause still fails.** The ratio is
+> `(|R_Q| + |R_g|) / |R_Q + R_g|` of two **binned** estimates, and what was reported beside them as
+> their "error" is a movement between two bin counts — a successive-refinement difference, which is
+> the statistic [E1b withdrew](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) for the
+> quadrature ladder and which [§5](validation-plan.md#reporting-r_q-and-r_g-separately) now
+> withdraws here. Nothing bounds those two estimates' error, so a ratio built from them is
+> **unread** rather than failed, and `192/250` is a stability count rather than a resolution one.
+>
+> **The verdict does not move**, and saying so is the point of writing this here rather than
+> quietly deleting the number. Clause 1.4's first half — `√n R_rem` flat at `1.43 / 1.26 / 1.25`
+> in `q-drift` and not falling in `g-drift` — reads a column with a *measured* replicate spread
+> beside it, which is exactly what E1b landed. It carries the clause alone. A retraction that
+> moved a verdict would be a retraction doing work it is not entitled to do, and `unresolved` is
+> not a weak `pass`. What would make the second half readable is [E2](../roadmap.md#e-what-c3c-handed-back).
+
 **That is a finding rather than a fault in the design, and this note said so before any number
 existed**: *"Condition 3 failing stays a finding rather than a fault in the design — it is a
 condition of Theorem 1, so the estimator would then be outside the assumptions its own guarantee
@@ -903,7 +918,7 @@ reader can check the verdict against the log rather than take it.*
 | **1.1** theorem concordance closes | [A1a](theorem-concordance.md) | closed, item 21 with it | pass |
 | **1.2** zero state-identity failures | validity table, `identity` | `0` across all 6,000 fits | **pass** |
 | **1.3** every required score negligible | validity table, `score`, at tolerance `1e-3` | `1–7%` of `DRTMLE` fits invalid in every cell | **fail** |
-| **1.4** `√n R_rem → 0` in both cells, no cancellation | remainder table, `sqrt(n) R_rem`, `cancel` | flat in `q-drift`, not falling in `g-drift`; `cancel` reaching `1.99x` | **fail** |
+| **1.4** `√n R_rem → 0` in both cells, no cancellation | remainder table, `sqrt(n) R_rem`, `cancel` | flat in `q-drift`, not falling in `g-drift`. `cancel` reaching `1.99x` is **withdrawn as evidence** — see below — and the verdict does not move, because the first half carries it alone | **fail**, on `√n R_rem` |
 | **1.5** `se ratio` in `[0.90, 1.10]`, largest size, both cells | coverage table | `q-drift` `0.903` / `0.903`; `g-drift` `1.157` / `1.156` | **fail** in `g-drift` |
 | **1.6** coverage compatible with `0.95`, largest size, both cells | coverage table, `compatible` | `0.844` / `0.848` and `0.780` / `0.784`; `NO` in all four | **fail** |
 | **1.7** reproduces in the second seed batch | batch B against batch A | every qualitative claim reproduces; `se ratio` and entry column to the digit | **pass**, and see the note below on which batch is the fresh one |

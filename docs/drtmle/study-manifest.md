@@ -95,7 +95,7 @@ record would need a schema before a reader could do anything with it. Fields, as
 | `r2`, `r2_targeted` | the plain remainder at the initial and at the targeted regression — the regime-entry column |
 | `p0_curve`, `pn_curve` | `P₀D̂` off the evaluation draw, and `PₙD̂`, which targeting drove to zero |
 | `remaining`, `root_n_remaining` | the corrected remainder Theorem 1 assumes negligible, and its `√n` scaling — **item 13's column** |
-| `branch_q`, `branch_g`, `branch_error` | the two appendix branches' second-order halves and their binning error. The `M` terms are refused rather than approximated, so these are not the full theorem terms |
+| `branch_q`, `branch_g`, `branch_error` | the two appendix branches' second-order halves and their movement between the two bin counts. The `M` terms are refused rather than approximated, so these are not the full theorem terms |
 
 **A reader deriving a rate from a single row's `√n R_remaining` is reading the quadrature, not the
 remainder**: at `m = 2,000` the companion's own error is of order `1.0/√m ≈ 0.023` per replicate,
@@ -258,7 +258,7 @@ recomputable from this file. The record is `benchmarks.drtmle_companion_grid.Gri
 | `points`, `rows` | Sobol points and companion rows in this replicate's block; `points` is `0` on a draw row |
 | `p0_curve`, `remaining`, `root_n_remaining` | item 13's three columns at this rule, refinement and replicate |
 | `companion_se` | the i.i.d. rule's error from the `sd(D̂)/√m` formula. Read on the draw rows only — on a quasi-random rule it is an enormous overstatement |
-| `branch_q`, `branch_g`, `branch_error` | the two appendix branches and their binning error, which has a grid dependence of its own |
+| `branch_q`, `branch_g`, `branch_error` | the two appendix branches and their movement between the two bin counts, which has a grid dependence of its own |
 | `seconds` | the fit's wall clock, which is per draw and repeats across that draw's rows |
 | `error` | the exception type where a replicate could not be computed, `""` otherwise. A failure is a row rather than a gap |
 
@@ -266,6 +266,15 @@ recomputable from this file. The record is `benchmarks.drtmle_companion_grid.Gri
 interval are functions of a whole `(cell, n, rule, points)` group, so putting them on a row would
 store one number many times and invite a reader to average them. `decompose` and `bootstrap_share`
 are the arithmetic, and they read exactly the fields above.
+
+> **`branch_error` is this field's name in the retained rows, and the code now writes
+> `branch_movement`.** The quantity is unchanged — the larger of the two branches' movement between
+> the `(12, 24)` bin counts — and only the name and the reading are. It was called an error and is
+> a *successive difference between two rungs of a refinement*, which is the statistic
+> [E1b withdrew](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) for the quadrature ladder; the
+> tables' `branch err` column is now `branch move`, and `branches resolved` is `branches settled`.
+> A reader of the archived JSONL should expect the old key and read it as the new one. Both
+> studies' rows predate the rename; nothing in them needs recomputing.
 
 ### Regenerating E1b's tables
 

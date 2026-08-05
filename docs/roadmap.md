@@ -340,7 +340,8 @@ the same column a reading much more nearly about the estimator.
    which stay two `unverified` rows, since `branch_products` reports only each branch's
    second-order half and **refuses the `M` terms** rather than approximating them. *Three*: at the
    largest size the decomposition does not separate the two anyway — `cancel` reaches `1.99x` and
-   `branches resolved` falls to `192/250`. So what C3c discharged is the *instrument* question, and
+   `branches settled` falls to `192/250`, both now **unread** rather than failing, since a movement
+   between two bin counts bounds nothing. So what C3c discharged is the *instrument* question, and
    an aggregate that does not vanish is evidence that something in this configuration does not meet
    the condition rather than a reading of which term. What remains open on this link is
    **item 22's numerical half, on one clause of a frozen rule that every measurement misses in the
@@ -754,9 +755,9 @@ item 13 is opened here, where the reason for it is, and closes at
 insufficient on its own**: the working paper's appendix B splits the remainder into `R_{Q,n}` and
 `R_{g,n}`, and a total trending to zero can conceal cancellation between them, so the study
 reports the branches separately where the DGP permits. **That caveat is no longer hypothetical.**
-C3c's `cancel` column reaches `1.99x` in `g-drift` at the largest size and `branches resolved`
-falls to `192/250`, so at the size that matters most the decomposition does not separate the two
-terms — and what the branches report is each one's *second-order half*, since `branch_products`
+C3c's `cancel` column reaches `1.99x` in `g-drift` at the largest size and `branches settled`
+falls to `192/250`, so at the size that matters most the decomposition was still moving between
+the two bin counts — and what the branches report is each one's *second-order half*, since `branch_products`
 refuses the `M` terms rather than approximating them. A total that does **not** vanish is
 therefore evidence that something in the configuration fails the condition, and not yet a reading
 of which term does. The exact terms are in [the concordance's
@@ -1411,21 +1412,36 @@ and then again at three times the seeds because twelve did not resolve `weak-ove
 configurations, the rule, and what would falsify it are [in the validation
 plan](drtmle/validation-plan.md#the-update-order-rule-frozen-before-the-dispatch).
 
-**24. An oracle reduction on the continuous processes needs the fitted learners, and nothing here
-keeps them.** A reduced regression conditions on `ĝ(a|W)` and `Q̄̂(a, W)` — *fitted* objects — so its
-truth is not something a DGP can supply, and evaluating it on a large auxiliary draw would mean
-predicting those nuisances at rows the fit never saw. `cross_fit_predictions` discards every
-per-fold model and `NuisanceEstimates` carries arrays only, deliberately: everything reached
-through `retarget` must target what the fit declared without a learner being refitted. So this is a
-source change with a derivation attached rather than a column on a sweep, and the derivation is the
-one `fit_reduced`'s docstring already circles — *which* fold's model is `ĝ` off-sample, given that
-per-fold designs trade a second-order dependence for a first-order covariate shift.
+**24. An oracle reduction on the continuous processes needs the fitted learners at rows the fit
+never saw — and the companion is where it keeps them.** A reduced regression conditions on `ĝ(a|W)`
+or `Q̄̂(a, W)` — *fitted* objects, and univariate: one column each — so its truth is not something a
+DGP can supply, and evaluating it means predicting those nuisances away from the fitting sample.
 
-Two things stop it being a gap in the evidence. On the **exact law** the oracle exists and is built
-(above), and it is where the question has an answer rather than an approximation. On the continuous
-processes `--reduced-learner` measures the same *effect* — whether a different reduction moves the
-fit — without claiming to be a truth. What is genuinely unavailable is the magnitude of a
-continuous-process reduction's error, and no number in this repository should be read as one.
+**The original form of this item said "nothing here keeps them", and that has been false since
+C2.** `cross_fit_predictions` does discard every per-fold model, and `NuisanceEstimates` does carry
+arrays only — both deliberately, so that everything reached through `retarget` targets what the fit
+declared without a learner being refitted. But `CompanionEstimates` holds `outcome` and `propensity`
+**one copy per outer fold, evaluated at the companion rows by the same fitted model objects**,
+filled in by `cross_fit_companion` at fit time; and `ReductionSpec.refit` is handed those copies at
+the *current targeted* pair on every round of the alternation (`targeting._reduction_inputs`). So
+the construction is available without a source change: fit the reference on the companion, where
+the design values and `P₀`'s own weights `g_0(a|W)/points` are both known, and predict at the
+production design values the fit already carries.
+
+**What is left is a declaration constraint, not an absent capability**, and it is a virtue rather
+than a cost: the population grid has to be fixed *before* the fit, via `evaluation=`, which is what
+makes the reference conditionally fixed given the fit — the thing A1b's stability argument wants of
+anything entering the reductions.
+
+Two things stop the remainder being a gap in the evidence. On the **exact law** the oracle exists
+and is built (above), and it is where the question has an answer rather than an approximation. On
+the continuous processes `--reduced-learner` measures the same *effect* — whether a different
+reduction moves the fit — without claiming to be a truth. What is still genuinely unavailable is
+the magnitude of a continuous-process reduction's error **at an unvalidated reference**: a
+reference is a numerical estimate of a conditional expectation and carries a smoothing bias, so
+until its own fidelity is gated against something that is not its own refinement, no number here
+should be read as that magnitude. **[E2](#e-what-c3c-handed-back) is that gate**, and this row
+moves when it lands rather than when the instrument does.
 
 **The diagnosis stays widened even though the cause is found.** `1/g` in equation (8) is one of
 *five* places weak overlap enters, and B1 accounts for the score failure without saying the other
@@ -2221,7 +2237,7 @@ estimator change.
 | **E0** — *landed* | the record: item 13 reopened, the ceiling demoted to exploratory, the two mechanisms separated, C3b's condition-3 sentence corrected, batch A relabelled, and the four stale status-prose sites. Plus [the study manifest](drtmle/study-manifest.md) | nothing — it is the page saying what the study showed | any estimator or benchmark change |
 | **E1** — *landed*, in part | the remainder instrument: `P₀D̂` by deterministic integration — the curve is affine in `Y` and binary in `A`, so two of its three coordinates close in closed form — a nested-grid ladder read off one fit per draw, and the full score row per fit serialised beside the replicates. [What it landed, and what E1b withdrew](#what-e1-landed-and-what-e1b-withdrew) | the *mechanism* half of the quadrature question. **Its two quantitative readings are withdrawn** — the ladder was read as a bound and the variance ratio as a share, and neither is what those statistics are | learner selection; any coverage claim |
 | **E1b** — *landed* | the precision half, measured: an **independent scramble per replicate**, which makes the grid's error mean-zero rather than a fixed bias, so it can be estimated *conditionally on each fit* from replication rather than inferred from a successive difference. Every share prints with an interval, and the numbers come from a dispatched run with retained artefacts. [What it measures](#what-e1b-measures) | how much of C3c's across-draw spread was the evaluation rule — the number E5 sizes a replicate count against | learner selection; any coverage claim; any rate |
-| **E2** | **the oracle reduction, and it is the branch point.** Build `Q_r`, `g_{r,1}`, `g_{r,2}` at their population limits and refit both cells with them injected. **If the oracle does not move `√n R_remaining`, candidate 1 is dead and the learner road is shut** — E2 ends there and the diagnosis moves to E3 | whether item 13's failure is a *learner* failure at all | a learner comparison. That is E2b's and only if this fires |
+| **E2** | **the reference reduction, and it is the branch point.** Build `Q_r`, `g_{r,1}`, `g_{r,2}` at their population limits — a *univariate* projection each, on the companion, injected through `ReductionSpec.refit` at the current targeted pair every round — and refit both cells with them. **A reference is a numerical estimate and not an oracle, so its own fidelity is gated first**: an exact-law control, a validation loss on an independent finer companion, and a randomisation budget — none of them a refinement difference. Then, against a **precommitted** equivalence margin: if the reference does not move `√n R_remaining`, candidate 1 is dead and the learner road is shut, and the diagnosis moves to E3. **`unresolved` is a third verdict and is not a weak "dead"** | whether item 13's failure is a *learner* failure at all | a learner comparison. That is E2b's and only if this fires. Any margin chosen after a number exists. Calling the reference an oracle |
 | **E2b** — *conditional* | growing-basis deterministic spline against `glm`, `boost` and the E2 oracle, judged on reduced-function `L₂` loss and on the theorem's products — **never on coverage** | the reduction learner | promoting a data-adaptive learner to the **pooled** construction. See the refusal below |
 | **E3** | `‖Δ_k‖` measured directly rather than through `ψ`; pooled against nested; update order against a prospective equivalence margin; the 99 failing seeds replayed and classified *before* the solver is touched; and an inference-validity flag that suppresses a Wald interval rather than emitting an ordinary-looking one | item 15's stability half, item 22's numerical half, and the invalid-fit rate | scope widening. The narrowest evidenced fix, not a larger `max_iter` |
 | **E4** | **two designs where there was one**: a *theorem* cell whose bounds are inactive under a predeclared rule, and a *stress* cell that keeps them active and is labelled empirical support for the constrained estimator. Preregistration frozen in its own commit, on seed streams no pilot has touched | the mixed-cell reading — C3c's clause 1.0, which is `mixed` in all four cell-runs | any result |
@@ -2229,14 +2245,36 @@ estimator change.
 
 ##### Why the oracle comes before the learner, and why `boost` is not the first candidate
 
-**E2 is nearly free, and that is most of the argument for putting it first.**
-`benchmarks/drtmle_remainder.conditional_mean` already computes this object — its docstring says
-so: *"The reduced regressions' limits are population conditional expectations given one or two
-scalars that are themselves computable functions of `W`, so estimating them is a quadrature over
-the evaluation draw rather than a second modelling choice."* Tier 2's conditioning columns are
-injected analytic functions, so they are known in closed form, and the existing coarse/fine bin
-pair (`BIN_COUNTS = (12, 24)`) is the discretisation check to reuse for the oracle's own accuracy.
-A diagnosis that costs a quadrature belongs before one that costs a learner sweep.
+**E2 is cheap, and that is most of the argument for putting it first — but it is not free, and an
+earlier revision of this paragraph said three things that are not true.** They are corrected here
+rather than deleted, because each was load-bearing for "nearly free".
+
+*Withdrawn: "Tier 2's conditioning columns are injected analytic functions, so they are known in
+closed form."* Tier 2 **fits** both primaries — an oversmoothed additive kernel regression and a
+subset GLM (`benchmarks/drtmle_tier2.py`) — so only `branch_products`' `truth_*` coordinate is
+analytic. That sentence describes Tier 1. And it fails at Tier 1 too once the alternation has moved
+once: `refit` is handed the *targeted* pair, and `Q̄* = Q̄⁰ + ε·H` with a fitted `ε`.
+
+*Withdrawn: "the existing coarse/fine bin pair is the discretisation check to reuse for the oracle's
+own accuracy."* That pair is a **movement** between two rungs of a refinement, which is the
+statistic [withdrawn above](#what-e1-landed-and-what-e1b-withdrew) for the quadrature ladder and now
+for the branches themselves. E2 must not inherit a retracted statistic as its fidelity gate — which
+is the whole reason its gate is specified below rather than assumed.
+
+*Corrected: what the object actually is.* `conditional_mean`'s docstring is quoted accurately, but
+the object E2 needs is **univariate** — `reduced.py` states it: *"Each is univariate: a regression
+on one column, that column being the other nuisance's out-of-fold prediction."* The two-scalar
+conditioning in `branch_products` belongs to appendix A/B's `0n` limits, a different object. So no
+production call site computes what E2 needs, and the rows-per-cell coupling that makes a finer bin
+count worse in two dimensions (576 cells, then 2,304) largely goes away in one.
+
+**What is true, and it still puts E2 first.** The construction needs no change under `src/`:
+`ReductionSpec.refit` is the seam, `CompanionEstimates` supplies every fold's nuisance at rows
+declared before the fit ([item 24](#the-open-items)), `A` and `Y` are integrated in closed form by
+`quadrature_frame`, and `tests/unit/test_oracle_reductions.py` already runs this override on the
+exact law. What it costs beyond that is a companion grid and a fidelity gate — cheaper than a
+learner sweep, and it is still **the only instrument that can return a *negative* answer worth
+having**.
 
 **And it is the only instrument that can return a *negative* answer worth having.** A faster
 learner that fails leaves "try a faster one still"; an oracle that fails says candidate 1 is not
@@ -2294,7 +2332,27 @@ deterministic function of the fitted curve. So the ratio estimates
 `[Var(e_draw) − Var(e_grid) − 2·Cov(X, e_grid)] / Var(R_draw)`, and the last two terms were bounded
 only by the ladder, which the paragraph above says bounds nothing.
 
-*Not withdrawn, and worth separating from the two above.* The draw-count objection applies to the
+*Withdrawn, and it is not E1's: `branch err` was the same statistic one level down, and the first
+two retractions left it standing.* `branch_error` is the binned limits' movement between
+`BIN_COUNTS = (12, 24)`, and `benchmarks/drtmle_remainder.py` reported it as "the error of the
+binned limits" while `validation-plan.md` §5 gated on it — *"a branch smaller than that error is
+reported as not resolvable"*. It is a successive difference between two rungs of a refinement, so
+it is `delta` with bins in place of Sobol points, and everything the first paragraph above says
+applies verbatim. The column is now `branch move` and the count is `branches settled`.
+
+Three things follow and each is written where it is read. **The suppression stays**, because one
+direction of the inference does hold: a branch moving more than its own magnitude is an instrument
+visibly still moving. The converse does not — `test_settling_is_not_sufficient` constructs a target
+with one period per fine bin, where the two counts agree to `2e-15` and the residual is the *whole*
+of the target — so settling is necessary, not sufficient, and a settled branch's error is
+**unestablished** rather than small. **`cancel` at `1.99x` becomes unread rather than failed**, and
+[clause 1.4's verdict does not move](drtmle/coverage-study.md#the-gates-read-out-clause-by-clause),
+because `√n R_rem` carries it alone. **And randomisation does not rescue this one**, which is the
+asymmetry that makes it E2's problem rather than a second E1b: an independent scramble makes a
+*quadrature* error mean-zero, and every randomisation of a bin count shares the same partition
+rule, so the across-scramble spread is orthogonal to a bias in the bins.
+
+*Not withdrawn, and worth separating from the three above.* The draw-count objection applies to the
 **equivocal** cells and not to the headline ones: a conservative independent-`F` interval puts
 `0.974` at sixteen draws inside `[0.938, 0.989]` and at eight inside `[0.902, 0.993]`, while the
 `−0.069` cell spans `[−3.05, 0.72]`. The record's "a variance ratio at eight draws has a standard
@@ -2336,8 +2394,9 @@ retraction attached to each.
   ratio, or whether it started large and was driven down — and that last is what E3 replays the 99
   invalid fits with;
 - **and `branch_error` is read by a table for the first time.** It has been on every replicate
-  since C2 and was displayed nowhere, which is why C3c's `branches resolved` falling to `192/250`
-  arrived with no discretisation size beside it. That column is also where the sweep found the
+  since C2 and was displayed nowhere, which is why C3c's `branches settled` falling to `192/250`
+  arrived with nothing beside it. *What it is* has since been withdrawn — it is a movement between
+  two bin counts, not an error — and the column is now `branch move`. That column is also where the sweep found the
   thing it was not run for: under the draw the binned limits put 2,000 rows into 576 cells, and in
   both `g-drift` rows of Tier 2 the two rules **disagree about `R_g`'s sign**. Four times the rows
   is what buys it, and it is a direct reading on clause 4's second half.

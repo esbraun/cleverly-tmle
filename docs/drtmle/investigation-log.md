@@ -966,8 +966,9 @@ the two rules' measured spreads puts the draw's per-replicate error at `m = 2,00
 > `delta` ladder does not bound the grid's error. The reasoning is under each table and the
 > replacement is [E1b](../roadmap.md#what-e1b-measures). Two things here are *not* withdrawn: the
 > measured spreads themselves, which are standard deviations of a recorded column and need no
-> identification argument, and the branch-resolution finding, which is a comparison of two
-> `branch_error` columns rather than a variance decomposition.
+> identification argument, and the branch finding, which is a comparison of two
+> `branch_error` columns rather than a variance decomposition -- and which survives its own
+> retraction below, because a *disagreement between two independent rules* needs no error bound.
 >
 > **These numbers also came from a sandbox whose per-rung JSONL was git-ignored and is gone**, so
 > they cannot be regenerated from retained evidence. The code they were produced at, `8341b78`, is
@@ -1111,14 +1112,21 @@ not the share anyway**, per the first retraction; they are here because "the dra
 uncertain" was offered as the explanation and is not the right one.
 
 **A second finding, which was not what the sweep was run for.** The appendix branches are resolved
-an order better by the deterministic rule — `branch err` of `0.007` against `0.062` in `g-drift` at
-`n = 600` — and under the draw that error *exceeds* `|R_g|`, so the branch is unresolvable there and
-resolvable under the grid. In both `g-drift` rows the two rules disagree about `R_g`'s **sign**
+an order more stably by the deterministic rule — `branch move` of `0.007` against `0.062` in
+`g-drift` at `n = 600` — and under the draw that movement *exceeds* `|R_g|`, so the branch had not
+settled there and had under the grid. In both `g-drift` rows the two rules disagree about `R_g`'s **sign**
 (`+0.091` against `−0.014`, and `+0.066` against `−0.030`). The binned limits put 2,000 rows into
 576 cells, which is three per cell; four times the rows is what buys the sign. That is a direct
-reading on C3c's `branches resolved` falling to `192/250`, and it is the reason
-[the specification](validation-plan.md#reporting-r_q-and-r_g-separately) now records `branch_error`
+reading on C3c's `branches settled` falling to `192/250`, and it is the reason
+[the specification](validation-plan.md#reporting-r_q-and-r_g-separately) now reports `branch_error`
 rather than only recording it.
+
+**What survives the `branch move` retraction here, and what does not.** The *sign disagreement* does:
+it is two independent integration rules answering differently about one quantity, which is evidence
+without any error bound at all, and it is the strongest thing in this paragraph. The comparison
+`0.007` against `0.062` does not become an error comparison — it is two **movements**, so it says
+the grid's limits settled sooner and not that they settled nearer. See
+[§5](validation-plan.md#reporting-r_q-and-r_g-separately).
 
 ### What it cost, which is nearly nothing
 
@@ -1381,8 +1389,10 @@ way, which is why the negative sign reproduced rather than washing out.
 **`cancel` is the column that moves most across sizes here**, `1.00x → 1.07x → 1.42x` in batch A
 and `1.00x → 1.21x → 1.99x` in batch B: the two appendix branches increasingly oppose each other as
 `n` grows, so gate 1's clause 4 fails on its *second* half in this cell as well as its first.
-`branches resolved` also falls to `192/250`, so the binned limits are straining against their own
-discretisation error at the largest size.
+`branches settled` also falls to `192/250`, so the binned limits were still moving between the two
+bin counts at the largest size. That is a **stability** count and not a resolution one, and
+`cancel` is withdrawn as evidence for the clause — [the gate
+readout](coverage-study.md#the-gates-read-out-clause-by-clause) says why the verdict is unchanged.
 
 ### What did not go wrong, and it is worth stating plainly
 
