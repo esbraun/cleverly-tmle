@@ -30,8 +30,23 @@ question. `√n R_remaining` — item 13, and Theorem 1's own assumption — is 
 estimator, at this reduction, does not meet the condition at these sizes*; it does not say the
 condition is unmeetable, and item 13 stays open on exactly that distinction.
 
-**The newest thing on this page is [a rebooted piece E](#the-reboot-and-the-three-work-packages),
-and it came from an external critique of the state after E2.** It reads the page against Theorem 1
+**The newest thing on this page is [E2R's instrument](#what-e2rs-instrument-landed), which is the
+reboot's WP1 built and not yet run.** The rung the three reduced regressions are fitted at is now
+**selected** against a measured ranking rather than shipped — which is what E2's own falsifier asked
+for — on four blocks rather than three, so the block that certifies a rung is not the block that
+chose it; gate B reads **five** metrics where it read three, the two new ones being the composites
+`q_r/g` and `g_{r,2}/g_{r,1}` the correction actually divides by; and the negative control is coarse
+enough to be rejected on all five. **Three of those choices came out of a six-draw pilot
+differently from how they were written**, which is the return on sizing an instrument before
+dispatching it: `bins(4)` is not coarse enough to be a control at a bound-active divisor, a ranking
+taken at the initial pair ranks `h3` at a divisor no fit uses, and — the one worth carrying away —
+**a selection judged on point estimates cannot be certified by a clause read on intervals**, which
+the first selection rule was and which its own gate rejected. **No verdict here is E2R's** — the
+decision run is owed and dispatches from `main`, exactly as E2's did.
+
+**The reboot itself is the revision before that, [a rebooted piece
+E](#the-reboot-and-the-three-work-packages), and it came from an external critique of the state
+after E2.** It reads the page against Theorem 1
 and against the study's own artefacts, and it lands four things. **Two are corrections this page
 has checked and accepted**, and both are about how the evidence was described rather than about a
 number:
@@ -529,10 +544,11 @@ be confused.
 ### The work, in five pieces and eighteen pull requests
 
 A, B, C and E are each split, so the five pieces are eighteen pull requests: **B1a**, **A1a**, **B1b**,
-**B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a**, **C3b**, **C3c**, **E0**, **E1**, **E1b** and
-**E2** have landed — **E2 has run and did not branch**, which is a result and not a deferral — and
-**D** and the rest of **piece E** are open. **The count is unchanged and its composition is not**:
-piece E's tail is now [a diagnostic, one branch and a
+**B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a**, **C3b**, **C3c**, **E0**, **E1**, **E1b**,
+**E2** and **E2R** have landed — **E2 has run and did not branch**, which is a result and not a
+deferral, and **E2R's instrument is built with its decision run owed**, which is the C1/C3a/B2a
+pattern and not a deferral either — and **D** and the rest of **piece E** are open. **The count is
+unchanged and its composition is not**: piece E's tail is now [a diagnostic, one branch and a
 study](#the-reboot-and-the-three-work-packages), so **E2R** is a row that did not exist and
 **E2b** and **E3** are alternatives of which at most one is ever written.
 **C3 split into three after its pilot ran**, under
@@ -581,7 +597,8 @@ first.
 | **E0** – **E1b** — *landed* | [what C3c handed back](#e-what-c3c-handed-back)'s first three: the record, and the remainder instrument. E1 integrates `P₀D̂` deterministically, which takes most of the instrument off the list of candidate explanations for the flat column. **Its two readings of *how much* are withdrawn** and are E1b's | `DGP.quadrature`; `quadrature_frame`, `truth_at`, `corrected_curve` and `row_weights`/`limit` on every remainder column; `benchmarks/drtmle_companion_grid.py` and its workflow; `--quadrature-points`; `ScoreRow` and a second artefact; `tests/unit/test_drtmle_companion_grid.py` |
 | **E1b** — *landed* | the same question measured rather than asserted: an independent scramble per replicate, so the grid's error is mean-zero and estimable *conditionally on each fit*, with an interval on every share. **At `n = 2,400` the draw accounted for `0.99`–`1.01` of the column's across-draw variance** | `DGP.quadrature(scramble=…)`; stacked companions and a row `Window`; `rule sd` and `share`; two dispatches, [manifested](drtmle/study-manifest.md#e1b-what-was-run) |
 | **E2** — *landed, and it did not branch* | the reference reduction dispatched against its frozen rule. **Gate B fails in three cells of four**, each on a coarser rung beating the shipped one, so those cells are `unresolved`; the fourth reads **`moved`**. Candidate 1 is alive-but-unestablished rather than decided, and the named repair is a rung **selected rather than shipped** — [at interval level a rung per *cell*](#what-e2-measured-and-why-it-did-not-branch), which is a correction to two earlier revisions | run `31042558057`, four artefacts [manifested](drtmle/study-manifest.md#e2-what-was-run); [what it measured](drtmle/investigation-log.md#what-the-e2-dispatch-measured); `benchmarks/drtmle_reference.py` and `drtmle_reference_study.py`; `.github/workflows/drtmle-reference.yml`; [§8](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2); `tests/unit/test_reference_exact_law.py` and `test_drtmle_reference_study.py` |
-| **E2R**, then **E2b** *or* **E3**, then **E4** + **E5** | [the three work packages](#the-reboot-and-the-three-work-packages): the repaired reference, **one** branch off its verdict, and the frozen confirmatory study. **E5** is where item 13 closes either way | their rows below |
+| **E2R** — *the instrument has landed; the decision run is owed* | the reference repaired at [five points](#the-reboot-and-the-three-work-packages) and its rule frozen: the rung **selected** per `(cell, size, regression)` against a measured ranking, four blocks so the block that certifies is not the block that chose, **five** gate-B metrics — the three regressions and the two composites the correction divides by — a control coarse enough to be rejected on all five, and the block-size falsifier declared. Closes no numbered item on its own, which is why it is its own pull request; the run dispatches from `main`, as E2's did | `benchmarks/drtmle_reference.METRICS`, `composite_denominators`, `metric_weights`, a per-regression `reference=`; `select_rung`, `RecordingDRTMLE`, a selection table and a third artefact on the harness; [§8's selection rule and what the pilot moved](drtmle/validation-plan.md#the-selection-rule-frozen-before-the-dispatch); `tests/unit/test_drtmle_reference.py` and `test_drtmle_reference_study.py` |
+| then **E2b** *or* **E3**, then **E4** + **E5** | [the three work packages](#the-reboot-and-the-three-work-packages): **one** branch off E2R's verdict, and the frozen confirmatory study. **E5** is where item 13 closes either way | their rows below |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
 **A1 split into A1a and A1b for the reason B1 split into B1a and B1b**, and the reason is worth
@@ -606,11 +623,12 @@ A1b cross-fitting construction ────────────────�
        (no logical block; a rework edge — C's fits are of A1b's construction)   landed          │
                                                                                                 │
 C3c ──> E0 ──> E1 ──> E1b ──> E2 ──> E2R ──> [ E2b | E3 ] ──> E4 ──> E5  <────────────────────────┘
-       record  P₀D̂   rule's  refer- repaired  one branch      two     fresh
-       landed  rule   error   ence  decision  of the two,     designs dispatch
-              landed  landed  ran,   run      never both
-                              no     ─ WP1 ─  ─── WP2 ───     ──── WP3 ────
-                              branch
+       record  P₀D̂   rule's  refer- selected  one branch      two     fresh
+       landed  rule   error   ence  rung +    of the two,     designs dispatch
+              landed  landed  ran,   4 blocks never both
+                              no     built,
+                              branch run owed
+                                     ─ WP1 ─  ─── WP2 ───     ──── WP3 ────
 
        E2b fires if the repaired reference improves the remainder and a feasible learner is
        in reach; E3 if it does not, or if a repaired remainder still leaves the calibration
@@ -620,11 +638,15 @@ C3c ──> E0 ──> E1 ──> E1b ──> E2 ──> E2R ──> [ E2b | E3 
 D   independent of all of it, and gated on A1a alone. Not a fallback inside this release
 ```
 
-**Every piece of the graph except D and E2R onwards has landed, and the demonstration is *made and
+**Every piece of the graph except D and WP2 onwards has landed, and the demonstration is *made and
 not passed*.** E2 is the one that landed without deciding what it was built to decide: it ran, its
 gates held it to `unresolved` in three cells of four, and
 [what it measured](#what-e2-measured-and-why-it-did-not-branch) is the finding — a reference whose
-best resolution is not the one that was shipped. **E3 has moved from the trunk onto a branch**, and
+best resolution is not the one that was shipped. **E2R is the repair to that, and what has landed
+is its instrument**: the rung selected rather than shipped, four blocks so that the block which
+certifies is not the block which chose, five gate-B metrics where there were three, and a control
+coarse enough to be rejected on all five — [with two of the five clauses moved by the pilot that
+sized them](#what-e2rs-instrument-landed). Its decision run is owed and dispatches from `main`. **E3 has moved from the trunk onto a branch**, and
 that is the reboot: it was going to run whatever E2 said, on a `se`-ratio mechanism
 [this revision withdraws](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs).
 [C3c](drtmle/coverage-study.md#what-the-study-measured) entered the regime, produced the gap, and
@@ -2371,6 +2393,13 @@ the rate. What moved is when each fires, and E2R is the one genuinely new row.
 and dispatched once. **PR #74 is demoted to a pilot** and its seed streams are spent: the decision
 run takes fresh ones.
 
+**The instrument for all five has now landed and the run has not happened**, which is this page's
+own C1/C3a/B2a pattern rather than a deferral: *the repair precedes the dispatch and closes nothing
+on its own*, and a workflow is dispatchable only from `main` — which is the whole of what E2 was
+waiting on when the previous revision reported a `404`. [What landed and what a sandbox pilot
+moved](#what-e2rs-instrument-landed) is the record; the five clauses below are what it was built
+against, and two of them came out of the pilot differently from how they were written.
+
 1. **The rung is selected rather than assumed, and per `(cell, size)` at least.** E2 shipped one
    `spline(16)` for three regressions in four cells; what its intervals reject is *one rung across
    the two cells*, and the per-regression reading is [a point-estimate reading of an interval
@@ -2423,6 +2452,71 @@ production change**. That is a real outcome and the page will say so.
 | gates pass, remainder **does not improve** | **E3** — the narrow pooled-versus-nested construction and stability test | candidate 1 is dead and the learner road shuts, which is E2's `equivalent` arm reached at last |
 | gates pass, reference improves it, **no feasible learner approaches it at `n = 2,400`** | **stop.** Record a negative learnability result | "an oracle would fix it" is not a shippable estimator, and saying so is a result — the same standard `bench_tmle.py`'s no-Rust conclusion is held to |
 | gates still **fail** | **stop.** More coverage runs cannot answer this | a comparison at a reference another resolution beats answers for the wrong reference, at any replicate count |
+
+##### What E2R's instrument landed
+
+**The five clauses are built and the decision run is owed.** What is new is a *selected* reference
+and a gate with more teeth; what is unchanged is every constant the comparison is judged by —
+`EQUIVALENCE_FRACTION`, `BUDGET_FRACTION` and `PRIMARY_ESTIMAND` are what they were before E2 ran,
+and [§8's rule](drtmle/validation-plan.md#the-reference-rule-frozen-before-the-dispatch) was not
+touched. What *is* new in the plan is a **selection rule**, frozen in the same place and in the
+commit before the dispatch, because a rung that is measured rather than shipped needs one.
+
+| clause | what landed |
+| --- | --- |
+| the rung is **selected**, per `(cell, size, regression)` | `select_rung` — the **coarsest admissible** rung, admissible meaning *no other rung's paired interval lies wholly below zero on any of its metrics*, which is gate B's own clause read on the block that chose. The pilot's winners are inputs to nothing: `reference=` now takes one object per regression, and the mapping the fit is handed comes out of the run's own pass one |
+| four blocks, so the block that **certifies** is not the block that **chose** | `Layout` carries `reference`, `selection`, `audit` and `evaluation` on four disjoint scramble streams, all fresh — PR #74's are spent. The run is two passes with a barrier: the control arm ranks, then the reference arm is fitted at what the ranking selected and audited on rows the selection never saw |
+| **five** gate-B metrics, not three | `METRICS`: `qr`, `gr1`, `gr2`, and `h3 = q_r/g` and `h2 = g_{r,2}/g_{r,1}` at the divisors the fit uses, at its own `g_bounds`, each divisor's margin and truncation share recorded beside it. A composite is the same held-out risk under the weight `w/d²` — the cross term still vanishes, because both divisors are functions of the conditioning index — so the ranking property carries over intact, and what it *cannot* see is the divisor's own error, which is what the componentwise `gr1` metric is for |
+| the control is **detectably** inferior | `bins(2)`, with `bins(4)` and `bins(8)` reported. Both the coarsening and its size came out of a measurement rather than a preference — see below |
+| the block size is a declared **lever** | `--reference-points` unchanged at `4,096`, with the falsifier in §8 and in the workflow's own input description: if doubling it moves the ranking towards the finer rungs, the winner was a statement about the block |
+
+**A six-draw sandbox pilot sized the instrument, and it moved three things — two of the five
+clauses and the selection rule itself.** Tier 2, `g-drift` at `n = 2,400` — the cell whose gate E2
+failed twice — at the dispatch's own block sizes. Its comparison columns are **not** read, for the
+reason E2's own pilot's were not: six draws buy `unresolved`, and a difference under an
+`unresolved` verdict is what the rule refuses.
+
+- **The selection rule was a minimax on point estimates and is now admissibility on intervals**,
+  and the pilot is what caught it. The first rule minimised each rung's worst *relative excess* of
+  the mean risks; on `qr` that bought a `0.002` relative loss on the componentwise metric — a
+  `2e-06` difference, **resolved** at six draws with its interval clear of zero — for a `0.01`
+  apparent gain on `h3`, whose intervals there straddle zero by an order of magnitude. It selected
+  `spline(32)`, and gate B rejected it on precisely the difference the rule had discounted. **A
+  selection judged on point estimates cannot be certified by a clause read on intervals**, which
+  is [lesson 21](drtmle/investigation-log.md#what-the-sizings-got-wrong)'s second half and is
+  general past this run. The rule now selects the coarsest rung that no other rung *significantly*
+  beats, so the audit asks whether admissibility **replicates** out of sample — a far more useful
+  question than whether a point-estimate winner survives an interval.
+
+- **`bins(4)` was not coarse enough, and only one metric says so.** It is rejected on `qr`, `gr1`,
+  `gr2` and `h2` — including the `gr2` case E2 failed on, `+2.076e-04 [+8.70e-05, +3.67e-04]`
+  against E2's `-1.031e-04 [-4.35e-04, +1.12e-04]`, so the named repair took — and **not** on `h3`,
+  `+7.190e-05 [-1.16e-04, +2.21e-04]`. `h3` divides by a bound-active targeted mechanism, whose
+  margin the same run reads at `-0.0135`, so its weight carries the heavy tail `1/g*²` gives it.
+  Hence `bins(2)`, and hence the two coarser arms staying as *reported* rows: a clause on the
+  coarsest control is a necessary condition on the instrument, and the rung-against-rung intervals
+  beside it — differences of `1e-06` resolved at six draws — are what say how finely the audit can
+  discriminate.
+- **The ranking is taken at a *targeted* state, and the initial pair was the first choice.** The
+  initial pair is the one state both arms and every rung share, which is why it was written first.
+  The pilot ranked `h3` one way there and the audit's own point estimates the other way at the exit
+  state — and `h3`'s divisor is a mechanism whose bound-activity is *made* by targeting, so a
+  ranking taken before the alternation ranks at a divisor no fit uses. `RecordingDRTMLE` records
+  the **control arm's** exit state, which is candidate-free — the `glm` reduction is the arm under
+  comparison, not a rung in the ladder — and targeted. The residue is stated rather than hidden:
+  the reference arm's own exit state is not the control arm's, and no selection can be made at the
+  state it will be certified at without certifying itself.
+- **Gate C passes with a factor of six in hand** at the shipped `4,096` points — `0.0358` against
+  `0.2227` — so the doubling stays a lever in reserve rather than something the budget needs.
+- **The four blocks cost half again as many companion rows**, `49,152` against `32,768`, and a fit
+  priced at `50.4s` on a sandbox core against E2's runner-measured `13.7s` at three blocks. The
+  workflow's timeout moves with that and nothing else does.
+
+**What this does not do is decide anything.** No verdict here is E2R's: the selection above is one
+cell's at six draws, the gates were read to size an instrument, and the dispatch takes fresh seed
+streams over both cells and both sizes. **And the bound still holds** — one repair and one decision
+run — so an `unresolved` E2R ends the reduction road as evidence rather than earning a third
+dispatch.
 
 **If the learner branch opens it is a small, already-justified set**: the current `glm`, a
 deterministic growing-basis spline, and the frozen `boost` candidate. Selection is on the component

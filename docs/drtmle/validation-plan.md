@@ -1529,3 +1529,75 @@ gates, each making a verdict *harder* to reach — which is the only direction a
 once numbers exist — and the three frozen constants stay frozen. **And the bound is one repair and
 one decision run**: an `unresolved` E2R ends the reduction road as evidence rather than earning a
 third dispatch.
+
+#### The selection rule, frozen before the dispatch
+
+**The rung stops being shipped and starts being measured, so *how* it is chosen is a rule and
+belongs here** — in the commit that precedes the dispatch, exactly as §8's own margin does. It is
+`benchmarks/drtmle_reference_study.select_rung`, and the run's banner prints the ladder and the
+control so the record and the rule cannot come apart.
+
+> Per cell, size and reduced regression, over the **selection** block and the run's own draws,
+> on every metric that regression appears in — its own componentwise risk and the composite risk
+> of the correction term that divides by it: `qr` with `h3`, `gr2` with `h2`, and `gr1` alone,
+> which is a *divisor* rather than a numerator.
+>
+> 1. Rung `c` is **beaten** on metric `m` when another rung's paired per-draw risk difference has
+>    a 95% bootstrap interval over draws lying wholly below zero — which is gate B's second clause
+>    verbatim, read on the block that chose rather than on the block that certifies.
+> 2. A rung is **admissible** when it is beaten on no metric by any rung.
+> 3. The selected rung is the **coarsest admissible** one. Where none is admissible — every rung
+>    beaten somewhere, which is a ladder with no unbeaten member rather than a tie — the
+>    fewest-beaten rung is taken and the count goes on the record in the `beaten on` column.
+>
+> **Admissibility against the gate's own statistic, and not the minimax this rule first was.**
+> The first version minimised the worst *relative excess* of the mean risks, which reads as the
+> natural rule and is judged by a quantity the gate does not use. The same six-draw pilot that
+> sized the control measured what that costs: on `qr` at `g-drift` `2,400` it bought a `0.002`
+> relative loss on the componentwise metric — a `2e-06` difference, **resolved**, its interval
+> clear of zero — for a `0.01` apparent gain on `h3`, whose intervals at that precision straddle
+> zero by an order of magnitude. So it selected `spline(32)`, and gate B rejected it on exactly
+> the difference the rule had discounted. The general form is worth keeping: **a selection judged
+> on point estimates cannot be certified by a clause read on intervals.** Under the rule above the
+> audit's question becomes whether admissibility *replicates* out of sample, which is a far more
+> useful thing to ask than whether a point-estimate winner survives an interval.
+>
+> **The state the ranking is taken at is the control arm's exit state**, recorded through
+> `RecordingDRTMLE`. It is candidate-free — the `glm` reduction is the arm under comparison, not a
+> rung in the ladder — and it is *targeted*, so the selection reads the same kind of divisor the
+> audit will. The residue is stated rather than hidden: the reference arm's own exit state is not
+> the control arm's, because different reductions target differently, and no selection can be made
+> at the state it will be certified at without certifying itself.
+
+**What the sandbox pilot measured, and it moved three of these choices.** Six draws, tier 2,
+`g-drift` at `n = 2,400`, at the dispatch's own block sizes — enough to size an instrument and
+**not** enough to read a comparison, whose verdict there was `unresolved` as six draws buy. The
+selection rule above is the third thing it moved, and the paragraph inside the rule is where that
+is recorded.
+
+- **The gated control is `bins(2)` and not the obvious halving of E2's eight.** `bins(4)` is
+  rejected on `qr`, `gr1`, `gr2` and `h2` — including the `gr2` case E2 failed on, at
+  `+2.076e-04 [+8.70e-05, +3.67e-04]` against E2's `-1.031e-04 [-4.35e-04, +1.12e-04]` — and
+  **not** on `h3`, at `+7.190e-05 [-1.16e-04, +2.21e-04]`. That metric divides by a *bound-active*
+  targeted mechanism, whose margin the same run reads at `-0.0135`, so its weight carries the heavy
+  tail `1/g*²` gives it. `bins(4)` and `bins(8)` stay as **reported** rows, which is where the
+  gate's discrimination is actually read: a clause on the coarsest control is a necessary condition
+  on the instrument, and the rung-against-rung intervals beside it — differences of `1e-06`
+  resolved at six draws — are what say how finely the audit can tell two references apart.
+- **The ranking is taken at a targeted state and not at the initial pair.** The initial pair was
+  the first choice, being the one state both arms and every rung share. The pilot ranked `h3` one
+  way there and the audit's own point estimates the other way at the exit state, and `h3`'s divisor
+  is a mechanism whose bound-activity is *made* by targeting — so a ranking taken before the
+  alternation is a ranking at a divisor no fit uses.
+- **Gate C passes with a factor of six in hand** at the shipped `4,096` reference points: `0.0358`
+  against an allowance of `0.2227`. So the doubling clause 4 prices stays a lever held in reserve
+  rather than something the budget needs.
+- **The four blocks cost half again as many companion rows** — `49,152` against E2's `32,768` — and
+  the pilot priced a fit at `50.4s` on a sandbox core against E2's runner-measured `13.7s` at three
+  blocks. The workflow's timeout moves with it and nothing else does.
+
+**Its comparison columns are not read**, for the reason E2's own three-draw pilot's were not: a
+difference under an `unresolved` verdict is the thing this rule refuses, and six draws buy
+`unresolved`. Its rows were written to git-ignored output and are gone; what is quoted above is the
+gate and cost arithmetic an instrument is sized by, and the decision run takes fresh seed streams
+regardless.
