@@ -13,8 +13,18 @@ widening of scope**. That is a different kind of list from the one this page ope
 does not lower the bar: *done* still means a demonstration that the interval attains nominal
 coverage where a plain `TMLE`'s does not.
 
-**The demonstration's instruments have all landed, the pilot has run, the repair it forced has
-landed, and what is left of piece C is the dispatch.**
+**The study has now run, and its answer is that the demonstration is made and the estimator does
+not clear.** [C3c](#what-c3c-measured) dispatched 6,000 fits over two seed batches, entered the
+regime it committed to for the first time in three attempts, and produced the gap the variant
+exists for: `TMLE` at `0.532` and `0.472` against `DRTMLE` at `0.844` and `0.848` in `q-drift` at
+`n = 2,400`, a paired `+0.312 ± 0.031` and `+0.376 ± 0.033`. **And `DRTMLE` does not attain nominal
+coverage anywhere in it**, because its own `√n R_remaining` — item 13, and Theorem 1's own
+assumption — is *flat* rather than vanishing at these sizes. So gate 1 fails at four clauses and
+gate 2 passes its shortfall clause and fails its invalid-rate one. Both halves of that are results;
+[the gate readout](drtmle/coverage-study.md#the-gates-read-out-clause-by-clause) is the sentence
+each clause earned.
+
+**The instruments that got there all landed first.**
 [C1](#what-c1-landed) is the harness, Tier 1's prescribed nuisance sequences with their
 drift coefficients committed and verified, and [item 25](#the-supported-contract-and-item-25)'s
 per-fit truncation witness; [C2](#what-c2-landed) is **Tier 2** — both nuisances fitted, the good
@@ -257,14 +267,26 @@ nothing less clears the variant. What the reviews changed is not that bar but wh
 *believe* a demonstration that meets it. Coverage is one link of four, and each link can hold
 while another fails:
 
+**[C3c](#what-c3c-measured) has now run that demonstration and the bar is not met.** `DRTMLE`'s
+interval is much better than `TMLE`'s where the design says it should be — `0.844` against `0.532`,
+a paired `+0.312 ± 0.031`, reproduced — and it is **not nominal anywhere**, the best reading in the
+study being `0.880`. The bar above says *attains*, so the variant stays unfinished, and what is
+open is no longer a piece of work but a question: `√n R_remaining` is flat rather than vanishing at
+`n ≤ 2,400`, and nobody has shown whether a faster reduced-regression learner, a larger `n` or a
+different reduction is what would change that. **The bar does not move to meet the result.**
+
 1. **Theorem fidelity** — the equations solved and the curve reported are the ones the derivation
    gives, under conditions the fit actually meets. Items 1, 13, 15, 21, 22 and 25. The third review
    reported this link **broken** at the sign; reading the source closed item 21 and item 22's
    theoretical half in the implementation's favour, A1a closed item 1, and A1b closed item 15 —
    under a stated entropy condition the shipped libraries meet, with its stability half left to a
-   run — so what is left of the link is items 13 and 25 — the empirical remainder rate, whose
-   **instrument** landed with [C2](#what-c2-landed) and whose number is C3's, and **which fits the
-   guarantee is claimed for at all** — and
+   run — so what was left of the link is items 13 and 25 — the empirical remainder rate, whose
+   **instrument** landed with [C2](#what-c2-landed) and whose number [C3c](#what-c3c-measured) has
+   now read, and **which fits the guarantee is claimed for at all**. **Item 13 closes as a measured
+   rate that does not meet the condition**: `√n R_remaining` is flat at `1.43 / 1.26 / 1.25` in
+   `q-drift` and does not fall in `g-drift`, over two seed batches, so at these sizes the fits are
+   outside the assumption Theorem 1's expansion needs. That is a finding rather than a defect, and
+   it is the reason link 4 below fails. What remains open on this link is
    **item 22's numerical half, on one clause of a frozen rule that every measurement misses in the
    direction favourable to it**, which [B2b](#b2b--the-dispatch-and-what-it-decides) reads out.
 
@@ -320,7 +342,14 @@ while another fails:
    failure. What the instrument bought is that the closure is a *measurement* — the same rows, the
    same `1e-12` bar, verdicts the other way up — rather than an argument that the new expression
    must be right.
-4. **Inferential usefulness** — coverage in a regime where the plain interval fails. Item 3.
+4. **Inferential usefulness** — coverage in a regime where the plain interval fails. Item 3, and
+   [C3c](#what-c3c-measured) has read it. **The improvement is real, large and reproduced; the
+   coverage is not nominal.** `TMLE` `0.532` / `0.472` against `DRTMLE` `0.844` / `0.848` at
+   `n = 2,400` in `q-drift`, paired `+0.312 ± 0.031` and `+0.376 ± 0.033` — and `DRTMLE`'s own
+   interval misses `0.95` in every cell at every size. So this link is **half closed**, and the
+   half that is not is the same quantity link 1 lost: the corrected estimator's remainder. In
+   `g-drift` at the two smaller sizes the improvement is *negative*, which the regime-entry column
+   explains — the correction removes 3–8% of the targeted remainder there.
 
 The first review's summary of this is exactly right and worth keeping in its words: none of the
 four implies the others. A curve that matches the theorem proves nothing about whether the
@@ -376,8 +405,8 @@ be confused.
 ### The work, in four pieces and twelve pull requests
 
 A, B and C are each split, so the four pieces are twelve pull requests: **B1a**, **A1a**, **B1b**,
-**B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a** and **C3b** have landed, and **C3c** and **D**
-are open. **C3 split into three after its pilot ran**, under the same rule as B2: the repair
+**B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a**, **C3b** and **C3c** have landed, and **D** is
+open. **C3 split into three after its pilot ran**, under the same rule as B2: the repair
 precedes the dispatch and closes nothing on its own. **The
 contract is an eleventh row and is not a piece** — it is documentation, it closes no research, and
 it is in the table because it is an input to C that had to be frozen rather than produced. Small
@@ -412,7 +441,7 @@ forced, and **C3c** the study itself.
 | **C2** — *landed* | item 13's **instrument**: Tier 2's prescribed-rate learners, the evaluation companion `P₀D̂` needs, and the two appendix branches reported apart. It does not close item 13, which is a *rate* and so C3's dispatch's | `DRTMLE(evaluation=…)`, `CompanionEstimates`, `cross_fit_companion`, carry-with-its-own-covariate in both fluctuation solvers; `benchmarks/drtmle_tier2.py` and `benchmarks/drtmle_remainder.py`; `--tier 2` and `--evaluation-n` on the harness and the workflow; `tests/unit/test_drtmle_companion.py`, `test_drtmle_tier2.py`, `test_drtmle_remainder_study.py` |
 | **C3a** — *landed* | the freeze and the pilot: the mixed-cell rule, the two gate-1 clauses that could not be read at all, the invalid-fit threshold frozen where it was, and **the pilot that falsified the sizing it was run to check**. Closes no numbered item, which is why it is its own pull request | four dispatches of `drtmle-coverage.yml`; [what the pilot measured](drtmle/coverage-study.md#what-the-pilot-measured); `benchmarks/drtmle_tier1_bias.py`; §5's fourth operational rule and its new targeted-coefficient clause; `identity`/`score`, `cancel`, `sqrt(n) R2` and the stratum table |
 | **C3b** — *landed* | the repair the pilot forced: a **second declared coefficient** — the estimator's bias, not the plug-in remainder — and a Tier-1 injection built to hit it, plus the regime-entry column Tier 2 never had and the three pre-flight conditions as a verdict table | `targeted_coefficients`, `targeted_weight`, `exact_targeted_remainder`, `population_epsilon` and `Q_DRIFT_B`/`G_DRIFT_B_ATE` on both tier modules; `drtmle_remainder.targeted_remainder`; `entry_rows` and `preflight_rows` on the harness; the decomposition tables on `benchmarks/drtmle_tier1_bias.py`; [the repair](drtmle/coverage-study.md#the-repair-and-what-would-say-each-half-of-it-is-wrong) |
-| **C3c** — *next* | item 3: the final study at 250 replicates and its independent second seed batch, on the design C3b repaired — whose pre-flight passes conditions 1 and 2 in all four cells and leaves condition 3 as this dispatch's own number | two dispatches of `drtmle-coverage.yml` and their tables; per-replicate results; gates 1 and 2 read out |
+| **C3c** — *landed* | items 3 and 13, both **measured and not cleared**: the study entered its regime for the first time in three attempts and produced the gap — `+0.312 ± 0.031` and `+0.376 ± 0.033` paired in `q-drift` — and `DRTMLE` still fails gate 1, because `√n R_remaining` does not vanish at these sizes | two dispatches of `drtmle-coverage.yml` at 250 replicates and their tables; per-replicate results as four artefacts; [what it measured](drtmle/investigation-log.md#what-the-c3c-dispatch-measured); [the gate readout](drtmle/coverage-study.md#the-gates-read-out-clause-by-clause); lessons 17 and 18 |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
 **A1 split into A1a and A1b for the reason B1 split into B1a and B1b**, and the reason is worth
@@ -433,13 +462,17 @@ A1a theorem concordance ──> B1b  targeting  ──────┘  instrumen
                                  convention          landed      landed │
                                                                         ├─> C1 ──> C2 ──> C3a ──> C3b ──> C3c
 contract + item 25  scope frozen ──────────────────────────────────────┤  harness  tier 2  freeze   repair  study
-A1b cross-fitting construction ────────────────────────────────────────┘  landed   landed  + pilot  landed
+A1b cross-fitting construction ────────────────────────────────────────┘  landed   landed  + pilot  landed  landed
        (no logical block; a rework edge — C's fits are of A1b's construction)   landed
 
 D   independent of all of it, and gated on A1a alone
 ```
 
-**Everything through C3b has landed**, so what is left of the graph is the study and D.
+**Every piece of the graph except D has landed, and the demonstration is *made and not passed*.**
+[C3c](drtmle/coverage-study.md#what-the-study-measured) entered the regime, produced the gap, and
+read the gates out: gate 1 fails at four clauses and gate 2 passes its shortfall clause and fails
+its invalid-rate one. So what is left is not a piece of work on this list — it is the open question
+the study handed back, which is whether `√n R_remaining` can be made to vanish at reachable `n`.
 The C1 → C2 edge was the harness and the injection interface, which Tier 2 extended rather than
 replaced; the C2 → C3a edge — that a dispatch whose remainder columns are missing cannot read gate
 1's clause 4 — is **discharged**: the columns exist and both tiers dispatch from the one workflow.
@@ -447,7 +480,9 @@ replaced; the C2 → C3a edge — that a dispatch whose remainder columns are mi
 pilot measured a design that does not enter the regime it committed to, so C3c's dispatch would
 have answered for an estimator nobody had characterised. C3b's repair lands and its pre-flight
 reads **conditions 1 and 2 passing in all four cells**, with condition 3 unresolved at 12 draws
-rather than failing — which is the dispatch's own number and not a block on it.
+rather than failing — and the dispatch then read that condition at 250 draws in both cells, where
+it is **flat rather than falling**. That was the block being real: the repaired design entered its
+regime and the pilot's would not have.
 Two open threads sit behind it rather than pieces. Item 22's numerical half is answered
 on `nonlinear` and unresolved on `weak-overlap`, and it gates [stop-ship 2](#stop-ship) rather than
 gating C. And A1b's construction decision rests on its argument's **entropy** half, which the
@@ -1571,8 +1606,11 @@ the third option reads *empirically supported and outside the theorem* rather th
 
 #### C. The demonstration
 
-**Closes items 3 and 13, in five pull requests: [C1](#what-c1-landed), [C2](#what-c2-landed),
-C3a and C3b have landed; C3c, the study, is open.** A coverage pilot over the off-diagonal of
+**Closes items 3 and 13, in five pull requests, all landed: [C1](#what-c1-landed),
+[C2](#what-c2-landed), C3a, [C3b](#what-c3b-repaired) and [C3c](#what-c3c-measured), the study.
+Both items close as *measurements*: item 3's gap is there and large, and item 13's remainder does
+not meet the theorem's condition at these sizes — so the demonstration is made and `DRTMLE` does
+not clear gate 1.** A coverage pilot over the off-diagonal of
 the misspecification grid put `TMLE` and `DRTMLE` at 0.958 apiece in one cell and 1.000 in the
 other — no gap to close. The diagnosis is understood: a correctly specified *parametric* nuisance
 converges at `n^(−1/2)`, so `R₂` is `O(n^(−1))` and the product condition never binds. There was
@@ -1583,7 +1621,10 @@ carry forward.** The Tier-1/Tier-2 construction below exists to answer the parag
 [C3a's pilot](#what-c3as-pilot-measured-and-why-the-study-is-not-dispatched-behind-it) returned
 "no gap" again — this time because the targeting step removes what the design injected, not
 because a nuisance converged too fast. Both are the *study* failing to enter the regime rather
-than the estimator failing in it. A third recurrence would be evidence that this regime is hard to
+than the estimator failing in it. **It did not happen a third time**: C3c entered the regime and
+produced the gap, so the tally stops at two — though `g-drift`'s entry column is the same shape one
+level down, which [lesson 17](drtmle/investigation-log.md#what-the-sizings-got-wrong) records. A
+third recurrence would have been evidence that this regime is hard to
 reach on purpose rather than by accident, and [lesson
 14](drtmle/investigation-log.md#what-the-sizings-got-wrong) is the distilled form of what went
 wrong the second time. `tests/e2e/test_coverage_slow.py`'s `TestDoublyRobustInference`
@@ -1733,6 +1774,55 @@ fit, and it scales with `--evaluation-n` rather than with `n`.
 `.github/workflows/drtmle-coverage.yml` is the dispatch-only workflow, a `matrix:` over the cells;
 the nightly tier must not absorb it.
 
+##### What C3c measured
+
+*The study. Two dispatches at 250 replicates, seeds `20250801` then `20250802`, both cells and
+`600 / 1,200 / 2,400`, on `main` at `0033c82` with no code change before or between them — 3,000
+draws and 6,000 fits. Closes items 3 and 13 by **measuring** them. [The
+numbers](drtmle/investigation-log.md#what-the-c3c-dispatch-measured) are in the investigation log
+and [the reading](drtmle/coverage-study.md#what-the-study-measured) is in the design note; what
+belongs here is what they do to this page.*
+
+**The design worked, and that is the first thing to say because three revisions were spent on it.**
+Conditions 1 and 2 pass in all four cell-runs, `n^α R₂(Q̄*)` landing within `0.95x`–`1.01x` of its
+committed value at the largest size. Twice before, a coverage study here failed to *enter* its
+regime; this one entered it.
+
+**The gap is there and it is large.** `q-drift` at `n = 2,400` reads `TMLE` `0.532` / `0.472`
+against `DRTMLE` `0.844` / `0.848`, a paired `+0.312 ± 0.031` and `+0.376 ± 0.033` — six times
+gate 2's predeclared `0.05`, with the interval on the difference excluding zero in both batches.
+Item 3 has its answer to the question *"is `DRTMLE`'s interval ever better than the one `TMLE`
+already reports"*, and it is yes, decisively, in the regime the variant was built for.
+
+**And `DRTMLE` does not attain nominal coverage anywhere in the study.** The best reading in either
+cell, at any size, in either batch is `0.880`. Gate 1's clause 6 fails, and so do clauses 3, 4 and
+5. The cause is one quantity and it is item 13's: `√n R_remaining` is **flat** — `1.43 / 1.26 /
+1.25` in `q-drift` and `4.13 / 4.12 / 4.83` in `g-drift`, reproduced within noise by the second
+batch — where Theorem 1 assumes it negligible. `DRTMLE`'s own `√n` bias descends onto that plateau
+rather than through it, which puts this design's coverage ceiling near `0.87`–`0.88` rather than
+at `0.95`.
+
+**So item 13 closes as a measured rate that does not meet the theorem's condition**, which the
+design note called in advance a *finding rather than a fault in the design*: the estimator is
+outside the assumptions its own guarantee needs at reachable `n`, and saying so is the result.
+Whether that remainder can be made to vanish — a faster reduced-regression learner, a larger `n`, a
+different reduction — is the question the study hands back, and it is not a piece on this list
+because nobody has yet shown which of the three it would be.
+
+**Two things did not go wrong and both are worth recording.** **Zero state-identity failures across
+all 6,000 fits** — every invalid fit in the study is a `score` failure, which is the distinction
+[B1a](#b1a--the-identity-and-safety-patch) was worded for, doing its work at scale for the first
+time. And the study **reproduces**: gate 1's clause 7 passes, with the `se ratio` and the
+regime-entry column agreeing to the digit across independent seeds.
+
+**One reading is narrower than it looks.** `g-drift` has `DRTMLE` resolvably *worse* than `TMLE` at
+`n = 600` in both batches. The entry column says why: the correction removes 3–8% of the targeted
+remainder there against 70% in `q-drift`, so that cell is one the *plain* estimator's regime was
+entered in and the *corrected* estimator's was not. Conditions 1 and 2 are read on `TMLE` by
+construction —
+[lesson 17](drtmle/investigation-log.md#what-the-sizings-got-wrong) is that distinction as a rule,
+and it is [lesson 14](drtmle/investigation-log.md#what-the-sizings-got-wrong)'s shape a third time.
+
 ##### What C3b repaired
 
 *The design C3a's pilot found wanting, in both tiers, plus the instrument that says a dispatch may
@@ -1802,7 +1892,9 @@ against a declared `+0.4000` at the largest size). **Condition 3 is `unresolved`
 that distinction is the instrument's own: `P₀D̂` is a quadrature whose error lands directly in each
 replicate's remainder and `√n` multiplies it, so at 12 draws every reading is inside its own error
 of every other. *Not resolvable at this count* and *failed* are different things, as are *not
-measurable* and *failed*; separating them is what C3c's dispatch is for.
+measurable* and *failed*; separating them is what C3c's dispatch was for — and
+[it separated them](#what-c3c-measured): at 250 draws the errors fall by a factor of four and the
+reading is that the quantity is **flat**, in both cells and both seed batches.
 
 ##### What C1 landed
 
@@ -2074,9 +2166,11 @@ effort. Piece **0** was first and has landed, and so now have **B1a**, **A1a**, 
 9. **C2**, Tier 2 and item 13: prescribed-rate learners, and the fold-retained nuisance object
    `P₀D̂` needs. It re-times before it re-scopes, as C1 did — its nuisances are *fitted*, which is
    what the 43s figure was measuring, so C1's 1.2s does not transfer.
-10. **C3c**, the study and item 3, behind **C3b**'s repair, which has landed. The one run whose cost makes redoing it a decision, so nothing
-    enters it unfrozen — including the mixed-cell reporting decision item 25's witness has just
-    handed it.
+10. ~~**C3c**~~ — landed, and the order held: nothing entered it unfrozen, including the
+    mixed-cell reporting decision and both batches' seeds, which were committed before the first
+    fit. It answered items 3 and 13 by measuring them — the gap is there and large, the corrected
+    remainder does not vanish — and it left four stop-ship clauses live on numbers rather than on
+    the absence of them. [What it measured](#what-c3c-measured).
 
 **Item 23 was outside that order**, like **D**: a small fix with an oracle already in the
 repository, touching only the partial-guard path, which is why it did not wait on the theorem or on
@@ -2098,7 +2192,14 @@ any of it.
 Any one of these blocks calling `DRTMLE` finished, and they are the four links restated as things
 a reader could check rather than as claims. Three of them are about how the *evidence* is described
 rather than about the code — 11, 14 and the new 15 — and all three exist because a claim that
-outruns its instrument is how this variant has gone wrong twice:
+outruns its instrument is how this variant has gone wrong twice.
+
+**Four of them are now live on measurements rather than open for want of one.** Before
+[C3c](#what-c3c-measured) this list was mostly a set of things a study might find; the study found
+them. Clauses 4, 5, 6 and 7 are live, on 6,000 fits over two seed batches, and clauses 8 and 9 were
+checked and are not. That is a better state than it sounds: a list of blockers with numbers
+attached is a list somebody can work on, and every one of the four traces back to the same
+quantity — the corrected estimator's own remainder.
 
 1. a correction term disagrees with Theorem 1 or the appendix — this was item 21 and it is
    **closed**: the appendices force the positive reading, which is the one implemented, and
@@ -2139,13 +2240,25 @@ outruns its instrument is how this variant has gone wrong twice:
    the truncated tilt the curve reads. It stays on this list as a thing a reader can check rather
    than as an open item, and the check is `res.validation.correction_check()` on any fit —
    including one whose bound binds, which is the case the numbers used to come from;
-4. a required score is not negligible under the predeclared validity rule;
+4. a required score is not negligible under the predeclared validity rule — **[C3c](#what-c3c-measured)
+   read this and it is live**: `1–7%` of `DRTMLE` fits are invalid at tolerance `1e-3` in every
+   cell of the study, `TMLE` none, and the rate falls with `n`;
 5. `√n · R_remaining` does not trend to zero in either off-diagonal cell, or does so only because
-   the two appendix branches cancel;
-6. coverage fails in either cell under the controlled study;
-7. the invalid-fit rate exceeds its predeclared threshold in the well-overlapped cells;
-8. the conclusion depends materially on excluding failed fits after the fact;
-9. it does not reproduce in the second seed batch;
+   the two appendix branches cancel — **live, and it is the one the study turned on**. Flat at
+   `1.43 / 1.26 / 1.25` in `q-drift` and not falling in `g-drift`, in both seed batches; and
+   `cancel` reaches `1.99x` at `g-drift`'s largest size, so the second half of the clause is live
+   there too;
+6. coverage fails in either cell under the controlled study — **live**: `DRTMLE` reaches `0.844`
+   and `0.848` in `q-drift` and `0.780` and `0.784` in `g-drift` at the largest size, none of them
+   compatible with `0.95`. Being far better than `TMLE` is a different clause, and it is gate 2's;
+7. the invalid-fit rate exceeds its predeclared threshold in the well-overlapped cells — **live**:
+   over the frozen `2%` in ten of the study's twelve cell-runs, `0.008` to `0.072`;
+8. the conclusion depends materially on excluding failed fits after the fact — **not live, and it
+   was checked rather than assumed**: the study's primary numbers are the intention-to-treat ones
+   and the excluded column moves them by `0.007` to `0.060`, never across a verdict;
+9. it does not reproduce in the second seed batch — **not live**: every qualitative claim
+   reproduced across seeds `20250801` and `20250802`, the `se ratio` and the regime-entry column to
+   the digit;
 10. any document calls the corrected curve efficient under misspecification (item 14's ground,
     which piece 0 cleared and which prose can re-lose);
 11. any document calls the curve theorem-derived on the strength of a *display* rather than of the

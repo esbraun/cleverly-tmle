@@ -757,6 +757,107 @@ every other. *Not resolvable at this draw count* and *failed* are different thin
 says which it is; separating them is what the 250-replicate dispatch exists for, and it is
 [item 13](../roadmap.md#what-is-still-open)'s number rather than this design's.
 
+### What the study was dispatched as, written down before its first fit
+
+*This subsection was committed **before** dispatch A and is not edited afterwards.* §5's rule is
+that the study's inputs may be changed before the final run and not after it, and a seed chosen
+once coverage is visible is a seed chosen for its answer — so both batches' inputs are here, in
+advance, including the second batch's.
+
+| input | value | why this value |
+| --- | --- | --- |
+| `tier` | `2` | the demonstration. Tier 1 hands the estimator a prescribed sequence, so its regime entry is true by construction rather than measured; the roadmap's C3c row is two dispatches and these are they |
+| `cells` | `q-drift g-drift` | both. `q-drift` is the cell a gate-2 shortfall is claimed in and `g-drift` is where `DRTMLE` is checked to hold nominal under a drift, which is the scope statement the repair put on the design |
+| `sizes` | `600 1200 2400` | three, because two are suggestive and three carry a rate |
+| `replicates` | `250` | §5's frozen minimum, at which a coverage estimate's Monte Carlo standard error is `0.014`. Not 500: the pilot's paired shortfall was `+0.220 ± 0.072`, which 250 resolves several times over, and a job that reaches the 300-minute cap prints **no** table rather than a partial one |
+| `seed` | `20250801`, then `20250802` | batch A is the harness default and the pilot's. The two `SeedSequence` streams are prefix-stable, so batch A shares the pilot's *data* seeds and not its fold splits — the split is part of the procedure whose coverage is being measured. Batch B is the independent second batch gate 1's clause 7 reads, dispatched **after** A completes |
+| `evaluation_n` | `2000` | the workflow default, above the pre-flight's `1500`. It is item 13's quadrature and scales with itself rather than with `n`, and its error is what left condition 3 unresolved at 12 draws |
+| `jobs` | `2` | each fit is single-threaded and two fit the runner |
+| `rows` | `false` | the per-replicate record §5 asks for travels as the JSONL artefact the workflow uploads. Three thousand printed rows would push the ten summary tables out of a readable log |
+
+**No code changes land before or between the two batches.** Gate 1's clause 7 asks whether the
+qualitative conclusion reproduces, and an instrument built between A and B would make the two
+batches runs of different code — which is the one thing a reproduction check cannot survive. The
+comparison is read across the two dispatches' tables.
+
+## What the study measured
+
+*Both dispatches, exactly as the subsection above committed them.
+[The numbers](investigation-log.md#what-the-c3c-dispatch-measured) are in the investigation log;
+what belongs here is the reading and the gate readout.*
+
+**The design worked and the estimator did not clear.** Those are two findings and this section
+keeps them apart, because the first is what three revisions of this note were spent on and the
+second is what the study was for.
+
+**The design worked**: conditions 1 and 2 pass in all four cell-runs, `n^α R₂(Q̄*)` landing within
+`0.95x`–`1.01x` of its committed value at the largest size in both cells and both batches. This is
+the first of three attempts to enter the regime it named. And the gap the whole construction exists
+to produce is there, in `q-drift`, at `+0.312 ± 0.031` and `+0.376 ± 0.033` paired on the draw at
+`n = 2,400` — `TMLE` at `0.532` and `0.472` against `DRTMLE` at `0.844` and `0.848`.
+
+**The estimator did not clear**, and the reason is one quantity. `√n R_remaining` is flat in
+`q-drift` (`1.43 / 1.26 / 1.25`, and `1.28 / 1.19 / 1.17` in the second batch) and does not fall in
+`g-drift` (`4.13 / 4.12 / 4.83`, and `4.04 / 3.93 / 4.31`). Theorem 1 assumes it negligible; at
+these sizes it is not. Everything else follows from that: `DRTMLE`'s own `√n` bias descends onto
+that plateau rather than through it, so its coverage rises to `0.844`–`0.848` and stops, and
+[the extrapolation](investigation-log.md#why-drtmle-stops-short-of-nominal-in-the-columns-rather-than-in-prose)
+puts this design's ceiling near `0.87`–`0.88`.
+
+**That is a finding rather than a fault in the design, and this note said so before any number
+existed**: *"Condition 3 failing stays a finding rather than a fault in the design — it is a
+condition of Theorem 1, so the estimator would then be outside the assumptions its own guarantee
+needs at these sizes."* It is now measured rather than anticipated, at 250 replicates and two
+seeds.
+
+**`g-drift`'s reading is narrower than it looks and the entry column is why.** `DRTMLE` is
+resolvably *worse* than `TMLE` at `n = 600` in both batches. But conditions 1 and 2 are read on the
+plain `TMLE` by construction, and the same table's `DRTMLE` row reads `0.97x` and `0.92x` — the
+correction removes 3–8% of the targeted remainder there against 70% in `q-drift`. So `g-drift` is a
+cell the *plain* estimator's regime was entered in and the *corrected* estimator's was not, which
+is a statement about how far this design reaches and not about the variant in its own regime.
+[Lesson 17](investigation-log.md#what-the-sizings-got-wrong) is that distinction as a rule.
+
+### The gates, read out clause by clause
+
+*Read against [the rules frozen in §5](validation-plan.md#the-decision-rules-frozen-before-the-dispatch),
+which were not changed after the numbers existed. Each row names the column it is read from, so a
+reader can check the verdict against the log rather than take it.*
+
+| clause | read from | reading | verdict |
+| --- | --- | --- | --- |
+| **1.0** contract frozen, cells inside it | contract table | every cell-run `BOUND-ACTIVE`, `1.2%`–`8.8%` of draws; initial clip share `0.0000`–`0.0017` | **mixed** — reported pooled, strata beside as description |
+| **1.1** theorem concordance closes | [A1a](theorem-concordance.md) | closed, item 21 with it | pass |
+| **1.2** zero state-identity failures | validity table, `identity` | `0` across all 6,000 fits | **pass** |
+| **1.3** every required score negligible | validity table, `score`, at tolerance `1e-3` | `1–7%` of `DRTMLE` fits invalid in every cell | **fail** |
+| **1.4** `√n R_rem → 0` in both cells, no cancellation | remainder table, `sqrt(n) R_rem`, `cancel` | flat in `q-drift`, not falling in `g-drift`; `cancel` reaching `1.99x` | **fail** |
+| **1.5** `se ratio` in `[0.90, 1.10]`, largest size, both cells | coverage table | `q-drift` `0.903` / `0.903`; `g-drift` `1.157` / `1.156` | **fail** in `g-drift` |
+| **1.6** coverage compatible with `0.95`, largest size, both cells | coverage table, `compatible` | `0.844` / `0.848` and `0.780` / `0.784`; `NO` in all four | **fail** |
+| **1.7** reproduces in the second seed batch | batch B against batch A | every qualitative claim reproduces; `se ratio` and entry column to the digit | **pass** |
+| **2.1** a `≥ 0.05` shortfall, difference excluding zero, `√n R₂` not vanishing | shortfall and remainder tables | `q-drift`: shortfall `+0.418` / `+0.478`, difference `+0.312 ± 0.031` / `+0.376 ± 0.033`, `√n R₂` `4.31` / `4.26` and rising | **pass** |
+| **2.2** invalid-fit rate below its threshold | validity table, `invalid share` | over `2%` in ten of twelve cell-runs | **fail** |
+| **2.3** computational cost acceptable | wall clock | `2.7s`–`4.7s` median per fit; a 250-replicate cell is 77–112 minutes on one runner | pass |
+| **2.4** advantage persists in an applied stress setting | — | **not read here** | not read |
+
+**So gate 1 fails at clauses 3, 4, 5 and 6, and gate 2 passes its clause 1 and fails its clause 2.**
+`DRTMLE` is not cleared, and the honest one-line summary is that *the variant removes most of the
+plain estimator's bias in the regime it was built for, and is left with a second-order remainder
+that Theorem 1 assumes away and `n = 2,400` does not deliver*.
+
+**One clause is worth reading twice, because the temptation is to soften it.** Clause 6 asks
+whether `DRTMLE` attains nominal coverage, not whether it beats `TMLE`. It does not, in either
+cell, at any size, in either batch — the best reading anywhere is `0.880` — and the `+0.376` in
+the row above it does not change that. [Lesson 18](investigation-log.md#what-the-sizings-got-wrong)
+is that as a rule.
+
+**And clause 1.0 is the one whose reading is neither pass nor fail.** Every cell-run is mixed, at
+shares that make the pooled number the estimator as shipped and nothing else the primary. Neither
+stratum is quoted here as the theorem-backed estimator's coverage — doing so is
+[stop-ship 15](../roadmap.md#stop-ship) with a number attached — and the two are printed in the
+harness's stratum table for the one question the share cannot answer, which is whether the
+populations behave differently. They do not visibly: `0.850` against `0.667` at `q-drift`'s largest
+size in batch B, on 247 draws against 3.
+
 ### Twice a coverage study here found no gap, and the pair is the thing to carry forward
 
 The first is on the roadmap already: a pilot over the off-diagonal grid put `TMLE` and `DRTMLE` at
@@ -778,3 +879,10 @@ of them is**, not what constant to change.
 
 The instrument that now enforces this is the pre-flight, and its whole content is that a design's
 number has to be checked against a *fit* before the expensive run and not after it.
+
+**The third study found a gap, and the shape above is what it found *inside* the gap.** C3c's
+`q-drift` produced `+0.312 ± 0.031` and `+0.376 ± 0.033`, so the tally stops at two. But `g-drift`
+is the same shape one level down: the entry column was exactly right about the estimator it was
+read on and said nothing about the other, and the resolution was again that two columns in one
+table are about different quantities. Whoever reads this next should expect the shape to recur in
+whatever the *next* expensive run is, rather than expect the tally to.

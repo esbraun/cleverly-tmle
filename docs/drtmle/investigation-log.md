@@ -951,9 +951,151 @@ error averages down across them rather than biasing every row the same way — a
 the remainder table carries a Monte Carlo standard error. A reader who takes a single row's
 `√n R_remaining` as a measurement of the remainder is reading the quadrature.
 
+## What the C3c dispatch measured
+
+*Two dispatches of `.github/workflows/drtmle-coverage.yml` at tier 2, seeds `20250801` and
+`20250802`, the second run after the first completed. Both cells, `600 / 1,200 / 2,400`, 250
+replicates, `--evaluation-n 2000`, `jobs=2`, on `main` at `0033c82` — the shipped estimator, with
+no code change before or between the batches. Runs `30979765029` and `30987423687`; 3,000 draws
+and **6,000 fits**; wall clock 4,599s and 6,727s for batch A's two cell jobs and 4,599s and 6,609s
+for batch B's, median 2.7s to 4.7s per fit. Per-replicate rows travel as the four artefacts.*
+
+**This is the run [the whole of piece C](../roadmap.md#c-the-demonstration) was built for, and it
+is the first of the three attempts that entered the regime it committed to.** Conditions 1 and 2
+pass in all four cell-runs: `n^α R₂(Q̄*)` at the plain `TMLE` reads `+0.6063` and `+0.6155` against
+a committed `+0.6100` in `q-drift`, `+0.5892` and `+0.6184` against `+0.6200` in `g-drift`. So the
+coverage numbers below are about the regime the design named, which is what
+[C3a's pilot](coverage-study.md#what-the-pilot-measured) could not say and what
+[C3b's repair](coverage-study.md#the-repair-and-what-would-say-each-half-of-it-is-wrong) bought.
+
+### The shortfall, and it is the shape the variant exists for
+
+Coverage of the `ate` interval, pooled over every fit in the cell as §5's fourth rule requires,
+with the paired difference and its Monte Carlo error:
+
+| cell | `n` | `TMLE` A / B | `DRTMLE` A / B | `DRTMLE − TMLE` A | `DRTMLE − TMLE` B |
+| --- | --- | --- | --- | --- | --- |
+| `q-drift` | 600 | 0.716 / 0.784 | 0.792 / 0.820 | `+0.076 ± 0.022` | `+0.036 ± 0.021` |
+| `q-drift` | 1,200 | 0.600 / 0.676 | 0.824 / 0.880 | `+0.224 ± 0.029` | `+0.204 ± 0.029` |
+| `q-drift` | 2,400 | 0.532 / 0.472 | 0.844 / 0.848 | `+0.312 ± 0.031` | `+0.376 ± 0.033` |
+| `g-drift` | 600 | 0.864 / 0.892 | 0.776 / 0.808 | `−0.088 ± 0.023` | `−0.084 ± 0.020` |
+| `g-drift` | 1,200 | 0.828 / 0.860 | 0.800 / 0.844 | `−0.028 ± 0.018` | `−0.016 ± 0.017` |
+| `g-drift` | 2,400 | 0.712 / 0.728 | 0.780 / 0.784 | `+0.068 ± 0.023` | `+0.056 ± 0.022` |
+
+**`q-drift` is the demonstration and it is unambiguous.** The plain interval degrades as the design
+says it must — `√n` bias `+3.07 / +3.62 / +4.29` in batch A, growing at about `n^0.30` against the
+`n^0.25` that `α = 0.25` predicts — while `DRTMLE`'s falls `+2.01 / +1.69 / +1.44`. The gain is
+`+0.31` and `+0.38` at the largest size, more than six times [gate 2](validation-plan.md#the-decision-rules-frozen-before-the-dispatch)'s
+predeclared `0.05`, and the interval on the difference excludes zero in both batches.
+
+**`g-drift` runs the other way at the two smaller sizes, and reproduces doing so.** That is the
+cell where the design's own scope statement said `DRTMLE` is *checked to hold nominal under a
+drift* rather than claimed to gain, and it does not hold nominal: `0.776` to `0.844` across both
+batches, never within reach of `0.95`.
+
+### Nothing in the coverage column is mysterious
+
+Every number above is the Wald coverage implied by that cell's own measured bias and spread. Taking
+the half-width as `1.96 × mean se` and expressing both in units of the empirical `mc se`, batch A's
+`q-drift`:
+
+| | bias / sd | half-width / sd | implied | measured |
+| --- | --- | --- | --- | --- |
+| `TMLE` n=600 | 1.30 | 1.94 | 0.737 | 0.716 |
+| `TMLE` n=1,200 | 1.66 | 2.03 | 0.642 | 0.600 |
+| `TMLE` n=2,400 | 1.89 | 1.89 | 0.501 | 0.532 |
+| `DRTMLE` n=600 | 0.89 | 1.85 | 0.827 | 0.815 (excl.) |
+| `DRTMLE` n=1,200 | 0.80 | 1.85 | 0.849 | 0.824 |
+| `DRTMLE` n=2,400 | 0.67 | 1.77 | 0.858 | 0.844 |
+
+So there is no calibration pathology to look for, in either estimator. What is left to explain is
+why `DRTMLE`'s bias stops where it does, and the answer is in the next two sections.
+
+### Why `DRTMLE` stops short of nominal, in the columns rather than in prose
+
+**Its own remainder is not vanishing.** `√n R_remaining`, which is what
+[item 13](../roadmap.md#what-is-still-open) is and what Theorem 1 assumes negligible:
+
+| cell | batch A | batch B |
+| --- | --- | --- |
+| `q-drift` | `+1.427 ± 0.091 / +1.264 ± 0.102 / +1.252 ± 0.139` | `+1.284 ± 0.090 / +1.186 ± 0.099 / +1.174 ± 0.131` |
+| `g-drift` | `+4.128 ± 0.175 / +4.117 ± 0.228 / +4.833 ± 0.315` | `+4.043 ± 0.186 / +3.926 ± 0.208 / +4.305 ± 0.334` |
+
+The harness reads `unresolved` in all four, and at 250 draws that is no longer *"not resolvable at
+this count"* in the pilot's sense — it is that the quantity is close to **flat**. In `q-drift` the
+underlying `R_remaining` falls like `n^(−0.59)`, barely faster than `n^(−1/2)`, so `√n R_rem`
+declines about 9–13% over a fourfold `n` against errors of 7–11%. In `g-drift` it does not fall at
+all. Two independent seeds agreeing on the shape is better evidence for a plateau than either batch
+alone.
+
+**And `DRTMLE`'s bias is descending onto exactly that plateau.** Its `√n` bias in `q-drift` reads
+`2.01 / 1.69 / 1.44`, falling at about `n^(−0.24)`; `√n R_rem` sits at `1.25`. Extrapolating the
+two, they meet near `n ≈ 4,000–5,000`, after which the bias has nowhere further to fall — which is
+`ψ̂ − ψ₀ = (Pₙ − P₀)D* + R_remaining` read as a prediction rather than as an identity. At that
+floor the standardised bias is about `0.58` and the implied coverage ceiling is **0.87 to 0.88**,
+not `0.95`. That extrapolation is the one number here that rests on a trend the harness itself
+calls unresolved, and it is stated as conditional for that reason.
+
+**The reported `se` runs short of the actual spread, and it is worth about half the gap.** In
+`q-drift` at `n = 2,400` `DRTMLE`'s spread is 4.5% below `TMLE`'s (`0.0443` against `0.0464`) while
+its *estimated* `se` is 10.7% below (`0.0400` against `0.0448`) — the `se ratio` of `0.903`, which
+reproduced to the digit in batch B. `σ²ₙ` is the empirical variance of the estimated curve and
+treats the reduced regressions as known, so their estimation error is in `ψ̂`'s spread and not in
+the variance estimate. Give `DRTMLE` a correctly sized interval at that size and the same residual
+bias yields `0.898` rather than `0.844`: of the eleven points to nominal, about five are the `se`
+and six are the remaining bias.
+
+### Why `g-drift` is the cell it is, and it is one column
+
+**The correction removes almost nothing there.** The regime-entry table at `n = 2,400`:
+
+| cell | `TMLE` `n^α R₂(Q̄*)` | `DRTMLE` | `within` |
+| --- | --- | --- | --- |
+| `q-drift` A / B | `+0.6155` / `+0.6063` | `+0.1852` / `+0.1817` | `0.30x` / `0.30x` |
+| `g-drift` A / B | `+0.6184` / `+0.5892` | `+0.6020` / `+0.5686` | `0.97x` / `0.92x` |
+
+`DRTMLE` removes 70% of the targeted remainder in `q-drift` and 3–8% in `g-drift`. The remainder
+decomposition says the same thing from the other side: in `g-drift` `R_Q` is `+0.098` against
+`R_g`'s `−0.032` at the largest size, so what survives is the **outcome-side** reduction, and
+`g-drift` is the cell whose outcome regression is the deliberately misspecified GLM. At `n = 600`
+that leaves `DRTMLE` carrying a *larger* bias than `TMLE` (`+0.1260` against `+0.1186` in batch A)
+inside a *narrower* interval (`0.4472` against `0.4647`) — two measured quantities pushing the same
+way, which is why the negative sign reproduced rather than washing out.
+
+**`cancel` is the column that moves most across sizes here**, `1.00x → 1.07x → 1.42x` in batch A
+and `1.00x → 1.21x → 1.99x` in batch B: the two appendix branches increasingly oppose each other as
+`n` grows, so gate 1's clause 4 fails on its *second* half in this cell as well as its first.
+`branches resolved` also falls to `192/250`, so the binned limits are straining against their own
+discretisation error at the largest size.
+
+### What did not go wrong, and it is worth stating plainly
+
+**Zero state-identity failures across all 6,000 fits**, in every cell, at every size, in both
+batches. [B1a](../roadmap.md#b1a--the-identity-and-safety-patch)'s distinction between a software
+defect and a fit that did not converge is doing exactly the work it was worded for: every invalid
+fit in this study is a `score` failure. The rates, `DRTMLE` only — `TMLE` never records one —
+against the 2% threshold frozen after the pilot:
+
+| cell | batch A | batch B |
+| --- | --- | --- |
+| `q-drift` | `0.028 / 0.008 / 0.012` | `0.032 / 0.028 / 0.008` |
+| `g-drift` | `0.072 / 0.052 / 0.032` | `0.060 / 0.036 / 0.028` |
+
+Ten of the twelve are over the bar, and the bar stays where it was — [that
+paragraph](validation-plan.md#four-rules-that-make-the-gates-operational) exists to say a threshold
+is not moved to the number that was seen. The rate falls with `n` in both cells, which is the
+reduced regressions getting better, and it is the gap between the primary and excluded coverage
+columns: `0.776` against `0.836` at `g-drift`'s smallest size.
+
+**The cells are mixed and every one of them reads `BOUND-ACTIVE`**, at `1.2%` to `8.8%` of draws —
+`q-drift` `6/5/4` and `15/8/3`, `g-drift` `11/18/11` and `22/13/17` out of 250. The initial
+mechanism's clip share is `0.0000` to `0.0017`, so this is C1's finding at 250 draws rather than
+six: the tilt reaches a bound where the outcome regression is right, not where overlap is poor. The
+strata are reported beside the pooled number as description and neither is quoted as a verdict.
+
 ## What the sizings got wrong
 
-Sixteen lessons, distilled from the per-item retrospectives that used to run to several hundred
+Eighteen lessons, distilled from the per-item retrospectives that used to run to several hundred
 lines. They are kept and the retrospectives are not, because the only thing a retrospective is
 for is the next sizing — the full pre-work read of what `drtmle` would touch, the per-seam record
 of what each cost, and the six landed refusals' own notes are in git history, last carried in full
@@ -1237,3 +1379,26 @@ variance-side — both nuisances are fitted on the same rows and their errors co
 bandwidth makes the leading-order prediction correct and shrinking it makes the agreement worse.
 The scan is forty lines and eight draws a cell. **The cost of checking a knob is usually below the
 cost of writing the paragraph defending it.**
+
+**17. A regime-entry condition read on one estimator says nothing about the other, and this is the
+third instance of the shape lesson 14 named.** The pre-flight's conditions 1 and 2 are read on the
+plain `TMLE` **by construction** — the design commits `TMLE`'s remainder, and that is the interval
+a shortfall is claimed against — so all four cell-runs passing them says the *plain* estimator is
+in the designed regime. It says nothing about whether the *corrected* one is in a regime where its
+own guarantee holds, and in `g-drift` it is not: the entry column reads `0.92x` to `0.97x` for
+`DRTMLE` against `TMLE`'s `1.00x`, meaning the correction removed 3–8% of what it was supposed to
+remove. The two columns sit side by side in the same table and one of them was the pre-flight and
+the other was not. **A verdict table with a per-estimator column is only a verdict about the
+estimator whose row is being read**, and the fix here is not a new instrument — both numbers were
+already printed — but reading the second one before believing the first.
+
+**18. Producing the gap and clearing the gate are different results, and a study can do the first
+while failing the second.** Three attempts found no gap; this one found a large, reproducible one —
+`+0.31` and `+0.38` paired at the largest size, six times gate 2's threshold — and `DRTMLE` still
+does not clear gate 1, because its *own* remainder does not vanish, its interval never reaches
+nominal, and it fails to converge in 1–7% of draws. Those are not in tension: the variant removes
+most of the plain estimator's bias and is left with a second-order term that the theorem assumes
+away and these sample sizes do not deliver. The temptation a "success" creates is to lead with the
+`+0.38` and let the four failing clauses become caveats. **Read the gate clause by clause against
+the columns that were frozen for it, and report the verdict the clauses give rather than the one
+the headline number suggests.**
