@@ -1463,11 +1463,21 @@ shipped `spline(16)` on `gr2` at `q-drift` 600, on `gr1` and `gr2` at `q-drift` 
 says, and the differences *are* large. The fourth cell, `g-drift` at `n = 600`, passed both gates and
 read **`moved`** on all three estimands.
 
-**The ordering disagreed between the reductions, which is this section's own first falsifier**, and
-the repair it names is the one to take: *a per-regression resolution rather than a verdict*. That is
-a change to the **reference**, permitted before a dispatch with a written reason — this paragraph is
+**The ordering disagreed, which is this section's own first falsifier**, and the repair it names is
+the one to take: *a resolution chosen against a measured ranking rather than a verdict*. That is a
+change to the **reference**, permitted before a dispatch with a written reason — this paragraph is
 the reason — and it is not a change to the rule. `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION` and
 `PRIMARY_ESTIMAND` are unchanged and were unchanged when the numbers arrived.
+
+> **At what precision the ordering disagreed, corrected.** Two revisions read the falsifier as
+> fired *between the reductions within a cell*. `gate_verdict` tests a **bootstrap interval over
+> draws**, and at that reading no cell contains such a disagreement: every within-cell interval
+> that excludes zero points the same way. What flips is the **cell** — `spline(8)` beats the shipped
+> rung in `q-drift` at both sizes and loses to it at `g-drift` `600` on `gr1`,
+> `+3.132e-05 [+5.19e-06, +6.44e-05]`. The falsifier fired; what it licenses is *one rung does not
+> serve both cells*, and the per-regression pattern is a point-estimate pattern unresolved at 32
+> draws. The repair is therefore a selection per `(cell, size)` **at least**, with per-regression
+> selection as a procedure rather than as a finding.
 
 **What the run did not do**, since a rule is judged by what it refused as much as by what it read: it
 did not read the three unresolved cells' differences, it did not average a verdict across cells, and
@@ -1489,3 +1499,33 @@ so candidate 1 is not established.
   argument](../roadmap.md#why-the-oracle-comes-before-the-learner-and-why-boost-is-not-the-first-candidate):
   a data-adaptive reduction forfeits A1b's entropy argument for the pooled construction, which
   trades one `unverified` row for another.
+
+### E2R: what the repaired dispatch changes, and what it may not
+
+**The decision run is [the roadmap's WP1](../roadmap.md#the-reboot-and-the-three-work-packages) and
+this is the clause list it is held to.** PR #74 is a **pilot**: its seed streams are spent, its
+winning rungs are not inputs, and its comparison columns stay unread.
+
+1. **Selection is measured, on a block that does not certify it.** Four blocks — fit, select, audit,
+   evaluate — where E2 had three. Three sufficed because E2 never selected: it shipped a rung and
+   used gate B to check it. Turn that ranking into a selection and the scoring block does both jobs
+   at once, and a rung certified by the block that chose it is a rung that certified itself.
+2. **Two composite gates beside the three component ones**, and the component gates stay: they are
+   what detects an individually bad reduction and stops two errors cancelling. The additions are
+   losses on `H₂ = g_{r,2}/g_{r,1}` and `H₃ = q_r/g` — what
+   `cleverly.inference.influence.reduced_correction_parts` actually consumes, per arm — computed at
+   **the same `g_bounds` the fit used**, since at any other bound they are losses on a different
+   object, with the denominators' margins and truncation rates recorded beside them.
+3. **The negative control must be detectably inferior on every metric it is meant to test**,
+   composites included, and `gr2` at `g-drift` `2,400` is the case that failed.
+4. **`--reference-points` is a lever and its falsifier is declared here**: gate B ranks at a *fixed*
+   block size, so a coarser rung winning is a bias–variance statement about 4,096 points as much as
+   about the ladder. If doubling the block moves the ordering towards the finer rungs, the pilot's
+   rung was a statement about the block. The pilot priced the doubling at `25.5s` a fit against
+   `13.7s`.
+
+**None of this touches the rule.** Every item is a change to the reference or an **addition** to the
+gates, each making a verdict *harder* to reach — which is the only direction a gate may be added in
+once numbers exist — and the three frozen constants stay frozen. **And the bound is one repair and
+one decision run**: an `unresolved` E2R ends the reduction road as evidence rather than earning a
+third dispatch.

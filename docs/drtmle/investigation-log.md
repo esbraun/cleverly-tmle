@@ -1503,6 +1503,18 @@ the variance estimate. Give `DRTMLE` a correctly sized interval at that size and
 bias yields `0.898` rather than `0.844`: of the eleven points to nominal, about five are the `se`
 and six are the remaining bias.
 
+> **Two sentences of that paragraph are withdrawn, and the measurements in it are not.** The
+> `0.0443` / `0.0400` / `0.903` are what they were and reproduced to the digit; the `0.898` is
+> reproducible to four places from `Φ(1.96r − b) − Φ(−1.96r − b)` at `r = 0.903`, `b = 0.664`.
+> What is withdrawn is the *mechanism* — `σ²ₙ` "treats the reduced regressions as known" describes
+> **Theorem 1's own variance formula** rather than a defect: an omitted non-negative term predicts
+> an `se ratio` below one in every cell, and `g-drift`'s reads `1.157`. And the *split*, which is an
+> artefact of applying the two counterfactuals in one order: the same arithmetic run bias-first
+> gives `0.9232` and leaves `+0.027` for the `se`, and the two gains sum past the gap they are
+> dividing. [The roadmap carries the
+> withdrawal](../roadmap.md#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs) and the
+> table. **No gate verdict moves**, and the reading below this heading is untouched.
+
 ### Why `g-drift` is the cell it is, and it is one column
 
 **The correction removes almost nothing there.** The regime-entry table at `n = 2,400`:

@@ -30,9 +30,12 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       ``+0.376``.  **And it reaches ``0.95`` nowhere in the study**, the best reading anywhere
       being ``0.880``, so the variant is not finished and this docstring is not hedging when
       it says so.  Two measured quantities account for the shortfall: the second-order
-      remainder Theorem 1 assumes negligible does not vanish at these sizes, and ``sigma^2_n``
-      treats the reduced regressions as known, which leaves the reported ``se`` about 10%
-      short of the spread it covers.  **What the study did not establish is why**: the three
+      remainder Theorem 1 assumes negligible does not vanish at these sizes, and the reported
+      ``se`` runs about 10% short of the spread it covers in ``q-drift`` -- and about 16%
+      *long* in ``g-drift``, which is why the second is **not** a separate defect in the
+      variance estimator.  ``sigma^2_n`` is Theorem 1's own ``P_n{D* - D_A - D_Y}^2``, valid
+      to first order exactly when the condition the first quantity fails holds; the two are
+      one premise measured twice.  **What the study did not establish is why**: the three
       reduced regressions were fitted by ``glm``, whose consistency is itself unverified, so
       the measurement is of a configuration rather than of the theorem's condition.  Piece E
       on the roadmap is that question.  Use this where you have a reason to think one nuisance

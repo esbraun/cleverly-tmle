@@ -853,16 +853,28 @@ to produce is there, in `q-drift`, at `+0.312 ± 0.031` and `+0.376 ± 0.033` pa
 The first is `√n R_remaining`, flat in `q-drift` (`1.43 / 1.26 / 1.25`, and `1.28 / 1.19 / 1.17` in
 the second batch) and not falling in `g-drift` (`4.13 / 4.12 / 4.83`, and `4.04 / 3.93 / 4.31`).
 Theorem 1 assumes it negligible; at these sizes and at these reductions it is not. The second is
-the interval's own width: `σ²ₙ` is the empirical variance of the estimated curve and **treats the
-reduced regressions as known**, so their estimation error is in `ψ̂`'s spread and not in the
-variance estimate — the `se ratio` of `0.903`, reproduced to the digit. The split of `q-drift`'s
-eleven points at the largest size is about six to the first and five to the second.
+the interval's own width — the `se ratio` of `0.903` in `q-drift`, reproduced to the digit.
+
+> **This paragraph used to give the second a mechanism and a share, and both are withdrawn.** It
+> said `σ²ₙ` "treats the reduced regressions as known, so their estimation error is in `ψ̂`'s
+> spread and not in the variance estimate", and split `q-drift`'s eleven points about six to the
+> first and five to the second. `σ²ₙ = Pₙ{D* − D_A − D_Y}²` is **Theorem 1's own variance**
+> ([the concordance](theorem-concordance.md), pinned by
+> `test_theorem_drtmle.py::TestTheReportedVarianceIsTheorem1s`), valid to first order exactly when
+> the conditions the first quantity fails hold — so the two are one premise measured twice, not two
+> repairs. **[The gate readout](#the-gates-read-out-clause-by-clause) below is the check**: an
+> omitted non-negative term predicts an `se ratio` below one in *every* cell, and `g-drift`'s reads
+> `1.157` and `1.156`. The split, separately, is order-dependent and does not exist.
+> [The roadmap carries the arithmetic and what the withdrawal
+> costs](../roadmap.md#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs); **no clause
+> verdict moves**, and clause 1.5's failure was always `g-drift`'s.
 
 **An earlier revision of this paragraph said "everything else follows from that", and the section
-two below is where it stops being true.** The `se` shortfall has its own mechanism, the 99 invalid
-fits have a third, and `cancel` at `1.99x` is the branch decomposition failing to separate the two
-remainder terms rather than either failing to vanish. Four failing clauses, three mechanisms — and
-attributing all four to the remainder is what would send the repair to the wrong one.
+two below is where it stops being true.** The 99 invalid fits have a mechanism of their own, and
+`cancel` at `1.99x` is the branch decomposition failing to separate the two remainder terms rather
+than either failing to vanish. Four failing clauses, three mechanisms, **two of the four now sharing
+one** — and attributing all four to the remainder, or inventing a fourth mechanism to keep them
+apart, are the two ways to send the repair to the wrong place.
 
 > **`cancel` is withdrawn as evidence for clause 1.4, and the clause still fails.** The ratio is
 > `(|R_Q| + |R_g|) / |R_Q + R_g|` of two **binned** estimates, and what was reported beside them as
