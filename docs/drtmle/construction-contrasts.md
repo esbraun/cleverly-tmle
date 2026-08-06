@@ -159,14 +159,13 @@ stated limit of the study rather than a result of it.
 | what the evidence cut it to | **~2,496 fits** |
 | where the cut came from | per-size counts from the measured paired spread; the truncation contrast moved off the cohort |
 
-## The contrast table — the selection cohort
+## The contrast table
 
-**The audit cohort is still running, and until it lands nothing below is a verdict.** The two
-cohorts are disjoint sets of simulation draws and the second exists because an effect assessed
-on the draws that produced it has not been reproduced. Read the audit rows beside these or read
-neither.
+**Both cohorts have run: 7,488 fits, two disjoint draw sets, zero errors.** The tables below
+read the selection cohort; [the audit section](#what-the-audit-cohort-changed) is what turns
+them into verdicts, and it changes three of them.
 
-208 draws, 6 arms, **1,248 fits, zero errors**; rows in
+208 draws per cohort, 6 arms, **1,248 fits each**, zero errors; every per-replicate row is in
 [`evidence/f4-construction/`](../../evidence/f4-construction/).
 
 ### The reference arm reproduces C3c's column, which is what says the harness measures the
@@ -296,3 +295,76 @@ and this is one of the places that rule pays.
   subclass left the truncation tests green, because the reading never used it. Two copies of one
   factor, with the drift between them invisible — now one function, called from both, and the
   mutation fails.
+
+## What the audit cohort changed
+
+**Three of the four selection-cohort `moved` readings on the remainder did not survive contact
+with draws that did not produce them**, which is the whole reason the second cohort exists.
+
+| cell | contrast | selection | audit | |
+| --- | --- | --- | --- | --- |
+| `q-drift` 600 | `nested ~ cleverly` | **`moved` `−0.203`** | `unresolved` `−0.071` | did not reproduce |
+| `q-drift` 2,400 | `loose ~ cleverly` | **`moved` `+0.219`** | `unresolved` `+0.124` | did not reproduce |
+| `q-drift` 2,400 | `r-style ~ cleverly` | `moved` `−0.0000` | `moved` `−0.0001` | reproduces at `1e-04` |
+| `g-drift` 600 | `loose ~ cleverly` | **`moved` `−1.006`** | **`moved` `−0.829`** | **reproduces** |
+
+**One factor is sign-consistent in all eight readings, and it is the stopping rule.**
+
+| | `g-drift` 600 | `g-drift` 2,400 | `q-drift` 600 | `q-drift` 2,400 |
+| --- | --- | --- | --- | --- |
+| selection | `−1.0055` | `−0.1702` | `+0.1236` | `+0.2187` |
+| audit | `−0.8291` | `−0.5678` | `+0.0593` | `+0.1239` |
+
+Every `g-drift` reading is negative and every `q-drift` reading is positive, across two disjoint
+cohorts and both sizes. `loose` is R's `tolIC = 1/n`, and it exits after **1.0 rounds** against
+this package's `8.5`–`16.1`. Score failures are `flat` in seven readings of eight, and the one
+`moved` did not reproduce. So this is a real, reproducible, cell-dependent effect on
+`√n R_remaining` and it is not bought with score validity.
+
+### And it is not a fix, which the secondary columns are what say
+
+**`psi` and `se` do not move.** The paired point-estimate movement is `−0.0006` to `+0.0015`,
+`flat` in every cell; the `se` movement is at most `0.0013`. The estimator's actual error is
+unchanged:
+
+| audit, `g-drift` | `√n R_remaining` | bias | `se` |
+| --- | --- | --- | --- |
+| `cleverly`, `n = 600` | `4.0597` | `+0.10214` | `0.11444` |
+| `loose`, `n = 600` | `3.2306` | `+0.10181` | `0.11314` |
+| `cleverly`, `n = 2,400` | `5.2986` | `+0.06987` | `0.05487` |
+| `loose`, `n = 2,400` | `4.7308` | `+0.06925` | `0.05488` |
+
+**Sixteen rounds and one round produce the same estimate, the same standard error and the same
+bias — and remainders that differ by `0.57` to `0.83`.** Since
+`R_remaining = ψ̂ − ψ₀ − (P_n − P₀)D̂` and the first two terms are unchanged, what the stopping
+rule moves is `D̂`: the influence curve the error is *decomposed against*, not the error.
+
+So the honest reading is the opposite of the encouraging one. **A smaller `√n R_remaining` here
+is not a better estimator.** The bias that drives the coverage shortfall is `+0.102` either way,
+and no arm in this study moves it. What the finding is really about is the **instrument**:
+`√n R_remaining` is sensitive to a stopping rule that the estimator's error is not, so item 13's
+column carries a dependence on where the alternation was cut. That is a caveat on how that
+column is read, and it is F4's most useful output.
+
+### What F4 concludes
+
+**No construction factor localizes the shortfall, and that is a null result the row admits.**
+
+- Both of F3's own nominations are inert: the reduction **vintage** at `1e-04` in both cohorts,
+  and the **truncation** convention identical at convergence by exact proof.
+- The **equation order** is `unresolved` in all eight readings.
+- The **cross-fitting** construction moved in one cell of eight and did not reproduce.
+- The **closing pass** is exonerated four cells for four in *both* cohorts: removing it moves the
+  score-failure rate by `+3.93` to `+4.99` and the remainder not at all. It is load-bearing.
+- The **stopping rule** moves the remainder reproducibly and moves neither `psi`, `se` nor bias —
+  so it relabels the decomposition rather than improving the estimator, and adopting R's rule
+  would in any case exit with the three score equations solved to `1/n` rather than the
+  `o_p(n^{-1/2})` Theorem 1 asks for. **Changing this package to match R is
+  [stop-ship 17](../roadmap.md#stop-ship)**, and here the theorem argues the same way
+  independently.
+
+**So F7 has no localized change to make from F4**, and the live hypotheses are the two F4 cannot
+test: whether the reduced regressions are consistent — F5's question, still `unverified` in
+[the concordance](theorem-concordance.md) — and whether these fits meet Theorem 1's expansion
+premise at these sizes at all, which is [item 25](../roadmap.md#what-is-still-open)'s scope
+question rather than a defect.

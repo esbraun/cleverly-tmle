@@ -595,3 +595,51 @@ each on a runner.
   and all four jobs exited zero.
 - **No cell reaches a verdict**: four `unresolved`, one of them on gate B's superiority clause and
   three on its non-inferiority clause.
+
+## F4: what was run
+
+| | |
+| --- | --- |
+| study | the construction contrasts, `docs/drtmle/construction-contrasts.md` |
+| **where** | **a four-core sandbox container, not GitHub Actions** — see the note below |
+| code | `benchmarks/drtmle_construction.py` at the commit this section lands in |
+| tier | 2 — both nuisances fitted, reductions fitted |
+| cells | `q-drift`, `g-drift` |
+| sizes | `600`, `2,400`, at **different committed draw counts** — 24 and 80 |
+| cohorts | selection and audit, 80 draws each, `SeedSequence(20250801).spawn(3)`'s first two children, **no shared data seed** |
+| arms | `cleverly`, `r-style`, `paper`, `no-close`, `nested`, `loose` |
+| reduced learner | `glm` |
+| `--quadrature-points` | `2048`, two scrambles per draw |
+| `--jobs` | `3` |
+| totals | 416 draws, **7,488 fits**, zero errors |
+| wall clock | selection 2h09m, audit 2h13m in four segments |
+
+**This is a local run and this section says so rather than dressing it up as a dispatch.**
+GitHub Actions created no workflow run for the branch across the whole session — `main`'s own
+runs that day failed with `Failed to resolve action download info. Error: Service Unavailable`
+— so `.github/workflows/drtmle-construction.yml` landed unexercised and the study ran here
+instead. What that costs is **provenance, not arithmetic**: every contrast is a paired
+difference within a draw on seeds frozen before the first fit, so a four-core container and a
+runner compute the same number. What it means practically is that these rows are **committed**
+rather than fetchable, so F4 has no entry in `evidence/manifest.json` and
+`scripts/fetch_evidence.sh` has nothing to fetch for it. Re-running the two commands in
+`evidence/f4-construction/README.md` against the committed `prereg.json` reproduces it.
+
+### F4's committed rows
+
+| file | rows | bytes | `sha256` |
+| --- | --- | --- | --- |
+| `prereg.json` | 1 | 12,380 | `a8ac6728a9f830dc…` |
+| `selection-fits.jsonl` | 3,744 | 2,373,408 | `499fe45d57140f2e…` |
+| `audit-q-drift-n600-fits.jsonl` | 432 | 271,368 | `bfb37c4740c28592…` |
+| `audit-q-drift-n2400-fits.jsonl` | 1,440 | 908,321 | `36f88c11328178e7…` |
+| `audit-g-drift-n600-fits.jsonl` | 432 | 271,730 | `f1a9dd57a75f0cde…` |
+| `audit-g-drift-n2400-fits.jsonl` | 1,440 | 907,156 | `4366f6a4c889df3d…` |
+| `selection-contrasts.jsonl` | 120 | 39,005 | `197a5379c9803beb…` |
+| `audit-contrasts.jsonl` | 120 | 38,407 | `a4405c3d4b2e5af4…` |
+| `truncation.jsonl` | 12 | 1,434 | `fb465c8df9e23382…` |
+
+Digests are of the committed files and are truncated for reading; the full value is
+`sha256sum evidence/f4-construction/<file>`. They are **not** Actions artefact digests, which
+is why this table's shape differs from every other section here.
+
