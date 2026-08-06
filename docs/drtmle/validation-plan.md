@@ -1804,15 +1804,28 @@ reason, and they gate nothing: a bound-active fit is not a failing fit.
 
 ## 9. The construction contrasts (piece F4)
 
-**F4 is the construction half of the localization and F5 is the learner half**, and the two are
-independent: either remains a theorem premise even if the other succeeds.
+**F4 is the construction half of the localization and F5 was the learner half**, and the two are
+independent: either remains a theorem premise even if the other succeeds. F4 has run and returned
+a null, and [F5 has since absorbed F8](../roadmap.md#f5-the-terminal-experiment) — it is the
+learner screen, a reduced-regression ceiling arm and the confirmatory coverage study in one
+two-phase experiment, and it is the last one.
 [Its record](construction-contrasts.md) is what the run produced; this section is the rule the
 run is read against, and [`evidence/f4-construction/prereg.json`](../../evidence/f4-construction/prereg.json)
 is that rule in the form the run validates itself against.
 
 **It closes nothing on its own and it may not branch.** Nothing under `src/` moves; only F7 may.
-Final coverage is in neither diagnostic — that is F8's and only F8's. **A null result is a
-result.**
+Final coverage is in neither diagnostic — that is
+[F5's confirmation phase](../roadmap.md#phase-2-the-untouched-confirmation-and-it-is-f8)'s, which
+is F8 merged into F5 with every clause carried, and only its. **A null result is a result.**
+
+**The rule below is the rule that ran and it is not repaired here.** The run found two defects in
+it — a collision between the `moved` and `flat` clauses, and a margin that reaches
+`root_n_remaining` and no other column, which makes `unresolved` unreachable on the other five and
+leaves `score_failures` scored with no band despite the prose above calling it primary. Both are
+recorded in [the record](construction-contrasts.md#two-defects-in-the-frozen-rule-found-by-the-run-and-not-repaired-after-it),
+both readings of the collision are reported, and **no constant moves after a result**
+([stop-ship 17](../roadmap.md#stop-ship)). The repair is [F5's rule](../roadmap.md#phase-1-the-selection-cohort):
+a non-overlapping three-way partition with a band per column, frozen before its first fit.
 
 ### The contrast rule, frozen before the dispatch
 

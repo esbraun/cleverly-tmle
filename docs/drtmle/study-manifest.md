@@ -611,7 +611,7 @@ each on a runner.
 | reduced learner | `glm` |
 | `--quadrature-points` | `2048`, two scrambles per draw |
 | `--jobs` | `3` |
-| totals | 416 draws, **7,488 fits**, zero errors |
+| totals | 416 draws, **2,496 estimator fits**, `7,488` estimator/estimand rows, zero errors |
 | wall clock | selection 2h09m, audit 2h13m in four segments |
 
 **This is a local run and this section says so rather than dressing it up as a dispatch.**
@@ -642,4 +642,11 @@ rather than fetchable, so F4 has no entry in `evidence/manifest.json` and
 Digests are of the committed files and are truncated for reading; the full value is
 `sha256sum evidence/f4-construction/<file>`. They are **not** Actions artefact digests, which
 is why this table's shape differs from every other section here.
+
+**The row counts above are rows and the totals line is fits, and an earlier revision of that line
+conflated them.** One estimator fit emits three rows — `ate`, `ey1` and `ey0` — so `3,744` rows
+per cohort is `1,248` fits per cohort and `2,496` in all. `contrast_rows` reads the `ate` rows
+alone, so no interval on [the construction contrasts](construction-contrasts.md) moves with the
+correction; what moves is one word, in this table's totals line, in that page and in
+[the roadmap](../roadmap.md#what-the-evidence-establishes-question-by-question).
 
