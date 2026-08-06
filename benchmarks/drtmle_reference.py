@@ -63,10 +63,46 @@ knot ladder is printed as a *stability* column and never as an error.
 They cannot see the **smoothing** bias: every randomisation shares the knot count and the
 basis, so the across-scramble spread is orthogonal to a bias in the basis.  That half is what
 the analytic-index control and the held-out risk are for.
+
+**What E2R adds here, and why it is an addition to the instrument rather than to the rule.**
+E2 shipped one rung for three regressions and used gate B to check it; three cells of four
+came back ``unresolved`` because a coarser rung beat it.  So the rung is now **selected**
+against a measured ranking, and two things follow that this module has to supply.
+
+*The reference is a mapping rather than a single object.*  :func:`reference_reductions` takes
+either, and a mapping routes one :class:`Reference` per reduced regression -- which subsumes
+the case where they agree and does not assume it.
+
+*The ranking has to be taken on the objects the fit consumes, not only on the three
+regressions.*  :func:`~cleverly.inference.influence.reduced_correction_parts` divides: it
+builds ``H_2 = g_{r,2}/g_{r,1}`` and ``H_3 = q_r/g``, per arm, at the **bounded**
+denominators.  :data:`METRICS` names those two beside the three componentwise ones and
+:func:`composite_denominators` supplies each divisor with the two columns item 25 reads --
+its margin and its truncation rate -- at the same ``g_bounds`` the fit used, since at any
+other bound it is a loss on a different object.
+
+**A composite loss is the same held-out risk under a different weight, and that is exactly
+why it decomposes.**  :func:`held_out_risk`'s cross term vanishes for *any* weight that is
+measurable in the conditioning index, because ``E_0[w(T - m) | U] = 0`` is what defines
+:math:`m` under :math:`w`; multiplying by :math:`\varphi(U) \ge 0` leaves it zero.  Both
+divisors are such functions: ``qr``'s index **is** the mechanism ``H_3`` divides by, and
+``gr1`` is a regression on ``gr2``'s own index.  So scoring ``qr`` under
+:math:`w/g^{*2}_b` is scoring the composite ``H_3`` itself, with the irreducible term still
+common to every candidate -- which is the one property a ratio of two risks does not have.
+
+**What a composite loss does *not* see is the divisor's own error**, and this is stated here
+rather than left implicit.  The divisor is the one the **fit under measurement** used -- it is
+the same array for every candidate the ranking compares, which is what keeps the difference a
+difference of squared weighted errors rather than a difference of two irreducible terms.  So
+the composite metric re-weights the *numerator's* error towards the rows where the estimator
+actually divides by something small; the divisor's own quality is what the componentwise
+``gr1`` metric and the margin columns beside it are for.  Neither substitutes for the other,
+which is the same sentence gates B and C already carry about each other.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
@@ -88,17 +124,23 @@ from benchmarks.drtmle_remainder import _arm_probability, _latent
 
 __all__ = [
     "KNOT_LADDER",
+    "METRICS",
     "POINTS_PER_PARAMETER",
     "ArmTruth",
+    "Denominator",
     "EqualCountBins",
+    "Metric",
     "Reference",
     "ReferenceReductionDRTMLE",
     "SaturatedCells",
     "SplineProjection",
     "arm_truth",
+    "composite_denominators",
     "fit_mask",
     "fold_targets",
     "held_out_risk",
+    "metric_weights",
+    "per_reduction",
     "reference_reductions",
 ]
 
@@ -320,6 +362,151 @@ def fit_mask(name: str, indicator: np.ndarray) -> np.ndarray | None:
     return (indicator == 1.0) if name == "qr" else None
 
 
+@dataclass(frozen=True)
+class Metric:
+    """One thing gate B ranks candidates on: a reduced regression under one weighting.
+
+    ``reduction`` is which of the three regressions is fitted and scored, and ``divisor``
+    names the composite whose denominator re-weights the risk -- ``None`` for the three
+    componentwise metrics, which are the risks E2 ranked on and which stay.
+
+    **A metric is not a regression**, and keeping the two words apart is what stops a table
+    reading as though there were five reduced regressions.  There are three; ``h3`` is ``qr``
+    scored where the estimator divides by :math:`g^*_b`, and ``h2`` is ``gr2`` scored where it
+    divides by :math:`g_{r,1,b}`.
+    """
+
+    name: str
+    reduction: str
+    divisor: str | None = None
+
+
+#: The five metrics, in the order every table prints them: the three componentwise risks, then
+#: the two composites the fit's correction actually consumes.
+#:
+#: **Both halves are kept because neither contains the other.**  A componentwise risk is what
+#: Theorem 1's premise is about -- it asks the three regressions to be consistent -- and it is
+#: what detects an individually bad reduction and stops two errors cancelling.  A composite
+#: risk is what :func:`~cleverly.inference.influence.reduced_correction_parts` divides by, so
+#: it is what a *fit* is sensitive to, and it weights the same error towards the rows where the
+#: denominator is small.  ``docs/roadmap.md``'s E2R states it as *componentwise risks are
+#: theorem-relevant and incomplete, not wrong*.
+METRICS = (
+    Metric("qr", "qr"),
+    Metric("gr1", "gr1"),
+    Metric("gr2", "gr2"),
+    Metric("h3", "qr", "h3"),
+    Metric("h2", "gr2", "h2"),
+)
+
+
+@dataclass(frozen=True)
+class Denominator:
+    """One composite's divisor at the companion rows, and the two columns item 25 reads.
+
+    Attributes
+    ----------
+    values:
+        The **bounded** array, which is what the fit divides by.  A composite loss taken at
+        any other bound is a loss on a different object, which is why this is built from the
+        fit's own ``g_bounds`` rather than from a fresh choice.
+    margin:
+        How near either bound the **untruncated** array comes, as a fraction of the interval:
+        ``min_i min(d_i - lo, hi - d_i) / (hi - lo)``.  Signed, exactly as
+        :attr:`~cleverly.validation.drtmle.CorrectionRow.gr1_margin` is signed and for the
+        same reason -- a value at or below zero says the truncation is doing something to the
+        denominator, and a threshold belongs to whoever reads the column and not inside it.
+    truncated:
+        The share of this divisor's rows -- every companion row, since a divisor is predicted
+        everywhere -- that the truncation moved.  Reported beside the margin because the two say
+        different things: a margin at or below zero says *some* row was clipped and this says how
+        many.
+    """
+
+    values: np.ndarray
+    margin: float
+    truncated: float
+
+
+def _denominator(raw: np.ndarray, bounds: tuple[float, float]) -> Denominator:
+    """One divisor, truncated, with its margin and truncation share off the raw array."""
+    values = np.asarray(raw, dtype=float).reshape(-1)
+    low, high = float(bounds[0]), float(bounds[1])
+    span = high - low
+    nearest = float(np.minimum(values - low, high - values).min()) if values.size else float("nan")
+    outside = (values < low) | (values > high)
+    return Denominator(
+        values=np.clip(values, low, high),
+        margin=nearest / span if span > 0 else float("nan"),
+        truncated=float(outside.mean()) if values.size else float("nan"),
+    )
+
+
+def composite_denominators(
+    current: Any,
+    *,
+    fold: int,
+    arm: float,
+    g_bounds: tuple[float, float],
+    reduced: Any = None,
+) -> dict[str, Denominator]:
+    r"""What the fit divides by, per composite, at fold ``fold``'s companion rows.
+
+    ``h3``'s divisor is :math:`g^{*(k)}_b(a|W)` and ``h2``'s is :math:`g^{(k)}_{r,1,b}(a|w)`,
+    both read off **the state being measured** rather than rebuilt: the point of a composite
+    metric is that it weights an error the way the estimator's own arrays do, and a divisor
+    fitted fresh here would weight it the way this module would have.
+
+    ``reduced`` is the companion :class:`~cleverly.estimators.reduced.ReducedSet` whose
+    ``gr1`` supplies ``h2``'s divisor, defaulting to the one the state carries.  The caller
+    passes it explicitly where the state's own copy is a refit behind the arrays the reported
+    correction was built from -- which is the case at the alternation's exit, and is why
+    ``benchmarks/drtmle_reference_study.py`` records the produced set beside the state.
+
+    **The divisor is candidate-free by construction**, and every claim about the composite
+    metrics rests on that: one array for every candidate the ranking compares, so the
+    irreducible term of :func:`held_out_risk` stays common to them and the difference of two
+    risks stays a difference of squared weighted errors.
+    """
+    companion = current.companion
+    # The arm's own column of a per-arm array, which `ReducedSet` keys by position in `arms`
+    # exactly as `Submodel` does -- never by a design column, which is a different index.
+    index = tuple(current.arms).index(float(arm))
+    mechanism = np.asarray(companion.propensity[fold].arm(arm), dtype=float)
+    reductions = reduced if reduced is not None else companion.reduced[fold]
+    return {
+        "h3": _denominator(mechanism, g_bounds),
+        "h2": _denominator(np.asarray(reductions.gr1, dtype=float)[:, index], g_bounds),
+    }
+
+
+def metric_weights(
+    mass: np.ndarray, denominators: Mapping[str, Denominator]
+) -> dict[str, np.ndarray]:
+    r"""The scoring weight of every metric in :data:`METRICS`, from one row-weight vector.
+
+    A componentwise metric scores at the law's own measure :math:`w`; a composite one scores
+    at :math:`w/d^2`, which is what turns a risk on the numerator into a risk on the ratio.
+
+    **The cross term still vanishes**, which is the only reason this is a gate.  Both
+    divisors are functions of the conditioning index -- ``qr``'s index *is* the mechanism
+    ``h3`` divides by, and ``gr1`` is a regression on ``gr2``'s index -- so
+    :math:`w/d^2 = w\varphi(U)` and ``E_0[w \varphi(U) (T - m) | U] = \varphi(U) E_0[w (T - m)
+    | U] = 0``.  A weight built from anything else on the row, the law's :math:`g_0(a|W)` for
+    instance, would break that silently: every array would stay in range and the ranking would
+    be against a different projection from the one a reduced regression is.
+    """
+    weights = np.asarray(mass, dtype=float).reshape(-1)
+    out: dict[str, np.ndarray] = {}
+    for metric in METRICS:
+        if metric.divisor is None:
+            out[metric.name] = weights
+            continue
+        divisor = np.asarray(denominators[metric.divisor].values, dtype=float).reshape(-1)
+        out[metric.name] = weights / divisor**2
+    return out
+
+
 def _check_the_weights_are_the_laws(
     mass: np.ndarray,
     truth_g: np.ndarray,
@@ -422,11 +609,31 @@ def fold_targets(
     return designs, targets
 
 
+def per_reduction(reference: Reference | Mapping[str, Reference]) -> dict[str, Reference]:
+    """One :class:`Reference` per reduced regression, from either spelling.
+
+    A single object is broadcast to the three, which is what E2 shipped and is the case a
+    mapping subsumes rather than replaces.  A mapping missing a name is refused rather than
+    defaulted: a reference silently falling back to a rung nobody selected is the shape of
+    mistake ``docs/roadmap.md``'s E2R exists to remove, and it would leave every array in
+    range.
+    """
+    if not isinstance(reference, Mapping):
+        return dict.fromkeys(("qr", "gr1", "gr2"), reference)
+    missing = [name for name in ("qr", "gr1", "gr2") if name not in reference]
+    if missing:
+        raise ValueError(
+            f"a per-regression reference must name every reduced regression; {missing} "
+            "missing. A regression left to a default is fitted at a rung nothing selected"
+        )
+    return {name: reference[name] for name in ("qr", "gr1", "gr2")}
+
+
 def reference_reductions(
     current: Any,
     *,
     dgp: Any,
-    reference: Reference,
+    reference: Reference | Mapping[str, Reference],
     window: Any,
     row_weights: np.ndarray,
     g_bounds: tuple[float, float],
@@ -445,7 +652,12 @@ def reference_reductions(
     remainder is integrated on: the reference's error propagates into the fit
     deterministically, so sharing a scramble with :math:`P_0\\hat D` would make the two the
     same random variable with a covariance nobody can sign.
+
+    ``reference`` is one object or one per reduced regression -- see :func:`per_reduction`.
+    E2R selects the rung per regression, and routing them through one argument here is what
+    keeps the provider's own logic identical between a shipped rung and a selected one.
     """
+    references = per_reduction(reference)
     companion = current.companion
     if companion is None:
         raise ValueError(
@@ -490,7 +702,9 @@ def reference_reductions(
             for name in production:
                 keep = fit_mask(name, truth.indicator)
                 inside = block if keep is None else (block & keep)
-                fitted = reference.fit(designs[name][inside], targets[name][inside], mass[inside])
+                fitted = references[name].fit(
+                    designs[name][inside], targets[name][inside], mass[inside]
+                )
                 at_folds[name].append(fitted(designs[name]))
                 at_production[name][mine] = fitted(production_designs[name][mine])
 
@@ -549,7 +763,7 @@ class ReferenceReductionDRTMLE(DRTMLE):
         self,
         *,
         dgp: Any,
-        reference: Reference,
+        reference: Reference | Mapping[str, Reference],
         window: Any,
         row_weights: np.ndarray,
         **kwargs: Any,

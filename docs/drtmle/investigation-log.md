@@ -1567,7 +1567,7 @@ strata are reported beside the pooled number as description and neither is quote
 
 ## What the sizings got wrong
 
-Twenty lessons, distilled from the per-item retrospectives that used to run to several hundred
+Twenty-two lessons, distilled from the per-item retrospectives that used to run to several hundred
 lines. They are kept and the retrospectives are not, because the only thing a retrospective is
 for is the next sizing — the full pre-work read of what `drtmle` would touch, the per-seam record
 of what each cost, and the six landed refusals' own notes are in git history, last carried in full
@@ -1863,6 +1863,51 @@ remove. The two columns sit side by side in the same table and one of them was t
 the other was not. **A verdict table with a per-estimator column is only a verdict about the
 estimator whose row is being read**, and the fix here is not a new instrument — both numbers were
 already printed — but reading the second one before believing the first.
+
+**22. A componentwise loss is not a loss on the thing the estimator divides by, and the difference
+lives entirely in a weight.** E2 gated its reference on three held-out risks, one per reduced
+regression, which is what Theorem 1's premise is stated in — and none of the three is what a fit
+reads. `reduced_correction_parts` builds `q_r/g*` and `g_{r,2}/g_{r,1}` at the *bounded* denominators,
+so the same estimation error matters more where the estimator divides by something small, and a
+ranking on the numerator can order two candidates the other way from a ranking on the ratio. **The
+fix costs one array and no new theory**, because the property the gate rests on survives it: a
+held-out risk's cross term vanishes for any weight measurable in the conditioning index, and both
+divisors are functions of that index — `q_r`'s index *is* the mechanism it is divided by. So the
+composite loss is the component loss under `w/d²`, with the irreducible term still common to every
+candidate, which a *ratio* of two risks would not have been. Two things have to be said with it. The
+divisor must be **the fit's own**, so it is one array for every candidate rather than each
+candidate's own, or the difference of two risks becomes a difference of two irreducible terms. And
+the composite is then blind to the divisor's *own* error, which is what keeps the componentwise
+risks in the gate rather than replacing them: **componentwise risks are theorem-relevant and
+incomplete, not wrong.** The general form: when a gate scores a component of a composite, ask what
+weight the composite implies and whether the loss's own algebra survives it.
+
+**21. A ranking becomes a selection the moment you act on it, and then neither the block nor the
+state it was ranked at can certify it.** E2 shipped one rung and used a held-out block to check it;
+three cells of four failed that check on *another rung being better*, and the obvious repair — choose
+the rung against the ranking — quietly voids the check, because whichever rung wins on a block wins
+there by construction. So the block splits: one to choose on, one to certify on, from disjoint
+scramble streams, and a run that reports both is a run where "won there and lost here" is visible
+rather than inferred. **The half that is easy to miss is that the *state* is part of the instrument
+too.** These candidates are regressions on a fitted nuisance, so the state fixes the conditioning
+index and the divisors — and a rung chosen at the initial pair is chosen at a mechanism the
+alternation has not yet made bound-active, which is a divisor no fit uses. A six-draw pilot ordered
+the rungs one way there and the other way at the exit state. The state that works is the **control
+arm's** exit: candidate-free, since the control is the comparison's other arm and not a rung, and
+targeted, so the selection and the audit read the same kind of divisor. What cannot be had is the
+state the certification happens at, and saying so is the point of having an audit at all.
+
+**And the third thing to carry over is the statistic**, which is the half that cost a rewrite. The
+first selection rule minimised each rung's worst *relative excess* of the mean risks — the natural
+minimax, and judged by a quantity the gate does not use. On one metric it bought a `2e-06` loss
+that six draws **resolved**, interval clear of zero, for an apparent `1e-05` gain on a metric whose
+intervals straddled zero by an order of magnitude; it selected a rung the gate then rejected on
+precisely the difference the rule had discounted. **A selection judged on point estimates cannot be
+certified by a clause read on intervals.** The repair is to select on the gate's own statistic —
+the coarsest rung that no other rung *significantly* beats — which turns the audit into a
+replication test rather than a coin flip. The general form: when a diagnostic becomes a selector,
+re-ask all three of its independence questions — which rows, which fitted state, and which
+statistic.
 
 **20. A successive difference is a stability diagnostic and an independent randomisation is an
 error estimate, and reading the first as the second is the most natural mistake in numerical

@@ -30,12 +30,16 @@ import pytest
 from benchmarks import drtmle_injection as injection
 from benchmarks import drtmle_remainder as remainder
 from benchmarks.drtmle_reference import (
+    METRICS,
     POINTS_PER_PARAMETER,
     EqualCountBins,
     ReferenceReductionDRTMLE,
     SaturatedCells,
     SplineProjection,
+    composite_denominators,
     held_out_risk,
+    metric_weights,
+    per_reduction,
     reference_reductions,
 )
 
@@ -404,6 +408,201 @@ class TestTheProviderRoutesFoldsAndArms:
         produced = learned.nuisance.reduced
         assert produced.qr.shape[1] == len(produced.arms)
         assert not np.allclose(produced.qr[:, 0], produced.qr[:, 1])
+
+
+class TestAReferenceIsRoutedPerReducedRegression:
+    """E2R selects the rung per regression, so the provider takes one reference per name.
+
+    Structural rather than statistical, for the reason the fold-routing test above is: two
+    correct-looking routings differ only in which regression got which object, and every array
+    stays in range either way.
+    """
+
+    def test_each_regression_is_fitted_by_its_own_reference(
+        self, law: Any, stack: Any, learned: Any
+    ) -> None:
+        nuisance = learned.nuisance
+
+        class Stamp:
+            """A reference whose prediction says which name it was routed to."""
+
+            def __init__(self, value: float) -> None:
+                self.value = value
+
+            @property
+            def label(self) -> str:
+                return f"stamp({self.value})"
+
+            def fit(self, index: np.ndarray, target: np.ndarray, weights: np.ndarray) -> Any:
+                return lambda values: np.full(np.asarray(values).size, self.value)
+
+        produced, _ = reference_reductions(
+            nuisance,
+            dgp=law,
+            reference={"qr": Stamp(1.0), "gr1": Stamp(2.0), "gr2": Stamp(3.0)},
+            window=stack.blocks[0].window,
+            row_weights=stack.weights,
+            g_bounds=nuisance.reduced.g_bounds,
+        )
+
+        np.testing.assert_allclose(produced.qr, 1.0)
+        np.testing.assert_allclose(produced.gr1, 2.0)
+        np.testing.assert_allclose(produced.gr2, 3.0)
+
+    def test_one_object_is_broadcast_to_the_three(self) -> None:
+        """Which is what E2 shipped, and is the case a mapping subsumes rather than replaces."""
+        rung = SplineProjection(16)
+
+        assert per_reduction(rung) == {"qr": rung, "gr1": rung, "gr2": rung}
+
+    def test_a_mapping_missing_a_regression_is_refused(self) -> None:
+        """Rather than defaulted: a regression fitted at a rung nothing selected is the mistake
+        E2R exists to remove, and it would leave every array in range."""
+        with pytest.raises(ValueError, match="must name every reduced regression"):
+            per_reduction({"qr": SplineProjection(8), "gr1": SplineProjection(8)})
+
+
+class TestTheCompositeMetricsReadTheFitsOwnDivisors:
+    """``H_2`` and ``H_3`` are what the correction divides by, so the losses on them must be.
+
+    ``docs/roadmap.md``'s E2R: *computed at the same ``g_bounds`` the fit used, since at any
+    other bound it is a loss on a different object*.  Each claim below is about **which array**
+    a weight came from, which is exactly the kind of mistake that leaves every number plausible.
+    """
+
+    def test_the_divisors_are_the_bounded_mechanism_and_the_bounded_gr1(self, fitted: Any) -> None:
+        nuisance = fitted["glm"].nuisance
+        bounds = fitted["glm"].config.g_bounds
+        arm = nuisance.arms[1]
+
+        divisors = composite_denominators(nuisance, fold=0, arm=arm, g_bounds=bounds)
+
+        index = tuple(nuisance.arms).index(arm)
+        np.testing.assert_allclose(
+            divisors["h3"].values,
+            np.clip(nuisance.companion.propensity[0].arm(arm), *bounds),
+        )
+        np.testing.assert_allclose(
+            divisors["h2"].values,
+            nuisance.companion.reduced[0].bounded_gr1(bounds)[:, index],
+        )
+
+    def test_the_margin_and_the_truncation_share_are_read_off_the_untruncated_array(self) -> None:
+        """Signed, exactly as ``CorrectionRow.gr1_margin`` is: a value at or below zero says the
+        truncation is doing something to the denominator, and how many rows it moved is a
+        separate column because the two say different things."""
+
+        class Fold:
+            gr1 = np.array([[0.5, -0.25], [0.5, 0.5], [0.5, 1.5]])
+
+            def arm(self, value: float) -> np.ndarray:
+                return np.array([0.2, 0.5, 0.8])
+
+        class State:
+            arms = (0.0, 1.0)
+
+            # Lower-case deliberately: it stands in for the attribute the provider reads.
+            class companion:
+                propensity = (Fold(),)
+                reduced = (Fold(),)
+
+        divisors = composite_denominators(State(), fold=0, arm=1.0, g_bounds=(0.1, 0.9))
+
+        assert divisors["h3"].margin == pytest.approx(0.125)  # (0.2 - 0.1) / 0.8
+        assert divisors["h3"].truncated == pytest.approx(0.0)
+        # Either bound, not only the lower one: `1.5` is `0.6` past the upper bound and
+        # `-0.25` is `0.35` below the lower one, so the closest approach is the first of them.
+        assert divisors["h2"].margin == pytest.approx(-0.75)  # (0.9 - 1.5) / 0.8
+        assert divisors["h2"].truncated == pytest.approx(2 / 3)
+
+    def test_a_composite_weight_is_the_row_weight_over_the_squared_divisor(self) -> None:
+        """And the componentwise weights are the row weights untouched, so the three metrics E2
+        ranked on are bit-for-bit what they were."""
+        mass = np.array([0.25, 0.5, 0.75])
+
+        class Fold:
+            gr1 = np.array([[0.4, 0.4], [0.5, 0.5], [0.8, 0.8]])
+
+            def arm(self, value: float) -> np.ndarray:
+                return np.array([0.2, 0.5, 0.8])
+
+        class State:
+            arms = (0.0, 1.0)
+
+            class companion:
+                propensity = (Fold(),)
+                reduced = (Fold(),)
+
+        divisors = composite_denominators(State(), fold=0, arm=1.0, g_bounds=(0.1, 0.9))
+        weights = metric_weights(mass, divisors)
+
+        for metric in METRICS:
+            if metric.divisor is None:
+                np.testing.assert_allclose(weights[metric.name], mass)
+            else:
+                np.testing.assert_allclose(
+                    weights[metric.name], mass / divisors[metric.divisor].values ** 2
+                )
+
+    def test_a_composite_risk_difference_still_tracks_a_squared_error_difference(self) -> None:
+        r"""The property the composite gate rests on, measured rather than argued.
+
+        :func:`held_out_risk`'s cross term vanishes for any weight measurable in the
+        conditioning index, so scoring under :math:`w/d(U)^2` ranks candidates on the *composite*
+        with the irreducible term still common to them.  Checked against a law whose conditional
+        mean is written down, with a divisor that varies over the index by a factor of five -- a
+        constant one would pass under any weighting whatever and so could not see the claim.
+        """
+        rng = np.random.default_rng(19)
+        fit_index = rng.uniform(0.02, 0.98, 8_000)
+        score_index = rng.uniform(0.02, 0.98, 8_000)
+        mean = lambda u: 1.0 / (1.0 + np.exp(-6.0 * (u - 0.5)))  # noqa: E731
+        divisor = lambda u: 0.1 + 0.4 * u  # noqa: E731
+        weights = np.full(fit_index.size, 0.5)
+        fit_target = mean(fit_index) + rng.normal(0.0, 0.35, fit_index.size)
+        score_target = mean(score_index) + rng.normal(0.0, 0.35, score_index.size)
+
+        coarse = EqualCountBins(4).fit(fit_index, fit_target, weights)
+        good = SplineProjection(8).fit(fit_index, fit_target, weights)
+        composite = weights / divisor(score_index) ** 2
+
+        risk_gap = held_out_risk(coarse, score_index, score_target, composite) - held_out_risk(
+            good, score_index, score_target, composite
+        )
+        # The same difference of squared errors, weighted where the estimator divides.
+        error = lambda fit: np.average(  # noqa: E731
+            (fit(score_index) - mean(score_index)) ** 2, weights=composite
+        )
+        assert risk_gap == pytest.approx(float(error(coarse) - error(good)), abs=0.02)
+
+    def test_and_the_composite_ranking_is_not_the_componentwise_one(self) -> None:
+        """Which is why both are kept: *componentwise risks are theorem-relevant and
+        incomplete, not wrong*.
+
+        A candidate that is better on average and worse where the divisor is small is the case
+        the composites were added for, and a gate reading only the three would certify it.
+        """
+        index = np.linspace(0.02, 0.98, 4_000)
+        weights = np.full(index.size, 0.5)
+        divisor = 0.05 + 0.9 * index
+        # Two deterministic candidates rather than fits: what is being checked is that the two
+        # weightings can order the same pair of functions differently, which is a property of
+        # the weights and not of any estimator.
+        truth = np.zeros_like(index)
+        near, far = np.zeros_like(index), np.zeros_like(index)
+        left = index < 0.2
+        # `near` is the smaller error on average -- 0.2 of the rows at 0.03 against 0.8 of them
+        # at 0.02 -- and it sits where `1/d^2` is an order of magnitude larger.
+        near[left] = 0.03
+        far[~left] = 0.02
+
+        component = lambda fit: float(np.average((fit - truth) ** 2, weights=weights))  # noqa: E731
+        composite = lambda fit: float(  # noqa: E731
+            np.average((fit - truth) ** 2, weights=weights / divisor**2)
+        )
+
+        assert component(near) < component(far)
+        assert composite(near) > composite(far)
 
 
 class TestACoarseReferenceIsRejectedOnTheFunction:

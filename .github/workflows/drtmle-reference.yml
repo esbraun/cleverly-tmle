@@ -3,21 +3,31 @@ name: drtmle-reference
 # Dispatch only, for the reason `drtmle-coverage.yml` and `drtmle-companion-grid.yml` are: this
 # is a measurement rather than a check, and it asserts nothing.
 #
-# **What it decides.** docs/roadmap.md's E2, which is piece E's branch point. C3c read
-# `sqrt(n) R_remaining` as flat with the three reduced regressions fitted by `glm`, a
-# configuration whose own consistency the concordance marks `unverified` -- so the study tested
-# Theorem 1's conclusion without establishing its premise. This refits both cells with the
+# **What it decides.** docs/roadmap.md's E2, repaired as its E2R, which is piece E's branch
+# point. C3c read `sqrt(n) R_remaining` as flat with the three reduced regressions fitted by
+# `glm`, a configuration whose own consistency the concordance marks `unverified` -- so the study
+# tested Theorem 1's conclusion without establishing its premise. This refits both cells with the
 # reductions at their population limits and reads the paired difference against a margin frozen
 # in docs/drtmle/validation-plan.md section 8, before this workflow existed. If the reference
 # does not move the column, candidate 1 is dead, the learner road is shut and the diagnosis
 # moves to E3; if it does, E2b fires. `unresolved` is a third verdict and is not a weak "dead".
 #
-# **Read the gate table first, and it is the last thing that would be added under pressure.**
+# **E2 ran at this workflow's own defaults and did not decide** (run 31042558057): three cells of
+# four came back `unresolved`, every one on gate B's clause that no other rung may beat the
+# shipped reference. So the rung is no longer shipped. Each dispatch now runs in two passes --
+# the control arm, which RANKS the rungs at its initial pair, then the reference arm at what that
+# ranking SELECTED -- on four blocks rather than three, because a rung certified by the block
+# that chose it is a rung that certified itself. Read the selection table before the gates: every
+# number under it is conditional on which rung each reduced regression was fitted at.
+#
+# **Read the gate table second, and it is the last thing that would be added under pressure.**
 # A reference is a numerical estimate and not an oracle: what is left after the construction is
 # a smoothing bias and a finite point count, and a paired number read before those are bounded
 # is not evidence about the reduction learner. Gate B is a held-out weighted risk against an
 # independent finer block -- a DIFFERENCE of risks, never a ratio, because a risk carries the
-# irreducible variance of its own target and that part is common to every candidate. Gate C is
+# irreducible variance of its own target and that part is common to every candidate. It is now
+# read on FIVE metrics: the three reduced regressions, and the two composites the fit's
+# correction actually divides by, `q_r/g` and `g_r2/g_r1` at the bounded denominators. Gate C is
 # the reference's own across-scramble spread. A cell whose gates fail reads `unresolved`
 # however large its difference is, and the module prints why.
 #
@@ -26,7 +36,7 @@ name: drtmle-reference
 # exact-law control and is a test rather than a column: it runs in CI on every commit.
 #
 # The environment this repository is developed in cannot run a study (see CLAUDE.md), so this is
-# how E2's numbers get produced.
+# how E2R's numbers get produced.
 on:
   workflow_dispatch:
     inputs:
@@ -41,20 +51,29 @@ on:
       draws:
         description: >-
           draws per (cell, size). This sizes the paired interval, which is what the margin is
-          read against; 32 is what E1b dispatched at
+          read against, AND the interval every gate-B clause is read at; 32 is what E2 dispatched
+          at
         default: "32"
       reference_points:
         description: >-
           Sobol points the reduced regressions are fitted on. Sized by the reference's own
           points-per-parameter budget, which it refuses to be fitted thinner than -- spline(32)
-          needs 2,240 rows and qr's mask keeps about half a block. Raise this if gate C fails:
-          a three-draw pilot read the spread at 0.0637 here and 0.0315 at 8192, at 13.7s and
-          25.5s a fit
-        default: "4096"
-      scoring_points:
+          needs 2,240 rows and qr's mask keeps about half a block. 8192 rather than E2's 4096,
+          because E2R's declared LEVER was pulled and its falsifier did not fire: a twelve-draw
+          pilot selected the same rungs at both sizes, so the winners are about the function --
+          and the doubling took the audit's one failing qr clause from a resolved -7.6e-07 to a
+          -3.0e-07 straddling zero, for 52.2s a fit against 45.8s
+        default: "8192"
+      selection_points:
         description: >-
-          Sobol points gate B scores on, from a disjoint scramble stream. Finer than the fitting
-          block on purpose: a held-out risk carries its own error and nothing pairs it away
+          Sobol points the rung is SELECTED on, from a disjoint scramble stream. Finer than the
+          fitting block on purpose: a held-out risk carries its own error and nothing pairs it
+          away
+        default: "8192"
+      audit_points:
+        description: >-
+          Sobol points gate B CERTIFIES on, from a stream disjoint from the selection's. A rung
+          certified by the block that chose it is a rung that certified itself
         default: "8192"
       evaluation_points:
         description: "Sobol points the remainder is integrated on, per evaluation scramble"
@@ -112,9 +131,11 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Two fits a draw, plus `budget_scrambles - 1` more on each budget draw, each carrying a
-    # companion of `reference + scoring + evaluation` rows. Generous rather than tight for the
-    # reason `drtmle-coverage.yml` gives: the script prints nothing until every draw returns.
-    timeout-minutes: 300
+    # companion of `reference + selection + audit + evaluation` rows -- half again as many rows
+    # as E2's three blocks, which is what splitting the scoring block costs. Generous rather than
+    # tight for the reason `drtmle-coverage.yml` gives: the script prints nothing until every
+    # draw of a pass returns, and there are now two passes with a barrier between them.
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-env
@@ -129,7 +150,8 @@ jobs:
           SIZE: ${{ matrix.size }}
           DRAWS: ${{ inputs.draws }}
           REFERENCE_POINTS: ${{ inputs.reference_points }}
-          SCORING_POINTS: ${{ inputs.scoring_points }}
+          SELECTION_POINTS: ${{ inputs.selection_points }}
+          AUDIT_POINTS: ${{ inputs.audit_points }}
           EVALUATION_POINTS: ${{ inputs.evaluation_points }}
           EVALUATION_SCRAMBLES: ${{ inputs.evaluation_scrambles }}
           BUDGET_SCRAMBLES: ${{ inputs.budget_scrambles }}
@@ -143,7 +165,8 @@ jobs:
           --sizes "$SIZE"
           --draws "$DRAWS"
           --reference-points "$REFERENCE_POINTS"
-          --scoring-points "$SCORING_POINTS"
+          --selection-points "$SELECTION_POINTS"
+          --audit-points "$AUDIT_POINTS"
           --evaluation-points "$EVALUATION_POINTS"
           --evaluation-scrambles "$EVALUATION_SCRAMBLES"
           --budget-scrambles "$BUDGET_SCRAMBLES"

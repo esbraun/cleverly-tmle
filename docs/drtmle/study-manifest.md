@@ -327,7 +327,7 @@ jobs, one commit.
 | cells | `q-drift`, `g-drift` |
 | sizes | `600`, `2,400` |
 | draws | 32 per `(cell, size)`, which **is** this workflow's default |
-| reference | `spline(16)` — `benchmarks/drtmle_reference_study.REFERENCE`, the middle rung of `KNOT_LADDER` |
+| reference | `spline(16)` — `benchmarks/drtmle_reference_study.REFERENCE` **as that module stood at this commit**, the middle rung of `KNOT_LADDER`. The constant is gone now, because [E2R selects the rung](#e2rs-dispatch-is-owed-and-the-harness-above-has-moved-under-it) rather than shipping it |
 | compared against | `glm` — `REDUCED_LEARNER`, C3c's configuration unchanged, which is the thing under test |
 | gate B candidates | `spline(8)`, `spline(16)`, `spline(32)` and the negative control `bins(8)` |
 | blocks | reference 4,096 Sobol points, scoring 8,192, evaluation 2 × 2,048 — three disjoint scramble streams (`93/94/95_000_000`) |
@@ -403,7 +403,10 @@ one number in many places and invite a reader to average them. They read exactly
 ### Regenerating E2's tables
 
 The tables come from the module that writes the rows, so a regeneration is a re-fit rather than a
-re-read — there is no `--rows` path here.
+re-read — there is no `--rows` path here. **This is the command at `6f3aeb3` and it does not run
+against today's harness**, which takes `--selection-points` and `--audit-points` in place of
+`--scoring-points`; regenerating *E2* means checking that commit out, and running it at `main` is a
+different experiment — see [below](#e2rs-dispatch-is-owed-and-the-harness-above-has-moved-under-it).
 
 ```bash
 python -m benchmarks.drtmle_reference_study --tier 2 --cells q-drift g-drift \
@@ -433,3 +436,30 @@ commit and these inputs must reproduce:
 - **The margin is a quarter of the `glm` level on the paired draws**: `+1.5401 → ±0.3850`,
   `+1.1594 → ±0.2899`, `+3.5989 → ±0.8997`, `+4.0814 → ±1.0203`.
 - **One cell of four reads `moved`** and none reads `equivalent`.
+
+### E2R's dispatch is owed, and the harness above has moved under it
+
+**Everything in this section is the record of the code at `6f3aeb3`, and the harness is no longer
+that code.** [E2R](../roadmap.md#what-e2rs-instrument-landed) repaired the reference the run's own
+falsifier asked it to, so a regeneration at today's `benchmarks/drtmle_reference_study.py` answers a
+different question from the one the four artefacts above hold. Four differences matter to a reader
+joining the two, and none of them is a change to the rule the comparison is judged by:
+
+- **the rung is selected rather than shipped**, per `(cell, size, reduced regression)`, so
+  `REFERENCE` no longer exists and the run's own selection table is what says which reference a
+  number is about;
+- **four blocks rather than three** on fresh scramble streams (`103`–`106_000_000` against
+  `93`–`95_000_000`): `--scoring-points` is replaced by `--selection-points` and `--audit-points`,
+  `--reference-points` defaults to `8192` rather than `4096` — its falsifier was run and did not
+  fire — and the companion is `57,344` rows against `32,768`;
+- **three artefacts rather than two.** `<stamp>-selection.jsonl` is `SelectionRow`, one line per
+  `(cell, n, reduction)`, and it is not optional: every number the comparison reports is conditional
+  on which rung each regression was fitted at;
+- **`RiskRow` gains `phase`, `metric`, `divisor_margin` and `divisor_truncated`**, so a row says
+  which block scored it and which of the five metrics it is — the three componentwise ones and the
+  two composites `q_r/g` and `g_{r,2}/g_{r,1}` the correction divides by — and a gate row keyed on
+  `reduction` alone can no longer identify one.
+
+**No E2R row is manifested here yet, because the run has not happened**: its workflow is
+dispatchable only from `main`, which is what E2's own `404` was. When it does, it gets its own
+section rather than an edit to this one — E2's numbers stay readable as E2's.
