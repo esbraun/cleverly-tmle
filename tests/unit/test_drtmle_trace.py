@@ -29,6 +29,8 @@ way this could look right and be useless.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from benchmarks import drtmle_trace as harness
@@ -212,6 +214,40 @@ class TestTheSecondFixtureIsTheFirstPlusClipping:
         reading = harness.degeneracy(harness.trace(second, order="cleverly"))
         assert reading["max|Q_r|"] > 0.02 * reading["mean|Y|"]
         assert reading["max|g_r2|"] > 0.02 * reading["mean|Y|"]
+
+
+class TestATraceSaysWhichFixtureItIs:
+    """The provenance a written trace carries, which until F3-closeout was the module global.
+
+    :func:`~benchmarks.drtmle_trace.write_trace` built both filenames from ``FIXTURE_VERSION``
+    and :func:`~benchmarks.drtmle_trace.digest` never named the fixture at all, so a ``v2``
+    trace was written to ``drtmle_trace_v1_*`` and digested to a payload indistinguishable from
+    a ``v1`` one except in whatever its arrays happened to differ in.  A filename is the
+    provenance a reader has; it has to come off the run.
+    """
+
+    @pytest.mark.parametrize("version", ["v1", "v2"])
+    def test_the_filenames_are_the_traced_fixtures(self, tmp_path: Path, version: str) -> None:
+        traced = harness.trace(harness.read_fixture(version=version), order="cleverly")
+        assert traced.fixture_version == version
+        npz, js = harness.write_trace(traced, tmp_path / version)
+        assert npz.name == f"drtmle_trace_{version}_cleverly.npz"
+        assert js.name == f"drtmle_trace_{version}_cleverly.json"
+
+    def test_the_digest_names_the_fixture_rather_than_implying_it(self) -> None:
+        """Asserted on the payload, not on the arrays.
+
+        The two fixtures' digests do differ in their hashes -- they are different draws -- so a
+        test that only checked "the digests differ" would pass with the field absent.  What is
+        checked is that the field is *there and correct*, which is the thing a reader diffs.
+        """
+        digests = {
+            version: harness.digest(
+                harness.trace(harness.read_fixture(version=version), order="cleverly")
+            )
+            for version in ("v1", "v2")
+        }
+        assert {v: d["fixture_version"] for v, d in digests.items()} == {"v1": "v1", "v2": "v2"}
 
 
 class TestTheInstrumentDoesNotMoveTheFit:

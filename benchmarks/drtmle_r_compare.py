@@ -58,6 +58,8 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from cleverly.estimators.targeting import TargetingSpec, _negligible_bar, _solved
+
 __all__ = [
     "DIVERGENCE_CLASSES",
     "Gate",
@@ -129,6 +131,13 @@ INPUT_TOLERANCE = 0.0
 #: first R run and not moved since** -- a threshold relaxed after seeing a comparison against
 #: another implementation is the failure mode stop-ship 17 names.
 REDUCTION_TOLERANCE = 1e-8
+
+#: Gate 5's bar is *not* a constant here, and that is the point: it is
+#: :func:`~cleverly.estimators.targeting._negligible_bar` at the record's own ``n``, which is the
+#: bar the loop stops on.  This is the relative half of the same predicate, read off
+#: :class:`~cleverly.estimators.targeting.TargetingSpec` rather than retyped, so that a change to
+#: the loop's tolerance cannot leave the comparison quietly measuring the old one.
+TARGETING_TOL = TargetingSpec().tol
 
 #: The columns the R side re-emits from what it actually read, in the order it writes them.
 INPUT_COLUMNS = ("w1", "w2", "a", "y", "fold", "weight", "qn1", "qn0", "gn")
@@ -648,6 +657,25 @@ def _gate_scores(export: RExport, traces: dict[str, Trace]) -> Gate:
 
     Both sides being *near* zero is not the comparison — **how near** is, because that is the
     bar each declared convergence at, and it is a bar rather than an outcome.
+
+    **The bar this gate applies is this package's own, imported rather than restated.**  The
+    question is *"did R clear the bar this package holds itself to"*, and until F3-closeout the
+    predicate was ``theirs <= 10 * ours or theirs <= 1e-8`` — where ``ours`` is what this package
+    **achieved** (``7.94e-11`` on ``v1``), so the effective bar was ``~7.9e-10``: neither R's
+    ``tolIC``, nor this package's ``5e-6``, nor its predicate.  That is the bar/achievement
+    conflation the tolerance ladder was written to remove, left standing in one gate.
+    :func:`~cleverly.estimators.targeting._negligible_bar` and
+    :func:`~cleverly.estimators.targeting._solved` are what the loop actually stops on, so they
+    are what is called here.
+
+    **One clause of the predicate cannot be evaluated on the R side, and the reading says so
+    rather than inventing it.**  ``_solved`` is ``relative <= tol`` **or** ``absolute <=
+    negligible``; the relative clause divides by ``score_scale``, a quantity the R export does not
+    carry — ``blocks.csv`` has ``mean`` and ``sd`` and ``sd`` is not that scale.  So the gate
+    applies the **absolute** clause exactly and reports this package's own two figures beside it.
+    An R run that would clear only the relative clause is therefore read as *not* clearing the
+    bar, which is the conservative direction: it can call a difference where there is none, and
+    cannot pass a run that solved its equations less tightly than this package requires.
     """
     exits = export.exit_blocks()
     theirs = max(
@@ -659,7 +687,9 @@ def _gate_scores(export: RExport, traces: dict[str, Trace]) -> Gate:
         for trace in traces.values()
         for values in trace.corrections.values()
     )
-    tol_ic = 1.0 / int(export.meta["n"])
+    n = int(export.meta["n"])
+    tol_ic = 1.0 / n
+    negligible = _negligible_bar(n)
     detail = "; ".join(
         f"{order}={trace.exit['rounds']} rounds ({trace.exit['exit_reason']})"
         for order, trace in traces.items()
@@ -668,17 +698,16 @@ def _gate_scores(export: RExport, traces: dict[str, Trace]) -> Gate:
     cap = int(export.meta["max_iter"])
     return Gate(
         name="5 exit scores",
-        question="how near zero are equations (9) and (10) when each side stops?",
+        question="did R solve equations (9) and (10) to the bar this package stops at?",
         reading=(
             f"R worst |P_n D| = {theirs:.2e} after {rounds} rounds "
-            f"(cap {cap}, tolIC={tol_ic:g}); this package {ours:.2e} — {detail}"
+            f"(cap {cap}, tolIC={tol_ic:g}) against this package's absolute bar "
+            f"{negligible:.0e} = 1e-3/n; this package achieved {ours:.2e} — {detail}"
         ),
         absolute=abs(theirs - ours),
-        tolerance=tol_ic,
-        # Not "are they equal" — "did R clear the bar this package holds itself to". A run that
-        # stopped at its own looser tolerance has not solved the same equations to the same
-        # place, and the comparison of everything downstream is in part a comparison of bars.
-        passed=bool(theirs <= max(ours, 0.0) * 10 or theirs <= 1e-8),
+        # The bar the verdict is taken against, not R's own — the gate's question names it.
+        tolerance=negligible,
+        passed=_solved(float("inf"), theirs, TARGETING_TOL, negligible),
         classification="stopping-rule",
         relative=theirs / ours if ours > 0 else float("nan"),
     )
@@ -899,6 +928,16 @@ def ladder_verdict(rungs: list[Rung], traces: dict[str, Trace]) -> dict[str, Any
     bar is not a free parameter for it; and anything else is **partial** and carries no verdict,
     which is the honest outcome when a reading lands between two declared thresholds rather than
     the nearer threshold being quietly widened to reach it.
+
+    **"How much of the gap the bar explains" is not one number, and F3-closeout is where this
+    stopped being reported as though it were.**  ``explained`` is a distance-from-agreement on a
+    *ratio*, and a ratio has an orientation: this-package-over-R reads ``92%`` on the committed
+    rungs, R-over-this-package reads ``64%``, and the reduction in the raw absolute gap -- the one
+    reading with no orientation to choose -- reads ``64%`` as well.  So all three travel in the
+    return value and all three are printed.  The **verdict is unaffected**, and that is worth
+    stating rather than assuming: :data:`PERSISTS_FRACTION` is ``0.5`` and every orientation
+    clears it, so ``partial`` is robust to the choice rather than an artefact of it.  ``explained``
+    stays the verdict's input, so no threshold moves with this change.
     """
     converged = [rung for rung in rungs if rung.converged]
     if not converged:
@@ -925,7 +964,13 @@ def ladder_verdict(rungs: list[Rung], traces: dict[str, Trace]) -> dict[str, Any
     )
     # On the *distance from agreement*, since a ratio of 1 is agreement and the quantity of
     # interest is how much of the excess went away.
-    explained = 1.0 - (abs(after - 1.0) / abs(before - 1.0)) if abs(before - 1.0) > 0 else 1.0
+    explained = _explained(before, after)
+    # The same quantity read the other way round, and read with no ratio at all. Both are
+    # printed beside `explained` because it is not invariant to either choice; see the docstring.
+    reversed_explained = _explained(1.0 / before, 1.0 / after)
+    loose_gap = abs(ours - loosest.spreads[key])
+    tight_gap = abs(ours - tightest.spreads[key])
+    absolute_explained = 1.0 - tight_gap / loose_gap if loose_gap > 0 else 1.0
 
     if abs(after - 1.0) <= CLOSED_SPREAD_RATIO - 1.0 and abs(se_ratio - 1.0) <= (
         CLOSED_SE_RATIO - 1.0
@@ -948,9 +993,28 @@ def ladder_verdict(rungs: list[Rung], traces: dict[str, Trace]) -> dict[str, Any
         "spread_ratio_after": after,
         "se_ratio_after": se_ratio,
         "explained": explained,
+        "explained_reversed": reversed_explained,
+        "explained_absolute": absolute_explained,
+        "spread_loose": loosest.spreads[key],
+        "spread_tight": tightest.spreads[key],
+        "spread_by_order": {name: _spread(trace) for name, trace in traces.items()},
+        "se_by_order": {name: trace.estimates["ey1"]["se"] for name, trace in traces.items()},
+        "se_ratio_by_order": {
+            name: (
+                trace.estimates["ey1"]["se"] / tightest.estimates["ey1"]["se"]
+                if tightest.estimates["ey1"]["se"]
+                else float("nan")
+            )
+            for name, trace in traces.items()
+        },
         "tightest_bar": tightest.tol_ic,
         "tightest_rounds": tightest.rounds,
     }
+
+
+def _explained(before: float, after: float) -> float:
+    """How much of a ratio's distance from agreement went away, ``1`` being agreement."""
+    return 1.0 - (abs(after - 1.0) / abs(before - 1.0)) if abs(before - 1.0) > 0 else 1.0
 
 
 def _spread(trace: Trace) -> float:
@@ -983,24 +1047,51 @@ def ladder_report(rungs: list[Rung], traces: dict[str, Trace]) -> str:
             f"`{_spread(trace):.4f}` | `{trace.estimates['ate']['psi']:+.6f}` | "
             f"`{trace.estimates['ey1']['se']:.6f}` | yes |"
         )
+    nearest = str(reading["nearest_order"])
     lines += [
         "",
-        f"**Verdict: `{reading['verdict']}`.** Against `{reading['nearest_order']}`, the "
-        f"`sd(D_Q[1])` ratio is {reading['spread_ratio_before']:.2f} at R's own default and "
-        f"{reading['spread_ratio_after']:.2f} at `{reading['tightest_bar']:g}` — "
-        f"{reading['explained']:.0%} of the gap explained by the bar; `se[ey1]` ratio "
-        f"{reading['se_ratio_after']:.3f}.",
+        f"**Verdict: `{reading['verdict']}`.** Against `{nearest}`, the nearest of this "
+        f"package's two orders, the `sd(D_Q[1])` ratio is "
+        f"{reading['spread_ratio_before']:.2f} at R's own default and "
+        f"{reading['spread_ratio_after']:.2f} at `{reading['tightest_bar']:g}`, and the "
+        f"`se[ey1]` ratio is {reading['se_ratio_after']:.3f}. **Both readings are that same "
+        "order's** — quoting one order's percentage beside the other's ratios is how this line "
+        "was first written and it is not a comparison of anything.",
+        "",
+        "**How much of the gap the bar explains is not one number**, so here are three. "
+        f"`sd(D_Q[1])` moves `{reading['spread_loose']:.4f}` → `{reading['spread_tight']:.4f}` "
+        + " against "
+        + ", ".join(f"`{name}`'s `{value:.4f}`" for name, value in nearest_first(reading))
+        + ". On the ratio as computed — this package over R — "
+        f"**{reading['explained']:.0%}**; reversed, "
+        f"**{reading['explained_reversed']:.0%}**; and on the raw absolute gap, which has no "
+        f"orientation to choose, **{reading['explained_absolute']:.0%}**. The verdict does not "
+        f"turn on the choice: `persists` needs under {PERSISTS_FRACTION:.0%} and every one of "
+        "the three clears it.",
         "",
         "R's converged spread against each of this package's orders: "
         + ", ".join(f"`{name}` {ratio:.3f}" for name, ratio in reading["after_by_order"].items())
-        + " — so it lands **between** them, which is route evidence rather than a residue.",
+        + " — so it lands **between** them, which is route evidence rather than a residue. "
+        "`se[ey1]` ratios: "
+        + ", ".join(f"`{name}` {ratio:.3f}" for name, ratio in reading["se_ratio_by_order"].items())
+        + ".",
         "",
         f"Bars: `closed` needs both ratios inside `{CLOSED_SPREAD_RATIO}` and "
         f"`{CLOSED_SE_RATIO}`; `persists` needs under {PERSISTS_FRACTION:.0%} explained; "
-        "anything else is `partial` and carries no verdict.",
+        "anything else is `partial` and carries no verdict. Thresholds were declared before the "
+        "first rung was read and none has moved.",
         "",
     ]
     return "\n".join(lines)
+
+
+def nearest_first(reading: dict[str, Any]) -> list[tuple[str, float]]:
+    """The orders' spreads with the one the verdict is taken against first."""
+    spreads: dict[str, float] = reading["spread_by_order"]
+    nearest = str(reading["nearest_order"])
+    return [(nearest, spreads[nearest])] + [
+        (name, value) for name, value in spreads.items() if name != nearest
+    ]
 
 
 def first_divergence(found: list[Gate]) -> Gate | None:

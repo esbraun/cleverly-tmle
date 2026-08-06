@@ -61,6 +61,21 @@ jobs:
       # divergence into something with no commit to blame. `SuperLearner` and `np` are
       # `drtmle`'s own imports and are installed whether or not this run fits with them --
       # the reduced regressions here are `glm_Qr`/`glm_gr`, so neither is called.
+      #
+      # **And the comment above is an argument this job does not yet implement**, which is on
+      # the record rather than quietly repaired. `r-version: "release"` and `any::drtmle` are
+      # exactly the floating resolution it argues against, and there is no `renv.lock` in the
+      # tree. What holds the comparison together instead is the *record*: the four committed
+      # `r-trace-*` directories carry `package_version = 1.1.2` and are checked by SHA-256 on
+      # every read, so what has already been measured reproduces with no R at all.
+      #
+      # **The remedy is a prerequisite for a future dispatch, not a reason to rerun now.** Before
+      # any further R run -- and `docs/roadmap.md`'s necessity gate is what decides whether one
+      # happens -- pin the R version and the dependency graph around the recorded `drtmle` 1.1.2
+      # with an `renv.lock` plus `r-lib/actions/setup-renv`, and extend `drtmle_reference.R`'s
+      # `meta.csv` with the R version, the platform and an environment digest, none of which it
+      # records today. Do **not** regenerate the committed records to improve their provenance:
+      # every trace taken so far, here and in R, is against those bytes.
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           packages: |
@@ -68,6 +83,8 @@ jobs:
             any::digest
           cache-version: 1
 
+      # Into the job log only. `meta.csv` records the package version and not this, which is the
+      # half of the pinning prerequisite above that is about the record rather than the install.
       - name: record the R toolchain
         run: |
           Rscript -e 'cat(R.version.string, "\n")'
@@ -92,6 +109,12 @@ jobs:
               --qsteps "$QSTEPS" --max-iter "$MAX_ITER"
           done
 
+      # Fails closed on a *missing* committed record as well as on a differing one. It used to
+      # wrap the diff in `if [ -f "$kept" ]` with no `else`, so a `(fixture, qsteps)` pair with
+      # nothing committed went green having checked nothing -- the opposite posture from the
+      # reader, which raises on a missing manifest rather than skipping it. A reproduction check
+      # that can pass without comparing anything is the same class of defect as a gate whose
+      # predicate is not its question.
       - name: check the fresh runs against the committed records
         env:
           QSTEPS: ${{ inputs.qsteps }}
@@ -100,12 +123,15 @@ jobs:
           for v in $VERSIONS; do
             fresh="benchmarks/results/r-trace-$v-q$QSTEPS/manifest.csv"
             kept="benchmarks/fixtures/r-trace-$v-q$QSTEPS/manifest.csv"
-            if [ -f "$kept" ]; then
-              diff -u "$kept" "$fresh" && echo "$v q$QSTEPS reproduces" || {
-                echo "::error::$v q$QSTEPS does not reproduce the committed record"
-                exit 1
-              }
+            if [ ! -f "$kept" ]; then
+              echo "::error::no committed record at $kept, so $v q$QSTEPS reproduces nothing."
+              echo "::error::Commit the record first, or dispatch a pair that has one."
+              exit 1
             fi
+            diff -u "$kept" "$fresh" && echo "$v q$QSTEPS reproduces" || {
+              echo "::error::$v q$QSTEPS does not reproduce the committed record"
+              exit 1
+            }
           done
 
       # The ladder is what separates "R stopped early" from "the corrected influence curves

@@ -96,6 +96,13 @@ the Hessian condition and the failure flag.
 through `score_columns`, worst residual **1.11e-16** against `IDENTITY_TOLERANCE = 1e-12`.
 That is F2's acceptance criterion and it is met.
 
+**Those three numbers are one run's observation and not a committed record**, and the difference
+matters to anyone quoting them. No trace artefact is in the tree — `benchmarks/results/` holds
+a `.gitkeep` — and the test asserts the *worst residual* against `IDENTITY_TOLERANCE` and that
+all five quantity families appear, never the counts. Rerun `--both` and the counts are what the
+alternation's round count makes them. What is pinned is the tolerance and the coverage; the
+tallies are a reading.
+
 The recomputation reads the **covariate off the state the step started from and the fitted
 value off the state it left**, and that asymmetry is the content of the check. A solver zeroes
 its score at the covariate it was handed against the fit it produced; recomputing both halves
@@ -164,7 +171,7 @@ from.
 | `cleverly` | every refit: `qr`, `gr1`, `gr2` all adopted — one vintage per round |
 | `paper` | alternating `qr=False, gr1=True, gr2=True` and `qr=True, gr1=False, gr2=False` — **two vintages per round**, exactly the paper's steps 3 and 5 |
 
-## Two things the harness got wrong first, kept here because they are the class of error F3 must not make
+## Three things the harness got wrong first, kept here because they are the class of error F3 must not make
 
 **Reading the reductions off the refit closure rather than off the covariate builders.** The
 refit returns all three regressions; the paper order then adopts `gr1`/`gr2` from one call and
@@ -181,6 +188,15 @@ round-trip repr on write, `float_precision="round_trip"` on read — and the rea
 is that `2.2e-16` in the inputs is precisely the size of difference a first-divergence hunt
 would find between two implementations and mis-classify as a learner difference. The harness
 would have manufactured the divergence it was built to locate.
+
+**A trace was labelled by a module global rather than by the fixture it ran on**, and that one
+arrived with `v2` rather than before it. `write_trace` built both filenames from
+`FIXTURE_VERSION = "v1"` and `digest` never carried the fixture at all, so a trace taken on the
+bound-active fixture was written to `drtmle_trace_v1_*` — and this module's own CLI had no
+version flag, so `v2` was reachable from `drtmle_r_compare` and from nowhere here. `Trace` now
+carries `fixture_version`, both filenames and the digest payload read it, and `--fixture-version`
+exists. It is the same class as the other two: not a wrong number, a **right number filed under
+the wrong experiment**, which is worse because nothing downstream can tell.
 
 ## What the tests guard
 
@@ -200,4 +216,8 @@ answering a different question.
 - **the identities can fail** — a perturbed recorded state is required to break them, which is
   what makes agreement evidence rather than a tautology;
 - **the fixture is not degenerate** — every one of the four quantities above is required to be
-  material against `mean|Y|`.
+  material against `mean|Y|`;
+- **a written trace says which fixture it is** — the two filenames and the digest payload carry
+  the traced fixture's version under both `v1` and `v2`, asserted on the recorded *field* rather
+  than on the arrays, since two different draws would differ anyway and a hash comparison would
+  pass with the provenance missing.

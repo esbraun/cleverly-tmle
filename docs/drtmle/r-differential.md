@@ -97,7 +97,7 @@ bite; each is a self-contained comparison of a quantity both sides genuinely hav
 | 2 | do `Q_r`, `g_{r,1}` and `g_{r,2}` at the **initial** pair agree? | `learner` |
 | 3 | does a round take the same equations in the same order? | `update-order` |
 | 4 | which reductions does each refit of a round contribute? | `reduction-vintage` |
-| 5 | how near zero are equations (9) and (10) when each side stops? | `stopping-rule` |
+| 5 | did R solve equations (9) and (10) to the bar this package stops at? | `stopping-rule` |
 | 6 | does this package's closing pass move the state R never takes? | `frozen-close` |
 | 7 | do the two correction blocks agree row by row? | `corrected-ic` |
 | 8 | do the reported `psi` and `se` agree? | `corrected-ic` |
@@ -126,6 +126,22 @@ with a `Qr` refit and this package primes with an equation-(8) solve, so the fir
 each *stream* records is taken at a different outcome regression. The comparable object is the
 reduction at the initial pair, which is neither side's first step, so both sides compute and
 export it on purpose.
+
+**Gate 5's bar is this package's own, imported rather than restated**, and F3-closeout is where
+that became true. It asks whether R solved its equations to the bar the loop here stops at —
+`_solved`'s absolute clause, `_negligible_bar(n) = 1e-3/n`, which is `5e-6` at `n = 200` — and it
+calls `cleverly.estimators.targeting`'s own functions to ask it. The predicate it replaced was
+`R ≤ 10 × this package's *achieved* score` (`7.94e-11` on `v1`, so an effective bar of `7.9e-10`),
+which is none of the three quantities in the question and is the bar/achievement conflation
+[the ladder](#the-stopping-bar-ladder) exists to keep apart. **No reading moved**: the gate reads
+`differ` on all four records before and after, and the earliest divergence is unchanged on each.
+
+One clause is not evaluable across the boundary and the reading says so rather than inventing it.
+`_solved` is `relative <= 1e-10` **or** `absolute <= 5e-6`; the relative clause divides by
+`score_scale`, which the R export does not carry — `blocks.csv` has `mean` and `sd`, and `sd` is
+not that scale. So the gate applies the absolute clause exactly and prints this package's achieved
+figure beside it. That errs toward reporting a difference, never toward passing a run that solved
+its equations less tightly than this package requires.
 
 **Gate 6 is not a comparison**, because the R package's loop has no analogue of
 `_close_at_frozen_reductions`. What it reports is how far the closing pass moves the state it
@@ -202,7 +218,9 @@ states; the 1000× is the gap between the two **rules**.
 found `D*_Q[1]`'s spread at `0.3407` here against R's `0.0599` and could not say whether that
 was a construction difference or an artefact of R having stopped early. Running R down a
 tolerance ladder splits it — see [the ladder](#the-stopping-bar-ladder) below. Short version:
-**92% of it was the bar.**
+**most of it was the bar** — `64%` to `92%` of it depending on how the question is asked, which
+is a range rather than a number because the reading is not invariant, and the verdict is the
+same under every reading in it.
 
 **And the signs agree throughout on `v1`.** The paper's display defines `D_A = -(Q_r/g)(A - g)`
 while Theorem 1 *subtracts* `D_A`, and [item 21](../roadmap.md#what-is-still-open) adjudicated
@@ -211,13 +229,35 @@ correction**. The R *code* carries the positive form too. That is worth one sent
 more: it is agreement about a transcription between two things descended from one source, which
 is precisely the evidence item 21 says cannot settle the question — and did not settle it.
 
-**5. R evaluates equation (10)'s block at the *initial* mechanism.** Inside R's loop
-`eval_Dstar_Q` is handed `gn = gn` while `eval_Dstar_g` is handed `gn = gnStar`; the record
-carries `at_targeted_g` on every block row and it reads `FALSE` on every `D_Q` and `TRUE` on
-every `D_g`. Whether that is deliberate is a question for the derivation, and it is the class of
-thing [item 20](../roadmap.md#what-is-still-open) turned on here: a block evaluated at one
-mechanism while its equation was solved at another leaves the curve uncentred exactly where the
-two differ. Recorded, not acted on.
+**5. R *passes* equation (10)'s block the initial mechanism — and on this reduction the callee
+does not read it.** Inside R's loop `eval_Dstar_Q` is handed `gn = gn` while `eval_Dstar_g` is
+handed `gn = gnStar`; the record carries `at_targeted_g` on every block row, and on `v1` it reads
+`FALSE` on every `D_Q` row from round 1 onward and `TRUE` on every `D_g` row. (The two `TRUE`
+`D_Q` rows are the `prime` phase at round 0, where R has just set `gnStar <- gn` and the two
+arrays *are* the same one — an earlier revision said "`FALSE` on every `D_Q`" and that was two
+rows too many.) **That flag records a call site, not a read**, because
+it is computed by comparing the *argument* against the current state
+(`benchmarks/r/drtmle_reference.R`) — and the two are different questions wherever the callee
+branches on something else.
+
+Here it branches on the reduction. Every run in this document is `reduction = "univariate"`, and
+[the concordance's §10](theorem-concordance.md#10-the-bivariate-construction) — written from the
+R source before any of this ran, and repeated in
+[the roadmap's `reduction="bivariate"` bullet](../roadmap.md#d-widen-the-scope-to-what-the-sources-derive)
+— records that the initial `g`
+enters `eval_Dstar_Q`'s **bivariate** branch, `1{A=a}/grn2 · (grn2 − g)/g · (Y − Q)`, and that
+*on the univariate branch the argument is unused*. So there is no univariate block evaluated at
+the wrong mechanism and nothing here is uncentred: this is a **bivariate-only** observation,
+carried for whoever writes that reduction, and it is **not** a construction candidate for
+[F4](../roadmap.md#f-localize-the-shortfall-before-changing-anything) or F7.
+
+**An earlier revision of this section read it the other way**, and the correction is worth its
+own sentence because of *what fixed it*. Nothing was rerun and no R was installed: two documents
+in this repository disagreed, and the one written from the source at the point the bivariate
+construction was scoped is the one that holds. That is the shape
+[item 20](../roadmap.md#what-is-still-open) is the worked example of — a recorded number
+readjudicated in-process against what the repository already knew — and it is the reason a
+`FALSE` in a fixture is a fact about an argument until something says what consumes it.
 
 
 ## The stopping-bar ladder
@@ -240,17 +280,30 @@ monotonically with the bar.
 
 **Verdict: `partial`** — and the thresholds were declared in the module before the first rung
 was read, which is why it says `partial` rather than being rounded to `closed`. `closed` needed
-both a spread ratio inside `1.2` and an `se[ey1]` ratio inside `1.05`; the readings are `1.266`
-against `cleverly` and `1.051`. Both miss, narrowly. `persists` needed under half the gap
-explained; **92%** of it is.
+both a spread ratio inside `1.2` and an `se[ey1]` ratio inside `1.05`. Read per order, since a
+ratio and a percentage taken against different orders are not a comparison of anything:
+`cleverly` reads `1.266` and `1.051`, `paper` reads `0.795` and `0.940`. Every one of the four
+misses, narrowly, and the two orders miss on *opposite sides* of agreement — which is the same
+route evidence the next paragraph reads, arriving here first.
+
+**And "how much of the gap the bar explains" is not one number.** `sd(D*_Q[1])` moves `0.0601` →
+`0.2692` against `paper`'s `0.2140` and `cleverly`'s `0.3407`. On the ratio the module computes —
+this package over R, distance from agreement — that is **92%**; with the ratio reversed it is
+**64%**; and on the raw absolute gap, the one reading with no orientation to choose, **64%**. An
+earlier revision printed the `92%` alone and beside `cleverly`'s two ratios, which was two
+mistakes in one sentence: a non-invariant statistic reported as though it were invariant, and
+two orders read as one. **The verdict does not turn on any of it** — `persists` needed under
+half explained and all three readings clear it — so `partial` is robust to the choice rather than
+an artefact of it, and that is now shown rather than assumed. No threshold moved.
 
 Three things follow, and the second is the one worth carrying forward.
 
-**The gap was overwhelmingly the bar.** `sd(D*_Q[1])` moves from `0.0601` to `0.2692` — a
-factor of `4.5` — as soon as R is asked to solve its equations as tightly as this package does,
-and it is stable across three further orders of magnitude after that. What gate 7 measured was
-mostly *"R stopped after two rounds"*, not a defect in either corrected influence curve. The
-document's earlier framing of it as a localized `se` difference overstated what was known.
+**Most of the gap was the bar.** `sd(D*_Q[1])` moves from `0.0601` to `0.2692` — a factor of
+`4.5` — as soon as R is asked to solve its equations as tightly as this package does, and it is
+stable across three further orders of magnitude after that. What gate 7 measured was mostly
+*"R stopped after two rounds"*, not a defect in either corrected influence curve. The document's
+earlier framing of it as a localized `se` difference overstated what was known; *"overwhelmingly"*
+then overstated it in the other direction, on the `92%` reading alone.
 
 **R's converged state lands *between* this package's two update orders.** `sd(D*_Q[1])`:
 `paper` `0.2140`, **R `0.2692`**, `cleverly` `0.3407`. `se[ey1]`: `paper` `0.0539`, **R

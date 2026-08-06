@@ -616,6 +616,12 @@ class Trace:
     """One fit's whole record: the fixture it ran on, the steps, and the reported tail."""
 
     order: str
+    #: Which frozen fixture this ran on -- ``"v1"``, ``"v2"``.  **On the trace rather than only
+    #: in a module global**, because :func:`write_trace` and :func:`digest` both used to read
+    #: :data:`FIXTURE_VERSION` instead, which meant a trace taken on ``v2`` was written to
+    #: ``drtmle_trace_v1_*`` and digested to a payload that never named its fixture.  The
+    #: filename is the provenance a reader has; it has to come from the run.
+    fixture_version: str
     arms: tuple[float, ...]
     bounds: tuple[float, float]
     weights: np.ndarray
@@ -964,6 +970,7 @@ def trace(
     check = correction_check(result, tolerance=1.0)
     return Trace(
         order=order,
+        fixture_version=version,
         arms=tuple(float(arm) for arm in reduction.reduced.arms),
         bounds=(float(reduction.bounds[0]), float(reduction.bounds[1])),
         weights=np.asarray(data.weights, dtype=float).reshape(-1),
@@ -1268,6 +1275,10 @@ def digest(trace_: Trace) -> dict[str, Any]:
     """
     payload: dict[str, Any] = {
         "order": trace_.order,
+        # In the payload rather than only in the filename, so that a digest carries which
+        # experiment it is a digest *of*. Without it two fixtures' digests are distinguishable
+        # only by whatever their arrays happen to differ in, which is not provenance.
+        "fixture_version": trace_.fixture_version,
         "arms": list(trace_.arms),
         "bounds": list(trace_.bounds),
         "exit": dict(trace_.exit),
@@ -1325,8 +1336,12 @@ def write_trace(trace_: Trace, directory: Path) -> tuple[Path, Path]:
         arrays[f"curve.{name}"] = values
     for name, values in trace_.corrections.items():
         arrays[f"correction.{name}"] = values
-    npz = directory / f"drtmle_trace_{FIXTURE_VERSION}_{trace_.order}.npz"
-    js = directory / f"drtmle_trace_{FIXTURE_VERSION}_{trace_.order}.json"
+    # The trace's own version, never the module global: `write_trace` read `FIXTURE_VERSION`
+    # until F3-closeout, so a `v2` trace was written to a `v1` filename and every reader of it
+    # was reading a label that had nothing to do with the run.
+    stem = f"drtmle_trace_{trace_.fixture_version}_{trace_.order}"
+    npz = directory / f"{stem}.npz"
+    js = directory / f"{stem}.json"
     np.savez_compressed(npz, **arrays)
     js.write_text(json.dumps(digest(trace_), indent=2) + "\n", encoding="utf-8")
     return npz, js
@@ -1451,22 +1466,33 @@ def main() -> None:
     )
     parser.add_argument("--both", action="store_true", help="trace both orders and compare them")
     parser.add_argument(
+        # Until F3-closeout this CLI could only ever run `v1`, because it had no flag and
+        # `read_fixture()` takes the module default -- so the second fixture was reachable
+        # from `drtmle_r_compare` and from nowhere here.
+        "--fixture-version",
+        default=FIXTURE_VERSION,
+        choices=sorted(FIXTURES),
+        help="which frozen fixture: v1 (truncation slack) or v2 (truncation binds)",
+    )
+    parser.add_argument(
         "--write-fixture",
         action="store_true",
-        help="regenerate benchmarks/fixtures/ and exit; every trace already taken is against "
-        "the old bytes, so say in the commit message what moved",
+        help="regenerate the fixture named by --fixture-version and exit; every trace already "
+        "taken is against the old bytes, so say in the commit message what moved",
     )
     parser.add_argument("--out", type=Path, default=None, help="directory to write the trace to")
     args = parser.parse_args()
 
+    version = str(args.fixture_version)
     if args.write_fixture:
-        fixture = write_fixture()
+        fixture = write_fixture(version=version)
         print(
-            f"wrote {fixture_path('csv')} ({fixture.n} rows), sha256 {fixture.manifest['sha256']}"
+            f"wrote {fixture_path('csv', version=version)} ({fixture.n} rows), "
+            f"sha256 {fixture.manifest['sha256']}"
         )
         return
 
-    fixture = read_fixture()
+    fixture = read_fixture(version=version)
     orders = ["cleverly", "paper"] if args.both else [args.order]
     traces = []
     for order in orders:

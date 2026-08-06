@@ -177,6 +177,18 @@ The rule this narrows — *no committed fixture exported from another package is
 truth* — is intact in substance: what is committed here is a record of a **diagnostic run**, and
 its status as evidence is exactly the status the diagnostic already had.
 
+**Having the instrument is not a licence to reach for it, and the default is that no further R
+run happens.** `docs/roadmap.md`'s *necessity gate* is the five conditions one would have to
+clear, and the short version is that reproducing a committed fixture, extending the tolerance
+ladder, adding a fixture or comparing coverage for reassurance clears none of them. The committed
+records exist precisely so that the next question is answered by reading them rather than by
+dispatching. Two things also follow from what the closeout found in them, and both are cheap to
+get wrong: a recorded flag saying which array was **passed** is not evidence about what the callee
+**read** — the univariate `eval_Dstar_Q` retraction is the worked example, and it was settled by
+`docs/drtmle/theorem-concordance.md` §10 against `docs/drtmle/r-differential.md` with no R at all
+— and a *ratio's* distance from agreement is not orientation-invariant, so "N% of the gap
+explained" needs every reading printed or none.
+
 **What that authorization does not include is the point of it.** A divergence it finds is a
 *question*, adjudicated against Benkeser et al., `docs/drtmle/theorem-concordance.md`, the
 exact-law identities and the remainder decomposition — never settled by which side R is on.
