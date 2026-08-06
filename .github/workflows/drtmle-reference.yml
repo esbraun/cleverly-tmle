@@ -22,7 +22,10 @@ name: drtmle-reference
 #
 # **It takes TWO dispatches, and the gap between them is a commit.** `phase: select` fits the
 # selection cohort and writes `selection.json`; that file is committed to
-# `evidence/e2r-selection/`; `phase: decide` fits the DECISION cohort -- a disjoint set of
+# `evidence/e2r-selection/`, which the last step of a `select` job prints to the log for --
+# artefact storage is unreachable from where these are dispatched, so `scripts/recover_selection.sh`
+# takes it out of the log and checks it against the digest printed beside it; `phase: decide`
+# fits the DECISION cohort -- a disjoint set of
 # simulation draws -- at the committed mapping and reads the gates and the comparison. Four
 # disjoint quadrature blocks split the *integration* noise and do not make an audit independent of
 # a data-dependent selection: the draw is the independent unit here, so the draws have to be
@@ -258,3 +261,37 @@ jobs:
             benchmarks/results/drtmle-reference/
             reference-${{ matrix.label }}.log
           retention-days: 90
+
+      # **The manifest is printed as well as uploaded, and the reason is an environment rather
+      # than a preference.** `selection.json` is the one file that has to come *out* of a run and
+      # back into the repository, and the sandbox these studies are dispatched from cannot fetch
+      # an artefact at all: they are served from `*.blob.core.windows.net`, which its proxy
+      # refuses with a `403 CONNECT tunnel failed` -- the same measurement `evidence/README.md`
+      # records for the archived study rows. Uploading the freeze to a store the freezing
+      # environment cannot read makes step 3 of section 8's execution order unexecutable there.
+      #
+      # So it goes into the log too, in three forms: its digest, itself, and its bytes gzipped
+      # and base64'd between two markers. `scripts/recover_selection.sh` reads the third and
+      # checks it against the first, which is what makes the committed file **verified against
+      # the run** rather than transcribed from it -- the distinction `scripts/fetch_evidence.sh`
+      # exists for. LAST in the job on purpose, so a tail of the log carries it.
+      - name: Print the selection manifest, so the freeze can be committed from a log
+        if: always() && inputs.phase == 'select'
+        shell: bash -euo pipefail {0}
+        run: |
+          manifest=benchmarks/results/drtmle-reference/selection.json
+          if [ ! -f "$manifest" ]; then
+            echo "no manifest at $manifest -- the run did not reach one"
+            exit 0
+          fi
+          echo "SELECTION-SHA256 $(sha256sum "$manifest" | cut -d' ' -f1)"
+          echo "SELECTION-BYTES $(wc -c <"$manifest" | tr -d ' ')"
+          echo "--- BEGIN selection.json ---"
+          cat "$manifest"
+          echo "--- END selection.json ---"
+          # `--no-name` so the compressed bytes carry no timestamp: two runs writing the same
+          # mapping then print the same block, and a reader diffing two logs sees the mapping
+          # rather than the minute. The digest checked on recovery is of the JSON regardless.
+          echo "--- BEGIN selection.json.gz.base64 ---"
+          gzip -9 --no-name <"$manifest" | base64 -w 76
+          echo "--- END selection.json.gz.base64 ---"
