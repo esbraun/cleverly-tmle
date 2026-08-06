@@ -1690,6 +1690,22 @@ record — and it was visible in the record and not in the verdict.
    `unresolved` and [the bound holds](#e2r-what-the-repaired-dispatch-changes-and-what-it-may-not):
    an `unresolved` E2R ends the reduction road as evidence rather than earning a third dispatch.
 
+**All four steps have now run and the answer is the last sentence of step 4**, in four cells of
+four — [what the dispatch measured](investigation-log.md#what-the-e2r-dispatch-measured). Two things
+about *these clauses* are worth carrying forward, and neither is a change to them:
+
+- **Clause 2's margin is demanding by construction and this run says how much.** `δ_metric` on the
+  composites is `(FIDELITY_FRACTION · δ)² / (n · weight_scale)` — a **squared** tolerance, since
+  Cauchy–Schwarz transfers a mean-square risk to a mean — so it lands two orders below the risks it
+  judges and at roughly a fifth of the differences 32 draws resolve. Three cells failed on it and
+  the closest miss was `-7.34e-06` against `-5.93e-06`. **Under the superiority-only reading those
+  three would have passed**, which is the default certification the clause was written to remove, so
+  the clause did its job; what is now measured is the draw count it would take to satisfy it.
+- **Clause 1 fired, in the one cell that failed outright.** The selection cohort could not separate
+  `spline(8)` from `spline(16)` for `qr` at `q-drift` `2,400` — `beaten on` `0`, runner-up at a worst
+  excess of `+0.0000` — and the audit, on draws the selection never saw, resolved them the other way.
+  A run that certified on the block that chose would have passed that cell.
+
 #### What the sandbox pilots measured, and what they moved
 
 **Two sandbox runs sized the instrument before the dispatch, both tier 2 in `g-drift` at

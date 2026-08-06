@@ -30,8 +30,23 @@ question. `√n R_remaining` — item 13, and Theorem 1's own assumption — is 
 estimator, at this reduction, does not meet the condition at these sizes*; it does not say the
 condition is unmeetable, and item 13 stays open on exactly that distinction.
 
-**The newest thing on this page is [E2R's instrument](#what-e2rs-instrument-landed), which is the
-reboot's WP1 built and not yet run.** The rung the three reduced regressions are fitted at is now
+**The newest thing on this page is [E2R's decision run](#what-e2rs-decision-run-measured), and it
+came back `unresolved` in four cells of four — so [the branch table](#the-branch-e2r-decides)'s last
+row fires, WP2 does not, and the reduction road ends here as motivation for a production change.**
+That is the bound the piece set for itself applied to its own result. **Three of E2's four failing
+clauses are now satisfied** — the negative control is rejected everywhere on all five metrics, gate C
+passes in all four cells, every cell is integrity-valid at 32 of 32 draws — and E2's own clause, *a
+competing rung strictly better than the selected one*, fails in **one** cell rather than three. What
+holds the other three back is the clause the instrument's review added: a competing rung is **not
+shown non-inferior** within a margin that is *squared* by the Cauchy–Schwarz transfer and so sits
+two orders below the risks it judges. **Under the older reading those three cells would have
+passed**, which is exactly the default certification that clause was added to remove. And the cell
+that does fail outright is the four-block design earning its cost: at `q-drift` `2,400` the
+selecting cohort could not separate `spline(8)` from `spline(16)` on `qr` and the audit, on draws it
+never saw, says the finer rung is better — **a selection that did not replicate out of sample**.
+
+**The instrument that produced it is the revision before, [E2R's own](#what-e2rs-instrument-landed).**
+The rung the three reduced regressions are fitted at is now
 **selected** against a measured ranking rather than shipped — which is what E2's own falsifier asked
 for — on four blocks rather than three, so the block that certifies a rung is not the block that
 chose it; gate B reads **five** metrics where it read three, the two new ones being the composites
@@ -43,8 +58,7 @@ taken at the initial pair ranks `h3` at a divisor no fit uses; the block-size le
 was **run and did not fire**, so the reference is fitted on twice E2's points and the audit's one
 failing clause resolves; and — the one worth carrying away — **a selection judged on point estimates
 cannot be certified by a clause read on intervals**, which the first selection rule was and which
-its own gate rejected. **No verdict here is E2R's** — the decision run is owed and dispatches from
-`main`, exactly as E2's did, and no pilot's comparison column is read.
+its own gate rejected. No pilot's comparison column is read anywhere, and none was.
 
 **The reboot itself is the revision before that, [a rebooted piece
 E](#the-reboot-and-the-three-work-packages), and it came from an external critique of the state
@@ -549,12 +563,12 @@ be confused.
 
 A, B, C and E are each split, so the five pieces are eighteen pull requests: **B1a**, **A1a**, **B1b**,
 **B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a**, **C3b**, **C3c**, **E0**, **E1**, **E1b**,
-**E2** and **E2R** have landed — **E2 has run and did not branch**, which is a result and not a
-deferral, and **E2R's instrument is built with its decision run owed**, which is the C1/C3a/B2a
-pattern and not a deferral either — and **D** and the rest of **piece E** are open. **The count is
-unchanged and its composition is not**: piece E's tail is now [a diagnostic, one branch and a
-study](#the-reboot-and-the-three-work-packages), so **E2R** is a row that did not exist and
-**E2b** and **E3** are alternatives of which at most one is ever written.
+**E2** and **E2R** have landed — **E2 has run and did not branch** and **E2R has run and came back
+`unresolved`**, which are results and not deferrals — and **D** and the rest of **piece E** are open.
+**The count is unchanged and its composition is not**: piece E's tail is now [a diagnostic, one
+branch and a study](#the-reboot-and-the-three-work-packages), so **E2R** is a row that did not exist
+and **E2b** and **E3** are alternatives of which at most one is ever written — and after E2R's
+verdict, **neither is**: [the branch](#the-branch-e2r-decides) is *stop*.
 **C3 split into three after its pilot ran**, under
 the same rule as B2: the repair precedes the dispatch and closes nothing on its own. **E is the fifth piece and it
 exists because C3c measured rather than settled** — a study whose premise was `unverified` cannot
@@ -601,7 +615,7 @@ first.
 | **E0** – **E1b** — *landed* | [what C3c handed back](#e-what-c3c-handed-back)'s first three: the record, and the remainder instrument. E1 integrates `P₀D̂` deterministically, which takes most of the instrument off the list of candidate explanations for the flat column. **Its two readings of *how much* are withdrawn** and are E1b's | `DGP.quadrature`; `quadrature_frame`, `truth_at`, `corrected_curve` and `row_weights`/`limit` on every remainder column; `benchmarks/drtmle_companion_grid.py` and its workflow; `--quadrature-points`; `ScoreRow` and a second artefact; `tests/unit/test_drtmle_companion_grid.py` |
 | **E1b** — *landed* | the same question measured rather than asserted: an independent scramble per replicate, so the grid's error is mean-zero and estimable *conditionally on each fit*, with an interval on every share. **At `n = 2,400` the draw accounted for `0.99`–`1.01` of the column's across-draw variance** | `DGP.quadrature(scramble=…)`; stacked companions and a row `Window`; `rule sd` and `share`; two dispatches, [manifested](drtmle/study-manifest.md#e1b-what-was-run) |
 | **E2** — *landed, and it did not branch* | the reference reduction dispatched against its frozen rule. **Gate B fails in three cells of four**, each on a coarser rung beating the shipped one, so those cells are `unresolved`; the fourth reads **`moved`**. Candidate 1 is alive-but-unestablished rather than decided, and the named repair is a rung **selected rather than shipped** — [at interval level a rung per *cell*](#what-e2-measured-and-why-it-did-not-branch), which is a correction to two earlier revisions | run `31042558057`, four artefacts [manifested](drtmle/study-manifest.md#e2-what-was-run); [what it measured](drtmle/investigation-log.md#what-the-e2-dispatch-measured); `benchmarks/drtmle_reference.py` and `drtmle_reference_study.py`; `.github/workflows/drtmle-reference.yml`; [§8](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2); `tests/unit/test_reference_exact_law.py` and `test_drtmle_reference_study.py` |
-| **E2R** — *the instrument has landed; the decision run is owed* | the reference repaired at [eight points](#the-reboot-and-the-three-work-packages) and its rule frozen: the rung **selected** per `(cell, size, regression)` against a measured ranking, four blocks so the block that certifies is not the block that chose, **five** gate-B metrics — the three regressions and the two composites the correction divides by — a control coarse enough to be rejected on all five, and the block-size falsifier declared. A review of that instrument then found three ways it could still pass without certifying anything, so the last three are the **decision protocol**: two disjoint cohorts of draws with a committed manifest between them, a fidelity clause that is non-inferiority against a declared margin rather than failure to show superiority, and a run that exits non-zero on an incomplete artefact set. Closes no numbered item on its own, which is why it is its own pull request; the run dispatches from `main`, as E2's did | `benchmarks/drtmle_reference.METRICS`, `composite_denominators`, `metric_weights`, a per-regression `reference=`; `select_rung`, `RecordingDRTMLE`, a selection table and a third artefact on the harness; `cohort_seeds`, `SelectionManifest`, `validate_selection`, `noninferiority_margins`, `simultaneous_lower_bounds`, `run_integrity`; [§8's selection rule and what the pilot moved](drtmle/validation-plan.md#the-selection-rule-frozen-before-the-dispatch) and [its decision protocol](drtmle/validation-plan.md#the-decision-protocol-frozen-before-the-dispatch); `tests/unit/test_drtmle_reference.py` and `test_drtmle_reference_study.py` |
+| **E2R** — *landed; ran; came back `unresolved`* | **[the decision run](#what-e2rs-decision-run-measured), in two dispatches with the mapping committed between them, and it does not decide.** Four cells of four `unresolved`: three because a competing rung is not *shown* non-inferior within the squared margin, one because the selection did not replicate out of sample. The negative control is rejected everywhere, gate C passes everywhere and every cell is integrity-valid — so what the repair fixed, it fixed, and the branch is nonetheless **stop**. Plus the reference repaired at [eight points](#the-reboot-and-the-three-work-packages) and its rule frozen: the rung **selected** per `(cell, size, regression)` against a measured ranking, four blocks so the block that certifies is not the block that chose, **five** gate-B metrics — the three regressions and the two composites the correction divides by — a control coarse enough to be rejected on all five, and the block-size falsifier declared. A review of that instrument then found three ways it could still pass without certifying anything, so the last three are the **decision protocol**: two disjoint cohorts of draws with a committed manifest between them, a fidelity clause that is non-inferiority against a declared margin rather than failure to show superiority, and a run that exits non-zero on an incomplete artefact set. Closes no numbered item — item 13 is a rate and closes at E5 — and the mapping it froze is committed at `evidence/e2r-selection/selection.json` | `benchmarks/drtmle_reference.METRICS`, `composite_denominators`, `metric_weights`, a per-regression `reference=`; `select_rung`, `RecordingDRTMLE`, a selection table and a third artefact on the harness; `cohort_seeds`, `SelectionManifest`, `validate_selection`, `noninferiority_margins`, `simultaneous_lower_bounds`, `run_integrity`; [§8's selection rule and what the pilot moved](drtmle/validation-plan.md#the-selection-rule-frozen-before-the-dispatch) and [its decision protocol](drtmle/validation-plan.md#the-decision-protocol-frozen-before-the-dispatch); `tests/unit/test_drtmle_reference.py` and `test_drtmle_reference_study.py` |
 | then **E2b** *or* **E3**, then **E4** + **E5** | [the three work packages](#the-reboot-and-the-three-work-packages): **one** branch off E2R's verdict, and the frozen confirmatory study. **E5** is where item 13 closes either way | their rows below |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
@@ -626,18 +640,18 @@ contract + item 25  scope frozen ───────────────�
 A1b cross-fitting construction ────────────────────────────────────────┘  landed   landed  + pilot  landed  landed
        (no logical block; a rework edge — C's fits are of A1b's construction)   landed          │
                                                                                                 │
-C3c ──> E0 ──> E1 ──> E1b ──> E2 ──> E2R ──> [ E2b | E3 ] ──> E4 ──> E5  <────────────────────────┘
+C3c ──> E0 ──> E1 ──> E1b ──> E2 ──> E2R ──X   [ E2b | E3 ] ──> E4 ──> E5  <────────────────────────┘
        record  P₀D̂   rule's  refer- selected  one branch      two     fresh
-       landed  rule   error   ence  rung +    of the two,     designs dispatch
+       landed  rule   error   ence  rung,     of the two,     designs dispatch
               landed  landed  ran,   4 blocks never both
-                              no     built,
-                              branch run owed
+                              no     ran,
+                              branch unresolved  NEITHER FIRES
                                      ─ WP1 ─  ─── WP2 ───     ──── WP3 ────
 
-       E2b fires if the repaired reference improves the remainder and a feasible learner is
-       in reach; E3 if it does not, or if a repaired remainder still leaves the calibration
-       failing. A reference that stays unresolved, or a gap no feasible learner closes, stops
-       the release instead of advancing to the next box
+       E2b was to fire if the repaired reference improved the remainder and a feasible learner
+       was in reach; E3 if it did not, or if a repaired remainder still left the calibration
+       failing. Neither fires: a reference that stays unresolved stops the release instead of
+       advancing to the next box, and E2R stayed unresolved in four cells of four
 
 D   independent of all of it, and gated on A1a alone. Not a fallback inside this release
 ```
@@ -646,11 +660,13 @@ D   independent of all of it, and gated on A1a alone. Not a fallback inside this
 not passed*.** E2 is the one that landed without deciding what it was built to decide: it ran, its
 gates held it to `unresolved` in three cells of four, and
 [what it measured](#what-e2-measured-and-why-it-did-not-branch) is the finding — a reference whose
-best resolution is not the one that was shipped. **E2R is the repair to that, and what has landed
-is its instrument**: the rung selected rather than shipped, four blocks so that the block which
+best resolution is not the one that was shipped. **E2R is the repair to that, and it has now run**:
+the rung selected rather than shipped, four blocks so that the block which
 certifies is not the block which chose, five gate-B metrics where there were three, and a control
 coarse enough to be rejected on all five — [with two of the five clauses moved by the pilot that
-sized them](#what-e2rs-instrument-landed). Its decision run is owed and dispatches from `main`. **E3 has moved from the trunk onto a branch**, and
+sized them](#what-e2rs-instrument-landed). **It came back `unresolved` in four cells of four**, so
+the last row of its own branch table fires and WP2 does not
+([what it measured](#what-e2rs-decision-run-measured)). **E3 has moved from the trunk onto a branch**, and
 that is the reboot: it was going to run whatever E2 said, on a `se`-ratio mechanism
 [this revision withdraws](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs).
 [C3c](drtmle/coverage-study.md#what-the-study-measured) entered the regime, produced the gap, and
@@ -2331,6 +2347,11 @@ were.** Ranked by the evidence actually in the tables:
    [alive and unestablished](#what-e2-measured-and-why-it-did-not-branch) rather than settled. What
    the run did establish is a **repair with a name** — a rung chosen against a measured ranking
    rather than assumed — and that repair is [E2R](#the-reboot-and-the-three-work-packages).
+   **E2R was then to decide it and also did not**, on four cells of four
+   ([what it measured](#what-e2rs-decision-run-measured)), so this candidate now carries a second
+   negative result about the *instrument* and none about itself. Two dispatches built to decide it
+   have failed to, and the second was the repair the first asked for; the bound says that is where
+   this road ends as motivation for a production change.
 2. **The construction or the solver adds first-order variation.** `‖Δ_k‖ = o_p(1)` is `unverified`
    and what the A1b dispatch measured is its *consequence* on `ψ` rather than `‖Δ_k‖`; and 99 of
    3,000 fits exit invalid, ten of twelve cell-runs over the 2% bar. Both are effects on the
@@ -2339,9 +2360,10 @@ were.** Ranked by the evidence actually in the tables:
    treats the reductions as known, and it is not — it is the same unestablished premise as
    candidate 1, seen through the second moment instead of through the mean
    ([the withdrawal](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs)). So this
-   candidate is **weaker than the previous revision had it**, and it is now the branch **E3** takes
-   only if E2R comes back `equivalent`, or if a repaired remainder leaves the calibration still
-   failing.
+   candidate is **weaker than the previous revision had it**, and it was to be the branch **E3**
+   takes only if E2R came back `equivalent`, or if a repaired remainder left the calibration still
+   failing. **E2R came back `unresolved` instead, so E3 does not fire either** — this candidate is
+   where it was, and the piece has no dispatch left that is licensed to move it.
 3. **`n` is simply too small.** The residual candidate, the only one no repair reaches, and the
    only one whose test is the expensive dispatch. It is listed last because it is not *testable*
    until the first two are excluded — a rate read through an inconsistent reduction and a short
@@ -2384,8 +2406,8 @@ all.
 
 | | what it is | fires when | closes |
 | --- | --- | --- | --- |
-| **WP1 — E2R** | the repaired reference experiment, and the *only* action that separates reduction error from estimator construction | now. It is the piece's next dispatch | whether item 13's failure is a learner failure at all — the question E2 was built for and did not answer |
-| **WP2 — E2b *or* E3** | a feasible-learner comparison, **or** the narrow construction/stability diagnosis. **Not both, and which one is E2R's output** | on E2R's verdict, per [the branch table](#the-branch-e2r-decides) | the reduction learner, or item 15's stability half and item 22's numerical half |
+| **WP1 — E2R** | the repaired reference experiment, and the *only* action that separates reduction error from estimator construction | **it has run** — two dispatches, and it came back [`unresolved` in four cells of four](#what-e2rs-decision-run-measured) | nothing. It was built to answer whether item 13's failure is a learner failure at all, and it does not: candidate 1 stays alive and unestablished |
+| **WP2 — E2b *or* E3** | a feasible-learner comparison, **or** the narrow construction/stability diagnosis. **Not both, and which one is E2R's output** | on E2R's verdict, per [the branch table](#the-branch-e2r-decides) — whose last row fired, so **neither fires** | the reduction learner, or item 15's stability half and item 22's numerical half. Neither is closed |
 | **WP3 — E4 + E5** | the frozen confirmatory study: the preregistered two-design split, then the fresh two-batch dispatch | only after WP2 resolves. **A coverage number taken before it is not the release number** | **item 13**, and item 3's second half |
 
 **The old letters are kept rather than renumbered**, because
@@ -2399,12 +2421,22 @@ instrument](drtmle/validation-plan.md#the-decision-protocol-frozen-before-the-di
 the first five did not make it confirmatory. **PR #74 is demoted to a pilot** and its seed streams are spent:
 the decision run takes fresh ones.
 
-**The instrument for all five has now landed and the run has not happened**, which is this page's
-own C1/C3a/B2a pattern rather than a deferral: *the repair precedes the dispatch and closes nothing
-on its own*, and a workflow is dispatchable only from `main` — which is the whole of what E2 was
-waiting on when the previous revision reported a `404`. [What landed and what a sandbox pilot
-moved](#what-e2rs-instrument-landed) is the record; the five clauses below are what it was built
-against, and two of them came out of the pilot differently from how they were written.
+**The instrument for all five landed first and the run followed it**, which is this page's own
+C1/C3a/B2a pattern: *the repair precedes the dispatch and closes nothing on its own*. It went as two
+dispatches with the mapping committed between them, and [what it
+measured](#what-e2rs-decision-run-measured) is `unresolved` in four cells of four. [What landed and
+what a sandbox pilot moved](#what-e2rs-instrument-landed) is the instrument's own record; the five
+clauses below are what it was built against, and two of them came out of the pilot differently from
+how they were written.
+
+**One thing about *how* it was dispatched belongs in the record**, because a previous revision of
+this page read it as a constraint on the protocol and it is not. `drtmle-reference.yml` has to exist
+on `main` to be dispatchable at all — that is what E2's `404` was — and once it does, a dispatch may
+name any ref. §8 requires the mapping to be **committed** before `decide`, not merged, so both runs
+took the feature branch: the selecting run at a commit that does not contain `selection.json`, the
+deciding run at that commit plus the manifest and nothing else. Both `head_sha` are
+[manifested](drtmle/study-manifest.md#e2r-what-was-run), and they are what make the order checkable
+by someone who was not in the room.
 
 1. **The rung is selected rather than assumed, and per `(cell, size)` at least.** E2 shipped one
    `spline(16)` for three regressions in four cells; what its intervals reject is *one rung across
@@ -2493,9 +2525,71 @@ buy a second dispatch: it is the same one decision run, on a design that can car
 | gates pass, reference improves it, **no feasible learner approaches it at `n = 2,400`** | **stop.** Record a negative learnability result | "an oracle would fix it" is not a shippable estimator, and saying so is a result — the same standard `bench_tmle.py`'s no-Rust conclusion is held to |
 | gates still **fail** | **stop.** More coverage runs cannot answer this | a comparison at a reference another resolution beats answers for the wrong reference, at any replicate count |
 
+**The run has happened and the answer is the last row.** [What it
+measured](#what-e2rs-decision-run-measured) is below; the branch is **stop**, and WP2 does not fire.
+
+##### What E2R's decision run measured
+
+*Two dispatches, `31084621278` selecting and `31087301718` deciding, with the mapping committed
+between them. Both cells, `n ∈ {600, 2400}`, 16 selection and 32 decision draws a cell and size on
+disjoint data seeds, the rung selected per `(cell, size, reduced regression)`, four blocks, five
+gate-B metrics. Five artefacts, [manifested](drtmle/study-manifest.md#e2r-what-was-run); [the tables
+are in the investigation log](drtmle/investigation-log.md#what-the-e2r-dispatch-measured).*
+
+**No cell reaches a readable comparison, so E2R is `unresolved` and the reduction road ends here as
+motivation for a production change.** That is [the bound this piece set for
+itself](#what-this-piece-refuses-by-name) applied to its own result rather than a surprise, and the
+page says so rather than asking for a third dispatch.
+
+**What the repair did achieve is worth separating from what it did not**, because three of the four
+clauses E2 failed on are now satisfied and the reason the run still cannot decide is a *different*
+one:
+
+- **the negative control is rejected everywhere, on all five metrics.** That is clause 4, and it is
+  the clause E2 could not satisfy at `g-drift` `2,400` — where `bins(8)` read
+  `-1.031e-04 [-4.35e-04, +1.12e-04]` and the gate had no teeth. `bins(2)` was chosen on a sandbox
+  pilot for exactly this and it holds on the dispatch;
+- **gate C passes in all four cells**, by a factor of two to thirteen — `0.0097/0.1196`,
+  `0.0073/0.0927`, `0.0345/0.3114`, `0.1326/0.2732`. The reference's own across-scramble spread was
+  never what was holding this up;
+- **every cell is integrity-valid**, 32 of 32 declared draws on both the comparison and the audit,
+  no fit error and no risk error. Clause 8's fail-closed paths exist and were not reached;
+- **and E2's own clause — a competing rung strictly better than the selected one — now fails in one
+  cell rather than three.** `q-drift` at `n = 2,400`, where `spline(16)` beats the selected
+  `spline(8)` on `qr`.
+
+**What holds the other three back is the clause this dispatch added**, and it is the one the review
+of the instrument insisted on: a competing rung is **not shown non-inferior** within `δ_metric`. On
+the two composites that margin is `(FIDELITY_FRACTION · δ)² / (n · weight_scale)` — **squared**,
+because Cauchy–Schwarz transfers a mean-square risk to a mean — so it lands two orders below the
+risks being compared and about a fifth of the differences 32 draws resolve. The closest miss is
+`q-drift` at `600`: `-7.34e-06` against `-5.93e-06`.
+
+**That is a fact about this design at 32 draws and it is not a repair.** The clause was declared in
+the commit before the dispatch, it makes a verdict harder to reach, and *a tolerance introduced after
+a failure is the one direction a gate may not move*. Under the older reading — failure only on an
+interval wholly below zero — three of these four cells would have **passed**, which is precisely the
+default certification the clause was added to remove.
+
+**The one cell that fails outright is the informative one, and it is the four-block design earning
+its cost.** The selecting cohort chose `spline(8)` for `qr` at `q-drift` `2,400` with `beaten on` `0`
+and `spline(16)` as runner-up at a worst excess of `+0.0000` — two rungs inside that block's
+resolution at 16 draws — and 32 fresh draws on a block neither saw resolve them the other way. **The
+selection did not replicate out of sample.** A run that certified on the block that chose would have
+passed this cell, which is what clause 2 and [the decision
+protocol](drtmle/validation-plan.md#the-decision-protocol-frozen-before-the-dispatch) were written
+against.
+
+**Candidate 1 is therefore where E2 left it — alive and unestablished — and two dispatches built to
+decide it have now failed to.** The second was repaired at eight points against the first's own
+falsifier, and it moved the failure from "the shipped rung is beaten" to "the selected rung cannot be
+certified to the tolerance the rule asks for". Nothing here reads a comparison, selects a learner or
+reads a rate; item 13 is a rate and closes at E5.
+
 ##### What E2R's instrument landed
 
-**The five clauses are built and the decision run is owed.** What is new is a *selected* reference
+**The five clauses are built, and [the decision run has since
+happened](#what-e2rs-decision-run-measured).** What is new is a *selected* reference
 and a gate with more teeth; what is unchanged is every constant the comparison is judged by —
 `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION` and `PRIMARY_ESTIMAND` are what they were before E2 ran,
 and [§8's rule](drtmle/validation-plan.md#the-reference-rule-frozen-before-the-dispatch) was not
@@ -2571,9 +2665,15 @@ own pilot's were not: a difference under a sizing run is what the rule refuses, 
 and twelve draws, read to size an instrument, and **each pilot's comparison columns exist and are
 deliberately unquoted** — a difference read under a sizing run is what §8 refuses, the reason for
 every choice above is gate and cost arithmetic, and the dispatch takes fresh seed streams over both
-cells and both sizes. **And the bound still holds** — one repair and one decision
+cells and both sizes, which it did. **And the bound still holds** — one repair and one decision
 run — so an `unresolved` E2R ends the reduction road as evidence rather than earning a third
-dispatch.
+dispatch. **That is the case that arose**, and the verdict is
+[the decision run's](#what-e2rs-decision-run-measured) rather than any of these pilots'. Two of them
+are worth reading back against it: the `g-drift` `2,400` pilot's selection —
+`qr = spline(16)`, `gr1 = gr2 = spline(8)` — is **not** what the decision cohort's own 16 draws
+chose there, which is what a fresh cohort is for; and the pilot's `h3` divisor margin of `-0.0135`
+is exactly what the dispatch read in both `n = 2,400` cells, so the composite's scale was sized
+right.
 
 > **One phrase above has since been withdrawn as a certification, and it is worth reading where it
 > was written.** "Two rungs genuinely indistinguishable rather than one beating the other" is a
@@ -2882,9 +2982,10 @@ routing test therefore runs on fitted primaries.
 precommitted equivalence margin and reference-uncertainty budget frozen in their own commit, and
 the dispatch. All four landed, the run has happened, and **the gates are what stopped the paired
 numbers being read** in three cells of four — which is the instrument working rather than the run
-failing, and is the whole return on specifying them before any number existed. What is owed now is a
-reference whose resolution is **selected and then certified by a block that did not select it**,
-which is [E2R](#the-reboot-and-the-three-work-packages).
+failing, and is the whole return on specifying them before any number existed. What was owed after it
+was a reference whose resolution is **selected and then certified by a block that did not select
+it**, which is [E2R](#the-reboot-and-the-three-work-packages) — **and that has now run and returned
+`unresolved` as well**, on a design where the block that certified had not chosen.
 
 **And it is the only instrument that can return a *negative* answer worth having.** A faster
 learner that fails leaves "try a faster one still"; an oracle that fails says candidate 1 is not
@@ -2926,7 +3027,10 @@ ships the spline expansion to build it from.
 - **Citing E2's three `unresolved` cells as motivation for a production change.** Their differences
   are large and they are about a reference another rung beats; the piece may cite them as the reason
   E2R exists and for nothing else. **The same bound applies to E2R itself**: an `unresolved` decision
-  run ends the reduction road as evidence, rather than earning a third dispatch.
+  run ends the reduction road as evidence, rather than earning a third dispatch. **That clause is no
+  longer hypothetical** — E2R returned `unresolved` in four cells of four, its differences are large
+  in all four and none of them is read
+  ([what it measured](#what-e2rs-decision-run-measured)) — and it binds this page as written.
 
 ##### What E1 landed, and what E1b withdrew
 
@@ -3250,7 +3354,10 @@ claim that outruns its instrument is how this variant has gone wrong three times
 rather than properties of a document**, and [the branch table](#the-branch-e2r-decides) is where
 they live: a repaired reference that still cannot say whether the reductions are causal, and a
 reference that repairs the remainder with no feasible learner reaching it at `n = 2,400`. Each ends
-the release attempt with a recorded result rather than with a further dispatch.
+the release attempt with a recorded result rather than with a further dispatch. **The first of the
+two has now happened** — [E2R returned `unresolved` in four cells of
+four](#what-e2rs-decision-run-measured) — so the release attempt ends there, on a recorded result,
+and what is left is a decision about scope rather than a further run of this experiment.
 
 **Four of them are now live on measurements rather than open for want of one.** Before
 [C3c](#what-c3c-measured) this list was mostly a set of things a study might find; the study found
@@ -3793,16 +3900,29 @@ and is about what it would cost against what it could find:
   its `grnStar` output under the key `grn`, and that it defaults to `Qsteps=2` — a backfitting-style
   outcome update — are facts about that source, and recording them where the code came from is
   what the standing decision explicitly *permits*. Neither needs the code to be run.
-- **The current diagnosis has a cheaper instrument that has not been exhausted.** E2R's decision
-  run is owed and separates reduction error from estimator construction directly. Reaching for a
-  second implementation before the experiment that was built for the question has been run is the
-  reverse of the order [WP1](#the-reboot-and-the-three-work-packages) sets.
+- **The current diagnosis had a cheaper instrument, and it is now exhausted.** E2R's decision run
+  separates reduction error from estimator construction directly, it has been run, and it came back
+  [`unresolved`](#what-e2rs-decision-run-measured). Reaching for a second implementation *before*
+  that experiment would have been the reverse of the order
+  [WP1](#the-reboot-and-the-three-work-packages) sets; reaching for it after is a question about the
+  condition below rather than about the ordering.
 
 **What would reopen it**, since a refusal with no such condition is a prejudice: E2R coming back
 `unresolved` *and* E3's construction diagnosis failing to localise the disagreement on the exact
 laws. At that point the question stops being "does this match the theorem" — which the laws
 answer — and becomes "which of two readings of an ambiguous appendix is implemented", which is the
 one question a second implementation can settle and a derivation cannot.
+
+> **Half of that condition is now met and the other half is not reachable as written, which is a
+> finding about the condition rather than about R.** E2R *has* come back `unresolved` — but the
+> second clause names **E3**, and [the branch table](#the-branch-e2r-decides)'s answer to an
+> unresolved E2R is *stop*, so the diagnosis that was to supply the second clause does not fire. The
+> refusal therefore stands unchanged, and it stands on a condition that can no longer be discharged
+> by the route it names. **Restating it is a decision for whoever takes the next one**, and the
+> honest options are the two this page already distinguishes: run E3 anyway as a diagnosis rather
+> than as a branch, or accept that the condition is unsatisfiable and say the refusal is
+> unconditional here as it is in the standing-decisions table. Quietly reading the first clause as
+> the whole condition is the one thing that would be wrong.
 
 ## What the sizings got wrong
 

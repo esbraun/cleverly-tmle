@@ -41,3 +41,27 @@ evidence, and a mapping nobody can read is not a frozen mapping.
 The selecting dispatch reports no gates and no comparison; the deciding dispatch chooses nothing.
 If a fidelity or integrity gate then fails, the cell is `unresolved` and the reduction-reference
 branch stops — an `unresolved` E2R does not earn a third dispatch.
+
+## How the middle arrow is taken
+
+**The file leaves the runner in an artefact, and the environment these studies are dispatched from
+cannot fetch one** — artefacts are served from `*.blob.core.windows.net`, which its proxy refuses
+with a `403 CONNECT tunnel failed`. [`../README.md`](../README.md) records the same measurement for
+the archived per-replicate rows, and its answer is *run the fetch somewhere else*. That answer is
+not available here: the freeze sits **between two dispatches**, so a step nobody in the dispatching
+session can take is a protocol nobody can execute.
+
+So a `select` job prints the manifest into its log as well as uploading it — its `sha256`, itself,
+and its bytes gzipped and base64'd between two markers — and
+
+```bash
+scripts/recover_selection.sh <saved-select-log> evidence/e2r-selection/selection.json
+```
+
+takes it back out. **The digest is what makes that a recovery rather than a transcription**: the
+script decodes the block and refuses unless it hashes to the number the same log printed for the
+file the run wrote. A hand-copied mapping is exactly what committing one exists to rule out.
+
+It checks the bytes and nothing else. `validate_selection` is what checks the *mapping* — the
+frozen rule, the pinned configuration, one rung per regression from the declared ladder, and the
+two cohorts' disjointness — and `--phase decide` runs it before it fits anything.
