@@ -450,7 +450,8 @@ joining the two, and none of them is a change to the rule the comparison is judg
   number is about;
 - **four blocks rather than three** on fresh scramble streams (`103`–`106_000_000` against
   `93`–`95_000_000`): `--scoring-points` is replaced by `--selection-points` and `--audit-points`,
-  and the companion is half again as many rows;
+  `--reference-points` defaults to `8192` rather than `4096` — its falsifier was run and did not
+  fire — and the companion is `57,344` rows against `32,768`;
 - **three artefacts rather than two.** `<stamp>-selection.jsonl` is `SelectionRow`, one line per
   `(cell, n, reduction)`, and it is not optional: every number the comparison reports is conditional
   on which rung each regression was fitted at;

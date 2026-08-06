@@ -1441,8 +1441,9 @@ band the comparison is judged against while contributing nothing to the comparis
   contradict the unbiasedness the randomisation rests on. **That second one has been run**: a
   three-draw Tier-2 `q-drift` pilot at `n = 600` reads `0.0637` at 4,096 points and `0.0315` at
   8,192, roughly halved for a doubling, against an allowance of `0.1420` — so the premise holds
-  at the resolutions the dispatch uses, and `4096` is the default because it clears the budget
-  with about a factor of two in hand at `13.7` seconds a fit rather than `25.5`. The pilot's
+  at the resolutions the dispatch uses, and `4096` was **E2's** default because it clears the budget
+  with about a factor of two in hand at `13.7` seconds a fit rather than `25.5`. E2R's is `8192`, on
+  the ranking's falsifier rather than on gate C — [below](#what-the-sandbox-pilots-measured-and-what-they-moved). The pilot's
   comparison columns are **not** read: three draws bought `unresolved` on the primary estimand,
   which is what this rule says three draws buy.
 - *The comparison.* An `equivalent` verdict alongside a **large** paired difference in `ey1`
@@ -1521,8 +1522,9 @@ winning rungs are not inputs, and its comparison columns stay unread.
 4. **`--reference-points` is a lever and its falsifier is declared here**: gate B ranks at a *fixed*
    block size, so a coarser rung winning is a bias–variance statement about 4,096 points as much as
    about the ladder. If doubling the block moves the ordering towards the finer rungs, the pilot's
-   rung was a statement about the block. The pilot priced the doubling at `25.5s` a fit against
-   `13.7s`.
+   rung was a statement about the block. **The lever has since been pulled and the falsifier did
+   not fire**, which is why the dispatch's default is `8192` — [see
+   below](#what-the-sandbox-pilots-measured-and-what-they-moved).
 
 **None of this touches the rule.** Every item is a change to the reference or an **addition** to the
 gates, each making a verdict *harder* to reach — which is the only direction a gate may be added in
@@ -1569,11 +1571,16 @@ control so the record and the rule cannot come apart.
 > the control arm's, because different reductions target differently, and no selection can be made
 > at the state it will be certified at without certifying itself.
 
-**What the sandbox pilot measured, and it moved three of these choices.** Six draws, tier 2,
-`g-drift` at `n = 2,400`, at the dispatch's own block sizes — enough to size an instrument and
-**not** enough to read a comparison, whose verdict there was `unresolved` as six draws buy. The
-selection rule above is the third thing it moved, and the paragraph inside the rule is where that
-is recorded.
+#### What the sandbox pilots measured, and what they moved
+
+**Two sandbox runs sized the instrument before the dispatch, both tier 2 in `g-drift` at
+`n = 2,400` — the cell whose gate E2 failed twice — at the dispatch's own block sizes.** Neither is
+a comparison: **their comparison columns are not read**, for the reason E2's own three-draw pilot's
+were not, and both returned `unresolved` on the primary estimand exactly as six and twelve draws
+buy. What is quoted here is the gate and cost arithmetic an instrument is sized by; the decision
+run takes fresh seed streams regardless, and its rows are git-ignored output that is gone.
+
+**The first, at six draws, moved three of the choices above.**
 
 - **The gated control is `bins(2)` and not the obvious halving of E2's eight.** `bins(4)` is
   rejected on `qr`, `gr1`, `gr2` and `h2` — including the `gr2` case E2 failed on, at
@@ -1582,22 +1589,62 @@ is recorded.
   targeted mechanism, whose margin the same run reads at `-0.0135`, so its weight carries the heavy
   tail `1/g*²` gives it. `bins(4)` and `bins(8)` stay as **reported** rows, which is where the
   gate's discrimination is actually read: a clause on the coarsest control is a necessary condition
-  on the instrument, and the rung-against-rung intervals beside it — differences of `1e-06`
-  resolved at six draws — are what say how finely the audit can tell two references apart.
+  on the instrument, and the rung-against-rung intervals beside it — differences of `1e-06` — are
+  what say how finely the audit can tell two references apart.
 - **The ranking is taken at a targeted state and not at the initial pair.** The initial pair was
   the first choice, being the one state both arms and every rung share. The pilot ranked `h3` one
   way there and the audit's own point estimates the other way at the exit state, and `h3`'s divisor
   is a mechanism whose bound-activity is *made* by targeting — so a ranking taken before the
   alternation is a ranking at a divisor no fit uses.
-- **Gate C passes with a factor of six in hand** at the shipped `4,096` reference points: `0.0358`
-  against an allowance of `0.2227`. So the doubling clause 4 prices stays a lever held in reserve
-  rather than something the budget needs.
-- **The four blocks cost half again as many companion rows** — `49,152` against E2's `32,768` — and
-  the pilot priced a fit at `50.4s` on a sandbox core against E2's runner-measured `13.7s` at three
-  blocks. The workflow's timeout moves with it and nothing else does.
+- **The selection rule became admissibility on intervals**, which is the paragraph inside the rule
+  above and is the one worth carrying past this run.
 
-**Its comparison columns are not read**, for the reason E2's own three-draw pilot's were not: a
-difference under an `unresolved` verdict is the thing this rule refuses, and six draws buy
-`unresolved`. Its rows were written to git-ignored output and are gone; what is quoted above is the
-gate and cost arithmetic an instrument is sized by, and the decision run takes fresh seed streams
-regardless.
+**The second, at twelve draws and under the repaired rule, is the confirmation — and it is not a
+clean pass.** Three things it establishes:
+
+- **the teeth clause holds on all five metrics.** `bins(2)` is rejected everywhere, with intervals
+  clear of zero: `qr` `+4.159e-04 [+3.65e-04, +4.72e-04]`, `gr1`
+  `+6.045e-04 [+5.44e-04, +6.57e-04]`, `gr2` `+3.067e-03 [+3.02e-04, +7.59e-03]`, `h3`
+  `+1.702e-03 [+4.47e-04, +4.14e-03]`, `h2` `+4.226e-01 [+3.36e-04, +1.27e+00]`. So the clause E2
+  could not satisfy at `g-drift` `2,400` is satisfiable, which is what clause 3 asked for;
+- **the selection finds an admissible rung for each regression** — `beaten on` reads `0` on all
+  three, at `qr = spline(16)`, `gr1 = spline(8)`, `gr2 = spline(8)` — and **it does not replicate on
+  one metric**: the audit reads `spline(8)` beating `spline(16)` on the componentwise `qr` at
+  `-7.615e-07 [-1.26e-06, -3.06e-07]`. A difference of `8e-07` on a risk of order `1e-03`, resolved
+  because the pairing is tight, and it fails the clause. **The clause is not relaxed for it** — a
+  tolerance introduced after a failure is the one direction a gate may not move — and what it
+  implicates is the ladder's *resolution*, which is clause 4's lever and the next paragraph;
+- **gate C passes by a factor of sixty**, `0.0081` against `0.5167`, and the run priced a fit at
+  `45.8s` on a sandbox core at `49,152` companion rows against E2's runner-measured `13.7s` at
+  three blocks. The workflow's timeout moves with that and nothing else does.
+
+**So clause 4's lever was pulled before the dispatch rather than held in reserve, and its
+falsifier did not fire.** The same twelve draws were run again with `--reference-points 8192`, and
+the two halves of the answer point the same way:
+
+- **the selection is rung for rung identical** — `qr = spline(16)`, `gr1 = spline(8)`,
+  `gr2 = spline(8)`, `beaten on` `0` throughout. The falsifier was *if doubling the block moves the
+  ranking towards the finer rungs, the winner was a statement about the block*; it did not move at
+  all, so the winners are statements about the function;
+- **and the audit passes on all five metrics.** The `qr` difference that failed at `4,096` reads
+  `-3.020e-07 [-7.71e-07, +1.46e-07]` at `8,192` — straddling zero, which is two rungs genuinely
+  indistinguishable rather than one beating the other — and `bins(2)` is still rejected everywhere,
+  `qr` `+4.170e-04`, `gr1` `+6.107e-04`, `gr2` `+2.026e-03`, `h3` `+1.384e-03`, `h2`
+  `+3.622e-03`, each interval clear of zero. Gate C reads `0.0069` against `0.5167`.
+
+**`8,192` is therefore the dispatch's default**, which is a change to the *reference* with its
+reason written before the run, and it is nearly free at four blocks: `52.2s` a fit against `45.8s`,
+because a fit's cost is now the companion's predictions rather than the reference's own least
+squares. It also takes `h2`'s divisor back inside its bounds — margin `+0.1636` against `-1.1693`
+— so the composite's weight stops carrying a two-order tail. **What is *not* read is that run's
+comparison columns**, which exist and are deliberately unquoted: this rule refuses a difference
+under a sizing pilot, the reason for the block size is the gate arithmetic above and nothing else,
+and the decision run takes fresh seeds over both cells and both sizes regardless.
+
+**The `h2` metric's own scale is worth reading before its numbers are.** Its divisor is
+`g_{r,1,b}`, and a spline projection of an arm indicator is not confined to `[0, 1]`: the run reads
+that divisor's margin at `-1.1693`, so the bound is active and `1/d²` reaches two orders above its
+typical value. That is why `h2`'s risks sit at `1e-01` where `gr2`'s sit at `1e-03`, and it is
+information rather than noise — it is where a fit's correction is most sensitive to its reduction.
+The margin and truncation columns are reported beside every composite reading for exactly this
+reason, and they gate nothing: a bound-active fit is not a failing fit.

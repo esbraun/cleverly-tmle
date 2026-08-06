@@ -12,7 +12,7 @@ reductions at their population limits and see whether the column moves.
 than the shipped reference*.  A coarser rung beat ``spline(16)`` on one or another reduced
 regression in three cells and lost to it in the fourth, which is §8's own falsifier and says
 the reference's resolution is **not one choice**.  So the rung is now selected against a
-measured ranking rather than shipped, and four things follow.  Each is a change to the
+measured ranking rather than shipped, and five things follow.  Each is a change to the
 *reference* or an **addition** to the gates, each makes a verdict harder to reach, and none of
 them touches :data:`EQUIVALENCE_FRACTION`, :data:`BUDGET_FRACTION` or
 :data:`PRIMARY_ESTIMAND` -- the three constants the comparison is judged by, which were frozen
@@ -24,9 +24,15 @@ scoring block to check it.  Turn that ranking into a selection and the same bloc
 and a rung certified by the block that chose it is a rung that certified itself.  So the
 scoring block splits into a **selection** block and an **audit** block on disjoint scramble
 streams, and the run is two passes over the draws with a barrier between them: the control arm
-first, whose *initial* pair supplies a state every rung shares and no rung's own fit produced;
-then the reference arm, at the rungs pass one selected, audited on rows the selection never
-saw.
+first, whose exit state supplies a ranking no rung's own fit produced (:class:`RecordingDRTMLE`
+says why that state and not another); then the reference arm, at the rungs pass one selected,
+audited on rows the selection never saw.
+
+*And the selection is judged by the gate's own statistic*, which is what
+:func:`select_rung` is: the coarsest rung that no other rung *significantly* beats, on paired
+intervals over draws, exactly as gate B's second clause reads them.  A rule judged on point
+estimates cannot be certified by a clause read on intervals -- measured, not argued, and the
+docstring there carries the pilot that measured it.
 
 *Five metrics, because none of the three regressions is what the fit reads.*
 :func:`~cleverly.inference.influence.reduced_correction_parts` divides:
@@ -248,7 +254,22 @@ EVALUATION_SEED = 106_000_000
 #: mask keeps about half of a block's ``2 * points``.  The selection and audit blocks are
 #: deliberately finer, since a held-out risk carries its own Monte Carlo error and nothing pairs
 #: it away -- and the audit's clause that failed E2 was a clause about *power*.
-DEFAULT_REFERENCE_POINTS = 4_096
+#:
+#: **8,192 rather than E2's 4,096, and this is the lever pulled on its own falsifier's answer.**
+#: ``docs/drtmle/validation-plan.md`` §8 declares it: gate B ranks at a *fixed* block size, so a
+#: rung winning is a bias--variance statement about the block as much as about the ladder, and
+#: *if doubling the block moves the ranking towards the finer rungs, the winner was a statement
+#: about the block*.  A twelve-draw sandbox pilot ran both sizes on the same seeds and the
+#: falsifier **did not fire**: the selection is rung for rung identical at 4,096 and 8,192, so the
+#: winners are statements about the function.  What the doubling *did* do is resolve the audit --
+#: at 4,096 the componentwise ``qr`` difference between ``spline(8)`` and ``spline(16)`` is a
+#: **resolved** ``-7.6e-07`` and fails the gate, and at 8,192 it is ``-3.0e-07`` and straddles
+#: zero, which is two rungs that are genuinely indistinguishable rather than one beating the
+#: other.  It also takes ``h2``'s divisor back inside its bounds -- margin ``+0.1636`` against
+#: ``-1.1693`` -- so the composite's weight stops carrying a two-order tail.  And it is nearly
+#: free at four blocks: ``52.2s`` a fit against ``45.8s``, because a fit's cost is now the
+#: companion's predictions rather than the reference's own least squares.
+DEFAULT_REFERENCE_POINTS = 8_192
 DEFAULT_SELECTION_POINTS = 8_192
 DEFAULT_AUDIT_POINTS = 8_192
 DEFAULT_EVALUATION_POINTS = 2_048

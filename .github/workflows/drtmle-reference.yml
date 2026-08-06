@@ -58,12 +58,12 @@ on:
         description: >-
           Sobol points the reduced regressions are fitted on. Sized by the reference's own
           points-per-parameter budget, which it refuses to be fitted thinner than -- spline(32)
-          needs 2,240 rows and qr's mask keeps about half a block. Raise this if gate C fails:
-          a three-draw pilot read the spread at 0.0637 here and 0.0315 at 8192, at 13.7s and
-          25.5s a fit. It is also E2R's declared LEVER: gate B ranks at a fixed block size, so
-          if doubling this moves the ranking towards the finer rungs, the winner was a statement
-          about the block and not about the function
-        default: "4096"
+          needs 2,240 rows and qr's mask keeps about half a block. 8192 rather than E2's 4096,
+          because E2R's declared LEVER was pulled and its falsifier did not fire: a twelve-draw
+          pilot selected the same rungs at both sizes, so the winners are about the function --
+          and the doubling took the audit's one failing qr clause from a resolved -7.6e-07 to a
+          -3.0e-07 straddling zero, for 52.2s a fit against 45.8s
+        default: "8192"
       selection_points:
         description: >-
           Sobol points the rung is SELECTED on, from a disjoint scramble stream. Finer than the
