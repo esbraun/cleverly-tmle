@@ -377,3 +377,116 @@ def test_report_names_the_first_divergence_and_refuses_to_adjudicate(
     assert "The earliest divergence" in text
     for gate in found:
         assert gate.name in text
+
+
+# ------------------------------------------------------------------ the stopping-bar ladder
+
+
+LADDER = Path(trace_module.__file__).resolve().parent / "fixtures" / "r-ladder-v1-q2"
+
+
+@pytest.fixture(scope="module")
+def rungs() -> Any:
+    return compare.read_ladder(LADDER)
+
+
+def test_the_ladder_reads_loosest_first_and_every_rung_converged(rungs: Any) -> None:
+    """Order matters — the verdict reads the loosest as "before" and the tightest as "after".
+
+    And every rung reaching its own bar is the precondition for reading any of them: a capped
+    run is not a tighter measurement of the same thing, it is a run that did not finish, and
+    :attr:`~benchmarks.drtmle_r_compare.Rung.converged` is what keeps the two apart.
+    """
+    assert [rung.tol_ic for rung in rungs] == sorted((r.tol_ic for r in rungs), reverse=True)
+    assert all(rung.converged for rung in rungs)
+
+
+def test_the_ladder_is_monotone_in_the_bar(rungs: Any) -> None:
+    """R's achieved score falls as its bar tightens.
+
+    The sanity check that the ladder is a ladder. A run whose score did not fall would mean the
+    knob is not doing what its name says, and every reading off it would be about something
+    else.
+    """
+    scores = [rung.worst_score for rung in rungs]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_psi_barely_moves_while_se_does(rungs: Any) -> None:
+    """Between the converged rungs, which is what the extra equations are supposed to do.
+
+    Deliberately *not* against R's own default rung: that one has not converged, and there
+    ``psi[ate]`` moves by a tenth of a standard error — which is a fact about `drtmle`'s
+    shipped `maxIter = 3` rather than about the estimand, and is recorded in the document
+    rather than smoothed over here.
+    """
+    converged = [rung for rung in rungs if rung.worst_score < 1e-5]
+    assert len(converged) >= 2
+    psis = [rung.estimates["ate"]["psi"] for rung in converged]
+    assert max(psis) - min(psis) < 1e-4
+
+
+def test_the_verdict_is_one_of_the_four_declared_outcomes(
+    rungs: Any, traces: dict[str, Any]
+) -> None:
+    reading = compare.ladder_verdict(rungs, traces)
+    assert reading["verdict"] in {"closed", "persists", "partial", "unreachable"}
+
+
+def test_the_verdict_reads_unreachable_when_no_rung_converged(traces: dict[str, Any]) -> None:
+    """The third outcome, and the one no run on record produced.
+
+    It has to be reachable or it is not an outcome — a decision rule with a branch nothing can
+    take is a branch that will be wrong the first time it matters.
+    """
+    capped = [
+        compare.Rung(
+            tol_ic=1e-12,
+            rounds=100,
+            capped=True,
+            worst_score=1e-3,
+            spreads={(compare.LADDER_BLOCK, compare.LADDER_ARM): 0.06},
+            estimates={"ate": {"psi": 0.2, "se": 0.07}, "ey1": {"psi": 0.7, "se": 0.05}},
+        )
+    ]
+    assert compare.ladder_verdict(capped, traces)["verdict"] == "unreachable"
+
+
+def test_the_verdict_reads_persists_when_the_bar_explains_little(
+    rungs: Any, traces: dict[str, Any]
+) -> None:
+    """The second outcome, on a synthetic tightest rung that barely moved.
+
+    Built from the real loosest rung so the "before" ratio is the measured one; only the
+    tightest is invented, which is the minimum needed to reach the branch.
+    """
+    loosest = rungs[0]
+    stuck = compare.Rung(
+        tol_ic=1e-10,
+        rounds=21,
+        capped=False,
+        worst_score=1e-11,
+        spreads={**loosest.spreads},
+        estimates=loosest.estimates,
+    )
+    assert compare.ladder_verdict([loosest, stuck], traces)["verdict"] == "persists"
+
+
+def test_the_ladder_reader_fails_closed_on_a_tampered_rung(tmp_path: Path) -> None:
+    """Same discipline as the trace records: the digest is checked before a number is read."""
+    destination = tmp_path / "ladder"
+    shutil.copytree(LADDER, destination)
+    rung = next(child for child in sorted(destination.iterdir()) if child.is_dir())
+    raw = (rung / "summary.csv").read_text()
+    (rung / "summary.csv").write_text(raw.replace("ate", "ATE", 1))
+    with pytest.raises(ValueError, match="does not match its manifest"):
+        compare.read_ladder(destination)
+
+
+def test_the_ladder_report_carries_the_declared_bars(rungs: Any, traces: dict[str, Any]) -> None:
+    """A verdict with no thresholds beside it is a claim a reader cannot check."""
+    text = compare.ladder_report(rungs, traces)
+    assert f"{compare.CLOSED_SPREAD_RATIO}" in text and f"{compare.CLOSED_SE_RATIO}" in text
+    assert "declared before the first rung was read" in text
+    for name in traces:
+        assert name in text

@@ -51,6 +51,16 @@ manifest_path <- arg_of("--manifest", "benchmarks/fixtures/drtmle_trace_v1.json"
 out_dir <- arg_of("--out", "benchmarks/results/r-trace")
 qsteps <- as.integer(arg_of("--qsteps", "2"))
 max_iter <- as.integer(arg_of("--max-iter", "3"))
+# `drtmle`'s own default is `1/length(Y)`; `-1` here means "leave it at the package's default"
+# so that a record taken without this flag is the package as shipped. Every record now writes
+# the realised value into `meta.csv` -- before this, no committed record said what bar produced
+# it, which is the one thing a stopping-rule comparison cannot leave implicit.
+tol_ic <- as.numeric(arg_of("--tol-ic", "-1"))
+# The per-step state is what a first-divergence hunt reads and what a *ladder* does not: at a
+# tight `tolIC` R can run a hundred rounds, and the full export is ~3 MB gzipped a rung against
+# a few KB for the scalars. The blocks, the steps and the summary are the whole of what a
+# stopping-bar reading needs.
+blocks_only <- "--blocks-only" %in% args
 verify <- !("--no-verify" %in% args)
 
 stopifnot(qsteps %in% c(1L, 2L))
@@ -147,12 +157,14 @@ round_no <- 0L
 record <- function(equation, epsilon = rep(NA_real_, length(a_0)),
                    converged = NA, note = "") {
   index <- length(steps) + 1L
-  for (i in seq_along(a_0)) {
-    emit(index, "q", a_0[[i]], state$q[[i]])
-    emit(index, "g", a_0[[i]], state$g[[i]])
-    emit(index, "qr", a_0[[i]], state$qr[[i]])
-    emit(index, "gr1", a_0[[i]], state$gr1[[i]])
-    emit(index, "gr2", a_0[[i]], state$gr2[[i]])
+  if (!blocks_only) {
+    for (i in seq_along(a_0)) {
+      emit(index, "q", a_0[[i]], state$q[[i]])
+      emit(index, "g", a_0[[i]], state$g[[i]])
+      emit(index, "qr", a_0[[i]], state$qr[[i]])
+      emit(index, "gr1", a_0[[i]], state$gr1[[i]])
+      emit(index, "gr2", a_0[[i]], state$gr2[[i]])
+    }
   }
   steps[[index]] <<- data.frame(
     step = index, phase = phase, round = round_no, equation = equation,
@@ -217,7 +229,7 @@ record_block <- function(name, per_arm, gn_argument) {
   ))
   for (i in seq_along(a_0)) {
     values <- as.numeric(per_arm[[i]])
-    emit(index, name, a_0[[i]], values)
+    if (!blocks_only) emit(index, name, a_0[[i]], values)
     blocks[[length(blocks) + 1L]] <<- data.frame(
       call = block_call, step = index, round = round_no, phase = phase,
       block = name, arm = a_0[[i]],
@@ -325,6 +337,7 @@ fit_once <- function(traced) {
     guard = c("Q", "g"),
     reduction = "univariate",
     maxIter = max_iter, Qsteps = qsteps, tolg = tolg,
+    tolIC = if (tol_ic > 0) tol_ic else 1 / length(Y),
     cvFolds = length(unique(folds)), se_cv = "none",
     returnModels = FALSE, use_future = FALSE
   )
@@ -420,9 +433,14 @@ summary_frame <- data.frame(
 )
 
 meta_frame <- data.frame(
-  key = c("qsteps", "max_iter", "tolg", "n", "n_folds", "arms", "verify_residual", "package_version"),
+  key = c(
+    "qsteps", "max_iter", "tol_ic", "tolg", "n", "n_folds", "arms",
+    "rounds", "capped", "blocks_only", "verify_residual", "package_version"
+  ),
   value = c(
-    qsteps, max_iter, tolg, n, length(unique(folds)), paste(a_0, collapse = "|"),
+    qsteps, max_iter, if (tol_ic > 0) tol_ic else 1 / n, tolg, n, length(unique(folds)),
+    paste(a_0, collapse = "|"), max(steps_frame$round),
+    as.integer(max(steps_frame$round) >= max_iter), as.integer(blocks_only),
     verified, as.character(utils::packageVersion("drtmle"))
   ),
   stringsAsFactors = FALSE
@@ -459,7 +477,8 @@ for (name in sort(list.files(out_dir))) {
 writeLines(manifest_lines, file.path(out_dir, "manifest.csv"))
 
 cat(sprintf(
-  "drtmle %s  Qsteps=%d  steps=%d  blocks=%d  psi[ate]=%.10f  se[ate]=%.10f  verify=%.3g\n",
-  utils::packageVersion("drtmle"), qsteps, nrow(steps_frame), nrow(blocks_frame),
+  "drtmle %s  Qsteps=%d  tolIC=%.3g  rounds=%d/%d  steps=%d  psi[ate]=%.10f  se[ate]=%.10f  verify=%.3g\n",
+  utils::packageVersion("drtmle"), qsteps, if (tol_ic > 0) tol_ic else 1 / n,
+  max(steps_frame$round), max_iter, nrow(steps_frame),
   summary_frame$psi[[3]], summary_frame$se[[3]], verified
 ))

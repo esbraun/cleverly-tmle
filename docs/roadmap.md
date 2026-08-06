@@ -3469,17 +3469,39 @@ Five readings:
   sits between the other two. That is [R3](#f-localize-the-shortfall-before-changing-anything)'s
   second, third and fourth rows read off a run, and it is what **F4** is handed: the R-style
   trajectory is a **third arm**, not a relabelling of `update_order="paper"`.
-- **The two declare convergence at bars seven orders of magnitude apart.** `drtmle`'s `tolIC`
-  defaults to `1/n` — `0.005` here — and it exits with equations (9) and (10) at `1.64e-03`,
-  inside its `maxIter = 3` cap, after 2 rounds. This package exits with them at `7.94e-11` after
-  14. Theorem 1's premise *is* those empirical means, so how near zero they are is not a detail
-  of the loop; whether `1/n` suffices is a question for the derivation.
-- **The `se` gap is in one correction array.** `psi[ate]` is `+0.2179` against `+0.2175` — under
-  a hundredth of a standard error — while `se[ey1]` is `0.0491` against `0.0603`, **23%**.
-  `D*_Q[1]`'s spread is `0.3407` here against R's `0.0599`, a factor of `5.7`, while the other
-  three blocks are within a factor of two. The variance difference is *concentrated* in equation
-  (10)'s correction at the treated arm rather than spread across the curve. Signs agree
-  throughout on `v1`.
+- **The two stopping rules differ by 1000× and the states they reach by 2×10⁷, and those are
+  two facts.** Both render the same `o_p(n^{-1/2})` condition as an absolute `c/n` bar on the
+  three empirical means: `drtmle`'s `tolIC = 1/n` is `5e-3` at `n = 200`, this package's
+  `1e-3/n` is `5e-6`. So the **rules** are three orders apart. This package then overshoots its
+  own bar by five further orders — `_solved` is `relative <= 1e-10` **or** `absolute <= 5e-6`
+  and the relative test keeps it iterating — reaching `7.94e-11` where R stops at `1.64e-03`,
+  just inside its own. An earlier revision of this section merged the two into "bars seven
+  orders apart", which was wrong about the bars.
+- **The `se` gap was mostly the stopping bar, and a tolerance ladder is how that is known.**
+  Gate 7 found `D*_Q[1]`'s spread at `0.3407` here against R's `0.0599` and **could not say**
+  whether that was a construction difference or an artefact of R stopping after two rounds. So
+  R was run down a ladder — `tolIC ∈ {5e-3, 5e-6, 1e-8, 1e-10}` at `maxIter = 100` — and it
+  converges at every rung, monotonically, no cap reached. `sd(D*_Q[1])` moves `0.0601 → 0.2692`
+  and is then stable across three further orders: **92% of the gap was the bar.** The verdict is
+  `partial` rather than `closed` because the thresholds were declared before the first rung was
+  read and both ratios miss narrowly (`1.266` against `1.2`, `1.051` against `1.05`); it is
+  reported as `partial` rather than rounded.
+- **What is left after the bar is *route*, not construction.** R's converged state lands
+  **between** this package's two update orders on both quantities — `sd(D*_Q[1])`: `paper`
+  `0.2140`, R `0.2692`, `cleverly` `0.3407`; `se[ey1]`: `0.0539`, `0.0574`, `0.0603`. That makes
+  the residue F4's question rather than a separate one, and gate 7 now reports per order because
+  its worst-across-orders reading could not see it.
+- **Three converged solutions sit at three different points**, which is evidence for
+  [item 22](#what-is-still-open) from a third implementation. `cleverly`, `paper` and R at
+  `tolIC = 1e-10` all drive the three means to `1e-10` or better and report `psi[ate]` of
+  `+0.217455`, `+0.215188` and `+0.210133` — about a tenth of a standard error apart. The fixed
+  point is route-dependent on this draw. One draw at `n = 200`, so it is evidence for the item
+  rather than an answer, and it is F4's to test at scale.
+- **And `drtmle`'s shipped defaults do not reach its own fixed point on this draw.** At
+  `maxIter = 3` it exits after 2 rounds; `psi[ate]` then moves by `0.10` standard errors and
+  `se[ey1]` by 17% on the way to convergence. Recorded as a fact about a configuration, not a
+  criticism — but a reader comparing against `drtmle` at its defaults is comparing against an
+  unconverged alternation.
 - **`v2` produced the sharpest localization, and it is one line against one line.**
   `g_{r,2}`'s target is `(1{A=a} − g)/g`; this package forms it at the **truncated** mechanism
   (`reduced.py`'s `_roles`) and `estimategrn` forms it at the untruncated one. At a row where

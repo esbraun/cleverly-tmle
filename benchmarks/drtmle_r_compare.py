@@ -62,9 +62,13 @@ __all__ = [
     "DIVERGENCE_CLASSES",
     "Gate",
     "RExport",
+    "Rung",
     "gates",
+    "ladder_report",
+    "ladder_verdict",
     "python_trace",
     "read_export",
+    "read_ladder",
     "report",
 ]
 
@@ -726,10 +730,18 @@ def _gate_corrections(export: RExport, traces: dict[str, Trace]) -> Gate:
         if flipped
         else "; signs agree throughout"
     )
+    # Per order as well as the worst, because a residue that is smaller against one order than
+    # the other is *route* evidence and the worst-across-orders reading cannot see it. On the
+    # committed ladder R's converged spread lands between the two, which is the whole reason
+    # this line exists -- see `ladder_verdict`.
+    per_order = "; ".join(
+        f"{name} {np.std(np.asarray(trace.corrections[f'D*_Q[{LADDER_ARM:g}]'], dtype=float)):.4f}"
+        for name, trace in traces.items()
+    )
     return Gate(
         name="7 correction arrays",
         question="do the two correction blocks agree row by row?",
-        reading=f"worst |Δ| on {culprit}{spreads}{note}",
+        reading=f"worst |Δ| on {culprit}{spreads}{note}; sd(D*_Q[1]) by order: {per_order}",
         absolute=worst,
         tolerance=0.0,
         passed=worst <= 0.0,
@@ -793,6 +805,202 @@ def _gate_reported(export: RExport, traces: dict[str, Trace]) -> Gate:
         classification="corrected-ic",
         relative=relative,
     )
+
+
+# ------------------------------------------------------------------ the stopping-bar ladder
+
+#: When the ``se`` gap counts as explained by the stopping bar.  **Declared before the first
+#: rung was read**, because a threshold chosen after seeing a comparison against another
+#: implementation is the failure mode stop-ship 17 names.
+#:
+#: The two are a spread and a reported quantity because they answer different halves: the first
+#: asks whether the *array* the variance is built from has come into agreement, the second
+#: whether the number a caller sees has.
+CLOSED_SPREAD_RATIO = 1.2
+CLOSED_SE_RATIO = 1.05
+
+#: Below this fraction of the gap explained, the difference is a construction difference rather
+#: than a stopping artefact.  Between the two, the reading is **partial** and carries no verdict.
+PERSISTS_FRACTION = 0.5
+
+#: The block whose spread the gap was localized to -- gate 7's reading on the committed record.
+LADDER_BLOCK = "D_Q"
+LADDER_ARM = 1.0
+
+
+@dataclass(frozen=True)
+class Rung:
+    """One R run at one stopping bar."""
+
+    tol_ic: float
+    rounds: int
+    capped: bool
+    #: The worst of equations (9) and (10) at exit -- what the bar is a bar on.
+    worst_score: float
+    spreads: dict[tuple[str, float], float]
+    estimates: dict[str, dict[str, float]]
+
+    @property
+    def converged(self) -> bool:
+        """Reached its own bar rather than its round cap.
+
+        A capped rung is not a tighter measurement of the same thing -- it is a run that did
+        not finish, and reading its spread as "where R lands at this bar" would be reading a
+        budget as a fixed point.
+        """
+        return not self.capped and self.worst_score <= self.tol_ic
+
+
+def read_ladder(directory: Path) -> list[Rung]:
+    """Every rung under ``directory``, loosest bar first.
+
+    A **light** reader: ``blocks.csv``, ``summary.csv`` and ``meta.csv`` only.  It deliberately
+    does not go through :func:`read_export`, which requires the per-step array blob that a
+    ``--blocks-only`` record does not have -- at a tight bar R runs twenty-odd rounds and the
+    full state would be megabytes a rung to answer a question about scalars.
+    """
+    directory = Path(directory)
+    rungs = []
+    for child in sorted(directory.iterdir()):
+        if not child.is_dir():
+            continue
+        _verify_manifest(child)
+        meta = {str(row["key"]): str(row["value"]) for row in _read_csv(child / "meta.csv")}
+        blocks = _read_csv(child / "blocks.csv")
+        latest: dict[tuple[str, float], dict[str, Any]] = {}
+        for row in sorted(blocks, key=lambda r: int(r["call"])):
+            latest[(str(row["block"]), float(row["arm"]))] = row
+        rungs.append(
+            Rung(
+                tol_ic=float(meta["tol_ic"]),
+                rounds=int(meta["rounds"]),
+                capped=meta["capped"] == "1",
+                worst_score=max(
+                    abs(_float(row["mean"]))
+                    for (block, _), row in latest.items()
+                    if block in {"D_g", "D_Q"}
+                ),
+                spreads={key: _float(row["sd"]) for key, row in latest.items()},
+                estimates={
+                    str(row["estimand"]): {"psi": float(row["psi"]), "se": float(row["se"])}
+                    for row in _read_csv(child / "summary.csv")
+                },
+            )
+        )
+    return sorted(rungs, key=lambda rung: -rung.tol_ic)
+
+
+def ladder_verdict(rungs: list[Rung], traces: dict[str, Trace]) -> dict[str, Any]:
+    """Is the ``se`` gap a stopping artefact or a construction difference?
+
+    Four outcomes, all four declared before any rung was read.  ``"closed"`` needs *both*
+    ratios inside their bars; ``"persists"`` needs less than :data:`PERSISTS_FRACTION` of the
+    gap explained; ``"unreachable"`` is R failing to reach the bar at all, which would say the
+    bar is not a free parameter for it; and anything else is **partial** and carries no verdict,
+    which is the honest outcome when a reading lands between two declared thresholds rather than
+    the nearer threshold being quietly widened to reach it.
+    """
+    converged = [rung for rung in rungs if rung.converged]
+    if not converged:
+        return {"verdict": "unreachable", "detail": "no rung reached its own bar"}
+
+    loosest, tightest = rungs[0], converged[-1]
+    key = (LADDER_BLOCK, LADDER_ARM)
+    # Per update order, which is what separates "the bar explained it" from "the route did":
+    # a residue that is smaller against one order than the other is a route difference, and
+    # gate 7's worst-across-orders reading cannot see that.
+    order = min(
+        traces,
+        key=lambda name: abs(
+            _spread(traces[name]) / tightest.spreads[key] - 1.0 if tightest.spreads[key] else 0.0
+        ),
+    )
+    ours = _spread(traces[order])
+    before = ours / loosest.spreads[key] if loosest.spreads[key] else float("nan")
+    after = ours / tightest.spreads[key] if tightest.spreads[key] else float("nan")
+    se_ratio = (
+        traces[order].estimates["ey1"]["se"] / tightest.estimates["ey1"]["se"]
+        if tightest.estimates["ey1"]["se"]
+        else float("nan")
+    )
+    # On the *distance from agreement*, since a ratio of 1 is agreement and the quantity of
+    # interest is how much of the excess went away.
+    explained = 1.0 - (abs(after - 1.0) / abs(before - 1.0)) if abs(before - 1.0) > 0 else 1.0
+
+    if abs(after - 1.0) <= CLOSED_SPREAD_RATIO - 1.0 and abs(se_ratio - 1.0) <= (
+        CLOSED_SE_RATIO - 1.0
+    ):
+        verdict = "closed"
+    elif explained < PERSISTS_FRACTION:
+        verdict = "persists"
+    else:
+        verdict = "partial"
+    return {
+        "verdict": verdict,
+        "nearest_order": order,
+        # Every order's ratio, not only the nearest, because on this ladder R's converged
+        # spread lands *between* the two and a single ratio would hide that. Which side of
+        # each it lands on is the route evidence.
+        "after_by_order": {
+            name: _spread(trace) / tightest.spreads[key] for name, trace in traces.items()
+        },
+        "spread_ratio_before": before,
+        "spread_ratio_after": after,
+        "se_ratio_after": se_ratio,
+        "explained": explained,
+        "tightest_bar": tightest.tol_ic,
+        "tightest_rounds": tightest.rounds,
+    }
+
+
+def _spread(trace: Trace) -> float:
+    """This package's spread of the block the gap was localized to."""
+    return float(np.std(np.asarray(trace.corrections[f"D*_Q[{LADDER_ARM:g}]"], dtype=float)))
+
+
+def ladder_report(rungs: list[Rung], traces: dict[str, Trace]) -> str:
+    reading = ladder_verdict(rungs, traces)
+    key = (LADDER_BLOCK, LADDER_ARM)
+    lines = [
+        "# The stopping-bar ladder",
+        "",
+        "Does `drtmle` run to this package's bar reproduce its correction arrays, or does a",
+        "difference survive? The thresholds below were declared before the first rung was read.",
+        "",
+        "| `tolIC` | rounds | worst `P_n D` | `sd(D_Q[1])` | `psi[ate]` | `se[ey1]` | at its bar |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for rung in rungs:
+        lines.append(
+            f"| `{rung.tol_ic:g}` | {rung.rounds} | `{rung.worst_score:.2e}` | "
+            f"`{rung.spreads.get(key, float('nan')):.4f}` | "
+            f"`{rung.estimates['ate']['psi']:+.6f}` | `{rung.estimates['ey1']['se']:.6f}` | "
+            f"{'yes' if rung.converged else '**no**'} |"
+        )
+    for name, trace in traces.items():
+        lines.append(
+            f"| *this package,* `{name}` | {trace.exit['rounds']} | — | "
+            f"`{_spread(trace):.4f}` | `{trace.estimates['ate']['psi']:+.6f}` | "
+            f"`{trace.estimates['ey1']['se']:.6f}` | yes |"
+        )
+    lines += [
+        "",
+        f"**Verdict: `{reading['verdict']}`.** Against `{reading['nearest_order']}`, the "
+        f"`sd(D_Q[1])` ratio is {reading['spread_ratio_before']:.2f} at R's own default and "
+        f"{reading['spread_ratio_after']:.2f} at `{reading['tightest_bar']:g}` — "
+        f"{reading['explained']:.0%} of the gap explained by the bar; `se[ey1]` ratio "
+        f"{reading['se_ratio_after']:.3f}.",
+        "",
+        "R's converged spread against each of this package's orders: "
+        + ", ".join(f"`{name}` {ratio:.3f}" for name, ratio in reading["after_by_order"].items())
+        + " — so it lands **between** them, which is route evidence rather than a residue.",
+        "",
+        f"Bars: `closed` needs both ratios inside `{CLOSED_SPREAD_RATIO}` and "
+        f"`{CLOSED_SE_RATIO}`; `persists` needs under {PERSISTS_FRACTION:.0%} explained; "
+        "anything else is `partial` and carries no verdict.",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def first_divergence(found: list[Gate]) -> Gate | None:
@@ -886,6 +1094,14 @@ def main() -> None:
         default=["cleverly", "paper"],
         help="which of this package's update orders to compare R against",
     )
+    parser.add_argument(
+        "--ladder",
+        type=Path,
+        nargs="?",
+        const=Path("__default__"),
+        default=None,
+        help="read a stopping-bar ladder instead of the nine gates; defaults to the committed one",
+    )
     parser.add_argument("--out", type=Path, default=None, help="write the report here")
     parser.add_argument("--json", type=Path, default=None, help="write the gates as JSON here")
     arguments = parser.parse_args()
@@ -898,12 +1114,23 @@ def main() -> None:
             / f"r-trace-{arguments.fixture_version}-q{arguments.qsteps}"
         )
     fixture = trace_module.read_fixture(version=arguments.fixture_version)
-    export = read_export(export_path)
     traces = {
         order: python_trace(order, fixture, arguments.fixture_version) for order in arguments.orders
     }
-    found = gates(export, traces, fixture)
-    text = report(export, traces, found)
+    found: list[Gate] = []
+    if arguments.ladder is not None:
+        ladder_path = arguments.ladder
+        if str(ladder_path) == "__default__":
+            ladder_path = (
+                Path(trace_module.__file__).resolve().parent
+                / "fixtures"
+                / f"r-ladder-{arguments.fixture_version}-q{arguments.qsteps}"
+            )
+        text = ladder_report(read_ladder(ladder_path), traces)
+    else:
+        export = read_export(export_path)
+        found = gates(export, traces, fixture)
+        text = report(export, traces, found)
     print(text)
     if arguments.out is not None:
         arguments.out.parent.mkdir(parents=True, exist_ok=True)

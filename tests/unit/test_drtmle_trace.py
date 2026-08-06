@@ -150,11 +150,34 @@ class TestTheSecondFixtureIsTheFirstPlusClipping:
         assert second.manifest["version"] == "v2"
 
     def test_the_draw_regenerates_from_its_seed(self, second: harness.Fixture) -> None:
+        """The **draw** exactly, the **closed forms** to `1e-15`, and the split is not fussiness.
+
+        ``w1``/``w2``/``a``/``y`` come out of the generator and are bit-reproducible anywhere.
+        ``qn1``/``qn0``/``gn`` come out of ``expit``, which is a libm call: it is *not*
+        bit-reproducible across platforms, and comparing it exactly is what this test did first
+        -- five of two hundred rows differed by one unit in the last place on CI's 3.12 while
+        passing here and on 3.11 and 3.13.  ``TestTheFixtureIsFrozen`` already draws this line
+        in two places and this class did not follow it.
+
+        Nothing is lost by the tolerance, because the committed CSV rather than a recomputation
+        is the authority: :func:`~benchmarks.drtmle_trace.read_fixture` checks its SHA-256, and
+        the R side reads the same bytes.  What this test is for is that the *recipe* still
+        produces the committed draw, which is a question about the seed and the coefficients.
+        """
         rebuilt = harness.build_fixture(version="v2")
-        for column in rebuilt.columns:
+        for column in ("w1", "w2", "a", "y"):
             np.testing.assert_array_equal(
                 rebuilt[column].to_numpy(dtype=float),
                 second.frame[column].to_numpy(dtype=float),
+                err_msg=f"{column} does not regenerate from seed {harness.spec('v2').seed}",
+            )
+        for column in ("qn1", "qn0", "gn", "weight"):
+            np.testing.assert_allclose(
+                rebuilt[column].to_numpy(dtype=float),
+                second.frame[column].to_numpy(dtype=float),
+                rtol=0,
+                atol=1e-15,
+                err_msg=f"{column} is not the committed closed form",
             )
 
     def test_the_truncation_binds_materially(self, second: harness.Fixture) -> None:

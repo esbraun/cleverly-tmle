@@ -182,23 +182,27 @@ read off a run, and it is what
 [F4](../roadmap.md#f-localize-the-shortfall-before-changing-anything)'s ablation is handed: the
 R-style trajectory is a **third arm**, not a relabelling of `update_order="paper"`.
 
-**3. The two implementations declare convergence at bars seven orders of magnitude apart.**
-This is the gate the first version of this comparison could not read, because the R side
-exported no scores. `drtmle`'s `tolIC` defaults to `1/n` — `0.005` here — and it exits with
-equations (9) and (10) at `1.64e-03`, inside its `maxIter = 3` cap. This package exits with them
-at `7.94e-11`. Theorem 1's premise is about those empirical means, so *how near zero* is not a
-detail of the loop: it is the premise, and the two implementations are not testing the same one.
-Whether `1/n` is enough is a question for the derivation and the remainder decomposition, and it
-is exactly what this run exists to raise rather than answer.
+**3. The two stopping rules differ by 1000×, and the states they reach by 2×10⁷.** Those are
+two facts and an earlier revision of this document merged them into one. Both packages render
+the same `o_p(n^{-1/2})` condition as an absolute bar of the form `c/n` on the three empirical
+means:
 
-**4. The `se` gap is in the correction arrays, and specifically in one of them.** `psi[ate]` is
-`+0.2179` in R against `+0.2175` under `"cleverly"` — under a hundredth of a standard error —
-while `se[ey1]` is `0.0491` against `0.0603`, **23%**. Gate 7 says where that comes from:
-`D*_Q[1]`'s spread is `0.3407` here against R's `0.0599`, a factor of `5.7`, while `D*_Q[0]`,
-`D*_g[0]` and `D*_g[1]` are all within a factor of two. So the variance difference is not spread
-across the curve — it is concentrated in equation (10)'s correction at the treated arm.
-`confounded`, because two implementations at different fixed points reached at different bars
-have no reason to agree; recorded, because its *shape* is what makes gate 3 worth acting on.
+| | absolute bar at `n = 200` |
+| --- | --- |
+| `drtmle`, `tolIC = 1/n` | `5e-3` |
+| this package, `_NEGLIGIBLE / n = 1e-3 / n` (`targeting.py:120`) | `5e-6` |
+
+so the **rules** are three orders apart, not seven. This package then *overshoots* its own bar
+by five further orders — it reaches `7.94e-11` — because `_solved` is
+`relative <= 1e-10` **or** `absolute <= 5e-6` and the relative test keeps it iterating. R stops
+at `1.64e-03`, just inside its own. The 2×10⁷ figure is the gap between the two **achieved**
+states; the 1000× is the gap between the two **rules**.
+
+**4. The `se` gap was mostly the stopping bar, and the ladder is how that is known.** Gate 7
+found `D*_Q[1]`'s spread at `0.3407` here against R's `0.0599` and could not say whether that
+was a construction difference or an artefact of R having stopped early. Running R down a
+tolerance ladder splits it — see [the ladder](#the-stopping-bar-ladder) below. Short version:
+**92% of it was the bar.**
 
 **And the signs agree throughout on `v1`.** The paper's display defines `D_A = -(Q_r/g)(A - g)`
 while Theorem 1 *subtracts* `D_A`, and [item 21](../roadmap.md#what-is-still-open) adjudicated
@@ -214,6 +218,63 @@ every `D_g`. Whether that is deliberate is a question for the derivation, and it
 thing [item 20](../roadmap.md#what-is-still-open) turned on here: a block evaluated at one
 mechanism while its equation was solved at another leaves the curve uncentred exactly where the
 two differ. Recorded, not acted on.
+
+
+## The stopping-bar ladder
+
+Gate 7's finding was recorded and **not interpretable**: two implementations at different fixed
+points reached at different bars have no reason to agree, so a `5.7×` difference in
+`sd(D*_Q[1])` could have been a construction difference or could have been R stopping early.
+One knob splits them. `drtmle` takes `tolIC`, so R was run down a ladder with `maxIter` raised
+to 100, and **it converges at every rung** — no cap reached, the achieved score falling
+monotonically with the bar.
+
+| `tolIC` | rounds | worst `P_n D` | `sd(D*_Q[1])` | `psi[ate]` | `se[ey1]` |
+| --- | --- | --- | --- | --- | --- |
+| `5e-3` — R's own default `1/n` | 2 | `1.64e-03` | `0.0601` | `+0.217908` | `0.049095` |
+| `5e-6` — **this package's bar** | 10 | `4.78e-06` | `0.2693` | `+0.210142` | `0.057384` |
+| `1e-8` | 17 | `4.48e-09` | `0.2692` | `+0.210133` | `0.057377` |
+| `1e-10` | 21 | `8.29e-11` | `0.2692` | `+0.210133` | `0.057377` |
+| *this package,* `cleverly` | 14 | `7.94e-11` | `0.3407` | `+0.217455` | `0.060323` |
+| *this package,* `paper` | 12 | — | `0.2140` | `+0.215188` | `0.053918` |
+
+**Verdict: `partial`** — and the thresholds were declared in the module before the first rung
+was read, which is why it says `partial` rather than being rounded to `closed`. `closed` needed
+both a spread ratio inside `1.2` and an `se[ey1]` ratio inside `1.05`; the readings are `1.266`
+against `cleverly` and `1.051`. Both miss, narrowly. `persists` needed under half the gap
+explained; **92%** of it is.
+
+Three things follow, and the second is the one worth carrying forward.
+
+**The gap was overwhelmingly the bar.** `sd(D*_Q[1])` moves from `0.0601` to `0.2692` — a
+factor of `4.5` — as soon as R is asked to solve its equations as tightly as this package does,
+and it is stable across three further orders of magnitude after that. What gate 7 measured was
+mostly *"R stopped after two rounds"*, not a defect in either corrected influence curve. The
+document's earlier framing of it as a localized `se` difference overstated what was known.
+
+**R's converged state lands *between* this package's two update orders.** `sd(D*_Q[1])`:
+`paper` `0.2140`, **R `0.2692`**, `cleverly` `0.3407`. `se[ey1]`: `paper` `0.0539`, **R
+`0.0574`**, `cleverly` `0.0603`. So the residue after the bar is accounted for is *route*, not
+construction — which is what makes it F4's question rather than a separate one. Gate 7 now
+reports per order for exactly this reason; its worst-across-orders reading could not see it.
+
+**And three converged solutions sit at three different points.** All of `cleverly`, `paper` and
+R at `tolIC = 1e-10` drive the three empirical means to `1e-10` or better, and their `psi[ate]`
+are `+0.217455`, `+0.215188` and `+0.210133` — spread over about a tenth of a standard error.
+[Item 22](../roadmap.md#what-is-still-open) asks whether the two routes reach the same fixed
+point on real data; this is a third implementation saying the fixed point is **route-dependent**,
+on a draw where all three converged. That is evidence for the item rather than an answer to it —
+one draw, `n = 200` — and it is F4's to test at scale.
+
+### One thing this says about `drtmle`'s shipped defaults
+
+At `maxIter = 3` and `tolIC = 1/n`, R exits after 2 rounds having *not* reached its own fixed
+point: `psi[ate]` moves from `+0.217908` to `+0.210133` between there and convergence, about
+`0.10` standard errors, and `se[ey1]` by 17%. Recorded as a fact about a configuration, not as
+a criticism — a default is a trade against runtime, and nothing here establishes which point is
+the right one to report. It is noted because a reader comparing against `drtmle` at its defaults
+is comparing against an unconverged alternation, which is not what either package's derivation
+is about.
 
 ### What `v2` adds, and it is the sharpest thing here
 
