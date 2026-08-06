@@ -81,9 +81,9 @@ construction.
 
 ## What the instrument establishes so far
 
-**These are readings from the harness and its frozen fixtures, not from the decision cohorts.**
-The dispatched study is the next section, and until it has run the contrast table below is empty
-by design.
+**These are readings from the harness and its frozen fixtures rather than from the decision
+cohorts**, so they are exact and deterministic where the cohort table below is statistical. The
+selection cohort's table follows them; the audit cohort's is what turns it into a verdict.
 
 ### 1. The R-style arm reproduces R's round exactly, and it is the first arm here that does
 
@@ -159,17 +159,80 @@ stated limit of the study rather than a result of it.
 | what the evidence cut it to | **~2,496 fits** |
 | where the cut came from | per-size counts from the measured paired spread; the truncation contrast moved off the cohort |
 
-## The contrast table
+## The contrast table — the selection cohort
 
-*Empty until the dispatch has run.* The columns are `√n R_remaining` and the score-failure rate
-(primary), and the three score means, the reduction drift, the point-estimate movement, the `se`
-ratio, the round count and the bound witness (secondary). Each row carries its realized
-`paired_sd` and minimum detectable effect, so the sizing is checked against what the run saw
-rather than against the table that planned it.
+**The audit cohort is still running, and until it lands nothing below is a verdict.** The two
+cohorts are disjoint sets of simulation draws and the second exists because an effect assessed
+on the draws that produced it has not been reproduced. Read the audit rows beside these or read
+neither.
 
-**Read the audit rows beside the selection rows or read neither.** The two cohorts are disjoint
-sets of simulation draws and the second exists because an effect assessed on the draws that
-produced it has not been reproduced.
+208 draws, 6 arms, **1,248 fits, zero errors**; rows in
+[`evidence/f4-construction/`](../../evidence/f4-construction/).
+
+### The reference arm reproduces C3c's column, which is what says the harness measures the
+### quantity the shortfall is about
+
+| cell | `cleverly` here | C3c |
+| --- | --- | --- |
+| `q-drift` `n = 600` / `2,400` | `1.2030` / `1.1289` | `1.17`–`1.25` |
+| `g-drift` `n = 600` / `2,400` | `3.8986` / `3.7315` | `4.3`–`4.83` |
+
+### `√n R_remaining`, the primary column
+
+| contrast | `q` 600 | `q` 2,400 | `g` 600 | `g` 2,400 |
+| --- | --- | --- | --- | --- |
+| `r-style ~ cleverly` | `flat` | *see the defect below* | `flat` | `unresolved` |
+| `paper ~ r-style` | `unresolved` | `unresolved` | `unresolved` | `unresolved` |
+| `no-close ~ cleverly` | `unresolved` | `unresolved` | `flat` | `flat` |
+| `nested ~ cleverly` | **`moved` `−0.203`** | `unresolved` | `unresolved` | `unresolved` |
+| `loose ~ cleverly` | `unresolved` | **`moved` `+0.219`** | **`moved` `−1.006`** | `unresolved` |
+
+**Neither `moved` factor clears F4's acceptance, and the reason is in the table rather than in a
+threshold.** That clause asks an effect to reproduce on the audit cohort **and at both sizes in
+the affected regime**. `nested` fires in one cell of four. `loose` fires in two and **with
+opposite signs** — it improves `g-drift` by `−1.006` and worsens `q-drift` by `+0.219`, which is
+not one effect measured twice.
+
+### The score-failure rate, and the one four-for-four reading
+
+`no-close` moves it by `+3.93` to `+4.98` in **every** cell, with `valid = False` on all 208
+draws — and moves `√n R_remaining` not at all (`−0.077` to `+0.051`, `flat` or `unresolved`).
+
+**The frozen-reduction closing pass is what makes the reported scores solved, and it is not
+touching the remainder.** That is an exoneration rather than a localization: the pass is
+load-bearing, and a construction diagnostic that removed it would break score validity while
+leaving the shortfall exactly where it was. Every other arm's score-failure contrast is `flat`
+except `loose` at `g-drift` `n = 2,400` (`+0.375`).
+
+### A defect in the frozen rule, found by the run and not repaired after it
+
+`r-style ~ cleverly` at `q-drift` `n = 2,400` reads **`moved`** — on a mean of `−0.0000` with an
+interval of `[−0.0001, −0.0000]`. That interval excludes zero **and** lies far inside the
+negligible margin `±0.125`, so [§9](validation-plan.md#the-contrast-rule-frozen-before-the-dispatch)'s
+clause 1 and clause 2 **both fire, and the frozen rule does not say which wins**.
+`_verdict` tests `moved` first, so an effect of `4e-05` — `0.003%` of the column — is labelled a
+localization.
+
+**The margin is not being moved after seeing a result**, which is what
+[stop-ship 17](../roadmap.md#stop-ship) forbids and what the freeze exists to prevent. The
+ambiguity is recorded here, both readings are reported, and the substantive conclusion rests on
+the **magnitude**: at `4e-05` against a column of `1.13`, the reduction vintage does nothing.
+Whoever writes the next rule of this shape should order the clauses **`flat` before `moved`**,
+which is ordinary equivalence-testing logic and is what the margin was declared for.
+
+### What this says so far
+
+**No construction factor moves the remainder consistently.** The largest effect anywhere is
+`loose`'s `−1.006` in one cell, and it reverses sign in another; the largest that reproduces in
+direction across sizes is nothing. Against a column standing at `1.13`–`3.90` that has to fall
+to zero, and a coverage shortfall of `0.844` against `0.95`, **none of the six factors is a
+candidate for the gap.** Both of F3's own nominations — the reduction vintage and the truncation
+convention — are inert, one measured at `4e-05` and the other proved identical at convergence.
+
+If the audit cohort reproduces this, F4's answer is a **null**, which its row admits as a result,
+and the live hypotheses become the two F4 cannot test: whether the reduced regressions are
+consistent (F5's question, still `unverified` in the concordance) and whether these fits meet
+Theorem 1's expansion premise at these sizes at all.
 
 ## The sixth factor is answered exactly, and a cohort could not have answered it
 
