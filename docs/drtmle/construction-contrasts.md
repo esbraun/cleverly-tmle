@@ -10,7 +10,9 @@ A difference this makes visible is a *question*, adjudicated against Theorem 1,
 [the concordance](theorem-concordance.md), the exact-law identities and the remainder
 decomposition — never settled by which side another implementation is on
 ([stop-ship 17](../roadmap.md#stop-ship)). **F4 may not branch, and a null result is a result.**
-Final coverage is in neither diagnostic — that is F8's and only F8's.
+Final coverage is in neither diagnostic — that is
+[F5's confirmation phase](../roadmap.md#phase-2-the-untouched-confirmation-and-it-is-f8)'s, and
+only its. That phase was F8 and is now the second half of F5, with every clause carried.
 
 ## What it is
 
@@ -161,12 +163,22 @@ stated limit of the study rather than a result of it.
 
 ## The contrast table
 
-**Both cohorts have run: 7,488 fits, two disjoint draw sets, zero errors.** The tables below
-read the selection cohort; [the audit section](#what-the-audit-cohort-changed) is what turns
+**Both cohorts have run: 2,496 estimator fits, two disjoint draw sets, zero errors.** The tables
+below read the selection cohort; [the audit section](#what-the-audit-cohort-changed) is what turns
 them into verdicts, and it changes three of them.
 
-208 draws per cohort, 6 arms, **1,248 fits each**, zero errors; every per-replicate row is in
-[`evidence/f4-construction/`](../../evidence/f4-construction/).
+208 draws per cohort, 6 arms, **1,248 estimator fits each**, zero errors; every per-replicate row
+is in [`evidence/f4-construction/`](../../evidence/f4-construction/).
+
+**The unit is the fit and not the row, and an earlier revision of this line counted rows.** One
+fit emits three rows — `estimand` is `ate`, `ey1` and `ey0` — so the committed files hold
+`3,744` rows per cohort and **7,488** in total, from **2,496** estimator fits. Nothing about a
+contrast changes: `contrast_rows` reads `PRIMARY_ESTIMAND` and nothing else, so every interval
+below is over `ate` rows and the ATE contrast's effective sample size is the draw count. What was
+wrong was one word, three times — here, in [the roadmap](../roadmap.md#what-the-evidence-establishes-question-by-question)
+and in [the manifest](study-manifest.md#f4-what-was-run) — and the correct figure was already two
+lines above it and in the manifest's own row table, which is what makes it a transcription rather
+than a measurement.
 
 ### The reference arm reproduces C3c's column, which is what says the harness measures the
 ### quantity the shortfall is about
@@ -203,21 +215,38 @@ load-bearing, and a construction diagnostic that removed it would break score va
 leaving the shortfall exactly where it was. Every other arm's score-failure contrast is `flat`
 except `loose` at `g-drift` `n = 2,400` (`+0.375`).
 
-### A defect in the frozen rule, found by the run and not repaired after it
+### Two defects in the frozen rule, found by the run and not repaired after it
 
-`r-style ~ cleverly` at `q-drift` `n = 2,400` reads **`moved`** — on a mean of `−0.0000` with an
-interval of `[−0.0001, −0.0000]`. That interval excludes zero **and** lies far inside the
-negligible margin `±0.125`, so [§9](validation-plan.md#the-contrast-rule-frozen-before-the-dispatch)'s
-clause 1 and clause 2 **both fire, and the frozen rule does not say which wins**.
-`_verdict` tests `moved` first, so an effect of `4e-05` — `0.003%` of the column — is labelled a
-localization.
+**The first is a collision between two clauses that can both fire.** `r-style ~ cleverly` at
+`q-drift` `n = 2,400` reads **`moved`** — on a mean of `−0.0000` with an interval of
+`[−0.0001, −0.0000]`. That interval excludes zero **and** lies far inside the negligible margin
+`±0.125`, so [§9](validation-plan.md#the-contrast-rule-frozen-before-the-dispatch)'s clause 1 and
+clause 2 **both fire, and the frozen rule does not say which wins**. `_verdict` tests `moved`
+first, so an effect of `4e-05` — `0.003%` of the column — is labelled a localization.
 
-**The margin is not being moved after seeing a result**, which is what
-[stop-ship 17](../roadmap.md#stop-ship) forbids and what the freeze exists to prevent. The
-ambiguity is recorded here, both readings are reported, and the substantive conclusion rests on
-the **magnitude**: at `4e-05` against a column of `1.13`, the reduction vintage does nothing.
-Whoever writes the next rule of this shape should order the clauses **`flat` before `moved`**,
-which is ordinary equivalence-testing logic and is what the margin was declared for.
+**The second is that the margin reaches one column of six, and this page had not noticed.**
+`contrast_rows` passes the margin for `root_n_remaining` and `float("inf")` for everything else,
+so on the other five columns `-inf <= lower and upper <= inf` holds of every interval and the
+third verdict is **unreachable**: `unresolved` appears `12` and `14` times on `root_n_remaining`
+and **zero** times in the remaining `100` rows of each cohort. Two things follow and neither is
+cosmetic. A `flat` on `psi`, `std_error`, `reduction_drift` or `rounds` says *the interval
+contains zero* and **not** *the effect is negligible* — it is the reading
+[the standing decision](../roadmap.md#standing-decisions) on fidelity gates forbids, arrived at
+from the other direction. And `score_failures` is named a **primary** outcome in the
+preregistration prose while the code gave it no band at all, so its verdicts are two-valued too.
+
+**No margin is being moved after seeing a result**, which is what
+[stop-ship 17](../roadmap.md#stop-ship) forbids and what the freeze exists to prevent. Both
+defects are recorded here, both readings of the collision are reported, and the substantive
+conclusion rests on the **magnitude**: at `4e-05` against a column of `1.13`, the reduction
+vintage does nothing. What the next rule of this shape needs is not a reordering — that fixes the
+collision and leaves the second defect standing — but a **partition**: an effect is *practically
+equivalent* when its interval lies wholly inside a band declared for **that column's** scale,
+*meaningfully moved* when the interval lies wholly beyond the corresponding bound, and
+*unresolved* otherwise. Those three cannot both fire, none of them is unreachable, and the band
+is per column because a margin of `0.125` is a tenth of `√n R_remaining` and more than ten times
+any `psi` difference this study measured. [F5](../roadmap.md#f-localize-the-shortfall-before-changing-anything)
+freezes that rule before its first fit.
 
 ### What this says so far
 
@@ -341,10 +370,51 @@ rule moves is `D̂`: the influence curve the error is *decomposed against*, not 
 
 So the honest reading is the opposite of the encouraging one. **A smaller `√n R_remaining` here
 is not a better estimator.** The bias that drives the coverage shortfall is `+0.102` either way,
-and no arm in this study moves it. What the finding is really about is the **instrument**:
-`√n R_remaining` is sensitive to a stopping rule that the estimator's error is not, so item 13's
-column carries a dependence on where the alternation was cut. That is a caveat on how that
-column is read, and it is F4's most useful output.
+and **the stopping rule does not move it**. What the finding is really about is the
+**instrument**: `√n R_remaining` is sensitive to a stopping rule that the estimator's error is
+not, so item 13's column carries a dependence on where the alternation was cut. That is a caveat
+on how that column is read, and it is F4's most useful output.
+
+**An earlier revision of that sentence said *no arm in this study moves it*, and one arm does.**
+The claim was true of `loose`, which is what the table above it reads, and it was written as a
+claim about the study. It is not one: `nested ~ cleverly` moves the point estimate in seven of
+the eight readings.
+
+### One arm moves the estimate, on a secondary column, and it is the cross-fitting
+
+| `nested ~ cleverly`, `psi` | selection | audit |
+| --- | --- | --- |
+| `q-drift` 600 | `−0.00948` `[−0.01585, −0.00342]` | `−0.00994` `[−0.01645, −0.00316]` |
+| `q-drift` 2,400 | `−0.00290` `[−0.00378, −0.00207]` | `−0.00319` `[−0.00385, −0.00254]` |
+| `g-drift` 600 | `−0.00920` `[−0.01730, −0.00167]` | `+0.00090` `[−0.00749, +0.01001]` |
+| `g-drift` 2,400 | `−0.00541` `[−0.00733, −0.00353]` | `−0.00577` `[−0.00736, −0.00404]` |
+
+Every interval excludes zero except `g-drift` `600`'s on the audit cohort, and `q-drift`
+reproduces at **both** sizes in sign and to the third decimal. It is a bias reduction rather than
+a wobble — the mean ATE error falls with it:
+
+| audit, mean bias | pooled | nested |
+| --- | --- | --- |
+| `q-drift` 600 | `+0.06946` | `+0.05953` |
+| `q-drift` 2,400 | `+0.03226` | `+0.02908` |
+| `g-drift` 600 | `+0.10214` | `+0.10304` |
+| `g-drift` 2,400 | `+0.06987` | `+0.06410` |
+
+**Three things fence what that is allowed to mean, and all three are in the freeze rather than
+added now.** `psi` is a declared **secondary** diagnostic, and on a secondary column
+`_verdict` runs with no margin — so `moved` there says *the interval excludes zero* and says
+nothing about whether the effect is material. `nested`'s **primary** column is `unresolved` in
+all four audit cells (`−1.418` to `+0.100`, on intervals a size wider than the effect), so it
+does not clear F4's advancement clause, which asks a construction to reduce `R_remaining` or the
+score failures without worsening the other. And a `0.003`–`0.010` movement against a `0.418`
+coverage deficit is not the gap; it is a tenth of the bias in the cell where it is largest.
+
+**So this changes no verdict here and it changes what F5 must be able to see.** Recorded as an
+exploratory secondary reading that reproduced, it is the one thing in this study with a
+consistent sign across two disjoint cohorts *on the estimator's own error* — which is why F5
+holds the learner fixed while the cross-fitting moves and the cross-fitting fixed while the
+learner moves, rather than screening learners at the shipped construction and reading the
+interaction off nothing.
 
 ### What F4 concludes
 
@@ -353,18 +423,38 @@ column is read, and it is F4's most useful output.
 - Both of F3's own nominations are inert: the reduction **vintage** at `1e-04` in both cohorts,
   and the **truncation** convention identical at convergence by exact proof.
 - The **equation order** is `unresolved` in all eight readings.
-- The **cross-fitting** construction moved in one cell of eight and did not reproduce.
+- The **cross-fitting** construction did not move the remainder — one cell of eight, and it did
+  not reproduce. It **did** move the point estimate, in seven readings of eight and reproducibly
+  in `q-drift`, on a secondary column with no margin and against a primary column that stays
+  `unresolved` in all four audit cells. That is [a recorded exploratory
+  reading](#one-arm-moves-the-estimate-on-a-secondary-column-and-it-is-the-cross-fitting), not a
+  localization and not grounds for a default change.
 - The **closing pass** is exonerated four cells for four in *both* cohorts: removing it moves the
   score-failure rate by `+3.93` to `+4.99` and the remainder not at all. It is load-bearing.
-- The **stopping rule** moves the remainder reproducibly and moves neither `psi`, `se` nor bias —
-  so it relabels the decomposition rather than improving the estimator, and adopting R's rule
-  would in any case exit with the three score equations solved to `1/n` rather than the
-  `o_p(n^{-1/2})` Theorem 1 asks for. **Changing this package to match R is
-  [stop-ship 17](../roadmap.md#stop-ship)**, and here the theorem argues the same way
-  independently.
+- The **stopping rule** moves the remainder reproducibly and moves neither `psi`, `se` nor bias,
+  so it relabels the decomposition rather than improving the estimator. **Changing this package
+  to match R is [stop-ship 17](../roadmap.md#stop-ship)** either way.
+
+**The rate argument that used to sit in that last bullet is withdrawn, because it is wrong.** It
+read *"adopting R's rule would in any case exit with the three score equations solved to `1/n`
+rather than the `o_p(n^{-1/2})` Theorem 1 asks for"*, and `1/n` **is** `o(n^{-1/2})`:
+`(1/n)/n^{-1/2} = n^{-1/2} → 0`. `_negligible_bar`'s own docstring states the rendering rule — a
+deterministic `c_n/√n` with `c_n → 0` — and R's bar meets it with `c_n = 1/√n` exactly as this
+package's does with `c_n = 10^{-3}/√n`. Two other documents in this tree already had it right and
+this one contradicted them: [the R differential's §3](r-differential.md) and
+[the roadmap's F3 reading](../roadmap.md#f-localize-the-shortfall-before-changing-anything) both
+say *both packages render the same condition as an absolute bar of the form `c/n`*, three orders
+apart in the constant and not in the rate. **`loose` is rejected on the measurement instead** —
+on the audit cohort's `g-drift` pair it moves `√n R_remaining` by `0.57` and `0.83` while the
+bias stays at `+0.102` and `+0.070` either way, and `psi` and `se` are `flat` in every cell. That
+is the reading the columns support, and it needs no theorem clause to carry it.
 
 **So F7 has no localized change to make from F4**, and the live hypotheses are the two F4 cannot
 test: whether the reduced regressions are consistent — F5's question, still `unverified` in
 [the concordance](theorem-concordance.md) — and whether these fits meet Theorem 1's expansion
-premise at these sizes at all, which is [item 25](../roadmap.md#what-is-still-open)'s scope
-question rather than a defect.
+premise at these sizes at all, which is
+[item 13](../roadmap.md#what-is-still-open)'s empirical remainder rate. **That is item 13 and not
+item 25**, which an earlier revision cited here: item 25 is the *truncation* scope decision —
+which fits the guarantee is claimed for — and these fits are not bound-active. The two are the
+two halves of link 1 the roadmap keeps apart, and reading a remainder that does not vanish as an
+item-25 scope question would file a measured failure under a scope label that does not cover it.
