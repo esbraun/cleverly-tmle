@@ -460,6 +460,33 @@ joining the two, and none of them is a change to the rule the comparison is judg
   two composites `q_r/g` and `g_{r,2}/g_{r,1}` the correction divides by — and a gate row keyed on
   `reduction` alone can no longer identify one.
 
-**No E2R row is manifested here yet, because the run has not happened**: its workflow is
-dispatchable only from `main`, which is what E2's own `404` was. When it does, it gets its own
-section rather than an edit to this one — E2's numbers stay readable as E2's.
+**A review of that instrument then moved three more things, and they change what a reader has to
+join on.** [§8's decision protocol](validation-plan.md#the-decision-protocol-frozen-before-the-dispatch)
+carries the reasoning; what matters here is the schema and the artefact set:
+
+- **a dispatch is now two dispatches**, `--phase select` then `--phase decide`, on **disjoint
+  cohorts of draws**. `FitRow` and `RiskRow` gain `cohort`, which is not the same statement as
+  `phase`: `phase` says which quadrature block scored a candidate and `cohort` says which set of
+  simulation draws it was taken over. A row from the two runs joins on neither alone;
+- **`RiskRow` gains `weight_scale`**, `Σ(w/d²)/Σ(w)` over the scored rows and `1.0` on a
+  componentwise metric. It is what `held_out_risk` normalised the row by, and multiplying a risk
+  by it returns the mean square perturbation of the correction — without it the non-inferiority
+  margin cannot be recomputed from the artefact;
+- **the selection is a committed input rather than only an output.** `selection.json` is the whole
+  of what `--phase decide` reads: the frozen rule, the pinned configuration, both cohorts' seeds
+  and the per-regression mapping with its evidence.
+
+### E2R's selection manifest, and where it lives
+
+**`evidence/e2r-selection/selection.json` is committed before the decision run and is the one file
+that has to be.** It is the exception to the "benchmark output is git-ignored" rule for the same
+reason [the archived study rows](../roadmap.md#standing-decisions) are: a decision run's mapping
+that could still move after the deciding draws were seen is a mapping chosen with them in view, and
+the commit is what makes "before" checkable. The selecting run also uploads it as an artefact, whose
+id and digest go in the E2R section when that run happens, so the committed file and the run that
+produced it can be tied together.
+
+**No E2R row is manifested here yet, because neither dispatch has happened**: the workflow is
+dispatchable only from `main`, which is what E2's own `404` was. When they do, E2R gets its own
+section rather than an edit to this one — E2's numbers stay readable as E2's — and the selecting run
+and the deciding run are recorded as two, since the whole point of them is that they are.

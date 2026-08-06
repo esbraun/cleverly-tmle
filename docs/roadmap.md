@@ -266,7 +266,9 @@ prejudice.
 | **`numba` is a benchmark-only dependency.** Nothing under `src/` imports it | all three "adopt numba" recommendations dissolved once the numpy baseline was written properly — an expansion that need not happen, a sort already done elsewhere, a quadratic mask rebuild — and the largest single win in the whole investigation was a context manager | a kernel beating a *competent numpy* baseline, on a machine with more than four cores. Nothing is measured above four, and no CI job runs above two | [benchmarks](benchmarks/) |
 | **No Rust or other native extension**, and the package stays pure Python | nuisance estimation dominates every realistic fit and already runs in compiled code; cleverly-authored arithmetic does not reach 3% of a `default` fit even at five million rows | **HAL** — a nuisance learner that is not scikit-learn moves the whole denominator. Unchanged, and still the trigger | [On native acceleration](#on-native-acceleration) |
 | **The internals are numpy, not polars**, whatever the caller passes in | the whole dataframe boundary is 1.5% of the cheapest fit and 0.06% of a realistic one — 1.5% and 0.04% asymptotically — so there is no share for a columnar engine to win, and scikit-learn takes contiguous numpy regardless | a workload whose cost is joins, group-bys or IO. None of those is on this path | [At several million rows](#at-several-million-rows) |
-| **No R in this repository and none in CI**, and no parity test against another implementation | two checks that cannot fail against the same class of error are one check: Python and R descend from one source, so agreement is evidence about a transcription and not about a derivation | nothing. It is a retirement, not a deprioritisation — and referring to another implementation *in prose* was never what was refused | [What the sizings got wrong](#what-the-sizings-got-wrong), lesson 9 |
+| **No R in this repository and none in CI**, and no parity test against another implementation | two checks that cannot fail against the same class of error are one check: Python and R descend from one source, so agreement is evidence about a transcription and not about a derivation | nothing. It is a retirement, not a deprioritisation — and referring to another implementation *in prose* was never what was refused. The narrower *differential-diagnostic* case for it is [answered below](#a-differential-diagnostic-against-r-considered-and-refused) rather than left unnoticed | [What the sizings got wrong](#what-the-sizings-got-wrong), lesson 9 |
+| **A study that selects and then certifies runs on two disjoint cohorts of draws**, separated by a commit of the frozen selection | disjoint quadrature blocks split the *integration* noise, and the simulation draw is the independent unit: a rung chosen across a set of draws and certified on the same set is a data-dependent selection assessed on the sample that made it. The disjointness is checked on the **data seed**, since two draws sharing one under different splits are the same rows twice | a study whose selection is not data-dependent — a rung shipped rather than measured is one cohort's work, which is what E2 was | [§8's decision protocol](drtmle/validation-plan.md#the-decision-protocol-frozen-before-the-dispatch) |
+| **A fidelity gate passes on a non-inferiority bound, never on failure to show superiority** | an interval containing zero establishes neither equality nor adequate approximation, so a gate read that way certifies whatever it cannot resolve — and E2R's own record called two rungs "genuinely indistinguishable" on exactly that reading | a margin that cannot be tied to a tolerable change in the reported column. The two composites' is `(δ/3)²/(n·weight_scale)` by Cauchy–Schwarz; the three componentwise ones have no such transfer and take a share of the negative control's measured distance instead | [§8's decision protocol](drtmle/validation-plan.md#2-the-fidelity-clause-is-non-inferiority-against-a-margin-declared-in-advance) |
 | **Nuisance fits run single-threaded**, with one `ThreadpoolController` per process | parallelism belongs across folds and candidates rather than inside each small fit; building the controller per entry was 57% of a DR-TMLE `retarget` | a fit large enough that one model wants the machine — `set_thread_limit(None)` is the lever, not a code change | [`thread_limit_profile.md`](benchmarks/thread_limit_profile.md) |
 | **`tracemalloc` is the memory instrument** | it *does* see numba's allocations, through all three CPython allocator domains — the caveat that said otherwise was wrong and was measured to be wrong | a question about resident memory rather than allocation, or a library calling `malloc` directly. That needs an incremental-RSS arm *beside* this column, not instead of it | [`production_plan.md`](benchmarks/production_plan.md) §1.3 |
 | **Benchmark write-ups live in [`docs/benchmarks/`](benchmarks/)**; `benchmarks/results/` is generated output and is git-ignored | a `results.jsonl` from a four-core container reads as a fact about the package rather than about that box | nothing | [`docs/README.md`](README.md) |
@@ -599,7 +601,7 @@ first.
 | **E0** – **E1b** — *landed* | [what C3c handed back](#e-what-c3c-handed-back)'s first three: the record, and the remainder instrument. E1 integrates `P₀D̂` deterministically, which takes most of the instrument off the list of candidate explanations for the flat column. **Its two readings of *how much* are withdrawn** and are E1b's | `DGP.quadrature`; `quadrature_frame`, `truth_at`, `corrected_curve` and `row_weights`/`limit` on every remainder column; `benchmarks/drtmle_companion_grid.py` and its workflow; `--quadrature-points`; `ScoreRow` and a second artefact; `tests/unit/test_drtmle_companion_grid.py` |
 | **E1b** — *landed* | the same question measured rather than asserted: an independent scramble per replicate, so the grid's error is mean-zero and estimable *conditionally on each fit*, with an interval on every share. **At `n = 2,400` the draw accounted for `0.99`–`1.01` of the column's across-draw variance** | `DGP.quadrature(scramble=…)`; stacked companions and a row `Window`; `rule sd` and `share`; two dispatches, [manifested](drtmle/study-manifest.md#e1b-what-was-run) |
 | **E2** — *landed, and it did not branch* | the reference reduction dispatched against its frozen rule. **Gate B fails in three cells of four**, each on a coarser rung beating the shipped one, so those cells are `unresolved`; the fourth reads **`moved`**. Candidate 1 is alive-but-unestablished rather than decided, and the named repair is a rung **selected rather than shipped** — [at interval level a rung per *cell*](#what-e2-measured-and-why-it-did-not-branch), which is a correction to two earlier revisions | run `31042558057`, four artefacts [manifested](drtmle/study-manifest.md#e2-what-was-run); [what it measured](drtmle/investigation-log.md#what-the-e2-dispatch-measured); `benchmarks/drtmle_reference.py` and `drtmle_reference_study.py`; `.github/workflows/drtmle-reference.yml`; [§8](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2); `tests/unit/test_reference_exact_law.py` and `test_drtmle_reference_study.py` |
-| **E2R** — *the instrument has landed; the decision run is owed* | the reference repaired at [five points](#the-reboot-and-the-three-work-packages) and its rule frozen: the rung **selected** per `(cell, size, regression)` against a measured ranking, four blocks so the block that certifies is not the block that chose, **five** gate-B metrics — the three regressions and the two composites the correction divides by — a control coarse enough to be rejected on all five, and the block-size falsifier declared. Closes no numbered item on its own, which is why it is its own pull request; the run dispatches from `main`, as E2's did | `benchmarks/drtmle_reference.METRICS`, `composite_denominators`, `metric_weights`, a per-regression `reference=`; `select_rung`, `RecordingDRTMLE`, a selection table and a third artefact on the harness; [§8's selection rule and what the pilot moved](drtmle/validation-plan.md#the-selection-rule-frozen-before-the-dispatch); `tests/unit/test_drtmle_reference.py` and `test_drtmle_reference_study.py` |
+| **E2R** — *the instrument has landed; the decision run is owed* | the reference repaired at [eight points](#the-reboot-and-the-three-work-packages) and its rule frozen: the rung **selected** per `(cell, size, regression)` against a measured ranking, four blocks so the block that certifies is not the block that chose, **five** gate-B metrics — the three regressions and the two composites the correction divides by — a control coarse enough to be rejected on all five, and the block-size falsifier declared. A review of that instrument then found three ways it could still pass without certifying anything, so the last three are the **decision protocol**: two disjoint cohorts of draws with a committed manifest between them, a fidelity clause that is non-inferiority against a declared margin rather than failure to show superiority, and a run that exits non-zero on an incomplete artefact set. Closes no numbered item on its own, which is why it is its own pull request; the run dispatches from `main`, as E2's did | `benchmarks/drtmle_reference.METRICS`, `composite_denominators`, `metric_weights`, a per-regression `reference=`; `select_rung`, `RecordingDRTMLE`, a selection table and a third artefact on the harness; `cohort_seeds`, `SelectionManifest`, `validate_selection`, `noninferiority_margins`, `simultaneous_lower_bounds`, `run_integrity`; [§8's selection rule and what the pilot moved](drtmle/validation-plan.md#the-selection-rule-frozen-before-the-dispatch) and [its decision protocol](drtmle/validation-plan.md#the-decision-protocol-frozen-before-the-dispatch); `tests/unit/test_drtmle_reference.py` and `test_drtmle_reference_study.py` |
 | then **E2b** *or* **E3**, then **E4** + **E5** | [the three work packages](#the-reboot-and-the-three-work-packages): **one** branch off E2R's verdict, and the frozen confirmatory study. **E5** is where item 13 closes either way | their rows below |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
@@ -2391,9 +2393,11 @@ all.
 seeds and [the coverage study](drtmle/coverage-study.md) cites E4 and E5 for the design split and
 the rate. What moved is when each fires, and E2R is the one genuinely new row.
 
-**WP1 — E2R, one conclusive reference experiment.** The same design as E2, repaired at five points
-and dispatched once. **PR #74 is demoted to a pilot** and its seed streams are spent: the decision
-run takes fresh ones.
+**WP1 — E2R, one conclusive reference experiment.** The same design as E2, repaired at eight points
+and dispatched once — five against E2's own failure, and three more against [a review of the
+instrument](drtmle/validation-plan.md#the-decision-protocol-frozen-before-the-dispatch) that found
+the first five did not make it confirmatory. **PR #74 is demoted to a pilot** and its seed streams are spent:
+the decision run takes fresh ones.
 
 **The instrument for all five has now landed and the run has not happened**, which is this page's
 own C1/C3a/B2a pattern rather than a deferral: *the repair precedes the dispatch and closes nothing
@@ -2436,15 +2440,49 @@ against, and two of them came out of the pilot differently from how they were wr
    towards the finer rungs, the pilot's rung was a statement about the block and not about the
    function.
 
+6. **Selecting and deciding are two cohorts of draws and two commands, separated by a commit.**
+   A review of the instrument's own pull request found that clause 2 repaired the wrong level:
+   four disjoint scramble streams split the *integration* noise, and both risk tables were still
+   functions of the same fitted samples, fold splits and draw-specific nuisance states. The draw
+   is the independent unit — `draw_risks` averages within one and every interval resamples them —
+   so a rung selected across a set of draws and certified on the same set is a data-dependent
+   selection assessed on the sample that made it. `--phase select` ranks on the **selection**
+   cohort and writes a manifest; the manifest is committed; `--phase decide` fits the **decision**
+   cohort at a mapping it can read and cannot choose, and refuses one whose recorded draws are its
+   own. The disjointness is checked on the **data seed**, which is the sample, since C3c already
+   met the case where prefix-stable streams shared data seeds under different splits.
+7. **The fidelity clause passes on a non-inferiority bound and never on failure to show
+   superiority.** The same review found that gate B failed only on an interval lying wholly below
+   zero, so an imprecise comparison certified the reference by default — and this page's own
+   record calls two rungs "genuinely indistinguishable" on exactly that reading. An interval
+   containing zero establishes neither equality nor adequate approximation. The clause is now a
+   *simultaneous* one-sided lower bound over every competing rung and all five metrics, against
+   `δ_metric`: on the two composites, the excess risk that could move `√n R_remaining` by
+   `FIDELITY_FRACTION = 1/3` of the margin — gate C's own share, bounding the reference's
+   **smoothing** error where gate C bounds its quadrature error — and on the three componentwise
+   metrics, `COMPONENT_FRACTION = 0.05` of the negative control's measured distance, since those
+   have no tight transfer to the column. The older clauses stay and stay gating.
+8. **A missing reading cannot reach a verdict.** `selection_rows` raises where a regression has no
+   reading, `Payload.references` raises where a rung was not selected, the manifest is validated
+   before anything is fitted, and a cell resting on fewer than `COMPLETENESS_FRACTION = 0.9` of
+   its declared draws is `unresolved` and marks the **run** invalid. An invalid run exits
+   non-zero. The fallback these replaced was defended as *visible* — E2's shipped rung, named in
+   the record — and it was visible in the record and not in the verdict.
+
 *The rule the comparison is judged by does not move.* `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION` and
 `PRIMARY_ESTIMAND` are what they were before E2 ran. Every item above is a change to the
 **reference** or an **addition to the gates**, which [§8](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2)
 permits before a dispatch with a written reason and this list is the reason; and each makes a verdict
-*harder* to reach, which is the only direction a gate may be added in after numbers exist.
+*harder* to reach, which is the only direction a gate may be added in after numbers exist. Items 6
+to 8 are held to that too, and the one place it bites is clause 7: a non-inferiority margin would
+have made the pilot's failing `qr` clause pass, so the superiority clause it repairs was **kept
+beside it** rather than replaced. A cell failing only on superiority with every bound clear is a
+reportable finding, not an occasion to relax anything.
 
 **Bound: one instrument repair and one decision run.** If the repaired reference still cannot
 establish equivalence, E2R reports `unresolved` and **stops being cited as motivation for a
-production change**. That is a real outcome and the page will say so.
+production change**. That is a real outcome and the page will say so. The review's repair does not
+buy a second dispatch: it is the same one decision run, on a design that can carry it.
 
 ##### The branch E2R decides
 
@@ -2536,6 +2574,18 @@ every choice above is gate and cost arithmetic, and the dispatch takes fresh see
 cells and both sizes. **And the bound still holds** — one repair and one decision
 run — so an `unresolved` E2R ends the reduction road as evidence rather than earning a third
 dispatch.
+
+> **One phrase above has since been withdrawn as a certification, and it is worth reading where it
+> was written.** "Two rungs genuinely indistinguishable rather than one beating the other" is a
+> fair description of `-3.020e-07 [-7.71e-07, +1.46e-07]` and it is **not** a statement that the
+> selected rung is adequate: an interval containing zero says the run cannot resolve the two, which
+> is a fact about the run. A review of this instrument found that gate B was built to read it as
+> adequacy — it failed only on an interval wholly below zero — so an imprecise comparison certified
+> the reference by default. The clause is now a non-inferiority bound against a declared margin
+> ([§8](drtmle/validation-plan.md#2-the-fidelity-clause-is-non-inferiority-against-a-margin-declared-in-advance)),
+> and this pilot's `qr` reading would now have to *clear* `δ_metric` rather than merely straddle
+> zero. The block-size conclusion above is unaffected — the falsifier it was testing is whether the
+> **ranking** moves, and it did not.
 
 **If the learner branch opens it is a small, already-justified set**: the current `glm`, a
 deterministic growing-basis spline, and the frozen `boost` candidate. Selection is on the component
@@ -2666,7 +2716,7 @@ count worse in two dimensions (576 cells, then 2,304) largely goes away in one.
 
 **What is true, and it still puts E2 first.** The construction needs no change under `src/`:
 `ReductionSpec.refit` is the seam, `CompanionEstimates` supplies every fold's nuisance at rows
-declared before the fit ([item 24](#the-open-items)), `A` and `Y` are integrated in closed form by
+declared before the fit ([item 24](#what-is-still-open)), `A` and `Y` are integrated in closed form by
 `quadrature_frame`, and `tests/unit/test_oracle_reductions.py` already runs this override on the
 exact law. What it costs beyond that is a companion grid and a fidelity gate — cheaper than a
 learner sweep.
@@ -3709,6 +3759,50 @@ still refused, because the tilt re-mixes `Q̄` under a moved mechanism, a shift'
 the assigned dose, and whether the tilted parameter is still the shift parameter has not been
 derived. That is a missing derivation rather than missing transcription, which is why it is not
 carried forward as an item of its own.
+
+### A differential diagnostic against R, considered and refused
+
+**A review of E2R's instrument asked for the R refusal to be narrowed, and the distinction it
+draws is a real one that the [standing decision](#standing-decisions) did not previously answer.**
+It is written down here rather than left to be re-derived, because "it would only be one file" is
+the form the argument usually takes and this is the form it takes when made well.
+
+The argument. Derivation-based tests and cross-language differential tests answer *different*
+questions: the first asks whether an object matches the theorem, the second asks **where two
+implementations of the intended algorithm first diverge**. The second is diagnostic rather than
+evidential — the proposal concedes that passing parity would prove nothing — and it is at its most
+useful exactly where this repository is stuck: a flat `√n R_remaining` whose cause is unknown, and
+an R implementation whose targeted nuisance arrays, per-round score means and fluctuation
+coefficients are inspectable. The bounded form was: freeze a no-missingness binary-treatment
+fixture, supply identical initial `Q̄` and `g`, export per round and arm, compare `Qsteps=1`
+against `Qsteps=2` against this package's two update orders, and localise the earliest divergence.
+
+**It is refused, and the reason is not the one the standing decision gives.** The standing
+decision's reason — agreement is evidence about a transcription — is an argument against parity as
+*evidence*, and this proposal does not claim to be evidence. The reason it is refused is narrower
+and is about what it would cost against what it could find:
+
+- **The divergence it would localise is one this repository already localises without R.** Item 21
+  found a sign error in the mechanism correction by reading the paper's appendices, and a parity
+  run could not have caught it, since both sides read it off the same display. Item 20 settled the
+  uncentred curve in thirty lines by recomputing a recorded number from the returned state in the
+  same process. The instrument that finds a construction difference here is the exact law, where
+  every term is a finite sum and *both* sides are known — and `tests/discrete_law*.py` already
+  compares against a truth that R would only approximate.
+- **The specific divergences it names are already answerable in prose.** That the R source assigns
+  its `grnStar` output under the key `grn`, and that it defaults to `Qsteps=2` — a backfitting-style
+  outcome update — are facts about that source, and recording them where the code came from is
+  what the standing decision explicitly *permits*. Neither needs the code to be run.
+- **The current diagnosis has a cheaper instrument that has not been exhausted.** E2R's decision
+  run is owed and separates reduction error from estimator construction directly. Reaching for a
+  second implementation before the experiment that was built for the question has been run is the
+  reverse of the order [WP1](#the-reboot-and-the-three-work-packages) sets.
+
+**What would reopen it**, since a refusal with no such condition is a prejudice: E2R coming back
+`unresolved` *and* E3's construction diagnosis failing to localise the disagreement on the exact
+laws. At that point the question stops being "does this match the theorem" — which the laws
+answer — and becomes "which of two readings of an ambiguous appendix is implemented", which is the
+one question a second implementation can settle and a derivation cannot.
 
 ## What the sizings got wrong
 
