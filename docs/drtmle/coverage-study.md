@@ -388,7 +388,7 @@ them, and every entry in the remainder table carries its Monte Carlo standard er
 difference cost something: the draw's error is inside the spread every Monte Carlo error in the
 remainder table is computed from, so `1.427 ± 0.091` is a number about the estimator *and* the
 instrument together. [E1](../roadmap.md#what-e1-landed-and-what-e1b-withdrew) separates them, and
-[the specification's rule](validation-plan.md#evaluating-pd-which-is-not-automatic-for-a-cross-fitted-fit)
+[the specification's rule](validation-plan.md#evaluating-the-estimated-curve-under-the-true-law-which-is-not-automatic-for-a-cross-fitted-fit)
 is where the change and its written reason live. Three things belong here, because they are
 properties of *this design* rather than of the specification.
 

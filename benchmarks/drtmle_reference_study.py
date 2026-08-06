@@ -23,10 +23,47 @@ evaluate -- and three sufficed because it never selected: it shipped a rung and 
 scoring block to check it.  Turn that ranking into a selection and the same block does both,
 and a rung certified by the block that chose it is a rung that certified itself.  So the
 scoring block splits into a **selection** block and an **audit** block on disjoint scramble
-streams, and the run is two passes over the draws with a barrier between them: the control arm
-first, whose exit state supplies a ranking no rung's own fit produced (:class:`RecordingDRTMLE`
-says why that state and not another); then the reference arm, at the rungs pass one selected,
-audited on rows the selection never saw.
+streams: the control arm's exit state supplies a ranking no rung's own fit produced
+(:class:`RecordingDRTMLE` says why that state and not another), and the reference arm is
+audited at the selected rungs on rows the selection never saw.
+
+*And four blocks are not enough, because the block is not the independent unit.*  **This is
+the repair E2R's own first instrument needed and did not have.**  It ran two passes over *one*
+list of draws: the selection and the audit sat on disjoint Sobol streams, and both risk tables
+were functions of the same fitted samples, the same fold assignments and the same
+draw-specific nuisance states.  :func:`draw_risks` averages within a draw and :func:`interval`
+resamples draws precisely because the **draw** is the independent unit here, so a rung selected
+across those draws and certified on those same draws is a data-dependent selection assessed on
+its own sample -- the ordinary reason a tuning pass needs an outer holdout.  Splitting the
+quadrature does not repair it, because the quadrature is not what was reused.
+
+So the run is **two cohorts and two commands**, and the seeds of one never meet the seeds of
+the other (:func:`cohort_seeds`).  ``--phase select`` fits the control arm on the *selection*
+cohort, ranks the ladder and writes a manifest.  That manifest is **committed** -- and
+:func:`validate_selection` refuses a decision run whose draws are not disjoint from the ones
+recorded in it -- and only then does ``--phase decide`` run the *decision* cohort, both arms
+paired within each of its draws, at a mapping it can read and cannot choose.  There is no call
+to :func:`selection_rows` on that path.
+
+*A gate that cannot be beaten is not a gate that certifies.*  E2R's first instrument failed
+gate B only when a competitor's interval lay **wholly below zero**, so an imprecise comparison
+passed by default and the pilot's own record called two rungs "genuinely indistinguishable"
+because an interval straddled zero.  An interval containing zero establishes neither equality
+nor adequate approximation.  Gate B's fidelity clause is therefore a **non-inferiority** test
+against a margin declared in advance -- :data:`FIDELITY_FRACTION` and
+:data:`COMPONENT_FRACTION`, read through :func:`noninferiority_margins` -- and it passes only
+when a **simultaneous** lower bound over every competing rung and every metric
+(:func:`simultaneous_lower_bounds`) sits above ``-delta_metric``.  Where it cannot be shown
+either way the gate reads ``unresolved``, which is a third gate status for the same reason the
+comparison has a third verdict.
+
+*And a missing reading is not a passing one.*  Every fallback the first instrument carried is
+gone from the decision path: :func:`selection_rows` raises where a regression has no reading,
+:meth:`Payload.references` raises where a rung was not selected, and :func:`run_integrity`
+invalidates a cell whose readable draws fall below :data:`COMPLETENESS_FRACTION` of the
+declared count.  An invalid run exits non-zero with its diagnostic rows written, because a
+workflow that reports green on a truncated artefact set is how a fallback comes to be read as
+a result.
 
 *And the selection is judged by the gate's own statistic*, which is what
 :func:`select_rung` is: the coarsest rung that no other rung *significantly* beats, on paired
@@ -287,7 +324,27 @@ DEFAULT_BUDGET_SCRAMBLES = 4
 DEFAULT_BUDGET_DRAWS = 4
 
 DEFAULT_SIZES = (600, 2_400)
-DEFAULT_DRAWS = 32
+
+#: The two cohorts' draw counts, and they are two numbers because the two passes buy different
+#: things.  The **selection** cohort fits the control arm alone and ranks the ladder on it, so a
+#: draw there is one fit plus the candidate scoring; ``16`` is above the twelve the sizing pilot
+#: ranked at and below the decision cohort, which is where the precision is actually needed.  The
+#: **decision** cohort keeps E2's ``32``, which is what the paired interval and every gate-B
+#: clause were sized at, and it buys two fits a draw plus the budget's extra reference scrambles.
+DEFAULT_SELECTION_DRAWS = 16
+DEFAULT_DECISION_DRAWS = 32
+
+#: The two cohorts by name, in the order they run.  A cohort is a **disjoint set of simulation
+#: draws** and not a phase of one: :data:`RiskRow.phase` says which *block* a risk was scored on
+#: and this says which *draws* it was scored over, and conflating the two is the defect
+#: :func:`cohort_seeds` exists to remove.
+COHORTS = ("selection", "decision")
+
+#: The two commands, one per cohort.  ``select`` may not read a comparison and ``decide`` may not
+#: select, and they are separated by a **commit** of the manifest rather than by a barrier inside
+#: one process -- which is the difference between a mapping that was frozen before the deciding
+#: draws existed and one that merely was not looked at.
+PHASES = ("select", "decide")
 
 #: Resamples behind every reported interval, and the percentiles they are read at.  A bootstrap
 #: over **draws**, because the draw is the independent unit: a fit's gate rows and its
@@ -352,6 +409,81 @@ PRIMARY_ESTIMAND = "ate"
 #: study and not about the estimator, and the response to it is a larger draw count or a finer
 #: reference rather than a conclusion.
 VERDICTS = ("moved", "equivalent", "unresolved")
+
+#: Gate B's fidelity margin on the two **composite** metrics, as a share of the equivalence
+#: margin :math:`\delta` -- and it is a share of the *column*, which is the whole point of it.
+#:
+#: ``H_3 = q_r/g`` and ``H_2 = g_{r,2}/g_{r,1}`` are in the **correction's own units**, which is
+#: why they were added: an excess risk :math:`x` on one of them is a mean square perturbation of
+#: the correction, so its root :math:`\sqrt x` is an RMS perturbation, and
+#: :math:`|\text{mean}| \le \text{RMS}` bounds what it can do to :math:`\hat\psi`.  Over
+#: :math:`n` rows that is a change in :math:`\sqrt n R_{\text{remaining}}` of at most
+#: :math:`\sqrt n \sqrt x`.  Requiring that to be under :math:`\text{FIDELITY\_FRACTION}\cdot
+#: \delta` inverts to the margin :func:`noninferiority_margins` computes.
+#:
+#: **A third, and deliberately gate C's own** :data:`BUDGET_FRACTION`.  The two bound the two
+#: halves of one instrument's contribution to the column: gate C bounds the reference's
+#: **quadrature** error at :math:`\delta/3` by replication, and this bounds its **smoothing**
+#: error at :math:`\delta/3` by held-out risk.  Neither can see the other's half -- the module
+#: docstring says so of the gates and it is the same sentence about their two scales.
+#:
+#: The bound is Cauchy--Schwarz and so is *worst case*: a real perturbation averages down rather
+#: than aligning with the sign of every row.  That makes the margin conservative and the gate
+#: harder, which is the only direction a gate may move once numbers exist.
+FIDELITY_FRACTION = 1.0 / 3.0
+
+#: Gate B's fidelity margin on the three **componentwise** metrics, as a share of the negative
+#: control's own measured gap on that metric.
+#:
+#: They get a different scale because they have no tight transfer to the column, and the loose
+#: one is useless: :math:`q_r`'s error becomes a correction error only after division by
+#: :math:`g^*_b`, so routing it through the bound would multiply the margin above by
+#: :math:`g^2_{\text{lo}}` and put it *below* the rung-to-rung differences the audit resolves --
+#: a clause no rung could pass, which is a gate that has stopped measuring.
+#:
+#: So the scale is the one quantity the same run proves is a *detectable inadequacy*: the
+#: distance from the selected rung to :data:`NEGATIVE_CONTROL`, whose rejection is already a gate
+#: clause.  A twentieth of the way to a reference the gate has shown to be too coarse is what
+#: "no more than practically worse" is committed to on these three.
+COMPONENT_FRACTION = 0.05
+
+#: The one-sided level of :func:`simultaneous_lower_bounds`, in percent.
+SIMULTANEOUS_LEVEL = 95.0
+
+#: The share of a cohort's declared draws that has to be readable before a cell may carry a
+#: verdict.  Below it the cell is ``unresolved`` and the **run** is invalid for branching, which
+#: is a stronger statement than a wide interval: an interval says the study cannot tell, and this
+#: says the artefact set is not the one the rule was declared over.  A bootstrap that quietly
+#: shrank from 32 draws to whatever survived would report the second as the first.
+COMPLETENESS_FRACTION = 0.9
+
+
+def cohort_seeds(seed: int, counts: Mapping[str, int]) -> dict[str, list[tuple[int, int]]]:
+    """One ``(data_seed, fold_seed)`` list per cohort, from **disjoint** streams.
+
+    ``np.random.SeedSequence(seed).spawn(2)``, one child per cohort, rather than one stream
+    sliced in two.  A slice is prefix-stable -- ``docs/drtmle/study-manifest.md`` records C3c
+    running into exactly that, where a "fresh" batch turned out to share the pilot's data seeds
+    -- so raising one cohort's count would have shifted which draws the other took, and the two
+    would have overlapped for any count a later run chose.
+
+    **The disjointness is the experiment and not housekeeping.**  The rung is chosen across the
+    selection cohort's draws; if the decision cohort contained any of them, the audit would be
+    assessing a data-dependent selection on the sample that made it, which is the one thing four
+    disjoint quadrature blocks cannot repair -- they split the *integration* noise, and it is the
+    *simulation* draw that was reused.  :func:`validate_selection` checks it again at the
+    decision run against the manifest's recorded seeds, because a check that lives only here
+    would be a property of one process rather than of the pair.
+    """
+    children = np.random.SeedSequence(seed).spawn(len(COHORTS))
+    out: dict[str, list[tuple[int, int]]] = {}
+    for name, child in zip(COHORTS, children, strict=True):
+        draws = int(counts.get(name, 0))
+        state = child.generate_state(2 * draws) if draws else np.empty(0, dtype=np.uint32)
+        out[name] = [
+            (int(data), int(fold)) for data, fold in zip(state[:draws], state[draws:], strict=True)
+        ]
+    return out
 
 
 # ---------------------------------------------------- the selection rule, and it is E2R's own
@@ -431,7 +563,9 @@ def select_rung(risks: Mapping[str, Mapping[str, Mapping[int, float]]]) -> str:
     if not readable:
         raise ValueError(
             "no rung has a reading on any metric, so nothing was selected. A run this thin "
-            "cannot certify a reference; raise --draws rather than letting a default stand in"
+            "cannot certify a reference; raise --selection-draws, or --reference-points if the "
+            "ladder is being refused its points-per-parameter budget, rather than letting a "
+            "default stand in"
         )
     counts = {
         rung.label: len(beaten_by(risks, rung.label)) for rung in RUNGS if rung.label in readable
@@ -471,6 +605,11 @@ class FitRow:
 
     Attributes
     ----------
+    cohort:
+        ``"selection"`` or ``"decision"`` -- which of the two disjoint draw sets this fit is
+        from.  A field rather than an inference from the seed, because the artefacts of the two
+        commands are read together and a row that could not say which cohort it belonged to
+        would be a row the comparison could quietly include.
     estimator:
         ``"glm"`` or ``"reference"``.  The pairing key is ``(cell, n, data_seed, estimand)``,
         and the two arms share a fold seed and a companion.
@@ -492,6 +631,7 @@ class FitRow:
         ordinary draw and a gate-C budget draw.
     """
 
+    cohort: str
     cell: str
     n: int
     data_seed: int
@@ -525,6 +665,11 @@ class RiskRow:
 
     Attributes
     ----------
+    cohort:
+        ``"selection"`` or ``"decision"`` -- which set of **draws** this risk was taken over.
+        Not the same statement as ``phase``, and keeping the two apart is the repair: ``phase``
+        says which quadrature block a candidate was scored on, and a rung chosen and certified on
+        two blocks of one draw set is still a rung certified on the sample that chose it.
     phase:
         ``"select"`` or ``"audit"``.  Which block this risk was scored on, and therefore which
         job it did: the first chooses the rung and the second certifies it.  One field rather
@@ -543,8 +688,19 @@ class RiskRow:
         :attr:`~benchmarks.drtmle_reference.Denominator.margin` and its truncation share; ``nan``
         on a componentwise row, which has no divisor.  Recorded beside the risk because a
         composite loss at a bound-active divisor is a loss whose weight the truncation chose.
+    weight_scale:
+        :math:`\\sum_{\\text{scored}} w/d^2 \\big/ \\sum_{\\text{scored}} w` -- what
+        :func:`~benchmarks.drtmle_reference.held_out_risk` normalised this row's risk by, and
+        ``1.0`` on a componentwise row, whose weight *is* :math:`w`.
+
+        Recorded because it is what turns a composite risk back into a statement about the
+        **column**.  A risk is a mean under the reweighted mass; multiplying by this returns
+        :math:`E_0[w (\\Delta H)^2]/E_0[w]`, which is the mean square perturbation of the
+        correction and is the quantity :func:`noninferiority_margins` inverts.  Without it the
+        margin would have to be recomputed from arrays no artefact carries.
     """
 
+    cohort: str
     cell: str
     n: int
     data_seed: int
@@ -559,6 +715,7 @@ class RiskRow:
     scored_rows: int
     divisor_margin: float = float("nan")
     divisor_truncated: float = float("nan")
+    weight_scale: float = 1.0
     error: str = ""
 
 
@@ -597,12 +754,14 @@ class SelectionRow:
 class Payload:
     """One draw: both arms, its gate rows, and however many reference scrambles it carries.
 
-    ``rungs`` is what pass one selected, as ``(reduction, knots)`` pairs -- a plain value rather
-    than the :class:`~benchmarks.drtmle_reference.SplineProjection` objects it stands for,
-    because a payload crosses a process boundary and a record has to be readable off the
-    artefact without importing this module.  Empty in pass one, which has nothing selected yet.
+    ``rungs`` is what the selection cohort chose, as ``(reduction, knots)`` pairs -- a plain
+    value rather than the :class:`~benchmarks.drtmle_reference.SplineProjection` objects it
+    stands for, because a payload crosses a process boundary and a record has to be readable off
+    the artefact without importing this module.  Empty on the selection cohort, which has
+    nothing selected yet and fits no reference arm.
     """
 
+    cohort: str
     cell: str
     n: int
     data_seed: int
@@ -614,15 +773,30 @@ class Payload:
     evaluation_scrambles: int
     reference_scrambles: int
     rungs: tuple[tuple[str, int], ...] = ()
+    allow_fallback: bool = False
 
     def references(self) -> dict[str, Any]:
-        """The rungs as a per-regression reference mapping, or E2's rung where none was chosen.
+        """The rungs as a per-regression reference mapping.  **Raises where one is missing.**
 
-        A fallback that is *visible* -- :data:`FALLBACK_RUNG` is E2's shipped middle rung and the
-        record says so -- rather than a silent default, which is the mistake E2R exists to
-        remove.
+        This is where E2R's first instrument fell back to :data:`FALLBACK_RUNG` for any
+        regression the selection did not carry, and the fallback was defended as *visible*: E2's
+        own shipped rung, named in the record.  It is visible in the record and it is not visible
+        in the **verdict**, which is the reading that matters -- a lost selection row produced a
+        reference nobody chose, an audit that could still be scored against it, and a cell that
+        printed ``moved`` or ``equivalent`` like any other.
+
+        So a decision run refuses.  ``allow_fallback`` is threaded from ``--allow-fallback``,
+        which exists for a local debug run with too few draws to rank and which the workflow
+        never passes.
         """
         chosen = {name: SplineProjection(knots) for name, knots in self.rungs}
+        missing = [name for name in REDUCTIONS if name not in chosen]
+        if missing and not self.allow_fallback:
+            raise ValueError(
+                f"{self.cell} n={self.n} has no selected rung for {missing}, so the reference "
+                "arm would be fitted at a resolution nothing chose. Run --phase select first, or "
+                "pass --allow-fallback to accept FALLBACK_RUNG on a debug run that cannot decide"
+            )
         return {name: chosen.get(name, FALLBACK_RUNG) for name in REDUCTIONS}
 
 
@@ -826,6 +1000,7 @@ def _fit_rows(
     )
     return [
         FitRow(
+            cohort=payload.cohort,
             cell=payload.cell,
             n=payload.n,
             data_seed=payload.data_seed,
@@ -855,6 +1030,7 @@ def _failed_fit(
     nan = float("nan")
     return [
         FitRow(
+            cohort=payload.cohort,
             cell=payload.cell,
             n=payload.n,
             data_seed=payload.data_seed,
@@ -949,6 +1125,7 @@ def risk_rows(
                             continue
                         divisor = None if metric.divisor is None else divisors[metric.divisor]
                         row = RiskRow(
+                            cohort=payload.cohort,
                             cell=payload.cell,
                             n=payload.n,
                             data_seed=payload.data_seed,
@@ -965,6 +1142,7 @@ def risk_rows(
                             divisor_truncated=(
                                 float("nan") if divisor is None else divisor.truncated
                             ),
+                            weight_scale=_weight_scale(weights[metric.name], mass, outside),
                             error=refusal,
                         )
                         if fitted is not None:
@@ -987,8 +1165,24 @@ def _block_mask(window: Any, rows: int) -> np.ndarray:
     return mask
 
 
-def control_draw(payload: Payload) -> tuple[list[FitRow], list[RiskRow]]:
-    """**Pass one**: the ``glm`` arm, and the ranking the rung is selected from.
+def _weight_scale(weights: np.ndarray, mass: np.ndarray, scored: np.ndarray) -> float:
+    r"""What :func:`~benchmarks.drtmle_reference.held_out_risk` normalised a risk by.
+
+    The risk is :math:`\sum w_m e^2 / \sum w_m` over the scored rows, and what a margin in
+    **column** units needs is :math:`\sum w_m e^2 / \sum w`, since :math:`w` is the law's own
+    measure and :math:`w_m = w/d^2` is the composite's.  The ratio of the two denominators is
+    this, so ``risk * weight_scale`` is the mean square perturbation of the correction and
+    :func:`noninferiority_margins` divides by it to go the other way.  ``1.0`` exactly on a
+    componentwise metric, whose weight is :math:`w`.
+    """
+    total = float(np.asarray(mass, dtype=float)[scored].sum())
+    if total <= 0.0:
+        return float("nan")
+    return float(np.asarray(weights, dtype=float)[scored].sum() / total)
+
+
+def control_draw(payload: Payload, rank: bool = True) -> tuple[list[FitRow], list[RiskRow]]:
+    """The ``glm`` arm, and -- on the selection cohort -- the ranking the rung is chosen from.
 
     The control arm is fitted once whatever the budget is -- it has no reference block, so a
     scramble does nothing to it, and refitting it per scramble would price a control that cannot
@@ -1000,6 +1194,12 @@ def control_draw(payload: Payload) -> tuple[list[FitRow], list[RiskRow]]:
     **control arm's own** ``gr1`` and ``h3``'s its own targeted mechanism -- the arrays *this* fit
     divides by, common to every candidate the ranking compares, which is the only property the
     ranking needs of them.
+
+    ``rank`` is ``True`` on the selection cohort and ``False`` on the decision cohort, where this
+    arm is the *paired control* of the comparison and nothing else: the rungs are already chosen,
+    a second ranking could not be used without reopening the selection on the deciding draws, and
+    scoring eight candidates over every ``(arm, fold)`` is most of a draw's cost.  What is left
+    on the decision cohort is one fit whose windows and split the reference arm shares.
     """
     dgp = injection.base_law()
     place = layout(payload, dgp)
@@ -1026,6 +1226,8 @@ def control_draw(payload: Payload) -> tuple[list[FitRow], list[RiskRow]]:
             seconds=time.perf_counter() - started,
         )
     )
+    if not rank:
+        return rows, risks
     try:
         risks.extend(
             risk_rows(
@@ -1103,6 +1305,21 @@ def reference_draw(payload: Payload) -> tuple[list[FitRow], list[RiskRow]]:
             except Exception as exc:  # pragma: no cover - recorded, never hidden
                 print(f"gate B unavailable on {payload.cell} n={payload.n}: {exc!r}")
     return rows, risks
+
+
+def decision_draw(payload: Payload) -> tuple[list[FitRow], list[RiskRow]]:
+    """Both arms of one **decision** draw, and the audit that certifies the frozen rungs.
+
+    One unit of work rather than two passes with a barrier, and that is the point: the two arms
+    of the comparison are the same draw's, so the pairing is structural here rather than
+    recovered afterwards by joining on a seed.  The rungs arrive on the :class:`Payload` from a
+    manifest a *different* set of draws produced, so nothing in this function chooses anything --
+    which is what makes the audit an assessment of the selection rather than a second reading of
+    it.
+    """
+    control, _ = control_draw(payload, False)
+    reference, risks = reference_draw(payload)
+    return [*control, *reference], risks
 
 
 # ------------------------------------------------------------------------------- the tables
@@ -1192,6 +1409,24 @@ def draw_risks(
     }
 
 
+def gap_draws(
+    rows: Sequence[RiskRow], cell: str, n: int, metric: str, *, phase: str, baseline: str
+) -> dict[str, dict[int, float]]:
+    """:func:`risk_gaps` keyed by draw rather than flattened to an array.
+
+    The seeds are what :func:`simultaneous_lower_bounds` needs: a bootstrap that is simultaneous
+    across comparisons has to resample the **same draws** in every one of them, and two arrays
+    sorted independently cannot say which of their entries came from the same fit.
+    """
+    means = draw_risks(rows, cell, n, metric, phase)
+    base = means.get(baseline, {})
+    return {
+        label: {seed: draws[seed] - base[seed] for seed in sorted(set(draws) & set(base))}
+        for label, draws in means.items()
+        if label != baseline
+    }
+
+
 def risk_gaps(
     rows: Sequence[RiskRow], cell: str, n: int, metric: str, *, phase: str, baseline: str
 ) -> dict[str, np.ndarray]:
@@ -1199,30 +1434,170 @@ def risk_gaps(
 
     Paired against the selected rung's own risk on the same rows and the same draw, which is
     what makes the difference a difference of squared weighted errors rather than of two noisy
-    risks.  ``baseline`` is what pass one selected for this metric's *reduction*; a metric
-    with no baseline reading returns an empty mapping rather than falling back to another
+    risks.  ``baseline`` is what the selection cohort chose for this metric's *reduction*; a
+    metric with no baseline reading returns an empty mapping rather than falling back to another
     candidate, since a gap against a rung nobody selected answers for the wrong reference.
     """
-    means = draw_risks(rows, cell, n, metric, phase)
-    base = means.get(baseline, {})
     return {
-        label: np.array(
-            [draws[seed] - base[seed] for seed in sorted(set(draws) & set(base))], dtype=float
-        )
-        for label, draws in means.items()
-        if label != baseline
+        label: np.array([draws[seed] for seed in sorted(draws)], dtype=float)
+        for label, draws in gap_draws(rows, cell, n, metric, phase=phase, baseline=baseline).items()
     }
+
+
+# ------------------------------------------- the fidelity margin, and what it is a margin of
+
+
+def weight_scales(rows: Sequence[RiskRow], cell: str, n: int, phase: str) -> dict[str, float]:
+    """Each metric's mean :attr:`RiskRow.weight_scale` over the rows a gap was taken on.
+
+    One number per metric rather than per ``(arm, fold)``, because :func:`draw_risks` has already
+    averaged those into one risk per draw and a margin has to be on the same footing as the
+    quantity it judges.
+    """
+    grouped: dict[str, list[float]] = {}
+    for row in rows:
+        if (row.cell, row.n, row.phase) != (cell, n, phase) or row.error:
+            continue
+        if np.isfinite(row.weight_scale):
+            grouped.setdefault(row.metric, []).append(float(row.weight_scale))
+    return {metric: _mean(values) for metric, values in grouped.items()}
+
+
+def noninferiority_margins(
+    fits: Sequence[FitRow],
+    risks: Sequence[RiskRow],
+    cell: str,
+    n: int,
+    chosen: Mapping[str, str],
+    *,
+    phase: str = "audit",
+) -> dict[str, float]:
+    r"""``{metric: delta_metric}`` -- how much worse the selected rung may be and still certify.
+
+    **The gate needs this because "not significantly beaten" is not fidelity.**  A confidence
+    interval containing zero establishes neither equality nor adequate approximation, and E2R's
+    first instrument passed on exactly that reading: its own record calls two rungs "genuinely
+    indistinguishable" because a doubled block turned a resolved ``-7.6e-07`` into a
+    ``-3.0e-07`` straddling zero.  Non-inferiority needs a *smallest relevant difference*
+    declared in advance, and this is it.
+
+    **The two composites are in the correction's own units, so their margin is the column's.**
+    ``held_out_risk`` returns a mean under the reweighted mass, so ``risk * weight_scale`` is
+    :math:`E_0[w (\Delta H)^2]/E_0[w]` -- a mean square perturbation of what
+    :func:`~cleverly.inference.influence.reduced_correction_parts` consumes.  Its root bounds the
+    mean by Cauchy--Schwarz, so an excess of :math:`x` moves :math:`\hat\psi` by at most
+    :math:`\sqrt{x \cdot \text{weight\_scale}}` and moves the reported column by at most
+    :math:`\sqrt n` times that.  Setting *that* at :data:`FIDELITY_FRACTION` of the cell's own
+    equivalence margin and inverting gives
+
+    .. math::
+
+        \delta_{\text{metric}}
+            = \frac{(\text{FIDELITY\_FRACTION} \cdot \delta)^2}{n \cdot \text{weight\_scale}}
+
+    which is a statement about :math:`\sqrt n R_{\text{remaining}}` and not about a risk scale.
+
+    **The three componentwise metrics take the control's distance instead**, at
+    :data:`COMPONENT_FRACTION`, because the same derivation routed through :math:`1/g^2_{lo}`
+    gives a margin below the differences the audit resolves -- a clause no rung could pass.  The
+    negative control's gap is the one scale the run itself proves is a *detectable* inadequacy,
+    and its rejection is already a gate clause, so a fraction of it is committed to rather than
+    invented.
+
+    A metric with no control reading gets ``nan``, which no comparison can be non-inferior
+    against; the missing control is separately a gate failure, so this cannot pass by absence.
+    """
+    delta = equivalence_margin(fits, cell, n, PRIMARY_ESTIMAND)
+    scales = weight_scales(risks, cell, n, phase)
+    out: dict[str, float] = {}
+    for metric in METRICS:
+        if metric.divisor is None:
+            gaps = gap_draws(
+                risks,
+                cell,
+                n,
+                metric.name,
+                phase=phase,
+                baseline=chosen.get(metric.reduction, ""),
+            )
+            control = gaps.get(NEGATIVE_CONTROL.label, {})
+            reading = _mean(list(control.values()))
+            out[metric.name] = (
+                float(COMPONENT_FRACTION * reading) if reading > 0.0 else float("nan")
+            )
+            continue
+        scale = scales.get(metric.name, float("nan"))
+        if not np.isfinite(delta) or not np.isfinite(scale) or scale <= 0.0 or n <= 0:
+            out[metric.name] = float("nan")
+            continue
+        out[metric.name] = float((FIDELITY_FRACTION * delta) ** 2 / (n * scale))
+    return out
+
+
+def simultaneous_lower_bounds(
+    gaps: Mapping[Any, Mapping[int, float]], seed: int = 20250801
+) -> tuple[dict[Any, float], int]:
+    r"""One-sided lower bounds holding **jointly** over every comparison, and the draws behind them.
+
+    A draw-level max-statistic bootstrap.  Every comparison's per-draw gaps are aligned on the
+    draws they all share, one resample of *draw indices* is taken and used in all of them at
+    once, and the quantile is of :math:`\max_j (m_j - m_{b,j})/\hat{se}_j` at
+    :data:`SIMULTANEOUS_LEVEL`.  Sharing the indices is the whole construction: the comparisons
+    are strongly dependent -- they are five metrics of three regressions against the same
+    baseline on the same fits -- and resampling them apart would treat that dependence as
+    independence.
+
+    **This is deliberate conservatism rather than a correctness repair, and saying so is part of
+    the record.**  The gate passes only when *every* comparison is non-inferior, which is an
+    intersection--union test: each bound at its own level already controls the level of the
+    conjunction, so a simultaneous bound is wider than it has to be and the gate is harder than
+    it has to be.  That is the permitted direction.  The **failure** clause runs the other way --
+    any one competitor beating the selected rung fails the cell -- and there a multiplicity
+    correction would make the gate *easier*, so that clause stays uncorrected at its own level.
+
+    Fewer than two shared draws returns no bounds rather than a wide one: an interval that cannot
+    be formed is a gap in the evidence, and :func:`gate_verdict` reads it as one.
+    """
+    keys = [key for key, draws in gaps.items() if draws]
+    if not keys:
+        return ({}, 0)
+    shared = sorted(set.intersection(*(set(gaps[key]) for key in keys)))
+    if len(shared) < 2:
+        return ({}, len(shared))
+    matrix = np.array([[gaps[key][draw] for draw in shared] for key in keys], dtype=float)
+    means = matrix.mean(axis=1)
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, len(shared), (BOOTSTRAP, len(shared)))
+    resampled = matrix[:, picks].mean(axis=2)
+    spread = resampled.std(axis=1, ddof=1)
+    safe = np.where(spread > 0.0, spread, np.inf)
+    quantile = float(
+        np.percentile(
+            ((means[:, None] - resampled) / safe[:, None]).max(axis=0), SIMULTANEOUS_LEVEL
+        )
+    )
+    lower = means - quantile * np.where(spread > 0.0, spread, 0.0)
+    return ({key: float(value) for key, value in zip(keys, lower, strict=True)}, len(shared))
 
 
 # ------------------------------------------------------------------- what pass one selected
 
 
-def selection_rows(rows: Sequence[RiskRow]) -> list[SelectionRow]:
+def selection_rows(rows: Sequence[RiskRow], *, strict: bool = True) -> list[SelectionRow]:
     """:func:`select_rung`'s verdict per cell, size and reduced regression, with its runner-up.
 
     Read off the ``select`` phase alone.  The audit rows are the same arithmetic on a different
     block and reading them here is exactly the self-certification the split exists to prevent --
     which is why ``phase`` is a field rather than a comment.
+
+    **A regression with no reading raises**, which is where E2R's first instrument skipped one.
+    :func:`select_rung` refused a regression it could not rank, and this function never reached
+    that refusal: it returned no row at all, :meth:`Payload.references` filled the hole with
+    :data:`FALLBACK_RUNG`, and the cell went on to a verdict.  The two halves of the fail-closed
+    behaviour were each written and the path between them was not.
+
+    ``strict=False`` is for the tests that construct one regression's rows deliberately, and for
+    a debug run under ``--allow-fallback``.  Nothing on the dispatch path passes it.
     """
     out: list[SelectionRow] = []
     picked = [row for row in rows if row.phase == "select"]
@@ -1243,6 +1618,13 @@ def selection_rows(rows: Sequence[RiskRow]) -> list[SelectionRow]:
                 if readings:
                     excess[metric] = readings
             if not risks:
+                if strict:
+                    raise ValueError(
+                        f"{cell} n={n:,} has no readable risk on any of {reduction}'s metrics "
+                        f"{metrics}, so nothing selected its rung. A run that carried on here "
+                        "would fit the fallback and certify it; raise --selection-draws, or pass "
+                        "--allow-fallback on a debug run that cannot decide"
+                    )
                 continue
             worst = {
                 rung.label: max(
@@ -1307,6 +1689,167 @@ def selected_knots(
     return {key: tuple(sorted(value.items())) for key, value in gathered.items()}
 
 
+# ------------------------------------- the frozen mapping, and what a decision run may read
+#
+# The selection cohort's whole output, in a file the decision run takes as an **input**.  It is
+# committed before any decision-cohort number exists, which is the discipline the rule above
+# rests on stated at the level of the artefact rather than of the constant: a mapping that could
+# still move after the deciding draws were seen would be a mapping chosen with them in view.
+
+
+@dataclass(frozen=True)
+class SelectionManifest:
+    """What ``--phase select`` writes and ``--phase decide`` is handed.
+
+    Four parts, and each is checked rather than carried for the reader.  ``rule`` is the frozen
+    constants at the selection run, so a decision run under a *changed* rule is refused instead
+    of silently re-judged.  ``configuration`` is what the reference was built at -- the block
+    sizes, the ladder, the control, the learner -- since a rung selected at one block size is not
+    a rung at another.  ``cohorts`` is the two draw sets **by seed**, which is what makes the
+    disjointness checkable at the deciding run rather than only at the selecting one.  And
+    ``selected`` is the mapping itself, with the evidence that chose it.
+    """
+
+    rule: dict[str, Any]
+    configuration: dict[str, Any]
+    cohorts: dict[str, list[list[int]]]
+    selected: list[SelectionRow]
+
+    def rungs(self) -> dict[tuple[str, int], dict[str, str]]:
+        return selected_rungs(self.selected)
+
+    def knots(self) -> dict[tuple[str, int], tuple[tuple[str, int], ...]]:
+        return selected_knots(self.selected)
+
+
+def frozen_rule() -> dict[str, Any]:
+    """Every constant a verdict is read against, as a dictionary a manifest can carry."""
+    return {
+        "equivalence_fraction": EQUIVALENCE_FRACTION,
+        "budget_fraction": BUDGET_FRACTION,
+        "fidelity_fraction": FIDELITY_FRACTION,
+        "component_fraction": COMPONENT_FRACTION,
+        "completeness_fraction": COMPLETENESS_FRACTION,
+        "simultaneous_level": SIMULTANEOUS_LEVEL,
+        "primary_estimand": PRIMARY_ESTIMAND,
+        "verdicts": list(VERDICTS),
+    }
+
+
+def write_selection_manifest(manifest: SelectionManifest, path: Path) -> Path:
+    """The manifest as JSON, sorted and indented so a commit of it is reviewable line by line."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "rule": manifest.rule,
+        "configuration": manifest.configuration,
+        "cohorts": manifest.cohorts,
+        "selected": [asdict(row) for row in manifest.selected],
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return path
+
+
+def load_selection_manifest(path: Path) -> SelectionManifest:
+    raw = json.loads(Path(path).read_text())
+    return SelectionManifest(
+        rule=dict(raw["rule"]),
+        configuration=dict(raw["configuration"]),
+        cohorts={name: [list(pair) for pair in rows] for name, rows in raw["cohorts"].items()},
+        selected=[SelectionRow(**row) for row in raw["selected"]],
+    )
+
+
+#: Which ``configuration`` keys a decision run must match the manifest on.  The reference itself
+#: -- what it was fitted on, ranked on, certified on, out of which ladder, against which control,
+#: with which learner as the comparison arm.  A rung selected at one block size is a statement
+#: about that block size, so a decision run at another is fitting a reference nothing chose.
+PINNED_CONFIGURATION = (
+    "tier",
+    "reduced_learner",
+    "reference_points",
+    "selection_points",
+    "audit_points",
+    "rungs",
+    "negative_control",
+)
+
+
+def validate_selection(
+    manifest: SelectionManifest,
+    *,
+    cells: Sequence[str],
+    sizes: Sequence[int],
+    configuration: Mapping[str, Any],
+    decision_seeds: Sequence[tuple[int, int]],
+) -> list[str]:
+    """Every reason this manifest may not decide this run.  Empty is the only passing answer.
+
+    Run **before** the decision cohort is fitted, so a run that cannot be certified is not one
+    that produced numbers first.  Five families, and the last is the one the whole two-command
+    shape exists for:
+
+    * the rule the manifest was selected under is this module's current rule;
+    * every ``(cell, size)`` the decision run declares has **exactly** one rung per reduced
+      regression, each from the declared ladder;
+    * each of those selections rests on at least :data:`COMPLETENESS_FRACTION` of the selection
+      cohort's declared draws;
+    * the reference's own configuration is the one the manifest selected at;
+    * and **no decision draw is a selection draw**.  Four disjoint quadrature blocks do not make
+      an audit independent of a data-dependent selection; disjoint *draws* do, and this is where
+      that is enforced against the record rather than against one process's memory.
+    """
+    complaints: list[str] = []
+    current = frozen_rule()
+    for key, value in current.items():
+        recorded = manifest.rule.get(key)
+        if recorded != value:
+            complaints.append(f"rule: {key} was {recorded!r} at selection and is {value!r} now")
+    for key in PINNED_CONFIGURATION:
+        wanted, held = configuration.get(key), manifest.configuration.get(key)
+        if wanted != held:
+            complaints.append(f"configuration: {key} is {wanted!r} against the manifest's {held!r}")
+
+    ladder = {rung.label for rung in RUNGS}
+    rungs = manifest.rungs()
+    declared = int(manifest.configuration.get("selection_draws", 0))
+    required = int(np.ceil(COMPLETENESS_FRACTION * declared)) if declared else 0
+    evidence = {(row.cell, row.n, row.reduction): row for row in manifest.selected}
+    for cell in cells:
+        for size in sizes:
+            chosen = rungs.get((cell, int(size)), {})
+            for name in REDUCTIONS:
+                label = chosen.get(name)
+                if label is None:
+                    complaints.append(f"selection: {cell} n={size:,} has no rung for {name}")
+                    continue
+                if label not in ladder:
+                    complaints.append(
+                        f"selection: {cell} n={size:,} chose {label!r} for {name}, which is not "
+                        f"one of {sorted(ladder)}"
+                    )
+                row = evidence[(cell, int(size), name)]
+                if required and row.draws < required:
+                    complaints.append(
+                        f"selection: {cell} n={size:,} chose {name} on {row.draws} draw(s) of the "
+                        f"{declared} declared"
+                    )
+
+    # On the **data** seed, which is the sample, and not on the ``(data, fold)`` pair.  A draw is
+    # a simulated dataset; two draws that share a data seed and differ in their fold split are
+    # the same rows under two partitions, and the selection saw those rows.
+    # ``docs/drtmle/study-manifest.md`` records C3c meeting exactly this: a batch believed fresh
+    # shared the pilot's data seeds while drawing its own splits, because ``generate_state`` is
+    # prefix-stable.  A pair-wise check passes there and is the wrong check.
+    reserved = {int(pair[0]) for pair in manifest.cohorts.get("selection", [])}
+    overlap = sorted(reserved & {int(data) for data, _ in decision_seeds})
+    if overlap:
+        complaints.append(
+            f"cohorts: {len(overlap)} decision draw(s) are selection draws -- the audit would "
+            f"assess the selection on the sample that made it, first at data seed {overlap[0]}"
+        )
+    return complaints
+
+
 def interval(values: np.ndarray, seed: int = 20250801) -> tuple[float, float]:
     """A percentile interval for a mean, resampling **draws** -- the independent unit here."""
     if values.size < 2:
@@ -1350,67 +1893,141 @@ def gate_verdict(
     cell: str,
     n: int,
     chosen: Mapping[str, str] | None = None,
+    *,
+    expected_draws: int | None = None,
 ) -> tuple[str, str]:
-    """``(verdict, reason)`` for the two measured gates in one cell.
+    """``(status, reason)`` for the two measured gates in one cell, and there are **three**.
 
-    ``pass`` only if both hold.  Anything else is ``fail``, and a failed gate makes every
-    comparison verdict in the cell ``unresolved`` -- which is a statement about the reference
-    and not about the estimator, and is repaired by a finer reference or a larger draw count
-    rather than by reading the comparison anyway.
+    ``pass`` only if every clause holds.  ``fail`` is a *resolved* inadequacy -- the control not
+    rejected, a competing rung measurably better, a rung that could not be scored at all, or the
+    randomisation budget blown -- and ``unresolved`` is a clause the run could not settle either
+    way.  Both non-pass statuses make every comparison verdict in the cell ``unresolved``; the
+    distinction is what the record then says, and it is the difference between *the reference is
+    wrong* and *this run cannot tell*.
 
-    **B is read on the audit block and on all five metrics**, and it has two clauses of which
-    the second is the one that is easy to leave out.  The negative control must be *rejected* --
-    its held-out risk strictly worse at the interval's lower end -- or the gate has no teeth and
-    cannot discriminate at this draw count; and no other rung may be strictly *better* at the
-    interval's upper end, because a comparison run at a reference another resolution beats is a
-    comparison answering for the wrong reference.
+    **B is read on the audit block, on all five metrics, and its fidelity clause is a
+    non-inferiority test.**  Three clauses:
 
-    **What E2R changes about B is which reference those clauses are about.**  E2 shipped a rung
-    and this clause caught it; here the rung is what pass one selected, the clauses are read on
-    a block the selection never saw, and they hold the *selection* to replicating out of sample.
-    So a failure now says something different from E2's: not "the shipped rung was not the best
-    one" but "the rung that won on one block is beaten on another", which is a statement about
-    how well resolved the ladder is at this block size -- and
-    ``docs/drtmle/validation-plan.md`` §8's fourth E2R clause is the lever for it.
+    * the negative control must be *rejected* -- its held-out risk strictly worse at the
+      interval's lower end -- or the gate has no teeth and cannot discriminate at this draw
+      count.  A conjunction of five such clauses needs no multiplicity correction, being an
+      intersection--union test, and a correction here would loosen a gate;
+    * no other rung may be strictly *better* at the interval's upper end, because a comparison
+      run at a reference another resolution beats is a comparison answering for the wrong
+      reference.  **This clause is unchanged and it is no longer the fidelity clause**;
+    * every other rung must be shown **no more than** :func:`noninferiority_margins`' margin
+      worse, by a lower bound holding simultaneously over all five metrics and every competing
+      rung.  This is the repair: E2R's first instrument read "not significantly beaten" as
+      fidelity, so an imprecise comparison certified the reference by default.  An interval
+      containing zero says neither that two rungs are equal nor that the selected one is good
+      enough, and this clause is what says the second.
 
-    ``chosen`` is ``{reduction: label}`` from pass one.  Without it every clause is read against
-    :data:`FALLBACK_RUNG`, which is what a debug run with no selection is doing and is recorded
-    as such rather than silently.
+    ``chosen`` is ``{reduction: label}`` from the selection cohort's committed manifest.  A
+    reduction missing from it leaves the cell ``unresolved``: E2R's first instrument read
+    :data:`FALLBACK_RUNG` there, which put a rung nobody selected into a cell that could still
+    print a verdict.
+
+    ``expected_draws`` is the decision cohort's declared count.  Fewer than
+    :data:`COMPLETENESS_FRACTION` of it, on either the audit rows or the paired comparison,
+    leaves the cell ``unresolved`` -- a bootstrap that quietly shrank to whatever survived would
+    report a thinner study as the declared one.
 
     **C is one clause and is unchanged**: the reference's own across-scramble spread against
     :data:`BUDGET_FRACTION` of the margin, read at the primary estimand.
     """
-    reasons: list[str] = []
+    failures: list[str] = []
+    open_clauses: list[str] = []
     picked = dict(chosen or {})
+
+    absent = [name for name in REDUCTIONS if name not in picked]
+    if absent:
+        open_clauses.append(f"B: no selected rung for {', '.join(absent)}")
+
+    margins = noninferiority_margins(fits, risks, cell, n, picked)
     for metric in METRICS:
-        baseline = picked.get(metric.reduction, FALLBACK_RUNG.label)
-        gaps = risk_gaps(risks, cell, n, metric.name, phase="audit", baseline=baseline)
-        control = gaps.get(NEGATIVE_CONTROL.label)
-        if control is None or control.size < 2:
-            reasons.append(f"B: {metric.name} has no control reading")
+        baseline = picked.get(metric.reduction)
+        if baseline is None:
             continue
-        if interval(control)[0] <= 0.0:
-            reasons.append(f"B: {NEGATIVE_CONTROL.label} not rejected on {metric.name}")
-        others = {rung.label for rung in RUNGS} - {baseline}
-        for label in sorted(others):
-            values = gaps.get(label, np.array([], dtype=float))
+        gaps = gap_draws(risks, cell, n, metric.name, phase="audit", baseline=baseline)
+        control = gaps.get(NEGATIVE_CONTROL.label, {})
+        if len(control) < 2:
+            open_clauses.append(f"B: {metric.name} has no control reading")
+            continue
+        if interval(_gap_array(control))[0] <= 0.0:
+            failures.append(f"B: {NEGATIVE_CONTROL.label} not rejected on {metric.name}")
+        if not np.isfinite(margins.get(metric.name, float("nan"))):
+            open_clauses.append(f"B: {metric.name} has no fidelity margin")
+        for label in sorted({rung.label for rung in RUNGS} - {baseline}):
+            values = gaps.get(label, {})
             # A rung that could not be scored is a **gap in the gate** and has to fail rather
             # than pass by absence: it is most often the points-per-parameter budget refusing
             # the finest rung on a block too thin to carry it, which means the ladder the
             # selection ranged over was shorter than the one this run declared.
-            if values.size < 2:
-                reasons.append(f"B: {label} has no reading on {metric.name}")
+            if len(values) < 2:
+                failures.append(f"B: {label} has no reading on {metric.name}")
                 continue
-            if interval(values)[1] < 0.0:
-                reasons.append(f"B: {label} beats {baseline} on {metric.name}")
+            if interval(_gap_array(values))[1] < 0.0:
+                failures.append(f"B: {label} beats {baseline} on {metric.name}")
+
+    family = audit_family(risks, cell, n, picked)
+    bounds, shared = simultaneous_lower_bounds(family)
+    if family and not bounds:
+        open_clauses.append(f"B: {shared} shared draw(s) cannot carry a simultaneous bound")
+    for (name, label), bound in sorted(bounds.items()):
+        margin = margins.get(name, float("nan"))
+        if not np.isfinite(margin):
+            continue
+        if not bound > -margin:
+            open_clauses.append(
+                f"B: {label} not shown non-inferior on {name} ({bound:+.2e} against {-margin:+.2e})"
+            )
+
+    required = 0 if expected_draws is None else int(np.ceil(COMPLETENESS_FRACTION * expected_draws))
+    if required:
+        if shared < required:
+            open_clauses.append(f"B: {shared} audit draw(s) of the {expected_draws} declared")
+        paired = paired_differences(fits, cell, n, PRIMARY_ESTIMAND).size
+        if paired < required:
+            open_clauses.append(f"D: {paired} paired draw(s) of the {expected_draws} declared")
 
     spread, draws = budget_spread(fits, cell, n, PRIMARY_ESTIMAND)
     margin = equivalence_margin(fits, cell, n, PRIMARY_ESTIMAND)
     if not np.isfinite(spread) or draws == 0:
-        reasons.append("C: no budget draw")
+        failures.append("C: no budget draw")
     elif not (spread <= BUDGET_FRACTION * margin):
-        reasons.append(f"C: sd {spread:.4f} over {BUDGET_FRACTION * margin:.4f}")
-    return ("pass", "") if not reasons else ("fail", "; ".join(reasons))
+        failures.append(f"C: sd {spread:.4f} over {BUDGET_FRACTION * margin:.4f}")
+
+    if failures:
+        return ("fail", "; ".join([*failures, *open_clauses]))
+    if open_clauses:
+        return ("unresolved", "; ".join(open_clauses))
+    return ("pass", "")
+
+
+def _gap_array(draws: Mapping[int, float]) -> np.ndarray:
+    return np.array([draws[seed] for seed in sorted(draws)], dtype=float)
+
+
+def audit_family(
+    risks: Sequence[RiskRow], cell: str, n: int, chosen: Mapping[str, str]
+) -> dict[tuple[str, str], dict[int, float]]:
+    """Every ``(metric, competing rung)`` gap the fidelity clause is read over, in one mapping.
+
+    One function so the gate and the table cannot come apart: a bound printed beside a reading
+    has to be the bound the verdict was taken at, and a second construction of the same family
+    would be free to drift into a different one.
+    """
+    family: dict[tuple[str, str], dict[int, float]] = {}
+    for metric in METRICS:
+        baseline = chosen.get(metric.reduction)
+        if baseline is None:
+            continue
+        gaps = gap_draws(risks, cell, n, metric.name, phase="audit", baseline=baseline)
+        for label in sorted({rung.label for rung in RUNGS} - {baseline}):
+            values = gaps.get(label, {})
+            if len(values) >= 2:
+                family[(metric.name, label)] = values
+    return family
 
 
 def comparison_verdict(
@@ -1420,6 +2037,8 @@ def comparison_verdict(
     n: int,
     estimand: str,
     chosen: Mapping[str, str] | None = None,
+    *,
+    expected_draws: int | None = None,
 ) -> str:
     r"""``moved`` / ``equivalent`` / ``unresolved``, against the frozen margin.
 
@@ -1435,7 +2054,7 @@ def comparison_verdict(
       learner road is shut, and the diagnosis moves to E3.
     * **unresolved** -- anything else, and every cell whose gates did not pass.
     """
-    if gate_verdict(fits, risks, cell, n, chosen)[0] != "pass":
+    if gate_verdict(fits, risks, cell, n, chosen, expected_draws=expected_draws)[0] != "pass":
         return "unresolved"
     differences = paired_differences(fits, cell, n, estimand)
     if differences.size < 2:
@@ -1449,6 +2068,110 @@ def comparison_verdict(
     if -margin <= low and high <= margin:
         return "equivalent"
     return "unresolved"
+
+
+# ------------------------------------ whether the artefact set is the one the rule declared
+
+
+@dataclass
+class IntegrityRow:
+    """One cell's completeness, and whether it may carry a verdict at all.
+
+    **Separate from the gates, and the separation is the point.**  A gate is a statement about
+    the *reference*: it can fail because a coarser rung is better, which is a finding.  This is a
+    statement about the *run*: it fails because rows are missing, which is not a finding about
+    anything and must not be reported as one.  E2R's first instrument had no such row -- it
+    printed the failed fits and exited zero -- so a cell that lost a candidate, a draw or a whole
+    selection could still print ``moved`` beside cells that had not.
+    """
+
+    cell: str
+    n: int
+    expected: int
+    paired: int
+    audit: int
+    fit_errors: int
+    risk_errors: int
+    missing: str
+    valid: bool
+
+
+def run_integrity(
+    fits: Sequence[FitRow],
+    risks: Sequence[RiskRow],
+    chosen: Mapping[tuple[str, int], Mapping[str, str]],
+    *,
+    expected_draws: int,
+) -> list[IntegrityRow]:
+    """Per cell: is this the artefact set the rule was declared over?
+
+    Four ways it is not, each of which E2R's first instrument would have run through.  The
+    selected mapping is incomplete; the paired comparison or the audit rests on fewer than
+    :data:`COMPLETENESS_FRACTION` of the declared draws; a candidate the gate reads has no
+    readable row; or a fit or a risk carries a recorded error.  Any of them makes the cell
+    invalid, and an invalid cell is ``unresolved`` whatever its numbers say.
+    """
+    required = int(np.ceil(COMPLETENESS_FRACTION * expected_draws)) if expected_draws else 0
+    out: list[IntegrityRow] = []
+    for cell, n in sorted(set(_cells(fits)) | set(_cells(risks))):
+        picked = dict(chosen.get((cell, n), {}))
+        missing = [f"rung:{name}" for name in REDUCTIONS if name not in picked]
+        audit = 0
+        for metric in METRICS:
+            baseline = picked.get(metric.reduction)
+            readings = draw_risks(risks, cell, n, metric.name, "audit")
+            wanted = {rung.label for rung in RUNGS} | {NEGATIVE_CONTROL.label}
+            missing += [
+                f"{metric.name}:{label}"
+                for label in sorted(wanted)
+                if len(readings.get(label, {})) < 2
+            ]
+            if baseline is not None and baseline in readings:
+                audit = max(audit, len(readings[baseline]))
+        paired = paired_differences(fits, cell, n, PRIMARY_ESTIMAND).size
+        fit_errors = sum(1 for row in fits if (row.cell, row.n) == (cell, n) and row.error)
+        risk_errors = sum(1 for row in risks if (row.cell, row.n) == (cell, n) and row.error)
+        out.append(
+            IntegrityRow(
+                cell=cell,
+                n=n,
+                expected=expected_draws,
+                paired=paired,
+                audit=audit,
+                fit_errors=fit_errors,
+                risk_errors=risk_errors,
+                missing=" ".join(missing) if missing else "-",
+                valid=(
+                    not missing
+                    and not risk_errors
+                    and paired >= required
+                    and audit >= required
+                    and fit_errors == 0
+                ),
+            )
+        )
+    return out
+
+
+#: Headers for :func:`integrity_rows`, declared beside it.
+INTEGRITY_HEADERS = ("cell", "n", "expected", "paired", "audit", "fit err", "risk err", "missing")
+
+
+def integrity_rows(rows: Sequence[IntegrityRow]) -> list[list[str]]:
+    """The completeness table, printed **before** the gates and read before anything else."""
+    return [
+        [
+            row.cell,
+            f"{row.n:,}",
+            str(row.expected),
+            f"{row.paired}{'' if row.valid or row.paired >= row.expected else ' !'}",
+            str(row.audit),
+            str(row.fit_errors),
+            str(row.risk_errors),
+            row.missing if row.valid else f"INVALID {row.missing}",
+        ]
+        for row in rows
+    ]
 
 
 #: Headers for :func:`selection_table`, declared beside it -- the same hazard every harness here
@@ -1506,6 +2229,8 @@ def gate_rows(
     fits: Sequence[FitRow],
     risks: Sequence[RiskRow],
     chosen: Mapping[tuple[str, int], Mapping[str, str]] | None = None,
+    *,
+    expected_draws: int | None = None,
 ) -> list[list[str]]:
     """Gates B and C, printed **before** any paired number, with the cell's verdict on each.
 
@@ -1523,6 +2248,13 @@ def gate_rows(
     visible, and a table carrying only the clause that failed would leave a reader unable to
     tell it from a rung that was never ahead.
 
+    **An ``audit`` reading carries its fidelity margin beside it**, as ``lower ... vs ...``: the
+    simultaneous one-sided lower bound of that comparison and the ``-delta_metric`` it has to
+    clear.  The bound is what the clause is read at and the interval beside it is the older
+    zero-centred statistic, kept because it is what says whether a rung is *beaten* -- which is a
+    different question from whether the selected one is *good enough*, and the two are printed
+    together so a reader can see which of them a cell turned on.
+
     ``B. divisor`` is the composite denominators' own columns -- the margin and the truncation
     share of :math:`g^*_b` and :math:`g_{r,1,b}` -- which say whether a composite loss was taken
     at a *bound-active* divisor.  Reported and not gated: a bound-active fit is not a failing
@@ -1535,24 +2267,36 @@ def gate_rows(
     rows: list[list[str]] = []
     picked = dict(chosen or {})
     verdicts = {
-        (cell, n): gate_verdict(fits, risks, cell, n, picked.get((cell, n)))
+        (cell, n): gate_verdict(
+            fits, risks, cell, n, picked.get((cell, n)), expected_draws=expected_draws
+        )
         for cell, n in sorted(set(_cells(risks)) | set(_cells(fits)))
     }
     for cell, n in _cells(risks):
+        here = picked.get((cell, n), {})
+        margins = noninferiority_margins(fits, risks, cell, n, here)
+        bounds, _ = simultaneous_lower_bounds(audit_family(risks, cell, n, here))
         for metric in METRICS:
-            baseline = picked.get((cell, n), {}).get(metric.reduction, FALLBACK_RUNG.label)
+            baseline = here.get(metric.reduction, FALLBACK_RUNG.label)
             for phase in ("audit", "select"):
                 gaps = risk_gaps(risks, cell, n, metric.name, phase=phase, baseline=baseline)
                 for label in sorted(gaps):
                     values = gaps[label]
                     low, high = interval(values)
+                    bound = bounds.get((metric.name, label))
+                    margin = margins.get(metric.name, float("nan"))
+                    against = (
+                        ""
+                        if phase != "audit" or bound is None or not np.isfinite(margin)
+                        else f" lower {bound:+.2e} vs {-margin:+.2e}"
+                    )
                     rows.append(
                         [
                             f"B. {phase} vs {label}",
                             cell,
                             f"{n:,}",
                             f"{_mean(values):+.3e} [{low:+.2e}, {high:+.2e}] on {metric.name} "
-                            f"(vs {baseline})",
+                            f"(vs {baseline}){against}",
                             str(values.size),
                             verdicts[(cell, n)][0] if phase == "audit" else "-",
                         ]
@@ -1588,8 +2332,12 @@ def gate_rows(
             ]
         )
     for (cell, n), (verdict, reason) in sorted(verdicts.items()):
-        if reason:
-            rows.append(["why", cell, f"{n:,}", reason, "-", verdict])
+        # One row per clause rather than one row carrying every clause joined. A failing cell can
+        # now hold a dozen -- five metrics, four competing rungs, two statistics -- and
+        # `format_table` pads every column to its widest entry, so a single joined row made the
+        # `reading` column of the whole table as wide as the worst cell's reason.
+        for clause in (part for part in reason.split("; ") if part):
+            rows.append(["why", cell, f"{n:,}", clause, "-", verdict])
     return rows
 
 
@@ -1613,6 +2361,8 @@ def comparison_rows(
     rows: Sequence[FitRow],
     risks: Sequence[RiskRow],
     chosen: Mapping[tuple[str, int], Mapping[str, str]] | None = None,
+    *,
+    expected_draws: int | None = None,
 ) -> list[list[str]]:
     r"""The paired comparison against the frozen margin, with its verdict.
 
@@ -1660,7 +2410,15 @@ def comparison_rows(
                     f"[{low:+.4f}, {high:+.4f}]" if differences.size > 1 else "-",
                     f"+/-{margin:.4f}" if np.isfinite(margin) else "-",
                     f"{_mean([row.companion_replicate_se for row in here]):.4f}",
-                    comparison_verdict(rows, risks, cell, n, estimand, picked.get((cell, n))),
+                    comparison_verdict(
+                        rows,
+                        risks,
+                        cell,
+                        n,
+                        estimand,
+                        picked.get((cell, n)),
+                        expected_draws=expected_draws,
+                    ),
                 ]
             )
     return out
@@ -1727,8 +2485,37 @@ def write_records(
     return paths
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--phase",
+        required=True,
+        choices=list(PHASES),
+        help="`select` fits the SELECTION cohort and writes the frozen mapping; `decide` fits "
+        "the DECISION cohort at a mapping it is handed. Two commands rather than two passes, "
+        "because the mapping has to be committed before any deciding number exists",
+    )
+    parser.add_argument(
+        "--selection",
+        type=Path,
+        default=None,
+        help="the committed manifest `--phase decide` reads. Required there and refused here: a "
+        "decision run that could also select would be choosing on the draws it decides on",
+    )
+    parser.add_argument(
+        "--selection-out",
+        type=Path,
+        default=Path("benchmarks/results/drtmle-reference/selection.json"),
+        help="where `--phase select` writes the manifest. Commit it, then pass the committed "
+        "path to `--phase decide`",
+    )
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="accept FALLBACK_RUNG for a regression nothing selected, and carry on past a "
+        "manifest that does not validate. A DEBUG switch for a run too thin to rank; no "
+        "dispatch passes it and no verdict taken under it is a verdict",
+    )
     parser.add_argument(
         "--cells",
         nargs="+",
@@ -1736,7 +2523,20 @@ def main() -> None:
         choices=list(drtmle_injection.CELLS),
     )
     parser.add_argument("--sizes", type=int, nargs="+", default=list(DEFAULT_SIZES))
-    parser.add_argument("--draws", type=int, default=DEFAULT_DRAWS)
+    parser.add_argument(
+        "--selection-draws",
+        type=int,
+        default=DEFAULT_SELECTION_DRAWS,
+        help="draws in the SELECTION cohort, which fits the control arm alone and ranks the "
+        "ladder on it",
+    )
+    parser.add_argument(
+        "--decision-draws",
+        type=int,
+        default=DEFAULT_DECISION_DRAWS,
+        help="draws in the DECISION cohort, disjoint from the selection cohort's. This sizes "
+        "the paired interval the margin is read against AND every gate-B clause",
+    )
     parser.add_argument(
         "--reference-points",
         type=int,
@@ -1784,18 +2584,50 @@ def main() -> None:
         default=Path("benchmarks/results/drtmle-reference"),
         help="where the per-fit and per-candidate JSONL go; git-ignored generated output",
     )
-    args = parser.parse_args()
+    return parser
 
-    global injection
-    injection = TIERS[args.tier]
 
-    drawn = np.random.SeedSequence(args.seed).generate_state(2 * args.draws)
-    seeds = [
-        (int(data), int(fold))
-        for data, fold in zip(drawn[: args.draws], drawn[args.draws :], strict=True)
-    ]
-    payloads = [
+def configuration(args: argparse.Namespace) -> dict[str, Any]:
+    """What the reference was built at, as the manifest carries it and the decision run checks it.
+
+    :data:`PINNED_CONFIGURATION` is the subset a decision run must *match* -- the block sizes,
+    the ladder, the control, the learner, the tier.  The rest is recorded because a reader
+    reconstructing the run needs it, not because a mismatch would invalidate anything.
+    """
+    return {
+        "tier": int(args.tier),
+        "cells": sorted(args.cells),
+        "sizes": sorted(int(size) for size in args.sizes),
+        "seed": int(args.seed),
+        "selection_draws": int(args.selection_draws),
+        "decision_draws": int(args.decision_draws),
+        "reference_points": int(args.reference_points),
+        "selection_points": int(args.selection_points),
+        "audit_points": int(args.audit_points),
+        "evaluation_points": int(args.evaluation_points),
+        "evaluation_scrambles": int(args.evaluation_scrambles),
+        "reduced_learner": REDUCED_LEARNER,
+        "rungs": [rung.label for rung in RUNGS],
+        "negative_control": NEGATIVE_CONTROL.label,
+        "reported_controls": [control.label for control in REPORTED_CONTROLS],
+    }
+
+
+def _payloads(
+    args: argparse.Namespace,
+    cohort: str,
+    seeds: Sequence[tuple[int, int]],
+    knots: Mapping[tuple[str, int], tuple[tuple[str, int], ...]] | None = None,
+) -> list[Payload]:
+    """One :class:`Payload` per ``(cell, size, draw)`` of one cohort.
+
+    The gate-C budget is carried by the **first few draws of the stream** rather than a random
+    subset, so raising ``--decision-draws`` cannot change which draws carry it -- and only on the
+    decision cohort, since gate C measures the reference arm and the selection cohort fits none.
+    """
+    return [
         Payload(
+            cohort=cohort,
             cell=cell,
             n=n,
             data_seed=data_seed,
@@ -1805,65 +2637,168 @@ def main() -> None:
             audit_points=args.audit_points,
             evaluation_points=args.evaluation_points,
             evaluation_scrambles=args.evaluation_scrambles,
-            # The budget draws are the first few of the stream rather than a random subset, so
-            # that raising `--draws` cannot change which draws carry it.
-            reference_scrambles=args.budget_scrambles if index < args.budget_draws else 1,
+            reference_scrambles=(
+                args.budget_scrambles if cohort == "decision" and index < args.budget_draws else 1
+            ),
+            rungs=() if knots is None else knots.get((cell, n), ()),
+            allow_fallback=bool(args.allow_fallback),
         )
         for cell in args.cells
         for n in args.sizes
         for index, (data_seed, fold_seed) in enumerate(seeds)
     ]
+
+
+def _table(title: str, headers: Sequence[str], rows: list[list[str]]) -> None:
+    print(f"\n{title}")
+    print("=" * len(title))
+    print(format_table(list(headers), rows))
+
+
+def select(args: argparse.Namespace) -> int:
+    """``--phase select``: rank the ladder on the selection cohort and write the mapping.
+
+    **Nothing here reads a comparison.**  The reference arm is not fitted, so there is no paired
+    difference to read, no gate B to certify against and no verdict to reach -- which is the
+    point of the split rather than an economy of it.  What this command produces is one file, and
+    the discipline is that it is committed before ``--phase decide`` runs.
+    """
+    cohorts = cohort_seeds(
+        args.seed,
+        {"selection": args.selection_draws, "decision": args.decision_draws},
+    )
+    payloads = _payloads(args, "selection", cohorts["selection"])
     print(
-        f"tier {args.tier}: {len(payloads)} draws over cells {list(args.cells)} and sizes "
-        f"{list(args.sizes)}, rungs {[rung.label for rung in RUNGS]} selected per (cell, size, "
-        f"regression) on {args.reference_points:,} fitting points against {REDUCED_LEARNER}, "
-        f"chosen on {args.selection_points:,} and certified on {args.audit_points:,}, control "
-        f"{NEGATIVE_CONTROL.label}, evaluated on {args.evaluation_scrambles} x "
-        f"{args.evaluation_points:,}, budget {args.budget_scrambles} scramble(s) on "
-        f"{args.budget_draws} draw(s), jobs={args.jobs}"
+        f"tier {args.tier} SELECT: {len(payloads)} draw(s) over cells {list(args.cells)} and "
+        f"sizes {list(args.sizes)}, ranking {[rung.label for rung in RUNGS]} per (cell, size, "
+        f"regression) against {REDUCED_LEARNER} on {args.reference_points:,} fitting points, "
+        f"chosen on {args.selection_points:,}, control {NEGATIVE_CONTROL.label}, jobs={args.jobs}"
     )
 
-    # Two passes with a barrier, which is the four-block split expressed in the control flow:
-    # pass one fits the control arm and ranks the rungs at its INITIAL pair -- a state every rung
-    # shares -- and pass two fits the reference arm at what that ranking selected. A single pass
-    # could not do it: a rung selected inside the draw that used it would be selected at a state
-    # its own fit produced.
     started = time.perf_counter()
-    first = map_parallel(control_draw, [(payload,) for payload in payloads], n_jobs=args.jobs)
-    fits = [row for batch, _ in first for row in batch]
-    risks = [row for _, batch in first for row in batch]
+    produced = map_parallel(
+        control_draw, [(payload, True) for payload in payloads], n_jobs=args.jobs
+    )
+    fits = [row for batch, _ in produced for row in batch]
+    risks = [row for _, batch in produced for row in batch]
 
-    picks = selection_rows(risks)
-    knots = selected_knots(picks)
-    chosen = selected_rungs(picks)
+    picks = selection_rows(risks, strict=not args.allow_fallback)
+    manifest = SelectionManifest(
+        rule=frozen_rule(),
+        configuration=configuration(args),
+        cohorts={name: [[data, fold] for data, fold in rows] for name, rows in cohorts.items()},
+        selected=picks,
+    )
+    written = write_selection_manifest(manifest, args.selection_out)
+    paths = write_records(fits, risks, picks, args.out)
+    elapsed = time.perf_counter() - started
+
+    _table("What the selection cohort chose", SELECTION_HEADERS, selection_table(picks))
+    _table("What it cost", COST_HEADERS, cost_rows(fits))
+
+    complaints = validate_selection(
+        manifest,
+        cells=args.cells,
+        sizes=args.sizes,
+        configuration=configuration(args),
+        decision_seeds=cohorts["decision"],
+    )
+    print("\nReading the selection")
+    print("=" * 20)
+    print(
+        "`selected` is the rung each reduced regression will be fitted at, and `beaten on` is\n"
+        "the rule's own objective: 0 says the ladder had an unbeaten member on the selection\n"
+        "block, and anything else says it did not. Whether ONE rung serves both cells is read\n"
+        "off whether the `selected` column is constant down the table and off nothing else.\n"
+        "\n"
+        "There is no gate table and no comparison here, and that is the design. This cohort\n"
+        "CHOSE the rungs, so it cannot also certify them: gate B is read on the decision\n"
+        "cohort's own draws, which this run's seeds are disjoint from.\n"
+        "\n"
+        "Commit the manifest below BEFORE dispatching `--phase decide`. A mapping that could\n"
+        "still move after the deciding draws were seen is a mapping chosen with them in view."
+    )
+    if complaints:
+        print(f"\n{len(complaints)} reason(s) this manifest cannot decide that run:")
+        for complaint in complaints:
+            print(f"  - {complaint}")
+    print(
+        f"\n{len(fits)} fit row(s), {len(risks)} gate row(s) and {len(picks)} selection row(s) "
+        f"in {elapsed:.0f}s wall clock."
+    )
+    print(f"Manifest: {written}")
+    for path in paths:
+        print(f"Rows: {path}")
+    return 1 if complaints and not args.allow_fallback else 0
+
+
+def decide(args: argparse.Namespace) -> int:
+    """``--phase decide``: fit both arms of the decision cohort at a mapping it cannot change.
+
+    The manifest is validated **before** anything is fitted, so a run that could not have been
+    certified is not a run that produced numbers first.  Nothing in this function calls
+    :func:`selection_rows`.
+    """
+    if args.selection is None:
+        print("--phase decide needs --selection pointing at a committed manifest")
+        return 2
+    manifest = load_selection_manifest(args.selection)
+    cohorts = cohort_seeds(
+        args.seed,
+        {"selection": args.selection_draws, "decision": args.decision_draws},
+    )
+    complaints = validate_selection(
+        manifest,
+        cells=args.cells,
+        sizes=args.sizes,
+        configuration=configuration(args),
+        decision_seeds=cohorts["decision"],
+    )
+    if complaints:
+        print(f"{args.selection} cannot decide this run:")
+        for complaint in complaints:
+            print(f"  - {complaint}")
+        if not args.allow_fallback:
+            return 1
+        print("--allow-fallback: continuing on a manifest that does not validate. NOT a verdict.")
+
+    chosen, knots = manifest.rungs(), manifest.knots()
+    payloads = _payloads(args, "decision", cohorts["decision"], knots)
     summary = "; ".join(
         f"{cell} n={n:,} " + " ".join(f"{name}={label}" for name, label in sorted(rungs.items()))
         for (cell, n), rungs in sorted(chosen.items())
     )
-    print(f"\npass one selected: {summary}")
+    print(
+        f"tier {args.tier} DECIDE: {len(payloads)} draw(s) over cells {list(args.cells)} and "
+        f"sizes {list(args.sizes)}, at {args.selection}'s rungs -- {summary} -- certified on "
+        f"{args.audit_points:,} points against control {NEGATIVE_CONTROL.label}, evaluated on "
+        f"{args.evaluation_scrambles} x {args.evaluation_points:,}, budget "
+        f"{args.budget_scrambles} scramble(s) on {args.budget_draws} draw(s), jobs={args.jobs}"
+    )
 
-    selected = [
-        (replace(payload, rungs=knots.get((payload.cell, payload.n), ())),) for payload in payloads
-    ]
-    second = map_parallel(reference_draw, selected, n_jobs=args.jobs)
+    started = time.perf_counter()
+    produced = map_parallel(decision_draw, [(payload,) for payload in payloads], n_jobs=args.jobs)
     elapsed = time.perf_counter() - started
-    fits += [row for batch, _ in second for row in batch]
-    risks += [row for _, batch in second for row in batch]
-    paths = write_records(fits, risks, picks, args.out)
+    fits = [row for batch, _ in produced for row in batch]
+    risks = [row for _, batch in produced for row in batch]
+    paths = write_records(fits, risks, manifest.selected, args.out)
 
-    def table(title: str, headers: Sequence[str], rows: list[list[str]]) -> None:
-        print(f"\n{title}")
-        print("=" * len(title))
-        print(format_table(list(headers), rows))
-
-    table("What pass one selected", SELECTION_HEADERS, selection_table(picks))
-    table(
+    integrity = run_integrity(fits, risks, chosen, expected_draws=args.decision_draws)
+    _table(
+        "Is this the artefact set the rule declared", INTEGRITY_HEADERS, integrity_rows(integrity)
+    )
+    _table("What the selection cohort chose", SELECTION_HEADERS, selection_table(manifest.selected))
+    _table(
         "The fidelity gates, and read these first",
         GATE_HEADERS,
-        gate_rows(fits, risks, chosen),
+        gate_rows(fits, risks, chosen, expected_draws=args.decision_draws),
     )
-    table("The paired comparison", COMPARISON_HEADERS, comparison_rows(fits, risks, chosen))
-    table("What it cost", COST_HEADERS, cost_rows(fits))
+    _table(
+        "The paired comparison",
+        COMPARISON_HEADERS,
+        comparison_rows(fits, risks, chosen, expected_draws=args.decision_draws),
+    )
+    _table("What it cost", COST_HEADERS, cost_rows(fits))
 
     failures = [row for row in fits if row.error]
     if failures:
@@ -1872,21 +2807,35 @@ def main() -> None:
     print("\nReading the numbers")
     print("=" * 19)
     print(
-        "Read the selection table first, because every number under it is conditional on\n"
-        "which rung each reduced regression was fitted at. `worst excess` is the winner's\n"
-        "own relative excess risk on its worst metric and `runner-up` is the next rung's:\n"
-        "two rungs within a per cent of each other is a ladder that cannot tell them apart.\n"
-        "Whether ONE rung serves both cells is read off whether the `selected` column is\n"
-        "constant down this table, and off nothing else.\n"
+        "Read the integrity table first, and read nothing else in a cell it marks INVALID.\n"
+        "It says whether the rows this run produced are the rows the rule was declared over:\n"
+        "a complete selected mapping, every candidate readable, and at least "
+        f"{COMPLETENESS_FRACTION:.0%} of\n"
+        "the declared draws on both the paired comparison and the audit. An invalid cell is a\n"
+        "statement about the RUN and not about the reference, and the command exits non-zero\n"
+        "so a workflow cannot report it green.\n"
+        "\n"
+        "Then the selection table, because every number under it is conditional on which rung\n"
+        "each reduced regression was fitted at. It was produced by a DIFFERENT cohort of draws,\n"
+        "disjoint from this one's -- which is what makes the audit below an assessment of that\n"
+        "selection rather than a second reading of it.\n"
         "\n"
         "Then the gate table, as differences with intervals. `B. audit vs` is a candidate's\n"
         "held-out weighted risk MINUS the SELECTED rung's, on rows neither the selection nor\n"
-        "the candidate saw. A positive value says the selected rung is the better estimate;\n"
-        "a negative one says another rung beats it, which fails the gate. `B. select vs` is\n"
-        "the same difference on the block that chose, printed beside it so a rung that won\n"
-        "there and lost here is visible rather than inferred. It is a difference and never\n"
-        "a ratio, because a risk carries the irreducible variance of its own target and\n"
-        "that part is common to every candidate.\n"
+        "the candidate saw, followed by `lower ... vs ...`: the SIMULTANEOUS one-sided lower\n"
+        "bound of that difference and the -delta_metric it has to clear. The gate passes on the\n"
+        "BOUND and not on the interval. An interval that merely straddles zero certifies\n"
+        "nothing -- it says the run cannot tell two rungs apart, which is why `unresolved` is a\n"
+        "gate status here and not only a verdict. The interval is still printed, because a\n"
+        "candidate whose interval lies wholly below zero is BEATEN, and that is a different\n"
+        "finding from one that is merely unproven.\n"
+        "\n"
+        "delta_metric is frozen as a fraction, not as a number. On `h3` and `h2` -- the two\n"
+        "composites, which are in the correction's own units -- it is the excess risk that\n"
+        f"could move sqrt(n) R_remaining by {FIDELITY_FRACTION:.3f} of the margin, which is\n"
+        "gate C's own share and bounds the reference's SMOOTHING error exactly as gate C bounds\n"
+        f"its quadrature error. On `qr`, `gr1` and `gr2` it is {COMPONENT_FRACTION:.0%} of the\n"
+        "measured distance to the negative control, whose rejection is itself a gate clause.\n"
         "\n"
         "Five metrics, not three. `qr`, `gr1` and `gr2` are the componentwise risks; `h3`\n"
         "and `h2` are the same regressions scored where the fit's correction DIVIDES --\n"
@@ -1909,9 +2858,9 @@ def main() -> None:
         "of these numbers existed (docs/drtmle/validation-plan.md section 8). `moved` is the\n"
         "interval wholly outside it -- candidate 1 alive, E2b fires; `equivalent` is wholly\n"
         "inside -- candidate 1 dead, the diagnosis moves to E3; `unresolved` is anything else\n"
-        "and is a THIRD verdict, not a weak `equivalent`. A failed gate makes its whole cell\n"
-        "unresolved, and the repair is a finer reference or more draws rather than reading\n"
-        "the comparison anyway.\n"
+        "and is a THIRD verdict, not a weak `equivalent`. A failed or unresolved gate makes its\n"
+        "whole cell unresolved, and the repair is a finer reference or more draws rather than\n"
+        "reading the comparison anyway.\n"
         "\n"
         "The ATE row is the one the piece branches on and the two arm means are supporting;\n"
         "both were declared before the run rather than chosen from the table.\n"
@@ -1922,11 +2871,28 @@ def main() -> None:
         "at E5."
     )
     print(
-        f"\n{len(fits)} fit row(s), {len(risks)} gate row(s) and {len(picks)} selection row(s) "
-        f"in {elapsed:.0f}s wall clock."
+        f"\n{len(fits)} fit row(s) and {len(risks)} gate row(s) in {elapsed:.0f}s wall clock, "
+        f"at the mapping in {args.selection}."
     )
     for path in paths:
         print(f"Rows: {path}")
+
+    invalid = [row for row in integrity if not row.valid]
+    if invalid:
+        print(
+            f"\n{len(invalid)} cell(s) INVALID for branching: "
+            + ", ".join(f"{row.cell} n={row.n:,}" for row in invalid)
+        )
+    return 1 if invalid else 0
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+
+    global injection
+    injection = TIERS[args.tier]
+
+    raise SystemExit(select(args) if args.phase == "select" else decide(args))
 
 
 if __name__ == "__main__":

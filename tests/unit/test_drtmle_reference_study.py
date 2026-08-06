@@ -26,6 +26,7 @@ number rather than an error:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from itertools import pairwise
 from typing import Any
 
@@ -38,6 +39,7 @@ from benchmarks import drtmle_reference_study as study
 def fit_row(**overrides: Any) -> study.FitRow:
     """One :class:`~benchmarks.drtmle_reference_study.FitRow` with everything else declared."""
     fields: dict[str, Any] = {
+        "cohort": "decision",
         "cell": "q-drift",
         "n": 600,
         "data_seed": 1,
@@ -70,6 +72,7 @@ SELECTED = study.RUNGS[1].label
 
 def risk_row(**overrides: Any) -> study.RiskRow:
     fields: dict[str, Any] = {
+        "cohort": "decision",
         "cell": "q-drift",
         "n": 600,
         "data_seed": 1,
@@ -95,6 +98,7 @@ def chosen(label: str = SELECTED) -> dict[tuple[str, int], dict[str, str]]:
 def payload(**overrides: Any) -> study.Payload:
     """One draw's declaration, with small point counts and everything else spelled out."""
     fields: dict[str, Any] = {
+        "cohort": "decision",
         "cell": "q-drift",
         "n": 600,
         "data_seed": 11,
@@ -183,8 +187,8 @@ class TestTheBlocksPlayFourRolesAndDoNotShareOne:
         ]
 
 
-class TestASelectionIsARungOrAVisibleFallback:
-    """What pass two is handed, and what it does where pass one chose nothing."""
+class TestASelectionIsARungOrItIsNothing:
+    """What the decision cohort is handed, and what it does where nothing was chosen."""
 
     def test_the_selected_knots_are_routed_per_regression(self) -> None:
         rungs = payload(rungs=(("qr", 8), ("gr1", 32), ("gr2", 16))).references()
@@ -195,10 +199,17 @@ class TestASelectionIsARungOrAVisibleFallback:
             "spline(16)",
         ]
 
-    def test_an_unselected_regression_falls_back_visibly(self) -> None:
-        """To E2's own shipped rung, so a fallback reads as *E2's* choice in the record rather
-        than as a selection nobody made."""
-        rungs = payload(rungs=(("qr", 8),)).references()
+    def test_an_unselected_regression_refuses_to_be_fitted(self) -> None:
+        """The fallback this replaced was defended as *visible* -- E2's own shipped rung, named
+        in the record -- and it was visible in the record and not in the verdict.  A lost
+        selection row produced a reference nobody chose, an audit that could still be scored
+        against it, and a cell that printed ``moved`` like any other."""
+        with pytest.raises(ValueError, match="no selected rung"):
+            payload(rungs=(("qr", 8),)).references()
+
+    def test_the_debug_switch_is_the_only_way_back_to_the_fallback(self) -> None:
+        """``--allow-fallback`` exists for a run too thin to rank, and no dispatch passes it."""
+        rungs = payload(rungs=(("qr", 8),), allow_fallback=True).references()
 
         assert rungs["qr"].label == "spline(8)"
         assert rungs["gr1"].label == study.FALLBACK_RUNG.label
@@ -475,7 +486,9 @@ class TestTheRungIsSelectedOnTheGatesOwnStatistic:
             for label, offset in offsets.items()
         ]
 
-        picked = [row for row in study.selection_rows(rows) if row.reduction == "qr"]
+        # `strict=False` because these rows are one regression's on purpose; the strict path is
+        # what `TestSelectionEvidenceCannotBeMissing` exercises.
+        picked = [row for row in study.selection_rows(rows, strict=False) if row.reduction == "qr"]
 
         # A tie on one beat each, broken to the coarsest, with the count on the record.
         assert [row.selected for row in picked] == [study.RUNGS[0].label]
@@ -822,6 +835,10 @@ class TestTheTablesAreWhatTheirHeadersSay:
             (study.gate_rows(fits, risks, chosen()), study.GATE_HEADERS),
             (study.comparison_rows(fits, risks, chosen()), study.COMPARISON_HEADERS),
             (study.cost_rows(fits), study.COST_HEADERS),
+            (
+                study.integrity_rows(study.run_integrity(fits, risks, chosen(), expected_draws=3)),
+                study.INTEGRITY_HEADERS,
+            ),
         ):
             assert built
             assert all(len(row) == len(headers) for row in built), headers
@@ -837,3 +854,420 @@ class TestTheTablesAreWhatTheirHeadersSay:
         cells = dict(zip(study.COST_HEADERS, study.cost_rows(fits)[0], strict=True))
 
         assert cells["fits"] == "3"
+
+
+# ------------------------------------------------- what the PR #76 review found, as tests
+#
+# Three defects, each of which let gate B pass without establishing that the selected reference
+# is adequate, and each with the acceptance test the review asked for.  They are grouped apart
+# from the classes above because the classes above are about the *instrument* and these are about
+# the **experiment**: what a rung was chosen on, what it was certified against, and whether a
+# missing reading can reach a verdict.
+
+
+def parsed(argv: Sequence[str] = ()) -> Any:
+    """The real parser, so a test cannot pass a configuration the command would reject."""
+    return study.build_parser().parse_args(
+        ["--phase", "select", "--cells", "q-drift", "--sizes", "600", *argv]
+    )
+
+
+def manifest(**overrides: Any) -> study.SelectionManifest:
+    """A complete, valid manifest for one cell -- the thing a decision run is handed."""
+    args = parsed(["--selection-draws", "16", "--decision-draws", "32"])
+    cohorts = study.cohort_seeds(args.seed, {"selection": 16, "decision": 32})
+    fields: dict[str, Any] = {
+        "rule": study.frozen_rule(),
+        "configuration": study.configuration(args),
+        "cohorts": {name: [list(pair) for pair in rows] for name, rows in cohorts.items()},
+        "selected": [
+            study.SelectionRow(
+                cell="q-drift",
+                n=600,
+                reduction=name,
+                selected=SELECTED,
+                beaten=0,
+                excess=0.0,
+                runner_up="-",
+                runner_up_excess=float("nan"),
+                metrics=" ".join(study.METRICS_OF[name]),
+                draws=16,
+            )
+            for name in study.REDUCTIONS
+        ],
+    }
+    fields.update(overrides)
+    return study.SelectionManifest(**fields)
+
+
+class TestSelectionAndDecisionAreDisjointDraws:
+    """The review's first blocker: the audit was split at the QMC row and not at the draw.
+
+    Four disjoint scramble streams split the **integration** noise.  They do not make an audit
+    independent of a data-dependent selection, because the quadrature is not what was reused:
+    both risk tables were functions of the same fitted samples, the same fold assignments and the
+    same draw-specific nuisance states, and the rung was chosen *across those draws*.  The draw is
+    the independent unit -- `draw_risks` averages within one and every interval resamples them --
+    so the repair is at the draw.
+    """
+
+    def test_no_draw_is_in_both_cohorts(self) -> None:
+        """On the **data** seed, which is the sample, and not on the `(data, fold)` pair.
+
+        Two draws that share a data seed and differ in their split are the same rows under two
+        partitions, and the selection saw those rows. `study-manifest.md` records C3c meeting
+        exactly that -- a batch believed fresh shared the pilot's data seeds while drawing its
+        own splits, because `SeedSequence.generate_state` is prefix-stable -- so a pair-wise
+        check passes there and is the wrong check.
+        """
+        cohorts = study.cohort_seeds(20250801, {"selection": 16, "decision": 32})
+
+        assert len(cohorts["selection"]) == 16
+        assert len(cohorts["decision"]) == 32
+        assert not {data for data, _ in cohorts["selection"]} & {
+            data for data, _ in cohorts["decision"]
+        }
+
+    def test_neither_cohort_is_a_prefix_of_one_stream(self) -> None:
+        """Spawned children rather than one stream sliced in two.
+
+        A slice is prefix-stable, so raising one cohort's count would shift which draws the other
+        took -- and, with the two halves of one stream read as data and fold seeds, the longer
+        cohort's data seeds would *be* the shorter one's two halves.
+        """
+        small = study.cohort_seeds(20250801, {"selection": 4, "decision": 32})
+        large = study.cohort_seeds(20250801, {"selection": 64, "decision": 32})
+
+        assert small["decision"] == large["decision"]
+        assert not {data for data, _ in large["selection"]} & {
+            data for data, _ in large["decision"]
+        }
+
+    def test_both_arms_of_a_decision_draw_carry_one_payload(self) -> None:
+        """The pairing is structural rather than recovered by joining on a seed afterwards.
+
+        `decision_draw` fits the control arm and the reference arm from **one** payload, so they
+        see the same rows, the same split and the same evaluation windows -- which is what makes
+        the difference paired and cancels the evaluation rule's own error.
+        """
+        args = parsed(["--decision-draws", "3"])
+        seeds = study.cohort_seeds(args.seed, {"selection": 2, "decision": 3})["decision"]
+        payloads = study._payloads(args, "decision", seeds, {("q-drift", 600): (("qr", 8),)})
+
+        assert [(row.data_seed, row.fold_seed) for row in payloads] == list(seeds)
+        assert {row.cohort for row in payloads} == {"decision"}
+
+    def test_a_manifest_whose_draws_are_this_runs_draws_is_refused(self) -> None:
+        """The check that makes the disjointness a property of the *pair* of runs.
+
+        A run could otherwise be handed a manifest selected on its own draws -- by a rerun at the
+        same seed, or by a hand-edited file -- and nothing inside one process could see it.
+        """
+        args = parsed(["--decision-draws", "32"])
+        seeds = study.cohort_seeds(args.seed, {"selection": 16, "decision": 32})["decision"]
+        reused = manifest(
+            cohorts={"selection": [list(pair) for pair in seeds], "decision": []},
+        )
+
+        complaints = study.validate_selection(
+            reused,
+            cells=["q-drift"],
+            sizes=[600],
+            configuration=study.configuration(args),
+            decision_seeds=seeds,
+        )
+
+        assert any("decision draw(s) are selection draws" in line for line in complaints)
+
+
+class TestTheDecisionCommandCannotSelect:
+    """`--phase decide` reads a mapping and does not choose one, and that is enforced."""
+
+    def test_deciding_never_calls_the_selection(self, tmp_path: Any, monkeypatch: Any) -> None:
+        written = study.write_selection_manifest(manifest(), tmp_path / "selection.json")
+        args = parsed(
+            [
+                "--phase",
+                "decide",
+                "--selection",
+                str(written),
+                "--selection-draws",
+                "16",
+                "--decision-draws",
+                "32",
+                "--out",
+                str(tmp_path / "rows"),
+            ]
+        )
+
+        def refuse(*_: Any, **__: Any) -> None:
+            raise AssertionError("a decision run selected a rung")
+
+        monkeypatch.setattr(study, "selection_rows", refuse)
+        monkeypatch.setattr(study, "select_rung", refuse)
+        monkeypatch.setattr(study, "map_parallel", lambda *_, **__: [])
+
+        assert study.decide(args) == 0
+
+    def test_deciding_without_a_manifest_is_refused(self, tmp_path: Any) -> None:
+        args = parsed(["--phase", "decide", "--out", str(tmp_path / "rows")])
+
+        assert study.decide(args) == 2
+
+
+class TestTheFidelityClauseIsNonInferiorityAndNotSignificance:
+    """The review's second blocker: failure to show superiority was read as fidelity.
+
+    E2R's first instrument failed gate B only when a competitor's interval lay **wholly below
+    zero**, so an imprecise comparison passed by default -- and the record says so in its own
+    words, calling two rungs "genuinely indistinguishable" because a doubled block turned a
+    resolved `-7.6e-07` into a `-3.0e-07` straddling zero.  An interval containing zero
+    establishes neither equality nor adequate approximation.
+    """
+
+    def _gate(self, metric: str, label: str, gaps: Sequence[float]) -> list[study.RiskRow]:
+        """`_passing_gate` with one `(metric, rung)` comparison replaced by a declared pattern.
+
+        The baseline's risk is `1e-3` on every metric and draw, so a gap *is* the offset.
+        """
+        rows = [
+            row for row in _passing_gate() if not (row.metric == metric and row.candidate == label)
+        ]
+        reduction = next(m.reduction for m in study.METRICS if m.name == metric)
+        rows += [
+            risk_row(
+                data_seed=seed,
+                metric=metric,
+                reduction=reduction,
+                candidate=label,
+                risk=1e-3 + gap,
+            )
+            for seed, gap in enumerate(gaps)
+        ]
+        return rows
+
+    def test_the_composite_margin_is_the_column_in_risk_units(self) -> None:
+        r"""`(FIDELITY_FRACTION * delta)^2 / (n * weight_scale)`, and nothing measured after.
+
+        An excess risk `x` on a composite is a mean square perturbation of the correction, so its
+        root bounds the mean by Cauchy--Schwarz and `sqrt(n)` times that bounds the column.
+        """
+        fits = _arms([-0.9] * 8, level=2.0, scrambles=3)
+        risks = [risk_row(**vars(row)) for row in _passing_gate()]
+        for row in risks:
+            if row.metric in ("h3", "h2"):
+                row.weight_scale = 4.0
+
+        margins = study.noninferiority_margins(
+            fits, risks, "q-drift", 600, chosen()[("q-drift", 600)]
+        )
+
+        assert study.equivalence_margin(fits, "q-drift", 600, "ate") == pytest.approx(0.5)
+        assert margins["h3"] == pytest.approx((study.FIDELITY_FRACTION * 0.5) ** 2 / (600 * 4.0))
+        # And the three componentwise metrics take the control's own measured distance instead.
+        assert margins["qr"] == pytest.approx(study.COMPONENT_FRACTION * 4.0e-3, rel=1e-2)
+
+    def test_a_wide_interval_crossing_zero_and_the_margin_is_unresolved(self) -> None:
+        """**Not** a pass.  This is the exact reading the repair removes: an interval that
+        straddles zero says the run cannot tell two rungs apart, which is a statement about the
+        study's precision and not a certification of the reference."""
+        fits = _arms([-0.9] * 8, level=2.0, scrambles=3)
+        risks = self._gate("h3", study.RUNGS[0].label, [5e-4 * (-1) ** i for i in range(8)])
+
+        verdict, reason = study.gate_verdict(
+            fits, risks, "q-drift", 600, chosen()[("q-drift", 600)]
+        )
+
+        assert verdict == "unresolved"
+        assert "not shown non-inferior on h3" in reason
+
+    def test_a_non_significant_gap_below_the_margin_does_not_pass(self) -> None:
+        """The same clause at a gap that is not wild: mean near zero, spread wide enough that the
+        lower bound sits under `-delta_metric`.  Nothing here is significant at zero, and under
+        the old rule that alone certified the reference."""
+        fits = _arms([-0.9] * 8, level=2.0, scrambles=3)
+        risks = self._gate("h2", study.RUNGS[0].label, [1e-4 * (-1) ** i for i in range(8)])
+
+        verdict, reason = study.gate_verdict(
+            fits, risks, "q-drift", 600, chosen()[("q-drift", 600)]
+        )
+
+        assert verdict != "pass"
+        assert "not shown non-inferior on h2" in reason
+        assert "beats" not in reason
+
+    def test_a_difference_inside_the_margin_satisfies_non_inferiority(self) -> None:
+        """A consistent gap of `1e-05` against a margin of `4.6e-05`: the selected rung is shown
+        to be at most practically worse, which is what the clause asks.
+
+        **The cell still fails**, on the separate and unchanged clause that no competing rung may
+        be measurably better at all.  The two are kept apart on purpose -- the review asked for a
+        non-inferiority gate and this repository's own rule forbids *loosening* a clause once
+        numbers exist, so the fidelity clause was added beside the superiority one rather than in
+        place of it.  A cell that fails only on superiority with every bound clear is a real
+        finding: a finely resolved ladder whose selected rung is not its best.
+        """
+        fits = _arms([-0.9] * 8, level=2.0, scrambles=3)
+        label = study.RUNGS[0].label
+        risks = self._gate("h3", label, [-1e-5 - 1e-9 * i for i in range(8)])
+        picked = chosen()[("q-drift", 600)]
+
+        margins = study.noninferiority_margins(fits, risks, "q-drift", 600, picked)
+        bounds, _ = study.simultaneous_lower_bounds(
+            study.audit_family(risks, "q-drift", 600, picked)
+        )
+
+        assert bounds[("h3", label)] > -margins["h3"]
+        verdict, reason = study.gate_verdict(fits, risks, "q-drift", 600, picked)
+        assert verdict == "fail"
+        assert f"{label} beats {SELECTED} on h3" in reason
+        assert "not shown non-inferior on h3" not in reason
+
+    def test_the_bound_is_simultaneous_across_comparisons(self) -> None:
+        """One resample of *draw indices*, shared by every comparison.
+
+        The comparisons are five metrics of three regressions against one baseline on the same
+        fits, so they are strongly dependent; resampling them apart would treat that dependence
+        as independence.  Being simultaneous, each bound is at or below its own per-comparison
+        one, which is deliberate conservatism -- the conjunction is an intersection--union test
+        and needs no correction at all.
+        """
+        picked = chosen()[("q-drift", 600)]
+        risks = _passing_gate()
+        family = study.audit_family(risks, "q-drift", 600, picked)
+        bounds, shared = study.simultaneous_lower_bounds(family)
+
+        assert shared == 8
+        assert set(bounds) == set(family)
+        for key, values in family.items():
+            alone = study.interval(np.array([values[seed] for seed in sorted(values)]))[0]
+            assert bounds[key] <= alone + 1e-12
+
+    def test_too_few_shared_draws_carry_no_bound(self) -> None:
+        """An interval that cannot be formed is a gap in the evidence, not a wide one."""
+        bounds, shared = study.simultaneous_lower_bounds({("qr", "spline(8)"): {1: 0.5}})
+
+        assert (bounds, shared) == ({}, 1)
+
+
+class TestMissingEvidenceCannotReachAVerdict:
+    """The review's third blocker: a lost reading fell back and the run still decided."""
+
+    def test_a_regression_with_no_reading_raises_in_strict_mode(self) -> None:
+        """`select_rung` refused a regression it could not rank and `selection_rows` never
+        reached that refusal: it returned no row, `Payload.references` filled the hole with
+        `FALLBACK_RUNG`, and the cell went on to a verdict.  Both halves of the fail-closed
+        behaviour were written and the path between them was not."""
+        rows = [
+            risk_row(data_seed=seed, phase="select", metric=metric, reduction=reduction)
+            for seed in range(8)
+            # `gr1` is wholly absent, which is one lost selection row.
+            for metric, reduction in (("qr", "qr"), ("h3", "qr"), ("gr2", "gr2"), ("h2", "gr2"))
+        ]
+
+        with pytest.raises(ValueError, match="nothing selected its rung"):
+            study.selection_rows(rows)
+
+        assert {row.reduction for row in study.selection_rows(rows, strict=False)} == {"qr", "gr2"}
+
+    def test_a_cell_with_no_selected_rung_cannot_pass(self) -> None:
+        """Every decision verdict names an explicit label or the cell is `unresolved`."""
+        fits = _arms([-0.9] * 8, level=2.0, scrambles=3)
+        risks = _passing_gate()
+
+        verdict, reason = study.gate_verdict(fits, risks, "q-drift", 600, {"qr": SELECTED})
+
+        assert verdict == "unresolved"
+        assert "no selected rung for gr1, gr2" in reason
+        assert study.comparison_verdict(fits, risks, "q-drift", 600, "ate", None) == "unresolved"
+
+    def test_two_readable_draws_of_thirty_two_is_unresolved_and_invalid(self) -> None:
+        """A bootstrap that quietly shrank from 32 draws to whatever survived would report a
+        thinner study as the declared one.  Both halves are checked: the cell cannot carry a
+        verdict, and the **run** is marked invalid for branching."""
+        fits = _arms([-0.9] * 2, level=2.0, scrambles=3)
+        risks = [row for row in _passing_gate() if row.data_seed < 2]
+        picked = chosen()
+
+        verdict, reason = study.gate_verdict(
+            fits, risks, "q-drift", 600, picked[("q-drift", 600)], expected_draws=32
+        )
+        integrity = study.run_integrity(fits, risks, picked, expected_draws=32)
+
+        assert verdict == "unresolved"
+        assert "of the 32 declared" in reason
+        assert [row.valid for row in integrity] == [False]
+        assert (
+            study.comparison_verdict(
+                fits, risks, "q-drift", 600, "ate", picked[("q-drift", 600)], expected_draws=32
+            )
+            == "unresolved"
+        )
+
+    def test_a_recorded_error_invalidates_the_cell(self) -> None:
+        """A refused candidate is a gap in the gate, and a gap has to look like one."""
+        fits = _arms([-0.9] * 8, level=2.0, scrambles=3)
+        risks = [*_passing_gate(), risk_row(data_seed=99, error="ValueError")]
+
+        integrity = study.run_integrity(fits, risks, chosen(), expected_draws=8)
+
+        assert [row.valid for row in integrity] == [False]
+        assert [row.risk_errors for row in integrity] == [1]
+
+    def test_a_complete_cell_is_valid(self) -> None:
+        """The negative control on the class: everything above has to be reachable *and* the
+        ordinary case has to pass, or the integrity row is a constant."""
+        integrity = study.run_integrity(
+            _arms([-0.9] * 8, level=2.0, scrambles=3),
+            _passing_gate(),
+            chosen(),
+            expected_draws=8,
+        )
+
+        assert [row.valid for row in integrity] == [True]
+
+
+class TestTheManifestIsCheckedBeforeAnythingIsFitted:
+    """A run that could not have been certified must not be one that produced numbers first."""
+
+    def _complaints(self, held: study.SelectionManifest, **overrides: Any) -> list[str]:
+        args = parsed(["--decision-draws", "32", *overrides.pop("argv", [])])
+        return study.validate_selection(
+            held,
+            cells=["q-drift"],
+            sizes=[600],
+            configuration=study.configuration(args),
+            decision_seeds=study.cohort_seeds(args.seed, {"selection": 16, "decision": 32})[
+                "decision"
+            ],
+        )
+
+    def test_a_complete_manifest_has_nothing_to_say(self) -> None:
+        assert self._complaints(manifest()) == []
+
+    def test_a_missing_regression_is_named(self) -> None:
+        held = manifest(selected=[row for row in manifest().selected if row.reduction != "gr1"])
+
+        assert any("has no rung for gr1" in line for line in self._complaints(held))
+
+    def test_a_rule_that_moved_after_the_selection_is_refused(self) -> None:
+        """The constants may be changed before a dispatch and not after one, and a two-command
+        study is where that stops being an honour system: the manifest records the rule it was
+        selected under and the decision run compares."""
+        held = manifest(rule={**study.frozen_rule(), "equivalence_fraction": 0.5})
+
+        assert any("equivalence_fraction" in line for line in self._complaints(held))
+
+    def test_a_reference_built_at_another_resolution_is_refused(self) -> None:
+        """A rung selected at one block size is a statement about that block size."""
+        args = parsed()
+        held = manifest(configuration={**study.configuration(args), "reference_points": 4_096})
+
+        assert any("reference_points" in line for line in self._complaints(held))
+
+    def test_a_selection_taken_on_too_few_draws_is_refused(self) -> None:
+        held = manifest(
+            selected=[replace(row, draws=2) for row in manifest().selected],
+        )
+
+        assert any("of the 16 declared" in line for line in self._complaints(held))

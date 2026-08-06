@@ -751,7 +751,10 @@ claimed against — and a **pre-flight table** carrying all three conditions as 
 are stated in [the design note's repair section](coverage-study.md#the-repair-and-what-would-say-each-half-of-it-is-wrong)
 and are not restated here, for this document's standing reason.
 
-### Evaluating `P₀D̂`, which is not automatic for a cross-fitted fit
+### Evaluating the estimated curve under the true law, which is not automatic for a cross-fitted fit
+
+`P₀D̂` — the true law's mean of the *estimated* influence curve, which is what §5's own
+`branch_error` and every remainder column below are taken against.
 
 **Never substitute `P_nD̂`** — that is the quantity targeting drove to zero, so it answers a
 different question. But out-of-fold prediction arrays at the observed rows do not define functions
@@ -1392,7 +1395,10 @@ cost table prices a **fit** rather than a draw.
 **It may be changed before the dispatch with a written reason, and not after it.** The
 constants are `benchmarks/drtmle_reference_study.py`'s `EQUIVALENCE_FRACTION`,
 `BUDGET_FRACTION` and `PRIMARY_ESTIMAND`, printed in every run's banner so that the record and
-the rule cannot come apart.
+the rule cannot come apart. [The decision protocol](#the-decision-protocol-frozen-before-the-dispatch)
+adds `FIDELITY_FRACTION`, `COMPONENT_FRACTION` and `COMPLETENESS_FRACTION` beside them, each an
+**addition** making a verdict harder to reach; all six are recorded in the selection manifest, and
+a decision run under a rule that moved after its selection is refused rather than re-judged.
 
 > Per cell and size, on the paired per-draw difference
 > `d = √n R_rem(reference) − √n R_rem(glm)`, with margin `δ = 0.25 × |mean √n R_rem(glm)|` in
@@ -1409,9 +1415,13 @@ the rule cannot come apart.
 > **A cell is `unresolved` whatever its difference if either measured gate failed.** Gate B
 > fails if the negative control is not rejected on every reduction — the gate then has no teeth
 > — or if any other rung is *better* than the shipped reference, since a comparison run at a
-> reference another resolution beats answers for the wrong reference. Gate C fails if the
+> reference another resolution beats answers for the wrong reference; and it does not **pass**
+> unless every other rung is shown *no more than* `δ_metric`
+> [worse](#2-the-fidelity-clause-is-non-inferiority-against-a-margin-declared-in-advance), since
+> failing to show superiority is not fidelity. Gate C fails if the
 > reference's own across-scramble spread exceeds `δ/3`, or if no budget draw was taken:
-> unmeasured and small must not read alike.
+> unmeasured and small must not read alike. And a cell whose artefact rows are not the ones the
+> rule was declared over is `unresolved` before any of that is read.
 >
 > **The ATE is primary and the two arm means are supporting**, declared here rather than chosen
 > from the table. Three estimands over two cells and two sizes is twelve readings, and a piece
@@ -1570,6 +1580,115 @@ control so the record and the rule cannot come apart.
 > audit will. The residue is stated rather than hidden: the reference arm's own exit state is not
 > the control arm's, because different reductions target differently, and no selection can be made
 > at the state it will be certified at without certifying itself.
+
+#### The decision protocol, frozen before the dispatch
+
+**A review of the instrument's own pull request found three ways gate B could pass without
+establishing that the selected reference is adequate, and this is the repair.** Every item is a
+change to the *reference* or an **addition** to the gates, each makes a verdict harder to reach,
+and `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION` and `PRIMARY_ESTIMAND` are untouched. The two new
+constants are declared here, in the commit that precedes the dispatch, exactly as those three
+were.
+
+##### 1. Two cohorts of draws, and the block is not the unit
+
+The instrument ran two passes over **one** list of draws. Its selection and audit blocks sat on
+disjoint Sobol streams, which splits the *integration* noise — and the integration is not what was
+reused. Both risk tables were functions of the same fitted samples, the same fold assignments and
+the same draw-specific nuisance states; `draw_risks` averages within a draw and every interval
+resamples draws precisely because the **draw** is the independent unit. A rung selected across
+those draws and certified on those same draws is a data-dependent selection assessed on the sample
+that made it.
+
+> The run is **two cohorts and two commands**. `--phase select` fits the control arm on the
+> *selection* cohort, ranks the ladder and writes a manifest; that manifest is **committed**; only
+> then does `--phase decide` fit the *decision* cohort — both arms paired within each of its draws
+> — at a mapping it can read and cannot choose. There is no call to `selection_rows` on the
+> deciding path.
+>
+> The two cohorts' seeds come from `SeedSequence.spawn`, one child each, and
+> `validate_selection` refuses a decision run that shares a **data seed** with the manifest's
+> selection cohort. On the data seed and not on the `(data, fold)` pair: a draw is a simulated
+> dataset, and two draws that share a data seed under different splits are the same rows twice.
+> [C3c met exactly that](study-manifest.md#c3c-what-was-run) — a batch believed fresh shared the
+> pilot's data seeds because `generate_state` is prefix-stable — so a pair-wise check passes there
+> and is the wrong check.
+
+##### 2. The fidelity clause is non-inferiority, against a margin declared in advance
+
+The instrument failed gate B only when a competing rung's interval lay **wholly below zero**, so
+an imprecise comparison certified the reference by default. The record says so in its own words:
+the `qr` reading that moved to `-3.020e-07 [-7.71e-07, +1.46e-07]` is called "two rungs genuinely
+indistinguishable" because the interval straddles zero. **An interval containing zero establishes
+neither equality nor adequate approximation.**
+
+> Gate B passes its fidelity clause only when a **simultaneous** one-sided lower bound, over every
+> competing rung and every one of the five metrics, sits above `−δ_metric`. Where it cannot be
+> shown either way the gate reads `unresolved`, which is a **third gate status** for the same
+> reason the comparison has a third verdict.
+>
+> **`δ_metric` on the two composites is a share of the column.** `H₃ = q_r/g` and
+> `H₂ = g_{r,2}/g_{r,1}` are in the correction's own units, so an excess risk `x` is a mean square
+> perturbation of the correction; its root bounds the mean by Cauchy–Schwarz, and `√n` times that
+> bounds the change in `√n R_remaining`. Setting that at `FIDELITY_FRACTION × δ` and inverting
+> gives `δ_metric = (FIDELITY_FRACTION · δ)² / (n · weight_scale)`, where `weight_scale` undoes
+> `held_out_risk`'s normalisation by the reweighted mass. **`FIDELITY_FRACTION = 1/3`, and it is
+> deliberately gate C's own `BUDGET_FRACTION`**: gate C bounds the reference's *quadrature*
+> contribution to the column at `δ/3` by replication, and this bounds its *smoothing* contribution
+> at `δ/3` by held-out risk. The bound is worst-case, so the margin is conservative and the gate
+> is harder — the permitted direction.
+>
+> **`δ_metric` on the three componentwise metrics is `COMPONENT_FRACTION = 0.05` of the negative
+> control's own measured gap.** They have no tight transfer to the column and the loose one is
+> useless: routing `qr`'s error through `1/g²_lo` puts the margin *below* the differences the audit
+> resolves, which is a clause no rung could pass. The control's distance is the one scale the run
+> itself proves is a *detectable* inadequacy, and its rejection is already a gate clause.
+
+**Both older clauses stay, and stay gating.** The negative control must still be rejected on all
+five metrics, and no competing rung may still be measurably better at all. That second one is
+strictly stronger than non-inferiority, and keeping it is this repository's own rule about
+tolerances: *a tolerance introduced after a failure is the one direction a gate may not move*, and
+dropping it would have made the pilot's failing `qr` clause pass. So a cell that fails **only** on
+superiority with every non-inferiority bound clear is a reportable finding — a finely resolved
+ladder whose selected rung is not its best — and not an occasion to relax anything.
+
+**On the multiplicity, stated rather than assumed.** Requiring non-inferiority on *every*
+comparison is an intersection–union test, so per-comparison bounds already control the level of
+the conjunction and the simultaneous bound is wider than it has to be. That is deliberate
+conservatism and is recorded as such. The **failure** clause runs the other way — any one
+competitor beating the selected rung fails the cell — and there a correction would make the gate
+*easier*, so that clause stays uncorrected.
+
+##### 3. Missing evidence cannot reach a verdict
+
+The instrument's fail-closed behaviour was written at both ends and not in the middle.
+`select_rung` refused a regression it could not rank; `selection_rows` never reached that refusal,
+returning no row at all; `Payload.references` filled the hole with `FALLBACK_RUNG`; and the cell
+went on to a verdict. The fallback was defended as *visible* — E2's shipped rung, named in the
+record — and it was visible in the record and not in the verdict.
+
+> `selection_rows` raises where a regression has no reading. `Payload.references` raises where a
+> rung was not selected. `validate_selection` runs **before** the decision cohort is fitted and
+> checks the rule, the pinned configuration, one rung per regression from the declared ladder,
+> each resting on at least `COMPLETENESS_FRACTION` of the selection cohort's draws, and the
+> cohort disjointness. `run_integrity` marks a cell invalid for a missing candidate, a recorded
+> error, or fewer than **`COMPLETENESS_FRACTION = 0.9`** of the declared draws on either the
+> paired comparison or the audit — a bootstrap that quietly shrank to whatever survived would
+> report a thinner study as the declared one. An invalid run **exits non-zero** with its
+> diagnostic rows written.
+>
+> `--allow-fallback` is the one way back to any of this and exists for a local debug run too thin
+> to rank. No dispatch passes it, and no verdict taken under it is a verdict.
+
+##### The execution order, and it is one pass through
+
+1. Freeze this section and the constants — done in the commit that carries it.
+2. Dispatch `--phase select`. It reports no gates and no comparison.
+3. **Commit** the manifest to `evidence/e2r-selection/selection.json` and record it in
+   [the study manifest](study-manifest.md).
+4. Dispatch `--phase decide` **once**. If any fidelity or integrity gate fails, the cell is
+   `unresolved` and [the bound holds](#e2r-what-the-repaired-dispatch-changes-and-what-it-may-not):
+   an `unresolved` E2R ends the reduction road as evidence rather than earning a third dispatch.
 
 #### What the sandbox pilots measured, and what they moved
 
