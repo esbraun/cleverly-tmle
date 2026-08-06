@@ -275,6 +275,7 @@ was:
 | [validation plan](drtmle/validation-plan.md) | the fixtures, the candidate targeting algorithms, the benchmark columns, the coverage *specification*, the frozen decision rules, the mutations |
 | [coverage study](drtmle/coverage-study.md) | the *design* the specification is realised by: the two cells, the committed drift coefficients, the re-timing, and what Tier 1 has measured |
 | [investigation log](drtmle/investigation-log.md) | item 20's discovery, the clipped-row measurements, the hypothesis that was dropped, the convergence sweep, the runner history, the lessons |
+| [the trace harness](drtmle/trace-harness.md) | piece F2: the frozen fixture and why each of its four choices is load-bearing, the step vocabulary F3 aligns against, what a first run measured, and the two harness defects kept on the record |
 
 The fourth row is the newest and the pair it makes with the third is deliberate: a **specification**
 says what a study has to contain to be believed, and a **design** says what the cells are and what
@@ -3376,7 +3377,7 @@ contract row were: a correction to the record must not arrive entangled with an 
 | | what it lands | must not include |
 | --- | --- | --- |
 | **F1** — status and decision semantics — *landed with this revision* | the status sentence at the head of this page, the branch table's last row reworded to *stop as production-change evidence, continue bounded construction diagnostics*, the unreachable reopening condition **discharged** and E3 authorized explicitly as a diagnostic rather than a production branch, `held_out_risk`'s equal-error claim corrected in the module itself, gate B labelled **relative** non-inferiority in [§8](drtmle/validation-plan.md#the-three-gates-and-why-none-of-them-is-a-refinement-difference) until an absolute anchor exists, and `CLAUDE.md`'s R rule narrowed to match this page | any threshold, any constant, any re-reading of E2R's comparison, any estimator code. **None was touched**: `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION`, `PRIMARY_ESTIMAND`, `FIDELITY_FRACTION`, `COMPONENT_FRACTION` and `COMPLETENESS_FRACTION` are what they were, and the four cells stay `unresolved` |
-| **F2** — a deterministic component-level trace harness | one frozen binary-treatment, no-missingness fixture — observed `W`/`A`/`Y`, folds, weights, bounds and **identical initial `Q̄` and `g` predictions** — and a per-arm, per-round export: pre- and post-update `Q*`, `g*`, `Q_r`, `g_{r,1}`, `g_{r,2}`, the empirical means of equations (8), (9) and (10), the fluctuation coefficients, the condition flags, the point estimate, the correction arrays, the curve and the `se`. The state immediately before and after `_close_at_frozen_reductions`, both existing update orders on the one fixture, and invariants that **recompute every recorded score from the recorded state**. Suggested: `benchmarks/drtmle_trace.py`, `benchmarks/fixtures/drtmle_trace_v1.*`, `tests/unit/test_drtmle_trace.py` | a new public estimator option. The closing-pass state is read where it already exists, not exposed. Acceptance is a deterministic trace across repeated runs, every identity recomputing inside the existing tolerance, and the exact-law and theorem tests staying green |
+| **F2** — a deterministic component-level trace harness — *landed with this revision; what it built and what a first run of it measured are in [the trace harness](drtmle/trace-harness.md)* | one frozen binary-treatment, no-missingness fixture — observed `W`/`A`/`Y`, folds, weights, bounds and **identical initial `Q̄` and `g` predictions** — and a per-arm, per-round export: pre- and post-update `Q*`, `g*`, `Q_r`, `g_{r,1}`, `g_{r,2}`, the empirical means of equations (8), (9) and (10), the fluctuation coefficients, the condition flags, the point estimate, the correction arrays, the curve and the `se`. The state immediately before and after `_close_at_frozen_reductions`, both existing update orders on the one fixture, and invariants that **recompute every recorded score from the recorded state**. Suggested: `benchmarks/drtmle_trace.py`, `benchmarks/fixtures/drtmle_trace_v1.*`, `tests/unit/test_drtmle_trace.py` | a new public estimator option. The closing-pass state is read where it already exists, not exposed. Acceptance is a deterministic trace across repeated runs, every identity recomputing inside the existing tolerance, and the exact-law and theorem tests staying green |
 | **F3** — the bounded R differential run | an **isolated** script or container/`renv` task against the public `drtmle` package and F2's frozen fixture, handed the same initial `Qn` and `gn`, with a reduced-learner specification whose *first fit* can be checked for numerical agreement before any targeting is compared. Both `Qsteps=1` and the default `Qsteps=2`. The comparison is of the **earliest divergence**, not of final estimates, in absolute and scale-relative terms over arrays, scores and coefficients, and the first divergence is **classified** — input or learner, update order, reduction-refit vintage, stopping rule, frozen close, or corrected-IC construction | an R dependency in the package, in `nox`, or in any test tier the fast CI runs. Any modification of Python merely to match R. Any use of agreement as a release criterion — [stop-ship 17](#stop-ship). Acceptance is one checked-in comparison report naming the first divergence or establishing agreement to a declared tolerance |
 | **F4** — the construction ablations, run as diagnostics | on common seeds: `reduced_crossfit` pooled against nested, the two update orders, pre-close against post-close state, and the R-style finite-backfitting trajectory F3 identifies as a **benchmark path**. Columns: `√n R_remaining`, all three score means, the reduced regressions' drift between the last refit and the reported state, the score-failure rate, the point-estimate movement and the `se` ratio. Both `q-drift` and `g-drift`, `n ∈ {600, 2,400}`, paired on the same data and fold seeds. **This is E3's ablation, and it may not branch** | the 6,000-fit confirmatory study, or anything sized like it. A production keyword for the R-style trajectory. Advancing a construction whose paired change does not reproduce, does not reduce `R_remaining` or score failures, and is not theorem-consistent. **A null result here is a result** and routes the piece to F5 |
 | **F5** — the reduced-learner feasibility screen | current `glm` against a **small, predeclared** univariate library — the existing spline/GAM path, plus one kernel or local-smoother path *if* it can be had without widening the runtime dependencies. Fitted and scored out of fold on the same paired draws, reporting all three component risks **and** the composites `q_r/g` and `g_{r,2}/g_{r,1}`, not final coverage. An improvement must replicate on a held-out cohort **and** in `√n R_remaining` | a rerun of E2R, a production default change, or a candidate set widened after the decision cohort is seen. A learner that improves in-sample risk alone, or raises the score-failure rate, is rejected. The outcome may be a recorded **negative learnability** result |
@@ -3384,12 +3385,58 @@ contract row were: a correction to the record must not arrive entangled with an 
 | **F7** — the localized change, and only it | *conditional, and it is the only row that touches `src/`.* If F3 or F4 localizes an update, refit or closing discrepancy **and** the theorem checks select one construction, that construction changes and F2's frozen trace becomes its regression test. If F4 localizes the pooled crossfit, the default changes only after the nested result replicates, and the public contract moves with it. If F5 localizes learner inconsistency, the reduced-learner default or library changes only on demonstrated held-out improvement and runtime feasibility at `n = 2,400`. **If none of them localizes the shortfall, no estimator change is made**, the in-progress warning stays, and the negative diagnosis is published | any change justified by R agreement, by an in-sample metric, or by a reference ranking. Every path requires the exact-law identities, the theorem-sign tests, the remainder decomposition, the score/state identity tests, the fast CI **and** the relevant small paired diagnostic to pass |
 | **F8** — the fresh confirmatory coverage | *only after F7 has a localized, tested change.* The estimator configuration, DGPs, sizes, seeds, replicate counts, thresholds, exclusions and Monte Carlo decision rule frozen **in a commit before dispatch**; C3c's misspecification regimes rerun on fresh seeds, plus a reproduction of the published paper's relevant simulation setting where feasible; `√n R_remaining` required to show the predeclared vanishing trend, score-failure rates required to clear the existing threshold in **every** cell, and `DRTMLE` coverage required to be compatible with nominal `0.95` under the predeclared Monte Carlo tolerance in the cells where ordinary `TMLE` fails. The independent second batch and the fail-closed artefact checks #77 and #78 introduced are preserved | reading a coverage number taken before F7 as the release number. This is the **only** phase that can move the feature from *in progress* to validated |
 
+##### What F2 built, and the four things a first run of it made visible
+
+**F2 has landed and it localizes nothing, which is what it is for**;
+[the trace harness](drtmle/trace-harness.md) is its record. What it produced is a frozen
+200-row fixture — binary outcome so the scaler is the identity, **both** initial nuisances
+misspecified so `Q_r` and `g_{r,2}` do not vanish, truncation slack on every row, the fold
+column committed — and a step-level record of every solve and every refit the alternation
+runs, with the whole state either side of it. Nothing under `src/` moved.
+
+Four readings, each a fact this page could not previously state:
+
+- **Every recorded score recomputes from the recorded state.** 62 recomputations under
+  `cleverly` and 167 under `paper`, longhand rather than through `score_columns`, worst
+  residual `1.11e-16` against `IDENTITY_TOLERANCE`'s `1e-12`. That is F2's acceptance
+  criterion, met.
+- **The two update orders both exit on `tolerance` and land in different places.** `psi[ate]`
+  `0.214075` against `0.207703` — `0.098` standard errors — while the **curves** differ by
+  `max|ΔD| = 1.341` against a `sd(D)` of `0.922`, and by `0.183` in rms. One draw is a data
+  point and not a verdict, and [item 22](#what-is-still-open) stays open on exactly that; what
+  it establishes is that the question is not idle at this scale.
+- **The closing pass's mechanism stage can be stationary and still spend its whole budget.**
+  That the cap binds is not news — [B2b](#b2b--the-dispatch-and-what-it-decides) measured it
+  at **96 of 96** fits, and predicted it. What is new is *why*: under `paper` on this fixture,
+  **14 of the 20 steps return a coefficient of exactly zero and leave the score unchanged**.
+  The function's docstring says iterating *shrinks* the residual equation (9) leaves at its
+  post-tilt covariate; here it does not shrink at all after the sixth step, so
+  `closing_capped = True` means *stationary at a point the exit test cannot recognise* rather
+  than *still converging*, and those are different facts about the same flag. Under `cleverly`
+  the same stage takes 3 steps and converges. Recorded, not fixed — an early exit is a change
+  under `src/` and therefore F7's.
+- **The reduction-refit vintage — [R3](#f-localize-the-shortfall-before-changing-anything)'s
+  fourth row — is now readable off a run.** `cleverly` adopts one vintage per round; `paper`
+  alternates `qr` from one refit with `gr1`/`gr2` from another, exactly its steps 3 and 5. It
+  is invisible in every field a fitted result carries, which is why F3 has to be able to see
+  it before it can classify a divergence into it.
+
+**And two harness defects are on the record rather than quietly repaired**, because they are
+the class of error F3 must not make. Reading the reductions off the refit closure rather than
+off the covariate builders scored every equation against a set the estimator never used — and
+*passed* under `cleverly`, where the two coincide, while missing by `1.3e-08` against a bar of
+`1e-12` under `paper`. And pandas' default CSV float parser is fast rather than exact: it read
+the fixture's `w1` back short by one unit in the last place on 65 of 200 rows, at `2.2e-16`,
+which is precisely the size of difference a first-divergence hunt would find and mis-classify
+as a learner difference. The harness would have manufactured the divergence it was built to
+locate.
+
 ##### The order, and what stops it
 
 | order | work | why it precedes the next |
 | --- | --- | --- |
 | 1 | **F1** | removes the dead branch without touching any evidence |
-| 2 | **F2** | produces the common state-level instrument F3 and F4 both read |
+| 2 | **F2** — *landed* | produces the common state-level instrument F3 and F4 both read |
 | 3 | **F3** and **F4** | localize construction differences *before* any code changes |
 | 4 | **F5** | tests the one theorem premise C3c left unverified |
 | 5 | **F6** | stops a future relative ranking from being called absolute fidelity |

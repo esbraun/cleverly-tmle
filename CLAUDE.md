@@ -74,6 +74,18 @@ of tens of seconds each — measured at 57s per fit on 400 rows here. Dispatch
 `--processes nonlinear --sizes 400 --seeds 2 --jobs 1` smoke run is two fits and about two
 minutes, which is the most of it that belongs in the sandbox.
 
+**`benchmarks/drtmle_trace.py` is the cheap one and belongs here.** It is the component-level
+trace of the doubly-robust alternation — roadmap piece F2 — and it fits **no** primary
+nuisance: the initial `Q̄` and `g` are closed forms injected through sklearn-shaped learners,
+so the only learners it runs are the `glm` reduced regressions. `--both` is ~10s on this box
+and `--write-fixture` regenerates the frozen draw. Two things not to do to it. Do not
+regenerate the fixture casually: every trace already taken, here or in R, is against the old
+bytes, and the CSV's SHA-256 is checked against its manifest on every read. And do not "tidy"
+the fixture's misspecified nuisances — at correct nuisances `Q_r` and `g_{r,2}` vanish row by
+row and the trace goes blind to a sign, an update order and a reduction vintage alike, which
+is the same rule as the one about exact laws below and the place it bites hardest.
+`tests/unit/test_drtmle_trace.py` asserts the misspecification for that reason.
+
 **Interrupt a test run with `Ctrl-C`, not `kill -9`.** Which signal you use is the whole
 difference: joblib registers an `atexit` handler that shuts its worker pool down on every
 path where Python still runs, so a `SIGINT` — and an ordinary failure, and a clean exit —
