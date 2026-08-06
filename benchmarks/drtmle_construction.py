@@ -776,6 +776,13 @@ class ContrastRow:
     lower: float
     upper: float
     paired_sd: float
+    #: The smallest paired effect this row's own draws and spread could have separated from
+    #: zero, at 95%.  **Realized, not planned**: :data:`PILOT_PAIRED_SPREAD` sized the study from
+    #: a pilot, and this is what the run actually had, so a reader checks the sizing against the
+    #: run rather than against the table that planned it.  It is also what makes an `unresolved`
+    #: row legible -- a verdict of `unresolved` beside an `mde` larger than any effect worth
+    #: finding is a statement about the study, which is what that verdict is for.
+    mde: float
     verdict: str
 
 
@@ -1106,6 +1113,7 @@ def contrast_rows(rows: Sequence[FitRow], *, seed: int = COHORT_SEED) -> list[Co
                         lower=lower,
                         upper=upper,
                         paired_sd=sd,
+                        mde=minimum_detectable_effect(sd, len(paired)),
                         verdict=_verdict(lower, upper, negligible)
                         if column == "root_n_remaining"
                         else _verdict(lower, upper, float("inf")),
@@ -1270,11 +1278,12 @@ CONTRAST_HEADERS = (
     "cell",
     "n",
     "contrast",
-    "factor",
     "column",
     "draws",
     "mean",
     "95% interval",
+    "paired sd",
+    "mde",
     "verdict",
 )
 
@@ -1310,11 +1319,12 @@ def _contrast_table(rows: Sequence[ContrastRow]) -> str:
             row.cell,
             str(row.n),
             row.contrast,
-            row.factor,
             row.column,
             str(row.draws),
             f"{row.mean:+.4f}",
             f"[{row.lower:+.4f}, {row.upper:+.4f}]",
+            f"{row.paired_sd:.4f}",
+            f"{row.mde:.4f}",
             row.verdict,
         )
         for row in rows
