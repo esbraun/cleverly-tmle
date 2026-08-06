@@ -140,6 +140,7 @@ __all__ = [
     "fold_targets",
     "held_out_risk",
     "metric_weights",
+    "per_reduction",
     "reference_reductions",
 ]
 
@@ -416,8 +417,9 @@ class Denominator:
         same reason -- a value at or below zero says the truncation is doing something to the
         denominator, and a threshold belongs to whoever reads the column and not inside it.
     truncated:
-        The share of rows the truncation moved.  Reported beside the margin because the two
-        say different things: a margin at zero says *some* row was clipped and this says how
+        The share of this divisor's rows -- every companion row, since a divisor is predicted
+        everywhere -- that the truncation moved.  Reported beside the margin because the two say
+        different things: a margin at or below zero says *some* row was clipped and this says how
         many.
     """
 
