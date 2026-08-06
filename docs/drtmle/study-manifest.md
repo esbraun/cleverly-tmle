@@ -486,7 +486,40 @@ the commit is what makes "before" checkable. The selecting run also uploads it a
 id and digest go in the E2R section when that run happens, so the committed file and the run that
 produced it can be tied together.
 
-**No E2R row is manifested here yet, because neither dispatch has happened**: the workflow is
-dispatchable only from `main`, which is what E2's own `404` was. When they do, E2R gets its own
-section rather than an edit to this one — E2's numbers stay readable as E2's — and the selecting run
-and the deciding run are recorded as two, since the whole point of them is that they are.
+**Both dispatches have now happened and [E2R has its own section](#e2r-what-was-run) below**, rather
+than an edit to this one: E2's numbers stay readable as E2's. The selecting run and the deciding run
+are recorded as **two**, since the whole point of them is that they are.
+
+## E2R: what was run
+
+**Two dispatches and a commit between them**, which is the decision protocol
+([§8](validation-plan.md#the-execution-order-and-it-is-one-pass-through)) rather than an
+implementation detail: the selecting run ranks the ladder and the deciding run is handed a mapping
+it cannot change. The two runs' `head_sha` are what make the order checkable — **the selecting run's
+commit does not contain `selection.json` and the deciding run's does.**
+
+| | |
+| --- | --- |
+| workflow | `.github/workflows/drtmle-reference.yml`, `workflow_dispatch` twice, on branch `claude/next-roadmap-step-plan-k2o447` — the workflow file is on `main`, which is what E2's `404` needed, and §8 requires the mapping to be *committed* before `decide` rather than merged |
+| code | select `94f3e81d810e7690b5a7d214fa228e1772d98de2`; decide `10289d4f954ff21f1bb20cc270c2496bc305495a`, which is the selecting commit **plus the manifest and nothing else** |
+| inputs | `phase` on both and `selection` on the second. **Every other value is the workflow file's own default**, so the record and the rule cannot come apart, exactly as E2 was dispatched |
+| tier | 2 — both nuisances fitted, reductions fitted; the tier C3c's numbers are quoted from |
+| cells | `q-drift`, `g-drift` |
+| sizes | `600`, `2,400` |
+| cohorts | selection 16 draws per `(cell, size)`, decision 32 — `SeedSequence(20250801).spawn(2)`, one child each, **no shared data seed** |
+| reference | **selected per `(cell, size, reduced regression)`**, not shipped: [`evidence/e2r-selection/selection.json`](../../evidence/e2r-selection/selection.json), 7,050 bytes, `sha256 9f265ff124b5b88f210e83d2b64a8b2df476d92093b0c133d4b6b90a86d00a7e` |
+| compared against | `glm` — `REDUCED_LEARNER`, C3c's configuration unchanged, which is the thing under test |
+| gate B candidates | `spline(8)`, `spline(16)`, `spline(32)`, and the controls `bins(2)` (the negative control), `bins(4)`, `bins(8)` |
+| gate B metrics | **five**: `qr`, `gr1`, `gr2`, and the composites `h3 = q_r/g` and `h2 = g_{r,2}/g_{r,1}` at the bounded denominators |
+| blocks | reference 8,192 Sobol points, selection 8,192, audit 8,192, evaluation 2 × 2,048 — **four** disjoint scramble streams, against E2's three |
+| gate C budget | 4 independent reference scrambles on the first 4 draws of the stream. **A refit each** |
+| frozen constants | `EQUIVALENCE_FRACTION = 0.25`, `BUDGET_FRACTION = 1/3`, `FIDELITY_FRACTION = 1/3`, `COMPONENT_FRACTION = 0.05`, `COMPLETENESS_FRACTION = 0.9`, `PRIMARY_ESTIMAND = "ate"` — carried in the manifest's own `rule` block, which `validate_selection` checks the decision run against |
+| `--jobs` | `2` |
+| seed | `20250801` |
+| totals | select 64 draws in one job; decide 128 draws, **304 fits**, 912 fit rows and 38,400 gate rows over four jobs |
+
+**The manifest came out of the selecting run through its log**, not through the artefact:
+`*.blob.core.windows.net` is unreachable from the environment these were dispatched from, so the
+`select` job prints the file's `sha256` and its gzipped bytes and `scripts/recover_selection.sh`
+decodes them and refuses unless the two agree. The committed file's digest above is the one the run
+printed for the file it wrote.
