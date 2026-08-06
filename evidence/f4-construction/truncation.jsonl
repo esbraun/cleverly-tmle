@@ -1,0 +1,12 @@
+{"fixture": "v1", "clipped": 0, "rows": 200, "stage": "initial", "quantity": "qr", "identical": true, "worst": 0.0}
+{"fixture": "v1", "clipped": 0, "rows": 200, "stage": "initial", "quantity": "gr1", "identical": true, "worst": 0.0}
+{"fixture": "v1", "clipped": 0, "rows": 200, "stage": "initial", "quantity": "gr2", "identical": true, "worst": 0.0}
+{"fixture": "v1", "clipped": 0, "rows": 200, "stage": "converged", "quantity": "qr", "identical": true, "worst": 0.0}
+{"fixture": "v1", "clipped": 0, "rows": 200, "stage": "converged", "quantity": "gr1", "identical": true, "worst": 0.0}
+{"fixture": "v1", "clipped": 0, "rows": 200, "stage": "converged", "quantity": "gr2", "identical": true, "worst": 0.0}
+{"fixture": "v2", "clipped": 54, "rows": 200, "stage": "initial", "quantity": "qr", "identical": true, "worst": 0.0}
+{"fixture": "v2", "clipped": 54, "rows": 200, "stage": "initial", "quantity": "gr1", "identical": true, "worst": 0.0}
+{"fixture": "v2", "clipped": 54, "rows": 200, "stage": "initial", "quantity": "gr2", "identical": false, "worst": 0.7281685171241405}
+{"fixture": "v2", "clipped": 54, "rows": 200, "stage": "converged", "quantity": "qr", "identical": true, "worst": 0.0}
+{"fixture": "v2", "clipped": 54, "rows": 200, "stage": "converged", "quantity": "gr1", "identical": true, "worst": 0.0}
+{"fixture": "v2", "clipped": 54, "rows": 200, "stage": "converged", "quantity": "gr2", "identical": true, "worst": 0.0}

@@ -1,0 +1,14 @@
+fixture  clipped  stage      quantity  identical  worst |diff|
+-------  -------  ---------  --------  ---------  ------------
+v1       0/200    initial    qr        yes        0.0000e+00  
+v1       0/200    initial    gr1       yes        0.0000e+00  
+v1       0/200    initial    gr2       yes        0.0000e+00  
+v1       0/200    converged  qr        yes        0.0000e+00  
+v1       0/200    converged  gr1       yes        0.0000e+00  
+v1       0/200    converged  gr2       yes        0.0000e+00  
+v2       54/200   initial    qr        yes        0.0000e+00  
+v2       54/200   initial    gr1       yes        0.0000e+00  
+v2       54/200   initial    gr2       no         7.2817e-01  
+v2       54/200   converged  qr        yes        0.0000e+00  
+v2       54/200   converged  gr1       yes        0.0000e+00  
+v2       54/200   converged  gr2       yes        0.0000e+00  
