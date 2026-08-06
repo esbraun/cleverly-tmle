@@ -208,13 +208,21 @@ install_folds <- function() {
 # equation (9)'s and `eval_Dstar_Q`'s is equation (10)'s. The *arrays* are the correction
 # blocks the reported curve subtracts -- this package's `D*_g` and `D*_Q`.
 #
-# **One asymmetry is recorded rather than smoothed over.** Inside R's loop `eval_Dstar_Q` is
-# handed `gn = gn`, the **initial** mechanism, while `eval_Dstar_g` is handed `gn = gnStar`,
-# the targeted one. Whether that is deliberate is a question for the derivation, and it is the
-# class of thing roadmap item 20 turned on here: a block evaluated at one mechanism while the
-# equation was solved at another leaves the curve uncentred exactly where the two differ. So
-# `at_targeted_g` travels on every block row, comparing the argument against the current state
-# rather than trusting the call site.
+# **One asymmetry is recorded, and what it is evidence *of* is narrower than it looks.** Inside
+# R's loop `eval_Dstar_Q` is handed `gn = gn`, the **initial** mechanism, while `eval_Dstar_g` is
+# handed `gn = gnStar`, the targeted one. So `at_targeted_g` travels on every block row,
+# comparing the argument against the current state rather than trusting the call site.
+#
+# **It records which array was passed and cannot record whether the callee read it**, and on the
+# reduction this run uses the callee does not. `docs/drtmle/theorem-concordance.md`'s §10 -- this
+# repository's own reading, which is what settles it -- says the initial `g` enters
+# `eval_Dstar_Q`'s **bivariate** branch, `1{A=a}/grn2 · (grn2 − g)/g · (Y − Q)`, and that on the
+# univariate branch the argument is unused. Every run here is `reduction = "univariate"`. So a
+# `FALSE` on a `D_Q` row is a fact about a **call site** under a reduction that does not consume
+# it, and it is a **bivariate-only** observation -- not an uncentred block, and not a live
+# candidate for the construction diagnostics. (The R source is `inf_functions.R`; it is named
+# because that is how a reader traces where the reading came from, and it is not what the
+# adjudication rests on -- see `docs/roadmap.md`'s stop-ship 17.)
 block_call <- 0L
 record_block <- function(name, per_arm, gn_argument) {
   index <- length(steps)
@@ -432,6 +440,15 @@ summary_frame <- data.frame(
   stringsAsFactors = FALSE
 )
 
+# **What this does not record, and it is a prerequisite rather than an omission to fix now.**
+# `package_version` pins the package the comparison is *against*; the R version, the platform and
+# the resolved dependency graph are echoed into the job log and land in no committed file. Before
+# any further R dispatch -- see `docs/roadmap.md`'s necessity gate, which is what decides whether
+# one happens at all -- add them here alongside an `renv.lock` pinned to the recorded `drtmle`
+# 1.1.2. Adding them **now** would mean regenerating the four committed records, and every trace
+# already taken is against those bytes: the reader checks their SHA-256 on every read, and the
+# whole reason they are in the tree is that the toolchain is ~25 minutes to rebuild and CRAN is
+# not always reachable.
 meta_frame <- data.frame(
   key = c(
     "qsteps", "max_iter", "tol_ic", "tolg", "n", "n_folds", "arms",

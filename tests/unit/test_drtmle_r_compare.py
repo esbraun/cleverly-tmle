@@ -30,6 +30,8 @@ import pytest
 from benchmarks import drtmle_r_compare as compare
 from benchmarks import drtmle_trace as trace_module
 
+from cleverly.estimators import targeting
+
 #: The committed record every test starts from: the canonical fixture under R's own default
 #: outcome-update route.
 RECORD = Path(trace_module.__file__).resolve().parent / "fixtures" / "r-trace-v1-q2"
@@ -97,6 +99,18 @@ def _gzip_edit(change: Callable[[np.ndarray], np.ndarray]) -> Callable[[bytes], 
 def _nudge(values: np.ndarray) -> np.ndarray:
     values[0] = np.nextafter(values[0], np.inf)
     return values
+
+
+def _rows_to_csv(rows: list[dict[str, str]]) -> bytes:
+    """Rewrite a whole CSV from parsed rows, for edits a byte-level replace cannot express.
+
+    Quoting and column widths need not match what R wrote: :func:`mutate` recomputes the
+    manifest, and the reader parses rather than diffs.  The *header order* does have to match,
+    which is why it comes off the first row rather than being retyped.
+    """
+    lines = [",".join(rows[0])]
+    lines += [",".join(str(row[name]) for name in rows[0]) for row in rows]
+    return ("\n".join(lines) + "\n").encode()
 
 
 # ------------------------------------------------------------------ the reader
@@ -305,6 +319,54 @@ def test_gate_5_reads_the_exit_scores_off_the_record(
     assert f"{theirs:.2e}" in gate.reading
 
 
+def test_gate_5_takes_its_verdict_against_this_packages_own_bar(
+    export: Any, traces: dict[str, Any], fixture: Any
+) -> None:
+    """The bar is ``_negligible_bar(n)``, not ten times what this package happened to achieve.
+
+    The predicate this replaced was ``theirs <= 10 * ours or theirs <= 1e-8`` with ``ours`` the
+    **achieved** worst score -- ``7.94e-11`` here, so an effective bar of ``7.9e-10``, which is
+    neither R's ``tolIC``, nor this package's ``5e-6``, nor its predicate.  Asserted as
+    ``gate.tolerance`` rather than through the verdict, because on this record both the old and
+    the new predicate read ``differ`` and a verdict assertion would pass either way.
+    """
+    gate = compare.gates(export, traces, fixture)[5]
+    n = int(export.meta["n"])
+    assert gate.tolerance == targeting._negligible_bar(n) == 1e-3 / n
+    assert f"{gate.tolerance:.0e}" in gate.reading and "1e-3/n" in gate.reading
+    achieved = max(
+        abs(float(np.mean(values))) for t in traces.values() for values in t.corrections.values()
+    )
+    assert gate.tolerance > achieved * 10, "the old predicate was the tighter one on this record"
+
+
+@pytest.mark.parametrize(
+    ("worst", "expected"),
+    [(4.9e-6, True), (5.0e-6, True), (5.1e-6, False)],
+    ids=("under", "at", "over"),
+)
+def test_gate_5s_predicate_is_the_loops_own_either_side_of_the_bar(
+    tmp_path: Path, traces: dict[str, Any], fixture: Any, worst: float, expected: bool
+) -> None:
+    """Both sides of ``5e-6`` at ``n = 200``, including the boundary, which ``<=`` includes.
+
+    Driven by rewriting the record's exit ``D_Q`` means, since that is the quantity the gate
+    reads; every other block is left alone so nothing else can move the verdict.
+    """
+
+    def rewrite(raw: bytes) -> bytes:
+        rows = list(csv.DictReader(raw.decode().splitlines()))
+        latest = max(int(row["call"]) for row in rows if row["block"] == "D_Q")
+        for row in rows:
+            if row["block"] in {"D_g", "D_Q"}:
+                row["mean"] = f"{worst if int(row['call']) == latest else 0.0:.17g}"
+        return _rows_to_csv(rows)
+
+    directory = mutate(tmp_path / f"bar-{worst:g}", blocks__csv=rewrite)
+    gate = compare.gates(compare.read_export(directory), traces, fixture)[5]
+    assert gate.passed is expected
+
+
 def test_the_state_is_read_in_the_traces_arm_order(export: Any, traces: dict[str, Any]) -> None:
     """``drtmle``'s ``a_0`` is ``(1, 0)`` and a ``Trace``'s ``arms`` is ``(0, 1)``.
 
@@ -490,3 +552,104 @@ def test_the_ladder_report_carries_the_declared_bars(rungs: Any, traces: dict[st
     assert "declared before the first rung was read" in text
     for name in traces:
         assert name in text
+
+
+def test_the_explained_fraction_is_reported_in_every_orientation(
+    rungs: Any, traces: dict[str, Any]
+) -> None:
+    """A ratio's distance from agreement is not invariant, so one number is not the answer.
+
+    On the committed rungs the three readings are ``92%``, ``64%`` and ``64%`` -- the ratio as
+    computed, the ratio reversed, and the reduction in the raw absolute gap, which has no
+    orientation to choose.  Asserted as *disagreeing*, so the test cannot pass by the three being
+    computed the same way; and the verdict is asserted to be the same under each, which is what
+    makes ``partial`` a robust reading rather than an artefact of the orientation.
+    """
+    reading = compare.ladder_verdict(rungs, traces)
+    orientations = (
+        reading["explained"],
+        reading["explained_reversed"],
+        reading["explained_absolute"],
+    )
+    assert reading["explained"] != pytest.approx(reading["explained_reversed"])
+    assert reading["explained_reversed"] == pytest.approx(reading["explained_absolute"])
+    assert all(value >= compare.PERSISTS_FRACTION for value in orientations)
+    text = compare.ladder_report(rungs, traces)
+    for value in orientations:
+        assert f"{value:.0%}" in text
+
+
+def test_the_ladder_reads_each_order_against_its_own_ratios(
+    rungs: Any, traces: dict[str, Any]
+) -> None:
+    """One order's percentage beside another order's ratios is not a comparison of anything.
+
+    That is how the verdict line was first written -- ``92%`` is ``paper``'s and ``1.266`` /
+    ``1.051`` are ``cleverly``'s -- and it is invisible unless the two orders are checked to land
+    on *opposite* sides of agreement, which on this ladder they do.
+    """
+    reading = compare.ladder_verdict(rungs, traces)
+    spreads, ses = reading["after_by_order"], reading["se_ratio_by_order"]
+    assert set(spreads) == set(ses) == set(traces)
+    assert min(spreads.values()) < 1.0 < max(spreads.values()), "R lands between the two orders"
+    nearest = str(reading["nearest_order"])
+    assert reading["spread_ratio_after"] == pytest.approx(spreads[nearest])
+    assert reading["se_ratio_after"] == pytest.approx(ses[nearest])
+    text = compare.ladder_report(rungs, traces)
+    for name in traces:
+        assert f"`{name}` {spreads[name]:.3f}" in text
+        assert f"`{name}` {ses[name]:.3f}" in text
+
+
+# ------------------------------------ the retraction F3-closeout made, and what pins it in place
+
+#: The R script and the report, read as *text*.  Both assertions below are about strings this
+#: repository controls; neither runs anything.
+R_SCRIPT = Path(trace_module.__file__).resolve().parent / "r" / "drtmle_reference.R"
+REPORT = Path(__file__).resolve().parents[2] / "docs" / "drtmle" / "r-differential.md"
+
+
+def test_every_committed_record_is_a_univariate_run() -> None:
+    """What makes the concordance's reading of ``eval_Dstar_Q`` the applicable one.
+
+    ``docs/drtmle/theorem-concordance.md`` §10 says the initial ``g`` enters that function's
+    **bivariate** branch and that the argument is unused on the univariate one.  That sentence
+    only settles the ``D_Q`` question here if every record was taken under the univariate
+    reduction, so this asserts the call sites rather than trusting the prose -- a structural pin,
+    exactly as ``tests/unit/test_sequential_design.py`` pins a design matrix it cannot
+    statistically adjudicate.  ``meta.csv`` carries no ``reduction`` field, which is why the
+    script is what is read.
+    """
+    source = R_SCRIPT.read_text()
+    assert 'reduction = "univariate"' in source
+    assert 'reduction = "bivariate"' not in source
+
+
+def test_the_targeted_g_flag_is_a_call_site_and_the_record_says_which_rows(export: Any) -> None:
+    """``at_targeted_g`` records which array was *passed*, and cannot record whether it was read.
+
+    Two things are pinned because the report states both and an earlier revision got the second
+    of them wrong.  ``D_g`` is handed the targeted mechanism at every call.  ``D_Q`` is handed
+    the initial one from round 1 onward -- but *not* in the ``prime`` phase at round 0, where R
+    has just set ``gnStar <- gn`` and the two arrays are the same object, so the flag reads
+    ``TRUE`` there.  "FALSE on every ``D_Q``" was two rows too many.
+    """
+    rows = [row for row in export.blocks if row["block"] in {"D_g", "D_Q"}]
+    assert rows, "the committed record carries no correction-block rows"
+    for row in rows:
+        expected = not (row["block"] == "D_Q" and row["round"] >= 1)
+        assert bool(row["at_targeted_g"]) is expected, row
+
+
+def test_the_report_carries_no_live_univariate_d_q_candidate() -> None:
+    """The retraction itself, guarded as a claim rather than left to a reader's memory.
+
+    The flag is a fact and stays on the record; the *inference* that it leaves equation (10)'s
+    block uncentred is bivariate-only and was withdrawn, because on the reduction every run here
+    uses, the callee does not read the argument.  A future revision that reinstates the
+    inference without reinstating the reduction it belongs to fails here.
+    """
+    text = REPORT.read_text()
+    assert "bivariate-only" in text
+    assert "the argument is unused" in text
+    assert "leaves the curve uncentred exactly where the" not in text
