@@ -1385,6 +1385,24 @@ term vanishes identically because `m` is the weighted conditional expectation an
 a weighted `L₂` projection. The three reductions are read **apart**, because `qr`'s target is a
 residual and `gr1`'s is an indicator and a mean over them is a number with no units.
 
+**B is a *relative* gate, and calling it a fidelity gate overstates what it can establish.** For a
+target regression `m` and a candidate `f`, `held_out_risk` estimates `C + ‖m − f‖²_w` with `C`
+common to every candidate, so a comparison observes `‖m − f‖²_w − ‖m − h‖²_w` and nothing else.
+Non-inferiority against a finite ladder therefore establishes that the selected rung is **not
+materially worse than those competitors** — it does not bound `‖m − f‖²_w`, and every candidate can
+share a material approximation bias while all their gaps stay small. Rejecting a deliberately coarse
+negative control proves discrimination against *that control*, not proximity to the population
+regression; this module already records that the numerical reference is not an oracle and that its
+smoothing bias is unbounded, and this is the same sentence read at gate level.
+
+> **Until an absolute anchor exists, gate B is a ranking-and-falsification instrument.** It may not
+> certify a "population-limit reference" and it may not branch production behaviour on its own.
+> [Piece F's F6](../roadmap.md#f-localize-the-shortfall-before-changing-anything) is where that is
+> settled, by exactly one of two routes: derive a positive absolute error bound for these
+> known-DGP univariate reduced regressions and test candidate excess error against an effect-scale
+> margin, **or** keep the ladder and rename the gate to what it is. **No frozen margin moves
+> either way**, and no third decision study runs before the choice is made.
+
 **C is not free and E1b's device is not transportable wholesale.** There the companion was inert
 to the fit, so eight replicates cost one fit; here the reference *enters* the fit, so a scramble
 is a refit. That is why the budget is its own flag and its own subset of draws, and why the
