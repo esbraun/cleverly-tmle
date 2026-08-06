@@ -6,12 +6,17 @@ What has landed, what is open, and where native acceleration does and does not p
 tested and not finished. [What is still open](#what-is-still-open) is the list, grouped into
 pieces of work, each of which is a pull request rather than an errand.
 
-**No known defect is live.** The last one — the reported curve was not centred wherever the
-mechanism truncation bound — closed with
-[B1b](#b1b--the-theorem-conforming-targeting-decision), and what is left is **a demonstration and a
-widening of scope**. That is a different kind of list from the one this page opened with, and it
-does not lower the bar: *done* still means a demonstration that the interval attains nominal
-coverage where a plain `TMLE`'s does not.
+**No source defect is currently localized, and `DRTMLE` remains unvalidated under the
+misspecification regime it exists to repair.** Those are two statements, and for four revisions
+this page carried only the first — "no known defect is live" — which reads as though what were left
+were the demonstration of a working estimator. The last *localized* defect, the reported curve not
+being centred wherever the mechanism truncation bound, did close with
+[B1b](#b1b--the-theorem-conforming-targeting-decision). What has happened since is that the
+demonstration ran and **the estimator did not clear it** ([C3c](#what-c3c-measured)), and that two
+dispatches built to say why came back unable to read their own comparison. So the absence of a known
+defect is true and is not the status. The status is that the shortfall is **measured and not
+localized** — and that does not lower the bar: *done* still means a demonstration that the interval
+attains nominal coverage where a plain `TMLE`'s does not.
 
 **The study has now run, and its answer is that the demonstration is made and the estimator does
 not clear.** [C3c](#what-c3c-measured) dispatched 6,000 fits over two seed batches, entered the
@@ -30,9 +35,30 @@ question. `√n R_remaining` — item 13, and Theorem 1's own assumption — is 
 estimator, at this reduction, does not meet the condition at these sizes*; it does not say the
 condition is unmeetable, and item 13 stays open on exactly that distinction.
 
-**The newest thing on this page is [E2R's decision run](#what-e2rs-decision-run-measured), and it
-came back `unresolved` in four cells of four — so [the branch table](#the-branch-e2r-decides)'s last
-row fires, WP2 does not, and the reduction road ends here as motivation for a production change.**
+**The newest thing on this page is [piece F](#f-localize-the-shortfall-before-changing-anything), a
+recovery plan written from outside.** An external critique read PR #77 and PR #78 against the
+evidence and found what the paragraphs below could not see about themselves: **neither pull request
+touches `src/`**, both are validation infrastructure that prevented an unsupported fix, and this
+page's own dependency graph had left no reachable next step — the R diagnostic's reopening condition
+names E3, and the branch table routes an unresolved E2R to *stop*, so the clause could never
+discharge. Piece F is eight pull requests that **localize the failure before anything in the
+estimator moves**, and **the first of them is this revision**: the status sentence above, the
+branch table's wording, the dead condition discharged, `held_out_risk`'s one false sentence
+corrected, and gate B labelled for what it is. No threshold moved and no verdict was re-read.
+**One of the remaining seven lifts this page's longest-standing refusal.** A bounded differential trace
+against the published `drtmle` R package is now authorized — *as an instrument for localization,
+never as evidence* — on the user's explicit decision and over the argument recorded below
+([the reversal](#a-differential-diagnostic-against-r-refused-then-authorized)). The rule that
+refusal protected is unchanged and is now [stop-ship 17](#stop-ship): **a match to R is never a
+reason to change this package**, and every production change still has to be adjudicated against
+Theorem 1, the exact laws and the remainder identities.
+
+**The result that closed the reduction road is [E2R's decision
+run](#what-e2rs-decision-run-measured), and it came back `unresolved` in four cells of four — so
+[the branch table](#the-branch-e2r-decides)'s last row fires, WP2 does not, and the reduction road
+ends here *as motivation for a production change*.** That edge is what it always was and it is now
+stated at its actual width: E2R's unreadable comparison may not motivate an estimator change, and
+that is not a reason to stop diagnosing.
 That is the bound the piece set for itself applied to its own result. **Three of E2's four failing
 clauses are now satisfied** — the negative control is rejected everywhere on all five metrics, gate C
 passes in all four cells, every cell is integrity-valid at 32 of 32 draws — and E2's own clause, *a
@@ -280,9 +306,9 @@ prejudice.
 | **`numba` is a benchmark-only dependency.** Nothing under `src/` imports it | all three "adopt numba" recommendations dissolved once the numpy baseline was written properly — an expansion that need not happen, a sort already done elsewhere, a quadratic mask rebuild — and the largest single win in the whole investigation was a context manager | a kernel beating a *competent numpy* baseline, on a machine with more than four cores. Nothing is measured above four, and no CI job runs above two | [benchmarks](benchmarks/) |
 | **No Rust or other native extension**, and the package stays pure Python | nuisance estimation dominates every realistic fit and already runs in compiled code; cleverly-authored arithmetic does not reach 3% of a `default` fit even at five million rows | **HAL** — a nuisance learner that is not scikit-learn moves the whole denominator. Unchanged, and still the trigger | [On native acceleration](#on-native-acceleration) |
 | **The internals are numpy, not polars**, whatever the caller passes in | the whole dataframe boundary is 1.5% of the cheapest fit and 0.06% of a realistic one — 1.5% and 0.04% asymptotically — so there is no share for a columnar engine to win, and scikit-learn takes contiguous numpy regardless | a workload whose cost is joins, group-bys or IO. None of those is on this path | [At several million rows](#at-several-million-rows) |
-| **No R in this repository and none in CI**, and no parity test against another implementation | two checks that cannot fail against the same class of error are one check: Python and R descend from one source, so agreement is evidence about a transcription and not about a derivation | nothing. It is a retirement, not a deprioritisation — and referring to another implementation *in prose* was never what was refused. The narrower *differential-diagnostic* case for it is [answered below](#a-differential-diagnostic-against-r-considered-and-refused) rather than left unnoticed | [What the sizings got wrong](#what-the-sizings-got-wrong), lesson 9 |
+| **No R under `src/`, in any test tier, or in any release criterion — and, new with this revision, a bounded differential *diagnostic* is authorized outside all three** | the epistemic half is unchanged and is why the three exclusions are absolute: two checks that cannot fail against the same class of error are one check, so agreement with R is evidence about a *transcription* and can never certify a derivation. What changed is the diagnostic half. A trace does not claim to be evidence — it localizes where two implementations of one algorithm **first diverge** — and after two dispatches built to localize this shortfall failed to read their own comparison, it is the instrument left | **it has been reopened**, on the user's decision and an external critique, and the bounded form is [F2](#f-localize-the-shortfall-before-changing-anything). It re-closes on a localization reached without it. What it may never do is justify a production change, which is [stop-ship 17](#stop-ship) | [the reversal](#a-differential-diagnostic-against-r-refused-then-authorized); [lesson 9](#what-the-sizings-got-wrong) |
 | **A study that selects and then certifies runs on two disjoint cohorts of draws**, separated by a commit of the frozen selection | disjoint quadrature blocks split the *integration* noise, and the simulation draw is the independent unit: a rung chosen across a set of draws and certified on the same set is a data-dependent selection assessed on the sample that made it. The disjointness is checked on the **data seed**, since two draws sharing one under different splits are the same rows twice | a study whose selection is not data-dependent — a rung shipped rather than measured is one cohort's work, which is what E2 was | [§8's decision protocol](drtmle/validation-plan.md#the-decision-protocol-frozen-before-the-dispatch) |
-| **A fidelity gate passes on a non-inferiority bound, never on failure to show superiority** | an interval containing zero establishes neither equality nor adequate approximation, so a gate read that way certifies whatever it cannot resolve — and E2R's own record called two rungs "genuinely indistinguishable" on exactly that reading | a margin that cannot be tied to a tolerable change in the reported column. The two composites' is `(δ/3)²/(n·weight_scale)` by Cauchy–Schwarz; the three componentwise ones have no such transfer and take a share of the negative control's measured distance instead | [§8's decision protocol](drtmle/validation-plan.md#2-the-fidelity-clause-is-non-inferiority-against-a-margin-declared-in-advance) |
+| **A fidelity gate passes on a non-inferiority bound, never on failure to show superiority — and what it then establishes is *relative*, not absolute** | an interval containing zero establishes neither equality nor adequate approximation, so a gate read that way certifies whatever it cannot resolve — and E2R's own record called two rungs "genuinely indistinguishable" on exactly that reading. **The second clause is new and is a correction**: `held_out_risk` differences estimate `‖m − f‖²_w − ‖m − h‖²_w`, so non-inferiority against a finite ladder bounds a risk *difference* and never `‖m − f‖²_w` itself. Every candidate can share a material approximation bias while their gaps stay small, and rejecting a coarse negative control proves discrimination against *that control*. Gate B **ranks**; it does not certify adequacy, and [F5](#f-localize-the-shortfall-before-changing-anything) either anchors it or renames it | a margin that cannot be tied to a tolerable change in the reported column. The two composites' is `(δ/3)²/(n·weight_scale)` by Cauchy–Schwarz; the three componentwise ones have no such transfer and take a share of the negative control's measured distance instead | [§8's decision protocol](drtmle/validation-plan.md#2-the-fidelity-clause-is-non-inferiority-against-a-margin-declared-in-advance) |
 | **Nuisance fits run single-threaded**, with one `ThreadpoolController` per process | parallelism belongs across folds and candidates rather than inside each small fit; building the controller per entry was 57% of a DR-TMLE `retarget` | a fit large enough that one model wants the machine — `set_thread_limit(None)` is the lever, not a code change | [`thread_limit_profile.md`](benchmarks/thread_limit_profile.md) |
 | **`tracemalloc` is the memory instrument** | it *does* see numba's allocations, through all three CPython allocator domains — the caveat that said otherwise was wrong and was measured to be wrong | a question about resident memory rather than allocation, or a library calling `malloc` directly. That needs an incremental-RSS arm *beside* this column, not instead of it | [`production_plan.md`](benchmarks/production_plan.md) §1.3 |
 | **Benchmark write-ups live in [`docs/benchmarks/`](benchmarks/)**; `benchmarks/results/` is generated output and is git-ignored | a `results.jsonl` from a four-core container reads as a fact about the package rather than about that box | nothing | [`docs/README.md`](README.md) |
@@ -394,6 +420,17 @@ one.** This page said for one revision that the shortfall was a single quantity 
 candidates behind it were interchangeable. Neither is right, and the study's own columns are what
 say so — [the ranked list](#the-three-candidates-ranked-by-what-the-study-measured) is where each
 candidate's evidence and its deciding pull request are.
+
+**Piece E has run out of licensed dispatches, and
+[piece F](#f-localize-the-shortfall-before-changing-anything) is what carries the question now.**
+Both of E's diagnostic runs came back unable to read the comparison they were built to read, and E's
+own bound — correctly — forbids citing either as motivation for a production change. What that bound
+does *not* say, and what the previous revision let it be read as saying, is that the diagnosis
+stops: **the failure is measured and not localized**, and F is eight pull requests whose whole
+subject is localizing it. Its instruments are a deterministic component-level trace, a bounded
+differential run against the published R implementation, the construction ablations this page
+already has code for, and a small learner feasibility screen — none of which is a coverage study,
+and none of which may change `src/` on its own.
 
 **There was a fourth candidate nobody had listed, and [E1](#what-e1-landed-and-what-e1b-withdrew)
 has removed most of it.** It is the *instrument*: the evaluation draw's own quadrature error lands
@@ -559,9 +596,13 @@ why the most important item on the page has the highest number, and **23** was f
 B1a's own instrument on its first run and is now closed. The pieces are lettered so the two cannot
 be confused.
 
-### The work, in five pieces and eighteen pull requests
+### The work, in six pieces and twenty-six pull requests
 
-A, B, C and E are each split, so the five pieces are eighteen pull requests: **B1a**, **A1a**, **B1b**,
+A, B, C and E are each split, so the first five pieces are eighteen pull requests, and **piece F
+adds eight** — the critique's PR A to PR H, relettered **F1** to **F8** because A to E are already
+piece letters here and a second A would be unreadable. The mapping is stated once, in
+[F's own table](#f-localize-the-shortfall-before-changing-anything), and nowhere else.
+**B1a**, **A1a**, **B1b**,
 **B2a**, **B2b**, **A1b**, **C1**, **C2**, **C3a**, **C3b**, **C3c**, **E0**, **E1**, **E1b**,
 **E2** and **E2R** have landed — **E2 has run and did not branch** and **E2R has run and came back
 `unresolved`**, which are results and not deferrals — and **D** and the rest of **piece E** are open.
@@ -616,7 +657,8 @@ first.
 | **E1b** — *landed* | the same question measured rather than asserted: an independent scramble per replicate, so the grid's error is mean-zero and estimable *conditionally on each fit*, with an interval on every share. **At `n = 2,400` the draw accounted for `0.99`–`1.01` of the column's across-draw variance** | `DGP.quadrature(scramble=…)`; stacked companions and a row `Window`; `rule sd` and `share`; two dispatches, [manifested](drtmle/study-manifest.md#e1b-what-was-run) |
 | **E2** — *landed, and it did not branch* | the reference reduction dispatched against its frozen rule. **Gate B fails in three cells of four**, each on a coarser rung beating the shipped one, so those cells are `unresolved`; the fourth reads **`moved`**. Candidate 1 is alive-but-unestablished rather than decided, and the named repair is a rung **selected rather than shipped** — [at interval level a rung per *cell*](#what-e2-measured-and-why-it-did-not-branch), which is a correction to two earlier revisions | run `31042558057`, four artefacts [manifested](drtmle/study-manifest.md#e2-what-was-run); [what it measured](drtmle/investigation-log.md#what-the-e2-dispatch-measured); `benchmarks/drtmle_reference.py` and `drtmle_reference_study.py`; `.github/workflows/drtmle-reference.yml`; [§8](drtmle/validation-plan.md#8-the-reference-comparison-piece-e2); `tests/unit/test_reference_exact_law.py` and `test_drtmle_reference_study.py` |
 | **E2R** — *landed; ran; came back `unresolved`* | **[the decision run](#what-e2rs-decision-run-measured), in two dispatches with the mapping committed between them, and it does not decide.** Four cells of four `unresolved`: three because a competing rung is not *shown* non-inferior within the squared margin, one because the selection did not replicate out of sample. The negative control is rejected everywhere, gate C passes everywhere and every cell is integrity-valid — so what the repair fixed, it fixed, and the branch is nonetheless **stop**. Plus the reference repaired at [eight points](#the-reboot-and-the-three-work-packages) and its rule frozen: the rung **selected** per `(cell, size, regression)` against a measured ranking, four blocks so the block that certifies is not the block that chose, **five** gate-B metrics — the three regressions and the two composites the correction divides by — a control coarse enough to be rejected on all five, and the block-size falsifier declared. A review of that instrument then found three ways it could still pass without certifying anything, so the last three are the **decision protocol**: two disjoint cohorts of draws with a committed manifest between them, a fidelity clause that is non-inferiority against a declared margin rather than failure to show superiority, and a run that exits non-zero on an incomplete artefact set. Closes no numbered item — item 13 is a rate and closes at E5 — and the mapping it froze is committed at `evidence/e2r-selection/selection.json` | `benchmarks/drtmle_reference.METRICS`, `composite_denominators`, `metric_weights`, a per-regression `reference=`; `select_rung`, `RecordingDRTMLE`, a selection table and a third artefact on the harness; `cohort_seeds`, `SelectionManifest`, `validate_selection`, `noninferiority_margins`, `simultaneous_lower_bounds`, `run_integrity`; [§8's selection rule and what the pilot moved](drtmle/validation-plan.md#the-selection-rule-frozen-before-the-dispatch) and [its decision protocol](drtmle/validation-plan.md#the-decision-protocol-frozen-before-the-dispatch); `tests/unit/test_drtmle_reference.py` and `test_drtmle_reference_study.py` |
-| then **E2b** *or* **E3**, then **E4** + **E5** | [the three work packages](#the-reboot-and-the-three-work-packages): **one** branch off E2R's verdict, and the frozen confirmatory study. **E5** is where item 13 closes either way | their rows below |
+| then **E2b** *or* **E3**, then **E4** + **E5** | [the three work packages](#the-reboot-and-the-three-work-packages): **one** branch off E2R's verdict, and the frozen confirmatory study. **E5** is where item 13 closes either way. **E2b does not fire, and E3 survives as [F4](#f-localize-the-shortfall-before-changing-anything)'s construction ablation** — a diagnostic, not a branch | their rows below |
+| **F1** — *landed*, then **F2** – **F8** | [localize the shortfall before changing anything](#f-localize-the-shortfall-before-changing-anything): the status correction, the trace harness, the R differential run, the construction ablations, the learner screen, the reference gate's repair-or-renaming, the **conditional** implementation, and the fresh confirmatory study. **F7 is the only row that may touch `src/`, and only on a localization F2–F5 produced** | F1: this revision's status sentence, branch-table wording and gate labelling, `held_out_risk`'s corrected claim, `CLAUDE.md`'s narrowed R rule, and [stop-ship 17](#stop-ship). The rest: their table below |
 | **D** | the two candidates in item 10 | its own reduced object, submodel and fixtures |
 
 **A1 split into A1a and A1b for the reason B1 split into B1a and B1b**, and the reason is worth
@@ -650,8 +692,21 @@ C3c ──> E0 ──> E1 ──> E1b ──> E2 ──> E2R ──X   [ E2b | E
 
        E2b was to fire if the repaired reference improved the remainder and a feasible learner
        was in reach; E3 if it did not, or if a repaired remainder still left the calibration
-       failing. Neither fires: a reference that stays unresolved stops the release instead of
-       advancing to the next box, and E2R stayed unresolved in four cells of four
+       failing. Neither fires as a *branch*: a reference that stays unresolved stops the release
+       instead of advancing to the next box, and E2R stayed unresolved in four cells of four.
+       E3's ablation is not lost — it reappears under F4 as a diagnostic that may not branch
+
+E2R ──> F1 ──> F2 ──> [ F3 ‖ F4 ] ──> F5 ──> F6 ──> F7 ──> F8
+       status  trace   R diff   con-   learner gate    only the   fresh
+       + dead  harness run      struc- screen  repair  localized  confirm-
+       branch  fixture bounded  tion           or      change     atory
+       removed frozen  isolated ablat-         rename  CONDITION- study
+       LANDED                   ions                   AL
+
+       F3 and F4 are independent once F2's fixture exists and are drawn parallel for that
+       reason; F5 gates only the *reuse* of gate B, not F7. F7 fires on a localization or
+       does not fire at all, and "no localized change survives the checks" is a recorded
+       negative result rather than a licence to change something anyway
 
 D   independent of all of it, and gated on A1a alone. Not a fallback inside this release
 ```
@@ -666,7 +721,13 @@ certifies is not the block which chose, five gate-B metrics where there were thr
 coarse enough to be rejected on all five — [with two of the five clauses moved by the pilot that
 sized them](#what-e2rs-instrument-landed). **It came back `unresolved` in four cells of four**, so
 the last row of its own branch table fires and WP2 does not
-([what it measured](#what-e2rs-decision-run-measured)). **E3 has moved from the trunk onto a branch**, and
+([what it measured](#what-e2rs-decision-run-measured)). **What that row stops is the *reduction road
+as production-change evidence*, and the previous revision let it read as stopping the diagnosis
+too** — which left this page with no reachable next step at all, since the R refusal's own reopening
+condition named an E3 the same table forbids. [Piece
+F](#f-localize-the-shortfall-before-changing-anything) is that contradiction removed: E3's ablation
+comes back as a **diagnostic** under F4, and the R trace it was gating comes back under F2.
+**E3 has moved from the trunk onto a branch**, and
 that is the reboot: it was going to run whatever E2 said, on a `se`-ratio mechanism
 [this revision withdraws](#the-se-shortfall-is-a-symptom-and-what-withdrawing-it-costs).
 [C3c](drtmle/coverage-study.md#what-the-study-measured) entered the regime, produced the gap, and
@@ -1796,7 +1857,7 @@ taken together, and the reason is that the condition is checkable rather than me
 **What closed it.** Three things had to agree on one sentence: this page, the concordance, and the
 estimator's own output. The first two were done in the revision that opened item 25 — the table
 above, and the matrix rows behind it — and the third is the **witness**, which landed with
-[C1](#the-work-in-five-pieces-and-eighteen-pull-requests). `CorrectionRow.margin` covered the targeted
+[C1](#the-work-in-six-pieces-and-twenty-six-pull-requests). `CorrectionRow.margin` covered the targeted
 mechanism at the exit and **nothing on a fit covered the initial mechanism or `g_{r,1}`**, so a user
 could not ask a fit which side of the contract it was on without recomputing `clip share` the way
 `bench_drtmle.py` does. Now `CorrectionCheck.contract` answers it, `initial_clipped` and
@@ -2523,10 +2584,22 @@ buy a second dispatch: it is the same one decision run, on a design that can car
 | gates pass, remainder **materially improves** | **E2b** — compare feasible reduction learners, then freeze the winner | the reference is the existence proof; the open question becomes attainability |
 | gates pass, remainder **does not improve** | **E3** — the narrow pooled-versus-nested construction and stability test | candidate 1 is dead and the learner road shuts, which is E2's `equivalent` arm reached at last |
 | gates pass, reference improves it, **no feasible learner approaches it at `n = 2,400`** | **stop.** Record a negative learnability result | "an oracle would fix it" is not a shippable estimator, and saying so is a result — the same standard `bench_tmle.py`'s no-Rust conclusion is held to |
-| gates still **fail** | **stop.** More coverage runs cannot answer this | a comparison at a reference another resolution beats answers for the wrong reference, at any replicate count |
+| gates still **fail** | **stop E2R as production-change evidence, and continue bounded construction diagnostics.** More *coverage* runs cannot answer this | a comparison at a reference another resolution beats answers for the wrong reference, at any replicate count — which is a statement about what may be *cited*, not a statement that the cause is unknowable |
 
 **The run has happened and the answer is the last row.** [What it
-measured](#what-e2rs-decision-run-measured) is below; the branch is **stop**, and WP2 does not fire.
+measured](#what-e2rs-decision-run-measured) is below; WP2 does not fire, and E2R's comparison is not
+citable for anything.
+
+**That last row is worded differently from how it was written, and the change is a correction rather
+than a relaxation.** It used to read *stop*, full stop. Read that way it stopped two things at once
+— citing the comparison, which is right, and diagnosing at all, which nothing in the evidence
+supports — and the cost was structural: the R diagnostic's reopening condition names an E3 that this
+same row forbids, so [the refusal](#a-differential-diagnostic-against-r-refused-then-authorized)
+rested on a clause its own dependency graph could not satisfy. **No threshold moves and no verdict
+is re-read.** E2R is `unresolved`, its four cells stay unreadable, and nothing below it may motivate
+a production change. What continues is
+[piece F](#f-localize-the-shortfall-before-changing-anything), whose instruments are traces and
+ablations rather than a third decision study.
 
 ##### What E2R's decision run measured
 
@@ -3032,6 +3105,15 @@ ships the spline expansion to build it from.
   in all four and none of them is read
   ([what it measured](#what-e2rs-decision-run-measured)) — and it binds this page as written.
 
+  **What it does not refuse is diagnosis**, and the distinction is
+  [piece F](#f-localize-the-shortfall-before-changing-anything)'s reason for existing. The bound is
+  on *citation*: E2R's comparison may not be read, and no reading of it may move a line of `src/`.
+  A trace that recomputes a score from a recorded state, an ablation between two constructions this
+  package already ships, or a run of another implementation on a frozen fixture, cites none of it.
+  A third E2R-shaped decision study is still refused, and so is narrowing E2R's existing intervals
+  with more replicates — the `q-drift` `2,400` selection reversal and the missing absolute fidelity
+  bound are **design** failures, and a replicate count does not repair a design.
+
 ##### What E1 landed, and what E1b withdrew
 
 The remainder instrument, and it **closes no numbered item** — item 13 is a rate and closes at E5.
@@ -3197,6 +3279,148 @@ Its numbers come from a dispatched run with retained artefacts, identified in [t
 manifest](drtmle/study-manifest.md#e1b-what-was-run), because E1's came from a sandbox whose output
 was git-ignored and is gone.
 
+#### F. Localize the shortfall before changing anything
+
+**Closes nothing on its own, and that is the point of it.** Piece F is an external critique's
+recovery plan, taken up whole. It read this page and the two most recent pull requests against
+Theorem 1 and against the study artefacts on **2026-08-06**, and its executive finding is one this
+page could not make about itself: *the project is on track in experimental rigour and is not on
+track to a verified `DRTMLE` fix.* What it changes here is the **status**, the **decision
+semantics**, and one **refusal**.
+
+**Its disposition of the last two pull requests is worth stating in their own terms, because both
+were sound and neither was progress in the estimator.**
+
+- **PR #77** — two disjoint simulation-data cohorts rather than disjoint quadrature blocks, a gate B
+  that requires one-sided simultaneous non-inferiority across competing rungs and five metrics, and
+  fail-closed execution on missing selections, overlapping cohorts, incomplete draws and recorded
+  fit or risk errors. Nine files, `+2,115/−208`, **none under `src/`**. CI `31081695098` green
+  across typing, lint, minimal installs, the numba correctness job and the non-slow tier on 3.11,
+  3.12 and 3.13.
+- **PR #78** — the selection manifest printed as a hash plus gzipped bytes from inside the job,
+  `scripts/recover_selection.sh` refusing a reconstruction whose SHA-256 does not match, the
+  recovered `selection.json` committed, and the decision path validating contents and cohort
+  disjointness before fitting. Twelve files, `+1,042/−61`, **none under `src/`**. CI `31093244146`
+  green on the same matrix. It closes a reproducibility roadblock caused by inaccessible Actions
+  artefact storage and changes no algorithm.
+
+**So the honest description of both is validation infrastructure that prevented an unsupported
+fix**, and this page will say that rather than counting them as movement on the estimator.
+
+##### What the evidence establishes, question by question
+
+Nothing in this table is new measurement. It is the page's own numbers arranged as answers, and it
+exists because four revisions of prose were needed to carry what six rows carry.
+
+| question | evidence | answer |
+| --- | --- | --- |
+| did #77 or #78 fix `DRTMLE` code? | neither changes `src/` | **no** |
+| does the estimator beat plain `TMLE` where the design says it should? | C3c `q-drift` `n = 2,400`: `TMLE` `0.532` / `0.472`, `DRTMLE` `0.844` / `0.848` | **yes, materially** |
+| is `DRTMLE` validated at nominal coverage? | it reaches `0.95` nowhere; the best reading anywhere in C3c is `0.880` | **no** |
+| is the remainder condition demonstrated? | `√n R_remaining` is nearly flat in both independent batches — `q-drift` ends at `1.252` / `1.174`, `g-drift` at `4.833` / `4.305` | **no** |
+| did E2R identify `glm` reduction error as the cause? | all four cells `unresolved`; the paired comparison is inadmissible in every one | **no** |
+| did E2R's controls work? | 32/32 valid decision draws a cell, the negative control rejected on all five metrics, gate C passing in all four cells | **yes** |
+| is reference selection stable? | at `q-drift` `n = 2,400` the selection chose `spline(8)` for `qr`; the independent audit found `spline(16)` better | **no, not in that cell** |
+| do the unit tests exclude every construction defect? | the exact-law and theorem tests pin signs and identities, and this page's own rule records that they go blind wherever a reduced regression vanishes at the truth | **no** |
+
+##### The four roadblocks, and the two that are about this page rather than about the estimator
+
+**R1 — the failure is measured and not localized.** C3c proves the configuration misses the release
+criterion. It does not distinguish inconsistent or too-slow `glm` reduced regressions, from the
+pooled reduced-crossfit construction, from the targeting/update/closing construction, from an
+interaction among them. E2R was built to separate the first from the rest and **its own gates
+forbid reading its comparison**. A third full coverage run cannot localize this, and refusing one is
+already [piece E's first refusal](#what-this-piece-refuses-by-name).
+
+**R2 — the reopening condition was unreachable, and that is a defect in the plan.** The R
+diagnostic's condition reads *E2R unresolved **and** E3 failing to localize*; the branch table
+routes an unresolved E2R to stop, so E3 never runs and the second clause can never be evaluated.
+The previous revision **noticed this and left it standing**, which is the one option that was not
+available: a condition its own dependency graph cannot satisfy does not guide the next agent, it
+just looks like guidance. F1 removes it.
+
+**R3 — a materially different published implementation has not been used as a diagnostic.** This is
+not a claim that R is an oracle, and the reversal below is careful about which claim it is. It is
+that a bounded differential trace can localize the *first* construction divergence, and the two
+implementations differ at five named places:
+
+| step | this package | the published R package |
+| --- | --- | --- |
+| round start | primes equation (8) | initialises `QnStar <- Qn`, `gnStar <- gn` |
+| mechanism update | solves equation (9), then refits all reductions | solves its `fluctuateG`, then refits `gr` |
+| outcome update | solves equation (10), then equation (8) | at the default `Qsteps=2`, solves `fluctuateQ2`, then `fluctuateQ1` |
+| reduced outcome refit | refits all reductions again | refits `Qr` after both outcome updates |
+| iteration and exit | up to 50 rounds plus a frozen-reduction joint closing pass | three iterations by default, and no analogous closing pass in the package loop |
+
+Those are visible in `solve_with_reduction`, in the public `drtmle` source and in the CRAN
+reference manual, which also records that `Qsteps=2` was the more stable choice in the authors'
+simulations and is why it is the default. **Every row there is a place two correct-looking
+implementations of one algorithm can differ without either being a transcription slip** — which is
+exactly the class the standing refusal's reasoning does *not* cover, and the reason the reversal is
+narrow rather than a repeal.
+
+**R4 — the theorem premise was only ever tested with the unverified learner.** C3c fixes all three
+reduced regressions at `glm` while the concordance marks their consistency `unverified`. The R
+package's own examples use flexible `SL.npreg` reductions and it imports `SuperLearner` and `np`;
+this repository already has a spline learner family, built for E2's reference. A **small** flexible
+learner feasibility screen is therefore evidence-backed. Changing the production default before
+that screen is not, and F5 is written to keep those apart.
+
+##### The eight pull requests
+
+**The critique's PR A to PR H are F1 to F8 here.** Only **F7** may change `src/`, and only on a
+localization F2 to F5 produced. **F1 has landed with this revision** — it is the row that is a
+correction to the record rather than research, and it is separate for the same reason E0 and the
+contract row were: a correction to the record must not arrive entangled with an estimator change.
+
+| | what it lands | must not include |
+| --- | --- | --- |
+| **F1** — status and decision semantics — *landed with this revision* | the status sentence at the head of this page, the branch table's last row reworded to *stop as production-change evidence, continue bounded construction diagnostics*, the unreachable reopening condition **discharged** and E3 authorized explicitly as a diagnostic rather than a production branch, `held_out_risk`'s equal-error claim corrected in the module itself, gate B labelled **relative** non-inferiority in [§8](drtmle/validation-plan.md#the-three-gates-and-why-none-of-them-is-a-refinement-difference) until an absolute anchor exists, and `CLAUDE.md`'s R rule narrowed to match this page | any threshold, any constant, any re-reading of E2R's comparison, any estimator code. **None was touched**: `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION`, `PRIMARY_ESTIMAND`, `FIDELITY_FRACTION`, `COMPONENT_FRACTION` and `COMPLETENESS_FRACTION` are what they were, and the four cells stay `unresolved` |
+| **F2** — a deterministic component-level trace harness | one frozen binary-treatment, no-missingness fixture — observed `W`/`A`/`Y`, folds, weights, bounds and **identical initial `Q̄` and `g` predictions** — and a per-arm, per-round export: pre- and post-update `Q*`, `g*`, `Q_r`, `g_{r,1}`, `g_{r,2}`, the empirical means of equations (8), (9) and (10), the fluctuation coefficients, the condition flags, the point estimate, the correction arrays, the curve and the `se`. The state immediately before and after `_close_at_frozen_reductions`, both existing update orders on the one fixture, and invariants that **recompute every recorded score from the recorded state**. Suggested: `benchmarks/drtmle_trace.py`, `benchmarks/fixtures/drtmle_trace_v1.*`, `tests/unit/test_drtmle_trace.py` | a new public estimator option. The closing-pass state is read where it already exists, not exposed. Acceptance is a deterministic trace across repeated runs, every identity recomputing inside the existing tolerance, and the exact-law and theorem tests staying green |
+| **F3** — the bounded R differential run | an **isolated** script or container/`renv` task against the public `drtmle` package and F2's frozen fixture, handed the same initial `Qn` and `gn`, with a reduced-learner specification whose *first fit* can be checked for numerical agreement before any targeting is compared. Both `Qsteps=1` and the default `Qsteps=2`. The comparison is of the **earliest divergence**, not of final estimates, in absolute and scale-relative terms over arrays, scores and coefficients, and the first divergence is **classified** — input or learner, update order, reduction-refit vintage, stopping rule, frozen close, or corrected-IC construction | an R dependency in the package, in `nox`, or in any test tier the fast CI runs. Any modification of Python merely to match R. Any use of agreement as a release criterion — [stop-ship 17](#stop-ship). Acceptance is one checked-in comparison report naming the first divergence or establishing agreement to a declared tolerance |
+| **F4** — the construction ablations, run as diagnostics | on common seeds: `reduced_crossfit` pooled against nested, the two update orders, pre-close against post-close state, and the R-style finite-backfitting trajectory F3 identifies as a **benchmark path**. Columns: `√n R_remaining`, all three score means, the reduced regressions' drift between the last refit and the reported state, the score-failure rate, the point-estimate movement and the `se` ratio. Both `q-drift` and `g-drift`, `n ∈ {600, 2,400}`, paired on the same data and fold seeds. **This is E3's ablation, and it may not branch** | the 6,000-fit confirmatory study, or anything sized like it. A production keyword for the R-style trajectory. Advancing a construction whose paired change does not reproduce, does not reduce `R_remaining` or score failures, and is not theorem-consistent. **A null result here is a result** and routes the piece to F5 |
+| **F5** — the reduced-learner feasibility screen | current `glm` against a **small, predeclared** univariate library — the existing spline/GAM path, plus one kernel or local-smoother path *if* it can be had without widening the runtime dependencies. Fitted and scored out of fold on the same paired draws, reporting all three component risks **and** the composites `q_r/g` and `g_{r,2}/g_{r,1}`, not final coverage. An improvement must replicate on a held-out cohort **and** in `√n R_remaining` | a rerun of E2R, a production default change, or a candidate set widened after the decision cohort is seen. A learner that improves in-sample risk alone, or raises the score-failure rate, is rejected. The outcome may be a recorded **negative learnability** result |
+| **F6** — repair or downgrade the reference gate | exactly one of two routes, chosen and stated: an **absolute-adequacy** anchor — a positive error bound for the known-DGP univariate reduced regressions, tested against an effect-scale margin — **or** the **ranking-only** route, keeping the ladder as a falsification instrument, renaming the gate, and forbidding it from certifying a "population-limit reference" or branching production behaviour | relaxing any frozen margin. Treating an out-of-family candidate or a longer ladder as an absolute bound — it is useful sensitivity analysis and it is not a bound. **No third E2R-shaped decision study runs until this gap is closed** |
+| **F7** — the localized change, and only it | *conditional, and it is the only row that touches `src/`.* If F3 or F4 localizes an update, refit or closing discrepancy **and** the theorem checks select one construction, that construction changes and F2's frozen trace becomes its regression test. If F4 localizes the pooled crossfit, the default changes only after the nested result replicates, and the public contract moves with it. If F5 localizes learner inconsistency, the reduced-learner default or library changes only on demonstrated held-out improvement and runtime feasibility at `n = 2,400`. **If none of them localizes the shortfall, no estimator change is made**, the in-progress warning stays, and the negative diagnosis is published | any change justified by R agreement, by an in-sample metric, or by a reference ranking. Every path requires the exact-law identities, the theorem-sign tests, the remainder decomposition, the score/state identity tests, the fast CI **and** the relevant small paired diagnostic to pass |
+| **F8** — the fresh confirmatory coverage | *only after F7 has a localized, tested change.* The estimator configuration, DGPs, sizes, seeds, replicate counts, thresholds, exclusions and Monte Carlo decision rule frozen **in a commit before dispatch**; C3c's misspecification regimes rerun on fresh seeds, plus a reproduction of the published paper's relevant simulation setting where feasible; `√n R_remaining` required to show the predeclared vanishing trend, score-failure rates required to clear the existing threshold in **every** cell, and `DRTMLE` coverage required to be compatible with nominal `0.95` under the predeclared Monte Carlo tolerance in the cells where ordinary `TMLE` fails. The independent second batch and the fail-closed artefact checks #77 and #78 introduced are preserved | reading a coverage number taken before F7 as the release number. This is the **only** phase that can move the feature from *in progress* to validated |
+
+##### The order, and what stops it
+
+| order | work | why it precedes the next |
+| --- | --- | --- |
+| 1 | **F1** | removes the dead branch without touching any evidence |
+| 2 | **F2** | produces the common state-level instrument F3 and F4 both read |
+| 3 | **F3** and **F4** | localize construction differences *before* any code changes |
+| 4 | **F5** | tests the one theorem premise C3c left unverified |
+| 5 | **F6** | stops a future relative ranking from being called absolute fidelity |
+| 6 | **F7** | makes only the change the evidence selected |
+| 7 | **F8** | confirms the final configuration on fresh data |
+
+**Stop immediately if** the trace inputs or the first reduced fits do not agree — repair the
+diagnostic before interpreting anything downstream of it; **or** a proposed implementation change is
+justified only by R parity; **or** a gate threshold would have to move after seeing E2R's present
+result; **or** a learner or construction improves only an in-sample or reference-ranking metric and
+not held-out `R_remaining` or score validity; **or** no localized change survives the theorem and
+exact-law checks. Each of those is a recorded outcome, not a reason to keep dispatching.
+
+##### What done means, restated so that it can be checked
+
+`DRTMLE` is fixed when **all** of these hold, and the list is deliberately longer than "coverage
+attains nominal", because a coverage number reached by an unlocalized change is the failure mode
+this whole piece exists to prevent:
+
+- a specific failure mechanism has been **localized** and recorded;
+- any production change is justified against the theorem and remainder identities — **not** against
+  another implementation;
+- exact, state, crossfit and differential regression tests cover the changed mechanism;
+- the relevant reduced learner or construction demonstrates the required **held-out** behaviour;
+- a **fresh preregistered** coverage study attains the release criteria under one-nuisance
+  misspecification;
+- and the public in-progress warning can be removed **without qualifying away the tested regime**.
+
+Until then, #77 and #78 are described as what they are: validation infrastructure that prevented an
+unsupported fix.
+
 #### D. Widen the scope to what the sources derive
 
 **Closes the two candidates in item 10.** Everything else in that item is a refusal with a reason,
@@ -3346,18 +3570,24 @@ any of it.
 ### Stop-ship
 
 Any one of these blocks calling `DRTMLE` finished, and they are the four links restated as things
-a reader could check rather than as claims. **Four** of them are about how the *evidence* is
-described rather than about the code — 11, 14, 15 and the new **16** — and all four exist because a
-claim that outruns its instrument is how this variant has gone wrong three times now.
+a reader could check rather than as claims. **Five** of them are about how the *evidence* is
+described rather than about the code — 11, 14, 15, 16 and the new **17** — and all five exist
+because a claim that outruns its instrument is how this variant has gone wrong three times now.
+**17 is the newest and is the price of an instrument rather than the record of a mistake**: the R
+differential trace is authorized to *localize*, and this is the clause that keeps it from being read
+as anything else.
 
 **Two further stop conditions are not clauses here because they are outcomes of an experiment
 rather than properties of a document**, and [the branch table](#the-branch-e2r-decides) is where
 they live: a repaired reference that still cannot say whether the reductions are causal, and a
 reference that repairs the remainder with no feasible learner reaching it at `n = 2,400`. Each ends
-the release attempt with a recorded result rather than with a further dispatch. **The first of the
+that *experiment* with a recorded result rather than with a further dispatch. **The first of the
 two has now happened** — [E2R returned `unresolved` in four cells of
-four](#what-e2rs-decision-run-measured) — so the release attempt ends there, on a recorded result,
-and what is left is a decision about scope rather than a further run of this experiment.
+four](#what-e2rs-decision-run-measured) — so the reduction road ends there, on a recorded result.
+**What it ends is the reduction road, not the diagnosis**, and the previous revision's "the release
+attempt ends there" overstated it in the one direction that left no next step: piece F's stop rules
+are [stated with it](#the-order-and-what-stops-it) and they are about instruments rather than about
+this document.
 
 **Four of them are now live on measurements rather than open for want of one.** Before
 [C3c](#what-c3c-measured) this list was mostly a set of things a study might find; the study found
@@ -3478,7 +3708,17 @@ would inventing a cause per clause.
     revisions** and it is the third entry on this list of the same shape as 14 and 15 — a claim
     that outruns its instrument — with the additional feature that it prescribed a repair. The
     check a reader makes is the `se ratio` column in both cells: `0.903` beside `1.157` is not what
-    a missing non-negative term looks like.
+    a missing non-negative term looks like;
+17. **any change under `src/` is justified by agreement with another implementation**, or any
+    document reports cross-language agreement as a release criterion, a correctness result or
+    evidence about a derivation. This clause is **new with the R diagnostic's authorization** and
+    it is the whole of what that authorization does not include: [F3](#f-localize-the-shortfall-before-changing-anything)
+    localizes a first divergence and hands it to the theorem, the exact laws and the remainder
+    identities, which are what decide. Both packages descend from one source, so agreement is
+    evidence about a *transcription* — item 21 is the worked example, where a parity run would have
+    recorded R's sign as correct and been right by luck. The clause is deliberately of the same
+    shape as 14, 15 and 16: a check that agrees where it could not have disagreed, described as
+    though it had.
 
 Note what is **not** on this list any more: a coverage gap over `TMLE` of at least 0.05. That is a
 product judgment about whether the variant earns its cost, it has no theorem behind it, and it now
@@ -3633,9 +3873,20 @@ package's **numbers** is worded exactly as it was, and is [item
 **2. `drtmle` parity, component by component — withdrawn, not done.** This is the one entry here
 that closed on a **decision** rather than on evidence, and it is written at length because a closed
 item is a paragraph and a withdrawn one is a standing refusal that a future reader will otherwise
-re-propose. **No R script will enter this repository and no R step will enter CI** — not for
-`drtmle`, not for `tmle`, `tmle3` or `ctmle`, and "it would only be one file" does not reopen it.
-`CLAUDE.md` carries the rule; this is the reasoning.
+re-propose. **The parity *piece* stays withdrawn**: no run of another implementation is a component
+checklist here, no agreement with one is a release criterion, and no fixture exported from one is
+admitted as a truth — not for `drtmle`, not for `tmle`, `tmle3` or `ctmle`.
+
+> **One narrower thing has since been authorized and it is not this item.** A bounded differential
+> **trace** — same frozen fixture, same initial nuisances, compare the trajectories to find where
+> they first diverge — runs as [F3](#f-localize-the-shortfall-before-changing-anything), isolated
+> from the package and from every test tier. It is an instrument for **localization** and never
+> evidence, which is [stop-ship 17](#stop-ship) and
+> [the reversal](#a-differential-diagnostic-against-r-refused-then-authorized). The reasoning below
+> is what it does *not* overturn: everything here about agreement being evidence about a
+> transcription stands exactly as written, and is why F3 may not justify a line of `src/`.
+
+`CLAUDE.md` carries the rule and carries the narrowing with it; this is the reasoning.
 
 Parity was never going to demonstrate what this package needs demonstrated. The page had already
 said so twice without acting on it: *both packages descend from one source, so agreement is evidence
@@ -3867,7 +4118,13 @@ the assigned dose, and whether the tilted parameter is still the shift parameter
 derived. That is a missing derivation rather than missing transcription, which is why it is not
 carried forward as an item of its own.
 
-### A differential diagnostic against R, considered and refused
+### A differential diagnostic against R, refused, then authorized
+
+**This section refused the diagnostic for one revision and now authorizes it.** Both readings are
+kept, in that order, because a page that quietly stops saying something is a page a reader cannot
+audit — and because the refusal's *epistemic* half survives the reversal intact and is what
+[stop-ship 17](#stop-ship) is made of. What follows is the argument as it was put, the reasons it
+was refused, and then what changed.
 
 **A review of E2R's instrument asked for the R refusal to be narrowed, and the distinction it
 draws is a real one that the [standing decision](#standing-decisions) did not previously answer.**
@@ -3923,6 +4180,58 @@ one question a second implementation can settle and a derivation cannot.
 > than as a branch, or accept that the condition is unsatisfiable and say the refusal is
 > unconditional here as it is in the standing-decisions table. Quietly reading the first clause as
 > the whole condition is the one thing that would be wrong.
+
+#### What changed, and exactly how much of the refusal it takes with it
+
+**The decision has been taken and it is the first of those two options, widened: the diagnostic is
+authorized, and it runs as [F3](#f-localize-the-shortfall-before-changing-anything).** The decision
+is the user's, taken explicitly and over the argument above, on an external critique that reached
+the same place by a different route. It is recorded as a decision rather than dressed up as a
+finding.
+
+**What the reversal accepts.** Two of the three refusal bullets were about *ordering* and have been
+overtaken by events; the third has been checked and is weaker than it read.
+
+- **"The divergence it would localise is one this repository already localises without R"** is true
+  of the two divergences it cites and does not generalise to this one. Items 20 and 21 were a
+  transcription error and a two-convention read of one array — findings a single process can reach.
+  What is open now is not of that shape: the estimator, the reduced regressions and the closing pass
+  are each individually consistent with the derivation, and what is unknown is **which of them makes
+  the assembled fit miss its condition**. The exact law cannot separate them, and this page's own
+  rule says why — at the truth `Q_r` and `g_{r,2}` vanish row by row, which is precisely where a
+  construction difference is invisible.
+- **"The specific divergences it names are already answerable in prose"** was answered against the
+  wrong list. `Qsteps=2` and the `grn`/`grnStar` naming are indeed prose facts. The five-row table
+  in [R3 above](#f-localize-the-shortfall-before-changing-anything) is not: *which state each side's
+  reduction refit is taken at*, *whether a frozen-reduction closing pass runs at all*, and *what a
+  three-round default does that a fifty-round alternation plus a closing pass does not* are
+  properties of an execution, and reading them off a source is how this page has already been wrong
+  twice.
+- **"The current diagnosis had a cheaper instrument, and it is now exhausted"** was the strongest
+  bullet and it now argues the other way. The cheaper instrument *was* run, twice, and both times it
+  could not read its own comparison. Exhausted is what it is.
+
+**What the reversal does not touch, and this is the important half.** The standing decision's
+epistemic reason is untouched and is now a stop-ship clause rather than a paragraph:
+
+- **agreement with R is never evidence.** Both implementations descend from one source, so agreement
+  is evidence about a transcription. A production change justified by R parity is
+  [stop-ship 17](#stop-ship), and F3's own acceptance criterion says so in the same words;
+- **no R under `src/`, in `noxfile.py`, in any test tier, or in the fast CI.** F3 is an isolated
+  benchmark-only task — a container or `renv` — against a frozen fixture. The package's dependency
+  set does not move;
+- **no committed fixture exported from R is admitted as a truth.** F3's fixture is *this* package's,
+  and R is handed the same initial `Q̄` and `g`; what is compared is the trajectory, not an answer;
+- **a divergence is a question, not a verdict.** F3 classifies the first divergence and then it is
+  adjudicated against Benkeser et al., the concordance, the exact-law identities and the remainder
+  decomposition. If R turns out to be the one doing something the theorem does not license, the
+  change is to nothing.
+
+**And [lesson 9](#what-the-sizings-got-wrong) is unchanged, because it was never about this.** It
+says a parity run is blind in the same place a code-located finding is — which is an argument about
+what parity can *prove*, and F3 does not claim to prove anything. What this revision adds to it is
+the narrower reading it always implied: an instrument that cannot certify can still **localize**,
+and localizing is what is missing.
 
 ## What the sizings got wrong
 

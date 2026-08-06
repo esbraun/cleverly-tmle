@@ -839,7 +839,14 @@ def held_out_risk(
 
     * it is evaluated on rows **neither candidate saw**, from an independent scramble stream;
     * it estimates a difference of *squared errors* rather than of two estimates of the same
-      target -- so two equally wrong candidates do not look equal;
+      target -- so a candidate that is **less** accurate ranks below one that is more accurate,
+      whatever the common irreducible term is.  *An earlier revision of this bullet said "two
+      equally wrong candidates do not look equal", and that is false under the identity displayed
+      above*: two candidates with equal :math:`\|m - \hat m\|^2_w` have equal risk, however wrong
+      both are.  The difference is **oriented**, which is a statement about ranking unequally
+      accurate candidates and not about detecting shared inadequacy -- and shared inadequacy is
+      exactly what this column cannot see, which is why a gate built on it is a *relative*
+      instrument.  See ``docs/roadmap.md``'s piece F;
     * **it is oriented, and a refinement difference is not.**  A near-interpolating reference
       has *higher* held-out risk, so the column **ranks** candidates.  :math:`|fine - coarse|`
       is a magnitude with no orientation: it says two rungs disagree and cannot say which is

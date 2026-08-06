@@ -131,11 +131,28 @@ load-balancing the tail, not contending for cores.
 
 ## Correctness is shown against a derivation, not against another implementation
 
-**No R in this repository and none in CI.** No `.R` file, no `Rscript`, no `setup-r` step, no
-committed fixture exported from another package, no parity test. This is a decision and not a
-gap, it applies to `drtmle`, `tmle`, `tmle3`, `ctmle` and anything else, and "it would only be
-one file" does not reopen it. `docs/roadmap.md`'s item 2 is the retired piece and carries the
-whole reasoning.
+**No R under `src/`, in `noxfile.py`, in any test tier, or in the fast CI — and no parity test
+anywhere.** No committed fixture exported from another package is admitted as a truth, and no
+agreement with another implementation is a release criterion or a correctness result. This is a
+decision and not a gap, it applies to `drtmle`, `tmle`, `tmle3`, `ctmle` and anything else, and
+"it would only be one file" does not reopen it. `docs/roadmap.md`'s item 2 is the retired parity
+piece and carries the whole reasoning.
+
+**One narrower thing is authorized and it is not a parity test.** A bounded, isolated differential
+**trace** against the published `drtmle` R package — one frozen fixture, identical initial `Q̄`
+and `g`, per-round trajectories compared to find where two implementations of the same algorithm
+*first diverge* — runs as a benchmark-only diagnostic (`docs/roadmap.md`'s piece F, row F3). It
+exists because two dispatches built to localize the `DRTMLE` remainder shortfall came back unable
+to read their own comparison, and localizing is what is left. It moves no dependency of the
+package and enters no tier `pytest -m "not slow"` runs.
+
+**What that authorization does not include is the point of it.** A divergence it finds is a
+*question*, adjudicated against Benkeser et al., `docs/drtmle/theorem-concordance.md`, the
+exact-law identities and the remainder decomposition — never settled by which side R is on.
+**Changing this package to match R is stop-ship 17.** Agreement is evidence about a transcription;
+item 21 is the worked example, where a parity run would have recorded R's sign as correct and been
+right by luck. The roadmap's *A differential diagnostic against R, refused, then authorized* is
+the narrowing, and says exactly how much of the refusal moved: the epistemic half, none of it.
 
 **Why**, in one line: *two checks that cannot fail against the same class of error are one
 check.* Two worked examples, both from this repository:
