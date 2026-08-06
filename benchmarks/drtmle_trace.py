@@ -107,16 +107,19 @@ __all__ = [
     "G_BOUNDS",
     "N_FOLDS",
     "SEED",
+    "UPDATE_ROUTES",
     "Fixture",
     "FixtureSpec",
     "FrozenMechanism",
     "FrozenOutcome",
     "IdentityRow",
     "N",
+    "RStyleDRTMLE",
     "State",
     "Step",
     "Trace",
     "TracingDRTMLE",
+    "TracingRStyleDRTMLE",
     "build_fixture",
     "compare",
     "degeneracy",
@@ -260,6 +263,19 @@ def spec(version: str | None = None) -> FixtureSpec:
         raise ValueError(f"unknown fixture version {name!r}; choose from {sorted(FIXTURES)}")
     return FIXTURES[name]
 
+
+#: The routes a trace can be taken under, and the third is **benchmark-only**.  ``"cleverly"``
+#: and ``"paper"`` are :data:`~cleverly.estimators.drtmle.UPDATE_ORDERS`, passed straight to the
+#: estimator; ``"r-style"`` is F4's third arm and exists here rather than under ``src/`` because
+#: only F7 may change ``src/`` and because a production keyword for it is what F4's row forbids
+#: by name.
+#:
+#: **It is a third arm rather than a relabelling**, which is F3's finding and the reason F4's
+#: first two contrasts are separable at all: ``"cleverly"`` takes R's equation order with **one**
+#: reduction vintage per round, ``"paper"`` takes R's **two** vintages under a different equation
+#: order, and R takes R's order with two vintages.  Those factors are crossed, so a contrast
+#: against either shipped order alone moves two things at once.
+UPDATE_ROUTES = ("cleverly", "paper", "r-style")
 
 #: The step vocabulary, and it is the thing F3 aligns R against.  ``"8"``, ``"9"`` and
 #: ``"10"`` are the numbered equations; ``"refit"`` is a re-estimation of the reduced
@@ -438,7 +454,15 @@ def estimator(
     Every keyword that could move a number is written out rather than left to a default, for
     the reason ``CLAUDE.md`` gives about spelled-out fold counts: a default that changes turns
     a frozen fixture into a different experiment with no diff to blame.
+
+    ``order`` takes :data:`UPDATE_ROUTES`.  The two shipped ones go to ``update_order=``;
+    ``"r-style"`` selects :class:`RStyleDRTMLE` instead, which *is* ``update_order="cleverly"``
+    with R's two reduction vintages, so the keyword it passes down is the shipped one and the
+    arm is carried by the class.  A trace's ``order`` field records the route rather than the
+    keyword, which is what keeps the third arm distinguishable in a written record.
     """
+    if order not in UPDATE_ROUTES:
+        raise ValueError(f"unknown route {order!r}; choose from {list(UPDATE_ROUTES)}")
     settings = spec(version)
     kwargs: dict[str, Any] = {
         "outcome_learner": FrozenOutcome(settings.version),
@@ -451,9 +475,11 @@ def estimator(
         "g_bounds": settings.g_bounds,
         "random_state": 0,
         "simultaneous": False,
-        "update_order": order,
+        "update_order": "cleverly" if order == "r-style" else order,
         **overrides,
     }
+    if order == "r-style":
+        return (TracingRStyleDRTMLE if tracing else RStyleDRTMLE)(**kwargs)
     return (TracingDRTMLE if tracing else DRTMLE)(**kwargs)
 
 
@@ -744,6 +770,125 @@ def _equation_of(names: tuple[str, ...]) -> str:
     return "joint" if reduced else "8"
 
 
+#: Which fields of a :class:`~cleverly.estimators.reduced.ReducedSet` each refit of a round is
+#: allowed to contribute under ``"r-style"``, in call order.  Two entries because this package's
+#: ``"cleverly"`` route refits exactly twice per round -- once after equation (9) and once after
+#: equation (8) -- and R refits in **both** of those places too.  What differs is that R adopts
+#: only ``gr`` from the first and only ``Qr`` from the second, where this package adopts all
+#: three at each.
+_R_ADOPTION = (("gr1", "gr2"), ("qr",))
+
+
+class _PartialAdoption:
+    """R's two reduction vintages, imposed on this package's round without changing it.
+
+    **The whole R-style arm is this class**, and that is a finding rather than a shortcut.
+    ``targeting.solve_with_reduction``'s ``"cleverly"`` branch already runs R's equation order
+    and already refits in R's two places; the working paper's branch already does a *partial*
+    adoption, with the same ``dataclasses.replace`` calls, under a *different* equation order.
+    So the one factor separating this package's round from R's is which fields a refit is
+    allowed to contribute, and that is reachable from the refit closure alone -- no
+    reimplementation of the alternation, no ``src/`` change, and no second copy of a loop whose
+    drift from the first would be invisible.
+
+    **The companion is adopted on the same rule as the production set**, which is not an
+    afterthought: ``benchmarks/drtmle_remainder.py`` reads :math:`P_0\\hat D` off the companion
+    to build F4's primary column, so a companion carrying a vintage the fit never used would
+    make ``sqrt(n) R_remaining`` a number about no estimator at all.
+
+    The call parity is the round's, and it is checked rather than assumed -- see
+    :meth:`__call__`.
+    """
+
+    def __init__(self, inner: Any, initial: Any, initial_companion: tuple[Any, ...] = ()) -> None:
+        self._inner = inner
+        self._current = initial
+        self._companion = tuple(initial_companion)
+        self._calls = 0
+
+    @property
+    def calls(self) -> int:
+        """How many refits have been taken, for a test that wants the round parity."""
+        return self._calls
+
+    def __call__(self, current: Any) -> Any:
+        produced, at_companion = self._inner(current)
+        fields = _R_ADOPTION[self._calls % len(_R_ADOPTION)]
+        self._calls += 1
+        self._current = self._adopt(self._current, produced, fields)
+        if at_companion:
+            # A companion set per outer fold, and the previous vintage per fold with it. The
+            # first refit of a fit is the first time this side has anything to carry, so the
+            # produced set is taken whole there rather than merged into an empty tuple.
+            if len(self._companion) != len(at_companion):
+                self._companion = tuple(at_companion)
+            else:
+                self._companion = tuple(
+                    self._adopt(previous, fresh, fields)
+                    for previous, fresh in zip(self._companion, at_companion, strict=True)
+                )
+        return self._current, self._companion
+
+    @staticmethod
+    def _adopt(previous: Any, produced: Any, fields: tuple[str, ...]) -> Any:
+        """``produced``'s named arrays over ``previous``'s, the way the paper's branch does it."""
+        if previous is None:
+            return produced
+        return replace(previous, **{name: getattr(produced, name) for name in fields})
+
+
+class RStyleDRTMLE(DRTMLE):
+    """``DRTMLE`` taking R's round: R's equation order, and R's **two** reduction vintages.
+
+    F4's third arm (``docs/roadmap.md``'s F4 row), built in ``benchmarks/`` because only F7 may
+    change ``src/`` and because F4's row forbids a production keyword for it by name.  It sets
+    ``update_order="cleverly"`` -- which is already R's equation order, ``9, 10, 8`` -- and
+    wraps the refit closure in :class:`_PartialAdoption` so a round adopts ``gr`` from its first
+    refit and ``Qr`` from its second.
+
+    **What makes the arm one factor** is that nothing else moves: the stopping rule, the stall
+    test, the closing pass, the bounds and the cross-fitting are the shipped ones, because the
+    shipped loop is the loop that runs.  That is what the first two of F4's contrasts need and
+    what a bundled arm could not give them.
+
+    Whether this really is R's trajectory is **checked and not asserted**, against the committed
+    ``benchmarks/fixtures/r-trace-*`` records, by ``tests/unit/test_drtmle_construction.py``.
+    That is an instrument-validity check -- *does the arm labelled R-style reproduce the
+    trajectory this repository says R takes* -- and is the one thing ``CLAUDE.md``'s fence lets
+    a test read those records for.  It asserts nothing about ``psi``, ``se`` or any curve.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("update_order", "cleverly")
+        if kwargs["update_order"] != "cleverly":
+            raise ValueError(
+                "RStyleDRTMLE is this package's 'cleverly' route with R's reduction vintages, "
+                f"so it cannot also take update_order={kwargs['update_order']!r}. The paper's "
+                "order with R's vintages is update_order='paper' on a plain DRTMLE, and the "
+                "two are different arms -- see F4's contrast matrix."
+            )
+        super().__init__(**kwargs)
+        if tuple(self.guard) != ("Q", "g"):
+            raise ValueError(
+                "RStyleDRTMLE needs both guards. Its round parity -- gr from the first refit, "
+                "Qr from the second -- is the shape of a round that solves equations (9) and "
+                f"(10); with guard={tuple(self.guard)!r} the refits do not come in twos and the "
+                "arm would adopt a vintage R never takes."
+            )
+        self.adoption: _PartialAdoption | None = None
+
+    def _reduction(self, data: Any, nuisance: Any) -> Any:
+        spec = super()._reduction(data, nuisance)
+        if spec is None:
+            return None
+        # The initial companion vintage, so the first round's partial adoption has the same
+        # base on both sides. `DRTMLE._nuisances` puts it here; reading it off the produced
+        # set instead would let the companion carry a `Qr` the production side does not.
+        companion = () if nuisance.companion is None else tuple(nuisance.companion.reduced or ())
+        self.adoption = _PartialAdoption(spec.refit, nuisance.reduced, companion)
+        return replace(spec, refit=self.adoption)
+
+
 class TracingDRTMLE(DRTMLE):
     """``DRTMLE`` that records every step of its own alternation.
 
@@ -884,6 +1029,31 @@ class TracingDRTMLE(DRTMLE):
         finally:
             for name, value in original.items():
                 setattr(_targeting, name, value)
+
+
+class TracingRStyleDRTMLE(RStyleDRTMLE, TracingDRTMLE):
+    """The R-style arm, traced -- and the base order is the whole content of this class.
+
+    ``RStyleDRTMLE`` **first**, so that its ``_reduction`` is the outer wrapper and the partial
+    adoption happens *after* the recording closure has returned.  That is not a preference: it
+    is what puts this arm on the same footing as ``"paper"``, whose adoption also happens
+    outside the closure, in the loop's own ``replace`` calls.
+
+    **What reads adoption is a comparison across a step, not a field on one.**
+    :func:`vintages` asks whether the array the *next* solve's covariate was built from is the
+    one this refit produced, so a refit step's ``after`` has to be the closure's **whole**
+    output.  Compose these the other way and the closure returns the already-adopted set, the
+    recorder stores it as ``after``, the next solve reads the same arrays, and all three fields
+    compare equal: the route labels ``refit:all`` and the arm reads as ``"cleverly"``.  It was
+    written that way first and measured saying exactly that -- the fit was right, the
+    instrument was blind to it.
+
+    What keeps the recorder honest under this order is machinery ``TracingDRTMLE`` already has:
+    its two no-op patches of ``reduced_outcome_submodel`` and ``reduced_mechanism_covariate``
+    re-take the reduced state at the equation that reads it, so ``before`` is the adopted set
+    even though ``after`` is the produced one.  ``tests/unit/test_drtmle_construction.py`` pins
+    the direction rather than leaving it to this class statement's argument order.
+    """
 
 
 def _number_rounds(steps: list[Step]) -> list[Step]:

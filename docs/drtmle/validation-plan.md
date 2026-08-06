@@ -1801,3 +1801,108 @@ typical value. That is why `h2`'s risks sit at `1e-01` where `gr2`'s sit at `1e-
 information rather than noise — it is where a fit's correction is most sensitive to its reduction.
 The margin and truncation columns are reported beside every composite reading for exactly this
 reason, and they gate nothing: a bound-active fit is not a failing fit.
+
+## 9. The construction contrasts (piece F4)
+
+**F4 is the construction half of the localization and F5 is the learner half**, and the two are
+independent: either remains a theorem premise even if the other succeeds.
+[Its record](construction-contrasts.md) is what the run produced; this section is the rule the
+run is read against, and [`evidence/f4-construction/prereg.json`](../../evidence/f4-construction/prereg.json)
+is that rule in the form the run validates itself against.
+
+**It closes nothing on its own and it may not branch.** Nothing under `src/` moves; only F7 may.
+Final coverage is in neither diagnostic — that is F8's and only F8's. **A null result is a
+result.**
+
+### The contrast rule, frozen before the dispatch
+
+**It may be changed before the dispatch with a written reason, and not after it.** The constants
+are `benchmarks/drtmle_construction.py`'s `NEGLIGIBLE_EFFECT`, `C3C_REMAINING_QDRIFT`,
+`PRIMARY_ESTIMAND`, `COMPLETENESS_FRACTION`, `BOOTSTRAP`, `INTERVAL` and `VALIDITY_TOLERANCE`,
+carried in the manifest's own `rule` block and printed in every run's banner, so that the record
+and the rule cannot come apart. **No constant of any earlier piece is touched**:
+`EQUIVALENCE_FRACTION`, `BUDGET_FRACTION`, `FIDELITY_FRACTION`, `COMPONENT_FRACTION`,
+`PERSISTS_FRACTION`, `CLOSED_SPREAD_RATIO`, `CLOSED_SE_RATIO`, `REDUCTION_TOLERANCE` and
+`IDENTITY_TOLERANCE` are what they were.
+
+> Per cell and size, on the paired per-draw difference `d = column(arm) − column(base)` for each
+> declared contrast, with a 95% bootstrap interval over **draws** and the negligible margin
+> `δ = 0.10 × 1.25 = 0.125` — a tenth of the `√n R_remaining` C3c read in `q-drift`:
+>
+> 1. **moved** — the interval excludes zero. The factor changes the column, and it is a
+>    *question* for F7 rather than an answer.
+> 2. **flat** — the interval lies wholly inside `[−δ, +δ]`. The factor does not change the
+>    column, at this size, by more than the margin calls negligible.
+> 3. **unresolved** — anything else. **A third verdict and not a weak `flat`**: it says the study
+>    cannot tell, which is a statement about the study rather than about the estimator.
+>
+> **A cell is `unresolved` whatever its interval if fewer than `COMPLETENESS_FRACTION` of its
+> declared draws produced a row.** A study that quietly shrank to the draws that worked would
+> report a selected sample as a full one.
+>
+> **Advancing a construction needs all of it and not some of it**, which is F4's own row: the
+> paired effect reproduces on the disjoint **audit** cohort and at both sizes in the affected
+> regime; it reduces `√n R_remaining` **or** the score-failure rate without worsening the other;
+> the recorded score and state identities and the exact-law tests stay valid; and
+> [the concordance](theorem-concordance.md) either covers the selected construction or a new
+> derivation closes the gap.
+
+### What each size can answer, declared rather than discovered
+
+**The two sizes carry different draw counts because they resolve different things at this
+margin**, and the honest form of that is a declaration rather than a wide interval nobody reads.
+The counts are derived from the **measured paired spread** of each contrast — a 12-draw pilot on
+a third seed stream disjoint from both cohorts, `PILOT_PAIRED_SPREAD` — and not from a borrowed
+constant:
+
+| size | worst measured paired `sd` | draws the margin needs | committed | powered for |
+| --- | --- | --- | --- | --- |
+| `n = 2,400` | `0.5188` (`paper~r-style`) | `67` | **`80`** | `moved` **and** `flat` |
+| `n = 600` | `2.6717` (`paper~r-style`) | `1,755` | **`24`** | `moved` **only** |
+
+**Sizing from E1b's `0.33` would have been sizing on the wrong quantity**, and this is worth
+recording because it is the same class of error as the ones piece F was created to stop. That
+number is the across-draw spread of a **single arm's** column; every outcome here is a *paired
+difference*, whose spread is a different quantity — five to twenty times larger at `n = 600` and
+an order of magnitude smaller at `n = 2,400`. Two further readings from the same pilot, both
+kept because each was a hypothesis this section had to give up:
+
+- **a six-draw pilot is not a pilot.** At six draws the same paired spreads read `0.0001`–`1.36`
+  and implied 1 to 452 draws; at twelve they read `0.0001`–`2.67`. Three contrasts were low by a
+  factor of twenty. A spread estimated from six paired differences is not an estimate of a
+  spread.
+- **the quadrature rule is not what drives the `n = 600` spread**, which was checked rather than
+  assumed because E1's whole subject makes it the obvious suspect. Run at 512 and at 2,048
+  points, the paired spreads move by under 3% (`2.5479` against `2.6717` on the worst contrast).
+  What drives it is the size: at `n = 600` the arms land at genuinely different fixed points draw
+  by draw, and by `n = 2,400` they do not.
+
+Every contrast row carries its realized `paired_sd` and minimum detectable effect, so a reader
+checks the sizing against what the run actually saw rather than against this table.
+
+### The sixth factor is read exactly, and that is a measurement rather than a shortcut
+
+**F4's matrix has six contrasts and the cohort study declares five.** The truncation convention
+is the sixth, and a cohort of tier-2 draws cannot answer it: `linear_dgp` is chosen for overlap
+rather than for difficulty, and its initial mechanism's clip share is `0.0000` **even at a bound
+of `(0.15, 0.85)`** — so the two arms are bit-identical and a cohort of them would report a null
+on a contrast that could not have been non-null. A declared stress design that cannot be stressed
+is worse than none: it spends fits and reads as evidence.
+
+The two frozen trace fixtures already **are** the two regimes F4's row asks for — `v1`'s bound is
+slack on every row and `v2`'s clips 54 of 200 — and they are committed files, so *declared in
+advance* is literal rather than a promise about a seed. `truncation_reading` compares the two
+conventions on both, at **both ends of the alternation**, deterministically. That last is not
+padding: the loop carries the **truncated** tilt forward, so from the first mechanism update
+`g*` already lies inside the covariate bounds and re-truncating it for a reduction target is a
+no-op — the convention can differ at the initial fit and agree at every refit after it, which no
+comparison of fitted results could see.
+
+**A `bound-active` reading carries no theorem-backed claim.**
+[§7's scope decision](theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)
+restricts the guarantee to fits where the truncation is inactive and covers neither truncation,
+so `v2`'s reading is out-of-theorem stress behaviour and is recorded as such.
+
+**Never a comparison built by conditioning on the realized post-fit bound-active label.** That is
+selecting the contrast on its own outcome, and F4's row forbids it by name; the bound witness is
+recorded on every row and read by nothing.
