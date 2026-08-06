@@ -158,6 +158,25 @@ exists because two dispatches built to localize the `DRTMLE` remainder shortfall
 to read their own comparison, and localizing is what is left. It moves no dependency of the
 package and enters no tier `pytest -m "not slow"` runs.
 
+**The R runs it takes are committed, and a committed R record is a diagnostic record and not a
+truth.** `benchmarks/fixtures/r-trace-*/` holds what `benchmarks/r/drtmle_reference.R` recorded —
+gzipped float64 with a SHA-256 manifest checked on read — so that the comparison, and F4's
+verification that its R-style arm really is R's trajectory, reproduce with **no R installed**.
+That is the whole reason they are in the tree: the toolchain is ~25 minutes to rebuild and CRAN
+is not always reachable. Three things fence it, and none of them is negotiable:
+
+- it may be read by `benchmarks/`, and by tests that check an **instrument is what it claims to
+  be** — *"does the arm labelled R-style reproduce the trajectory this repository says R takes"*;
+- it may **never** be read by a test, a gate or a release criterion asserting that this package's
+  `psi`, `se`, curve or any estimate agrees with it. `tests/unit/test_drtmle_r_compare.py` asserts
+  no such thing and must not start;
+- and it is not admitted as a truth about the *algorithm*. Everything the paragraph below says
+  about a divergence being a question applies unchanged to a record of one.
+
+The rule this narrows — *no committed fixture exported from another package is admitted as a
+truth* — is intact in substance: what is committed here is a record of a **diagnostic run**, and
+its status as evidence is exactly the status the diagnostic already had.
+
 **What that authorization does not include is the point of it.** A divergence it finds is a
 *question*, adjudicated against Benkeser et al., `docs/drtmle/theorem-concordance.md`, the
 exact-law identities and the remainder decomposition — never settled by which side R is on.

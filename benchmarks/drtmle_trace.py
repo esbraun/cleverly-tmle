@@ -102,11 +102,13 @@ from cleverly.estimators import targeting as _targeting
 
 __all__ = [
     "COEFFICIENTS",
+    "FIXTURES",
     "FIXTURE_VERSION",
     "G_BOUNDS",
     "N_FOLDS",
     "SEED",
     "Fixture",
+    "FixtureSpec",
     "FrozenMechanism",
     "FrozenOutcome",
     "IdentityRow",
@@ -123,6 +125,7 @@ __all__ = [
     "fixture_path",
     "identities",
     "read_fixture",
+    "spec",
     "trace",
     "write_fixture",
     "write_trace",
@@ -177,6 +180,87 @@ COEFFICIENTS: dict[str, dict[str, float]] = {
     "initial_outcome": {"intercept": -0.1, "a": 0.5, "w1": 0.3, "w2": 0.0, "w1w2": 0.0},
 }
 
+
+@dataclass(frozen=True)
+class FixtureSpec:
+    """One frozen experiment: a draw recipe, the bound it is traced under, and its closed forms.
+
+    A *table* rather than module constants, because there are now two fixtures and F2's own
+    rule is that the second is a second **file** rather than an edit to the first: *"a fixture
+    that turns clipping on is a second fixture, not an edit to this one"*.  Every trace already
+    taken is against ``v1``, so ``v1``'s entry is exactly the constants it replaced and
+    :data:`FIXTURE_VERSION` still defaults to it -- nothing this module's own CLI does moves.
+    """
+
+    version: str
+    n: int
+    seed: int
+    n_folds: int
+    g_bounds: tuple[float, float]
+    coefficients: dict[str, dict[str, float]]
+    #: What the fixture is *for*, carried into the manifest so a reader of the file knows
+    #: which of the two they have without diffing the coefficients.
+    purpose: str
+
+
+#: The two fixtures.
+#:
+#: **``v1`` is interior and ``v2`` clips**, and that is the whole difference.  ``v1``'s initial
+#: mechanism is ``0.15 * w1``, which puts every row within a hair of ``0.5`` and can never
+#: reach ``G_BOUNDS`` -- deliberately, so that a first-divergence hunt is not confounded by the
+#: two implementations' truncation *conventions*.  ``v2`` exists to ask that very question:
+#: roadmap item 20 and the whole of piece B1b are about a bound binding, and an instrument that
+#: can only run where it does not bind cannot see them.  So ``v2`` strengthens the mechanism
+#: until the linear predictor spans the bound, and tightens the bound to meet it.
+#:
+#: Everything else about ``v2`` is ``v1``: the same draw seed, the same truth, the same
+#: misspecified outcome regression, the same fold count.  One thing at a time is what makes the
+#: difference between the two readable as truncation rather than as a second experiment.
+FIXTURES: dict[str, FixtureSpec] = {
+    # Built out of the constants above rather than restating them, so there is one source of
+    # truth for the frozen experiment and no way for a table and a module constant to drift.
+    "v1": FixtureSpec(
+        version="v1",
+        n=N,
+        seed=SEED,
+        n_folds=N_FOLDS,
+        g_bounds=G_BOUNDS,
+        coefficients=COEFFICIENTS,
+        purpose="the truncation is slack on every row; a divergence here is not a bound",
+    ),
+    "v2": FixtureSpec(
+        version="v2",
+        n=N,
+        seed=SEED,
+        n_folds=N_FOLDS,
+        # Tightened to meet the mechanism below.  `drtmle` takes a scalar lower bound and this
+        # package takes a pair, so on a fixture where the bound binds the two conventions do
+        # **not** coincide -- with two arms, a row clipped low on one arm is clipped high on the
+        # other, and no choice of bound arranges that away.  That difference is what this
+        # fixture measures rather than a confounder it failed to remove; the comparison gates it
+        # as `truncation-convention`, before the update order, because here it can bite first.
+        g_bounds=(0.15, 0.85),
+        coefficients={
+            **COEFFICIENTS,
+            # `w1` at 1.6 rather than 0.15: `w1` is standard normal, so the linear predictor has
+            # sd ~1.7 and reaches past `logit(0.15) = -1.73` on a material share of rows. The
+            # outcome regression is `v1`'s untouched, so `Q_r` and `g_{r,2}` stay nonzero for
+            # the reason F2 gives -- at correct nuisances the trace goes blind.
+            "initial_mechanism": {"intercept": 0.0, "w1": 1.6, "w2": -0.6},
+        },
+        purpose="the truncation binds; this is the fixture roadmap item 20's question needs",
+    ),
+}
+
+
+def spec(version: str | None = None) -> FixtureSpec:
+    """The named fixture's specification, defaulting to :data:`FIXTURE_VERSION`."""
+    name = FIXTURE_VERSION if version is None else version
+    if name not in FIXTURES:
+        raise ValueError(f"unknown fixture version {name!r}; choose from {sorted(FIXTURES)}")
+    return FIXTURES[name]
+
+
 #: The step vocabulary, and it is the thing F3 aligns R against.  ``"8"``, ``"9"`` and
 #: ``"10"`` are the numbered equations; ``"refit"`` is a re-estimation of the reduced
 #: regressions at the current pair, which is a *step* here because the vintage a reduction is
@@ -208,18 +292,22 @@ def _linear(spec: dict[str, float], a: Any, w1: Any, w2: Any) -> Any:
     )
 
 
-def initial_outcome(a: Any, w1: Any, w2: Any) -> Any:
+def initial_outcome(a: Any, w1: Any, w2: Any, version: str | None = None) -> Any:
     r"""The initial :math:`\hat{\bar Q}(a, W)` -- misspecified, and on the ``[0, 1]`` scale.
 
     On the outcome's own scale as well, since the outcome is binary and the scaler is the
     identity.  That coincidence is the point of a binary fixture and is not incidental.
     """
-    return _expit(_linear(COEFFICIENTS["initial_outcome"], a, w1, w2))
+    return _expit(_linear(spec(version).coefficients["initial_outcome"], a, w1, w2))
 
 
-def initial_mechanism(w1: Any, w2: Any) -> Any:
-    r"""The initial :math:`\hat g(1 \mid W)` -- misspecified, and interior to :data:`G_BOUNDS`."""
-    return _expit(_linear(COEFFICIENTS["initial_mechanism"], 0.0, w1, w2))
+def initial_mechanism(w1: Any, w2: Any, version: str | None = None) -> Any:
+    r"""The initial :math:`\hat g(1 \mid W)` -- misspecified.
+
+    Interior to the bound under ``v1`` and **not** under ``v2``, which is the one thing the
+    two fixtures differ in.
+    """
+    return _expit(_linear(spec(version).coefficients["initial_mechanism"], 0.0, w1, w2))
 
 
 class FrozenOutcome(BaseEstimator):
@@ -231,13 +319,19 @@ class FrozenOutcome(BaseEstimator):
     ``tests.conftest.OracleOutcome``'s convention -- the design is ``[A, W...]``, arm first.
     """
 
+    def __init__(self, version: str | None = None) -> None:
+        # A plain attribute set in `__init__` and named as the parameter is, because sklearn
+        # clones an estimator by reading its constructor signature: a version stored any other
+        # way would be dropped by `clone` and the fold models would silently answer for `v1`.
+        self.version = version
+
     def fit(self, X: Any, y: Any = None, sample_weight: Any = None) -> FrozenOutcome:
         self.classes_ = np.array([0.0, 1.0])
         return self
 
     def _mean(self, X: Any) -> Any:
         design = np.asarray(X, dtype=float)
-        return initial_outcome(design[:, 0], design[:, 1], design[:, 2])
+        return initial_outcome(design[:, 0], design[:, 1], design[:, 2], self.version)
 
     def predict(self, X: Any) -> Any:
         return self._mean(X)
@@ -250,13 +344,16 @@ class FrozenOutcome(BaseEstimator):
 class FrozenMechanism(BaseEstimator):
     """A treatment learner returning :func:`initial_mechanism`; its design is ``W`` alone."""
 
+    def __init__(self, version: str | None = None) -> None:
+        self.version = version
+
     def fit(self, X: Any, y: Any = None, sample_weight: Any = None) -> FrozenMechanism:
         self.classes_ = np.array([0.0, 1.0])
         return self
 
     def predict_proba(self, X: Any) -> Any:
         design = np.asarray(X, dtype=float)
-        p = initial_mechanism(design[:, 0], design[:, 1])
+        p = initial_mechanism(design[:, 0], design[:, 1], self.version)
         return np.column_stack([1.0 - p, p])
 
 
@@ -297,25 +394,27 @@ class Fixture:
         return {name: self.frame[name].to_numpy(dtype=float) for name in self.frame.columns}
 
 
-def fixture_path(suffix: str, root: Path | None = None) -> Path:
+def fixture_path(suffix: str, root: Path | None = None, version: str | None = None) -> Path:
     """Where the frozen fixture lives, ``suffix`` being ``"csv"`` or ``"json"``."""
     base = Path(__file__).resolve().parent if root is None else Path(root)
-    return base / "fixtures" / f"drtmle_trace_{FIXTURE_VERSION}.{suffix}"
+    return base / "fixtures" / f"drtmle_trace_{spec(version).version}.{suffix}"
 
 
-def build_fixture(*, n: int = N, seed: int = SEED) -> pd.DataFrame:
+def build_fixture(*, version: str | None = None) -> pd.DataFrame:
     """The draw, from the seed alone -- no fit, no folds, no predictions yet.
 
     Separate from :func:`write_fixture` because the fold column can only come from a fit, and
     a function that both draws and fits cannot be used to check the fit's folds against the
     recorded ones.
     """
-    rng = np.random.default_rng(seed)
+    settings = spec(version)
+    n, coefficients = settings.n, settings.coefficients
+    rng = np.random.default_rng(settings.seed)
     w1 = rng.normal(size=n)
     w2 = rng.uniform(-1.0, 1.0, size=n)
-    g0 = _expit(_linear(COEFFICIENTS["truth_mechanism"], 0.0, w1, w2))
+    g0 = _expit(_linear(coefficients["truth_mechanism"], 0.0, w1, w2))
     a = (rng.uniform(size=n) < g0).astype(float)
-    q0 = _expit(_linear(COEFFICIENTS["truth_outcome"], a, w1, w2))
+    q0 = _expit(_linear(coefficients["truth_outcome"], a, w1, w2))
     y = (rng.uniform(size=n) < q0).astype(float)
     return pd.DataFrame(
         {
@@ -324,29 +423,32 @@ def build_fixture(*, n: int = N, seed: int = SEED) -> pd.DataFrame:
             "a": a,
             "y": y,
             "weight": np.ones(n, dtype=float),
-            "qn1": initial_outcome(1.0, w1, w2),
-            "qn0": initial_outcome(0.0, w1, w2),
-            "gn": initial_mechanism(w1, w2),
+            "qn1": initial_outcome(1.0, w1, w2, settings.version),
+            "qn0": initial_outcome(0.0, w1, w2, settings.version),
+            "gn": initial_mechanism(w1, w2, settings.version),
         }
     )
 
 
-def estimator(*, order: str = "cleverly", tracing: bool = True, **overrides: Any) -> DRTMLE:
+def estimator(
+    *, order: str = "cleverly", tracing: bool = True, version: str | None = None, **overrides: Any
+) -> DRTMLE:
     """The one estimator configuration this fixture is traced under.
 
     Every keyword that could move a number is written out rather than left to a default, for
     the reason ``CLAUDE.md`` gives about spelled-out fold counts: a default that changes turns
     a frozen fixture into a different experiment with no diff to blame.
     """
+    settings = spec(version)
     kwargs: dict[str, Any] = {
-        "outcome_learner": FrozenOutcome(),
-        "treatment_learner": FrozenMechanism(),
+        "outcome_learner": FrozenOutcome(settings.version),
+        "treatment_learner": FrozenMechanism(settings.version),
         "reduced_outcome_learner": "glm",
         "reduced_treatment_learner": "glm",
         "estimands": ["ey1", "ey0", "ate"],
-        "n_folds": N_FOLDS,
-        "learner_folds": N_FOLDS,
-        "g_bounds": G_BOUNDS,
+        "n_folds": settings.n_folds,
+        "learner_folds": settings.n_folds,
+        "g_bounds": settings.g_bounds,
         "random_state": 0,
         "simultaneous": False,
         "update_order": order,
@@ -359,15 +461,16 @@ def _fit(frame: pd.DataFrame, est: DRTMLE) -> Any:
     return est.fit(frame, outcome="y", treatment="a", covariates=["w1", "w2"])[None]
 
 
-def write_fixture(root: Path | None = None) -> Fixture:
+def write_fixture(root: Path | None = None, version: str | None = None) -> Fixture:
     """Regenerate the frozen fixture and write both files.
 
     The fold column comes out of a real fit rather than out of a re-derivation of the
     splitter, which is what makes it authoritative:
     ``tests/unit/test_drtmle_trace.py`` then asserts a fresh fit reproduces it.
     """
-    frame = build_fixture()
-    result = _fit(frame, estimator(tracing=False))
+    settings = spec(version)
+    frame = build_fixture(version=settings.version)
+    result = _fit(frame, estimator(tracing=False, version=settings.version))
     folds = np.asarray(result.repeats[0].nuisance.folds.assignment, dtype=int)
     frame = frame.copy()
     frame.insert(4, "fold", folds)
@@ -378,33 +481,46 @@ def write_fixture(root: Path | None = None) -> Fixture:
     # `%.17g` was tried and does not round-trip here: it came back short by a digit on 97 of
     # 200 rows, at 2.2e-16.
     csv = frame.to_csv(index=False)
+    # The realised clipped count travels in the manifest, because it is the one property that
+    # says *which* fixture a reader has and it cannot be read off the coefficients without
+    # refitting. `v1` records 0 and `v2` records a material share; both are asserted.
+    clipped = int(
+        np.sum(
+            (frame["gn"].to_numpy(dtype=float) < settings.g_bounds[0])
+            | (frame["gn"].to_numpy(dtype=float) > settings.g_bounds[1])
+        )
+    )
     manifest = {
-        "version": FIXTURE_VERSION,
+        "version": settings.version,
+        "purpose": settings.purpose,
         "n": len(frame),
-        "seed": SEED,
-        "n_folds": N_FOLDS,
-        "g_bounds": list(G_BOUNDS),
-        "coefficients": COEFFICIENTS,
+        "seed": settings.seed,
+        "n_folds": settings.n_folds,
+        "g_bounds": list(settings.g_bounds),
+        "clipped": clipped,
+        "coefficients": settings.coefficients,
         "columns": list(frame.columns),
         "outcome": "binary; the outcome scaler is the identity, so qn1/qn0 need no affine map",
         "weights": "unit; a non-unit weight is a second thing to reproduce and buys nothing here",
         "sha256": hashlib.sha256(csv.encode("utf-8")).hexdigest(),
     }
-    path = fixture_path("csv", root)
+    path = fixture_path("csv", root, settings.version)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(csv, encoding="utf-8")
-    fixture_path("json", root).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    fixture_path("json", root, settings.version).write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
     return Fixture(frame=frame, folds=folds, manifest=manifest)
 
 
-def read_fixture(root: Path | None = None) -> Fixture:
+def read_fixture(root: Path | None = None, version: str | None = None) -> Fixture:
     """The committed fixture, with its digest checked against the manifest.
 
     Checked rather than trusted: the CSV is the object two implementations share, so a silent
     edit to it would make every comparison downstream a comparison of two different draws.
     """
-    csv = fixture_path("csv", root).read_text(encoding="utf-8")
-    manifest = json.loads(fixture_path("json", root).read_text(encoding="utf-8"))
+    csv = fixture_path("csv", root, version).read_text(encoding="utf-8")
+    manifest = json.loads(fixture_path("json", root, version).read_text(encoding="utf-8"))
     digest = hashlib.sha256(csv.encode("utf-8")).hexdigest()
     if digest != manifest["sha256"]:
         raise ValueError(
@@ -418,7 +534,7 @@ def read_fixture(root: Path | None = None) -> Fixture:
     # first-divergence hunt would find between two implementations and mis-classify as a
     # learner difference -- the harness would have manufactured the divergence it was built
     # to locate.
-    frame = pd.read_csv(fixture_path("csv", root), float_precision="round_trip")
+    frame = pd.read_csv(fixture_path("csv", root, version), float_precision="round_trip")
     return Fixture(frame=frame, folds=frame["fold"].to_numpy(dtype=int), manifest=manifest)
 
 
@@ -797,18 +913,32 @@ def _number_rounds(steps: list[Step]) -> list[Step]:
     return numbered
 
 
-def trace(fixture: Fixture | None = None, *, order: str = "cleverly") -> Trace:
+def trace(
+    fixture: Fixture | None = None,
+    *,
+    order: str = "cleverly",
+    version: str | None = None,
+    **overrides: Any,
+) -> Trace:
     """Fit the fixture under ``order`` and return the whole record.
 
     The fixture's fold column is checked against the fit's rather than assumed: the folds are
     what the reduced regressions are cross-fitted over, so a split that had drifted would make
     every comparison against this trace a comparison against a different experiment.
+
+    ``overrides`` reach :func:`estimator` and default to nothing, so every trace this module's
+    own CLI takes is the frozen configuration exactly as it was.  They exist for
+    :mod:`benchmarks.drtmle_r_compare`, which has to take a trace whose *reduced learner* is a
+    bare unpenalised GLM rather than this module's two-candidate ``"glm"`` Super Learner --
+    see that module for why removing a known learner difference is what lets a
+    first-divergence hunt find a construction difference instead of finding the learner.
     """
     from cleverly.estimators.tmle import correction_parts
     from cleverly.validation.drtmle import correction_check
 
-    fixture = read_fixture() if fixture is None else fixture
-    est = estimator(order=order)
+    fixture = read_fixture(version=version) if fixture is None else fixture
+    version = str(fixture.manifest["version"])
+    est = estimator(order=order, version=version, **overrides)
     result = _fit(fixture.frame, est)
     repeat = result.repeats[0]
     realised = np.asarray(repeat.nuisance.folds.assignment, dtype=int)

@@ -3378,7 +3378,7 @@ contract row were: a correction to the record must not arrive entangled with an 
 | --- | --- | --- |
 | **F1** — status and decision semantics — *landed with this revision* | the status sentence at the head of this page, the branch table's last row reworded to *stop as production-change evidence, continue bounded construction diagnostics*, the unreachable reopening condition **discharged** and E3 authorized explicitly as a diagnostic rather than a production branch, `held_out_risk`'s equal-error claim corrected in the module itself, gate B labelled **relative** non-inferiority in [§8](drtmle/validation-plan.md#the-three-gates-and-why-none-of-them-is-a-refinement-difference) until an absolute anchor exists, and `CLAUDE.md`'s R rule narrowed to match this page | any threshold, any constant, any re-reading of E2R's comparison, any estimator code. **None was touched**: `EQUIVALENCE_FRACTION`, `BUDGET_FRACTION`, `PRIMARY_ESTIMAND`, `FIDELITY_FRACTION`, `COMPONENT_FRACTION` and `COMPLETENESS_FRACTION` are what they were, and the four cells stay `unresolved` |
 | **F2** — a deterministic component-level trace harness — *landed with this revision; what it built and what a first run of it measured are in [the trace harness](drtmle/trace-harness.md)* | one frozen binary-treatment, no-missingness fixture — observed `W`/`A`/`Y`, folds, weights, bounds and **identical initial `Q̄` and `g` predictions** — and a per-arm, per-round export: pre- and post-update `Q*`, `g*`, `Q_r`, `g_{r,1}`, `g_{r,2}`, the empirical means of equations (8), (9) and (10), the fluctuation coefficients, the condition flags, the point estimate, the correction arrays, the curve and the `se`. The state immediately before and after `_close_at_frozen_reductions`, both existing update orders on the one fixture, and invariants that **recompute every recorded score from the recorded state**. Suggested: `benchmarks/drtmle_trace.py`, `benchmarks/fixtures/drtmle_trace_v1.*`, `tests/unit/test_drtmle_trace.py` | a new public estimator option. The closing-pass state is read where it already exists, not exposed. Acceptance is a deterministic trace across repeated runs, every identity recomputing inside the existing tolerance, and the exact-law and theorem tests staying green |
-| **F3** — the bounded R differential run | an **isolated** script or container/`renv` task against the public `drtmle` package and F2's frozen fixture, handed the same initial `Qn` and `gn`, with a reduced-learner specification whose *first fit* can be checked for numerical agreement before any targeting is compared. Both `Qsteps=1` and the default `Qsteps=2`. The comparison is of the **earliest divergence**, not of final estimates, in absolute and scale-relative terms over arrays, scores and coefficients, and the first divergence is **classified** — input or learner, update order, reduction-refit vintage, stopping rule, frozen close, or corrected-IC construction | an R dependency in the package, in `nox`, or in any test tier the fast CI runs. Any modification of Python merely to match R. Any use of agreement as a release criterion — [stop-ship 17](#stop-ship). Acceptance is one checked-in comparison report naming the first divergence or establishing agreement to a declared tolerance |
+| **F3** — the bounded R differential run — *landed with this revision; what it built and what running it measured are in [the R differential](drtmle/r-differential.md)* | an **isolated** script or container/`renv` task against the public `drtmle` package and F2's frozen fixture, handed the same initial `Qn` and `gn`, with a reduced-learner specification whose *first fit* can be checked for numerical agreement before any targeting is compared. Both `Qsteps=1` and the default `Qsteps=2`. The comparison is of the **earliest divergence**, not of final estimates, in absolute and scale-relative terms over arrays, scores and coefficients, and the first divergence is **classified** — input or learner, update order, reduction-refit vintage, stopping rule, frozen close, or corrected-IC construction | an R dependency in the package, in `nox`, or in any test tier the fast CI runs. Any modification of Python merely to match R. Any use of agreement as a release criterion — [stop-ship 17](#stop-ship). Acceptance is one checked-in comparison report naming the first divergence or establishing agreement to a declared tolerance |
 | **F4** — the construction ablations, run as diagnostics | on common seeds: `reduced_crossfit` pooled against nested, the two update orders, pre-close against post-close state, and the R-style finite-backfitting trajectory F3 identifies as a **benchmark path**. Columns: `√n R_remaining`, all three score means, the reduced regressions' drift between the last refit and the reported state, the score-failure rate, the point-estimate movement and the `se` ratio. Both `q-drift` and `g-drift`, `n ∈ {600, 2,400}`, paired on the same data and fold seeds. **This is E3's ablation, and it may not branch** | the 6,000-fit confirmatory study, or anything sized like it. A production keyword for the R-style trajectory. Advancing a construction whose paired change does not reproduce, does not reduce `R_remaining` or score failures, and is not theorem-consistent. **A null result here is a result** and routes the piece to F5 |
 | **F5** — the reduced-learner feasibility screen | current `glm` against a **small, predeclared** univariate library — the existing spline/GAM path, plus one kernel or local-smoother path *if* it can be had without widening the runtime dependencies. Fitted and scored out of fold on the same paired draws, reporting all three component risks **and** the composites `q_r/g` and `g_{r,2}/g_{r,1}`, not final coverage. An improvement must replicate on a held-out cohort **and** in `√n R_remaining` | a rerun of E2R, a production default change, or a candidate set widened after the decision cohort is seen. A learner that improves in-sample risk alone, or raises the score-failure rate, is rejected. The outcome may be a recorded **negative learnability** result |
 | **F6** — repair or downgrade the reference gate | exactly one of two routes, chosen and stated: an **absolute-adequacy** anchor — a positive error bound for the known-DGP univariate reduced regressions, tested against an effect-scale margin — **or** the **ranking-only** route, keeping the ladder as a falsification instrument, renaming the gate, and forbidding it from certifying a "population-limit reference" or branching production behaviour | relaxing any frozen margin. Treating an out-of-family candidate or a longer ladder as an absolute bound — it is useful sensitivity analysis and it is not a bound. **No third E2R-shaped decision study runs until this gap is closed** |
@@ -3431,13 +3431,122 @@ which is precisely the size of difference a first-divergence hunt would find and
 as a learner difference. The harness would have manufactured the divergence it was built to
 locate.
 
+##### What F3 ran, and the five things it establishes
+
+**F3 has landed and it localizes construction differences, which is what it is for**;
+[the R differential](drtmle/r-differential.md) is its record. `drtmle` 1.1.2 ran on **two**
+frozen fixtures from the identical initial `Q̄` and `g`, over the same committed folds, under
+both of its outcome-update routes — its default `Qsteps = 2` and the joint `Qsteps = 1`. Four
+runs. The package's own loop runs, with its internals wrapped and restored the way
+`TracingDRTMLE` wraps this package's; that the wrapping does not move the fit is checked at
+`1e-12` and reads `0` on every one. Nothing under `src/` moved, and no R dependency enters the
+package, `noxfile.py` or any tier the fast CI runs — R lives in one dispatch-only workflow.
+
+**The R runs are committed**, gzipped with SHA-256 manifests under
+`benchmarks/fixtures/r-trace-*/`, so the comparison and F4's verification of its R-style arm
+reproduce with **no R installed** — verified with `Rscript` moved off the path. `CLAUDE.md`
+fences that by name: a committed R record may be read by `benchmarks/` and by
+instrument-validity tests, and never by a test asserting this package's `psi`, `se` or curve
+agrees with it.
+
+**Its stopping rule is cleared on `v1`, and that is the precondition for reading anything
+else.** The two sides read the same numbers **bit for bit**, and their first reduced fits agree
+at `3.69e-10` against a `1e-8` bar declared before any R number was read — `Q_r` and `g_{r,2}`
+at machine precision, `1.1e-15`. So the designs, the targets, the fitting rows and the
+cross-fitting line up across the language boundary.
+
+| fixture | earliest divergence | class |
+| --- | --- | --- |
+| `v1` — truncation slack | a round's equation order | **`update-order`** |
+| `v2` — truncation binds on 54/200 | the two truncation conventions | **`truncation-convention`** |
+
+Five readings:
+
+- **Neither of this package's orders is R's round, and they miss it in different places.**
+  `"cleverly"` takes R's equations in R's order (`9, 10, 8`) and adopts **one** reduction
+  vintage per round where R adopts two; `"paper"` adopts R's two vintages, `gr` then `Qr`, and
+  takes the equations in a **different** order (`8, 10, 9`). All three agree that equation (10)
+  sits between the other two. That is [R3](#f-localize-the-shortfall-before-changing-anything)'s
+  second, third and fourth rows read off a run, and it is what **F4** is handed: the R-style
+  trajectory is a **third arm**, not a relabelling of `update_order="paper"`.
+- **The two stopping rules differ by 1000× and the states they reach by 2×10⁷, and those are
+  two facts.** Both render the same `o_p(n^{-1/2})` condition as an absolute `c/n` bar on the
+  three empirical means: `drtmle`'s `tolIC = 1/n` is `5e-3` at `n = 200`, this package's
+  `1e-3/n` is `5e-6`. So the **rules** are three orders apart. This package then overshoots its
+  own bar by five further orders — `_solved` is `relative <= 1e-10` **or** `absolute <= 5e-6`
+  and the relative test keeps it iterating — reaching `7.94e-11` where R stops at `1.64e-03`,
+  just inside its own. An earlier revision of this section merged the two into "bars seven
+  orders apart", which was wrong about the bars.
+- **The `se` gap was mostly the stopping bar, and a tolerance ladder is how that is known.**
+  Gate 7 found `D*_Q[1]`'s spread at `0.3407` here against R's `0.0599` and **could not say**
+  whether that was a construction difference or an artefact of R stopping after two rounds. So
+  R was run down a ladder — `tolIC ∈ {5e-3, 5e-6, 1e-8, 1e-10}` at `maxIter = 100` — and it
+  converges at every rung, monotonically, no cap reached. `sd(D*_Q[1])` moves `0.0601 → 0.2692`
+  and is then stable across three further orders: **92% of the gap was the bar.** The verdict is
+  `partial` rather than `closed` because the thresholds were declared before the first rung was
+  read and both ratios miss narrowly (`1.266` against `1.2`, `1.051` against `1.05`); it is
+  reported as `partial` rather than rounded.
+- **What is left after the bar is *route*, not construction.** R's converged state lands
+  **between** this package's two update orders on both quantities — `sd(D*_Q[1])`: `paper`
+  `0.2140`, R `0.2692`, `cleverly` `0.3407`; `se[ey1]`: `0.0539`, `0.0574`, `0.0603`. That makes
+  the residue F4's question rather than a separate one, and gate 7 now reports per order because
+  its worst-across-orders reading could not see it.
+- **Three converged solutions sit at three different points**, which is evidence for
+  [item 22](#what-is-still-open) from a third implementation. `cleverly`, `paper` and R at
+  `tolIC = 1e-10` all drive the three means to `1e-10` or better and report `psi[ate]` of
+  `+0.217455`, `+0.215188` and `+0.210133` — about a tenth of a standard error apart. The fixed
+  point is route-dependent on this draw. One draw at `n = 200`, so it is evidence for the item
+  rather than an answer, and it is F4's to test at scale.
+- **And `drtmle`'s shipped defaults do not reach its own fixed point on this draw.** At
+  `maxIter = 3` it exits after 2 rounds; `psi[ate]` then moves by `0.10` standard errors and
+  `se[ey1]` by 17% on the way to convergence. Recorded as a fact about a configuration, not a
+  criticism — but a reader comparing against `drtmle` at its defaults is comparing against an
+  unconverged alternation.
+- **`v2` produced the sharpest localization, and it is one line against one line.**
+  `g_{r,2}`'s target is `(1{A=a} − g)/g`; this package forms it at the **truncated** mechanism
+  (`reduced.py`'s `_roles`) and `estimategrn` forms it at the untruncated one. At a row where
+  `g = 0.0089` the untruncated target for a treated unit is `111` and the truncated one is
+  `5.67`; fitted, the two arrays' spreads are `2.28` and `0.53` and they differ by `7.87`. The
+  two conventions cannot be reconciled — `tolg` is a scalar lower bound per arm, `g_bounds` is a
+  pair applied to `g_1` and complemented, and with two arms a row clipped low on one arm is
+  clipped high on the other. This package has already written down a *reason* for its choice;
+  whether that reason or R's is what Theorem 1 needs is **F7**'s question.
+- **And one fact about the R package.** `drtmle` 1.1.2 documents `cvFolds` as accepting "a
+  vector of fold assignments" and its `make_validRows` implements exactly that, but the exported
+  `drtmle()` guards with `if (cvFolds > 1)` and raises on any vector before reaching it. The
+  documented path is unreachable from the exported function.
+
+**What none of it establishes is which side is right.** That `"cleverly"` matches R on the
+equations, and that both carry the positive mechanism correction, is evidence about a
+**transcription** and not about a derivation — both descend from one source — which is the class
+[item 21](#what-is-still-open) is the worked example of, where a parity run would have recorded
+R's sign as correct and been right by luck. F3 selects no construction. **F7** is the only row
+that may change one, and only against the theorem and the remainder identities.
+
+**And four harness defects are on the record rather than quietly repaired**, because they are
+the class of error this run must not make — each would have produced a confident, wrong
+localization. Labelling a refit by *what moved across it* rather than by what the next equation
+adopted reads `all` on both orders and makes the vintage invisible; the same mistake reappeared
+in the vintage gate, which counted refit *steps* and read `2` for all three. Comparing the two
+states column for column when `drtmle`'s `a_0` is `(1, 0)` and a `Trace`'s `arms` is `(0, 1)`
+reads as a **`0.577`** disagreement on `g_{r,2}` — a large, plausible `learner` verdict on an
+axis bug. `g_{r,1}`'s first `8.6e-05` miss looks exactly like `LogisticRegression`'s residual L2
+against unpenalised IRLS and is **not**: at `tol=1e-12` the same `C` reads `7.5e-09`, so all of
+it was scikit-learn's default `tol=1e-4`, and had it been accepted F3 would have stopped at its
+own gate on a learner difference that does not exist. And the correction gate's sign check
+called a flip on `v2`'s arrays, which are far apart either way — reporting that as *"the signs
+differ"* is precisely what item 21 warns against, so a flip is now read as one only when
+negating helps decisively. No threshold was moved for any of them. A fifth was caught by the
+instrument rather than by a reader: the first verify step failed at `0.00342` because the
+*unwrapped* comparison fit was drawing its own random fold split.
+
 ##### The order, and what stops it
 
 | order | work | why it precedes the next |
 | --- | --- | --- |
 | 1 | **F1** | removes the dead branch without touching any evidence |
 | 2 | **F2** — *landed* | produces the common state-level instrument F3 and F4 both read |
-| 3 | **F3** and **F4** | localize construction differences *before* any code changes |
+| 3 | **F3** — *landed* — and **F4** | localize construction differences *before* any code changes |
 | 4 | **F5** | tests the one theorem premise C3c left unverified |
 | 5 | **F6** | stops a future relative ranking from being called absolute fidelity |
 | 6 | **F7** | makes only the change the evidence selected |
