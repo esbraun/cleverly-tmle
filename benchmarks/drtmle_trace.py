@@ -797,18 +797,25 @@ def _number_rounds(steps: list[Step]) -> list[Step]:
     return numbered
 
 
-def trace(fixture: Fixture | None = None, *, order: str = "cleverly") -> Trace:
+def trace(fixture: Fixture | None = None, *, order: str = "cleverly", **overrides: Any) -> Trace:
     """Fit the fixture under ``order`` and return the whole record.
 
     The fixture's fold column is checked against the fit's rather than assumed: the folds are
     what the reduced regressions are cross-fitted over, so a split that had drifted would make
     every comparison against this trace a comparison against a different experiment.
+
+    ``overrides`` reach :func:`estimator` and default to nothing, so every trace this module's
+    own CLI takes is the frozen configuration exactly as it was.  They exist for
+    :mod:`benchmarks.drtmle_r_compare`, which has to take a trace whose *reduced learner* is a
+    bare unpenalised GLM rather than this module's two-candidate ``"glm"`` Super Learner --
+    see that module for why removing a known learner difference is what lets a
+    first-divergence hunt find a construction difference instead of finding the learner.
     """
     from cleverly.estimators.tmle import correction_parts
     from cleverly.validation.drtmle import correction_check
 
     fixture = read_fixture() if fixture is None else fixture
-    est = estimator(order=order)
+    est = estimator(order=order, **overrides)
     result = _fit(fixture.frame, est)
     repeat = result.repeats[0]
     realised = np.asarray(repeat.nuisance.folds.assignment, dtype=int)
