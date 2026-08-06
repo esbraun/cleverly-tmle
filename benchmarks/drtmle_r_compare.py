@@ -44,8 +44,10 @@ splits would make every reduced regression differ at gate 1 and end the comparis
 from __future__ import annotations
 
 import argparse
+import gzip
+import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +77,7 @@ __all__ = [
 DIVERGENCE_CLASSES: tuple[str, ...] = (
     "input",
     "learner",
+    "truncation-convention",
     "update-order",
     "reduction-vintage",
     "stopping-rule",
@@ -147,6 +150,12 @@ class Gate:
     tolerance: float
     passed: bool
     classification: str
+    #: The absolute difference divided by the ``sd`` of the quantity compared, ``nan`` where the
+    #: gate compares something with no scale (a route, a vintage pattern, a round count).  F3's
+    #: row asks for "absolute **and scale-relative** terms" and the two answer different
+    #: questions: ``5e-05`` on an array whose ``sd`` is ``0.6`` is a different fact from the same
+    #: number on one whose ``sd`` is ``5e-05``.
+    relative: float = float("nan")
     confounded: bool = False
 
     @property
@@ -170,6 +179,21 @@ class RExport:
     inputs: dict[str, np.ndarray]
     summary: dict[str, dict[str, float]]
     meta: dict[str, str]
+    #: One row per ``eval_Dstar*`` call per arm: the block, its empirical mean, its ``sd``, and
+    #: whether the mechanism it was handed was the **targeted** one.  See :meth:`exit_blocks`.
+    blocks: list[dict[str, Any]] = field(default_factory=list)
+
+    def exit_blocks(self) -> dict[tuple[str, float], dict[str, Any]]:
+        """The last recorded call of each block, per arm — the state the run exited at.
+
+        *Last*, by the monotone ``call`` counter rather than by the step index, because a step
+        index is not unique: ``eval_Dstar`` is called inside R's loop and again after it, and
+        both land at whatever step count the loop happened to leave.
+        """
+        latest: dict[tuple[str, float], dict[str, Any]] = {}
+        for row in sorted(self.blocks, key=lambda r: r["call"]):
+            latest[(row["block"], row["arm"])] = row
+        return latest
 
     @property
     def arms(self) -> tuple[float, ...]:
@@ -227,8 +251,14 @@ def _labelled(step: dict[str, Any]) -> str:
 
 
 def read_export(directory: Path) -> RExport:
-    """Read one R run.  **Fails closed** -- a short blob or a missing index is an error."""
+    """Read one R record.  **Fails closed** — a bad digest, a short blob or a missing index errors.
+
+    The digests are checked before a number is read, exactly as the input fixture's are and for
+    the same reason: this record is *committed* and read back with no R installed, so a silent
+    edit to it would make every comparison downstream a comparison against a run nobody took.
+    """
     directory = Path(directory)
+    _verify_manifest(directory)
     steps = _read_csv(directory / "steps.csv")
     index = _read_csv(directory / "arrays.csv")
     meta = {str(row["key"]): str(row["value"]) for row in _read_csv(directory / "meta.csv")}
@@ -236,14 +266,28 @@ def read_export(directory: Path) -> RExport:
         str(row["estimand"]): {"psi": float(row["psi"]), "se": float(row["se"])}
         for row in _read_csv(directory / "summary.csv")
     }
+    blocks = [
+        {
+            "call": int(row["call"]),
+            "step": int(row["step"]),
+            "round": int(row["round"]),
+            "phase": str(row["phase"]),
+            "block": str(row["block"]),
+            "arm": float(row["arm"]),
+            "mean": _float(row["mean"]),
+            "sd": _float(row["sd"]),
+            "at_targeted_g": str(row["at_targeted_g"]).strip().upper() == "TRUE",
+        }
+        for row in _read_csv(directory / "blocks.csv")
+    ]
 
-    blob = np.fromfile(directory / "arrays.f64", dtype="<f8")
+    blob = _read_f64(directory / "arrays.f64.gz")
     arrays: dict[tuple[int, str, float], np.ndarray] = {}
     for row in index:
         offset, length = int(row["offset"]), int(row["length"])
         if offset + length > blob.size:
             raise ValueError(
-                f"{directory / 'arrays.f64'} holds {blob.size} doubles and its index reaches "
+                f"{directory / 'arrays.f64.gz'} holds {blob.size} doubles and its index reaches "
                 f"{offset + length}. A truncated export is not a shorter comparison, it is "
                 "an unreadable one; rerun the R side rather than interpreting this."
             )
@@ -251,11 +295,11 @@ def read_export(directory: Path) -> RExport:
             offset : offset + length
         ]
 
-    raw = np.fromfile(directory / "inputs.f64", dtype="<f8")
+    raw = _read_f64(directory / "inputs.f64.gz")
     n = int(meta["n"])
     if raw.size != n * len(INPUT_COLUMNS):
         raise ValueError(
-            f"inputs.f64 holds {raw.size} doubles; {len(INPUT_COLUMNS)} columns of {n} rows "
+            f"inputs.f64.gz holds {raw.size} doubles; {len(INPUT_COLUMNS)} columns of {n} rows "
             f"is {n * len(INPUT_COLUMNS)}. Gate 0 compares these bit for bit and cannot be "
             "run against a partial file."
         )
@@ -276,7 +320,45 @@ def read_export(directory: Path) -> RExport:
         inputs=inputs,
         summary=summary,
         meta=meta,
+        blocks=blocks,
     )
+
+
+def _read_f64(path: Path) -> np.ndarray:
+    """A gzipped little-endian float64 blob.
+
+    Gzip is a *container* and not a format: the bytes inside it are the raw doubles R wrote, so
+    nothing here acquires a parser to be inexact.  That distinction is the whole reason the
+    record is binary — see F2's account of a fast CSV parser reading a fixture short by one unit
+    in the last place on 65 of 200 rows.
+    """
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} is missing. Run benchmarks/r/drtmle_reference.R first — this module "
+            "reads an R record and does not produce one."
+        )
+    return np.frombuffer(gzip.decompress(path.read_bytes()), dtype="<f8")
+
+
+def _verify_manifest(directory: Path) -> None:
+    """Every file's SHA-256 against the record's own manifest."""
+    manifest = directory / "manifest.csv"
+    if not manifest.exists():
+        raise FileNotFoundError(
+            f"{manifest} is missing, so nothing in {directory} can be checked. A record with no "
+            "manifest is not a record; regenerate it with benchmarks/r/drtmle_reference.R."
+        )
+    for row in _read_csv(manifest):
+        path = directory / str(row["file"])
+        if not path.exists():
+            raise FileNotFoundError(f"{path} is named in the manifest and is not there.")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != str(row["sha256"]):
+            raise ValueError(
+                f"{path} does not match its manifest: {digest} against {row['sha256']}. "
+                "Every comparison already taken is against the manifest's bytes — regenerate "
+                "the record, or restore the file; do not update the digest to match an edit."
+            )
 
 
 def _float(value: Any) -> float:
@@ -297,14 +379,16 @@ def _read_csv(path: Path) -> list[dict[str, Any]]:
         return [dict(row) for row in csv.DictReader(handle)]
 
 
-def python_trace(order: str = "cleverly", fixture: Fixture | None = None) -> Trace:
+def python_trace(
+    order: str = "cleverly", fixture: Fixture | None = None, version: str | None = None
+) -> Trace:
     """This package's trace under the configuration R is handed.
 
     The reduced learner is the bare GLM pair rather than the frozen trace's ``"glm"`` Super
     Learner -- see this module's header.  Everything else is the frozen configuration, folds
     included, so the fixture's bytes and its manifest are untouched.
     """
-    return trace_module.trace(fixture, order=order, **REDUCED_LEARNERS)
+    return trace_module.trace(fixture, order=order, version=version, **REDUCED_LEARNERS)
 
 
 # ------------------------------------------------------------------ the gates
@@ -319,30 +403,43 @@ def gates(export: RExport, traces: dict[str, Trace], fixture: Fixture) -> list[G
     """
     found = [
         _gate_inputs(export, fixture),
+        _gate_truncation(export, traces, fixture),
         _gate_reduction(export, traces),
         _gate_route(export, traces),
         _gate_vintage(export, traces),
-        _gate_exit(export, traces),
+        _gate_scores(export, traces),
         _gate_close(traces),
+        _gate_corrections(export, traces),
         _gate_reported(export, traces),
     ]
     # Everything downstream of the first failure is read and not read *as evidence*.
     first = next((i for i, gate in enumerate(found) if not gate.passed), len(found))
-    return [
-        gate if i <= first else Gate(**{**gate.__dict__, "confounded": True})
-        for i, gate in enumerate(found)
-    ]
+    return [gate if i <= first else replace(gate, confounded=True) for i, gate in enumerate(found)]
+
+
+def _reading(theirs: np.ndarray, ours: np.ndarray) -> tuple[float, float]:
+    """The absolute worst difference and the same divided by the ``sd`` of what was compared.
+
+    F3's row asks for "absolute **and** scale-relative terms", and the two answer different
+    questions: ``5e-05`` on an array whose ``sd`` is ``0.6`` is a different fact from the same
+    number on one whose ``sd`` is ``5e-05``.  The denominator is the *pooled* spread of the two
+    sides rather than one of them, so the reading does not change when the arguments swap.
+    """
+    absolute = float(np.max(np.abs(theirs - ours))) if theirs.size else 0.0
+    scale = float(np.std(np.concatenate([theirs, ours]))) if theirs.size else 0.0
+    return absolute, absolute / scale if scale > 0 else float("nan")
 
 
 def _gate_inputs(export: RExport, fixture: Fixture) -> Gate:
     arrays = fixture.arrays()
     worst = 0.0
     culprit = ""
+    relative = 0.0
     for name in INPUT_COLUMNS:
         theirs, ours = export.inputs[name], np.asarray(arrays[name], dtype=float)
-        difference = float(np.max(np.abs(theirs - ours))) if ours.size else 0.0
+        difference, ratio = _reading(theirs, ours)
         if difference > worst:
-            worst, culprit = difference, name
+            worst, culprit, relative = difference, name, ratio
     return Gate(
         name="0 inputs",
         question="did the two sides read the same numbers?",
@@ -351,6 +448,7 @@ def _gate_inputs(export: RExport, fixture: Fixture) -> Gate:
         tolerance=INPUT_TOLERANCE,
         passed=worst <= INPUT_TOLERANCE,
         classification="input",
+        relative=relative,
     )
 
 
@@ -371,20 +469,78 @@ def _gate_reduction(export: RExport, traces: dict[str, Trace]) -> Gate:
     trace = next(iter(traces.values()))
     theirs = export.state(reference[0]["step"], trace.arms)
     ours = trace.steps[0].before
-    worst, culprit = 0.0, ""
-    for field in ("qr", "gr1", "gr2"):
-        difference = float(np.max(np.abs(getattr(theirs, field) - getattr(ours, field))))
+    worst, culprit, relative, spreads = 0.0, "", 0.0, ""
+    for name in ("qr", "gr1", "gr2"):
+        left, right = np.ravel(getattr(theirs, name)), np.ravel(getattr(ours, name))
+        difference, ratio = _reading(left, right)
         if difference > worst:
-            worst, culprit = difference, field
+            worst, culprit, relative = difference, name, ratio
+            spreads = f" (sd R={np.std(left):.4f} vs {np.std(right):.4f})"
     return Gate(
-        name="1 first reduced fit",
+        name="2 first reduced fit",
         question="do Q_r, g_r1 and g_r2 at the initial (Q̄, g) agree?",
-        reading=f"worst |Δ| on {culprit}" if worst else "identical",
+        reading=f"worst |Δ| on {culprit}{spreads}" if worst else "identical",
         absolute=worst,
         tolerance=REDUCTION_TOLERANCE,
         passed=worst <= REDUCTION_TOLERANCE,
         classification="learner",
+        relative=relative,
     )
+
+
+def _gate_truncation(export: RExport, traces: dict[str, Trace], fixture: Fixture) -> Gate:
+    r"""Do the two truncation conventions produce the same mechanism to divide by?
+
+    **They cannot be made to, and that is what this gate measures rather than a confounder it
+    failed to remove.** ``drtmle``'s ``tolg`` is a scalar **lower** bound applied to each arm's
+    :math:`g` independently; this package's ``g_bounds`` is a pair, and
+    :meth:`~cleverly.estimators._nuisance.Propensity.bounded` clips :math:`g_1` and takes the
+    complement. With two arms a row clipped low on one arm is clipped *high* on the other, so no
+    choice of bound arranges the two conventions into agreement.
+
+    Evaluated at the **initial** mechanism, which gate 0 has already shown both sides read
+    identically, so this is a statement about the convention alone and not about any trajectory.
+    On ``v1`` the bound binds on no row and the gate says so and passes; on ``v2`` it binds on
+    54 of 200.
+
+    **It precedes the reduced-fit gate, and the reason is causal rather than cosmetic.**  This
+    package forms :math:`g_{r,2}`'s *target* at the **truncated** mechanism -- ``reduced.py``'s
+    ``_roles`` builds ``(indicator - truncated) / truncated``, and that module's own docstring
+    says why the bound is chosen at fit time here and nowhere else -- while ``estimategrn``
+    forms it at the untruncated ``train_g``.  So a truncation difference does not wait for the
+    targeting step to show up: it is already in what the reduced regressions were asked to
+    learn.  Ordered after gate 1 this would be reported as a ``learner`` divergence of
+    ``7.87``, which is true of the fitted values and wrong about the cause.
+    """
+    lower, upper = spec_bounds(export)
+    raw = np.asarray(fixture.arrays()["gn"], dtype=float)
+    # R: each arm's own probability floored at `tolg`, independently, and never capped.
+    theirs = np.column_stack([np.maximum(raw, lower), np.maximum(1.0 - raw, lower)])
+    # This package: `g1` clipped on both sides, `g0` the complement of the clipped `g1`.
+    clipped_one = np.clip(raw, lower, upper)
+    ours = np.column_stack([clipped_one, 1.0 - clipped_one])
+    absolute, relative = _reading(theirs, ours)
+    rows = int(np.sum(np.any(theirs != ours, axis=1)))
+    bound_binds = int(np.sum((raw < lower) | (raw > upper)))
+    return Gate(
+        name="1 truncation",
+        question="do the two truncation conventions give the same mechanism to divide by?",
+        reading=(
+            f"the bound binds on {bound_binds}/{raw.size} rows; the conventions differ on {rows}"
+            + (" — vacuous, nothing clips" if bound_binds == 0 else "")
+        ),
+        absolute=absolute,
+        tolerance=0.0,
+        passed=rows == 0,
+        classification="truncation-convention",
+        relative=relative,
+    )
+
+
+def spec_bounds(export: RExport) -> tuple[float, float]:
+    """The pair this package truncates at.  R's ``tolg`` is its lower half, by construction."""
+    lower = float(export.meta["tolg"])
+    return lower, 1.0 - lower
 
 
 def _gate_route(export: RExport, traces: dict[str, Trace]) -> Gate:
@@ -394,7 +550,7 @@ def _gate_route(export: RExport, traces: dict[str, Trace]) -> Gate:
     matches = [order for order, route in ours.items() if route == theirs]
     detail = "; ".join(f"{order}={'→'.join(route)}" for order, route in ours.items())
     return Gate(
-        name="2 update order",
+        name="3 update order",
         question="does a round take the same equations in the same order?",
         reading=f"R={'→'.join(theirs)} | {detail}",
         absolute=0.0 if matches else 1.0,
@@ -461,7 +617,7 @@ def _gate_vintage(export: RExport, traces: dict[str, Trace]) -> Gate:
     matches = [order for order, pattern in ours.items() if pattern == theirs]
     detail = "; ".join(f"{order}={'+'.join(pattern)}" for order, pattern in ours.items())
     return Gate(
-        name="3 reduction vintage",
+        name="4 reduction vintage",
         question="which reductions does each refit of a round contribute?",
         reading=f"R={'+'.join(theirs)} | {detail}"
         + (f" — matches {', '.join(matches)}" if matches else " — matches neither"),
@@ -477,31 +633,108 @@ def _vintages_in(route: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(label.partition(":")[2] for label in route if label.startswith("refit"))
 
 
-def _gate_exit(export: RExport, traces: dict[str, Trace]) -> Gate:
-    """How many rounds each side ran, and on what test it stopped."""
-    theirs = max((step["round"] for step in export.steps), default=0)
-    cap = int(export.meta["max_iter"])
-    # `drtmle`'s `tolIC` defaults to `1/n`, which is a far looser bar than this package's and
-    # is most of why the round counts are not comparable numbers. Named in the reading rather
-    # than left for a reader to look up, because "R stopped sooner" and "R stopped at a
-    # different tolerance" are different facts and only the second is true.
+def _gate_scores(export: RExport, traces: dict[str, Trace]) -> Gate:
+    r"""The three empirical means at exit — the quantity Theorem 1's premise is about.
+
+    This is what F3's row means by comparing "scores", and the first run of this comparison
+    could not answer it because the R side exported none.  R's ``eval_Dstar`` mean is equation
+    (8)'s (its ``psi_t`` is the mean of :math:`\bar Q_a`, so the plug-in half cancels
+    identically); ``eval_Dstar_g``'s is equation (9)'s and ``eval_Dstar_Q``'s is equation
+    (10)'s.
+
+    Both sides being *near* zero is not the comparison — **how near** is, because that is the
+    bar each declared convergence at, and it is a bar rather than an outcome.
+    """
+    exits = export.exit_blocks()
+    theirs = max(
+        (abs(row["mean"]) for (block, _), row in exits.items() if block in {"D_g", "D_Q"}),
+        default=float("nan"),
+    )
+    ours = max(
+        abs(float(np.mean(values)))
+        for trace in traces.values()
+        for values in trace.corrections.values()
+    )
     tol_ic = 1.0 / int(export.meta["n"])
     detail = "; ".join(
-        f"{order}={trace.exit['rounds']} ({trace.exit['exit_reason']})"
+        f"{order}={trace.exit['rounds']} rounds ({trace.exit['exit_reason']})"
         for order, trace in traces.items()
     )
-    # R's default `maxIter = 3` is a cap, not a tolerance, and a run that reaches it has not
-    # been compared on its stopping *rule* at all -- it has been compared on a budget. That is
-    # a fact about the comparison rather than about either implementation, so it fails the
-    # gate rather than being reported as agreement.
+    rounds = max((step["round"] for step in export.steps), default=0)
+    cap = int(export.meta["max_iter"])
     return Gate(
-        name="4 stopping rule",
-        question="did both sides stop on their tolerance rather than on a cap?",
-        reading=f"R={theirs} rounds (cap {cap}, tolIC={tol_ic:g}) | {detail}",
-        absolute=float(theirs >= cap),
-        tolerance=0.0,
-        passed=theirs < cap,
+        name="5 exit scores",
+        question="how near zero are equations (9) and (10) when each side stops?",
+        reading=(
+            f"R worst |P_n D| = {theirs:.2e} after {rounds} rounds "
+            f"(cap {cap}, tolIC={tol_ic:g}); this package {ours:.2e} — {detail}"
+        ),
+        absolute=abs(theirs - ours),
+        tolerance=tol_ic,
+        # Not "are they equal" — "did R clear the bar this package holds itself to". A run that
+        # stopped at its own looser tolerance has not solved the same equations to the same
+        # place, and the comparison of everything downstream is in part a comparison of bars.
+        passed=bool(theirs <= max(ours, 0.0) * 10 or theirs <= 1e-8),
         classification="stopping-rule",
+        relative=theirs / ours if ours > 0 else float("nan"),
+    )
+
+
+def _gate_corrections(export: RExport, traces: dict[str, Trace]) -> Gate:
+    r"""The two correction arrays the reported curve subtracts, row by row.
+
+    Gate 8 compares ``se``, which is one scalar summarising everything; this compares the arrays
+    that produce it, which is what localizes a variance difference to the curve rather than
+    leaving it inferred.
+
+    **A pure sign difference is reported as one and is not a defect finding.** The paper's
+    display defines :math:`D_A = -(Q_r/g)(A - g)` while Theorem 1 *subtracts* :math:`D_A`, and
+    ``docs/roadmap.md``'s item 21 adjudicated that against the source's own appendices and
+    resolved it **in favour of this package's positive correction**. So a sign difference here
+    is a question already answered by the derivation, and a comparison that reported it as a
+    divergence would be reproducing exactly the mistake item 21 is the worked example of.
+    """
+    exits = export.exit_blocks()
+    worst, culprit, flipped = 0.0, "", []
+    relative, spreads = float("nan"), ""
+    for order, trace in traces.items():
+        for block, name in (("D_g", "D*_g"), ("D_Q", "D*_Q")):
+            for arm in export.arms:
+                row = exits.get((block, arm))
+                ours = trace.corrections.get(f"{name}[{arm:g}]")
+                if row is None or ours is None:
+                    continue
+                theirs = export.arrays[(row["step"], block, arm)]
+                direct, direct_rel = _reading(theirs, np.asarray(ours, dtype=float))
+                negated, negated_rel = _reading(-theirs, np.asarray(ours, dtype=float))
+                # A flip is only *read* as a flip when negating is decisively better. Two
+                # arrays at genuinely different fixed points are far apart either way, and
+                # whichever sign happens to be nearer is then noise -- reporting that as "the
+                # signs differ" would manufacture exactly the finding item 21 warns about.
+                if negated * 2.0 < direct:
+                    flipped.append(f"{block}[{arm:g}]")
+                    direct, direct_rel = negated, negated_rel
+                if direct > worst:
+                    worst, culprit, relative = direct, f"{order}:{block}[{arm:g}]", direct_rel
+                    # The *spreads*, not only the worst row: a correction block is what the
+                    # reported variance is built from, so "R's sd against ours" is the reading
+                    # that says where an `se` difference comes from. A max difference alone
+                    # cannot distinguish a shifted array from a wider one.
+                    spreads = f" (sd R={np.std(theirs):.4f} vs {np.std(ours):.4f})"
+    note = (
+        f"; negating helps decisively on {', '.join(sorted(set(flipped)))}"
+        if flipped
+        else "; signs agree throughout"
+    )
+    return Gate(
+        name="7 correction arrays",
+        question="do the two correction blocks agree row by row?",
+        reading=f"worst |Δ| on {culprit}{spreads}{note}",
+        absolute=worst,
+        tolerance=0.0,
+        passed=worst <= 0.0,
+        classification="corrected-ic",
+        relative=relative,
     )
 
 
@@ -513,44 +746,52 @@ def _gate_close(traces: dict[str, Trace]) -> Gate:
     the number that says whether R having no analogue could matter.  It passes when the
     movement is nil, which would make the absence of an analogue immaterial.
     """
-    worst, culprit = 0.0, ""
+    worst, culprit, relative = 0.0, "", 0.0
     for order, trace in traces.items():
         before, after = trace.boundary()
-        for field in STATE_FIELDS:
-            difference = float(np.max(np.abs(getattr(after, field) - getattr(before, field))))
+        for name in STATE_FIELDS:
+            difference, ratio = _reading(
+                np.ravel(getattr(before, name)), np.ravel(getattr(after, name))
+            )
             if difference > worst:
-                worst, culprit = difference, f"{order}:{field}"
+                worst, culprit, relative = difference, f"{order}:{name}", ratio
     return Gate(
-        name="5 frozen close",
+        name="6 frozen close",
         question="does this package's closing pass move the state R never takes?",
         reading=f"worst |Δ| across the boundary on {culprit}",
         absolute=worst,
         tolerance=0.0,
         passed=worst <= 0.0,
         classification="frozen-close",
+        relative=relative,
     )
 
 
 def _gate_reported(export: RExport, traces: dict[str, Trace]) -> Gate:
     """``psi`` and ``se``, which is the only thing a user of either package sees."""
-    worst, culprit = 0.0, ""
+    worst, culprit, relative = 0.0, "", float("nan")
     for order, trace in traces.items():
         for name, theirs in export.summary.items():
             ours = trace.estimates.get(name)
             if ours is None:
                 continue
-            for field in ("psi", "se"):
-                difference = abs(theirs[field] - ours[field])
+            for quantity in ("psi", "se"):
+                difference = abs(theirs[quantity] - ours[quantity])
                 if difference > worst:
-                    worst, culprit = difference, f"{order}:{name}.{field}"
+                    worst, culprit = difference, f"{order}:{name}.{quantity}"
+                    # Against R's own `se`, so the reading says "how many standard errors" for
+                    # `psi` and "what fraction" for `se` -- both of which a reader can act on,
+                    # where an absolute difference in either alone tells them nothing.
+                    relative = difference / theirs["se"] if theirs["se"] > 0 else float("nan")
     return Gate(
-        name="6 reported estimate",
+        name="8 reported estimate",
         question="do the reported psi and se agree?",
         reading=f"worst |Δ| on {culprit}",
         absolute=worst,
         tolerance=0.0,
         passed=worst <= 0.0,
         classification="corrected-ic",
+        relative=relative,
     )
 
 
@@ -577,13 +818,14 @@ def report(export: RExport, traces: dict[str, Trace], found: list[Gate]) -> str:
         "identities and the remainder decomposition — never by which side R is on. Changing",
         "this package to match R is stop-ship 17.",
         "",
-        "| gate | question | reading | |Δ| | bar | verdict |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| gate | question | reading | abs | rel | bar | verdict |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for gate in found:
         lines.append(
             f"| {gate.name} | {gate.question} | {gate.reading} | "
-            f"`{gate.absolute:.3g}` | `{gate.tolerance:g}` | **{gate.verdict}** |"
+            f"`{gate.absolute:.3g}` | `{gate.relative:.3g}` | `{gate.tolerance:g}` | "
+            f"**{gate.verdict}** |"
         )
     lines += ["", "## The earliest divergence", ""]
     if first is None:
@@ -629,9 +871,15 @@ def main() -> None:
     parser.add_argument(
         "--export",
         type=Path,
-        default=Path("benchmarks/results/r-trace"),
-        help="the directory benchmarks/r/drtmle_reference.R wrote",
+        default=None,
+        help="the R record to read; defaults to the committed one for --fixture-version",
     )
+    parser.add_argument(
+        "--fixture-version",
+        default="v1",
+        help="which frozen fixture: v1 (truncation slack) or v2 (truncation binds)",
+    )
+    parser.add_argument("--qsteps", default="2", help="which of R's outcome-update routes")
     parser.add_argument(
         "--orders",
         nargs="+",
@@ -642,9 +890,18 @@ def main() -> None:
     parser.add_argument("--json", type=Path, default=None, help="write the gates as JSON here")
     arguments = parser.parse_args()
 
-    fixture = trace_module.read_fixture()
-    export = read_export(arguments.export)
-    traces = {order: python_trace(order, fixture) for order in arguments.orders}
+    export_path = arguments.export
+    if export_path is None:
+        export_path = (
+            Path(trace_module.__file__).resolve().parent
+            / "fixtures"
+            / f"r-trace-{arguments.fixture_version}-q{arguments.qsteps}"
+        )
+    fixture = trace_module.read_fixture(version=arguments.fixture_version)
+    export = read_export(export_path)
+    traces = {
+        order: python_trace(order, fixture, arguments.fixture_version) for order in arguments.orders
+    }
     found = gates(export, traces, fixture)
     text = report(export, traces, found)
     print(text)

@@ -112,8 +112,12 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 steps <- list()
 arrays <- list()
+blocks <- list()
 offset <- 0L
-blob <- file(file.path(out_dir, "arrays.f64"), open = "wb")
+# Gzipped, because this export is **committed** and read back with no R installed. `gzfile`
+# and Python's `gzip` agree on the container; the bytes inside it are still raw little-endian
+# float64, so nothing acquires a parser to be inexact.
+blob <- gzfile(file.path(out_dir, "arrays.f64.gz"), open = "wb")
 
 emit <- function(step, field, arm, values) {
   values <- as.double(values)
@@ -181,6 +185,63 @@ install_folds <- function() {
   wrap("make_validRows", function(cvFolds, n, ...) {
     stopifnot(n == length(folds))
     originals$make_validRows(folds, n = n, ...)
+  })
+}
+
+# **The three influence-curve blocks, and their means.**
+#
+# `docs/roadmap.md`'s F3 row asks for a comparison "over arrays, **scores** and coefficients",
+# and the scores are these: `eval_Dstar`'s mean is equation (8)'s empirical mean, since `psi_t`
+# is the mean of `Qn_a` and so `mean(Q - psi)` is identically zero; `eval_Dstar_g`'s is
+# equation (9)'s and `eval_Dstar_Q`'s is equation (10)'s. The *arrays* are the correction
+# blocks the reported curve subtracts -- this package's `D*_g` and `D*_Q`.
+#
+# **One asymmetry is recorded rather than smoothed over.** Inside R's loop `eval_Dstar_Q` is
+# handed `gn = gn`, the **initial** mechanism, while `eval_Dstar_g` is handed `gn = gnStar`,
+# the targeted one. Whether that is deliberate is a question for the derivation, and it is the
+# class of thing roadmap item 20 turned on here: a block evaluated at one mechanism while the
+# equation was solved at another leaves the curve uncentred exactly where the two differ. So
+# `at_targeted_g` travels on every block row, comparing the argument against the current state
+# rather than trusting the call site.
+block_call <- 0L
+record_block <- function(name, per_arm, gn_argument) {
+  index <- length(steps)
+  # A monotone counter beside the step index, because a step index is **not** unique here:
+  # `eval_Dstar` is called inside the loop and again after it, and both land at whatever step
+  # count the loop happened to leave. The exit scores are "the last call per block", and that
+  # sentence needs an order the step index cannot supply.
+  block_call <<- block_call + 1L
+  targeted <- isTRUE(all.equal(
+    lapply(gn_argument, as.numeric), lapply(state$g, as.numeric),
+    tolerance = 0
+  ))
+  for (i in seq_along(a_0)) {
+    values <- as.numeric(per_arm[[i]])
+    emit(index, name, a_0[[i]], values)
+    blocks[[length(blocks) + 1L]] <<- data.frame(
+      call = block_call, step = index, round = round_no, phase = phase,
+      block = name, arm = a_0[[i]],
+      mean = mean(values), sd = stats::sd(values), at_targeted_g = targeted,
+      stringsAsFactors = FALSE
+    )
+  }
+}
+
+install_blocks <- function() {
+  wrap("eval_Dstar", function(...) {
+    out <- originals$eval_Dstar(...)
+    record_block("D", out, list(...)$gn)
+    out
+  })
+  wrap("eval_Dstar_g", function(...) {
+    out <- originals$eval_Dstar_g(...)
+    record_block("D_g", out, list(...)$gn)
+    out
+  })
+  wrap("eval_Dstar_Q", function(...) {
+    out <- originals$eval_Dstar_Q(...)
+    record_block("D_Q", out, list(...)$gn)
+    out
   })
 }
 
@@ -254,6 +315,7 @@ fit_once <- function(traced) {
   if (traced) {
     install_wrappers()
     install_reorder()
+    install_blocks()
   }
   on.exit(restore(), add = TRUE)
   drtmle::drtmle(
@@ -325,6 +387,7 @@ phase <- "prime"
 traced_fit <- fit_once(TRUE)
 steps_frame <- do.call(rbind, steps)
 arrays_frame <- do.call(rbind, arrays)
+blocks_frame <- do.call(rbind, blocks)
 close(blob)
 
 verified <- NA_real_
@@ -366,6 +429,7 @@ meta_frame <- data.frame(
 )
 
 write.csv(steps_frame, file.path(out_dir, "steps.csv"), row.names = FALSE)
+write.csv(blocks_frame, file.path(out_dir, "blocks.csv"), row.names = FALSE)
 write.csv(arrays_frame, file.path(out_dir, "arrays.csv"), row.names = FALSE)
 write.csv(summary_frame, file.path(out_dir, "summary.csv"), row.names = FALSE)
 write.csv(meta_frame, file.path(out_dir, "meta.csv"), row.names = FALSE)
@@ -374,14 +438,28 @@ write.csv(meta_frame, file.path(out_dir, "meta.csv"), row.names = FALSE)
 # sides agreeing *before* it reads a single trajectory.  F3's own stopping rule: if the trace
 # inputs or the first reduced fits do not agree, repair the diagnostic rather than interpret
 # anything downstream of it.
-inputs <- file(file.path(out_dir, "inputs.f64"), open = "wb")
+inputs <- gzfile(file.path(out_dir, "inputs.f64.gz"), open = "wb")
 for (column in c("w1", "w2", "a", "y", "fold", "weight", "qn1", "qn0", "gn")) {
   writeBin(as.double(fixture[[column]]), inputs, size = 8, endian = "little")
 }
 close(inputs)
 
+# **The record describes itself.**  This export is committed and read back with no R installed,
+# so every file it contains carries a SHA-256 the Python side checks before it reads a number --
+# the same discipline the input fixture has, for the same reason: a silently regenerated record
+# would make two comparisons incomparable while both looked fine.
+manifest_lines <- c("file,sha256,bytes")
+for (name in sort(list.files(out_dir))) {
+  if (name == "manifest.csv") next
+  path <- file.path(out_dir, name)
+  manifest_lines <- c(manifest_lines, sprintf(
+    "%s,%s,%d", name, sha256_of(path), file.info(path)$size
+  ))
+}
+writeLines(manifest_lines, file.path(out_dir, "manifest.csv"))
+
 cat(sprintf(
-  "drtmle %s  Qsteps=%d  steps=%d  psi[ate]=%.10f  se[ate]=%.10f  verify=%.3g\n",
-  utils::packageVersion("drtmle"), qsteps, nrow(steps_frame),
+  "drtmle %s  Qsteps=%d  steps=%d  blocks=%d  psi[ate]=%.10f  se[ate]=%.10f  verify=%.3g\n",
+  utils::packageVersion("drtmle"), qsteps, nrow(steps_frame), nrow(blocks_frame),
   summary_frame$psi[[3]], summary_frame$se[[3]], verified
 ))

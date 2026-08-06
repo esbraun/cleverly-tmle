@@ -3431,74 +3431,92 @@ which is precisely the size of difference a first-divergence hunt would find and
 as a learner difference. The harness would have manufactured the divergence it was built to
 locate.
 
-##### What F3 ran, and the four things it establishes
+##### What F3 ran, and the five things it establishes
 
-**F3 has landed and it localizes a construction difference, which is what it is for**;
-[the R differential](drtmle/r-differential.md) is its record. `drtmle` 1.1.2 ran on F2's frozen
-fixture from the identical initial `Q̄` and `g`, over the same three committed folds, under
-both of its outcome-update routes — its default `Qsteps = 2` and the joint `Qsteps = 1`. The
-package's own loop runs, with its internals wrapped and restored the way `TracingDRTMLE` wraps
-this package's; that the wrapping does not move the fit is checked at `1e-12` and reads `0`.
-Nothing under `src/` moved, and no R dependency enters the package, `noxfile.py` or any tier
-the fast CI runs — R lives in one dispatch-only workflow.
+**F3 has landed and it localizes construction differences, which is what it is for**;
+[the R differential](drtmle/r-differential.md) is its record. `drtmle` 1.1.2 ran on **two**
+frozen fixtures from the identical initial `Q̄` and `g`, over the same committed folds, under
+both of its outcome-update routes — its default `Qsteps = 2` and the joint `Qsteps = 1`. Four
+runs. The package's own loop runs, with its internals wrapped and restored the way
+`TracingDRTMLE` wraps this package's; that the wrapping does not move the fit is checked at
+`1e-12` and reads `0` on every one. Nothing under `src/` moved, and no R dependency enters the
+package, `noxfile.py` or any tier the fast CI runs — R lives in one dispatch-only workflow.
 
-**Its stopping rule is cleared, and that is the precondition for reading anything else.** The
-two sides read the same numbers **bit for bit**, and their first reduced fits agree at
-`3.69e-10` against a `1e-8` bar declared before any R number was read — `Q_r` and `g_{r,2}` at
-machine precision, `1.1e-15`. So the designs, the targets, the fitting rows and the
-cross-fitting line up across the language boundary, and every difference below is a
-*construction* difference rather than an input or a learner one.
+**The R runs are committed**, gzipped with SHA-256 manifests under
+`benchmarks/fixtures/r-trace-*/`, so the comparison and F4's verification of its R-style arm
+reproduce with **no R installed** — verified with `Rscript` moved off the path. `CLAUDE.md`
+fences that by name: a committed R record may be read by `benchmarks/` and by
+instrument-validity tests, and never by a test asserting this package's `psi`, `se` or curve
+agrees with it.
 
-**The earliest divergence is the update order.** Four readings:
+**Its stopping rule is cleared on `v1`, and that is the precondition for reading anything
+else.** The two sides read the same numbers **bit for bit**, and their first reduced fits agree
+at `3.69e-10` against a `1e-8` bar declared before any R number was read — `Q_r` and `g_{r,2}`
+at machine precision, `1.1e-15`. So the designs, the targets, the fitting rows and the
+cross-fitting line up across the language boundary.
+
+| fixture | earliest divergence | class |
+| --- | --- | --- |
+| `v1` — truncation slack | a round's equation order | **`update-order`** |
+| `v2` — truncation binds on 54/200 | the two truncation conventions | **`truncation-convention`** |
+
+Five readings:
 
 - **Neither of this package's orders is R's round, and they miss it in different places.**
-  `"cleverly"` takes R's equations in R's order — `9, 10, 8` — and adopts **one** reduction
-  vintage per round where R adopts two. `"paper"` adopts R's two vintages, `gr` then `Qr`, and
-  takes the equations in a **different** order, `8, 10, 9`. All three agree that equation (10)
-  sits between the other two; they disagree about which of (8) and (9) opens the round. That is
-  [R3](#f-localize-the-shortfall-before-changing-anything)'s second, third and fourth rows read
-  off a run rather than off a reading of two sources, and it is what **F4** is handed: the
-  R-style trajectory is a **third arm**, not a relabelling of `update_order="paper"`.
-- **The two do not stop at the same bar, and the gap is large.** `drtmle`'s `tolIC` defaults to
-  `1/n` — `0.005` here — and it exits after **2** rounds at `Qsteps = 2` and **1** at
-  `Qsteps = 1`, both inside its `maxIter = 3` cap. This package exits on its own tolerance after
-  **14** and **12**. So "R converges faster" is not the fact; the fact is that the two declare
-  convergence at different bars, and whether driving the three scores below `1/n` is what
-  Theorem 1 needs is a question for the derivation.
-- **The reported `se` differs by far more than the reported `psi` does.** `psi[ate]` is
-  `+0.2179` against `+0.2175` — under a hundredth of a standard error — while `se[ey1]` is
-  `0.0491` against `0.0603`, a **23%** difference in the one quantity this variant exists to
-  produce. Consistent with what this package already knows about itself, since the extra
-  equations cannot move `psi` and only move its variance; `confounded` by the route, and
-  recorded because its size is what makes the route difference worth acting on rather than
-  noting.
+  `"cleverly"` takes R's equations in R's order (`9, 10, 8`) and adopts **one** reduction
+  vintage per round where R adopts two; `"paper"` adopts R's two vintages, `gr` then `Qr`, and
+  takes the equations in a **different** order (`8, 10, 9`). All three agree that equation (10)
+  sits between the other two. That is [R3](#f-localize-the-shortfall-before-changing-anything)'s
+  second, third and fourth rows read off a run, and it is what **F4** is handed: the R-style
+  trajectory is a **third arm**, not a relabelling of `update_order="paper"`.
+- **The two declare convergence at bars seven orders of magnitude apart.** `drtmle`'s `tolIC`
+  defaults to `1/n` — `0.005` here — and it exits with equations (9) and (10) at `1.64e-03`,
+  inside its `maxIter = 3` cap, after 2 rounds. This package exits with them at `7.94e-11` after
+  14. Theorem 1's premise *is* those empirical means, so how near zero they are is not a detail
+  of the loop; whether `1/n` suffices is a question for the derivation.
+- **The `se` gap is in one correction array.** `psi[ate]` is `+0.2179` against `+0.2175` — under
+  a hundredth of a standard error — while `se[ey1]` is `0.0491` against `0.0603`, **23%**.
+  `D*_Q[1]`'s spread is `0.3407` here against R's `0.0599`, a factor of `5.7`, while the other
+  three blocks are within a factor of two. The variance difference is *concentrated* in equation
+  (10)'s correction at the treated arm rather than spread across the curve. Signs agree
+  throughout on `v1`.
+- **`v2` produced the sharpest localization, and it is one line against one line.**
+  `g_{r,2}`'s target is `(1{A=a} − g)/g`; this package forms it at the **truncated** mechanism
+  (`reduced.py`'s `_roles`) and `estimategrn` forms it at the untruncated one. At a row where
+  `g = 0.0089` the untruncated target for a treated unit is `111` and the truncated one is
+  `5.67`; fitted, the two arrays' spreads are `2.28` and `0.53` and they differ by `7.87`. The
+  two conventions cannot be reconciled — `tolg` is a scalar lower bound per arm, `g_bounds` is a
+  pair applied to `g_1` and complemented, and with two arms a row clipped low on one arm is
+  clipped high on the other. This package has already written down a *reason* for its choice;
+  whether that reason or R's is what Theorem 1 needs is **F7**'s question.
 - **And one fact about the R package.** `drtmle` 1.1.2 documents `cvFolds` as accepting "a
   vector of fold assignments" and its `make_validRows` implements exactly that, but the exported
   `drtmle()` guards with `if (cvFolds > 1)` and raises on any vector before reaching it. The
-  documented path is unreachable from the exported function; the harness reaches it by wrapping
-  `make_validRows`, which is the package's own branch.
+  documented path is unreachable from the exported function.
 
 **What none of it establishes is which side is right.** That `"cleverly"` matches R on the
-equations is evidence about a **transcription** and not about a derivation — both descend from
-one source — which is the class [item 21](#what-is-still-open) is the worked example of, where a
-parity run would have recorded R's sign as correct and been right by luck. F3 selects no
-construction. **F7** is the only row that may change one, and only against the theorem and the
-remainder identities.
+equations, and that both carry the positive mechanism correction, is evidence about a
+**transcription** and not about a derivation — both descend from one source — which is the class
+[item 21](#what-is-still-open) is the worked example of, where a parity run would have recorded
+R's sign as correct and been right by luck. F3 selects no construction. **F7** is the only row
+that may change one, and only against the theorem and the remainder identities.
 
-**And three harness defects are on the record rather than quietly repaired**, because they are
+**And four harness defects are on the record rather than quietly repaired**, because they are
 the class of error this run must not make — each would have produced a confident, wrong
 localization. Labelling a refit by *what moved across it* rather than by what the next equation
 adopted reads `all` on both orders and makes the vintage invisible; the same mistake reappeared
 in the vintage gate, which counted refit *steps* and read `2` for all three. Comparing the two
 states column for column when `drtmle`'s `a_0` is `(1, 0)` and a `Trace`'s `arms` is `(0, 1)`
 reads as a **`0.577`** disagreement on `g_{r,2}` — a large, plausible `learner` verdict on an
-axis bug. And `g_{r,1}`'s first `8.6e-05` miss looks exactly like `LogisticRegression`'s
-residual L2 against unpenalised IRLS and is **not**: at `tol=1e-12` the same `C` reads
-`7.5e-09`, so all of it was scikit-learn's default `tol=1e-4`, and had it been accepted F3 would
-have stopped at gate 1 on a learner difference that does not exist. No threshold was moved for
-any of them. A fourth was caught by the instrument rather than by a reader: the first verify
-step failed at `0.00342` because the *unwrapped* comparison fit was drawing its own random fold
-split, which is what an instrument check is for.
+axis bug. `g_{r,1}`'s first `8.6e-05` miss looks exactly like `LogisticRegression`'s residual L2
+against unpenalised IRLS and is **not**: at `tol=1e-12` the same `C` reads `7.5e-09`, so all of
+it was scikit-learn's default `tol=1e-4`, and had it been accepted F3 would have stopped at its
+own gate on a learner difference that does not exist. And the correction gate's sign check
+called a flip on `v2`'s arrays, which are far apart either way — reporting that as *"the signs
+differ"* is precisely what item 21 warns against, so a flip is now read as one only when
+negating helps decisively. No threshold was moved for any of them. A fifth was caught by the
+instrument rather than by a reader: the first verify step failed at `0.00342` because the
+*unwrapped* comparison fit was drawing its own random fold split.
 
 ##### The order, and what stops it
 

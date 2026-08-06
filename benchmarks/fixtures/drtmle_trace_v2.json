@@ -1,14 +1,14 @@
 {
-  "version": "v1",
-  "purpose": "the truncation is slack on every row; a divergence here is not a bound",
+  "version": "v2",
+  "purpose": "the truncation binds; this is the fixture roadmap item 20's question needs",
   "n": 200,
   "seed": 20260806,
   "n_folds": 3,
   "g_bounds": [
-    0.01,
-    0.99
+    0.15,
+    0.85
   ],
-  "clipped": 0,
+  "clipped": 54,
   "coefficients": {
     "truth_mechanism": {
       "intercept": 0.0,
@@ -24,8 +24,8 @@
     },
     "initial_mechanism": {
       "intercept": 0.0,
-      "w1": 0.15,
-      "w2": 0.0
+      "w1": 1.6,
+      "w2": -0.6
     },
     "initial_outcome": {
       "intercept": -0.1,
@@ -48,5 +48,5 @@
   ],
   "outcome": "binary; the outcome scaler is the identity, so qn1/qn0 need no affine map",
   "weights": "unit; a non-unit weight is a second thing to reproduce and buys nothing here",
-  "sha256": "8aa53d51e0d8e911f4ce29bfdc57bc9f2467267d538a9aaee73e0aa44bd68425"
+  "sha256": "0f30c32269d694e50c9909e4b5cd6f794049a72a9d4feafda66027d684087a81"
 }

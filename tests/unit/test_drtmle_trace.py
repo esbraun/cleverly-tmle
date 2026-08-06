@@ -129,6 +129,66 @@ class TestTheFixtureIsFrozen:
         lower, upper = harness.G_BOUNDS
         g = fixture.arrays()["gn"]
         assert float(g.min()) > lower and float(g.max()) < upper
+        assert fixture.manifest["clipped"] == 0
+
+
+class TestTheSecondFixtureIsTheFirstPlusClipping:
+    """``v2`` exists so that the truncation question can be asked at all, and only that.
+
+    F2's rule is that *"a fixture that turns clipping on is a second fixture, not an edit to
+    this one"*, and these are what make ``v2`` a second fixture rather than a second
+    experiment: it is ``v1``'s draw, ``v1``'s truth and ``v1``'s outcome regression, with the
+    mechanism strengthened until the bound bites and the bound tightened to meet it.  One thing
+    at a time is what makes the difference between them readable as truncation.
+    """
+
+    @pytest.fixture(scope="class")
+    def second(self) -> harness.Fixture:
+        return harness.read_fixture(version="v2")
+
+    def test_the_digest_matches_the_manifest(self, second: harness.Fixture) -> None:
+        assert second.manifest["version"] == "v2"
+
+    def test_the_draw_regenerates_from_its_seed(self, second: harness.Fixture) -> None:
+        rebuilt = harness.build_fixture(version="v2")
+        for column in rebuilt.columns:
+            np.testing.assert_array_equal(
+                rebuilt[column].to_numpy(dtype=float),
+                second.frame[column].to_numpy(dtype=float),
+            )
+
+    def test_the_truncation_binds_materially(self, second: harness.Fixture) -> None:
+        """Not "at least one row": a bound that bit on two of two hundred would make every
+        reading downstream a statement about two rows.  27% is what the mechanism was chosen
+        to produce, and the manifest records it so a reader sees it rather than refits."""
+        lower, upper = harness.spec("v2").g_bounds
+        g = second.arrays()["gn"]
+        clipped = int(((g < lower) | (g > upper)).sum())
+        assert clipped == second.manifest["clipped"]
+        assert clipped >= len(g) // 8
+
+    def test_only_the_mechanism_moved(self, second: harness.Fixture) -> None:
+        """The truth and the initial outcome regression are ``v1``'s, unchanged.
+
+        If ``v2`` had a different outcome regression too, a divergence found on it could be
+        either, and the fixture would answer neither question.
+        """
+        first, other = harness.spec("v1").coefficients, harness.spec("v2").coefficients
+        for name in ("truth_mechanism", "truth_outcome", "initial_outcome"):
+            assert first[name] == other[name]
+        assert first["initial_mechanism"] != other["initial_mechanism"]
+
+    def test_it_is_not_degenerate_either(self, second: harness.Fixture) -> None:
+        """``v2`` inherits ``v1``'s reason for being misspecified and has to keep it.
+
+        At correct nuisances :math:`Q_r` and :math:`g_{r,2}` vanish row by row and a trace goes
+        blind to a sign, an update order and a reduction vintage alike.  A ``v2`` that tidied
+        the outcome regression while strengthening the mechanism would clip beautifully and see
+        nothing.
+        """
+        reading = harness.degeneracy(harness.trace(second, order="cleverly"))
+        assert reading["max|Q_r|"] > 0.02 * reading["mean|Y|"]
+        assert reading["max|g_r2|"] > 0.02 * reading["mean|Y|"]
 
 
 class TestTheInstrumentDoesNotMoveTheFit:
