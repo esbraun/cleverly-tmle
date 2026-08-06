@@ -45,6 +45,7 @@ def _write_export(
     fixture: Any,
     reference: Any,
     *,
+    source_arms: tuple[float, ...] = (0.0, 1.0),
     route: tuple[str, ...] = R_ROUND,
     rounds: int = 2,
     max_iter: int = 3,
@@ -55,6 +56,13 @@ def _write_export(
     The reference reduction is copied off a real Python trace's ``before`` state, so gate 1
     compares a thing against itself and passes -- which is what leaves each test free to break
     exactly one gate and see only that one move.
+
+    ``source_arms`` is the arm order the *state* being copied is in, and the emitted columns are
+    **labelled** by arm rather than written in that order.  R's ``a_0`` is ``(1, 0)`` and a
+    :class:`~benchmarks.drtmle_trace.Trace`'s ``arms`` is ``(0, 1)``, so a helper that wrote
+    column ``i`` under label ``i`` would emit a swapped state -- which reads as a ``0.577``
+    disagreement on :math:`g_{r,2}` and a ``learner`` verdict.  That is the axis bug the
+    production reader was carrying, and writing it here as well would have hidden it.
     """
     directory.mkdir(parents=True, exist_ok=True)
     arms = (1.0, 0.0)
@@ -79,10 +87,10 @@ def _write_export(
                 "epsilon_0": 0.0,
             }
         )
-        for arm_index, arm in enumerate(arms):
+        for arm in arms:
             for field in compare.STATE_FIELDS:
                 values = getattr(state, field)
-                column = values if values.ndim == 1 else values[:, arm_index]
+                column = values if values.ndim == 1 else values[:, source_arms.index(arm)]
                 blob.append(np.asarray(column, dtype=float))
                 index.append(
                     {
@@ -141,7 +149,10 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 @pytest.fixture(scope="module")
 def export(tmp_path_factory: pytest.TempPathFactory, fixture: Any, traces: dict[str, Any]) -> Any:
     directory = _write_export(
-        tmp_path_factory.mktemp("r-trace"), fixture, traces["cleverly"].steps[0].before
+        tmp_path_factory.mktemp("r-trace"),
+        fixture,
+        traces["cleverly"].steps[0].before,
+        source_arms=traces["cleverly"].arms,
     )
     return compare.read_export(directory)
 
@@ -158,7 +169,7 @@ def test_read_export_round_trips_the_state(export: Any, traces: dict[str, Any]) 
     mis-classify. ``==`` rather than ``allclose``, so a format that started rounding fails.
     """
     reference = export.of("reference")[0]
-    recovered = export.state(reference["step"])
+    recovered = export.state(reference["step"], traces["cleverly"].arms)
     expected = traces["cleverly"].steps[0].before
     for field in ("qr", "gr1", "gr2"):
         assert np.array_equal(getattr(recovered, field), getattr(expected, field))
@@ -168,7 +179,12 @@ def test_read_export_refuses_a_truncated_blob(
     tmp_path: Path, fixture: Any, traces: dict[str, Any]
 ) -> None:
     """A short export is unreadable, not a shorter comparison."""
-    directory = _write_export(tmp_path / "short", fixture, traces["cleverly"].steps[0].before)
+    directory = _write_export(
+        tmp_path / "short",
+        fixture,
+        traces["cleverly"].steps[0].before,
+        source_arms=traces["cleverly"].arms,
+    )
     blob = np.fromfile(directory / "arrays.f64", dtype="<f8")
     blob[:-10].tofile(directory / "arrays.f64")
     with pytest.raises(ValueError, match="truncated export"):
@@ -179,7 +195,12 @@ def test_read_export_refuses_partial_inputs(
     tmp_path: Path, fixture: Any, traces: dict[str, Any]
 ) -> None:
     """Gate 0 is bit-for-bit and cannot be run against a file with a column missing."""
-    directory = _write_export(tmp_path / "partial", fixture, traces["cleverly"].steps[0].before)
+    directory = _write_export(
+        tmp_path / "partial",
+        fixture,
+        traces["cleverly"].steps[0].before,
+        source_arms=traces["cleverly"].arms,
+    )
     raw = np.fromfile(directory / "inputs.f64", dtype="<f8")
     raw[: -len(fixture.frame)].tofile(directory / "inputs.f64")
     with pytest.raises(ValueError, match="columns of"):
@@ -216,7 +237,12 @@ def test_inputs_and_first_reduction_agree(
 
 def test_gate_0_is_bit_for_bit(tmp_path: Path, fixture: Any, traces: dict[str, Any]) -> None:
     """One unit in the last place fails it. It has no tolerance and must not acquire one."""
-    directory = _write_export(tmp_path / "ulp", fixture, traces["cleverly"].steps[0].before)
+    directory = _write_export(
+        tmp_path / "ulp",
+        fixture,
+        traces["cleverly"].steps[0].before,
+        source_arms=traces["cleverly"].arms,
+    )
     raw = np.fromfile(directory / "inputs.f64", dtype="<f8")
     raw[0] = np.nextafter(raw[0], np.inf)
     raw.tofile(directory / "inputs.f64")
@@ -238,7 +264,9 @@ def test_gate_1_fails_on_a_different_reduction(
         gr1=reference.gr1,
         gr2=reference.gr2,
     )
-    directory = _write_export(tmp_path / "learner", fixture, perturbed)
+    directory = _write_export(
+        tmp_path / "learner", fixture, perturbed, source_arms=traces["cleverly"].arms
+    )
     found = compare.gates(compare.read_export(directory), traces, fixture)
     assert found[0].passed
     assert not found[1].passed
@@ -264,6 +292,7 @@ def test_gate_2_passes_when_an_order_has_r_s_route(
         fixture,
         traces["cleverly"].steps[0].before,
         route=compare._python_route(traces["cleverly"]),
+        source_arms=traces["cleverly"].arms,
     )
     assert compare.gates(compare.read_export(directory), traces, fixture)[2].passed
 
@@ -304,6 +333,7 @@ def test_gate_2_fails_when_no_order_has_r_s_route(
         fixture,
         traces["cleverly"].steps[0].before,
         route=("10", "8", "9", "refit:qr", "refit:gr"),
+        source_arms=traces["cleverly"].arms,
     )
     found = compare.gates(compare.read_export(directory), traces, fixture)
     assert not found[2].passed
@@ -319,7 +349,12 @@ def test_gate_4_fails_when_r_reached_its_cap(
     agreement would put a fact about the dispatch into a column about the estimator.
     """
     directory = _write_export(
-        tmp_path / "capped", fixture, traces["cleverly"].steps[0].before, rounds=3, max_iter=3
+        tmp_path / "capped",
+        fixture,
+        traces["cleverly"].steps[0].before,
+        rounds=3,
+        max_iter=3,
+        source_arms=traces["cleverly"].arms,
     )
     found = compare.gates(compare.read_export(directory), traces, fixture)
     assert not found[4].passed
@@ -335,7 +370,12 @@ def test_only_gates_after_the_first_failure_are_confounded(
     not see how far apart the two ended up -- or print them as findings, which is the mistake
     the whole ordering exists to prevent.
     """
-    directory = _write_export(tmp_path / "ulp2", fixture, traces["cleverly"].steps[0].before)
+    directory = _write_export(
+        tmp_path / "ulp2",
+        fixture,
+        traces["cleverly"].steps[0].before,
+        source_arms=traces["cleverly"].arms,
+    )
     raw = np.fromfile(directory / "inputs.f64", dtype="<f8")
     raw[0] = np.nextafter(raw[0], np.inf)
     raw.tofile(directory / "inputs.f64")
@@ -357,12 +397,39 @@ def test_route_labels_a_refit_by_what_it_moved(traces: dict[str, Any]) -> None:
     assert routes["paper"] == ("8", "refit:gr", "10", "refit:qr", "9")
 
 
-def test_vintage_gate_counts_refits_per_round(
+def test_vintage_gate_compares_a_pattern_not_a_count(
     export: Any, traces: dict[str, Any], fixture: Any
 ) -> None:
-    """Two vintages a round on R's side; this package's orders are what they are."""
-    found = compare.gates(export, traces, fixture)
-    assert found[3].reading.startswith("R=2")
+    """R adopts ``gr`` then ``Qr``; ``"cleverly"`` adopts all three at both of its refits.
+
+    A gate that counted refit *steps* reads ``2`` for all three and calls them the same, which
+    makes the one difference no fitted result carries invisible while looking like a working
+    comparison. That was the first thing written here.
+    """
+    reading = compare.gates(export, traces, fixture)[3].reading
+    assert reading.startswith("R=gr+qr")
+    assert "cleverly=all+all" in reading and "paper=gr+qr" in reading
+    assert "matches paper" in reading
+
+
+def test_the_state_is_read_in_the_traces_arm_order(export: Any, traces: dict[str, Any]) -> None:
+    """``drtmle``'s ``a_0`` is ``(1, 0)`` and a ``Trace``'s ``arms`` is ``(0, 1)``.
+
+    Both sides label their columns by arm, so the alignment is by label. Building the R state
+    in the *exporter's* order and comparing it against a trace built in the trace's order
+    compares arm 1 against arm 0 column for column -- which reads as a ``0.577`` disagreement
+    on :math:`g_{r,2}`, a ``learner`` verdict on an axis bug, and is what gate 1 reported
+    before this was fixed. Asserted by requiring the two orders to give *different* answers,
+    so the check cannot pass by the two happening to coincide.
+    """
+    trace = traces["cleverly"]
+    assert export.arms != trace.arms
+    step = export.of("reference")[0]["step"]
+    aligned = export.state(step, trace.arms)
+    swapped = export.state(step)
+    expected = trace.steps[0].before
+    assert np.allclose(aligned.gr2, expected.gr2, rtol=0, atol=1e-12)
+    assert not np.allclose(swapped.gr2, expected.gr2, rtol=0, atol=1e-3)
 
 
 # ------------------------------------------------------------------ the report

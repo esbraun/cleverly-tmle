@@ -169,6 +169,21 @@ restore <- function() {
   for (name in names(originals)) utils::assignInNamespace(name, originals[[name]], ns = "drtmle")
 }
 
+# **The committed fold column, reached through the package's own supported branch.**
+#
+# Installed on **every** fit, traced or not, and that is not tidiness. It is a configuration
+# wrapper rather than a recording one: R's own `make_validRows` draws a *random* split when it
+# is handed a count, so a "plain" fit without this would differ from a traced one by its folds
+# and not by the tracing. The verify step caught exactly that -- `worst |traced - plain| =
+# 0.00342` against a bar of 1e-12 -- which is what an instrument check is for, and it is
+# recorded here rather than quietly repaired.
+install_folds <- function() {
+  wrap("make_validRows", function(cvFolds, n, ...) {
+    stopifnot(n == length(folds))
+    originals$make_validRows(folds, n = n, ...)
+  })
+}
+
 install_wrappers <- function() {
   wrap("fluctuateG", function(...) {
     out <- originals$fluctuateG(...)
@@ -235,11 +250,12 @@ install_reorder <- function() {
 # ------------------------------------------------------------------ the run
 
 fit_once <- function(traced) {
+  install_folds()
   if (traced) {
     install_wrappers()
     install_reorder()
-    on.exit(restore(), add = TRUE)
   }
+  on.exit(restore(), add = TRUE)
   drtmle::drtmle(
     Y = Y, A = A, W = W, a_0 = a_0,
     Qn = Qn_init, gn = gn_init,
@@ -247,7 +263,7 @@ fit_once <- function(traced) {
     guard = c("Q", "g"),
     reduction = "univariate",
     maxIter = max_iter, Qsteps = qsteps, tolg = tolg,
-    cvFolds = folds, se_cv = "none",
+    cvFolds = length(unique(folds)), se_cv = "none",
     returnModels = FALSE, use_future = FALSE
   )
 }

@@ -82,16 +82,32 @@ DIVERGENCE_CLASSES: tuple[str, ...] = (
     "corrected-ic",
 )
 
-#: The reduced learners both sides are given.  ``LinearRegression`` is ``stats::glm`` with a
-#: gaussian family and an identity link exactly; ``LogisticRegression(C=1e6)`` is the binomial
-#: one to solver tolerance, which is why gate 1 carries a tolerance at all and gate 0 does not.
-#: The scaler is affine and does not move a linear predictor -- it is there because the
-#: package's own ``glm`` entry has it, and dropping it would be a third difference introduced
-#: to remove a second.
+#: The reduced learners both sides are given, chosen so that gate 1 compares two fits of the
+#: *same* regression rather than two learners.
+#:
+#: ``LinearRegression`` is ``stats::glm(family = gaussian)`` exactly -- :math:`Q_r` and
+#: :math:`g_{r,2}` agree at ``1.1e-15`` and ``1.2e-15``, which is machine precision and says
+#: the designs, the targets and the fitting rows all line up.
+#:
+#: **The logistic one is where the measurement went, and the answer was not the penalty.**
+#: :math:`g_{r,1}` first read ``8.6e-05`` against a ``1e-8`` bar, which looks like
+#: ``LogisticRegression``'s residual L2 against ``glm``'s unpenalised IRLS.  It is not: at
+#: ``tol=1e-12`` the same ``C=1e6`` reads ``7.5e-09``, so the whole of it was scikit-learn's
+#: **default ``tol=1e-4``**.  Sweeping the penalty then moves the reading non-monotonically --
+#: ``7.5e-09``, ``3.7e-10``, ``7.9e-10``, ``8.1e-09`` at ``C`` of ``1e6`` to ``1e15`` -- which
+#: is solver noise and not a bias, and is why ``C=1e9`` is the setting rather than the largest
+#: one available.  :data:`REDUCTION_TOLERANCE` was **not** moved to accommodate any of this.
+#:
+#: The scaler is affine and does not move a linear predictor.  It is here because the package's
+#: own ``glm`` entry has it, and dropping it would be a third difference introduced to remove a
+#: second.
 REDUCED_LEARNERS: dict[str, Any] = {
     "reduced_outcome_learner": LinearRegression(),
     "reduced_treatment_learner": Pipeline(
-        [("scale", StandardScaler()), ("model", LogisticRegression(C=1e6, max_iter=1000))]
+        [
+            ("scale", StandardScaler()),
+            ("model", LogisticRegression(C=1e9, max_iter=100_000, tol=1e-12)),
+        ]
     ),
 }
 
@@ -102,7 +118,9 @@ INPUT_TOLERANCE = 0.0
 
 #: Gate 1's bar.  Two unpenalised GLMs fitted by different solvers on identical rows agree to
 #: their convergence tolerance and not beyond it; ``1e-8`` is loose against IRLS's own and
-#: tight against anything that would be a construction difference.
+#: tight against anything that would be a construction difference.  **Declared before the
+#: first R run and not moved since** -- a threshold relaxed after seeing a comparison against
+#: another implementation is the failure mode stop-ship 17 names.
 REDUCTION_TOLERANCE = 1e-8
 
 #: The columns the R side re-emits from what it actually read, in the order it writes them.
@@ -157,14 +175,24 @@ class RExport:
     def arms(self) -> tuple[float, ...]:
         return tuple(float(value) for value in self.meta["arms"].split("|"))
 
-    def state(self, step: int) -> State:
+    def state(self, step: int, arms: tuple[float, ...] | None = None) -> State:
         """The recorded state at one step, in :class:`~benchmarks.drtmle_trace.State`'s shape.
 
         Built through the same class the Python side uses rather than a lookalike, so a field
         that moved on one side cannot quietly go on being compared against the other.
+
+        ``arms`` is the **column order to build in**, and passing the Python trace's own is not
+        optional.  ``drtmle``'s ``a_0`` is ``(1, 0)`` and a :class:`Trace`'s ``arms`` is this
+        package's internal arm ordering, which is ``(0, 1)``; a state built in the exporter's
+        order and compared against one built in the trace's compares arm 1 against arm 0
+        column for column.  It reads as a large, plausible disagreement in exactly the
+        regressions gate 1 exists to check -- measured at ``0.577`` on :math:`g_{r,2}` against
+        a bar of ``1e-8`` before this argument existed, which is a *learner* verdict on an
+        axis bug.  Both sides label their columns by arm, so the fix is to use the label.
         """
+        order = self.arms if arms is None else arms
         columns = {
-            field: np.column_stack([self.arrays[(step, field, arm)] for arm in self.arms])
+            field: np.column_stack([self.arrays[(step, field, arm)] for arm in order])
             for field in STATE_FIELDS
         }
         return State(
@@ -240,7 +268,7 @@ def read_export(directory: Path) -> RExport:
                 "round": int(row["round"]),
                 "equation": str(row["equation"]),
                 "note": str(row.get("note", "") or ""),
-                "epsilon": (float(row["epsilon_1"]), float(row["epsilon_0"])),
+                "epsilon": (_float(row["epsilon_1"]), _float(row["epsilon_0"])),
             }
             for row in steps
         ],
@@ -249,6 +277,12 @@ def read_export(directory: Path) -> RExport:
         summary=summary,
         meta=meta,
     )
+
+
+def _float(value: Any) -> float:
+    """R writes an absent scalar as ``NA``; a refit step has no fluctuation coefficient."""
+    text = str(value).strip()
+    return float("nan") if text in {"NA", "NaN", "", "None"} else float(text)
 
 
 def _read_csv(path: Path) -> list[dict[str, Any]]:
@@ -334,8 +368,9 @@ def _gate_reduction(export: RExport, traces: dict[str, Trace]) -> Gate:
             "the R export carries no reference reduction. Gate 1 is F3's own stopping rule "
             "and cannot be skipped; rerun the R side."
         )
-    theirs = export.state(reference[0]["step"])
-    ours = next(iter(traces.values())).steps[0].before
+    trace = next(iter(traces.values()))
+    theirs = export.state(reference[0]["step"], trace.arms)
+    ours = trace.steps[0].before
     worst, culprit = 0.0, ""
     for field in ("qr", "gr1", "gr2"):
         difference = float(np.max(np.abs(getattr(theirs, field) - getattr(ours, field))))
@@ -413,19 +448,23 @@ def _python_route(trace: Trace) -> tuple[str, ...]:
 
 
 def _gate_vintage(export: RExport, traces: dict[str, Trace]) -> Gate:
-    """How many distinct reduction vintages a round adopts -- R3's fourth row.
+    """**Which** reductions each refit of a round contributes -- R3's fourth row.
 
-    Read off the labelled route rather than recomputed: a round that refits ``gr`` and ``qr``
-    separately adopts two vintages, and one that refits all three at once adopts one.
+    A *pattern*, not a count, and the distinction is the whole gate.  Counting refit steps
+    reads ``2`` for R, ``2`` for ``"cleverly"`` and ``2`` for ``"paper"`` and calls all three
+    the same, when R and ``"paper"`` adopt one field group per refit and ``"cleverly"`` adopts
+    all three at both.  That was the first thing written here and it made the one difference no
+    fitted result carries invisible -- which is F2's own lesson, arrived at a second way.
     """
     theirs = _vintages_in(export.route)
     ours = {order: _vintages_in(_python_route(trace)) for order, trace in traces.items()}
-    matches = [order for order, count in ours.items() if count == theirs]
-    detail = "; ".join(f"{order}={count}" for order, count in ours.items())
+    matches = [order for order, pattern in ours.items() if pattern == theirs]
+    detail = "; ".join(f"{order}={'+'.join(pattern)}" for order, pattern in ours.items())
     return Gate(
         name="3 reduction vintage",
-        question="how many refit vintages does one round adopt?",
-        reading=f"R={theirs} | {detail}",
+        question="which reductions does each refit of a round contribute?",
+        reading=f"R={'+'.join(theirs)} | {detail}"
+        + (f" — matches {', '.join(matches)}" if matches else " — matches neither"),
         absolute=0.0 if matches else 1.0,
         tolerance=0.0,
         passed=bool(matches),
@@ -433,16 +472,24 @@ def _gate_vintage(export: RExport, traces: dict[str, Trace]) -> Gate:
     )
 
 
-def _vintages_in(route: tuple[str, ...]) -> int:
-    return sum(1 for label in route if label.startswith("refit"))
+def _vintages_in(route: tuple[str, ...]) -> tuple[str, ...]:
+    """The refit labels of a round, in order: ``("gr", "qr")`` against ``("all", "all")``."""
+    return tuple(label.partition(":")[2] for label in route if label.startswith("refit"))
 
 
 def _gate_exit(export: RExport, traces: dict[str, Trace]) -> Gate:
     """How many rounds each side ran, and on what test it stopped."""
     theirs = max((step["round"] for step in export.steps), default=0)
     cap = int(export.meta["max_iter"])
-    ours = {order: trace.exit["rounds"] for order, trace in traces.items()}
-    detail = "; ".join(f"{order}={rounds}" for order, rounds in ours.items())
+    # `drtmle`'s `tolIC` defaults to `1/n`, which is a far looser bar than this package's and
+    # is most of why the round counts are not comparable numbers. Named in the reading rather
+    # than left for a reader to look up, because "R stopped sooner" and "R stopped at a
+    # different tolerance" are different facts and only the second is true.
+    tol_ic = 1.0 / int(export.meta["n"])
+    detail = "; ".join(
+        f"{order}={trace.exit['rounds']} ({trace.exit['exit_reason']})"
+        for order, trace in traces.items()
+    )
     # R's default `maxIter = 3` is a cap, not a tolerance, and a run that reaches it has not
     # been compared on its stopping *rule* at all -- it has been compared on a budget. That is
     # a fact about the comparison rather than about either implementation, so it fails the
@@ -450,7 +497,7 @@ def _gate_exit(export: RExport, traces: dict[str, Trace]) -> Gate:
     return Gate(
         name="4 stopping rule",
         question="did both sides stop on their tolerance rather than on a cap?",
-        reading=f"R={theirs} rounds (cap {cap}) | {detail}",
+        reading=f"R={theirs} rounds (cap {cap}, tolIC={tol_ic:g}) | {detail}",
         absolute=float(theirs >= cap),
         tolerance=0.0,
         passed=theirs < cap,
