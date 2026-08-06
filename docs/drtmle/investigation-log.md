@@ -1400,6 +1400,133 @@ negative control checked to be rejected on `gr2` at the larger size before anyth
 That is a change to the *reference*, which §8 permits before a dispatch with a written reason; it is
 not a change to the rule the comparison is judged by.
 
+## What the E2R dispatch measured
+
+*Two dispatches of `.github/workflows/drtmle-reference.yml` at tier 2, no inputs beyond `phase` and
+`selection`, on `claude/next-roadmap-step-plan-k2o447`: `--phase select` as run `31084621278` at
+`94f3e81d810e7690b5a7d214fa228e1772d98de2`, then the mapping committed as `10289d4f954ff21f1bb20cc270c2496bc305495a`,
+then `--phase decide` as run `31087301718` at that commit. Both cells, `n ∈ {600, 2400}`, 16
+selection draws and 32 decision draws a cell and size on disjoint data seeds, the rung selected per
+`(cell, size, reduced regression)`, four blocks of 8,192 / 8,192 / 8,192 / 2 × 2,048, gate C at 4
+scrambles on 4 draws. 76 fits a job, 304 in the decision run; five artefacts,
+[manifested](study-manifest.md#e2r-what-was-run) with their digests.*
+
+**The headline is that no cell reaches a readable comparison, and the reason is not E2's.** E2 failed
+on one clause — *a coarser rung is strictly better than the shipped one* — in three cells of four.
+E2R selected the rung per regression instead, which is the repair E2 asked for, and **that clause now
+fails in one cell rather than three**. What holds the other three back is the clause this dispatch
+added: a competing rung is **not shown non-inferior** to the selected one within a margin declared
+before the run. So the verdict is `unresolved` in four cells of four, and
+[the bound applies](../roadmap.md#the-branch-e2r-decides): an `unresolved` E2R ends the
+reduction road as evidence rather than earning a third dispatch.
+
+### What the selection cohort chose, and it is not one rung
+
+The selecting run ranked `spline(8)`, `spline(16)` and `spline(32)` on its own 16 draws and its own
+block, and `beaten on` reads **0 on all twelve rows** — every regression has an admissible rung and
+no cell rests on `FALLBACK_RUNG`.
+
+| cell | `n` | `qr` | `gr1` | `gr2` |
+| --- | --- | --- | --- | --- |
+| `g-drift` | 600 | `spline(16)` | `spline(8)` | `spline(8)` |
+| `g-drift` | 2,400 | `spline(8)` | `spline(8)` | `spline(8)` |
+| `q-drift` | 600 | `spline(16)` | `spline(8)` | `spline(8)` |
+| `q-drift` | 2,400 | `spline(8)` | `spline(8)` | `spline(8)` |
+
+**The column is not constant, which is the per-regression selection earning its place** — `qr` takes
+the finer rung at `n = 600` in both cells and the coarser one at `n = 2,400` — and it is a reading of
+*that cohort*. Whether it replicates is the audit's question, and the audit is on draws this table
+never saw.
+
+### The gates, which is the table to read first
+
+Every cell is **integrity-valid**: 32 of 32 declared draws on both the paired comparison and the
+audit, no fit error, no risk error, nothing missing. All four jobs exited zero, which under
+`run_integrity` is the same statement.
+
+| cell | `n` | gate C | gate B | what gate B says |
+| --- | --- | --- | --- | --- |
+| `q-drift` | 600 | `0.0097` against `0.1196` | **unresolved** | `spline(16)` not shown non-inferior on `h2`, `-7.34e-06` against `-5.93e-06` |
+| `q-drift` | 2,400 | `0.0073` against `0.0927` | **fail** | `spline(16)` **beats** `spline(8)` on `qr` |
+| `g-drift` | 600 | `0.0345` against `0.3114` | **unresolved** | `spline(16)` and `spline(32)` not shown non-inferior on `gr2` (`-5.24e-04`, `-6.48e-04` against `-1.25e-04`) and on `h2` (`-1.11e-02`, `-5.32e-03` against `-3.95e-05`) |
+| `g-drift` | 2,400 | `0.1326` against `0.2732` | **unresolved** | the same two rungs on `gr2` (`-1.09e-04`, `-2.68e-04` against `-5.46e-05`), on `h2` (`-1.15e-04`, `-2.68e-04` against `-7.61e-06`) and on `h3` (`-1.39e-05`, `-1.45e-05` against `-7.43e-06`) |
+
+**Gate C passes in all four**, by a factor of two to thirteen, as it did in E2 — the reference's own
+across-scramble spread is not what is holding anything back, and `--reference-points 8192` is where
+that came from.
+
+**The negative control is rejected everywhere, on all five metrics.** No cell carries a `why` row
+naming a control, which is the clause E2 could not satisfy on `gr2` at `g-drift` `2,400` — there
+`bins(8)` read `-1.031e-04 [-4.35e-04, +1.12e-04]`, and here `bins(2)`, `bins(4)` and `bins(8)` are
+each rejected with every interval clear of zero. **Clause 4 of the repair took.** So did clause 2's:
+the three cells that fail on non-inferiority fail on *competing rungs*, not on the coarsening the
+gate exists to detect.
+
+### The one cell that fails outright, and what it says about selecting
+
+`q-drift` at `n = 2,400` is the only cell where a competing rung is **measurably better** than the
+selected one, and the direction is the reverse of E2's. E2's failures were the *coarser* `spline(8)`
+beating the shipped `spline(16)`; here the selection chose `spline(8)` for `qr` and the audit says
+`spline(16)` beats it.
+
+**That is the four-block design answering the question it was built to ask.** The selection cohort's
+own table reads `qr = spline(8)` with `beaten on` `0` and the runner-up `spline(16)` at a worst
+excess of `+0.0000` — the two rungs are inside the selection block's resolution at 16 draws — and 32
+fresh draws on a block neither saw resolve them the other way. **Admissibility on the selecting
+cohort did not replicate out of sample.** A run that had certified on the block that chose would have
+passed this cell; that is exactly the self-certification clause 2 and the decision protocol were
+written against, and it fired.
+
+### Why the other three are `unresolved` rather than passing, and what that costs
+
+The three remaining cells fail **only** the non-inferiority clause, and on the composites the margin
+is very demanding by construction. `δ_metric` on `h2` and `h3` is `(FIDELITY_FRACTION · δ)² / (n ·
+weight_scale)` — a **squared** tolerance, because Cauchy–Schwarz transfers a mean-square risk to a
+mean — so it lands at `5.93e-06` where `q-drift` `600`'s resolvable risk differences are `1e-05` and
+its `h2` risks are `1e-03`. The closest miss is that cell: `-7.34e-06` against `-5.93e-06`, short by
+about a quarter of the margin on a bound that narrows with draws.
+
+**That is recorded and it is not a repair.** The clause was declared in the commit before the
+dispatch, it makes a verdict harder to reach, and a tolerance introduced after a failure is the one
+direction a gate may not move. What it does establish is where the instrument's precision sits
+relative to what the rule asks for, which is a fact about *this* design at 32 draws and is worth
+carrying into any later one.
+
+### What it cost
+
+| cell | `n` | fits | secs/fit | rounds | invalid | wall |
+| --- | --- | --- | --- | --- | --- | --- |
+| `q-drift` | 600 | 76 | `17.80` | `9.0` | 1 | 716s |
+| `g-drift` | 600 | 76 | `23.57` | `9.3` | 3 | 943s |
+| `g-drift` | 2,400 | 76 | `43.92` | `13.4` | 0 | 1,712s |
+| `q-drift` | 2,400 | 76 | `81.43` | `6.9` | 0 | 3,134s |
+
+Each job carries a companion of `57,344` rows — the four blocks — against E2's `32,768`, and the
+decision run's wall clock is its slowest job, 52 minutes. The selecting run is one job over the whole
+grid, 64 control-arm draws in 1,538s. **The four blocks are affordable and were not the constraint**;
+what a longer run would buy is draws, and the bound is one decision run.
+
+### What this dispatch refuses to say
+
+**It does not read the paired comparison in any cell**, because no cell's gates licence it — the
+differences exist in all four and in the same direction, and reading them is exactly what a failed or
+unresolved gate forbids. **It does not call E2R `equivalent` or `moved`**: neither verdict was
+reached, and `unresolved` is a third verdict rather than a weak one. **It changes no constant** —
+`EQUIVALENCE_FRACTION`, `BUDGET_FRACTION`, `FIDELITY_FRACTION`, `COMPONENT_FRACTION`,
+`COMPLETENESS_FRACTION` and `PRIMARY_ESTIMAND` are what the manifest recorded at the selection, which
+is what `validate_selection` checked before anything was fitted. **It reads no rate and makes no
+coverage claim** — item 13 is a rate and closes at E5. **It selects no learner**, which is E2b's and
+fires only on a branch this run did not deliver. And it does not move the concordance's
+`reduced regressions consistent` row: a gated comparison that could not be read is not a condition
+being met.
+
+**What it does settle is the question E2R was dispatched to settle, in the negative.** Candidate 1 —
+*the reduced regressions are inconsistent at `glm`* — is neither established nor dead, and **two
+dispatches built to decide it have now failed to**, the second on a design repaired at eight points
+against the first's own falsifier. The bound the piece set for itself says that is where the
+reduction road ends as *motivation for a production change*, and this page says so rather than
+asking for a third run.
+
 ## What the C3c dispatch measured
 
 *Two dispatches of `.github/workflows/drtmle-coverage.yml` at tier 2, seeds `20250801` and

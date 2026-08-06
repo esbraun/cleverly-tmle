@@ -327,7 +327,7 @@ jobs, one commit.
 | cells | `q-drift`, `g-drift` |
 | sizes | `600`, `2,400` |
 | draws | 32 per `(cell, size)`, which **is** this workflow's default |
-| reference | `spline(16)` — `benchmarks/drtmle_reference_study.REFERENCE` **as that module stood at this commit**, the middle rung of `KNOT_LADDER`. The constant is gone now, because [E2R selects the rung](#e2rs-dispatch-is-owed-and-the-harness-above-has-moved-under-it) rather than shipping it |
+| reference | `spline(16)` — `benchmarks/drtmle_reference_study.REFERENCE` **as that module stood at this commit**, the middle rung of `KNOT_LADDER`. The constant is gone now, because [E2R selects the rung](#e2r-ran-on-a-different-harness-and-this-section-is-e2s) rather than shipping it |
 | compared against | `glm` — `REDUCED_LEARNER`, C3c's configuration unchanged, which is the thing under test |
 | gate B candidates | `spline(8)`, `spline(16)`, `spline(32)` and the negative control `bins(8)` |
 | blocks | reference 4,096 Sobol points, scoring 8,192, evaluation 2 × 2,048 — three disjoint scramble streams (`93/94/95_000_000`) |
@@ -406,7 +406,7 @@ The tables come from the module that writes the rows, so a regeneration is a re-
 re-read — there is no `--rows` path here. **This is the command at `6f3aeb3` and it does not run
 against today's harness**, which takes `--selection-points` and `--audit-points` in place of
 `--scoring-points`; regenerating *E2* means checking that commit out, and running it at `main` is a
-different experiment — see [below](#e2rs-dispatch-is-owed-and-the-harness-above-has-moved-under-it).
+different experiment — see [below](#e2r-ran-on-a-different-harness-and-this-section-is-e2s).
 
 ```bash
 python -m benchmarks.drtmle_reference_study --tier 2 --cells q-drift g-drift \
@@ -437,7 +437,7 @@ commit and these inputs must reproduce:
   `+1.1594 → ±0.2899`, `+3.5989 → ±0.8997`, `+4.0814 → ±1.0203`.
 - **One cell of four reads `moved`** and none reads `equivalent`.
 
-### E2R's dispatch is owed, and the harness above has moved under it
+### E2R ran on a different harness, and this section is E2's
 
 **Everything in this section is the record of the code at `6f3aeb3`, and the harness is no longer
 that code.** [E2R](../roadmap.md#what-e2rs-instrument-landed) repaired the reference the run's own
@@ -523,3 +523,75 @@ commit does not contain `selection.json` and the deciding run's does.**
 `select` job prints the file's `sha256` and its gzipped bytes and `scripts/recover_selection.sh`
 decodes them and refuses unless the two agree. The committed file's digest above is the one the run
 printed for the file it wrote.
+
+### E2R's artefacts
+
+Digests, sizes and ids are as printed by each job's `actions/upload-artifact` step and reported by
+the GitHub Actions API on 2026-08-06. **Five artefacts**: one for the selecting run, which is one job
+over the whole grid, and one per `(cell, size)` job of the deciding run.
+
+| phase | cell | `n` | run | artefact | bytes | `sha256` |
+| --- | --- | --- | --- | --- | --- | --- |
+| select | both | both | `31084621278` | `8961561791` | 344,263 | `3c7747ecf4f151803eb0f93ec032e5b0b5df15e8ced83ddc3d06fbb10e101fd5` |
+| decide | `q-drift` | 600 | `31087301718` | `8962277526` | 190,064 | `43e710c035ab2c7014ce3e17fd4a12d03d4c695e2e1fd58433909b4881b9a802` |
+| decide | `g-drift` | 600 | `31087301718` | `8962381765` | 190,672 | `bece6b4746f12459cc5ca497954dab4d12f7aeab519460d7dcc07ec36fc13437` |
+| decide | `g-drift` | 2,400 | `31087301718` | `8962742722` | 189,504 | `bd785b496fca1129f82166781d4b2d23fec5af6d45595a5f65b49c3240418976` |
+| decide | `q-drift` | 2,400 | `31087301718` | `8963419159` | 186,305 | `e376a58f5ab13ad20d46222a800f6bb23410e5b168fa8c552939d8907aa90142` |
+
+**Retention expires 2026-11-04** — a day after every other study here, which is why
+`evidence/manifest.json`'s `retention_expires` stays at the **earliest** of them rather than the
+latest. After it the digests are a record of what was measured and no longer a way to obtain it. The
+**selection mapping itself is the exception**: it is committed at
+[`evidence/e2r-selection/selection.json`](../../evidence/e2r-selection/selection.json) and outlives
+every retention on this page.
+
+> **The rows are not in this commit, for the reason C3c's, E1b's and E2's are not**, and the fetch is
+> `scripts/fetch_evidence.sh e2r` on a machine with ordinary outbound access.
+
+### E2R's row schema, against E2's
+
+Three files per decide job from one timestamp — `<stamp>.jsonl`, `<stamp>-risks.jsonl` and
+`<stamp>-selection.jsonl` — and the third is not optional: every number the comparison reports is
+conditional on which rung each regression was fitted at. Against [E2's
+schema](#e2s-row-schema), four fields are new and each is needed to join the two runs:
+
+| field | on | what it distinguishes |
+| --- | --- | --- |
+| `cohort` | `FitRow`, `RiskRow` | which set of **simulation draws** — `selection` or `decision`. Not the same statement as `phase`, and a row from the two runs joins on neither alone |
+| `phase` | `RiskRow` | which **quadrature block** scored the candidate — `select` or `audit` |
+| `metric` | `RiskRow` | which of the five — `qr`, `gr1`, `gr2`, `h3`, `h2`. A row keyed on `reduction` alone can no longer identify one |
+| `divisor_margin`, `divisor_truncated`, `weight_scale` | `RiskRow` | the composite's denominator at the fit's own `g_bounds`, and `Σ(w/d²)/Σ(w)` — **without the last the non-inferiority margin cannot be recomputed from the artefact** |
+
+### Regenerating E2R's tables
+
+A regeneration is a re-fit rather than a re-read, as E2's is. **The decision run cannot select**, so
+regenerating it means handing it the committed manifest — which is the point of the file existing:
+
+```bash
+python -m benchmarks.drtmle_reference_study --phase decide \
+    --selection evidence/e2r-selection/selection.json \
+    --tier 2 --cells q-drift g-drift --sizes 600 2400 \
+    --selection-draws 16 --decision-draws 32 \
+    --reference-points 8192 --selection-points 8192 --audit-points 8192 \
+    --evaluation-points 2048 --evaluation-scrambles 2 \
+    --budget-scrambles 4 --budget-draws 4 --seed 20250801 --jobs 2
+```
+
+**Do not run that in a small container.** `CLAUDE.md` says why, and this is 304 fits at 18s to 81s
+each on a runner.
+
+### E2R numbers checkable against this manifest
+
+- **76 fits per `(cell, size)`** and 228 fit rows — `32 × 2` paired fits plus `4 × 3` budget refits,
+  times three estimands — and **9,600 gate rows** a job: `32 draws × 2 arms × 5 folds × 5 metrics ×
+  6 candidates`, the three rungs plus three controls.
+- **`57,344` companion rows a fit**: `2 × (8,192 + 8,192 + 8,192 + 2 × 2,048)` — the four blocks at
+  both arms, against E2's `2 × (4,096 + 8,192 + 2 × 2,048) = 32,768` at three.
+- **Gate C passes in all four cells**, at `0.0097/0.1196`, `0.0073/0.0927`, `0.0345/0.3114` and
+  `0.1326/0.2732` — the allowance being `BUDGET_FRACTION × margin` at the `ate`.
+- **The margin is a quarter of the `glm` level on the paired draws**: `+1.4355 → ±0.3589`,
+  `+1.1120 → ±0.2780`, `+3.7364 → ±0.9341`, `+3.2780 → ±0.8195`.
+- **Every cell is integrity-valid** at 32 of 32 declared draws on both the comparison and the audit,
+  and all four jobs exited zero.
+- **No cell reaches a verdict**: four `unresolved`, one of them on gate B's superiority clause and
+  three on its non-inferiority clause.

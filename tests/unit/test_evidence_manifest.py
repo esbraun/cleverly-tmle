@@ -87,19 +87,20 @@ class TestTheTwoManifestsCoverEachOther:
 
         Both assertions above pass vacuously if the regex stops matching -- a table reformatted
         or a digest backticked differently -- and would then report agreement between two empty
-        sets.  Sixteen is what is on record: four for ``c3c``, eight for ``e1b`` and four for
-        ``e2``.
+        sets.  Twenty-one is what is on record: four for ``c3c``, eight for ``e1b``, four for
+        ``e2`` and **five** for ``e2r`` -- one selecting job over the whole grid, and one
+        deciding job per ``(cell, size)``.
         """
-        assert len(_prose_rows()) == 16
-        assert len(_json_rows()) == 16
+        assert len(_prose_rows()) == 21
+        assert len(_json_rows()) == 21
 
 
 class TestTheManifestSaysWhatTheFetchNeeds:
     """The fields ``scripts/fetch_evidence.sh`` reads, and the expiry a reader is owed."""
 
-    def test_the_studies_are_the_three_on_record(self) -> None:
+    def test_the_studies_are_the_four_on_record(self) -> None:
         payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        assert sorted(payload["studies"]) == ["c3c", "e1b", "e2"]
+        assert sorted(payload["studies"]) == ["c3c", "e1b", "e2", "e2r"]
 
     def test_every_artefact_carries_the_fields_the_script_reads(self) -> None:
         payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -109,13 +110,19 @@ class TestTheManifestSaysWhatTheFetchNeeds:
                     assert field in each, f"{name}: {each} has no {field}"
 
     def test_the_retention_date_is_the_one_the_prose_states(self) -> None:
+        """The **earliest** of the studies', which is the one a fetch has to beat first.
+
+        ``e2r`` was dispatched a day later than the rest and so expires a day after them; the
+        field stays at the earliest rather than the latest, because a warning that fires too
+        early costs a reader nothing and one that fires too late costs them the payload.
+        """
         payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
         expires = payload["retention_expires"]
         assert expires == "2026-11-03"
         # Twice, because both studies expire on it and each says so where it is read.
         assert PROSE.read_text(encoding="utf-8").count(expires) >= 2
 
-    @pytest.mark.parametrize(("study", "count"), [("c3c", 4), ("e1b", 8), ("e2", 4)])
+    @pytest.mark.parametrize(("study", "count"), [("c3c", 4), ("e1b", 8), ("e2", 4), ("e2r", 5)])
     def test_each_study_carries_the_artefact_count_it_dispatched(
         self, study: str, count: int
     ) -> None:

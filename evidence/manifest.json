@@ -164,6 +164,55 @@
           "sha256": "aebf92b7246be97537ec6fab939d1fe15601b8b56fe2cf49ed29b9d90badf7fb"
         }
       ]
+    },
+    "e2r": {
+      "code": "10289d4f954ff21f1bb20cc270c2496bc305495a",
+      "artefacts": [
+        {
+          "phase": "select",
+          "cell": "both",
+          "run": 31084621278,
+          "artefact": 8961561791,
+          "bytes": 344263,
+          "sha256": "3c7747ecf4f151803eb0f93ec032e5b0b5df15e8ced83ddc3d06fbb10e101fd5"
+        },
+        {
+          "phase": "decide",
+          "cell": "q-drift",
+          "n": 600,
+          "run": 31087301718,
+          "artefact": 8962277526,
+          "bytes": 190064,
+          "sha256": "43e710c035ab2c7014ce3e17fd4a12d03d4c695e2e1fd58433909b4881b9a802"
+        },
+        {
+          "phase": "decide",
+          "cell": "g-drift",
+          "n": 600,
+          "run": 31087301718,
+          "artefact": 8962381765,
+          "bytes": 190672,
+          "sha256": "bece6b4746f12459cc5ca497954dab4d12f7aeab519460d7dcc07ec36fc13437"
+        },
+        {
+          "phase": "decide",
+          "cell": "g-drift",
+          "n": 2400,
+          "run": 31087301718,
+          "artefact": 8962742722,
+          "bytes": 189504,
+          "sha256": "bd785b496fca1129f82166781d4b2d23fec5af6d45595a5f65b49c3240418976"
+        },
+        {
+          "phase": "decide",
+          "cell": "q-drift",
+          "n": 2400,
+          "run": 31087301718,
+          "artefact": 8963419159,
+          "bytes": 186305,
+          "sha256": "e376a58f5ab13ad20d46222a800f6bb23410e5b168fa8c552939d8907aa90142"
+        }
+      ]
     }
   }
 }

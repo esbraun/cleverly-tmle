@@ -18,6 +18,7 @@ test failure rather than a silent disagreement.
 ```bash
 scripts/fetch_evidence.sh e1b        # the eight companion-grid artefacts
 scripts/fetch_evidence.sh c3c        # the four coverage-study artefacts
+scripts/fetch_evidence.sh e2r        # the selecting run's, and the four deciding jobs'
 ```
 
 **Not from the Claude Code sandbox.** Artefacts are served from `*.blob.core.windows.net`,
