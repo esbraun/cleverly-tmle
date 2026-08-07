@@ -304,11 +304,20 @@ class Arm:
 #: ``q-drift``, on a secondary column that decides nothing -- so keeping the axis identifiable
 #: somewhere is the point, and it is kept in two of the three learner rows.
 ARMS_DROPPED: dict[str, str] = {
-    "ceiling-nested": "a null by construction; ceiling_crossfit_reading() answers it exactly",
+    "ceiling-nested": "a null by construction; ceiling_crossfit_reading() answers it exactly. "
+    "Dropped BEFORE any inferential fit, on a structural fact about the code",
     "boost-pooled": "diagnostic-only by the roadmap's own fence and 344 s a fit at n=600, so it "
-    "is most of a phase-1 budget spent on an arm no branch can read; the cost of dropping it is "
-    "that the cross-fitting interaction is unavailable at boost, and it stays available at glm "
-    "and gam",
+    "is most of a phase-1 budget spent on an arm no branch can read. Dropped BEFORE any "
+    "inferential fit, on the timing pilot alone",
+    "boost-nested": "withdrawn on cost AFTER 41 partial selection draws had been read, which is "
+    "why this entry is worded differently from the two above. boost-nested was 77% of a draw "
+    "and ~13 h of a ~17 h phase-1 budget. It is NOT withdrawn because those draws looked bad -- "
+    "selecting an arm on its own outcome is what a preregistration exists to prevent -- and no "
+    "reading of it is carried forward or reported as a result. The scope decision is that F5 "
+    "asks whether DRTMLE is *constructed* correctly, and a boosted reduction is one candidate "
+    "for that and not the question. What it costs: F5 makes no claim about boosted reductions "
+    "at all, and its learner screen is a fixed-basis smoother against the shipped GLM against "
+    "the ceiling",
 }
 ARMS: dict[str, Arm] = {
     "glm-pooled": Arm(
@@ -338,13 +347,6 @@ ARMS: dict[str, Arm] = {
         role="candidate",
         nominable=True,
         why="the same smoother at the reference cross-fitting",
-    ),
-    "boost-nested": Arm(
-        learner="boost",
-        crossfit="nested",
-        role="candidate",
-        nominable=True,
-        why="the production branch a boosted reduction may reach",
     ),
     "ceiling": Arm(
         learner="ceiling",
@@ -429,12 +431,18 @@ def resolved_implementations(random_state: int = 0) -> dict[str, dict[str, str]]
 
 
 def refuse_on_fallback() -> list[str]:
-    """Every reason the ``boost`` arms are not the arms this study declared.  Empty is the pass.
+    """Every reason a boosted fit here would not be the one declared.  Empty is the pass.
 
     F5's row requires LightGBM and refuses the run if ``library._boost``'s
     ``HistGradientBoosting`` fallback is what got fitted.  ``_boost`` returns the fallback under
     the **same** ``"boost"`` name, so nothing downstream would notice: the diagnostics carry the
     library entry's name and not its class.
+
+    **This outlives the boosted arms, and deliberately.**  Both boost cells are withdrawn from
+    the arm matrix, so no *reduced* regression fits LightGBM any more -- but phase 2's applied
+    stress cell fits its **primary** nuisances with the ``"fast"`` preset, which contains
+    ``boost``.  A box without the extra would quietly fit a different function class there under
+    the same preset name, which is the same ambiguity for the same reason.
     """
     complaints: list[str] = []
     if not has_lightgbm():
@@ -751,8 +759,18 @@ BAND_BY_CELL = {
 #: nonzero count on any arm is a veto, and it is a stop-immediately condition besides.
 IDENTITY_FAILURES_ARE_EXACT = True
 
-#: How small a flexible candidate's SuperLearner weight may get before the arm is the baseline
-#: under another name, and in what share of folds it must clear it.
+#: How small a flexible candidate's **mean** SuperLearner weight may get before the arm is the
+#: baseline under another name, and in what share of *fits* that mean must clear it.
+#:
+#: **Corrected before the cohort was read**, and the correction is on the statistic and not on
+#: the threshold.  As first frozen the clause read ``flex_weight_min`` -- the minimum over three
+#: reduced regressions and five folds -- and asked *that* to clear ``0.05``.  A single fold in
+#: which an ensemble puts no weight on the flexible candidate is ordinary, so the minimum sits
+#: at zero for almost any arm: on the first 41 partial draws it read ``0.0000`` at every
+#: quantile including the maximum for the boosted arm and at the median for both spline arms.
+#: No arm could have passed, so the study would have returned "no nomination" as an artefact of
+#: its own predicate -- F4's rule defect rebuilt under a new name, which F5's row exists to
+#: prevent.  ``0.05`` and ``0.90`` are unchanged; only the quantity they are applied to moved.
 FLEX_WEIGHT_FLOOR = 0.05
 FLEX_WEIGHT_SHARE = 0.90
 
@@ -952,9 +970,14 @@ class FitRow:
     failure: str
     bound_active: bool
     initial_clip_share: float
-    #: The smallest SuperLearner weight the flexible candidate took over folds and regressions.
+    #: The flexible candidate's **mean** SuperLearner weight over folds and reduced regressions.
     #: An arm that collapsed onto ``mean`` is the baseline under another name, and this is what
-    #: says so in the artefact rather than in an argument.
+    #: says so in the artefact rather than in an argument.  It is the mean and not the minimum
+    #: because the minimum is zero for almost any arm -- see :func:`_flex_weights`.
+    flex_weight_mean: float
+    #: The minimum over the same fifteen values, kept as a **diagnostic beside** the mean and
+    #: read by no clause.  It is what the nomination rule used to test, and it is retained so a
+    #: reader can see the correction rather than take it on trust.
     flex_weight_min: float
     risk_qr: float
     risk_gr1: float
@@ -1160,15 +1183,31 @@ def component_risks(
     }
 
 
-def _flex_weight_min(fit: Any, learner: str) -> float:
-    """The smallest weight the flexible candidate took, over folds and reduced regressions."""
+def _flex_weights(fit: Any, learner: str) -> tuple[float, float]:
+    r"""``(mean, min)`` of the flexible candidate's SuperLearner weight.
+
+    **The mean is the one a clause reads and the minimum is a diagnostic beside it**, and that
+    ordering is a correction rather than a preference.  The nomination clause originally read
+    the *minimum* over 3 reduced regressions x 5 folds -- fifteen values -- and asked it to
+    clear ``0.05``.  That is not the question "is this arm the baseline under another name": a
+    single fold in which an ensemble happens to put no weight on the flexible candidate is
+    ordinary, so the minimum sits at zero for almost any arm.  Measured on the first 41 partial
+    draws it was ``0.0000`` at **every quantile including the maximum** for the boosted arm and
+    at the median for both spline arms -- so as written the clause could not be passed by any
+    arm, and the study would have returned "no nomination" as an artefact of its own predicate.
+
+    That is the failure mode F4's frozen rule had and F5 was written to avoid, so it is repaired
+    on the instrument rather than absorbed: ``docs/drtmle/terminal-experiment.md`` records it,
+    and it is the F3-closeout precedent -- *the instruments corrected before anything reads
+    them* -- and not a threshold moved to clear one.
+    """
     if learner in {"glm", "ceiling"}:
-        return float("nan")
+        return (float("nan"), float("nan"))
     try:
         diagnostics = fit.extra["drtmle"].diagnostics
     except Exception:  # pragma: no cover - a diagnostic must not fail a fit
-        return float("nan")
-    smallest = float("inf")
+        return (float("nan"), float("nan"))
+    seen: list[float] = []
     for name in ("qr", "gr1", "gr2"):
         per_regression = diagnostics.get(name)
         if per_regression is None:
@@ -1185,8 +1224,10 @@ def _flex_weight_min(fit: Any, learner: str) -> float:
             names = [str(entry) for entry in raw_names]
             weights = np.asarray(raw_weights, dtype=float).reshape(-1)
             if learner in names and weights.size == len(names):
-                smallest = min(smallest, float(weights[names.index(learner)]))
-    return smallest if math.isfinite(smallest) else float("nan")
+                seen.append(float(weights[names.index(learner)]))
+    if not seen:
+        return (float("nan"), float("nan"))
+    return (float(np.mean(seen)), float(np.min(seen)))
 
 
 def _failure_counts(check: Any) -> tuple[int, int]:
@@ -1274,7 +1315,7 @@ def one_draw(payload: Payload) -> list[FitRow]:
                 identity_failures, score_failures = _failure_counts(check)
                 score_8, score_9, score_10 = _scores(reduction, fluctuation)
                 active, share = _bound_witness(fit)
-                flex = _flex_weight_min(fit, spec.learner)
+                flex_mean, flex_min = _flex_weights(fit, spec.learner)
                 risks = component_risks(fit, dgp=dgp, mass=stack.weights, scoring=context.scoring)
         except Exception as exc:  # recorded and reported, never swallowed
             rows.extend(_failed(payload, arm, f"{type(exc).__name__}: {exc}", truth))
@@ -1312,7 +1353,8 @@ def one_draw(payload: Payload) -> list[FitRow]:
                     else str(reduction.failure),
                     bound_active=active,
                     initial_clip_share=share,
-                    flex_weight_min=flex,
+                    flex_weight_mean=flex_mean,
+                    flex_weight_min=flex_min,
                     risk_qr=risks.get("qr", float("nan")),
                     risk_gr1=risks.get("gr1", float("nan")),
                     risk_gr2=risks.get("gr2", float("nan")),
@@ -1353,6 +1395,7 @@ def _failed(payload: Payload, arm: str, error: str, truth: Mapping[str, float]) 
             failure="",
             bound_active=False,
             initial_clip_share=float("nan"),
+            flex_weight_mean=float("nan"),
             flex_weight_min=float("nan"),
             risk_qr=float("nan"),
             risk_gr1=float("nan"),
@@ -1642,8 +1685,10 @@ def nominate(rows: Sequence[ContrastRow], fits: Sequence[FitRow]) -> dict[str, A
     4. **zero** identity failures on every one of the arm's fits -- an exact clause, because
        C3c recorded zero across 6,000 fits and a banded version would turn the one certainty
        into a statistic;
-    5. the flexible candidate carries real weight -- an arm that collapsed onto ``mean`` is the
-       baseline under another name;
+    5. the flexible candidate carries real weight -- its **mean** SuperLearner weight clears
+       :data:`FLEX_WEIGHT_FLOOR` in :data:`FLEX_WEIGHT_SHARE` of fits, since an arm that
+       collapsed onto ``mean`` is the baseline under another name.  The mean and not the
+       minimum: see :data:`FLEX_WEIGHT_FLOOR` for the correction and why it was needed;
     6. every clause above holds on the **audit** cohort as well as the selection cohort.
 
     Ties are broken by declared arm order, simplest first.
@@ -1695,15 +1740,16 @@ def nominate(rows: Sequence[ContrastRow], fits: Sequence[FitRow]) -> dict[str, A
         if identity:
             why.append(f"{identity} identity failure(s) -- C3c recorded zero across 6,000 fits")
         weights = np.asarray(
-            [f.flex_weight_min for f in arm_fits if math.isfinite(f.flex_weight_min)],
+            [f.flex_weight_mean for f in arm_fits if math.isfinite(f.flex_weight_mean)],
             dtype=float,
         )
         if weights.size:
             share = float(np.mean(weights >= FLEX_WEIGHT_FLOOR))
             if share < FLEX_WEIGHT_SHARE:
                 why.append(
-                    f"the flexible candidate carried weight below {FLEX_WEIGHT_FLOOR:g} in "
-                    f"{1 - share:.0%} of folds -- this arm is the baseline under another name"
+                    f"the flexible candidate's mean SuperLearner weight was below "
+                    f"{FLEX_WEIGHT_FLOOR:g} in {1 - share:.0%} of fits -- this arm is the "
+                    "baseline under another name"
                 )
         if why:
             reasons[arm] = why
@@ -1982,7 +2028,7 @@ def _fit_table(rows: Sequence[FitRow]) -> str:
         good = [r for r in group if not r.error]
         remaining = np.asarray([r.root_n_remaining for r in good], dtype=float)
         remaining = remaining[np.isfinite(remaining)]
-        flex = np.asarray([r.flex_weight_min for r in good], dtype=float)
+        flex = np.asarray([r.flex_weight_mean for r in good], dtype=float)
         flex = flex[np.isfinite(flex)]
         body.append(
             (
@@ -1994,7 +2040,7 @@ def _fit_table(rows: Sequence[FitRow]) -> str:
                 str(sum(r.score_failures for r in good)),
                 str(sum(r.identity_failures for r in good)),
                 "--" if not good else f"{np.mean([r.rounds for r in good]):.1f}",
-                "--" if flex.size == 0 else f"{flex.min():.3f}",
+                "--" if flex.size == 0 else f"{flex.mean():.3f}",
                 "--" if not good else f"{np.nanmean([r.seconds for r in good]):.1f}",
             )
         )

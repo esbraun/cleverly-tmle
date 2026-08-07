@@ -23,11 +23,13 @@ batches, paired on the draw). So the open question is no longer *why is `DRTMLE`
 [The concordance](theorem-concordance.md) marks the shipped `glm` reductions' consistency
 **`unverified`**, which is the premise C3c held fixed and never tested.
 
-## The arms, and why there are six rather than eight
+## The arms, and why there are five rather than eight
 
-The roadmap's matrix crosses four reduced learners with two cross-fitting constructions. Six of
-those eight cells run, and each dropped cell has its own recorded reason — both taken **before
-the freeze**, neither after seeing an estimate.
+The roadmap's matrix crosses four reduced learners with two cross-fitting constructions. Five of
+those eight cells run, and each dropped cell has its own recorded reason. **Two were dropped
+before any inferential fit and one was withdrawn after 41 partial draws had been read**, and
+that distinction is the most important thing on this page — it is worded differently below
+because it *is* different.
 
 | arm | reduced learner | `reduced_crossfit` | role | nominable |
 | --- | --- | --- | --- | --- |
@@ -35,27 +37,40 @@ the freeze**, neither after seeing an estimate.
 | `glm-nested` | `glm` | nested | construction comparator | no |
 | `gam-pooled` | `gam` | pooled | feasible candidate | **yes** |
 | `gam-nested` | `gam` | nested | feasible candidate | **yes** |
-| `boost-nested` | `boost` (LightGBM) | nested | feasible candidate | **yes** |
 | `ceiling` | reference reductions, `spline(16)` | — | ceiling | no |
-| ~~`boost-pooled`~~ | | pooled | *dropped on cost* | — |
-| ~~`ceiling-nested`~~ | | nested | *null by construction* | — |
+| ~~`ceiling-nested`~~ | | nested | *null by construction, dropped before any fit* | — |
+| ~~`boost-pooled`~~ | `boost` | pooled | *dropped on the pilot, before any fit* | — |
+| ~~`boost-nested`~~ | `boost` | nested | *withdrawn on cost, after partial draws* | — |
 
-**`boost-pooled` is dropped on measured cost against what it could decide.** The roadmap marks
-it *diagnostic only, not nominable*: [A1b's argument](../roadmap.md#a1b--the-cross-fitting-construction)
-carries the pooled construction on a one-dimensional bounded-variation ball or a
-fixed-dimension sieve, a boosted reduction's pooled design/target-continuity premise is not
-closed, and so `boost` reaches a production branch under `nested` or not at all. The timing
-pilot then measured it at **344 s a fit at `n = 600`** against the baseline's **5.3 s**, with the
-two boost arms together accounting for **94% of a draw's entire cost** — so this one cell is
-most of a phase-1 budget spent on an arm no branch of the terminal plan can read.
+**`boost-pooled` was dropped before any inferential fit, on the timing pilot alone.** The
+roadmap marks it *diagnostic only, not nominable*:
+[A1b's argument](../roadmap.md#a1b--the-cross-fitting-construction) carries the pooled
+construction on a one-dimensional bounded-variation ball or a fixed-dimension sieve, a boosted
+reduction's pooled design/target-continuity premise is not closed, and so `boost` reaches a
+production branch under `nested` or not at all. The pilot measured it at **344 s a fit at
+`n = 600`** against the baseline's **5.3 s**, so it was most of a phase-1 budget spent on an arm
+no branch of the terminal plan can read.
 
-**What that costs is stated rather than absorbed.** The cross-fitting axis stays identifiable at
-`glm` and at `gam`; the learner-by-cross-fitting *interaction* is **not** available at `boost`.
-The cross-fitting column exists because F4 measured something on it — `nested ~ cleverly` moved
-the point estimate in seven readings of eight and reproduced in `q-drift`, on a secondary column
-that decides nothing — so keeping the axis identifiable is the point, and it is kept in two of
-the three learner rows. `prereg.json` carries both drops under `phase1.arms_dropped`, so the
-deviation from the roadmap's matrix is in the artefact and not only in this page.
+**`boost-nested` was withdrawn later, and on cost — not on its readings.** After 41 partial
+selection draws it stood at **77% of a draw** and roughly **13 h of a 17 h** phase-1 budget. The
+scope decision behind the withdrawal is that F5 asks whether `DRTMLE` is *constructed* correctly,
+and a boosted reduction is one candidate for that rather than the question itself.
+
+**It is not withdrawn because those draws looked bad, and that distinction is not a formality.**
+They did look bad. Withdrawing an arm *because* of what its own decision columns showed is
+selecting on the outcome, which is the failure mode a preregistration exists to prevent and
+which [stop-ship 17](../roadmap.md#stop-ship) names. So no reading taken on `boost-nested` is
+carried forward, reported as a result, or used to support any conclusion — including the
+tempting one that a boosted reduction does not help. **F5 makes no claim about boosted
+reductions at all.**
+
+**What the withdrawal costs, stated rather than absorbed.** F5's learner screen is now a
+fixed-basis smoother against the shipped GLM against the ceiling, and nothing else. The
+cross-fitting axis — which exists because F4 measured something on it, `nested ~ cleverly`
+moving the point estimate in seven readings of eight — stays identifiable at both `glm` and
+`gam`, so the learner and the construction remain separable. `prereg.json` carries all three
+drops under `phase1.arms_dropped`, so the deviation from the roadmap's matrix is in the artefact
+and not only on this page.
 
 **`ceiling-nested` is a null by construction, and that was measured rather than argued.**
 `reduced_crossfit` acts only inside `fit_reduced`,
@@ -210,6 +225,30 @@ C3c recorded **zero** identity failures across all 6,000 fits. Turning that into
 difference with a tolerance would make the one quantity the study has an exact answer for into a
 statistical one, so it is not a declared column: any nonzero count on any arm is a veto, and a
 stop-immediately condition besides.
+
+### One clause was corrected before the cohort was read, and the correction is on the statistic
+
+Nomination clause 5 asks that the flexible candidate carry real weight, so that an arm which
+collapsed onto `mean` is not nominated as the baseline under another name. As first frozen it
+read **`flex_weight_min`** — the minimum over three reduced regressions and five folds, fifteen
+values — and asked *that* to clear `0.05`.
+
+That is not the question it meant to ask. A single fold in which an ensemble puts no weight on
+the flexible candidate is ordinary, so the minimum sits at zero for almost any arm. Measured on
+the first 41 partial draws it read `0.0000` at **every quantile including the maximum** for the
+boosted arm, and at the median for both spline arms. **No arm could have passed**, so the study
+would have returned *no nomination* — a terminal stop under the branch table — as an artefact of
+its own predicate rather than as a statement about any estimator.
+
+That is F4's rule defect rebuilt under a new name, which is precisely what F5's row exists to
+prevent, so it is repaired on the instrument rather than absorbed. The clause now reads the
+candidate's **mean** weight; `flex_weight_min` is retained beside it as a diagnostic that no
+clause reads, so the correction is visible in the artefact rather than taken on trust. **`0.05`
+and `0.90` are unchanged** — only the quantity they are applied to moved, which is what
+separates this from a threshold moved to clear.
+
+This is the [F3-closeout](../roadmap.md#the-eight-pull-requests) precedent — *the instruments
+corrected before anything reads them* — and the correction landed before any verdict was taken.
 
 ### A veto that cannot fire is refused
 

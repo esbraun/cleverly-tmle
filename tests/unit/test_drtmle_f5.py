@@ -19,32 +19,38 @@ import pytest
 from benchmarks import drtmle_construction, drtmle_f5
 
 
-class TestTheSixArmsAreWhatTheTableSays:
-    """Six arms of the roadmap matrix's eight, and every dropped cell has a recorded reason."""
+class TestTheFiveArmsAreWhatTheTableSays:
+    """Five arms of the roadmap matrix's eight, and every dropped cell has a recorded reason."""
 
-    def test_there_are_six(self) -> None:
-        assert len(drtmle_f5.ARMS) == 6
+    def test_there_are_five(self) -> None:
+        assert len(drtmle_f5.ARMS) == 5
 
     def test_both_dropped_cells_are_named_with_their_reason(self) -> None:
         # A cell removed from a frozen matrix has to say why in the artefact, not in a comment:
         # the manifest carries `arms_dropped` and this is what keeps it populated.
-        assert set(drtmle_f5.ARMS_DROPPED) == {"ceiling-nested", "boost-pooled"}
+        assert set(drtmle_f5.ARMS_DROPPED) == {"ceiling-nested", "boost-pooled", "boost-nested"}
         for name, why in drtmle_f5.ARMS_DROPPED.items():
             assert len(why) > 40, name
         assert name not in drtmle_f5.ARMS
 
-    def test_the_cross_fitting_axis_survives_in_two_learner_rows(self) -> None:
-        """Dropping ``boost-pooled`` costs the interaction at boost and nowhere else.
+    def test_the_cross_fitting_axis_stays_identifiable(self) -> None:
+        """F4 measured something on the cross-fitting axis, so it has to stay identifiable.
 
-        F4 measured something on the cross-fitting axis, so it has to stay identifiable
-        somewhere; this is the check that it does.
+        With both boost cells withdrawn the axis is carried by ``glm`` and ``gam``, which is
+        what makes the learner and the construction separable at all.
         """
         by_learner: dict[str, set[str]] = {}
         for arm in drtmle_f5.ARMS.values():
             by_learner.setdefault(arm.learner, set()).add(arm.crossfit)
         assert by_learner["glm"] == {"pooled", "nested"}
         assert by_learner["gam"] == {"pooled", "nested"}
-        assert by_learner["boost"] == {"nested"}
+        assert "boost" not in by_learner
+
+    def test_no_boosted_arm_survives(self) -> None:
+        # Withdrawn on cost after partial draws were read; F5 makes no claim about boosted
+        # reductions, and `ARMS_DROPPED` says so in the artefact rather than in a comment.
+        assert not any(arm.learner == "boost" for arm in drtmle_f5.ARMS.values())
+        assert "AFTER" in drtmle_f5.ARMS_DROPPED["boost-nested"]
 
     def test_the_baseline_is_the_shipped_configuration(self) -> None:
         baseline = drtmle_f5.ARMS[drtmle_f5.BASELINE_ARM]
@@ -72,7 +78,7 @@ class TestTheSixArmsAreWhatTheTableSays:
 
     def test_nested_arms_really_carry_the_keyword(self) -> None:
         settings = {"n_folds": 5, "learner_folds": 3, "estimands": ("ate",)}
-        for arm in ("glm-nested", "gam-nested", "boost-nested"):
+        for arm in ("glm-nested", "gam-nested"):
             assert (
                 drtmle_f5.arm_estimator(arm, settings, random_state=0).reduced_crossfit == "nested"
             )
@@ -109,21 +115,24 @@ class TestTheSixArmsAreWhatTheTableSays:
         for slot in ("reduced_outcome_learner", "reduced_treatment_learner"):
             assert library[slot][1][1].get_params()["n_jobs"] == 1
 
-    def test_only_three_arms_are_nominable(self) -> None:
+    def test_only_the_two_spline_arms_are_nominable(self) -> None:
         nominable = sorted(name for name, arm in drtmle_f5.ARMS.items() if arm.nominable)
-        assert nominable == ["boost-nested", "gam-nested", "gam-pooled"]
+        assert nominable == ["gam-nested", "gam-pooled"]
 
     def test_the_ceiling_is_not_nominable(self) -> None:
         # A ceiling measures an attainable bound and is not a procedure a caller can run.
         assert not drtmle_f5.ARMS["ceiling"].nominable
 
-    def test_boost_only_reaches_a_production_branch_under_nested(self) -> None:
-        # A1b's pooled design/target-continuity premise is not closed for a boosted reduction,
-        # so the pooled cell could never have been promoted -- which is why dropping it on cost
-        # closes no branch.
-        boost = [arm for arm in drtmle_f5.ARMS.values() if arm.learner == "boost"]
-        assert [arm.crossfit for arm in boost] == ["nested"]
-        assert all(arm.nominable for arm in boost)
+    def test_the_learner_question_is_still_asked(self) -> None:
+        """Dropping boost narrows the screen; it must not empty it.
+
+        F5's question is whether correctly or feasibly estimated reduced regressions close the
+        gap, so it needs at least one *feasible* flexible candidate and the ceiling that says
+        what is attainable.  Without both, there is no experiment left.
+        """
+        assert any(arm.nominable for arm in drtmle_f5.ARMS.values())
+        assert any(arm.learner == "gam" for arm in drtmle_f5.ARMS.values())
+        assert any(arm.role == "ceiling" for arm in drtmle_f5.ARMS.values())
 
 
 class TestTheRunRefusesTheFallback:
@@ -151,9 +160,22 @@ class TestTheRunRefusesTheFallback:
 
     def test_the_manifest_records_the_resolved_implementation(self) -> None:
         resolved = drtmle_f5.resolved_implementations()
-        assert resolved["boost-nested"]["regression"] == "LGBMRegressor"
-        assert resolved["boost-nested"]["classification"] == "LGBMClassifier"
+        assert set(resolved) == set(drtmle_f5.ARMS)
         assert resolved["glm-pooled"]["regression"] == "glm"
+        assert resolved["gam-pooled"]["regression"] == "Pipeline"
+
+    def test_the_lightgbm_guard_still_matters_without_a_boosted_arm(self) -> None:
+        """No arm fits LightGBM now, and the refusal is still load-bearing.
+
+        Phase 2's applied stress cell fits its **primary** nuisances with the ``"fast"`` preset,
+        which contains ``boost`` -- so a box without the extra would silently fit a different
+        function class there, under the same preset name.
+        """
+        from benchmarks import drtmle_stress
+
+        assert drtmle_stress.LEARNER == "fast"
+        assert not any(arm.learner == "boost" for arm in drtmle_f5.ARMS.values())
+        assert drtmle_f5.refuse_on_fallback() == []
 
 
 class TestTheVerdictRuleIsAPartition:
@@ -326,6 +348,7 @@ class TestNothingFromThePilotReachesAVerdict:
             failure="",
             bound_active=False,
             initial_clip_share=0.0,
+            flex_weight_mean=float("nan"),
             flex_weight_min=float("nan"),
             risk_qr=float("nan"),
             risk_gr1=float("nan"),
@@ -436,7 +459,7 @@ class TestTheManifestCoversBothPhases:
 
     def test_a_foreign_resolved_map_is_refused(self, manifest: dict) -> None:
         foreign = json.loads(json.dumps(manifest))
-        foreign["environment"]["resolved"]["boost-nested"]["regression"] = "HistGradientBoosting"
+        foreign["environment"]["resolved"]["gam-pooled"]["regression"] = "NotAPipeline"
         complaints = drtmle_f5.validate_prereg(foreign, phase="select")
         assert any("resolved learner implementations differ" in line for line in complaints)
 

@@ -5,14 +5,10 @@
     "f4_seed": 20250801
   },
   "environment": {
-    "freeze_sha256": "0318eda58048e7e141f49c44e8f5963d482f2ba4d108491a6661754b1705455b",
+    "freeze_sha256": "a4cdc94c404da59972a56c29b8281f906746ae2bca3a7b136910074c876c31f2",
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.13.7",
     "resolved": {
-      "boost-nested": {
-        "classification": "LGBMClassifier",
-        "regression": "LGBMRegressor"
-      },
       "ceiling": {
         "classification": "ceiling",
         "regression": "ceiling"
@@ -42,12 +38,12 @@
       "glm-nested",
       "gam-pooled",
       "gam-nested",
-      "boost-nested",
       "ceiling"
     ],
     "arms_dropped": {
-      "boost-pooled": "diagnostic-only by the roadmap's own fence and 344 s a fit at n=600, so it is most of a phase-1 budget spent on an arm no branch can read; the cost of dropping it is that the cross-fitting interaction is unavailable at boost, and it stays available at glm and gam",
-      "ceiling-nested": "a null by construction; ceiling_crossfit_reading() answers it exactly"
+      "boost-nested": "withdrawn on cost AFTER 41 partial selection draws had been read, which is why this entry is worded differently from the two above. boost-nested was 77% of a draw and ~13 h of a ~17 h phase-1 budget. It is NOT withdrawn because those draws looked bad -- selecting an arm on its own outcome is what a preregistration exists to prevent -- and no reading of it is carried forward or reported as a result. The scope decision is that F5 asks whether DRTMLE is *constructed* correctly, and a boosted reduction is one candidate for that and not the question. What it costs: F5 makes no claim about boosted reductions at all, and its learner screen is a fixed-basis smoother against the shipped GLM against the ceiling",
+      "boost-pooled": "diagnostic-only by the roadmap's own fence and 344 s a fit at n=600, so it is most of a phase-1 budget spent on an arm no branch can read. Dropped BEFORE any inferential fit, on the timing pilot alone",
+      "ceiling-nested": "a null by construction; ceiling_crossfit_reading() answers it exactly. Dropped BEFORE any inferential fit, on a structural fact about the code"
     },
     "cells": [
       "q-drift",
