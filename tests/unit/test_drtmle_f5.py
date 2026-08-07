@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -438,6 +439,129 @@ class TestTheManifestCoversBothPhases:
         foreign["environment"]["resolved"]["boost-nested"]["regression"] = "HistGradientBoosting"
         complaints = drtmle_f5.validate_prereg(foreign, phase="select")
         assert any("resolved learner implementations differ" in line for line in complaints)
+
+
+class TestTheDispatchIsSchedulingAndNotDesign:
+    """Worker count and dispatch order may change throughput and must change no result."""
+
+    def _payloads(self) -> list[drtmle_f5.Payload]:
+        return [
+            drtmle_f5.Payload(
+                cohort="selection",
+                cell=cell,
+                n=n,
+                data_seed=seed,
+                fold_seed=seed + 1,
+                arms=tuple(drtmle_f5.ARMS),
+                quadrature_points=2_048,
+                reference_points=8_192,
+            )
+            for cell in ("q-drift", "g-drift")
+            for n in (600, 2_400)
+            for seed in (1, 2, 3)
+        ]
+
+    def test_longest_first_puts_the_big_draws_in_front(self) -> None:
+        """LPT: the long tasks need work to pack around them, so they go in first.
+
+        Built cell-major and size-minor, every ``n = 600`` draw preceded every ``n = 2,400``
+        one, so the long tasks were dispatched last and the run ended with a ragged tail.
+        """
+        payloads = self._payloads()
+        assert payloads[0].n == 600, "the natural build order starts short"
+        ordered = sorted(
+            payloads, key=lambda p: (-drtmle_f5._expected_cost(p), p.cell, p.data_seed)
+        )
+        sizes = [p.n for p in ordered]
+        assert sizes == sorted(sizes, reverse=True)
+        assert ordered[0].n == 2_400
+
+    def test_reordering_changes_no_draw(self) -> None:
+        # `one_draw` is a pure function of its payload and the artefact is keyed by
+        # (cohort, cell, n, data_seed, arm), so order is a hint and never a result.
+        payloads = self._payloads()
+        ordered = sorted(
+            payloads, key=lambda p: (-drtmle_f5._expected_cost(p), p.cell, p.data_seed)
+        )
+        assert sorted(payloads, key=repr) == sorted(ordered, key=repr)
+
+    def test_the_lean_companion_changes_no_estimate(self) -> None:
+        """The ceiling's reference block may be withheld from the arms that never read it.
+
+        A fit predicts at **every** companion row, so carrying the ceiling's 8,192-point
+        reference block in one shared companion made all six arms pay for the one arm that uses
+        it -- measured at 22.5 s against 16.1 s for a single ``glm-pooled`` fit, and worse on an
+        arm whose reduced regressions refit many times.
+
+        Splitting them is only legitimate because the companion contributes to no fit, no fold
+        and no score, and because the evaluation blocks are built at the same points and
+        scrambles either way.  That is a claim about estimates, so it is checked as one: bit
+        for bit, not to a tolerance.
+        """
+        payload = drtmle_f5.Payload(
+            cohort="sizing",
+            cell="q-drift",
+            n=300,
+            data_seed=7,
+            fold_seed=8,
+            arms=tuple(drtmle_f5.ARMS),
+            quadrature_points=512,
+            reference_points=2_048,
+        )
+        dgp, settings = drtmle_f5._law_and_settings("q-drift", 300)
+        frame, _ = dgp.sample(300, seed=7)
+        lean = drtmle_f5._context(payload, dgp, with_reference=False)
+        full = drtmle_f5._context(payload, dgp, with_reference=True)
+        assert lean.stack.weights.size < full.stack.weights.size
+        assert lean.reference_window is None and full.reference_window is not None
+
+        produced = []
+        for context in (lean, full):
+            estimator = drtmle_f5.arm_estimator(
+                "glm-pooled", settings, random_state=8, evaluation=context.stack.frame
+            )
+            fit = estimator.fit(frame, outcome="Y", treatment="A").single()
+            produced.append(fit.estimates["ate"])
+        assert produced[0].psi == produced[1].psi
+        assert produced[0].std_error == produced[1].std_error
+
+    def test_both_companions_share_their_evaluation_grid(self) -> None:
+        # The remainder is integrated on these, so they have to be the same rows in the same
+        # order or the two shapes would answer for different grids.
+        payload = drtmle_f5.Payload(
+            cohort="sizing",
+            cell="q-drift",
+            n=300,
+            data_seed=7,
+            fold_seed=8,
+            arms=tuple(drtmle_f5.ARMS),
+            quadrature_points=512,
+            reference_points=2_048,
+        )
+        dgp, _ = drtmle_f5._law_and_settings("q-drift", 300)
+        lean = drtmle_f5._context(payload, dgp, with_reference=False)
+        full = drtmle_f5._context(payload, dgp, with_reference=True)
+        assert lean.windows == full.windows
+        assert np.array_equal(lean.scoring, full.scoring[: lean.scoring.size])
+        shared = lean.stack.weights.size
+        assert np.array_equal(lean.stack.weights, full.stack.weights[:shared])
+
+    def test_the_default_worker_count_counts_logical_threads(self) -> None:
+        """A worker occupies one hardware thread, so the default is logical and not physical.
+
+        Measured at ``--jobs 9`` on the phase-1 cohort: 8.89 cores busy, 98.8% occupancy per
+        worker, two OS threads each -- nothing contended, simply fewer workers than threads.
+        """
+        jobs = drtmle_f5.default_jobs()
+        logical = os.cpu_count() or 2
+        assert jobs == max(1, logical - 2)
+        assert jobs >= 1
+
+    def test_the_reserve_leaves_the_parent_room(self) -> None:
+        # The parent runs the bootstrap, the JSON and the per-draw flush; a default equal to
+        # the logical count would put that work on the critical path.
+        if (os.cpu_count() or 2) > 2:
+            assert drtmle_f5.default_jobs() < (os.cpu_count() or 2)
 
 
 class TestTheProseAndThePredicateCannotComeApart:

@@ -78,6 +78,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 import platform
 import subprocess
 import sys
@@ -122,6 +123,7 @@ __all__ = [
     "cohort_seeds",
     "component_risks",
     "contrast_rows",
+    "default_jobs",
     "format_rule_table",
     "frozen_rule",
     "nominate",
@@ -221,9 +223,19 @@ CEILING_KNOTS = 16
 #: ``2P`` rows but only ``P`` of them to :math:`Q_r`.  The floor is therefore on points, not on
 #: rows, and getting that backwards raises **mid-cohort** rather than at construction: measured,
 #: at ``points=1024``, as "spline(16) ... would be fitted on 1024 rows".
+#: **Rounded up to a power of two**, because ``DGP.quadrature`` refuses anything else -- a
+#: coarser grid has to be a prefix of a finer one -- so the arithmetic floor of ``64 x 19 =
+#: 1,216`` is not a reachable point count and ``2,048`` is the first one that is.  A guard
+#: stated at the arithmetic floor would pass a value the grid then rejects several frames
+#: deeper, which is the same "raises late rather than at construction" failure this constant
+#: exists to prevent.
 MINIMUM_REFERENCE_POINTS = (
-    drtmle_reference.POINTS_PER_PARAMETER
-    * drtmle_reference.SplineProjection(CEILING_KNOTS).n_parameters
+    1
+    << (
+        drtmle_reference.POINTS_PER_PARAMETER
+        * drtmle_reference.SplineProjection(CEILING_KNOTS).n_parameters
+        - 1
+    ).bit_length()
 )
 
 #: What the ceiling arm is called, in one place.  It is an **oracle** on the exact law and a
@@ -1000,7 +1012,56 @@ def _law_and_settings(cell: str, n: int) -> tuple[Any, dict[str, Any]]:
     return drtmle_tier2.base_law(), dict(drtmle_tier2.settings(cell, n))
 
 
-def _companion(payload: Payload, dgp: Any) -> tuple[Any, int, int]:
+@dataclass(frozen=True)
+class _Context:
+    """One companion and everything read off it, so an arm takes the right one as a unit."""
+
+    stack: Any
+    windows: list[Any]
+    truths: list[Any]
+    scoring: np.ndarray
+    reference_window: Any | None
+
+
+def _context(payload: Payload, dgp: Any, *, with_reference: bool) -> _Context:
+    """Build a companion and the windows, truths and scoring mask that go with it.
+
+    **Two of these are built per draw when a ceiling arm runs, and that is the point.**  The
+    companion is handed to every fit through ``evaluation=``, and a fit *predicts at every
+    companion row* -- so the ceiling's 8,192-point reference block was being paid for by all six
+    arms, not by the one that reads it.  Measured on a ``glm-pooled`` fit at ``n = 600``: 15.9 s
+    against a lean companion of 12,288 rows and 23.2 s against the 28,672-row shape the cohort
+    was running, and the effect is worse on an arm whose reduced regressions refit many times.
+
+    Splitting them changes **no result**: the companion contributes to no fit, no fold and no
+    score (``tests/unit/test_drtmle_companion.py`` pins that bit for bit), and the evaluation
+    blocks are built at the same points and the same scrambles in both, so they are the same
+    rows in the same order and the remainder is integrated on the same grid either way.  What
+    changes is only how many rows the arms that never look at the reference block have to
+    predict at.
+    """
+    stack, scoring_index, reference_index = _companion(payload, dgp, with_reference=with_reference)
+    evaluation = [
+        block
+        for index, block in enumerate(stack.blocks)
+        if index not in {scoring_index, reference_index}
+    ]
+    scoring = np.zeros(stack.weights.size, dtype=bool)
+    window = stack.blocks[scoring_index].window
+    scoring[window.start : window.stop] = True
+    return _Context(
+        stack=stack,
+        windows=[block.window for block in evaluation],
+        truths=[
+            drtmle_remainder.truth_at(dgp, block.points, scramble=block.seed)
+            for block in evaluation
+        ],
+        scoring=scoring,
+        reference_window=(None if reference_index < 0 else stack.blocks[reference_index].window),
+    )
+
+
+def _companion(payload: Payload, dgp: Any, *, with_reference: bool) -> tuple[Any, int, int]:
     """The companion's three kinds of block, each on its own scramble stream.
 
     Returns ``(stack, scoring_index, reference_index)``; ``reference_index`` is ``-1`` when no
@@ -1020,10 +1081,9 @@ def _companion(payload: Payload, dgp: Any) -> tuple[Any, int, int]:
     """
     offset = payload.data_seed % 1_000_003
     evaluation = tuple(QUADRATURE_SEED + offset + i for i in range(QUADRATURE_SCRAMBLES))
-    scoring = (SCORING_SEED + offset,)
-    scrambles = (*evaluation, *scoring)
-    points = [payload.quadrature_points] * (len(evaluation) + 1)
-    if any(ARMS[a].learner == "ceiling" for a in payload.arms):
+    scrambles: tuple[int, ...] = (*evaluation, SCORING_SEED + offset)
+    points = [payload.quadrature_points] * len(scrambles)
+    if with_reference:
         scrambles = (*scrambles, REFERENCE_SEED + offset)
         points = [*points, payload.reference_points]
         stack = drtmle_remainder.stacked_companion(dgp, points=points, scrambles=scrambles)
@@ -1174,25 +1234,16 @@ def one_draw(payload: Payload) -> list[FitRow]:
     frame, _ = dgp.sample(payload.n, seed=payload.data_seed)
     truth = dgp.truth()
 
-    stack, scoring_block, reference_block = _companion(payload, dgp)
-    evaluation_blocks = [
-        block
-        for index, block in enumerate(stack.blocks)
-        if index not in {scoring_block, reference_block}
-    ]
-    truths = [
-        drtmle_remainder.truth_at(dgp, block.points, scramble=block.seed)
-        for block in evaluation_blocks
-    ]
-    windows = [block.window for block in evaluation_blocks]
-    scoring = np.zeros(stack.weights.size, dtype=bool)
-    scoring[stack.blocks[scoring_block].window.start : stack.blocks[scoring_block].window.stop] = (
-        True
-    )
+    lean = _context(payload, dgp, with_reference=False)
+    needs_reference = any(ARMS[a].learner == "ceiling" for a in payload.arms)
+    full = _context(payload, dgp, with_reference=True) if needs_reference else None
 
     rows: list[FitRow] = []
     for arm in payload.arms:
         spec = ARMS[arm]
+        ceiling = spec.learner == "ceiling"
+        context = full if ceiling and full is not None else lean
+        stack = context.stack
         started = time.perf_counter()
         try:
             with warnings.catch_warnings():
@@ -1202,11 +1253,9 @@ def one_draw(payload: Payload) -> list[FitRow]:
                     settings,
                     random_state=payload.fold_seed,
                     evaluation=stack.frame,
-                    dgp=dgp if spec.learner == "ceiling" else None,
-                    window=stack.blocks[reference_block].window
-                    if spec.learner == "ceiling"
-                    else None,
-                    row_weights=stack.weights if spec.learner == "ceiling" else None,
+                    dgp=dgp if ceiling else None,
+                    window=context.reference_window if ceiling else None,
+                    row_weights=stack.weights if ceiling else None,
                 )
                 result = estimator.fit(frame, outcome="Y", treatment="A")
                 fit = result.single()
@@ -1216,8 +1265,8 @@ def one_draw(payload: Payload) -> list[FitRow]:
                     n=payload.n,
                     bounds=fit.config.g_bounds,
                     row_weights=stack.weights,
-                    windows=windows,
-                    truths=truths,
+                    windows=context.windows,
+                    truths=context.truths,
                 )
                 fluctuation = fit.fluctuations["mean"]
                 reduction = fluctuation.reduction
@@ -1226,7 +1275,7 @@ def one_draw(payload: Payload) -> list[FitRow]:
                 score_8, score_9, score_10 = _scores(reduction, fluctuation)
                 active, share = _bound_witness(fit)
                 flex = _flex_weight_min(fit, spec.learner)
-                risks = component_risks(fit, dgp=dgp, mass=stack.weights, scoring=scoring)
+                risks = component_risks(fit, dgp=dgp, mass=stack.weights, scoring=context.scoring)
         except Exception as exc:  # recorded and reported, never swallowed
             rows.extend(_failed(payload, arm, f"{type(exc).__name__}: {exc}", truth))
             continue
@@ -2026,7 +2075,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--draws", type=int, default=None, help="debug only outside --phase pilot")
     parser.add_argument("--quadrature-points", type=int, default=QUADRATURE_POINTS)
     parser.add_argument("--reference-points", type=int, default=REFERENCE_POINTS)
-    parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=0,
+        help="workers; 0 takes default_jobs(), which is the LOGICAL count less two because "
+        "every fit here is single-threaded and a worker occupies one hardware thread",
+    )
     parser.add_argument("--seed", type=int, default=COHORT_SEED)
     parser.add_argument("--out", type=Path, default=Path("benchmarks/results/drtmle-f5"))
     return parser
@@ -2053,17 +2108,64 @@ def _write_rows(rows: Sequence[Any], path: Path) -> Path:
     return path
 
 
-def _run(payloads: Sequence[Payload], jobs: int, out: Path, stamp: str) -> list[FitRow]:
-    """Dispatch, flushing each completed draw immediately.
+def default_jobs() -> int:
+    r"""How many workers to run, when ``--jobs`` is not given.
 
-    F4 wrote once at the end, which is fine at two hours and not at fifteen: a crash at hour
-    eleven has to cost one draw rather than the cohort.
+    **Every fit here is single-threaded on purpose** -- ``cleverly.learners.set_thread_limit``
+    holds the nuisance fits to one thread and this module pins LightGBM's ``n_jobs`` -- so
+    parallelism is across draws and a worker occupies exactly one hardware thread.  Measured on
+    the phase-1 cohort at ``--jobs 9``: 8.89 cores busy, two OS threads per worker, 98.8%
+    occupancy each.  Nothing was stalled or contended; there were simply more hardware threads
+    than workers.
+
+    So the default is the **logical** count less a small reserve, not the physical count.  On a
+    hybrid part -- the box this was measured on is 6 P-cores with SMT plus 4 E-cores, so 10
+    physical and 16 logical -- ``--jobs 9`` left all six SMT siblings idle and read as 56% in a
+    task manager, which counts against logical processors.
+
+    **The gain from the SMT siblings is real and is not a doubling**: two threads on one
+    physical core share its execution units, so the honest expectation is roughly a quarter
+    more throughput rather than twice.  The reserve keeps the parent's bootstrap, JSON and
+    flush work off the critical path.
+    """
+    logical = os.cpu_count() or 2
+    return max(1, logical - 2)
+
+
+def _expected_cost(payload: Payload) -> float:
+    """A proxy for how long one draw will take, for longest-first dispatch.
+
+    The sample size, because every payload carries the same arm set and every arm's cost rises
+    with ``n``.  A proxy rather than the pilot's measured table: a schedule that reads committed
+    timings would go stale the moment an arm moved, and the ordering only has to be roughly
+    right to help.
+    """
+    return float(payload.n)
+
+
+def _run(payloads: Sequence[Payload], jobs: int, out: Path, stamp: str) -> list[FitRow]:
+    """Dispatch longest-first, flushing each completed draw immediately.
+
+    Two things about this, and both were measured rather than assumed.
+
+    **The flush is per draw.**  F4 wrote once at the end, which is fine at two hours and not at
+    ten: a crash at hour eight has to cost one draw rather than the cohort.
+
+    **The order is longest-first**, which is the classic LPT heuristic and is worth a few
+    percent of makespan here.  Built in cell-major, size-minor order the payloads put every
+    ``n = 600`` draw before every ``n = 2,400`` one, so the *long* tasks were dispatched last
+    and the run ended with a ragged tail of them while workers idled.  Sorting by ``n``
+    descending puts the long tasks in first, where there is still work to pack around them.
+    ``joblib`` dispatches dynamically at ``batch_size=1``, so the order is a scheduling hint and
+    changes no result: :func:`one_draw` is a pure function of its payload, and the artefact is
+    keyed by ``(cohort, cell, n, data_seed, arm)`` rather than by position.
     """
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{stamp}.jsonl"
     rows: list[FitRow] = []
+    ordered = sorted(payloads, key=lambda p: (-_expected_cost(p), p.cell, p.data_seed))
     produced = Parallel(n_jobs=jobs, batch_size=1, return_as="generator_unordered")(
-        delayed(one_draw)(p) for p in payloads
+        delayed(one_draw)(p) for p in ordered
     )
     done = 0
     with path.open("w", encoding="utf-8") as handle:
@@ -2073,12 +2175,14 @@ def _run(payloads: Sequence[Payload], jobs: int, out: Path, stamp: str) -> list[
                 rows.append(row)
             handle.flush()
             done += 1
-            print(f"  {done}/{len(payloads)} draws", flush=True)
+            print(f"  {done}/{len(ordered)} draws", flush=True)
     return rows
 
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.jobs <= 0:
+        args.jobs = default_jobs()
 
     complaints = refuse_on_fallback()
     if complaints:
