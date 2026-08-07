@@ -93,7 +93,7 @@ def _as_list(value: Any) -> list[Any]:
 
 def load(path: str | Path) -> Config:
     """Read a config file.  YAML when the parser is available, JSON always."""
-    text = Path(path).read_text()
+    text = Path(path).read_text(encoding="utf-8")
     payload: Any
     if str(path).endswith((".yaml", ".yml")):
         try:

@@ -137,7 +137,7 @@ def test_the_reader_refuses_a_tampered_record(tmp_path: Path) -> None:
     """A file whose digest does not match its manifest is unreadable, not slightly wrong."""
     destination = tmp_path / "tampered"
     shutil.copytree(RECORD, destination)
-    raw = (destination / "steps.csv").read_text()
+    raw = (destination / "steps.csv").read_text(encoding="utf-8")
     (destination / "steps.csv").write_text(raw.replace("prime", "primed", 1))
     with pytest.raises(ValueError, match="does not match its manifest"):
         compare.read_export(destination)
@@ -539,7 +539,7 @@ def test_the_ladder_reader_fails_closed_on_a_tampered_rung(tmp_path: Path) -> No
     destination = tmp_path / "ladder"
     shutil.copytree(LADDER, destination)
     rung = next(child for child in sorted(destination.iterdir()) if child.is_dir())
-    raw = (rung / "summary.csv").read_text()
+    raw = (rung / "summary.csv").read_text(encoding="utf-8")
     (rung / "summary.csv").write_text(raw.replace("ate", "ATE", 1))
     with pytest.raises(ValueError, match="does not match its manifest"):
         compare.read_ladder(destination)
@@ -620,7 +620,7 @@ def test_every_committed_record_is_a_univariate_run() -> None:
     statistically adjudicate.  ``meta.csv`` carries no ``reduction`` field, which is why the
     script is what is read.
     """
-    source = R_SCRIPT.read_text()
+    source = R_SCRIPT.read_text(encoding="utf-8")
     assert 'reduction = "univariate"' in source
     assert 'reduction = "bivariate"' not in source
 
@@ -649,7 +649,7 @@ def test_the_report_carries_no_live_univariate_d_q_candidate() -> None:
     uses, the callee does not read the argument.  A future revision that reinstates the
     inference without reinstating the reduction it belongs to fails here.
     """
-    text = REPORT.read_text()
+    text = REPORT.read_text(encoding="utf-8")
     assert "bivariate-only" in text
     assert "the argument is unused" in text
     assert "leaves the curve uncentred exactly where the" not in text

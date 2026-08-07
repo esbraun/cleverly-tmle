@@ -1750,7 +1750,7 @@ def write_selection_manifest(manifest: SelectionManifest, path: Path) -> Path:
 
 
 def load_selection_manifest(path: Path) -> SelectionManifest:
-    raw = json.loads(Path(path).read_text())
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
     return SelectionManifest(
         rule=dict(raw["rule"]),
         configuration=dict(raw["configuration"]),

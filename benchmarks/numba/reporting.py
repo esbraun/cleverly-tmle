@@ -107,7 +107,7 @@ def load_rows(output: Path) -> list[Row]:
         return []
     fields = {f.name for f in dataclasses.fields(Row)}
     rows: list[Row] = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         payload = json.loads(line)

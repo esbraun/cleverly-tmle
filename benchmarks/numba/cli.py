@@ -277,7 +277,7 @@ def main(argv: list[str] | None = None) -> int:
         rows = merge(load_rows(config.output), rows)
     latest = write_all(rows, environment, config.output)
     print(f"wrote {len(rows)} row(s) to {latest}")
-    print((latest / "summary.md").read_text())
+    print((latest / "summary.md").read_text(encoding="utf-8"))
     return 0
 
 

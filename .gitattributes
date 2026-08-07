@@ -1,0 +1,17 @@
+# The committed R diagnostic records are checked byte for byte against a SHA-256 manifest on
+# every read (`benchmarks/drtmle_r_compare.py`'s `_verify`), and that check is the whole reason
+# they are in the tree: the R toolchain is ~25 minutes to rebuild and CRAN is not always
+# reachable, so `docs/drtmle/r-differential.md`'s comparison and F4's verification have to
+# reproduce with no R installed.
+#
+# Git's `core.autocrlf=true` -- the Windows default -- rewrites those files' line endings on
+# checkout, which changes their bytes and so their digest. The manifest then fails against the
+# record it describes, and `pytest -m "not slow"` cannot pass on a default Windows clone:
+# measured here as 39 errors and 1 failure in `tests/unit/test_drtmle_r_compare.py`, with the
+# LF-only digest matching the manifest exactly and the CRLF one not.
+#
+# `-text` disables that conversion, so these files are checked out with the bytes they were
+# committed with, on every platform. This is not a regeneration -- CLAUDE.md forbids that, and
+# every trace already taken is against these bytes -- it is what keeps the checkout equal to them.
+benchmarks/fixtures/r-trace-*/** -text
+benchmarks/fixtures/r-ladder-*/** -text

@@ -115,7 +115,9 @@ def links(text: str) -> list[str]:
     return out
 
 
-ANCHORS = {path: {slug(head) for head in headings(path.read_text())} for path in DOCUMENTS}
+ANCHORS = {
+    path: {slug(head) for head in headings(path.read_text(encoding="utf-8"))} for path in DOCUMENTS
+}
 
 
 def test_there_are_documents_to_check() -> None:
@@ -131,7 +133,7 @@ def test_every_heading_has_a_derivable_anchor(path: Path) -> None:
     A policy rather than a limitation: the alternative is a check that skips the headings most
     likely to be linked wrongly, which is where the guessing happens.
     """
-    offenders = {head: ambiguous(head) for head in headings(path.read_text())}
+    offenders = {head: ambiguous(head) for head in headings(path.read_text(encoding="utf-8"))}
     carrying = {head: found for head, found in offenders.items() if found}
 
     assert not carrying, (
@@ -145,7 +147,7 @@ def test_every_heading_has_a_derivable_anchor(path: Path) -> None:
 def test_every_relative_link_resolves(path: Path) -> None:
     """Both halves of a target: the file exists, and the fragment names one of its headings."""
     broken: list[str] = []
-    for target in links(path.read_text()):
+    for target in links(path.read_text(encoding="utf-8")):
         if target.startswith(("http://", "https://", "mailto:", "#!")):
             continue
         relative, _, fragment = target.partition("#")
