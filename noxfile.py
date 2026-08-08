@@ -63,12 +63,9 @@ def typecheck(session: nox.Session) -> None:
 def tests(session: nox.Session) -> None:
     """Fast tier: everything except the statistical validation runs."""
     session.install("-e", ".[dev]")
-    # ``-n auto`` as CI runs it, with the worker count sized from the cores this process
-    # may actually use -- xdist resolves ``auto`` through ``os.cpu_count()`` here (psutil is
-    # not a dependency), which is the host count and ignores a container's CPU quota.
-    # The inner ``n_jobs=2`` on the simulation studies is load-balancing the tail *under*
-    # xdist (CLAUDE.md sets out the measurement), so a session without it is not the tier
-    # that was benchmarked.
+    # ``-n auto`` as CI runs it, with the worker count sized from the cores this process may
+    # actually use. The inner ``n_jobs=2`` on simulation studies balances the long-test tail
+    # under xdist, so a session without xdist is not the same tier.
     session.run(
         "pytest",
         "-m",

@@ -185,7 +185,7 @@ def _reduced(
     being conditioned on, weighted by the law.  ``Qr`` conditions on ``A = arm`` as well, so
     its weights carry the mechanism; the two reduced mechanisms do not, so theirs do not.
 
-    "Weighted by the law" is where item 17 lives: on a weighted fit these must be
+    "Weighted by the law" is load-bearing: on a weighted fit these must be
     conditional expectations under :math:`P_w`, and the mechanism they condition on and
     divide by must be the :math:`P_w`-mechanism rather than :math:`g_0`.  Both come from
     ``at``, so getting it wrong is one substitution away and

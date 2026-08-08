@@ -156,7 +156,7 @@ class TestTruth:
             nonlinear_dgp().quadrature(1000)
 
     def test_the_default_scramble_is_bit_for_bit_what_it_was(self) -> None:
-        """The regression pin on E1b's only ``src/`` change, and it protects ``truth``.
+        """The regression pin protecting the reference study's only ``src/`` change and ``truth``.
 
         ``scramble=`` is additive or it is a silent change to every reference value in the
         package -- every ``truth()``, every committed drift coefficient, every fixture

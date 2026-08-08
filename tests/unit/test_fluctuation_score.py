@@ -20,7 +20,7 @@ distinct from the ``fit_submodel`` the solve uses under ``target_weights=True``:
 the weighted form instead is the plausible edit, it looks like removing a duplicate, and it
 was run here and reddens exactly the two ``target_weights=True`` cases below.  It would
 leave every *unweighted* fit in this package untouched, which is
-``docs/roadmap.md``'s item 12 shape -- a change almost no assertion about a fitted result
+the numerical-versus-reported-score distinction -- a change almost no assertion about a fitted result
 can see.
 
 **Why it is checked with exact equality.**  ``score_columns`` is a pure function of plain

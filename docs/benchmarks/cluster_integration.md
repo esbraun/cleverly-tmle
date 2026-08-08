@@ -9,7 +9,8 @@ The first of those was already paid for, somewhere else, once.
 
 > Measured on the four-core Intel Xeon @ 2.80 GHz container this repository's cloud sessions
 > run in, `/proc/loadavg` under 0.6, Python 3.11, numpy 2.4.6, numba 0.66.0. Medians of
-> repetitions taken in randomised **block** order, not interleaved -- see [the reading note](README.md#reading-a-number-out-of-any-of-them);
+> repetitions taken in randomised **block** order, not interleaved -- see the
+> [measurement rules](README.md#measurement-rules);
 > every kernel compiled before any measurement.
 
 ## 1. The labels reaching `cluster_sums` are already dense

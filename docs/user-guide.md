@@ -301,8 +301,8 @@ Why this is the right number, and how it is checked:
 ### Missing outcomes, an intermediate, and weights on a dose
 
 `delta=`, `intermediate=` and `weights=` all work here, and mean what they mean on an arm.
-They were once refused together, on a reason that was wrong for all three — see
-[the roadmap](roadmap.md#refusals-worth-lifting).
+They share the same missingness construction as the arm path; the technical appendix derives the
+composition.
 
 With `delta=` the clever covariate gains a factor, and *where* it is evaluated is the part
 worth knowing:
@@ -1219,7 +1219,8 @@ by up to 2.3%; the sweep that would say whether that is typical is
 `reduced_crossfit=` is the **second** diagnostic keyword and is here for the same kind of reason.
 The reduced regressions are fitted on the primary cross-fitting split, so fold `k`'s regression
 trains on rows whose design *and target* came from models that saw fold `k`. Whether that matters
-is [item 15](drtmle.md#reduced-regression-cross-fitting), the argument that it does not needs
+is discussed under [reduced-regression cross-fitting](drtmle.md#reduced-regression-cross-fitting).
+The argument that it does not matter needs
 one quantity to vanish, and that quantity is exactly the difference between this construction and
 `reduced_crossfit="nested"` — which refits the primary nuisances leaving each outer fold out as
 well. So the expensive one exists to be measured against, not to be used: leave it at `"pooled"`
@@ -1264,8 +1265,8 @@ equation the guard asks for: `guard=("g",)` solves equation (10) and reports
 `D = D* - D*_Q`, and the verdict names that rather than the both-guards curve. The other
 equation's correction is still recomputed and printed, as a `diagnostic` row held to no
 threshold — it is what says what the guard did not buy — and it cannot fail a check, because
-nothing subtracts it. Until [item 23](roadmap.md#closed-since-this-list-opened) closed, the
-curve subtracted both terms whatever `guard=` said, so a single-guard fit carried a term
+nothing subtracts it. A regression test now ensures the curve subtracts only the corrections
+whose equations the selected `guard=` poses; otherwise a single-guard fit would carry a term
 whose equation it had never posed; measured at `1.2e-03` on the outcome scale against a
 `5.4e-06` bar, with the mechanism truncation binding on no row at all.
 
@@ -1298,8 +1299,8 @@ influence function row for row, and a flipped sign misses by half a unit or more
 `1e-12` window.
 There is no cross-check against `drtmle`'s own *numbers* and there will not be: both
 implementations descend from one source, so agreement would be evidence about the transcription
-and blind to exactly the sign above — [the roadmap's item
-2](roadmap.md#closed-since-this-list-opened) is that decision and its reasoning. A coverage study
+and blind to exactly the sign above — the roadmap's
+[standing decisions](roadmap.md#standing-decisions) give that reasoning. A coverage study
 on the off-diagonal of the misspecification grid found *no gap for this variant to close* at the
 sizes it could reach: the regime it is for needs an adaptive good nuisance converging more slowly than
 `n^(-1/4)`, which is beyond what a nightly budget can simulate. And the alternation does not

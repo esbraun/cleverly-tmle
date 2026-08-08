@@ -337,8 +337,8 @@ working model is deliberately **not** saturated — three coefficients against t
 `(W, regimen)` cells — and its weights deliberately **not** uniform, for the reasons [the
 point-treatment oracle](#the-msm-projection-its-matrix-and-its-remainder) gives; both
 choices are asserted on the law itself, so they are shown to be load-bearing rather than
-claimed to be. Seven mutations were applied and the tests watched; three of them passed on
-the first try and each was a real gap, which is recorded in the roadmap item below.
+claimed to be. Seven mutations were applied and the tests watched; three passed on the first try
+and exposed real gaps, which is why mutation checks are part of the development guidance.
 
 ## Survival: which population each node is fitted on
 
@@ -426,9 +426,10 @@ a selector hard-wired to select nothing, so it is not evidence that the search
 discriminates between covariates. The claim that it does is tested where selecting nothing
 is *wrong* — with the outcome model reduced to a constant, the search includes the
 confounder in every seed and still leaves the instrument out, while a do-nothing selector
-is biased by 0.81 against 0.037. Second, there is no cross-language check and there will not be: R's `ctmle` is not compared
-against here or in CI, by [decision](roadmap.md#closed-since-this-list-opened) rather than for
-want of effort. `cleverly.estimators.ctmle` sets both out in full.
+is biased by 0.81 against 0.037. Second, there is no cross-language check: R's `ctmle` is not
+compared against here or in CI under the roadmap's
+[derivation-first validation decision](roadmap.md#standing-decisions).
+`cleverly.estimators.ctmle` sets both out in full.
 
 ## Doubly-robust inference: what the extra equations remove
 
@@ -442,7 +443,7 @@ and against a *perturbation of the law*, where in each half of the union model t
 is the efficient influence function row for row — from a real fit as well as longhand
 (`tests/unit/test_influence_gateaux_drtmle.py`). Nothing here has been compared against that
 package's *numbers* and nothing will be — a
-[decision](roadmap.md#closed-since-this-list-opened) rather than a gap, since agreement between
+[decision](roadmap.md#standing-decisions) rather than a gap, since agreement between
 two transcriptions of one source is evidence about the transcription. What remains open is the
 *inference*, not the curve: the roadmap's [What is still
 open](roadmap.md#what-is-still-open) is the full list.
@@ -502,9 +503,8 @@ The crossing runs all the way through to the **curve**, and for two revisions it
 the correction a guard's equation solves for is the one the curve subtracts, so `guard=("g",)`
 reports `D = D* - D*_Q` and never poses equation (9) at all. Subtracting a term whose equation
 a fit never solved leaves an arbitrary number in the curve — `1.2e-03` on the outcome scale
-against a `5.4e-06` bar on the measured case, with no truncation anywhere near it. That was
-roadmap item 23, and the derivation ruling on it was already in
-`tests/unit/test_remainder_drtmle.py`, which adds each correction under the guard whose
+against a `5.4e-06` bar on the measured case, with no truncation anywhere near it. The derivation
+ruling is pinned in `tests/unit/test_remainder_drtmle.py`, which adds each correction under the guard whose
 equation removes it. The unsolved equation's correction is still *reported*, as a diagnostic
 held to no threshold.
 
@@ -732,8 +732,8 @@ Two things this does **not** include, stated plainly because their absence is ea
 There is no comparison against another implementation — not R's `tmle`, not `tmle3`, not
 `ctmle` — and that is a standing decision: agreement with a second implementation is evidence
 about a transcription, and what is checked here instead is that each method produces what its
-derivation predicts. [The roadmap's item 2](roadmap.md#closed-since-this-list-opened) carries
-the reasoning. And `score_check()` passing is not evidence that the equation was the right one —
+derivation predicts. The roadmap's [standing decisions](roadmap.md#standing-decisions) carry the
+reasoning. And `score_check()` passing is not evidence that the equation was the right one —
 see below.
 
 ## How to read a refusal
@@ -750,7 +750,7 @@ question, or in the method itself.
 
 | section | where the problem is | what to do about it |
 | --- | --- | --- |
-| [Not written yet](#not-written-yet) | in this package | the parameter is well defined and its derivation is settled; nobody has written it here. Ask for it, or compute it elsewhere. The ones judged worth building are on the [roadmap](roadmap.md#refusals-worth-lifting) |
+| [Not written yet](#not-written-yet) | in this package | the parameter is well defined and nobody has written it here. Ask for it, compute it elsewhere, or contribute it; current candidates are on the [roadmap](roadmap.md#candidate-features) |
 | [A different question](#a-different-question) | in the question | what was asked for is a different estimand, usually with its own identification assumptions. Decide which one was meant; no flag here produces the other, and one that quietly did would be answering something nobody asked |
 | [Wrong by construction](#wrong-by-construction) | in the method | the naive version *runs* and returns a plausible number that is wrong, usually with a known direction of error. Read these as warnings about the analysis, not about this package's coverage |
 
@@ -774,15 +774,11 @@ so rather than implying the request was ill-posed.
 | blocked-temporal and rolling-origin splits | [cross-fitting](user-guide.md#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](user-guide.md#observation-weights-and-which-population-they-define) |
 
-Four rows have left this list entirely: `ATT` / `ATC` on a multi-valued treatment is
-roadmap item 1, observation weights for `LTMLE` is item 3, a working model over regimens is
-item 4, and `delta=`, `intermediate=` and weights with `shifts=` is item 5. A fifth row was
-*shortened* rather than removed — item 6 lifted the omitted-variable bound and the MNAR tilt
-on a multi-valued treatment and left `CTMLE` behind. All of them have landed, and the
-[roadmap](roadmap.md#refusals-worth-lifting)'s list is now empty. The row
-item 5 left behind is a narrower gap than the one it replaced: the tilt itself is written, and
-what is missing is the derivation saying whether the tilted parameter is still the shift
-parameter.
+Several former gaps have landed: `ATT` / `ATC` on a multi-valued treatment, observation weights
+and a working model over regimens for `LTMLE`, shift fits with `delta=`, `intermediate=` and
+weights, and multi-arm omitted-variable and MNAR sensitivity analyses. The remaining shift gap is
+narrower: the tilt itself is written, while the missing derivation must establish whether the
+tilted parameter is still the shift parameter.
 The rest are there because nobody
 has asked, not because anything stands in the way — with one exception worth naming:
 `CTMLE` on a multi-valued treatment is the only row here whose *derivation* is unsettled,

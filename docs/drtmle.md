@@ -196,8 +196,8 @@ reads the covariance rather than the sum of the arms.
 
 ### The sign of the mechanism correction
 
-**Resolved in favour of this implementation, on the working paper's own appendices.** It was a
-stop-ship, and nothing that reports a point estimate could have caught it, since all three
+**Resolved in favour of this implementation, on the working paper's own appendices.** Nothing
+that reports only a point estimate could have caught the discrepancy, since all three
 empirical means are driven to zero and what a flipped sign moves is the variance.
 
 *The charge.* The §3.1 display defines `D_A := −(Q_r/g)(A − g)`, with a leading minus, and

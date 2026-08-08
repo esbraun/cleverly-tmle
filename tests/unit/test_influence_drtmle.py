@@ -108,11 +108,11 @@ class TestTheTermsAreTheOnesTheSourceComputes:
 
 
 class TestOnlyTheGuardedEquationsCorrectionIsInTheCurve:
-    """``docs/roadmap.md`` item 23, at the arrays, with no fit anywhere in it.
+    """The partial-guard correction invariant at the arrays, with no fit anywhere in it.
 
     ``guard=`` is crossed: ``"Q"`` adds equation (9), which fluctuates ``g`` and whose
     correction is ``D*_g``; ``"g"`` adds equation (10) and ``D*_Q``.  A fit that solves one
-    of them must subtract one term, and until item 23 closed it subtracted both -- so the
+    of them must subtract one term; an earlier implementation subtracted both, so the
     unsolved equation's mean, which nothing had driven anywhere, went into the reported
     curve.
 
@@ -510,7 +510,7 @@ def stored_mechanism_score(reduced, bounds):
 
 
 class TestTheCorrectionsSplitIntoTheTermsTheEquationsSolve:
-    """Piece B1a's arithmetic, with no fit anywhere in it.
+    """The correction identity's arithmetic, with no fit anywhere in it.
 
     The reported curve subtracts one array per arm; the alternation records one score per
     arm per equation.  Whether those are the same statement is algebra, and algebra is
@@ -566,7 +566,7 @@ class TestTheCorrectionsSplitIntoTheTermsTheEquationsSolve:
     def test_the_clipping_bias_is_exactly_what_the_two_expressions_differ_by(
         self, arm: float
     ) -> None:
-        r"""The identity B1a exists to expose, per arm and with the weights carried.
+        r"""The correction identity, per arm and with the weights carried.
 
         :math:`P_n[w D^*_g] - S_g^{stored} = B_{clip}`, and *exactly*: both sides are the
         same rows of the same arrays, differing only in whether the residual reads the raw

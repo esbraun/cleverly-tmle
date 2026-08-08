@@ -64,7 +64,7 @@ assume otherwise, and the first two measured by running the mutation and watchin
 *pass*.  They are one degeneracy wearing four hats: a cell is blind to every mutation of a
 term it sets to zero.
 
-* **item 23** -- whether a fit subtracts a correction whose equation it never solved.  In
+* **Partial guards** -- whether a fit subtracts a correction whose equation it never solved. In
   each cell the *unguarded* correction is identically zero, so subtracting it changes
   nothing.  ``tests/unit/test_influence_drtmle.py`` covers it, at nuisances where both
   are wrong;
@@ -79,9 +79,9 @@ term it sets to zero.
   every conditioning cell is a singleton and the weight cancels.
   ``tests/unit/test_reduced_regressions.py`` and ``test_remainder_drtmle.py``'s ``TIED_G``
   / ``TIED_Q`` are where a genuine pooling is exercised;
-* **the cross-fitting construction (item 15).**  Same cause: at a singleton cell the pooled
+* **The cross-fitting construction.** Same cause: at a singleton cell the pooled
   construction and a nested one return the same arrays, so nothing here can separate them.
-  ``docs/roadmap.md``'s stop-ship 14 exists so that this module's agreement is not later
+  fixture preconditions ensure that this module's agreement is not later
   read as evidence about fold reuse -- which is the shape of the mistake the R-parity piece
   was retired for.
 
@@ -305,7 +305,7 @@ def longhand_curve(cell: str, name: str, *, sign: float = -1.0, swap: bool = Fal
 
     Both corrections are subtracted whatever the cell's guard is, because in each cell the
     unguarded one is **identically zero** -- see the module docstring: this instrument
-    cannot see item 23, and saying so costs nothing while pretending otherwise would cost
+    cannot see the partial-guard defect, and saying so costs nothing while pretending otherwise would cost
     the next reader an afternoon.
     """
     lookup = CELLS if cell in CELLS else DEGENERATE
@@ -508,7 +508,7 @@ class TestTheControlsBite:
         """The combination is a **difference**; a sum leaves twice the correction behind.
 
         This is the mutation :mod:`tests.unit.test_remainder_drtmle` records as invisible
-        to every exact-law check, and it is item 21's shape: what moves is the curve and
+        to every exact-law check, matching the sign discrepancy's shape: what moves is the curve and
         hence the variance, never :math:`\\hat\\Psi`.
         """
         wrong = longhand_curve(cell, name, sign=+1.0)[law.first_row_of()]
@@ -531,7 +531,7 @@ class TestTheControlsBite:
         So the mutation does not produce a wrong number there, it produces a division by
         zero -- which is a *stronger* statement than "the test passes anyway" and is worth
         one assertion rather than a silently narrower parametrisation.  It is the same
-        degeneracy the module docstring records against item 23, in a second place: a cell
+        degeneracy the module docstring records for partial guards, in a second place: a cell
         is blind to every mutation of a term it sets to zero.
         """
         g_hat, q_hat, _ = CELLS["g_right"]
@@ -549,8 +549,7 @@ class TestTheControlsBite:
         is the plain one and the comparison holds *whatever* the combination's sign is.
         An instrument for this variant that is only ever run here says nothing at all --
         which is what every ``test_influence_gateaux*`` module before this one is, on this
-        estimator, and it is the whole of
-        lesson 2 of ``docs/roadmap.md``'s *What the sizings got wrong*.
+        estimator. The fixture must make the correction nonzero for its sign to be testable.
         """
         for sign in (-1.0, +1.0):
             curve = longhand_curve(cell, name, sign=sign)[law.first_row_of()]

@@ -95,7 +95,7 @@ _UNSOLVED = 1e-6
 #: its relative score says.  This exists because the relative test is the wrong instrument
 #: for two of the three, and the reason is structural rather than a matter of taste.  What
 #: the bar *is* -- a numerical criterion rather than a proxy for what ``score_check`` applies
-#: to the reported fit -- is that function's, and is item 12.
+#: to the reported fit -- is that function's responsibility.
 #:
 #: :func:`~cleverly.fluctuation._score.relative_score` divides by ``mean|w h|``, which
 #: :func:`~cleverly.fluctuation._score.score_scale` documents as "the largest the score
@@ -106,7 +106,7 @@ _UNSOLVED = 1e-6
 #: ``5.1e-2`` and ``4.9e-3`` on a ``nonlinear`` one.  Asking for ``spec.tol`` *of that* is
 #: asking for an absolute score near ``1e-13``, six orders below the point at which the
 #: score stops mattering.  Equation (9) cannot reach ``spec.tol`` for a different reason
-#: and one already written down as item 5: its covariate reads the very mechanism it
+#: because its covariate reads the very mechanism it
 #: tilts, so a solve zeroes the score at the pre-tilt covariate and leaves a residual at
 #: the post-tilt one.  Neither is a solver that failed; both are rulers with the wrong
 #: zero, and on the round a 400-row fit gave up at they read ``2.3e-8`` and ``3.9e-8``
@@ -123,8 +123,8 @@ _NEGLIGIBLE = 1e-3
 def _negligible_bar(n: int) -> float:
     r"""The loop's absolute bar at ``n``: :math:`c_n/\sqrt n` with :math:`c_n \to 0` slowly.
 
-    **This is a numerical criterion in its own right and not a proxy for the reported one**,
-    which is ``docs/roadmap.md`` item 12 and the half of it B1a did not close.  Asymptotic
+    **This is a numerical criterion in its own right and not a proxy for the reported one.**
+    Asymptotic
     linearity asks for :math:`P_n D = o_p(n^{-1/2})`, and the honest finite-sample rendering
     of an :math:`o` is a *deterministic* sequence :math:`c_n/\sqrt n` whose :math:`c_n` tends
     to zero: here :math:`c_n = 10^{-3}/\sqrt n`, so the bar is ``1e-3 / n`` and
@@ -159,8 +159,8 @@ def _solved(relative: float, absolute: float, tol: float, negligible: float) -> 
     goes on doing the stopping for equation (8) and nothing about a well-conditioned fit
     changes.  The absolute test is what lets equations (9) and (10) stop at all: both have
     a covariate that is small or that moves under its own solve, and neither can reach
-    ``tol`` *of its own magnitude* -- which is a fact about the derivation, recorded as
-    items 5 to 7 of ``docs/roadmap.md``, rather than a solver that needs more rounds.
+    ``tol`` *of its own magnitude* -- a fact about the derived equations rather than a
+    solver that needs more rounds.
     """
     return relative <= tol or absolute <= negligible
 
@@ -180,7 +180,8 @@ ReductionExit = Literal["tolerance", "stall", "cap"]
 #: exit rather than two estimators: the 2016 working paper's step 7 states its own
 #: termination as the three empirical means being approximately zero, so the order it writes
 #: down is one way of reaching a fixed point and not part of what Theorem 1 assumes about the
-#: collection returned.  That is ``docs/roadmap.md``'s item 22, whose theoretical half closed
+#: collection returned. This supports the empirical update-order comparison; its theoretical
+#: half closed
 #: on reading the paper and whose numerical half -- *do the two routes reach the same fixed
 #: point on real data* -- is a measurement, and needs the second route to exist here.
 #:
@@ -741,7 +742,7 @@ class ReductionFluctuation:
         reported curve subtracts** -- :func:`~cleverly.estimators.tmle.correction_parts`
         reads it off here, so a fit reloaded from disk selects the same terms its
         estimator did.  It was on this record and read by the validation layer alone while
-        the curve subtracted both, which was ``docs/roadmap.md``'s item 23.
+        the curve subtracted both, violating the partial-guard correction invariant.
     epsilon, score, score_scale, score_initial, names:
         Equation (10)'s fluctuation, reported on the same footing as the outcome
         fluctuation's so the two can sit in one table.  ``epsilon`` is the **last round's**
@@ -840,7 +841,7 @@ def needs_reduction(nuisance: NuisanceEstimates, group: TargetGroup) -> bool:
 class _Companion:
     r"""The fit's nuisances at the evaluation rows, moved in lockstep with the fitted ones.
 
-    ``docs/roadmap.md``'s item 13 needs :math:`P_0\hat D`, and a curve is a function of
+    The remainder diagnostic needs :math:`P_0\hat D`, and a curve is a function of
     :math:`(W, A, Y)`: it has to be *evaluated* somewhere the fit did not look.  The primary
     and reduced regressions at those rows come from the same fitted models
     (:func:`~cleverly.estimators._nuisance.cross_fit_companion`); what this class does is
@@ -1051,7 +1052,7 @@ def solve_with_reduction(
     approximately zero, so its six-step order is one way of reaching a fixed point rather
     than something Theorem 1 assumes about the collection returned; ``"paper"`` implements
     it beside this one so that *whether the two reach the same fixed point on real data* is
-    a run rather than an argument (``docs/roadmap.md``'s item 22).  What the second route
+    a run rather than an argument. What the second route
     does **not** get is a second stopping rule, a second stall test or a second closing pass:
     it shares all three, because the question is the route and a comparison in which two
     things differ answers nothing.
@@ -1069,7 +1070,7 @@ def solve_with_reduction(
     terminates.
 
     **What that argument buys is termination, and it is not a convergence proof.**  It is
-    ``docs/roadmap.md`` item 19, and the distinction is easy to lose because the two
+    the open convergence question, and the distinction is easy to lose because the two
     conclusions sound alike.  A bounded monotone sequence converges **in value** -- that is
     why this loop stops, and it is the whole of what the ascent gives.  It says nothing about
     the *iterates* approaching a common zero of the three score equations, and under a
@@ -1089,8 +1090,8 @@ def solve_with_reduction(
     objective would not climb and the worst relative score would not improve, which on a
     problem whose covariate nearly vanishes is where the iteration is *supposed* to stop; what
     decides whether such a fit is reportable is its scores, which is a separate question and
-    a separate reader (``score_check``).  Under the exit criterion this loop had until item 7
-    a stall was also the *usual* exit -- 86 of 96 swept fits -- and reading that as failure is
+    a separate reader (``score_check``). Under the former relative-score exit criterion, a stall
+    was also the *usual* exit -- 86 of 96 swept fits -- and reading that as failure is
     what the sentence above is written against.  It no longer is the usual exit, for the
     reason below, but the wording would have been wrong either way.
 
@@ -1130,7 +1131,7 @@ def solve_with_reduction(
     conditioning; :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
 
     **Swept twice over the same 96 fits** -- four processes by two sizes by twelve seeds,
-    first under the criterion item 7 replaced and then under the one in force.  The first
+    first under the former relative-score criterion and then under the one in force. The first
     sweep replaced a six-fit claim that had stood here
     ("converged in 15 to 45 rounds", one process) and found the loop mostly *stalling*: 2 of
     96 reached the tolerance, 86 stalled, 8 ran out of rounds.  **The second inverts it: 87
@@ -1192,7 +1193,7 @@ def solve_with_reduction(
     inner_g = None if nuisance.inner is None else nuisance.inner.propensity_arm(upper)
     inner_extra: tuple[InitialFit, ...] | None = None
     # The evaluation companion, or `None` on every fit that declared no `evaluation=` --
-    # which is every fit but the one `docs/roadmap.md`'s item 13 reads its remainder off.
+    # which is every fit except the diagnostic that evaluates the remainder against truth.
     # It travels beside `inner_q`/`inner_g` in the same `carry`, contributes to no solve and
     # is split back out by `_split_carried`.
     companion = None if nuisance.companion is None else _Companion.of(nuisance, nuisance.companion)
@@ -1336,7 +1337,7 @@ def solve_with_reduction(
                 # The **truncated** tilt, which is what makes the next round's offset, every
                 # later covariate and the reported correction read one array. Carrying the
                 # raw one forward is what left a clipped row outside the bounds for the rest
-                # of the fit, and it was the load-bearing half of item 20.
+                # of the fit, which is the load-bearing half of the centring identity.
                 targeted_g = mechanism.propensity
                 inner_g, tail = _split_carried(mechanism.carried, inner_g)
                 if companion is not None:
@@ -1606,8 +1607,8 @@ def _restated_outcome_score(
     reported fit could see**: it was run, and 68 of ``tests/unit/test_drtmle_fit.py``'s 69
     tests still passed, because :func:`_close_at_frozen_reductions` re-solves all three
     equations at the reductions the record carries and makes the reported fit identical
-    either way.  That is ``docs/roadmap.md`` item 12's shape in a second place, and it is
-    lesson 12 of the investigation log: the closing pass is an anaesthetic, so a defect in
+    either way. That is the same numerical-versus-reported-score distinction in a second place.
+    The closing pass is an anaesthetic, so a defect in
     how the loop *exits* has to be caught at the loop rather than at the fit.  What keeps the
     no-op a no-op is
     ``tests/unit/test_fluctuation_score.py``, which pins the solver-side identity this rests
@@ -1710,16 +1711,15 @@ def _close_at_frozen_reductions(
     that a reader is not left to infer convergence from a step count that has no other way
     of saying which it was.
 
-    **"All three equations are solved at the arrays the curve is built from" is true, and it
-    is worth recording that it was false until piece B1b.**  The arrays were always the
+    **All three equations are solved at the arrays the curve is built from.** The arrays were
+    always the
     same arrays; the *expressions* were not.  This stage used to solve
     :math:`P_n[H_g (A - g^*)] = 0` at the **raw** tilted mechanism, while
     :func:`~cleverly.inference.influence.reduced_corrections` truncates :math:`g^*` inside
     its residual as well as in its denominator -- so the two coincided on every row the
     truncation left alone and differed on every row it clipped, and one clipped row of 600
     was enough to leave the reported curve uncentred by ``5.8e-4`` while this stage recorded
-    ``8e-11``.  That was item 20 in ``docs/roadmap.md`` and it accounted for item 11 as well;
-    ``docs/drtmle.md``'s *The bound-inactive scope* is what the fix left behind.
+    ``8e-11``. ``docs/drtmle.md``'s *The bound-inactive scope* states the resulting contract.
 
     :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` is what closed it: it
     solves the score at the **truncated** tilt, which is the expression the reported curve

@@ -67,7 +67,7 @@ def ordinary():
 
 @pytest.fixture(scope="module")
 def repeated():
-    """Two draws, which is the whole marginal cost of item 18 and is enough for it.
+    """Two draws, enough to verify that repeated cross-fitting changes the reductions.
 
     ``repeats=`` costs one full fit per draw and a fit here is ~25s, so this fixture is the
     most expensive thing in the module after ``fit``. Two rather than three deliberately:
@@ -274,7 +274,7 @@ class TestTheCurveReadsWhatTheAlternationLeft:
 
 
 class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
-    r"""Piece B1a on a fit that has nothing wrong with it, which is half of what it is for.
+    r"""The correction identity on a fit that has nothing wrong with it.
 
     ``tests/unit/test_influence_drtmle.py`` checks the algebra on hand-built arrays; what is
     checked here is that a real fit's returned state reaches it -- the refitted reductions,
@@ -282,7 +282,7 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
     array-level fixture exercises.
 
     This fixture's draw clips **nothing**, so every identity below holds under every
-    convention piece B1b might select.  That makes it a weak test of the identity and the
+    bounded convention might select. That makes it a weak test of the identity and the
     right test of everything around it: that the rows exist, one per arm and per equation,
     before any contrast; that a clean fit is not accused of anything; and that
     :math:`B_{clip}` is exactly zero where the bound never binds, which is what makes it a
@@ -435,25 +435,25 @@ def single_guard():
     ``frame()`` rather than a fresh draw for three reasons: no second sample to fit, the
     same draw as ``fit`` so the two are comparable, and -- decisively -- this draw is
     already known to clip **zero** rows, which is the precondition that makes what follows
-    item 23 and not item 20 wearing a different hat.
+    the partial-guard defect rather than bounded-mechanism centring in another guise.
     """
     return DRTMLE(guard=("g",), **SETTINGS).fit(frame(), outcome="Y", treatment="A").single()
 
 
 class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
-    """``docs/roadmap.md`` item 23, end to end, which is where it was never checked.
+    """The partial-guard correction invariant, fitted end to end.
 
     ``guard=`` is crossed, so a fit guarding ``"g"`` solves equation (10) and subtracts
     ``D*_Q``, and never poses equation (9) at all.  It used to subtract ``D*_g`` anyway --
     a term whose mean nothing had driven anywhere.  Nothing here saw it because no test in
-    this repository fitted a partial guard end to end; B1a's instrument found it on its
+    this repository fitted a partial guard end to end; the correction check found it on its
     first run against one.
     """
 
     def test_the_preconditions_this_reads_as_item_23_under(self, single_guard) -> None:
         """Asserted rather than assumed, because each one is how it could be a different bug.
 
-        Zero clipped rows is what separates this from item 20, whose whole mechanism is the
+        Zero clipped rows separates this from the bounded-mechanism defect, whose mechanism is the
         truncation.  No mechanism fluctuation is what says equation (9) was never posed --
         so ``D*_g``'s mean here is not a solver's residual but an arbitrary number.
         """
@@ -468,7 +468,7 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
 
         Measured at ``1.2e-03`` and ``3.1e-04`` on the outcome scale against a ``5.4e-06``
         bar -- 225 and 58 times over, on the *good*-overlap draw this module fits
-        everything else on.  Before item 23 closed, these went into the reported curve.
+        everything else on. An earlier implementation put these into the reported curve.
         """
         check = single_guard.validation.correction_check()
         unsolved = [row for row in check.rows if row.equation == "D*_g"]
@@ -710,7 +710,7 @@ class TestAnEquationStopsOnEitherRuler:
         """The change loosens which ruler is used, not what counts as solved on either.
 
         ``1e-3`` absolute is roughly the worst score the weak-overlap fits report, and they
-        are the ones the diagnostic must go on failing -- see item 11.
+        are the ones the diagnostic must continue failing.
         """
         assert not _solved(relative=2.3e-8, absolute=1e-3, tol=self.TOL, negligible=self.NEGLIGIBLE)
 
@@ -727,7 +727,7 @@ class TestAnEquationStopsOnEitherRuler:
     def test_the_bar_renders_an_o_and_not_an_O(self) -> None:
         r"""``bar(n) * sqrt(n) -> 0``, which is what makes it a rendering of :math:`o_p(n^{-1/2})`.
 
-        This is item 12's second half and the property the bar's *own* justification now
+        This is the reported-score half and the property the bar's *own* justification now
         rests on.  It used to rest on ``score_check``'s ``tolerance * se / sqrt(n)`` with
         ``se = O(n**-0.5)`` substituted in -- an assumption, and a circular one, since the
         loop runs before the estimate exists.  Asymptotic linearity asks for
@@ -922,7 +922,7 @@ class TestEachDrawSolvesItsOwnEquations:
         assert sum(1 for row in check.rows if row.kind == "fluctuation") == 6
 
     def test_the_reductions_follow_the_draw(self, repeated) -> None:
-        """The claim item 18 rests on: ``repeats=`` varies the reductions, not only the folds.
+        """``repeats=`` varies the reductions, not only the primary folds.
 
         A draw's reduced regressions are fitted against *that* draw's folds, so two draws
         hold two different ``Qr``. If they did not, the average would be over fits that
@@ -959,7 +959,7 @@ class TestEachDrawSolvesItsOwnEquations:
 
 
 class TestTheReportedCurveIsCentredWhereTheBoundBinds:
-    r"""The draw that found item 20, kept as the regression test that it is fixed.
+    r"""The draw that exposed bounded-mechanism centring, kept as a regression fixture.
 
     **What this fixture was.**  On a quarter of splits the curve the interval is built from
     had a mean five or six orders of magnitude above the bar, while all three fluctuation
@@ -979,20 +979,20 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
     company on every row it clipped.  Draw 0 clipped **0** of 600 and was centred at
     ``1e-11``; draw 1 clipped **5** and was off by ``2.3e-04``.
 
-    **What closed it, and what this class asserts now.**  Piece B1b put
+    **What this class asserts now.** Bounded targeting puts
     :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` at the ``DRTMLE`` call
     sites: the score is solved at the truncated tilt, which is the expression the curve
     carries, and the alternation carries that truncated array forward.  So the identity
-    **holds** on the draw it used to fail on, and the assertions below are the ones B1a
+    **holds** on the draw it used to fail on, and the assertions below are the correction checks
     wrote, unchanged in tolerance -- per arm, before the contrast, weighted, on one outcome
     scale -- with their verdicts the other way up.  Nothing here was loosened to make them
     pass, which is the only reason they are worth reading.
 
     **This fixture is still the right one and the witness had to change.**  The condition
-    B1a states is that the identity be checked where the bound *binds*, and
+    The identity must be checked where the bound *binds*, and
     ``CorrectionRow.clipped`` -- the count at the exit -- is now **zero on every fit by
     construction**, since a converged tilt sits inside the bounds.  Selecting a fixture on
-    it would select nothing at all: ``docs/roadmap.md``'s stop-ship 14 in a second place.
+    it would select nothing at all, making the check degenerate.
     :attr:`~cleverly.validation.CorrectionRow.margin` is what says draw 1 is still the hard
     one, and this class asserts it below.
 
@@ -1010,7 +1010,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
     draw of a repeated fit is an ordinary fit, and the affected draws included first draws.
     What ``repeats=`` did was give the module more than one split to look at.
 
-    ``score_check`` caught this before B1a, on the *influence-curve* rows, which are
+    ``score_check`` caught this before the dedicated correction check, on the *influence-curve* rows, which are
     computed from the curve rather than from a record of what the solver reported -- item
     16, arriving on the first case nobody constructed.  What it could not do is say which
     arm, which equation, or that the cause was an expression rather than a solver, and a
@@ -1025,7 +1025,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
 
         A draw where the bound never bit satisfies the identity under every convention, so a
         fixture chosen for that would prove nothing.  What makes draw 1 evidence is that its
-        *initial* mechanism leaves the bounds -- the precondition item 20 needed and the one
+        *initial* mechanism leaves the bounds -- the precondition the centring defect needed and the one
         thing here the targeting convention cannot have moved.
         """
         rows = repeated.validation.correction_check().rows
@@ -1043,7 +1043,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         The alternation carries the truncated tilt forward, so at a fixed point there is no
         raw array left for the clipping bias to measure a distance to.  Asserting it is
         exactly zero rather than negligible is the point: a small non-zero here would mean a
-        row still sitting outside the bounds at the exit, which is the state item 20 was.
+        row still sitting outside the bounds at the exit, which was the failing state.
         """
         check = repeated.validation.correction_check()
 
@@ -1062,8 +1062,8 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
     def test_the_score_check_passes_on_every_kind_of_row(self, repeated) -> None:
         """The rows that used to fail, named, so a regression names itself rather than a count.
 
-        The two identity rows below are the ones item 20 broke, and the estimand rows were
-        the only witness before B1a existed.  Asserting the *names* rather than
+        The two identity rows below are the ones the centring defect broke, and the estimand rows were
+        the only witness before the dedicated correction check existed. Asserting the *names* rather than
         ``check.passed`` alone is what makes this fail loudly on the draw it was written for
         rather than quietly somewhere else.
         """
@@ -1079,9 +1079,9 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
     def test_and_the_summary_says_nothing_because_there_is_nothing_to_say(self, repeated) -> None:
         """Item 16's machinery, from the other side.
 
-        A passing fit prints no extra line -- which is item 16's narrower half, and is why
+        A passing fit prints no extra line, which is why
         every transcript in the README and the guide is unchanged.  The three phrases below
-        are the defect wording B1a introduced, and none of them belongs on this fit now.
+        describe the identity defect, and none of them belongs on this fit now.
         """
         summary = repeated.summary()
         assert "score check: FAIL" not in summary
@@ -1116,7 +1116,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         """The two numbers that used to disagree by five orders, now on the same side.
 
         The curve's mean was ``2e-04`` on this fixture while every fluctuation row reported
-        ``1e-11``, and the gap between them *was* item 20 -- the reported curve and the
+        ``1e-11``, and the gap between them was the defect -- the reported curve and the
         solver's record describing different expressions.  Both are read here rather than
         only the first, because a curve that is centred while the rows are not, or the
         reverse, is the state this piece closed and neither number alone would say so.
@@ -1140,7 +1140,7 @@ def pinched():
 
     A *lever* rather than a hard process: ``g_bounds=(0.3, 0.7)`` on this module's own
     process clips the initial mechanism, pins the tilt to the boundary and floors
-    :math:`g_{r,1}`, which is all three of item 25's truncations at 400 rows and ~5s.
+    :math:`g_{r,1}`, which activates all three relevant truncations at 400 rows and ~5s.
     ``weak_overlap_dgp`` reaches the same state at ``g_bounds="auto"`` and costs several
     times as much for a claim about a *witness* rather than about a process -- and the sweep
     already measures it there (``clip share`` ``0.231`` to ``0.338``).
@@ -1177,7 +1177,7 @@ class TestTheContractSaysWhichEstimator:
     :math:`g_0 > \\delta` says nothing about it.
 
     **The pair of fits is the test.**  A label that only ever read ``"theorem"`` would be
-    stop-ship 14 for a third time -- a column that could not disagree -- so the class fits
+    a degenerate check for a third time -- a column that could not disagree -- so the class fits
     one of each and asserts they disagree.
     """
 
@@ -1213,7 +1213,7 @@ class TestTheContractSaysWhichEstimator:
         """The mistake this class exists not to make, asserted rather than promised.
 
         Every identity holds and every score is negligible on exactly these fits -- that is
-        what B1b measured on ``weak_overlap`` at a forced bound -- so folding the label into
+        what bounded targeting measured on ``weak_overlap`` at a forced bound -- so folding the label into
         a verdict would report a sound fit as broken, and a reader would route around the
         regime the variant is most needed in.
         """
@@ -1228,7 +1228,7 @@ class TestTheContractSaysWhichEstimator:
     def test_the_label_and_its_three_numbers_are_on_the_face_of_the_check(self, pinched) -> None:
         """A user must not have to recompute ``clip share`` the way the sweep does.
 
-        Which is what item 25's remaining work was: the summary names the contract and the
+        The summary names the contract and the
         frame carries the two new columns per draw, so "which side of the line is this fit
         on" is a read rather than an analysis.
         """
@@ -1273,7 +1273,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
     half: whether the two routes land in the same place on real data.
 
     **What is checkable here is one draw, and the distribution is
-    [B2b](../../docs/roadmap.md)'s.**  A single fit cannot say the two orders agree
+    the update-order comparison.** A single fit cannot say the two orders agree
     *generally*; what it can say is that the second route exists, exits where the theorem
     asks, and does not move this fit's estimate -- and that is the precondition for the
     sweep being worth dispatching at all.  The numbers below were measured before they were
@@ -1302,7 +1302,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
             assert abs(row.residual) < 1e-15, row.name
 
     def test_the_two_routes_agree_on_the_estimate(self, fit, paper) -> None:
-        """The comparison item 22 asks for, in the units it has to be read in.
+        """The update-order comparison, in the units it has to be read in.
 
         A difference between two fixed points is only meaningful beside the standard error
         of the thing being estimated, so the bar is a share of ``se`` rather than an absolute
@@ -1337,9 +1337,9 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         corrections subtracted, and so a different :math:`\sigma^2_n`.
 
         So the bar here is deliberately wide and deliberately *not* a pass mark: whether a
-        couple of per cent is what this gap always is, or whether it opens up under weak
-        overlap, is a distribution over draws and is the sweep's -- ``docs/roadmap.md``'s
-        piece B2b, whose paper-order arm reports exactly this ratio.  What one draw can pin
+        couple of per cent is what this gap always is, or whether it opens under weak overlap,
+        requires a distribution over draws. The update-order comparison's paper-order arm reports
+        exactly this ratio. What one draw can pin
         is that the gap is in the variance rather than in the estimate, which is the thing a
         reader would otherwise assume the other way round.
         """
@@ -1384,7 +1384,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         sequence of *solves* instead, which is what the order is.
 
         Two hooks on the targeting module's namespace and nothing in the library moved,
-        which is how B1b's prototype is recorded as having been run.
+        matching the bounded-targeting prototype configuration.
         The first round is all that is asserted: a round is the unit the order is defined
         over, and later rounds repeat it.
         """
