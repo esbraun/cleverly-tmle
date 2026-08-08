@@ -30,6 +30,7 @@ import pytest
 from cleverly.estimators._nuisance import NuisanceEstimates, Propensity
 from cleverly.estimators.reduced import ReducedSet, fit_reduced
 from cleverly.estimators.targeting import (
+    _UNSOLVED,
     ReductionSpec,
     TargetingSpec,
     build_submodel,
@@ -214,6 +215,40 @@ class TestHowTheLoopExited:
 
         assert reduction.exit_reason == "cap"
         assert reduction.n_outer == 1
+        assert reduction.failure is None
+
+    @pytest.mark.parametrize("max_outer", [1, 2, 50])
+    def test_without_the_closing_pass_the_scores_would_fail(self, max_outer: int) -> None:
+        """The pass is load-bearing on **every** fit here, not only on a capped one.
+
+        "Remove the closing pass and the scores fail" is checkable off the record rather than
+        by patching the function out, which is the better instrument because patching would
+        have to rebuild the record the pass returns and could only be wrong in its own way.
+        :attr:`ReductionFluctuation.trace` carries one row per **refitting** round and then
+        one final row for the pass, so the loop's own last row *is* the state a fit without
+        the pass would report -- and each row is ``(round, outcome, reduced, mechanism,
+        joint)``, so the worst of the three scores is ``max(row[1:4])``.
+
+        Measured across the cap: the loop's last row is ``4.4e-02`` at one round, ``3.7e-04``
+        at two and ``2.2e-06`` at its own natural exit -- above :data:`_UNSOLVED` in all
+        three -- against ``1.1e-11``, ``2.1e-10`` and ``5.4e-11`` after the pass.  So even the
+        loop that terminated on its own tolerance leaves equations the reported curve would
+        not satisfy, which is the whole reason the alternation does not simply stop.
+
+        The reason is structural rather than a matter of tuning: the loop solves equation (9)
+        at the *previous* round's reductions and equation (10) at the current round's first
+        refit, then refits once more before the record is built -- so neither extra equation
+        is ever solved at the arrays the curve is finally built from.
+        """
+        reduction = alternate(WRONG_G, WRONG_Q, max_outer=max_outer).reduction
+        *loop, closing = reduction.trace
+
+        assert len(loop) == reduction.rounds, "the trace's shape is not one row per round"
+        assert max(loop[-1][1:4]) > _UNSOLVED, (
+            "the loop's own exit already satisfies the equations, so this fixture cannot "
+            "see whether the closing pass does anything"
+        )
+        assert max(closing[1:4]) <= _UNSOLVED
         assert reduction.failure is None
 
     def test_the_closing_pass_reports_its_own_cap_separately(self) -> None:

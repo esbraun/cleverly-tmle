@@ -1,17 +1,18 @@
 r"""Is the evaluation companion the fit's own state, at rows the fit never saw?
 
-``docs/roadmap.md``'s **item 13** asks whether the corrected remainder
+``evaluation=`` exists to make the corrected remainder
 
 .. code-block:: text
 
     R_remaining = psi-hat - psi_0 - (P_n - P_0) D-hat_DR
 
-vanishes at root-``n``, and ``docs/drtmle/validation-plan.md`` §5 refuses :math:`P_n\hat D`
-as a substitute for :math:`P_0\hat D` **by name** -- that is the quantity targeting drove to
-zero, so it answers a different question.  :math:`P_0\hat D` needs the curve as a *function*
-of :math:`(W, A, Y)`, and an array of out-of-fold predictions defines one nowhere.
-``DRTMLE(evaluation=...)`` is what supplies it, and this module is what says the thing it
-supplies is the fit's own state rather than something that resembles it.
+computable, which needs :math:`P_0\hat D` -- and :math:`P_n\hat D` is **refused** as a
+substitute for it, since that is the quantity targeting drove to zero and it answers a
+different question.  :math:`P_0\hat D` needs the curve as a *function* of :math:`(W, A, Y)`,
+and an array of out-of-fold predictions defines one nowhere.  ``DRTMLE(evaluation=...)``
+supplies it, and this module is what says the thing it supplies is the fit's own state
+rather than something that resembles it.  ``docs/drtmle.md``'s *The remainder terms, and the
+rate conditions* is what the quantity is for.
 
 **Two claims, and they fail against different mutations.**
 
@@ -230,7 +231,14 @@ class TestTheIdentityIsNotVacuous:
 
 
 class TestTheFoldWeightsAreTheEstimators:
-    """Section 5's averaging convention is ``n_k / n``, not an equal weighting."""
+    """The averaging convention is ``n_k / n`` -- the **held-out counts** -- not equal weights.
+
+    The two coincide only on a balanced split, so an implementation that returned
+    ``1/K`` would pass every other test in this module and be silently wrong wherever
+    ``n`` is not a multiple of ``K`` or the split is stratified.  This is the one place
+    the convention is asserted; :mod:`tests.unit.test_drtmle_crossfit` says so and does
+    not repeat it.
+    """
 
     def test_the_weights_are_the_held_out_counts(self, paired: Any) -> None:
         companion = paired.nuisance.companion

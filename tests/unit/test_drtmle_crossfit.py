@@ -1,35 +1,56 @@
-r"""Does the nested construction train where it says it does, and change only that?
+r"""The public ``reduced_crossfit`` contract: where each construction trains, and what moves.
 
-``docs/roadmap.md``'s item 15 asks whether the reduced regressions' **pooled** cross-fitting
-satisfies the empirical-process conditions of the DRTMLE expansion.  The argument for it is
-in ``docs/drtmle/theorem-concordance.md`` §8 and it turns on one quantity being small:
-:math:`\Delta_k`, the difference between fold ``k``'s reduced regression as fitted and the
+``DRTMLE(reduced_crossfit=...)`` takes ``"pooled"`` (the default) or ``"nested"``, and
+``docs/drtmle.md``'s *Reduced-regression cross-fitting* is the argument the pair exists for.
+The short version: the cross-fitting argument for the cheap construction splits into a term
+the ordinary lemma reaches and a term it does not, and what is left over is
+:math:`\Delta_k` -- the difference between fold ``k``'s reduced regression as fitted and the
 same regression fitted on designs and targets that never saw fold ``k``.  That second object
-is ``reduced_crossfit="nested"``, and this module is what says the arm computes it.
+*is* ``"nested"``, so :math:`\Delta_k` is the pooled-minus-nested difference and the keyword
+is a **diagnostic rather than a tuning one**.  This module is what says each arm computes
+what it claims to.
 
-**Three things have to be true and each is a different kind of claim.**
+**Five kinds of claim, and they are different kinds.**
 
-* the training rows of fold ``k``'s reduced regression read fold-free arrays, and the row it
-  *predicts* reads the production one -- **structural**, and asserted at the call site rather
-  than inferred from a number, because both designs are plausible arrays of the right shape
-  and swapping them changes an estimator silently;
-* where the fold-free arrays coincide with the production ones the two constructions
-  coincide **bit for bit** -- which is the degenerate control, and the only thing that pins
-  the whole transfer through the alternation in one equality;
-* where they do not coincide the two constructions **differ** -- without which the arm could
-  be measuring nothing, and every equality above would be passing for the wrong reason.
+* **Routing, structural.**  The training rows of fold ``k``'s reduced regression read the
+  arrays that arm says they do -- fold-free under ``"nested"``, production under
+  ``"pooled"`` -- and the row it *predicts* reads the production one either way.  Asserted at
+  the call site rather than inferred from a number, because both designs are plausible arrays
+  of the right shape and swapping them changes an estimator silently.
+* **Routing, longhand.**  With a saturated reduction learner each construction's fitted value
+  is a cell mean over a nameable set of rows, and both are written out: ``"nested"`` leaves
+  two folds out, ``"pooled"`` leaves one.
+* **The supplied split is honoured exactly.**  Entry ``k`` of the fold-free designs comes
+  from models fitted with outer fold ``k`` removed, against the caller's own partition and no
+  second split; a set built against another partition is refused.
+* **Degeneracy and non-vacuity together.**  Where the fold-free arrays coincide with the
+  production ones the two constructions coincide **bit for bit**, which is the only thing
+  pinning the whole transfer through the alternation in one equality; and where they do not
+  coincide the two **differ**, without which every equality here would pass for the wrong
+  reason.
+* **Invariance.**  Reordering the rows reorders the answer and changes nothing else.
 
-**What the second of those corrects.**  ``docs/roadmap.md``'s stop-ship 14 and the
-concordance's §8 both said :mod:`tests.unit.test_influence_gateaux_drtmle` is silent about
-this construction "because every conditioning cell is a singleton at saturated reductions".
-That reason is wrong twice over: on this law the design takes three values over a thousand
-rows, so the cells are not singletons; and saturation of the *reduction* has nothing to do
-with it -- under a primary learner that learns, an inner model and an outer model disagree
-and any reduction learner returns different arrays.  The operative reason is that the module
-fits at ``cross_fit=False`` and at oracle primary learners: one fold has no complement to
-nest inside, and a learner that ignores its training rows returns the same function whichever
-rows it saw.  :class:`TestADataIndependentPrimaryLearnerMakesTheTwoConstructionsAgree` is
-that corrected statement, asserted rather than described -- and it is deliberately kept as a
+Both arms are held to the same score and identity checks, so neither is green by being
+exercised more gently than the other.
+
+**One neighbouring claim deliberately lives elsewhere.**  That a companion's fold weights are
+the **held-out row counts** -- ``n_k/n``, not equal weights, which coincide only on a balanced
+split -- is asserted in :mod:`tests.unit.test_drtmle_companion` beside the rest of the
+``evaluation=`` contract.  It is a property of :class:`~cleverly.estimators._nuisance.
+CompanionEstimates` rather than of this keyword, and asserting it in two places would let the
+two drift.
+
+**What the degeneracy control corrects.**  ``docs/roadmap.md``'s stop-ship 14 once said
+:mod:`tests.unit.test_influence_gateaux_drtmle` is silent about this construction "because
+every conditioning cell is a singleton at saturated reductions".  That reason is wrong twice
+over: on this law the design takes three values over a thousand rows, so the cells are not
+singletons; and saturation of the *reduction* has nothing to do with it -- under a primary
+learner that learns, an inner model and an outer model disagree and any reduction learner
+returns different arrays.  The operative reason is that the module fits at
+``cross_fit=False`` and at oracle primary learners: one fold has no complement to nest
+inside, and a learner that ignores its training rows returns the same function whichever rows
+it saw.  :class:`TestADataIndependentPrimaryLearnerMakesTheTwoConstructionsAgree` is that
+corrected statement, asserted rather than described -- and it is deliberately kept as a
 mutation watched to **pass**, because it is the shape of agreement that says nothing.
 """
 
@@ -42,12 +63,18 @@ import numpy as np
 import pytest
 
 from cleverly import DRTMLE
+from cleverly.data import CausalData
 from cleverly.estimators import _nuisance as nuisance_module
 from cleverly.estimators import drtmle as drtmle_module
 from cleverly.estimators import reduced as reduced_module
-from cleverly.estimators._nuisance import InnerDesigns, Propensity, fit_inner_designs
+from cleverly.estimators._nuisance import (
+    InitialFit,
+    InnerDesigns,
+    Propensity,
+    fit_inner_designs,
+)
 from cleverly.estimators.reduced import ReducedSet, fit_reduced
-from cleverly.learners import make_folds
+from cleverly.learners import Folds, make_folds
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.discrete_law_longitudinal import CellMeans
@@ -219,6 +246,101 @@ class TestTheEvaluationDesignStaysTheProductionOne:
                 assert fitted.qr[row, column] == pytest.approx(
                     float(np.mean(target[pool])), abs=1e-12, rel=0
                 )
+
+
+class TestThePooledConstructionTrainsOnOneFoldsComplement:
+    r"""The **default** arm, written out rather than left as the nested arm's baseline.
+
+    ``"pooled"`` reuses the primary split as it stands: fold ``k``'s reduced regression trains
+    on the complement of fold ``k``, at the **production** designs and targets, and predicts
+    there too.  That is one fold left out where
+    :class:`TestTheEvaluationDesignStaysTheProductionOne` leaves two, and the difference
+    between those two sentences is the whole of what the keyword selects.
+
+    Written as a cell mean for the same reason the nested longhand is: a saturated learner
+    makes the fitted value an exact finite average over a nameable set of rows, so a routing
+    mistake is a wrong number here rather than a plausible one.  Without this class, ``pooled``
+    is only ever asserted as *the thing nested equals in the degenerate case*, which cannot
+    tell a correct default from two matching mistakes.
+    """
+
+    def test_one_folds_values_are_the_complements_cell_means(self) -> None:
+        folds = _folds()
+        base = nuisances(WRONG_G, WRONG_Q, folds=folds)
+        fitted = _fitted(None, folds=folds)
+
+        scaled = np.asarray(law.frame()["Y"].to_numpy(dtype=float))
+        treatment = np.asarray(law.frame()["A"].to_numpy(dtype=float))
+        production = np.asarray(base.propensity.arm(1.0))
+        target = scaled - np.asarray(base.outcome.arms[1.0])
+        column = fitted.column_for(1.0)
+
+        for train, test in folds:
+            # `qr` carries the `| A = a` of its definition as a fit mask; there is no
+            # missingness on this law, so the mask is the arm indicator alone.
+            rows = train[treatment[train] == 1.0]
+            for row in test[:20]:
+                pool = rows[np.isclose(production[rows], production[row])]
+                assert pool.size, "a production value appears in no training fold"
+                assert fitted.qr[row, column] == pytest.approx(
+                    float(np.mean(target[pool])), abs=1e-12, rel=0
+                )
+
+    def test_the_pool_is_one_folds_complement_and_not_two(self) -> None:
+        """The anti-vacuity half: the two constructions' pools must not coincide.
+
+        If the training set here were also leave-two-out, every assertion above would hold of
+        the nested arm as well and the class would be checking nothing about the default.
+        """
+        folds = _folds()
+        counts = {len(train) for train, _ in folds}
+        assert counts, "the split yielded no folds"
+        # Leave-one-out training sets are strictly larger than leave-two-out ones.
+        assert min(counts) > law.N - 2 * (law.N // FOLDS)
+
+
+class TestTheSuppliedFoldMappingIsHonoured:
+    """Entry ``k`` is fitted with outer fold ``k`` removed, against the caller's own split.
+
+    The construction is one keyword of
+    :func:`~cleverly.learners.crossfit.cross_fit_predictions` -- ``fit_mask`` with fold ``k``'s
+    rows dropped -- so there is no second split and no new randomness to check.  What there
+    *is* to check is that the mask is fold ``k``'s complement and that the partition passed
+    through is the object the caller supplied.  An off-by-one would nest every fold inside its
+    neighbour and hand back arrays of exactly the right shape, holding exactly plausible
+    probabilities, which is why this is asserted at the call site.
+    """
+
+    def test_entry_k_removes_exactly_fold_k_from_the_supplied_split(self, monkeypatch: Any) -> None:
+        folds = _folds()
+        base = replace(nuisances(WRONG_G, WRONG_Q, folds=folds), folds=folds)
+        seen: list[tuple[Any, np.ndarray]] = []
+        real = nuisance_module.cross_fit_predictions
+
+        def spy(learner: Any, design: Any, target: Any, weights: Any, split: Any, **kw: Any) -> Any:
+            seen.append((split, np.asarray(kw["fit_mask"], dtype=bool).copy()))
+            return real(learner, design, target, weights, split, **kw)
+
+        monkeypatch.setattr(nuisance_module, "cross_fit_predictions", spy)
+        fit_inner_designs(
+            causal_data(),
+            base,
+            outcome_learner=CellMeans(),
+            treatment_learner=CellMeans(),
+        )
+
+        assert len(seen) == 2 * FOLDS, "one mechanism and one regression refit per outer fold"
+        assignment = np.asarray(folds.assignment)
+        observed = np.asarray(causal_data().observed, dtype=bool)
+        for fold in range(FOLDS):
+            mechanism_split, mechanism_mask = seen[2 * fold]
+            regression_split, regression_mask = seen[2 * fold + 1]
+            # The *same object*, not merely an equal partition: a copy would be a second
+            # split, and the whole claim of the construction is that there is not one.
+            assert mechanism_split is folds
+            assert regression_split is folds
+            assert np.array_equal(mechanism_mask, assignment != fold)
+            assert np.array_equal(regression_mask, observed & (assignment != fold))
 
 
 class TestIdenticalInnerDesignsReproduceThePooledArrays:
@@ -526,9 +648,9 @@ class TestASaturatedReductionOnAFiniteLawCannotSeeItInGr1:
     contamination ``fit_reduced``'s docstring and item 15 both used to leave out.
 
     So this is a degeneracy of the *fixture*, not of the construction, and it is written down
-    for the reason ``docs/drtmle/validation-plan.md`` §6 keeps its list: a later reader
-    finding ``gr1`` equal across the two arms should find this rather than a defect.  The
-    class above uses ``glm`` reductions precisely to leave it.
+    rather than left to be rediscovered: a later reader finding ``gr1`` equal across the two
+    arms should find this class rather than conclude the nested path is inert.  The class
+    above uses ``glm`` reductions precisely to leave the degeneracy.
     """
 
     @pytest.fixture(scope="class")
@@ -549,6 +671,98 @@ class TestASaturatedReductionOnAFiniteLawCannotSeeItInGr1:
         pooled = np.asarray(getattr(pair["pooled"].nuisance.reduced, name))
         nested = np.asarray(getattr(pair["nested"].nuisance.reduced, name))
         assert float(np.max(np.abs(pooled - nested))) > 1e-12
+
+
+def _permuted(base: Any, inner: InnerDesigns | None, order: np.ndarray, folds: Folds) -> Any:
+    """``base`` and its fold-free copies with their rows in ``order``.
+
+    Rebuilt through the same constructors :func:`~tests.unit.test_reduced_regressions.
+    nuisances` uses rather than by reaching into the containers, so a permuted fixture is the
+    same *kind* of object as the straight one and not a hand-assembled lookalike.
+    """
+
+    def move(fit: Any) -> InitialFit:
+        return InitialFit(
+            observed=np.asarray(fit.observed)[order],
+            arms={arm: np.asarray(fit.arms[arm])[order] for arm in ARMS},
+        )
+
+    def tilt(propensity: Any) -> Propensity:
+        at_one = np.asarray(propensity.arm(1.0))[order]
+        return Propensity(np.column_stack([1.0 - at_one, at_one]), ARMS)
+
+    moved = replace(
+        base,
+        propensity=tilt(base.propensity),
+        outcome=move(base.outcome),
+        folds=folds,
+        inner=None
+        if inner is None
+        else InnerDesigns(
+            outcome=tuple(move(each) for each in inner.outcome),
+            propensity=tuple(tilt(each) for each in inner.propensity),
+        ),
+    )
+    return moved
+
+
+class TestReorderingTheRowsReordersTheAnswer:
+    r"""A permutation of the sample permutes the output and changes nothing else.
+
+    Both constructions read row order in two places -- which rows a fold holds, and which rows
+    a cell pools -- and neither is allowed to matter.  Permuting the sample **together with
+    its fold assignment** holds both fixed as *sets*, so every fitted value must come back at
+    its row's new position and nowhere else.
+
+    This is the test that catches a construction indexing by position where it means to index
+    by row: such a mistake is invisible on any fixture whose folds happen to be contiguous
+    blocks, and this law's are not.
+
+    Checked to ``1e-12`` absolute rather than bit for bit, and the gap is real rather than
+    slack: a cell mean sums its pool in array order, so a permuted pool can differ in the last
+    unit in the last place.  What is exactly invariant is the *mapping*; what is invariant to
+    floating point is the value.
+    """
+
+    @pytest.mark.parametrize("crossfit", ["pooled", "nested"])
+    @pytest.mark.parametrize("name", ["qr", "gr1", "gr2"])
+    def test_the_arrays_come_back_permuted(self, crossfit: str, name: str) -> None:
+        folds = _folds()
+        order = np.random.default_rng(7).permutation(law.N)
+        base = nuisances(WRONG_G, WRONG_Q, folds=folds)
+        # A non-degenerate inner set, so the nested arm is genuinely reading its own arrays
+        # rather than reproducing the pooled ones under a keyword.
+        inner = None if crossfit == "pooled" else _inner_from(base, permute=np.array([1, 2, 0]))
+        straight = _fitted(inner, folds=folds)
+
+        shuffled_folds = Folds(np.asarray(folds.assignment)[order], FOLDS)
+        shuffled, _, _ = fit_reduced(
+            CausalData.from_frame(
+                law.frame().iloc[order].reset_index(drop=True),
+                outcome="Y",
+                treatment="A",
+                covariates=["W"],
+            ),
+            _permuted(base, inner, order, shuffled_folds),
+            regression_learner=CellMeans(),
+            classification_learner=CellMeans(),
+            g_bounds=INERT,
+            crossfit=crossfit,
+        )
+
+        np.testing.assert_allclose(
+            np.asarray(getattr(shuffled, name)),
+            np.asarray(getattr(straight, name))[order],
+            rtol=0,
+            atol=1e-12,
+        )
+
+    def test_the_permutation_is_not_the_identity_on_the_folds(self) -> None:
+        """Without this the class could pass on an order that moved no row between folds."""
+        folds = _folds()
+        order = np.random.default_rng(7).permutation(law.N)
+        assignment = np.asarray(folds.assignment)
+        assert not np.array_equal(assignment[order], assignment)
 
 
 class TestTheRefusalsAndTheDefault:
