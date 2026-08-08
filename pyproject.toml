@@ -123,7 +123,25 @@ ignore = [
 "tests/**" = ["E501"]
 
 [tool.mypy]
-python_version = "3.11"
+# `3.12` rather than the `3.11` in `requires-python`, and that gap is forced rather than
+# chosen. `mypy` applies this target when it *parses* every file it reads, third-party stubs
+# included, and numpy ships PEP 695 `type` statements in `numpy/__init__.pyi` from 2.5 --
+# which under `python_version = "3.11"` is `error: Type statement is only supported in Python
+# 3.12 and greater`, raised against numpy's own stub and aborting the run before a line of
+# this package is checked. It is not a statement about this code, and there is no per-file
+# escape from it.
+#
+# What that costs here is nothing measurable: `src/cleverly` carries no `sys.version_info`
+# branch for `mypy` to evaluate differently at one target than another, so 3.11, 3.12 and
+# 3.13 checked the same 80 files identically until numpy's stub stopped parsing. Runtime
+# support for 3.11 is unchanged and is enforced where it always was -- the `PYTHONS` matrix
+# in `noxfile.py` and the `tests` job in CI both run the fast tier on 3.11.
+#
+# So `3.12` is the *oldest target that still parses*, which keeps as much of the original
+# intent -- check against the floor -- as the dependency allows. Lower it again if numpy's
+# stubs ever stop needing 3.12. This is not the pinned-toolchain rule in `CLAUDE.md`: the
+# `mypy==` pin itself has not moved, and still matches `noxfile.py` and `ci.yml`.
+python_version = "3.12"
 files = ["src/cleverly"]
 strict = false
 warn_unused_ignores = true
