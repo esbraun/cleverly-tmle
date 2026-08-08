@@ -1,7 +1,7 @@
 # The thread limiter, before and after
 
 The largest package-owned cost `benchmarks/numba/` found, and the one that is not a
-compilation question. [`candidate_inventory.md`](candidate_inventory.md) §4 records it and
+compilation question. The original profile recorded it and
 declines to fix it inside a benchmark; this is the fix and its measurement.
 
 `cleverly.learners.thread_limit` wraps every nuisance fit and every prediction so that the
@@ -16,7 +16,7 @@ The change is to build one controller for the process and reuse it.
 > Measured on the four-core Intel Xeon @ 2.80 GHz container this repository's cloud
 > sessions run in, `/proc/loadavg` under 0.6, Python 3.11, numpy 2.4.6, threadpoolctl
 > 3.6.0, with OpenBLAS ×2 and OpenMP loaded. Medians of repetitions taken in randomised
-> **block** order, not interleaved -- see [the reading note](README.md#reading-a-number-out-of-any-of-them).
+> **block** order, not interleaved -- see the [measurement rules](README.md#measurement-rules).
 
 ## Per entry
 
@@ -31,7 +31,7 @@ The change is to build one controller for the process and reuse it.
 | 100 | 0.082 s | 0.001 s | 61× |
 | 1,000 | 0.849 s | 0.013 s | 65× |
 
-The 0.759 ms here is smaller than the 1.44 ms `candidate_inventory.md` reports, and the
+The 0.759 ms here is smaller than the original profile's 1.44 ms, and the
 difference is the point rather than a discrepancy: the walk's cost scales with the number
 of loaded shared objects, and that measurement was taken in a process that had also
 imported LightGBM. A real fit has imported more, so the per-entry saving in situ is larger
@@ -48,7 +48,7 @@ The number that matters is not the context manager's, it is the estimator's.
 | `DRTMLE.retarget`, `glm`, n = 5,000, 3 estimands | 5.206 s | 2.674 s | **1.95×** |
 
 **49% of a DR-TMLE `retarget` was the thread limiter**, and it is now gone. That is against
-the 57% the cProfile in `candidate_inventory.md` §2.5 attributed to `threadpoolctl`
+the 57% the original cProfile attributed to `threadpoolctl`
 cumulatively; a profiler charges per-call overhead to code that makes many small calls, so
 the profile overstated it, and 49% measured without a profiler attached is the number to
 quote. The same correction applies to the 40% quoted for an LTMLE fit, where the
@@ -56,7 +56,7 @@ wall-clock saving is 25%.
 
 ## Reprofiling DR-TMLE, which is what the plan asked for next
 
-`candidate_inventory.md` §2.5 called `DRTMLE.retarget` "a `retarget` that costs 1.5–2.2× the
+The original profile called `DRTMLE.retarget` "a `retarget` that costs 1.5–2.2× the
 fit it is meant to be a cheap re-run of". After this change, at `n = 5,000`, `glm`, three
 estimands: fit 7.341 s, `retarget` 7.445 s — **1.01×**. The alternation legitimately refits
 its reduced regressions (`g_{r,2}` is a functional of the mechanism being tilted), so

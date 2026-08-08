@@ -15,14 +15,12 @@ Both read one array.  Only one truncated it in the *residual*, and the covariate
 denominator was truncated in both -- so the two expressions were identical on every row the
 bound left alone and differed on every row it clipped.  A single clipped row of 600 was
 enough to leave the reported curve uncentred at ``2e-04`` while all three fluctuation rows
-reported their scores solved to ``1e-11``.  That was ``docs/roadmap.md``'s item 20, it
-accounted for item 11, and this module is the instrument that made it impossible to hide: it
+reported their scores solved to ``1e-11``. This module makes that mismatch impossible to hide: it
 recomputes each correction's empirical mean **from the exact returned state**, compares it
 with the score the solver recorded, and reports the discrepancy as :math:`\Delta_g` and
 :math:`\Delta_Q` alongside the clipping bias :math:`B_{clip}` that explained it.
 
-**Both items are closed and this module is why they could be.**  Piece B1b replaced the
-solver at the ``DRTMLE`` call sites with
+The bounded implementation replaces the solver at the ``DRTMLE`` call sites with
 :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism`, which solves the score at
 the *truncated* tilt -- the expression the second line above carries -- and the alternation
 now carries that truncated array forward.  The two lines are one line, :math:`\Delta` is at
@@ -50,7 +48,7 @@ Both are reported through :class:`~cleverly.validation.score.ScoreCheck`, which 
 equations, so its curve subtracts one correction -- and the other term is still reported
 here, marked :attr:`~CorrectionRow.solved` ``False``, as the diagnostic saying what is
 **not** in this curve.  Such a row is not a failure and cannot be one: nothing subtracts
-it.  This is where item 23 was found and it is the wrong way round from how it read then.
+it. This row also guards partial fits against subtracting a correction they did not solve for.
 The instrument's first run against a ``guard=("g",)`` fit reported :math:`2.8\times10^{-3}`
 at arm 1 with **no** row clipped and no equation (9) anywhere in the fit -- and at the time
 the curve subtracted that term anyway.  It no longer does; the row that found it stays.
@@ -59,8 +57,8 @@ What this does **not** do is choose a convention, and it did not need to: every 
 is valid under all four candidates, which is what let it land a piece ahead of the one that
 chose.  Which mechanism equation (9) ought to be solved against was a derivation rather than
 a taste -- the theorem's own algorithm truncates nothing at all, so there was no convention
-in the source to match and no document to wait for -- and it is piece B1b, whose reasoning is
-on :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism`.
+in the source to match and no document to wait for. The reasoning is on
+:func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism`.
 
 Five conditions on how the identity is checked, each ruling out a way of passing for the
 wrong reason, and all five are in the code below rather than in this docstring's good
@@ -77,11 +75,12 @@ intentions:
   numbers rather than two quantities a factor of ``range`` apart -- which is the same trap
   in a second place;
 * on a fixture where the truncation **binds**.  That one belongs to the tests, and the
-  witness is :attr:`CorrectionRow.margin` -- **not** :attr:`CorrectionRow.clipped`, which B1b
-  emptied.  The alternation carries the truncated array forward, so a converged fit clips
+  witness is :attr:`CorrectionRow.margin` -- **not** :attr:`CorrectionRow.clipped`, which the
+  bounded state empties. The alternation carries the truncated array forward, so a converged fit
+  clips
   nothing at the exit however hard the draw was, and a fixture selected on the exit count
-  would now be selected from nothing at all: ``docs/roadmap.md``'s stop-ship 14, a check
-  agreeing where it could not have disagreed, arriving in a second place.  What a constrained
+  would now be selected from nothing at all. That would make the check agree where it could not
+  have disagreed. What a constrained
   root does instead is sit *against* the boundary, and the margin is how that shows.
 
 Which estimator the fit is, which is a different question
@@ -89,7 +88,7 @@ Which estimator the fit is, which is a different question
 
 Everything above asks whether a fit solved what it reports.  :attr:`CorrectionCheck.contract`
 asks something no other column here answers: **which estimator the numbers are evidence
-about.**  ``docs/roadmap.md``'s item 25 is the scope decision behind it -- truncation is not in
+about.** Truncation is not in
 Theorem 1's algorithm, so the theorem-backed guarantee is claimed for a fit whose truncations
 are *inactive*, and a fit where one binds is reported as empirically supported and outside the
 theorem.  Three truncations have to be inactive for that, not one, and until this module grew
@@ -160,7 +159,7 @@ IDENTITY_TOLERANCE = 1e-12
 #: the one place a number is needed, because a scope label has to come out of a comparison.
 #:
 #: The gap either side of it is what makes it a number rather than a judgement.  On the draw
-#: item 20 was found on the exit margin is ``1.2e-06`` and on its sibling that never clipped it
+#: the centring mismatch was found on the exit margin is ``1.2e-06`` and on its sibling it
 #: is ``0.14``; over a 96-fit dispatch ``weak-overlap``'s median
 #: margin is **exactly** ``0.0e+00`` at two of three sizes while the three ordinary processes
 #: sit at ``0.11`` to ``0.20``.  So this sits two orders above the active regime and three below
@@ -190,15 +189,15 @@ class CorrectionRow:
         terms whatever the guard is precisely so this row exists.
     clip_bias:
         :math:`B_{clip}(a) = P_n[w\\,Q_r/g^b\\,(g - g^b)]` for the ``"D*_g"`` row, ``nan``
-        for the other.  Before B1b it reproduced **minus** :attr:`residual` to floating
-        point, which is what made it a check on item 20's diagnosis rather than merely a new
+        for the other. Before bounded targeting it reproduced **minus** :attr:`residual` to
+        floating point, which made it a check on the centring diagnosis rather than merely a new
         column; the sign is the orientation
         :attr:`~cleverly.inference.influence.CorrectionParts.clip_bias` defines it in,
         and the two differed because one residual read :math:`1_a - g` and the other
         :math:`1_a - g^b`.  It is **zero now**, on every fit, because there is no longer a
         raw tilted mechanism for it to measure the distance to.
     clipped:
-        How many rows the truncation binds on *at the exit*.  Zero on every fit since B1b,
+        How many rows the truncation binds on *at the exit*. Zero on every converged bounded fit,
         and that is the point rather than a defect in the column: the alternation carries
         the truncated array forward, so at a fixed point :math:`\\epsilon \\to 0` and the raw
         and truncated tilts coincide.  What it says now is that the fix took.  Use
@@ -208,9 +207,10 @@ class CorrectionRow:
         interval between them: ``min_i min(g*_i - lo, hi - g*_i) / (hi - lo)``.  This is the
         witness that replaces :attr:`clipped`, and it says what that column used to say --
         **whether the truncation had anything to do on this draw** -- in the only form that
-        survives B1b.  A constrained root sits *at* the boundary of the feasible set, so a
+        survives bounded targeting. A constrained root sits *at* the boundary of the feasible
+        set, so a
         draw whose unconstrained tilt wanted to leave the bounds comes back with the
-        mechanism pressed against one: measured at ``1.2e-06`` on the draw item 20 was found
+        mechanism pressed against one: measured at ``1.2e-06`` on the original failing draw
         on, against ``0.14`` on its sibling that never clipped.  Five orders, and no
         threshold inside the column -- a test picks its own.
 
@@ -224,23 +224,24 @@ class CorrectionRow:
         truncation.  A property of the *draw* rather than of the alternation, and so the one
         truncation witness here that is not about what the loop did: it counts what
         :meth:`~cleverly.estimators._nuisance.Propensity.bounded` had to do on the way into
-        equation (8)'s covariate.  Unlike :attr:`clipped`, which B1b emptied, this column
+        equation (8)'s covariate. Unlike :attr:`clipped`, which the bounded state empties, this
+        column
         **can** disagree -- a 96-fit dispatch read a share of ``0.000``
         on ``linear``, ``nonlinear`` and ``off-diagonal`` and ``0.231`` to ``0.338`` on
-        ``weak-overlap``, which is item 25's two regimes already measured.
+        ``weak-overlap``, separating the measured overlap regimes.
     gr1_margin:
         The closest :math:`g_{r,1}` comes to either bound, as a fraction of the interval,
         read off the **untruncated** array :class:`~cleverly.estimators.reduced.ReducedSet`
         stores -- so unlike :attr:`margin` it is **signed**, and a value at or below zero says
         :meth:`~cleverly.estimators.reduced.ReducedSet.bounded_gr1` is doing something to
-        equation (10)'s denominator.  It is the third of the three truncations item 25's
-        condition is about and the one with no counterpart in Theorem 1's assumption list:
+        equation (10)'s denominator. It is the third relevant truncation and the one with no
+        counterpart in Theorem 1's assumption list:
         :math:`g_{r,1}` is a regression of an arm indicator on :math:`\\hat{\\bar Q}`, and
         :math:`g_0 > \\delta` does not imply it is bounded away from zero.
         ``weak-overlap``'s ``min gr1`` of ``0.000`` is this bound binding.
     solved:
-        Whether this fit solved the equation the correction comes from -- which, since
-        item 23, is the same question as whether the term is in the reported curve, because
+        Whether this fit solved the equation the correction comes from. The flag is also the
+        question of whether the term is in the reported curve, because
         :meth:`~cleverly.inference.influence.CorrectionParts.total` selects on the same
         guard.  ``False`` on a single-guard fit's other equation, and such a row is
         informational: :meth:`CorrectionCheck.correction_failures` does not read it, since
@@ -334,7 +335,7 @@ class CorrectionCheck:
         in its curve and cannot make its interval wrong however large it is, so an
         unsolved row is reported and judged against nothing -- see
         :attr:`CorrectionRow.solved`.  Dropping the ``row.solved`` here fails a correct
-        single-guard fit, which is one of the mutations item 23's tests were watched
+        single-guard fit, a mutation the partial-guard tests were watched
         against.
         """
         return tuple(row for row in self.rows if row.solved and abs(row.reported) > self.threshold)
@@ -350,7 +351,7 @@ class CorrectionCheck:
     def clipped(self) -> int:
         """The largest per-draw count of rows the truncation binds on at the exit.
 
-        Zero on every fit since B1b; :attr:`margin` is what says whether the bound had
+        Zero on every converged bounded fit; :attr:`margin` says whether the bound had
         anything to do on this draw.
         """
         return max((row.clipped for row in self.rows), default=0)
@@ -386,7 +387,7 @@ class CorrectionCheck:
 
     @property
     def truncations_active(self) -> tuple[str, ...]:
-        """Which of item 25's three truncations bite on this fit, named.
+        """Which of the three relevant truncations bite on this fit, named.
 
         Empty on a fit inside the theorem-backed contract.  Named rather than counted
         because the three are different objects with different standing: two are operations
@@ -404,7 +405,7 @@ class CorrectionCheck:
 
     @property
     def contract(self) -> str:
-        """Which estimator this fit's numbers are evidence about (``docs/roadmap.md`` item 25).
+        """Which estimator this fit's numbers are evidence about.
 
         ``"theorem"`` where none of the three truncations is active, in which case
         :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` returned the
@@ -481,7 +482,7 @@ class CorrectionCheck:
             f"  contract: {self.contract}"
             + (
                 f" -- {', '.join(self.truncations_active)} active, so this fit is empirically "
-                "supported and outside Theorem 1 (docs/roadmap.md item 25) rather than "
+                "supported and outside Theorem 1 rather than "
                 "wrong; it is not a failure and the verdict below does not read it"
                 if self.truncations_active
                 else " -- none of the three truncations is active, so this fit is Theorem 1's "
@@ -511,7 +512,7 @@ class CorrectionCheck:
                 f"FAIL: {len(identity)} state identit{'y' if len(identity) == 1 else 'ies'} "
                 "not satisfied -- the score the targeting step recorded and the term the "
                 "reported curve carries are not the same functional of the returned state. "
-                "That is a software defect (docs/roadmap.md item 20), not a fit that failed "
+                "That is a software defect, not a fit that failed "
                 "to converge, and the standard errors do not describe this estimate."
             )
         if correction:

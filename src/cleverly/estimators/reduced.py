@@ -88,7 +88,7 @@ REDUCTIONS = ("univariate", "bivariate")
 #: How fold ``k``'s reduced regression gets its **training** rows' design and target.
 #: ``"pooled"`` reuses the primary split as it stands and is what ships; ``"nested"`` takes
 #: them from models that left fold ``k`` out as well, which is the reference construction
-#: ``docs/roadmap.md``'s item 15 measures the first against.  A diagnostic keyword rather
+#: The cross-fitting diagnostic measures the first against the second. A diagnostic keyword rather
 #: than a tuning one, exactly as :data:`~cleverly.estimators.drtmle.UPDATE_ORDERS` is: what
 #: is in question is whether the cheap construction's induced dependence is higher order,
 #: and the expensive one exists so that is a run rather than an argument.
@@ -280,7 +280,8 @@ def fit_reduced(
     matrix rather than through the target.
 
     **Through the target as well**, which this paragraph used to leave out and which
-    ``docs/roadmap.md``'s item 15 left out after it.  :math:`Q_r`'s target is a residual of
+    earlier descriptions of the construction left out after it. :math:`Q_r`'s target is a
+    residual of
     :math:`\hat{\bar Q}` and :math:`g_{r,2}`'s is a quotient by :math:`\hat g`, so both
     halves of two of these three regressions are generated regressors.  Only
     :math:`g_{r,1}`'s target -- the arm indicator -- is data.  A construction that replaced
@@ -502,7 +503,7 @@ def _roles(
 
     Written once and called twice -- at the production arrays, and at outer fold ``k``'s
     fold-free copies -- because **both halves are generated regressors**, and the roadmap's
-    item 15 and this module's own docstring used to say only the design was.  :math:`Q_r`'s
+    earlier descriptions used to say only the design was. :math:`Q_r`'s
     target is a residual of :math:`\hat{\bar Q}` and :math:`g_{r,2}`'s is a quotient by
     :math:`\hat g`, so a nested construction that replaced the designs and left the targets
     alone would have removed half of the dependence and reported itself as having removed

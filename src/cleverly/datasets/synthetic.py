@@ -156,7 +156,7 @@ class DGP:
         spread of an integral across scrambles is a standard error, assuming nothing about a
         convergence rate, where the movement between two *rungs* assumes one and is a
         stability diagnostic only.  Owen's analysis of scrambled nets is where that unbiasedness
-        comes from, and ``docs/roadmap.md``'s E1b is where reading a ladder as the first cost
+        comes from, and the validation design explains why reading a ladder as the first cost
         two withdrawn claims.  A caller that changes ``scramble`` between two quantities meant
         to cancel -- :math:`\\psi_0` and :math:`P_0\\hat D`, say -- has differenced two rules and
         put the :math:`O(1)` error back; pass one scramble to both.

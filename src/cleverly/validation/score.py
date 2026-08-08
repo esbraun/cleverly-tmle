@@ -180,7 +180,7 @@ class ScoreCheck:
 
         A row here says the score the targeting step recorded and the term the reported
         curve carries are not the same functional of the state the fit returned --
-        ``docs/roadmap.md``'s item 20.  Iterating longer cannot fix one, which is why it is
+        the DR-TMLE correction identity. Iterating longer cannot fix one, which is why it is
         worded apart from every other failure this class reports.
         """
         return tuple(row for row in self.failures if row.kind == "identity")
@@ -252,7 +252,7 @@ class ScoreCheck:
             "identity, not an unsolved equation: the score the targeting",
             "  step recorded and the term the reported curve carries are not the same",
             "  functional of the state this fit returned.  That is a defect in the",
-            "  implementation (docs/roadmap.md item 20) and iterating longer will not fix",
+            "  implementation and iterating longer will not fix",
             "  it.  See res.validation.correction_check().",
         ]
 
@@ -295,8 +295,7 @@ class ScoreCheck:
                         "step recorded and the",
                         "term the reported curve carries are not the same functional of "
                         "the state this fit",
-                        "returned. That is a defect in the implementation "
-                        "(docs/roadmap.md item 20) rather than",
+                        "returned. That is a defect in the implementation rather than",
                         "a fit that failed to converge, and the standard errors do not "
                         "describe this estimate.",
                         "See res.validation.correction_check() for the recomputation and "

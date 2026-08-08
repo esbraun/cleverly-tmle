@@ -1088,9 +1088,8 @@ class TestLongitudinalInference:
     "failed" and the study blamed the estimator configuration.
 
     **The dynamic-rule case in this class has not run at these settings**, and is recorded
-    that way rather than implied to have passed.  The slow tier does not run in the
-    sandbox this was written in (``CLAUDE.md``), and it was added between two scheduled
-    nightlies.  What *was* run is a reduced check at ``n=800`` over 12 replicates: the
+    that way rather than implied to have passed. It was added between two scheduled nightlies.
+    What *was* run is a reduced check at ``n=800`` over 12 replicates: the
     rule's bias there was ``-0.002`` against ``longitudinal_rule_truth``, which says the
     estimator is pointed at the right parameter and says nothing about coverage, since 12
     replicates cannot resolve a rate.  To check it before the next nightly, dispatch that
@@ -1230,8 +1229,7 @@ class TestAWeightedLongitudinalFitUnderRepeatedSampling:
     number, since ``W1`` moves both treatment decisions and the outcome.
 
     **This class has not run at 400 replicates**, and is recorded that way rather than
-    implied to have passed: the slow tier does not run in the sandbox it was written in
-    (``CLAUDE.md``).  What *was* run, at ``n=2000``, is 60 replicates at one seed and 120
+    implied to have passed. What *was* run, at ``n=2000``, is 60 replicates at one seed and 120
     at another.  Bias came back within one Monte Carlo standard error of zero on all three
     parameters (largest ``0.011``, se ``0.005``), coverage between ``0.93`` and ``0.97``,
     and ``se_ratio`` between ``0.90`` and ``1.18`` -- the spread of a ratio estimated from
@@ -1352,9 +1350,8 @@ class TestASurvivalOutcomeUnderRepeatedSampling:
     two-node one whose first node carries a composed pseudo-outcome.  A shortfall could
     sit in either.
 
-    **This class has not run at these settings.**  The slow tier does not run in the
-    sandbox it was written in (``CLAUDE.md``), and it is recorded that way rather than
-    implied to have passed.  What *was* run is a reduced check at ``n=1500`` over 8
+    **This class has not run at these settings**, and is recorded that way rather than implied to
+    have passed. What *was* run is a reduced check at ``n=1500`` over 8
     replicates in ``tests/e2e/test_ltmle.py``, which found the bias within Monte Carlo
     error at every horizon -- that says the estimator is pointed at the right parameter
     and says nothing about coverage, since 8 replicates cannot resolve a rate.  To check
@@ -1456,8 +1453,7 @@ class TestCompetingRisksUnderRepeatedSampling:
     plausible at one and not the other.
 
     **This class has not run at these settings**, on the same footing as its survival
-    sibling above and recorded the same way rather than implied to have passed.  The slow
-    tier does not run in the sandbox it was written in (``CLAUDE.md``).  What *was* run is
+    sibling above and recorded the same way rather than implied to have passed. What *was* run is
     a reduced check at ``n=2500`` over 6 replicates in ``tests/e2e/test_ltmle.py``, which
     found the bias within Monte Carlo error at every cause and horizon -- that says the
     estimator is pointed at the right parameter and says nothing about coverage, since 6

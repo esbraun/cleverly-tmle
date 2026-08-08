@@ -464,7 +464,7 @@ def reduced_corrections(
     *display* defines the mechanism-side correction with a leading minus,
     :math:`D_A = -Q_r/g\,(A - g)`, and Theorem 1 subtracts :math:`D_A` -- which read together
     would make the theorem's curve :math:`D^* + Q_r/g\,(A - g)`, the opposite of this
-    function's.  That was item 21, and it is **resolved in favour of this implementation** on
+    function's. The sign discrepancy is **resolved in favour of this implementation** on
     the paper's own appendices: each derives its block as
     :math:`P_0[\text{term}] = -(P_n - P_0)D + P_n D + (\text{second order})`, an identity
     satisfiable only with :math:`D` equal to the **positive** term, so appendix A forces
@@ -505,8 +505,8 @@ def reduced_corrections(
     about a formula read out of its source -- **provenance** -- and not about agreement with
     anything it returns.  That is a decision and not a gap: both implementations descend from
     one source, so agreement would be evidence about the transcription and blind to exactly
-    the error above, which is why the sign was settled by the appendices instead.
-    ``docs/roadmap.md``'s item 2 carries the reasoning and ``CLAUDE.md`` the rule.
+    the error above, which is why the sign was settled by the appendices instead. The roadmap's
+    standing decisions carry the reasoning and ``CLAUDE.md`` the development rule.
 
     **The two terms are built by** :func:`reduced_correction_parts` **and added here**, so
     that :func:`~cleverly.validation.drtmle.correction_check` takes each one's empirical
@@ -516,10 +516,11 @@ def reduced_corrections(
     **One correction per equation the fit actually solved**, which is what ``guard`` selects
     and is the crossing ``guard=`` has everywhere else: :math:`D^*_g` is equation (9)'s, the
     one the ``"Q"`` guard adds, and :math:`D^*_Q` is equation (10)'s, the one ``"g"`` adds.
-    A fit guarding one nuisance subtracts one term.  Subtracting both was ``docs/roadmap.md``
-    item 23: the unsolved equation's mean is whatever it happens to be, measured at
+    A fit guarding one nuisance subtracts one term. Subtracting both would leave the unsolved
+    equation's arbitrary mean in the curve, measured at
     :math:`2.8\times10^{-3}` on a ``guard=("g",)`` fit against a :math:`7.7\times10^{-6}` bar
-    with **no** row clipped, so it is not item 20 in another guise.  The derivation was
+    with **no** row clipped, so it is not the bounded-mechanism centring defect in another
+    guise. The derivation was
     already in the repository -- ``tests/unit/test_remainder_drtmle.py`` adds each correction
     only under the guard whose equation removes it, and shows that two guards over-correct on
     an exact law; ``tests/unit/test_drtmle_fit.py`` fits one end to end.  ``DRTMLE``'s own
@@ -541,7 +542,7 @@ def reduced_corrections(
     guard:
         Which of the two extra equations this fit solved, in ``DRTMLE.guard``'s vocabulary,
         and so which corrections belong in its curve.  **Required, with no default**, which
-        is the point: item 23 was a caller not passing this, and a default of both would
+        is the point: an earlier caller did not pass this, and a default of both would
         make that caller's mistake the fallback for the next one.
     """
     return reduced_correction_parts(
@@ -588,19 +589,19 @@ class CorrectionParts:
         Zero on every row the bound leaves alone, so its mean is zero whenever nothing
         clips.  It is a diagnostic and not a correction: nothing subtracts it.
 
-        **It is now zero on every fit**, and that is the fix rather than a broken column.
-        ``docs/roadmap.md``'s piece B1b put
-        :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` at the ``DRTMLE``
+        **It is now zero on every fit**, and that is the intended convention rather than a broken
+        column. :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` runs at the
+        ``DRTMLE``
         call sites, so the mechanism the alternation carries forward is already truncated
         and there is no second array left for this to measure the distance to.  What still
         varies between draws, and what a fixture is chosen on, is
         :attr:`~cleverly.validation.drtmle.CorrectionRow.margin`.
     clipped:
-        Which rows the mechanism truncation binds on.  Empty on every fit since B1b, for the
+        Which rows the mechanism truncation binds on. Empty on every converged bounded fit for the
         same reason: a converged bounded tilt lies inside the bounds.  On record because
         "the identity holds" was uninformative on a draw where the bound never bit -- the
-        degeneracy that hid item 20 for two revisions -- and because zero here is now the
-        assertion that the convention is the one that landed.
+        degeneracy that hid the centring mismatch -- and because zero here is now the
+        assertion that the bounded convention is active.
     guard:
         Which equations the fit solved, and so which of the two terms :meth:`total` puts in
         the curve.  **Both arrays are built whatever it says**, because the term a fit does
