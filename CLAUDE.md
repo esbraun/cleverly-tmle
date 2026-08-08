@@ -44,7 +44,10 @@ candidates measured out.
 what to read rather than the reports.** One screen, one row per decision, each with the
 condition that would reopen it and a link to its evidence. It exists so that "why is there
 no `numba` dependency" costs a table rather than seven measurement write-ups.
-`docs/benchmarks/README.md` is the same thing for the benchmark set specifically.
+`docs/benchmarks/README.md` is the same thing for the benchmark set specifically, and
+**`docs/drtmle.md` is the same thing for `DRTMLE`** — supported estimands, the refusals, what
+Theorem 1 covers, the nuisance conditions the interval is conditional on, and the diagnostics to
+inspect. Read it before answering any question about that variant.
 
 **The lesson behind the numba rows is one mistake made three times, and it is the one to
 avoid repeating: a ratio measured against the shipped shape is not a ratio against numpy.**
@@ -67,24 +70,13 @@ replaces bucketing a `cProfile` by filename, which overstated the package's shar
 the profiler's per-call overhead to the code making the most calls. Do not reintroduce the
 filename split: it read 57.6% where the phases read 24%.
 
-**`benchmarks/bench_drtmle.py` is the same kind of thing without the marker to say so.**
-It is not a test, so no selection excludes it, and at its defaults it is ~96 `DRTMLE` fits
-of tens of seconds each — measured at 57s per fit on 400 rows here. Dispatch
-`.github/workflows/drtmle-convergence.yml` and read its table out of the job log. A
-`--processes nonlinear --sizes 400 --seeds 2 --jobs 1` smoke run is two fits and about two
-minutes, which is the most of it that belongs in the sandbox.
-
-**`benchmarks/drtmle_trace.py` is the cheap one and belongs here.** It is the component-level
-trace of the doubly-robust alternation — roadmap piece F2 — and it fits **no** primary
-nuisance: the initial `Q̄` and `g` are closed forms injected through sklearn-shaped learners,
-so the only learners it runs are the `glm` reduced regressions. `--both` is ~10s on this box
-and `--write-fixture` regenerates the frozen draw. Two things not to do to it. Do not
-regenerate the fixture casually: every trace already taken, here or in R, is against the old
-bytes, and the CSV's SHA-256 is checked against its manifest on every read. And do not "tidy"
-the fixture's misspecified nuisances — at correct nuisances `Q_r` and `g_{r,2}` vanish row by
-row and the trace goes blind to a sign, an update order and a reduction vintage alike, which
-is the same rule as the one about exact laws below and the place it bites hardest.
-`tests/unit/test_drtmle_trace.py` asserts the misspecification for that reason.
+**There are no `DRTMLE` study harnesses here any more, and that is deliberate.** The validation
+programme — six lettered pieces, its harnesses, its committed per-replicate evidence, its R
+differential records and its ten working documents — closed and was removed from `main`. All of
+it is reachable from the **`drtmle-validation-archive-2026-08`** tag. `docs/drtmle.md` is the
+production contract that replaced it, and `docs/roadmap.md`'s *What is still open* is the
+readout. Do not reconstruct a study harness to answer a question about the variant: read those
+two first, and if the answer is genuinely at the tag, read it there.
 
 **Interrupt a test run with `Ctrl-C`, not `kill -9`.** Which signal you use is the whole
 difference: joblib registers an `atexit` handler that shuts its worker pool down on every
@@ -150,52 +142,29 @@ decision and not a gap, it applies to `drtmle`, `tmle`, `tmle3`, `ctmle` and any
 "it would only be one file" does not reopen it. `docs/roadmap.md`'s item 2 is the retired parity
 piece and carries the whole reasoning.
 
-**One narrower thing is authorized and it is not a parity test.** A bounded, isolated differential
-**trace** against the published `drtmle` R package — one frozen fixture, identical initial `Q̄`
-and `g`, per-round trajectories compared to find where two implementations of the same algorithm
-*first diverge* — runs as a benchmark-only diagnostic (`docs/roadmap.md`'s piece F, row F3). It
-exists because two dispatches built to localize the `DRTMLE` remainder shortfall came back unable
-to read their own comparison, and localizing is what is left. It moves no dependency of the
-package and enters no tier `pytest -m "not slow"` runs.
+**The rule was narrowed once, for one bounded diagnostic, and that instrument is gone.** A
+differential *trace* against the published `drtmle` R package — one frozen fixture, identical
+initial `Q̄` and `g`, per-round trajectories compared to find where two implementations of the same
+algorithm *first diverge* — was authorized as a benchmark-only diagnostic, run, read out, and
+retired with the rest of the validation programme. Its records are at the
+**`drtmle-validation-archive-2026-08`** tag. What that episode leaves behind, and what to carry
+forward:
 
-**The R runs it takes are committed, and a committed R record is a diagnostic record and not a
-truth.** `benchmarks/fixtures/r-trace-*/` holds what `benchmarks/r/drtmle_reference.R` recorded —
-gzipped float64 with a SHA-256 manifest checked on read — so that the comparison, and F4's
-verification that its R-style arm really is R's trajectory, reproduce with **no R installed**.
-That is the whole reason they are in the tree: the toolchain is ~25 minutes to rebuild and CRAN
-is not always reachable. Three things fence it, and none of them is negotiable:
+- **the epistemic half of the refusal never moved.** A divergence a trace finds is a *question*,
+  adjudicated against Benkeser et al., the exact-law identities and the remainder decomposition —
+  never settled by which side R is on. **Changing this package to match R is stop-ship 17**, and
+  that clause outlived the instrument because it was never about the instrument;
+- **it localizes, it cannot certify.** That is the whole of what such a run buys, and it is why it
+  could never be a release criterion;
+- **two reading traps, both cheap to get wrong.** A recorded flag saying which array was **passed**
+  is not evidence about what the callee **read** — one such retraction was settled by reading the
+  two documents against each other with no R at all. And a *ratio's* distance from agreement is not
+  orientation-invariant, so "N% of the gap explained" needs every reading printed or none.
 
-- it may be read by `benchmarks/`, and by tests that check an **instrument is what it claims to
-  be** — *"does the arm labelled R-style reproduce the trajectory this repository says R takes"*;
-- it may **never** be read by a test, a gate or a release criterion asserting that this package's
-  `psi`, `se`, curve or any estimate agrees with it. `tests/unit/test_drtmle_r_compare.py` asserts
-  no such thing and must not start;
-- and it is not admitted as a truth about the *algorithm*. Everything the paragraph below says
-  about a divergence being a question applies unchanged to a record of one.
-
-The rule this narrows — *no committed fixture exported from another package is admitted as a
-truth* — is intact in substance: what is committed here is a record of a **diagnostic run**, and
-its status as evidence is exactly the status the diagnostic already had.
-
-**Having the instrument is not a licence to reach for it, and the default is that no further R
-run happens.** `docs/roadmap.md`'s *necessity gate* is the five conditions one would have to
-clear, and the short version is that reproducing a committed fixture, extending the tolerance
-ladder, adding a fixture or comparing coverage for reassurance clears none of them. The committed
-records exist precisely so that the next question is answered by reading them rather than by
-dispatching. Two things also follow from what the closeout found in them, and both are cheap to
-get wrong: a recorded flag saying which array was **passed** is not evidence about what the callee
-**read** — the univariate `eval_Dstar_Q` retraction is the worked example, and it was settled by
-`docs/drtmle/theorem-concordance.md` §10 against `docs/drtmle/r-differential.md` with no R at all
-— and a *ratio's* distance from agreement is not orientation-invariant, so "N% of the gap
-explained" needs every reading printed or none.
-
-**What that authorization does not include is the point of it.** A divergence it finds is a
-*question*, adjudicated against Benkeser et al., `docs/drtmle/theorem-concordance.md`, the
-exact-law identities and the remainder decomposition — never settled by which side R is on.
-**Changing this package to match R is stop-ship 17.** Agreement is evidence about a transcription;
-item 21 is the worked example, where a parity run would have recorded R's sign as correct and been
-right by luck. The roadmap's *A differential diagnostic against R, refused, then authorized* is
-the narrowing, and says exactly how much of the refusal moved: the epistemic half, none of it.
+Reopening it needs a question the theorem, the exact laws and the archived records cannot
+adjudicate, named in advance, whose two possible answers lead to different already-specified next
+steps. Reproducing an archived fixture, extending a tolerance ladder or comparing coverage for
+reassurance is none of those.
 
 **Why**, in one line: *two checks that cannot fail against the same class of error are one
 check.* Two worked examples, both from this repository:
@@ -203,7 +172,8 @@ check.* Two worked examples, both from this repository:
 - **item 21**, the sign of the mechanism correction. Python and R descend from one source, so
   agreement between them is evidence about a **transcription** and not about a derivation. A
   parity run could not have caught a sign that both sides read off the same display — reading
-  the paper's appendices did.
+  the paper's appendices did. `docs/drtmle.md`'s *The sign of the mechanism correction* is the
+  argument, and it is the record of the papers themselves, which are not in the tree.
 - **item 20**, the uncentred curve. Two revisions filed it behind a cross-language fixture on
   the reasoning that a divergence between two arrays is what a component comparison locates.
   The premise was wrong and the check that settled it was thirty lines, one fit, and no R:

@@ -2,91 +2,62 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
 
 .. warning::
 
-   **This variant is in progress.**  The code is written and its tests pass; that is not the
-   same as finished, and what is left is a demonstration rather than a defect.  The full
-   list, with what each would change, is in ``docs/roadmap.md`` under *What is still open*.
-   The four a caller's numbers depend on, of which the first and the last are now closed:
+   **What this variant ships under is *conditional validity*.**  The algorithm computes what
+   Theorem 1 derives -- checked against the theorem's own appendices, against the Gateaux
+   derivative of the parameter, against exact finite-support laws, and against the remainder
+   identities -- and the interval it reports is valid **conditional on** the caller obtaining
+   adequate primary *and reduced-regression* fits.  Those are rate conditions on five
+   estimated functions, they are not verifiable from a fit's own output, and in particular
+   **numerical score convergence does not verify them**.  ``docs/drtmle.md`` is the contract
+   in full; three things a caller's numbers depend on are here.
 
-   1. **The influence curve was transcribed rather than derived, and it has now been checked
-      against Theorem 1 and agrees.**  The curve is the whole of what this variant buys and
-      it was read off the R package ``drtmle``'s implementation.  The 2016 working paper's
-      display defines :math:`D_A = -(Q_r/g)(A - g)` while Theorem 1 *subtracts* :math:`D_A`,
-      which read together would flip the mechanism correction's sign -- that was item 21, a
-      stop-ship, and nothing that reports a point estimate could have caught it, since all
-      three empirical means are driven to zero and what it moves is the variance.  It is
-      **resolved in favour of this implementation**: the paper's own appendices derive each
-      block in a form satisfiable only with the *positive* correction, and Theorem 1's
-      variance formula then reads exactly as this package computes it.  The argument, and the
-      two further sign slips in the same document, are in
-      ``docs/drtmle/theorem-concordance.md`` §4; ``tests/unit/test_theorem_drtmle.py`` pins
-      it, at a **nonzero** :math:`Q_r`, which is the only place a sign is visible.  What is
-      *not* planned is a comparison against that package's numbers: both descend from one
-      source, so agreement would be evidence about the transcription and blind to exactly
-      this error.  See :func:`~cleverly.inference.influence.reduced_corrections`.
-   2. **The interval is demonstrably better than a plain TMLE's, and it is not nominal.**  The
-      study ran -- ``docs/roadmap.md``'s piece C, 6,000 fits over two independent seed
-      batches.  In the cell built for it the plain interval covers ``0.532``/``0.472`` against
-      this estimator's ``0.844``/``0.848`` at ``n = 2,400``, a paired ``+0.312`` and
-      ``+0.376``.  **And it reaches ``0.95`` nowhere in the study**, the best reading anywhere
-      being ``0.880``, so the variant is not finished and this docstring is not hedging when
-      it says so.  Two measured quantities account for the shortfall: the second-order
-      remainder Theorem 1 assumes negligible does not vanish at these sizes, and the reported
-      ``se`` runs about 10% short of the spread it covers in ``q-drift`` -- and about 16%
-      *long* in ``g-drift``, which is why the second is **not** a separate defect in the
-      variance estimator.  ``sigma^2_n`` is Theorem 1's own ``P_n{D* - D_A - D_Y}^2``, valid
-      to first order exactly when the condition the first quantity fails holds; the two are
-      one premise measured twice.  **What the study did not establish is why**: the three
-      reduced regressions were fitted by ``glm``, whose consistency is itself unverified, so
-      the measurement is of a configuration rather than of the theorem's condition.  Piece E
-      on the roadmap is that question.  Use this where you have a reason to think one nuisance
-      is badly estimated; do not treat the interval as settled.
-   3. **The alternation is not guaranteed to converge, though it now mostly does.**
+   1. **Solved score equations validate targeting, not nuisance adequacy**, and this is the
+      one that is easy to get backwards.  A fit with badly wrong reduced regressions returns
+      a ``psi``, an ``se`` and an interval formatted exactly like a good one, with every
+      score green.  ``tests/unit/test_oracle_reductions.py`` is the evidence rather than the
+      caveat: with **exact** reductions the estimator recovers the truth despite misspecified
+      primary nuisances, and with **wrong** ones the estimate moves while every score
+      equation still passes.  Inspect the reduced fits themselves --
+      ``result.extra["drtmle"].diagnostics``, keyed ``"qr"``, ``"gr1"``, ``"gr2"``.
+   2. **The interval is demonstrably better than a plain TMLE's, and it is not nominal.**
+      Over 6,000 fits in two independent seed batches, the plain interval covers
+      ``0.532``/``0.472`` against this estimator's ``0.844``/``0.848`` at ``n = 2,400`` in the
+      cell built for it -- a paired ``+0.312`` and ``+0.376``.  **And it reaches ``0.95``
+      nowhere**, the best reading anywhere being ``0.880``.  Two measured quantities account
+      for the shortfall and are one premise measured twice: the second-order remainder
+      Theorem 1 assumes negligible does not vanish at these sizes, and the reported ``se``
+      runs about 10% short of the spread it covers in ``q-drift`` and about 16% *long* in
+      ``g-drift`` -- so the second is **not** a separate defect in the variance estimator.
+      ``sigma^2_n`` is Theorem 1's own ``P_n{D* - D_A - D_Y}^2``, valid to first order
+      exactly when the condition the first quantity fails holds.  The reductions in that
+      study were fitted by ``glm``, so it measures a configuration rather than the theorem's
+      condition.  Use this where you have a reason to think one nuisance is badly estimated;
+      do not treat the interval as settled.
+   3. **The alternation is not guaranteed to converge, though it mostly does.**
       Equation (10)'s covariate is near-singular on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so a draw can exit at
-      the outer cap and report ``failure = "max_iter_reached"``.  Over the same 96-fit sweep
-      run twice: under the exit criterion this package had until roadmap item 7, 8 draws did
-      that, 86 stalled and 2 reached the tolerance; under the one in force, **87 reach the
-      tolerance, 8 stall and 1 runs out of rounds**.  Nothing about the iteration changed
-      between the two -- what changed is the ruler the exit test uses.  What is still true is
-      that no argument here *proves* the iterates approach a common zero of the three
-      equations, which is why the diagnostics rather than the argument decide: ``summary()``
-      ends with the score check whenever the check fails, and ``res.score_verdict`` carries
-      the verdict either way.  It used to say "read ``res.validation.score_check()`` on every
-      fit rather than assuming", which was documentation standing in for reporting -- an
-      unlicensed interval was formatted exactly like a licensed one and the reader had to
-      know to go looking.
-   4. **The reported curve was not centred wherever the mechanism truncation binds, and it
-      is now.**  Equation (9) used to be solved against the raw tilted :math:`g^*` while the
-      :math:`D^*_g` the curve subtracts reads the truncated one, so the two agreed on every
-      row the bound left alone and parted company on every row it clipped -- a single
-      clipped row of 600 was enough to leave the curve uncentred at ``5.8e-04`` while the
-      solver recorded ``1e-09``.  On ``weak_overlap_dgp`` the score check failed on 23 of 24
-      swept fits and on roughly a quarter of *ordinary* splits, at ``2e-5`` to ``7e-4``.  It
-      was never the conditioning of item 3 and never a stale array: recomputing the recorded
-      score from the returned state reproduced it bit for bit.
+      the outer cap and report ``failure = "max_iter_reached"``.  Over a 96-fit sweep, 87
+      reach the tolerance, 8 stall and 1 runs out of rounds.  No argument here *proves* the
+      iterates approach a common zero of the three equations, which is why the diagnostics
+      rather than the argument decide: ``summary()`` ends with the score check whenever the
+      check fails, and ``res.score_verdict`` carries the verdict either way.
 
-      **What closed it** is piece B1b:
-      :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` solves the score at the
-      *truncated* tilt, which is the expression the curve carries, and the alternation now
-      carries that truncated array forward.  Measured on the four fixtures the defect was
-      characterised on -- including ``weak_overlap`` at a forced ``g_bounds=(0.15, 0.85)``,
-      where 375 rows clipped -- every state identity holds at ``1e-17`` or better and every
-      final correction score is ``1e-10`` against a bar near ``5e-06``.  A fit whose bound
-      never binds is bit for bit what it was.
+   Two things that were open and are closed, kept because both are the kind of defect that
+   returns.  The **sign** of the mechanism correction is the appendices' orientation and not
+   the §3.1 display's -- nothing reporting a point estimate could have caught a flip, since
+   all three empirical means are driven to zero and what it moves is the variance;
+   ``tests/unit/test_theorem_drtmle.py`` pins it at a **nonzero** :math:`Q_r`, which is the
+   only place a sign is visible.  And the reported curve is **centred where the mechanism
+   truncation binds**: equation (9) is solved at the truncated tilt, which is the expression
+   the curve carries (:func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism`), so a
+   fit whose bound never binds is bit for bit what it was, and one whose bound does binds
+   holds every state identity at ``1e-17``.
 
-      **And measured again at scale**, on the 96-fit sweep: **zero** state identities above
-      ``1e-12``, worst ``4.3e-17``, ``B_clip`` identically zero, and ``weak_overlap``'s score
-      check failing on **0 of 24** where it failed on 23.  The draws are as hard as they were
-      -- a third of their ``(row, arm)`` pairs still clip at the initial mechanism and the
-      per-arm effective ``n`` is 9-13% -- so what went away is the failure and not the
-      overlap, which is what says the failure was this convention mismatch.
-
-      **The instrument that found it stays**, and is why the fix is checkable rather than
-      asserted: :func:`~cleverly.validation.drtmle.correction_check` recomputes each arm's
-      :math:`P_n[w D^*_g]` and :math:`P_n[w D^*_Q]` from the exact returned state and reports
-      the residual against the score the targeting step recorded, per arm and per equation,
-      on every doubly-robust fit.  That is piece B1a, and no threshold in it was loosened to
-      make these rows pass.
+   **The instrument that found the second stays**, and is why that fix is checkable rather
+   than asserted: :func:`~cleverly.validation.drtmle.correction_check` recomputes each arm's
+   :math:`P_n[w D^*_g]` and :math:`P_n[w D^*_Q]` from the exact returned state and reports the
+   residual against the score the targeting step recorded, per arm and per equation, on every
+   doubly-robust fit.  No threshold in it was loosened to make those rows pass.
 
 Every interval this package reports is valid when the second-order remainder is negligible,
 and for a plain TMLE that remainder is the product
@@ -164,7 +135,8 @@ __all__ = ["DRTMLE", "ReducedFit"]
 #: :data:`~cleverly.estimators.targeting.ReductionOrder`.  ``"paper"`` exists to be measured
 #: against ``"cleverly"`` rather than to be chosen: the theorem's exit is a fixed point and
 #: not a route, so the two are the same estimator if they land in the same place, which is
-#: what ``docs/roadmap.md``'s item 22 asks and ``benchmarks/bench_drtmle.py`` answers.
+#: what ``docs/roadmap.md``'s item 22 asks; ``docs/drtmle.md``'s *The update order* is what
+#: the sweep that read it found.
 UPDATE_ORDERS = ("cleverly", "paper")
 
 #: The two guards, in ``drtmle``'s vocabulary.  **Crossed**, and the commonest thing to
@@ -216,22 +188,24 @@ class ReducedFit:
 
 
 class DRTMLE(TMLE):
-    r"""TMLE with doubly-robust inference, for a binary point treatment.  **In progress.**
+    r"""TMLE with doubly-robust inference, for a binary point treatment.
 
     Reports ``ey1``, ``ey0`` and ``ate`` under those names -- a different estimator behind
     the same parameters, exactly as :class:`~cleverly.CTMLE` is -- with an influence curve
     and therefore an interval that stays valid when only one of the two nuisances is
     consistently estimated.
 
-    **Read the module docstring's warning before using this in anger.**  The curve it
-    reports was transcribed from the R package rather than derived -- that is its
-    *provenance*, and its *evidence* is that it has since been checked against Theorem 1's
-    appendices and against the Gateaux derivative of the parameter, and agrees with both;
-    nothing has been compared against that package's *numbers*, which is a decision rather
-    than a gap.  A study here now **does** demonstrate the interval is better than a plain
-    TMLE's, by a wide and reproduced margin, and also that it does not attain nominal
-    coverage anywhere in that study.  What the module docstring says about what this does
-    and does not buy is not hedging: it is the current state of the evidence.
+    **Read the module docstring's warning before using this in anger**, and
+    ``docs/drtmle.md`` for the contract in full.  The curve it reports was transcribed from
+    the R package rather than derived -- that is its *provenance*, and its *evidence* is that
+    it has since been checked against Theorem 1's appendices and against the Gateaux
+    derivative of the parameter, and agrees with both; nothing has been compared against that
+    package's *numbers*, which is a decision rather than a gap.  A study here **does**
+    demonstrate the interval is better than a plain TMLE's, by a wide and reproduced margin,
+    and also that it does not attain nominal coverage anywhere in that study.  What the
+    module docstring says about what this does and does not buy is not hedging: it is what
+    the evidence establishes, and the interval is offered as valid *conditionally* on
+    nuisance conditions a fit cannot check for itself.
 
     Every :class:`~cleverly.TMLE` keyword is accepted and behaves identically except the
     ones listed under *Notes*, which are refused rather than approximated.
@@ -266,8 +240,8 @@ class DRTMLE(TMLE):
         document asserts.  Both share the stopping rule, the stall test and the closing
         pass, deliberately: what is in question is the route.
 
-        Two cautions carry over from
-        ``docs/drtmle/theorem-concordance.md`` §6.  Compare the **scores and the estimates**,
+        Two cautions carry over from ``docs/drtmle.md``'s *The update order*.
+        Compare the **scores and the estimates**,
         never the fluctuation coefficients: the submodels a round passes through differ, so
         an ``epsilon`` from one is not an ``epsilon`` from the other.  And compare the two at
         the **same nuisances** -- the same data, the same ``random_state`` -- since the

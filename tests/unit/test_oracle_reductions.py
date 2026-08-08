@@ -1,8 +1,8 @@
 r"""What does a fit do when the reduced regressions are *exactly* right?
 
-``docs/drtmle/validation-plan.md`` §4 asks whether a sweep's failures persist "when the
-reductions are handed the **oracle** values", and sized that as free "because the datasets
-already know their truth".  They do not.  A reduction is a conditional expectation given a
+The validation plan asked whether a sweep's failures persist "when the reductions are handed
+the **oracle** values", and sized that as free "because the datasets already know their
+truth".  They do not.  A reduction is a conditional expectation given a
 **fitted** object -- :math:`Q_r(a, W) = E[\bar Q_0 - \bar Q^* \mid \hat g(a|W)]`, and the two
 reduced mechanisms given :math:`\hat{\bar Q}(a, W)` -- so its truth is a property of the
 estimator's own arrays and not of the process, and no closed form or fresh draw from a

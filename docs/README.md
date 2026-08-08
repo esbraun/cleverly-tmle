@@ -8,7 +8,7 @@ every file is hand-written and is expected to be read.
 | [User guide](user-guide.md) | one runnable recipe per capability: multi-arm treatments, dynamic and stochastic regimes, continuous doses, incremental interventions, marginal structural models, longitudinal and survival fits, C-TMLE, cross-fitting, weights |
 | [Technical appendix](methodology.md) | per algorithm: the estimand, its efficient influence curve, the second-order remainder, and the test that fails when it is built wrong |
 | [Roadmap](roadmap.md) | what has landed, what is open, and — at the top — the [standing decisions](roadmap.md#standing-decisions) this package has taken and will not re-litigate |
-| [`DRTMLE`](drtmle/) | the one variant still in progress: the theorem concordance, the validation plan, the [coverage study's design](drtmle/coverage-study.md) and [its evidence manifest](drtmle/study-manifest.md), the investigation log, and the external review that started it |
+| [DR-TMLE](drtmle.md) | the doubly-robust variant's production contract: supported estimands and refusals, what Theorem 1 covers, the targeting and cross-fitting choices, the nuisance conditions the interval is conditional on, and the diagnostics to inspect |
 | [Benchmarks](benchmarks/) | where a fit's time goes, and what compiling or parallelising the package's own arithmetic would buy — which, measured properly, is not enough for a dependency |
 | [References](references.md) | every paper a derivation is read off, with the locators the prose cites |
 

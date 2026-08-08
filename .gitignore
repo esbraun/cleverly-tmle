@@ -20,10 +20,3 @@ target/
 # findings will find them and a `--output` will not overwrite them.
 benchmarks/results/*
 !benchmarks/results/.gitkeep
-
-# `evidence/` is the exception to the rule above and not a contradiction of it: these are a
-# *dispatched study's* rows, which the standing decision says are archived rather than left
-# in CI to expire. The unpacked `.jsonl` is the point and is committed. The `.zip` is a
-# working file of `scripts/fetch_evidence.sh` -- it is the byte stream the manifest's digests
-# are of, so it is worth keeping until the check passes and nothing afterwards.
-evidence/**/*.zip

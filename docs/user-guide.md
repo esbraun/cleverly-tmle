@@ -1056,16 +1056,18 @@ Why this is the right number, and how it is checked:
 
 ## Doubly-robust inference
 
-> **In progress.** `DRTMLE` is written and tested, and it is not finished. Its influence
-> curve was transcribed from R's `drtmle` rather than derived — it has since been checked
-> against Theorem 1's appendices *and* against the Gateaux derivative of the parameter, and
-> agrees with both. A coverage study over 6,000 fits **does** now show the interval it
-> reports is much better than a plain TMLE's where one nuisance is badly estimated —
-> `0.844` against `0.532` in the cell built for it — and also that it **attains nominal
-> coverage nowhere in that study**, the best reading being `0.880`. The full list is in
-> [the roadmap](roadmap.md#what-is-still-open); the short version is at the end of this
-> section. Use it where you have a reason to think one nuisance is badly estimated, and do
-> not treat the interval as settled.
+> **Conditionally valid, and the condition is on you.** `DRTMLE` computes what Benkeser et
+> al.'s Theorem 1 derives — its curve was transcribed from R's `drtmle` rather than derived,
+> and has since been checked against Theorem 1's appendices, against the Gateaux derivative
+> of the parameter, and against exact finite-support laws, and agrees with all three. The
+> interval it reports is valid **conditional on** your obtaining adequate primary *and
+> reduced-regression* fits, which are rate conditions on five estimated functions that no fit
+> can check for itself — **solving the score equations does not establish them**. A coverage
+> study over 6,000 fits shows the interval is much better than a plain TMLE's where one
+> nuisance is badly estimated — `0.844` against `0.532` in the cell built for it — and that
+> it **attains nominal coverage nowhere in that study**, the best reading being `0.880`.
+> [`docs/drtmle.md`](drtmle.md) is the contract in full. Use it where you have a reason to
+> think one nuisance is badly estimated, and do not treat the interval as settled.
 
 What Theorem 1 licenses is an interval *conditional on* the score equations being solved to a
 negligible order, so a fit's own answer to that question is on the face of its report:
@@ -1183,12 +1185,12 @@ than the route — so the two orders are the same estimator if they land in the 
 `"cleverly"` unless you are running that comparison. What is measured so far is two draws, on
 which the estimates agree to within a fifth of a standard error and the *standard errors* differ
 by up to 2.3%; the sweep that would say whether that is typical is
-[still open](roadmap.md#b2b--the-dispatch-and-what-it-decides).
+[still open](roadmap.md#what-is-still-open).
 
 `reduced_crossfit=` is the **second** diagnostic keyword and is here for the same kind of reason.
 The reduced regressions are fitted on the primary cross-fitting split, so fold `k`'s regression
 trains on rows whose design *and target* came from models that saw fold `k`. Whether that matters
-is [item 15](roadmap.md#a1b--the-cross-fitting-construction), the argument that it does not needs
+is [item 15](drtmle.md#reduced-regression-cross-fitting), the argument that it does not needs
 one quantity to vanish, and that quantity is exactly the difference between this construction and
 `reduced_crossfit="nested"` — which refits the primary nuisances leaving each outer fold out as
 well. So the expensive one exists to be measured against, not to be used: leave it at `"pooled"`
@@ -1212,9 +1214,11 @@ companion = res.repeats[0].fluctuations["mean"].reduction.evaluation
 
 The draw contributes to no fit, no fold and no score, so a fit that declares one is bit for bit a
 fit that does not — and it is refused with `repeats=`, `targeting="one_step"` and
-`target_weights=True`, each by name. What to do with it is
-[`benchmarks/drtmle_remainder.py`](../benchmarks/drtmle_remainder.py); this is a research
-instrument for [item 13](roadmap.md#what-is-still-open) rather than something an applied fit needs.
+`target_weights=True`, each by name. What it is for is integrating the population mean of the
+*fitted* doubly-robust curve against an independent draw, which is what the second-order remainder
+diagnostic needs and what `P_n D̂` is refused as a substitute for — see
+[the remainder terms](drtmle.md#the-remainder-terms-and-the-rate-conditions). This is a research
+instrument rather than something an applied fit needs.
 
 **A single guard reports a shorter curve, and the report says which.** One correction per
 equation the guard asks for: `guard=("g",)` solves equation (10) and reports
@@ -1247,7 +1251,7 @@ influence curve's form is read off `drtmle`'s implementation rather than derived
 been checked against Theorem 1 — in the 2016 working-paper version, kept at
 UCB Biostatistics paper 356 — and it agrees, though the paper's own display of one correction
 prints a sign its appendices contradict, so the check took an argument rather than a glance
-([the concordance's §4](drtmle/theorem-concordance.md#4-the-sign-discrepancy-item-21--resolved)).
+([the sign of the mechanism correction](drtmle.md#the-sign-of-the-mechanism-correction)).
 It has since also been checked against a *perturbation of the law*, which is the check every
 other estimand here gets and which this one could not have until the fixture was made wrong on
 purpose: with one nuisance consistent, the corrected curve a fit reports is the efficient

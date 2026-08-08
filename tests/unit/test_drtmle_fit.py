@@ -28,7 +28,7 @@ from cleverly.estimators.serialize import load
 from cleverly.estimators.targeting import _negligible_bar, _solved, build_submodel
 from cleverly.estimators.tmle import DEFAULT_NUISANCE_BOUND, correction_parts
 from cleverly.inference.influence import counterfactual_means, reduced_corrections
-from cleverly.validation.drtmle import MARGIN_ACTIVE, correction_check
+from cleverly.validation.drtmle import MARGIN_ACTIVE, CorrectionRow, correction_check
 from cleverly.validation.score import DEFAULT_TOLERANCE
 from tests.conftest import FAST_KWARGS
 
@@ -327,6 +327,58 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
             "influence curve",
         }
 
+    def test_an_identity_residual_is_a_defect_and_not_an_unsolved_equation(self, fit) -> None:
+        """The two failures are different failures, and neither may be reported as the other.
+
+        An **identity residual** says the loop posed one expression and the curve carries
+        another: a software defect, which no amount of further iteration repairs.  A
+        **correction score** above the inferential bar says the fit did not solve equations it
+        posed correctly: an ordinary convergence problem, whose remedy is a smaller step or
+        more rounds.  Conflating them sends a reader to the wrong remedy in both directions.
+
+        Built from rows rather than from a fit, because a fit that exhibits either is a fit
+        this package does not produce -- and the classification is what is under test, not the
+        arithmetic that feeds it.  ``residual = stored - reported``, so a row is made to fail
+        one test or the other by moving exactly one of the two numbers.
+        """
+        real = fit.validation.correction_check()
+
+        def row(**overrides):
+            base = {
+                "draw": 0,
+                "arm": 1.0,
+                "label": "1",
+                "equation": "D*_g",
+                "stored": 0.0,
+                "reported": 0.0,
+                "solved": True,
+                "clipped": 0,
+            }
+            return CorrectionRow(**{**base, **overrides})
+
+        def check(*rows):
+            return replace(real, rows=rows)
+
+        # `stored` and `reported` disagree, and the term itself is negligible: a defect.
+        broken = check(row(stored=1.0, reported=0.0))
+        assert len(broken.identity_failures()) == 1
+        assert broken.correction_failures() == ()
+        assert not broken.passed
+
+        # The two expressions agree exactly, and what they agree on is far too large: an
+        # unsolved equation, and emphatically not a defect.
+        unsolved = check(row(stored=9.0, reported=9.0))
+        assert unsolved.identity_failures() == ()
+        assert len(unsolved.correction_failures()) == 1
+        assert not unsolved.passed
+
+        # And the row a single guard leaves unsolved is judged against neither, however
+        # large: nothing subtracts it, so it cannot make an interval wrong.
+        informational = check(row(stored=float("nan"), reported=9.0, solved=False))
+        assert informational.identity_failures() == ()
+        assert informational.correction_failures() == ()
+        assert informational.passed
+
     def test_a_plain_fit_gets_no_such_rows(self, ordinary) -> None:
         """No estimand outside this variant reports a correction, so none gains a row."""
         assert ordinary.validation.correction_check().rows == ()
@@ -548,7 +600,7 @@ class TestTheAlternationCanBeIllConditioned:
     wrong.**  Six seeded fits at ``n = 800`` on this one process reported no ill-conditioned
     solve and a worst score of ``1e-9``, which read as a minority behaviour of particular
     draws.  A 96-fit sweep -- four processes by two sizes by twelve seeds, tabulated in
-    ``docs/drtmle/investigation-log.md`` under *How the alternation exits* -- says otherwise:
+    tabulated at the ``drtmle-validation-archive-2026-08`` tag -- says otherwise:
     the solve is ill-conditioned on 5 of 12 ``linear`` draws at ``n = 600`` and 9 of 12 at ``n = 1,200``,
     and highest exactly where the mechanism is easiest to get right, which is what the
     paragraph above predicts and what sweeping only hard processes would have hidden.  A fit
@@ -625,7 +677,7 @@ class TestAnEquationStopsOnEitherRuler:
     Asserting ``exit_reason == "tolerance"`` on a fitted result would be the other candidate,
     and it is rejected for the reason the class above rejects it: which exit fires is a
     property of the draw, and six fits are not enough to make it a property of the estimator.
-    The sweep in ``docs/drtmle/investigation-log.md`` had 2 of 96 reach the tolerance under
+    The archived 96-fit sweep had 2 of 96 reach the tolerance under
     the *old* rule and
     the new rule has not been swept, so pinning it here would pin a seed.
 
@@ -759,6 +811,40 @@ class TestTheRefusals:
 
         with pytest.raises(NotImplementedError, match="CTMLE are not combined"):
             Both(**SETTINGS).fit(frame(), outcome="Y", treatment="A")
+
+    def test_a_reduced_learner_that_raises_fails_the_fit_rather_than_the_round(self) -> None:
+        """Fail closed: an exception from a reduction's learner leaves no result at all.
+
+        The alternation refits the three reductions inside itself, once per round, so an
+        exception has somewhere plausible to be caught -- and catching it would produce the
+        worst outcome available: a fit that returns a ``psi``, an ``se`` and a green score
+        check, built from whatever the previous round's arrays happened to be.  Nothing in
+        the report would say a round had been skipped.
+
+        The only handler on this path is
+        :class:`~cleverly.learners.super_learner.SuperLearner`'s, which drops a **candidate**
+        from its library on purpose; a learner handed in directly has no library to be
+        dropped from, and this is what says so.
+        """
+
+        class Exploding:
+            """Raises where a reduction is fitted, and nowhere earlier."""
+
+            def fit(self, x, y, sample_weight=None):
+                raise RuntimeError("the reduced learner exploded")
+
+            def predict(self, x):  # pragma: no cover - the fit never returns
+                raise AssertionError("a model that never fitted was asked to predict")
+
+            def get_params(self, deep=True):
+                return {}
+
+            def set_params(self, **params):
+                return self
+
+        estimator = DRTMLE(**SETTINGS, reduced_outcome_learner=Exploding())
+        with pytest.raises(RuntimeError, match="the reduced learner exploded"):
+            estimator.fit(frame(), outcome="Y", treatment="A")
 
     def test_a_plain_tmle_will_not_retarget_a_doubly_robust_fit(self, fit) -> None:
         """It has no learners to refit the reductions with, and says so rather than guessing.
@@ -1179,8 +1265,8 @@ def paper(fit):
 class TestBothUpdateOrdersReachTheTheoremsExit:
     r"""Item 22's numerical half, at one draw: two routes, one stated fixed point.
 
-    The 2016 working paper states a six-step recursion (`docs/drtmle/theorem-concordance.md`
-    §6) and this package's alternation is not a transcription of it.  Reading the paper
+    The 2016 working paper states a six-step recursion (pp. 10-11; ``docs/drtmle.md``'s
+    *The update order*) and this package's alternation is not a transcription of it.  Reading the paper
     settled the *theoretical* half -- its step 7 states termination as the three empirical
     means being approximately zero, so the order is one way of reaching a fixed point rather
     than something Theorem 1 assumes about the collection returned -- and left the numerical
@@ -1298,7 +1384,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         sequence of *solves* instead, which is what the order is.
 
         Two hooks on the targeting module's namespace and nothing in the library moved,
-        which is how ``docs/drtmle/investigation-log.md`` records B1b's prototype being run.
+        which is how B1b's prototype is recorded as having been run.
         The first round is all that is asserted: a round is the unit the order is defined
         over, and later rounds repeat it.
         """

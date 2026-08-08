@@ -319,8 +319,8 @@ def fit_reduced(
     and not free for anything choosing a split point from the data.  That is why ``crossfit``
     exists: :math:`\Delta_k` *is* the pooled-minus-nested difference, so the open condition
     of the argument is the quantity the reference construction computes.
-    ``docs/drtmle/theorem-concordance.md`` §8 is the argument in full and
-    ``docs/drtmle/validation-plan.md`` §7 is the rule the measurement is read under.
+    ``docs/drtmle.md``'s *Reduced-regression cross-fitting* is the argument in full, with
+    both of its conditions and which learners meet them.
 
     **One bound is chosen here rather than at targeting time**, and it is the only one in
     this package that is.  :math:`g_{r,2}`'s *target* is a quotient by the mechanism, so
@@ -636,7 +636,7 @@ def _nested_column(
 
     Predicting at the *inner* design instead would be a different estimator and a silent
     one: every array stays in range, and the fit would be answering for a mechanism no row
-    was assigned under.  ``tests/unit/test_nested_reductions.py`` pins the call site against
+    was assigned under.  ``tests/unit/test_drtmle_crossfit.py`` pins the call site against
     exactly that, and the longhand beside it against reading the wrong fold's copy.
     """
     folds = nuisance.folds

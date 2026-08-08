@@ -400,8 +400,8 @@ def solve_bounded_mechanism(
 
     **Why not fluctuate inside the bounds instead.**  A smooth bounded submodel --
     :math:`\text{lo} + (\text{hi} - \text{lo})\operatorname{expit}(\operatorname{logit} u_0 +
-    H_g\epsilon)` -- never leaves the bounds and needs no projection, and
-    ``docs/drtmle/theorem-concordance.md`` §7 prefers it *to post-fit clipping*.  It was
+    H_g\epsilon)` -- never leaves the bounds and needs no projection, and is preferable *to
+    post-fit clipping* (``docs/drtmle.md``, *The bound-inactive scope*).  It was
     prototyped and it loses twice.  It is a **different submodel on every fit**, not only on
     the clipping ones: at inert bounds of ``1e-6`` it moved a no-clip fixture's ``psi`` by
     ``2.7e-03`` standard errors where this function moves it by zero.  And where the bound does

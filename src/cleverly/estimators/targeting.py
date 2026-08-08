@@ -146,9 +146,8 @@ def _negligible_bar(n: int) -> float:
     **Whether the fit that came out is entitled to a Wald interval is the other question**,
     and it stays :func:`~cleverly.validation.score_check`'s, at the realised ``se``, with the
     standardised score :math:`|P_n S_j|/\hat{sd}(S_j)` reported beside the stopping rule
-    rather than folded into it (``benchmarks/bench_drtmle.py``'s *What the reported curve
-    rests on*).  Conflating the two is what the old wording did, and it is why a fit whose
-    solver had done its job was read as one that needed more rounds.
+    rather than folded into it.  Conflating the two is what the old wording did, and it is
+    why a fit whose solver had done its job was read as one that needed more rounds.
     """
     return _NEGLIGIBLE / float(n)
 
@@ -187,7 +186,7 @@ ReductionExit = Literal["tolerance", "stall", "cap"]
 #:
 #: ``"cleverly"`` is this package's own and the default, bit for bit what it always was:
 #: equation (9), refit, equation (10), equation (8), refit.  ``"paper"`` is
-#: ``docs/drtmle/theorem-concordance.md`` §6's steps 2 to 6 -- equation (8), refit
+#: the working paper's recursion, steps 2 to 6 -- equation (8), refit
 #: :math:`g_{r,1}` and :math:`g_{r,2}` at the **once-updated** outcome regression, equation
 #: (10), refit :math:`Q_r` at the **twice-updated** one, equation (9).  Neither the exit
 #: test, the stall rule nor the closing pass differs between them, deliberately: what is in
@@ -1131,8 +1130,8 @@ def solve_with_reduction(
     conditioning; :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
 
     **Swept twice over the same 96 fits** -- four processes by two sizes by twelve seeds,
-    ``docs/drtmle/investigation-log.md``, first under the criterion item 7 replaced and then
-    under the one in force.  The first sweep replaced a six-fit claim that had stood here
+    first under the criterion item 7 replaced and then under the one in force.  The first
+    sweep replaced a six-fit claim that had stood here
     ("converged in 15 to 45 rounds", one process) and found the loop mostly *stalling*: 2 of
     96 reached the tolerance, 86 stalled, 8 ran out of rounds.  **The second inverts it: 87
     reached the tolerance, 8 stalled and 1 ran out of rounds**, at a median of 4 to 9 rounds
@@ -1239,8 +1238,8 @@ def solve_with_reduction(
 
     for outer in range(1, max_outer + 1):
         if order == "paper":
-            # Steps 2 to 6 of the working paper's recursion, in its order --
-            # `docs/drtmle/theorem-concordance.md` §6. The two refits are the paper's own
+            # Steps 2 to 6 of the working paper's recursion, in its order (pp. 10-11;
+            # `docs/drtmle.md`'s *The update order*). The two refits are the paper's own
             # steps 3 and 5 and they are what the order is *about*: the reductions are
             # taken at two different vintages of the outcome regression, the mechanism
             # half at the once-updated one and Qr at the twice-updated one, where this
@@ -1719,8 +1718,8 @@ def _close_at_frozen_reductions(
     its residual as well as in its denominator -- so the two coincided on every row the
     truncation left alone and differed on every row it clipped, and one clipped row of 600
     was enough to leave the reported curve uncentred by ``5.8e-4`` while this stage recorded
-    ``8e-11``.  That was item 20 in ``docs/roadmap.md``, it accounted for item 11 as well,
-    and the measurements are in ``docs/drtmle/investigation-log.md``.
+    ``8e-11``.  That was item 20 in ``docs/roadmap.md`` and it accounted for item 11 as well;
+    ``docs/drtmle.md``'s *The bound-inactive scope* is what the fix left behind.
 
     :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` is what closed it: it
     solves the score at the **truncated** tilt, which is the expression the reported curve

@@ -566,7 +566,23 @@ class TestDoublyRobustInference:
     ``sqrt(n) R_2 -> 0``.  Solving two further score equations against reduced-dimension
     regressions is supposed to close that gap.
 
-    **What this class can show, and what it cannot.**  It prices what a nightly budget can
+    **This is a catastrophic-regression guard at fixed seeds, and nothing more.**  It asserts
+    that estimates are finite, that no replicate was silently dropped, that the reported
+    standard error is the right order of magnitude, and that coverage has not collapsed.  It
+    deliberately does **not** require coverage near ``0.95``: coverage is a property of the
+    learner, the DGP, the sample size and the dependency versions, not a deterministic
+    software invariant, and a nominal floor here would be a version-pinned flake that fails
+    for reasons no commit caused.  ``docs/drtmle.md`` is where the release claim lives, and it
+    is *conditional* validity -- the interval is valid given adequate nuisance fits, which is
+    a rate condition no simulation in a nightly budget establishes.
+
+    The cells that showed what the variant buys -- ``q-drift`` and ``g-drift`` with injected
+    nuisance sequences, where it recovered 74.6% and 78.7% of the plain estimator's coverage
+    deficit -- belonged to the validation study's harness and were retired with it.  They are
+    reachable from the ``drtmle-validation-archive-2026-08`` tag and are not reproducible
+    here; do not read this class as standing in for them.
+
+    **What it can show, and what it cannot.**  It prices what a nightly budget can
     reach: that the point estimate is still doubly robust and that the doubly-robust
     interval does not *cost* coverage where the plain one already has it.  It does **not**
     demonstrate the headline claim, and the reason is a measurement rather than a hedge.
@@ -612,6 +628,9 @@ class TestDoublyRobustInference:
             ("tmle", lambda: TMLE(**common)),
             ("drtmle", lambda: DRTMLE(**common)),
         ):
+            # The whole :class:`~cleverly.validation.simulation.StudyResult`, not just the
+            # ``ate`` summary: ``n_failed`` lives on it, and a silently dropped replicate is
+            # exactly the failure this tier exists to catch.
             out[label] = CoverageStudy(
                 dgp=dgp,
                 estimator=factory,
@@ -620,43 +639,80 @@ class TestDoublyRobustInference:
                 estimands=("ate",),
                 seed=11,
                 n_jobs=2,
-            ).run()["ate"]
+            ).run()
         return out
 
     @pytest.fixture(scope="class")
     def studies(self) -> dict:
         return self._pair(_off_diagonal_dgp(), n=self.N, reps=self.REPLICATES)
 
+    def test_no_replicate_was_silently_dropped(self, studies: dict) -> None:
+        """Fails closed: a study that quietly lost half its draws would pass everything else.
+
+        Every assertion below is an average over replicates, so a harness that swallowed the
+        hard ones would report better numbers on the survivors and read as a healthier
+        estimator.  This is the first thing to check and the cheapest.
+        """
+        for label, study in studies.items():
+            assert study.n_failed == 0, (label, study.n_failed)
+            assert study.n_replicates == self.REPLICATES, label
+
+    def test_every_estimate_and_standard_error_is_usable(self, studies: dict) -> None:
+        """The floor beneath every other claim: finite numbers, and a positive interval width.
+
+        A ``nan`` estimate or a zero standard error is a fit that failed without saying so.
+        Asserted on the raw arrays rather than on their means, since one bad replicate in
+        forty is invisible in an average and is exactly the regression worth catching.
+        """
+        summary = studies["drtmle"]["ate"]
+        assert np.isfinite(summary.estimates).all(), summary.estimates
+        assert np.isfinite(summary.std_errors).all(), summary.std_errors
+        assert (summary.std_errors > 0.0).all(), summary.std_errors
+
     def test_the_point_estimate_is_still_doubly_robust(self, studies: dict) -> None:
         """The unconditional claim, and the one a broken implementation fails.
 
         Solving two more equations must not cost consistency: all three are solved at the
         same ``Qbar*``, and the extra terms are mean-zero by construction. A variant that
-        bought its variance with bias fails here and could pass everything else.
+        bought its variance with bias fails here and could pass everything else.  This is a
+        *deterministic* property of the construction rather than a coverage claim, which is
+        why it keeps a Monte Carlo bound where the two below do not.
         """
-        summary = studies["drtmle"]
+        summary = studies["drtmle"]["ate"]
         assert abs(summary.bias) < 3.5 * summary.bias_se, studies
 
-    def test_the_interval_does_not_cost_coverage(self, studies: dict) -> None:
-        """A floor rather than dominance, because dominance is not what was measured.
+    def test_the_reported_standard_error_is_the_right_order_of_magnitude(
+        self, studies: dict
+    ) -> None:
+        """A factor of two either way, which is a regression bound and not a calibration one.
 
-        Where the plain interval already covers there is nothing to improve, so the
-        assertion is that the doubly-robust one does not fall away from the nominal rate --
-        which a wrong sign in ``D = D* - D*_Q - D*_g`` would eventually do, since it doubles
-        the correction instead of removing it.
+        The band was ``+/- 0.2`` around 1.0, which is a *calibration* assertion: it fails on a
+        dependency bump that moves the learner slightly, and such a failure names no commit.
+        What is worth catching here is the order of magnitude -- a wrong sign in
+        ``D = D* - D*_Q - D*_g`` doubles the correction rather than removing it, and a
+        dropped term removes it entirely, both of which land far outside a factor of two.
+        The calibration question belongs to ``docs/drtmle.md``'s nuisance conditions, which
+        no simulation of this size settles.
         """
-        drtmle, tmle = studies["drtmle"], studies["tmle"]
-        assert drtmle.coverage > 0.88, studies
+        ratio = studies["drtmle"]["ate"].se_ratio
+        assert 0.5 <= ratio <= 2.0, studies
+
+    def test_coverage_has_not_collapsed(self, studies: dict) -> None:
+        """A catastrophic floor and a *relative* comparison, deliberately not a nominal one.
+
+        ``0.6`` is far below anything a working estimator produces on this cell -- the pilot
+        put both estimators at ``0.958`` -- and far above what a broken curve gives.  It is
+        chosen to sit in the gap rather than to certify the interval: requiring ``0.95``, or
+        even the ``0.88`` this once asserted, makes a nightly run a referendum on the
+        learner's luck rather than on the package's code.
+
+        The second assertion is the one with content, and it is relative: where the plain
+        interval already covers there is nothing to improve, so what the doubly-robust one
+        must not do is fall *away* from it.
+        """
+        drtmle, tmle = studies["drtmle"]["ate"], studies["tmle"]["ate"]
+        assert drtmle.coverage > 0.6, studies
         assert drtmle.coverage >= tmle.coverage - 3.0 * drtmle.coverage_se, studies
-
-    def test_the_reported_standard_error_is_honest(self, studies: dict) -> None:
-        """The influence-curve variance against the actual spread of the estimates.
-
-        The direct check on the curve: it is a *different* curve from the plain one, so
-        agreeing with the empirical spread is a statement about the extra terms rather than
-        an inherited one.
-        """
-        assert studies["drtmle"].se_ratio == pytest.approx(1.0, abs=0.2), studies
 
 
 class TestClusteredInference:

@@ -122,9 +122,9 @@ class TestTruth:
         """The property a convergence ladder rests on, and it is exact or it is nothing.
 
         Three grids that are not nested are three rules, and the movement between two of
-        them is then reshuffling rather than refinement.  ``benchmarks/drtmle_remainder.py``
-        reads a whole ladder off one companion by slicing prefixes, which is only the same
-        integral at a coarser grid because of this.
+        them is then reshuffling rather than refinement.  A caller reading a whole ladder off
+        one companion by slicing prefixes gets the same integral at a coarser grid only
+        because of this.
         """
         dgp = nonlinear_dgp()
         coarse, fine, whole = dgp.quadrature(2**10), dgp.quadrature(2**13), dgp.quadrature()
@@ -135,7 +135,7 @@ class TestTruth:
     def test_the_default_grid_is_the_rule_the_truth_is_integrated_with(self) -> None:
         """Bit for bit, and it is the *composition* being pinned rather than the point set.
 
-        ``benchmarks/drtmle_remainder.truth_at`` integrates :math:`\\psi_0` on the companion's
+        A remainder diagnostic integrates :math:`\\psi_0` on the companion's
         own grid so that it cancels against :math:`P_0\\hat D`'s plug-in half, and the whole
         cancellation rests on ``quadrature`` returning the points ``truth`` uses.  Those are
         two methods that could drift apart -- the reason there is one call rather than two
@@ -185,8 +185,8 @@ class TestTruth:
 
         The negative half is the point: a prefix of *another* scramble's grid is not a
         coarser version of this one, so a caller that slices a ladder out of a stack of
-        scrambles has to slice within a block.  ``benchmarks/drtmle_remainder.Window`` is
-        that, and this is the property it exists for.
+        scrambles has to slice within a block, and this is the property that makes a
+        within-block window well defined.
         """
         dgp = nonlinear_dgp()
 

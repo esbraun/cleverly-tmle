@@ -31,14 +31,13 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
-#: Every markdown file the documentation set is made of.  ``docs/`` is the bulk; the other three
-#: are linked from it and link back into it, so leaving them out would check one direction of a
-#: two-way relationship.
+#: Every markdown file the documentation set is made of.  ``docs/`` is the bulk; the root-level
+#: files are linked from it and link back into it, so leaving them out would check one direction
+#: of a two-way relationship.
 DOCUMENTS = sorted(
     {
         *ROOT.glob("*.md"),
         *ROOT.glob("docs/**/*.md"),
-        *ROOT.glob("evidence/**/*.md"),
     }
 )
 
