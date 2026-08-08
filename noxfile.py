@@ -66,13 +66,6 @@ def bench(session: nox.Session) -> None:
     session.run("python", "benchmarks/bench_tmle.py", *session.posargs)
 
 
-@nox.session(name="bench-drtmle")
-def bench_drtmle(session: nox.Session) -> None:
-    """Characterise how the doubly-robust alternation exits.  Tens of minutes at defaults."""
-    session.install("-e", ".[dev]")
-    session.run("python", "benchmarks/bench_drtmle.py", *session.posargs)
-
-
 @nox.session(name="bench-numba")
 def bench_numba(session: nox.Session) -> None:
     """Whether numba or explicit parallelism helps *after* the nuisances are fitted.
