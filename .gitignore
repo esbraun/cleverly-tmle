@@ -10,6 +10,7 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.claude/
 htmlcov/
 target/
 # Benchmark *runs* are machine-specific and are not committed: a `results.jsonl`

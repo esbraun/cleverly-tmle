@@ -36,7 +36,7 @@ def test_oracle_modules_exist() -> None:
 
 @pytest.mark.parametrize("path", ORACLES, ids=lambda p: p.name)
 def test_oracle_does_not_import_cleverly(path: Path) -> None:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     offenders: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

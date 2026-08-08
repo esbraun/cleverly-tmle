@@ -650,3 +650,56 @@ alone, so no interval on [the construction contrasts](construction-contrasts.md)
 correction; what moves is one word, in this table's totals line, in that page and in
 [the roadmap](../roadmap.md#what-the-evidence-establishes-question-by-question).
 
+## F5: what was run
+
+**Phase 1 only.** Phase 2 — the confirmation, which is F8 — has not run, and this section will
+gain a second half when it does.
+
+| | |
+| --- | --- |
+| study | the terminal experiment, phase 1, `docs/drtmle/terminal-experiment.md` |
+| **where** | **a local Windows box, not GitHub Actions** — the same situation as F4's, and the note below says what it costs |
+| code | `benchmarks/drtmle_f5.py` at the commit this section lands in |
+| environment | Python `3.13.7`, `Windows-11-10.0.26200-SP0`, `thread_limit=1` |
+| tier | 2 — both nuisances fitted, reductions fitted |
+| cells | `q-drift`, `g-drift` |
+| sizes | `600`, `2,400`, at **different committed draw counts** — 24 and 80, F4's carried |
+| cohorts | selection and audit, 208 draws each, `SeedSequence(20260201).spawn(3)`'s first two children, **no shared data seed**; the third child is reserved for the timing pilot and spent there |
+| arms | `glm-pooled` (baseline), `glm-nested`, `gam-pooled`, `gam-nested`, `ceiling` — **five of the roadmap matrix's eight**, each drop recorded in `prereg.json`'s `phase1.arms_dropped` |
+| reduced learners | `glm`; `gam` resolved to `Pipeline` on both arms; the ceiling to its reference projection, `spline(16)` |
+| `--quadrature-points` | `2,048`, two scrambles per draw; the ceiling's reference block `8,192` points on its **own** scramble stream |
+| `--jobs` | `14` — `default_jobs()`, the logical count less two, on a 16-logical box |
+| totals | 416 draws, **2,080 estimator fits**, `6,240` estimator/estimand rows, **zero errors**, **zero identity failures** |
+| wall clock | selection 1h45m, audit 1h23m; **43.5 CPU-hours** in all, so an effective ~13.6× |
+| verdict | **no nomination.** `nominate()` returned `none`; the three nominable arms each carry a recorded reason |
+
+**This is a local run and this section says so rather than dressing it up as a dispatch**, for the
+same reason F4's does. What it costs is **provenance, not arithmetic**: every primary verdict is a
+paired difference within a draw on seeds frozen before the first fit, so a local box and a runner
+compute the same number. What it means practically is that these rows are **committed** rather
+than fetchable, so F5 has no entry in `evidence/manifest.json` and `scripts/fetch_evidence.sh` has
+nothing to fetch for it. Re-running the three commands in `evidence/f5-terminal/README.md` against
+the committed `prereg.json` reproduces it.
+
+### F5's committed rows
+
+| file | rows | bytes | `sha256` |
+| --- | --- | --- | --- |
+| `prereg.json` | 1 | 21,702 | `85386d75bf69ce38…` |
+| `20260807T152658-selection.jsonl` | 3,120 | 2,707,384 | `dee3927abaa5c73f…` |
+| `20260807T171525-audit.jsonl` | 3,120 | 2,694,980 | `6560e1bb9cf45410…` |
+| `20260807T152658-selection-contrasts.jsonl` | 288 | 92,566 | `f950b10b558a3338…` |
+| `20260807T171525-audit-contrasts.jsonl` | 288 | 91,521 | `0a3627871c2d321c…` |
+| `nomination.json` | 1 | 1,765 | `4bddcc8fcd69cc3e…` |
+
+Row counts are rows and the totals line is fits: one estimator fit emits three rows — `ate`, `ey1`
+and `ey0` — so `3,120` rows per cohort is `1,040` fits per cohort and `2,080` in all, and
+`contrast_rows` reads the `ate` rows alone.
+
+**The digests are of the LF bytes git stores**, which is what `--phase nominate`'s emitted
+`NOMINATION-SHA256` is and what F4's table above already records — its `selection-fits.jsonl` row
+reads `2,373,408` bytes against the `2,377,152` a `core.autocrlf=true` checkout holds, the
+difference being one byte per line. So `sha256sum evidence/f5-terminal/<file>` reproduces these
+values on a checkout with LF endings and not on a Windows one; normalise `\r\n` to `\n` before
+hashing, or read the digest off `git cat-file`.
+

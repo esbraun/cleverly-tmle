@@ -33,9 +33,15 @@ jobs:
       # whatever was current, and a release that tightens a check -- or a dependency that
       # ships better stubs -- turns this job red with no commit to blame. Bump it
       # deliberately, in step with pyproject's `dev` extra and `noxfile.py`.
+      #
+      # The interpreter matches `[tool.mypy]`'s `python_version`, which is `3.12` and says at
+      # length why it is not the `3.11` of `requires-python`: numpy's stubs use PEP 695 `type`
+      # statements, which a 3.11 target refuses to parse. Running the job on the interpreter it
+      # targets keeps the two from drifting apart silently. **3.11 is still supported and still
+      # tested** -- the `tests` matrix below runs the fast tier on it.
       - uses: ./.github/actions/setup-env
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           extra: all
           packages: mypy==1.19.1
       - run: mypy src/cleverly

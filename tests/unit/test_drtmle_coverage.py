@@ -791,7 +791,7 @@ class TestTheEvaluationRuleIsChosenRatherThanAssumed:
         (replicates,) = [path for path in written if not path.stem.endswith("-scores")]
         rows = [
             json.loads(line)
-            for line in replicates.read_text().splitlines()
+            for line in replicates.read_text(encoding="utf-8").splitlines()
             if json.loads(line)["estimator"] == "drtmle"
         ]
         assert {row["companion_rule"] for row in rows} == {"sobol"}
@@ -840,7 +840,7 @@ class TestTheEvaluationRuleIsChosenRatherThanAssumed:
         ]
         rows = [
             json.loads(line)
-            for line in replicates.read_text().splitlines()
+            for line in replicates.read_text(encoding="utf-8").splitlines()
             if json.loads(line)["estimator"] == "drtmle"
         ]
 
@@ -897,8 +897,8 @@ class TestTheScoreRowsAreKeptWholeRatherThanCounted:
         path, score_path = study.write_records(replicates, scores, tmp_path)
 
         assert score_path.name == f"{path.stem}-scores.jsonl"
-        assert len(score_path.read_text().splitlines()) == 2
-        assert json.loads(score_path.read_text().splitlines()[0])["data_seed"] == 1
+        assert len(score_path.read_text(encoding="utf-8").splitlines()) == 2
+        assert json.loads(score_path.read_text(encoding="utf-8").splitlines()[0])["data_seed"] == 1
 
     def test_every_field_of_the_librarys_row_reaches_the_artefact(self) -> None:
         """A **structural** pin, and it is the one that keeps the artefact honest.
