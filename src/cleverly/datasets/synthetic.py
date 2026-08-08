@@ -135,7 +135,7 @@ class DGP:
         :meth:`expectation` is the escape hatch for a population *scalar*; this is the one
         for a population quantity that is not a scalar -- a whole evaluation frame, say, whose
         rows a fitted model has to be predicted at before anything can be averaged.
-        ``benchmarks/drtmle_remainder.py`` is the caller: :math:`P_0\\hat D` is an integral of
+        A remainder diagnostic is the caller: :math:`P_0\\hat D` is an integral of
         a *fitted* curve, so it cannot be written as a closure over the law and handed to
         :meth:`expectation` -- the integrand has to be materialised, predicted at, and only
         then averaged.
@@ -185,7 +185,7 @@ class DGP:
         columns included -- and returns one value per row.
 
         It exists so that such a quantity is integrated on **the same rule as the truth it
-        is compared against**.  ``benchmarks/drtmle_coverage.py`` is the caller: its
+        is compared against**.  A coverage study with injected nuisances is the caller: its
         prescribed nuisance sequence has a drift coefficient
         :math:`c_a = P_0[(g_{1,a} - g_{0,a})/g_{1,a} \cdot h_a]` that has to be verified
         against the same law the coverage is measured at, and a second quadrature -- a large

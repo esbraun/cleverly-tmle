@@ -161,7 +161,7 @@ IDENTITY_TOLERANCE = 1e-12
 #:
 #: The gap either side of it is what makes it a number rather than a judgement.  On the draw
 #: item 20 was found on the exit margin is ``1.2e-06`` and on its sibling that never clipped it
-#: is ``0.14``; over ``benchmarks/bench_drtmle.py``'s 96-fit dispatch ``weak-overlap``'s median
+#: is ``0.14``; over a 96-fit dispatch ``weak-overlap``'s median
 #: margin is **exactly** ``0.0e+00`` at two of three sizes while the three ordinary processes
 #: sit at ``0.11`` to ``0.20``.  So this sits two orders above the active regime and three below
 #: the inactive one.
@@ -192,8 +192,9 @@ class CorrectionRow:
         :math:`B_{clip}(a) = P_n[w\\,Q_r/g^b\\,(g - g^b)]` for the ``"D*_g"`` row, ``nan``
         for the other.  Before B1b it reproduced **minus** :attr:`residual` to floating
         point, which is what made it a check on item 20's diagnosis rather than merely a new
-        column; the sign is the orientation ``docs/drtmle/validation-plan.md`` defines it
-        in, and the two differed because one residual read :math:`1_a - g` and the other
+        column; the sign is the orientation
+        :attr:`~cleverly.inference.influence.CorrectionParts.clip_bias` defines it in,
+        and the two differed because one residual read :math:`1_a - g` and the other
         :math:`1_a - g^b`.  It is **zero now**, on every fit, because there is no longer a
         raw tilted mechanism for it to measure the distance to.
     clipped:
@@ -224,7 +225,7 @@ class CorrectionRow:
         truncation witness here that is not about what the loop did: it counts what
         :meth:`~cleverly.estimators._nuisance.Propensity.bounded` had to do on the way into
         equation (8)'s covariate.  Unlike :attr:`clipped`, which B1b emptied, this column
-        **can** disagree -- ``benchmarks/bench_drtmle.py``'s dispatch reads a share of ``0.000``
+        **can** disagree -- a 96-fit dispatch read a share of ``0.000``
         on ``linear``, ``nonlinear`` and ``off-diagonal`` and ``0.231`` to ``0.338`` on
         ``weak-overlap``, which is item 25's two regimes already measured.
     gr1_margin:

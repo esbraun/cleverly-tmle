@@ -10,7 +10,7 @@ number as well; those are the citations worth checking, and they are the ones th
 
 **Nothing here is stored in the repository.** Two PDFs were, and were deleted once everything they
 were cited for had been transcribed into
-[the DRTMLE concordance](drtmle/theorem-concordance.md) — which is why the two `DRTMLE` sources
+[the DR-TMLE contract](drtmle.md) — which is why the two `DRTMLE` sources
 below carry page numbers where the rest carry none. A path to a file only a previous reader had is
 not a citation; a page number is.
 
@@ -60,7 +60,7 @@ not a citation; a page number is.
 
 The three the variant rests on — the first two for the estimating equations, the third's
 implementation for the influence curve. What each supplies, and where in it, is
-[the concordance's source inventory](drtmle/theorem-concordance.md#0-source-inventory).
+[the contract's source table](drtmle.md#the-sources).
 
 - van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical
   inference*, International Journal of Biostatistics 10(1):29–57. **Theorem 3** is the bivariate

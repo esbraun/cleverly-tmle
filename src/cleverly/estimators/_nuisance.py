@@ -216,8 +216,8 @@ class InnerDesigns:
 class CompanionEstimates:
     r"""The fit's nuisances evaluated at rows it never saw, one copy per outer fold.
 
-    ``docs/drtmle/validation-plan.md`` §5 asks for *"a benchmark-only fitted nuisance
-    object exposing predict(new_data) per fold"*, so that :math:`P_0\hat D` -- the
+    What this is for is a benchmark-only fitted nuisance object exposing a prediction at new
+    rows, *per fold*, so that :math:`P_0\hat D` -- the
     population mean of the **fitted** doubly-robust curve, which
     ``docs/roadmap.md``'s item 13 needs and which :math:`P_n\hat D` is refused as a
     substitute for -- can be integrated against an independent draw.  This is that object,
@@ -281,7 +281,10 @@ class CompanionEstimates:
 
     @property
     def fold_weights(self) -> FloatArray:
-        """``n_k / n``, the weights §5's fold-conditional average is taken with."""
+        """``n_k / n``: fold ``k``'s share of the rows *it held out*, which is the weighting
+        a fold-conditional average over the slabs is taken with.  Equal weights are the same
+        thing only on a balanced split.
+        """
         sizes = np.asarray(self.fold_sizes, dtype=float)
         return sizes / float(sizes.sum())
 
@@ -594,8 +597,10 @@ def cross_fit_companion(
     cannot be, because a companion row belongs to no fold -- so it comes back stacked,
     ``(K, m)`` or ``(K, m, C)``, entry ``k`` being fold ``k``'s model evaluated at every
     companion row.  Which of those slabs to read, or how to average them, is the caller's
-    convention and is stated where the caller states it
-    (``docs/drtmle/validation-plan.md`` §5's fold-weighted average).
+    convention and is stated where the caller states it.  The convention this package's own
+    readers use is the **fold-weighted average**: slab ``k`` is weighted by the number of rows
+    fold ``k`` held out, so the weights are the held-out counts and sum to ``n``.  Equal
+    weights are the same thing only when the split is balanced, which it is not in general.
 
     A companion design may be one matrix, used for every fold, or one matrix **per fold** --
     see :data:`CompanionDesign`.
