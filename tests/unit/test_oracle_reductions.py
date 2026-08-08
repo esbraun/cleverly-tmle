@@ -7,7 +7,7 @@ truth".  They do not.  A reduction is a conditional expectation given a
 reduced mechanisms given :math:`\hat{\bar Q}(a, W)` -- so its truth is a property of the
 estimator's own arrays and not of the process, and no closed form or fresh draw from a
 continuous DGP supplies it.  On the continuous processes the sweep therefore carries
-``--reduced-learner`` as a labelled proxy, and the construction is owed (item 24).
+``--reduced-learner`` as a labelled proxy, and the full construction remains future work.
 
 **Here it is buildable, and this module builds it.**  On the exact law the conditioning
 variables take three values, the law's cell probabilities are known, and the conditional
@@ -35,7 +35,7 @@ reductions being noisy, which is precisely the discrimination §4 asked for, and
 `--reduced-learner` proxy is measuring a real effect on `psi` rather than on convergence.
 
 Two things this deliberately does not do.  It does not run on the continuous processes, where
-the oracle does not exist (item 24 records what that would take).  And it does not take the
+the oracle does not exist yet. And it does not take the
 comparison at *correct* nuisances, where :math:`Q_r` and :math:`g_{r,2}` vanish row by row and
 every arm of it would agree for the wrong reason -- lesson 2, the degeneracy this variant's
 instruments go blind in.  The nuisances here are wrong on purpose.
@@ -64,7 +64,7 @@ from tests.unit.test_remainder_drtmle import WRONG_G, WRONG_Q, _reduced
 #: The estimands ``DRTMLE`` reports; ``att``/``atc`` are refused by name.
 ESTIMANDS = ("ey1", "ey0", "ate")
 
-#: A truncation that never binds, so nothing here measures the bound -- item 20's territory
+#: A truncation that never binds, so nothing here measures bounded-mechanism centring
 #: is ``tests/unit/test_drtmle_fit.py``'s.  Copied from
 #: :mod:`tests.unit.test_influence_gateaux_drtmle`, as the sibling modules copy their
 #: constants, so they disagree about nothing except what they assert.
@@ -247,8 +247,8 @@ class TestAFitWithOracleReductionsRecoversTheTruth:
     this is the end-to-end confirmation the arithmetic could not give itself.
 
     The residual ``3.6e-08`` is not slack in the claim, it is
-    [limitation 5](../../docs/roadmap.md#limitations-recorded-rather-than-fixed): equation (9)
-    is never solved exactly, because its covariate reads the very mechanism it tilts.  The
+    Equation (9) is never solved exactly because its covariate reads the very mechanism it
+    tilts, a documented [current limitation](../../docs/roadmap.md#current-limitations).  The
     control below is what says so -- under ``guard=("g",)`` there is no mechanism equation and
     the recovery is exact to the bit.
     """

@@ -295,8 +295,8 @@ class TestMissingnessTilt:
         )
         values = np.array(curve["psi"].to_list())
         # The direction, not just that there is one.  `all(diff > 0) or all(diff < 0)`
-        # accepted either, so a flipped gamma passed it -- and CLAUDE.md's item 21 is a
-        # worked example of exactly that error surviving a sign-blind check.
+        # accepted either, so a flipped gamma passed it: exactly the kind of error a
+        # sign-blind check cannot expose.
         #
         # Which direction is read off the derivation rather than off a run.  The tilt is
         # Q_miss = expit(logit(Q*) + gamma), mixed in at weight (1 - pi_a), and the module
@@ -348,7 +348,7 @@ class TestValidation:
         The fit is grafted rather than found: `weak_overlap_dgp` fails this check 23 times
         in 24 but costs a sweep to reach, and what is under test is the reporting rather
         than the cause.  A score the targeting could not have left is exactly the state
-        item 11 describes arriving in practice.
+        the validation contract describes arriving in practice.
         """
         fluctuation = good_overlap.repeats[0].fluctuations["mean"]
         broken = dataclasses.replace(

@@ -1,62 +1,59 @@
-# Benchmarks: where the time goes, and what compiling it would buy
+# Benchmarks
 
-> ## The decision, in one paragraph
->
-> **`numba` is a benchmark-only dependency and nothing under `src/` imports it.** Every one
-> of the three "adopt numba" recommendations this investigation produced turned out to be a
-> *numpy* result once the baseline was written properly: an expansion that did not need
-> doing, a sort that had already been done elsewhere, and a mask rebuild that was
-> quadratic. The largest single win in the whole exercise — 49% of a `DRTMLE` `retarget` —
-> was a context manager. What would reopen the question is a kernel that beats a
-> **competent numpy baseline**, measured on a machine with more than four cores; nothing
-> here has been measured above four, and no CI job runs above two.
->
-> The roadmap's [standing decisions](../roadmap.md#standing-decisions) is the register.
-> This directory is its evidence.
+How to measure performance work in `cleverly`, what the current evidence says, and which focused
+reports support it. Raw results are machine-specific and belong in the git-ignored
+`benchmarks/results/` directory.
 
-## The documents, in the order they were written
+## Current verdict
 
-| document | what it is |
-| --- | --- |
-| [`candidate_inventory.md`](candidate_inventory.md) | **the profile**, and what the rest was sized against. Read it first: three of the things it is natural to expect turn out to be false, and the largest package-owned cost in two flavours is not arithmetic at all |
-| [`findings.md`](findings.md) | **the measurement**: twelve kernels, serial and parallel, with the controls, the memory column, the compile amortisation, and the share of a fit each speed-up has to be multiplied by |
-| [`production_plan.md`](production_plan.md) | **the adjudication** — what to build, and where the plan it revises was wrong. Its §1 is four claims contradicted by measurements rather than by arguments |
+`numba` remains a benchmark-only dependency; nothing under `src/` imports it. Nuisance estimation
+dominates representative fits, while the clearest apparent compiler wins disappeared after the
+numpy baseline stopped expanding signs unnecessarily, stopped re-deriving cluster encodings, and
+stopped rebuilding longitudinal masks quadratically. The largest observed DR-TMLE improvement
+instead came from reusing `threadpoolctl`'s controller.
 
-And the four results of executing that plan, each a step of its §4:
+This verdict is deliberately revisable. A production compiled path should be reconsidered when a
+competent implementation wins materially in a full supported workload, including compilation,
+memory, data movement, packaging, and maintenance cost. HAL is the clearest known workload likely
+to meet that condition. The roadmap's [standing decisions](../roadmap.md#standing-decisions) state
+the full reopening criteria.
 
-| document | what it found |
-| --- | --- |
-| [`thread_limit_profile.md`](thread_limit_profile.md) | building `threadpoolctl`'s controller once per process rather than once per learner fit: **59× per entry**, 49% of a DR-TMLE `retarget` |
-| [`bootstrap_numpy.md`](bootstrap_numpy.md) | the multiplier bootstrap rewritten in numpy: **3.4–3.9×**, and 1,881 MB down to 92 MB at `n = 10⁶`, on a 32 MB buffer budget with a four-replicate floor, with the seeded stream bit-identical |
-| [`cluster_integration.md`](cluster_integration.md) | `cluster_sums` against the codes the container actually produces, where the compiled kernel's advantage largely disappears |
-| [`longitudinal_masks.md`](longitudinal_masks.md) | the LTMLE mask rebuild, `O(T²n)` → `O(Tn)` — real, and 0.06% of a fit |
+## Durable findings
 
-## Reading a number out of any of them
+| area | result | evidence |
+| --- | --- | --- |
+| nuisance thread limits | caching the controller made entry 59× cheaper and removed 49% of a measured DR-TMLE `retarget` | [thread limiter](thread_limit_profile.md) |
+| Rademacher multiplier bootstrap | a bounded numpy buffer was 3.4–3.9× faster and reduced the measured `n = 10⁶` allocation from 1,881 MB to 92 MB without changing the seeded stream | [bootstrap](bootstrap_numpy.md) |
+| cluster aggregation | once cluster labels are densified at ingestion, the compiled advantage is negligible or negative at the measured sizes | [cluster aggregation](cluster_integration.md) |
+| longitudinal masks | carrying prefix state changes mask construction from `O(T²n)` to `O(Tn)`, but the term is only 0.06% of the measured fit | [longitudinal masks](longitudinal_masks.md) |
 
-Three things a reader has to know, and each has cost someone a wrong conclusion here.
+The benchmark harness under `benchmarks/numba/` retains the wider kernel suite, correctness gates,
+memory measurements, compile amortization, core-count controls, and post-nuisance pipeline
+denominators needed to challenge these conclusions.
 
-**A ratio measured against the shipped shape is not a ratio against numpy.** This is one
-mistake made three times, and it is what `production_plan.md` §1 is about. Before quoting a
-speed-up, check what a competent numpy version of the same function would cost.
+## Measurement rules
 
-**A kernel-level ratio is not a fit-level one.** Everything here is *post-nuisance*: the
-learner fits are outside every timed region by construction, which is what makes `n = 10⁶`
-a couple of seconds. `findings.md` §5 is the denominator, and a 10× on 1.5% of a fit is not
-a dependency.
+- Compare against a competent numpy baseline, not merely the current spelling of a function.
+- Report the kernel's share of an end-to-end fit. A large ratio on a negligible region does not
+  justify a runtime dependency.
+- Measure with the intended learner preset. `library="glm"` is useful as a stress case because it
+  makes package-owned arithmetic unusually visible; `library="default"` is the realistic
+  denominator.
+- Include compile time, warm and cold behavior, allocation, core count, and environment metadata.
+- Treat results as properties of their hardware, dependency versions, configuration, and harness.
+  Do not compare raw timings across unlike runs.
+- Check numerical equivalence before timing. Parallel results must also be stable across supported
+  thread counts.
 
-**The numbers are from the box they were taken on, and from the harness of the day.**
-Provenance blocks name the machine. They now also have to name the *method*: everything
-recorded here was measured under randomised block order, and the harness has since moved to
-a genuine rotation, so a rerun is a different instrument rather than a replication.
-
-## Running one
+## Running the benchmarks
 
 ```bash
 pip install -e '.[bench]'
-nox -s bench-numba              # the kernels
-nox -s bench-numba-pipelines    # the denominator: post-nuisance share, per flavour
+nox -s bench                    # end-to-end fit shares, learners included
+nox -s bench-numba              # isolated post-nuisance kernels
+nox -s bench-numba-pipelines    # complete post-nuisance pipelines
 ```
 
-Runs write to `benchmarks/results/`, which is git-ignored output. `benchmarks/bench_tmle.py`
-is the other instrument and answers a wider question — where a *whole fit's* time goes,
-learners included.
+For a short local kernel run, use `benchmarks/configs/sandbox.json`; the full dispatch uses
+`benchmarks/configs/full.yaml`. Generated output goes to `benchmarks/results/` and must include its
+environment metadata when shared.

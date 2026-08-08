@@ -9,12 +9,13 @@ This is the numpy change and what it leaves for a compiler.
 
 > Measured on the four-core Intel Xeon @ 2.80 GHz container this repository's cloud sessions
 > run in, `/proc/loadavg` under 0.6, Python 3.11, numpy 2.4.6, OpenBLAS 0.3.31. Medians of
-> repetitions taken in randomised **block** order, not interleaved -- see [the reading note](README.md#reading-a-number-out-of-any-of-them);
+> repetitions taken in randomised **block** order, not interleaved -- see the
+> [measurement rules](README.md#measurement-rules);
 > memory is `tracemalloc` peak over one untimed call.
 
 ## 1. The profile the previous one pointed the wrong way
 
-`candidate_inventory.md` §2.7 and `docs/roadmap.md` both record this path as "92–95%
+The original profile and `docs/roadmap.md` both recorded this path as "92–95%
 multiplier *generation*", which reads as an argument about the random draw. Splitting the
 generation at `n = 100,000` with a 256-replicate block:
 
@@ -148,7 +149,7 @@ tolerance analysis and its own tests under weak overlap.
 
 A fused kernel that never expands the bits at all — reading the packed bytes and accumulating
 signs into an `m`-vector — remains the only way to remove the last 89%. The prototype written
-for `production_plan.md` §1.2 measured **275 ms serial and 69 ms on four threads** per 256
+for the original implementation review measured **275 ms serial and 69 ms on four threads** per 256
 replicates against this path's ~135 ms, because extracting the bit in the inner loop defeats
 the vectoriser. The kernel `benchmarks/numba/kernels/bootstrap.py` measures does better — it
 draws its own signs from a counter hash, which fuses the sign into the accumulate — but that

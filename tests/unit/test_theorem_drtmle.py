@@ -1,6 +1,6 @@
 r"""Theorem 1's objects, in the theorem's notation, against the ones the package reports.
 
-This module exists for **item 21**: the charge that the mechanism correction's *sign*
+This module resolves the discrepancy in the mechanism correction's *sign*
 disagrees with Benkeser, Carone, van der Laan & Gilbert.  It is the one class of error nothing
 else here can catch -- all three empirical means are driven to zero, so no reported
 :math:`\hat\Psi` moves however the signs go, and what a wrong sign moves is the variance,
@@ -8,7 +8,7 @@ which is the only product this variant has.
 
 **The source is** Benkeser, Carone, van der Laan & Gilbert (2016), the Berkeley working paper (UCB
 Biostatistics paper 356).  Its display equations and its own appendices do not agree, and that
-disagreement is the whole of item 21.  Writing :math:`u` and :math:`v` for the two
+disagreement is the question under test. Writing :math:`u` and :math:`v` for the two
 **positive** quantities the software computes,
 
 .. math::
@@ -116,7 +116,7 @@ def library_corrections(arm: int) -> np.ndarray:
     """What the reported curve subtracts for one arm, through the production selector.
 
     :meth:`~cleverly.inference.influence.CorrectionParts.total` rather than
-    ``d_g + d_q``, so the guard branch item 23 added is on the path this reads.
+    ``d_g + d_q``, so the partial-guard branch is on the path this reads.
     """
     return np.asarray(library_parts().total()[float(arm)], dtype=float)
 
@@ -169,7 +169,7 @@ class TestAppendixAOpensByFixingTheOrientation:
         right = float(np.mean(ratio * (indicator - guess[covariate])))
 
         assert left == pytest.approx(right, abs=1e-14)
-        assert abs(right) > 1e-3, "or both readings would agree and item 21 would be untestable"
+        assert abs(right) > 1e-3, "or both sign readings would agree on this fixture"
 
     @pytest.mark.parametrize("arm", ARMS)
     def test_the_displays_reading_would_need_the_correction_to_vanish(self, arm: int) -> None:
@@ -257,7 +257,7 @@ class TestTheImplementationComputesTheTheoremsTerms:
 
 
 class TestTheTwoSignsAreMateriallyDifferentVariances:
-    """Why item 21 was a stop-ship rather than a documentation error.
+    """Why the sign discrepancy was a correctness question rather than a documentation error.
 
     The point estimate cannot see the sign, so the whole of the difference lands in
     :math:`\\sigma_n^2` -- the only quantity this variant produces.  A fixture on which the
@@ -274,14 +274,14 @@ class TestTheTwoSignsAreMateriallyDifferentVariances:
         added = float(np.var(curve + u + v))
 
         assert abs(subtracted / added - 1.0) > 0.05, (
-            "the fixture must separate the two readings, or item 21 is untestable on it"
+            "the fixture must separate the two sign readings"
         )
 
     @pytest.mark.parametrize("arm", ARMS)
     def test_and_the_only_way_the_mean_can_see_it_is_through_the_corrections(
         self, arm: int
     ) -> None:
-        r"""Which is why nothing that reports :math:`\hat\Psi` could have caught item 21.
+        r"""Why nothing that reports only :math:`\hat\Psi` could have caught the sign discrepancy.
 
         The two readings' means differ by **exactly** :math:`2 P_n[u + v]`, and the targeting
         step's whole job is to drive that to zero -- so on a solved fit the difference the

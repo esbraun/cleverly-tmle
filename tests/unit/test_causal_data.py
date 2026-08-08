@@ -675,7 +675,7 @@ class TestContinuousTreatment:
         do not become densities because ``A`` is continuous; a weight tilts the population
         and is not in the clever covariate at all.  What was genuinely missing was the
         mechanisms evaluated at the *shifted* dose, and an oracle law to check the
-        composition against; ``docs/roadmap.md``'s *Refusals worth lifting* item 5 records
+        composition against; the shift-composition regression test records
         both.
         """
         frame = _continuous_frame()

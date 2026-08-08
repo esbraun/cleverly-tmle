@@ -386,8 +386,7 @@ def solve_bounded_mechanism(
     curve's centring an identity rather than a second thing to check.  Solving the raw score
     instead leaves the two agreeing on every row the bound leaves alone and parting company on
     every row it clips -- one clipped row of 600 was enough to leave a curve uncentred at
-    ``5.8e-04`` while the solver recorded ``1e-09``.  That was ``docs/roadmap.md``'s item 20,
-    and this is piece B1b.
+    ``5.8e-04`` while the solver recorded ``1e-09``. The bounded solve prevents that mismatch.
 
     **The unconstrained solve is tried first and returned untouched when nothing clips**, which
     is not an optimisation but the guarantee that this changes no fit it should not.  Where the

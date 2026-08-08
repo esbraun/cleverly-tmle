@@ -45,7 +45,7 @@ old figure's excess was the profiler's per-call overhead charged to the code tha
 most calls, which is precisely the code under investigation.
 
 **`inference` is 20%**, and it is the multiplier bootstrap: `LTMLE` defaults to
-`n_multiplier=2000`. `candidate_inventory.md` §2.6 found the same thing from the other side
+`n_multiplier=2000`. The original profile found the same thing from the other side
 ("the largest *arithmetic* line in a longitudinal fit is the Rademacher multiplier draw at
 14%"). That is the phase `bootstrap_numpy.md`'s change acts on, and it is the largest
 package-owned line here by a factor of fifteen.

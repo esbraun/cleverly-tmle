@@ -370,7 +370,7 @@ def peak_allocation(call: Callable[[], Any]) -> int:
     through CPython -- OpenBLAS scratch is the case that arises here -- and it is a
     high-water mark of *allocation* rather than of resident memory, so it does not answer
     "will this be killed".  For that, take an incremental peak RSS in a fresh process;
-    ``docs/benchmarks/production_plan.md`` §1.3 says why that is a confirmation at one
+    ``docs/benchmarks/README.md`` says why that is a confirmation at one
     configuration rather than a replacement for this column.
     """
     gc.collect()

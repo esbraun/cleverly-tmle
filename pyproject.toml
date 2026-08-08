@@ -52,8 +52,8 @@ all = ["cleverly[pandas,polars,boost,plot]"]
 # targeting kernel against the numpy one, and `benchmarks/numba/`, which asks the same
 # question of every post-nuisance kernel in the package with the learner fits excluded.
 # Nothing under `src/` imports it. Whether it is worth taking as a runtime dependency is
-# kernel-by-kernel rather than package-wide -- docs/benchmarks/findings.md is the
-# answer and docs/roadmap.md, *On native acceleration*, is the summary.
+# kernel-by-kernel rather than package-wide -- docs/benchmarks/README.md records the
+# evidence and docs/roadmap.md, *Native acceleration*, is the current verdict.
 #
 # `tests/unit/test_numba_benchmark.py` needs this extra, which is why CI has a job that
 # installs it: under `dev` that module skips, and a skipped correctness check reads like a
@@ -139,8 +139,8 @@ ignore = [
 #
 # So `3.12` is the *oldest target that still parses*, which keeps as much of the original
 # intent -- check against the floor -- as the dependency allows. Lower it again if numpy's
-# stubs ever stop needing 3.12. This is not the pinned-toolchain rule in `CLAUDE.md`: the
-# `mypy==` pin itself has not moved, and still matches `noxfile.py` and `ci.yml`.
+# stubs ever stop needing 3.12. The `mypy==` pin itself has not moved, and still matches
+# `noxfile.py` and `ci.yml`.
 python_version = "3.12"
 files = ["src/cleverly"]
 strict = false

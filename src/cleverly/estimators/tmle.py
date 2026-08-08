@@ -2271,7 +2271,7 @@ def correction_parts(
     curve at all: a fit guarding one nuisance solves one of the two extra equations and
     subtracts one term.  It was read here by
     :func:`~cleverly.validation.drtmle.correction_check` and not by the curve, which is
-    ``docs/roadmap.md``'s item 23.
+    the partial-guard correction invariant.
     """
     reduction = fluctuation.reduction
     if reduction is None:

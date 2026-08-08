@@ -183,7 +183,7 @@ class InnerDesigns:
 
     Carried on :attr:`NuisanceEstimates.inner` and used only by
     :class:`~cleverly.DRTMLE` with ``reduced_crossfit="nested"``, which is a reference
-    construction for ``docs/roadmap.md``'s item 15 rather than a production path.
+    construction used to diagnose generated-regressor leakage rather than a production path.
     """
 
     outcome: tuple[InitialFit, ...]
@@ -219,7 +219,7 @@ class CompanionEstimates:
     What this is for is a benchmark-only fitted nuisance object exposing a prediction at new
     rows, *per fold*, so that :math:`P_0\hat D` -- the
     population mean of the **fitted** doubly-robust curve, which
-    ``docs/roadmap.md``'s item 13 needs and which :math:`P_n\hat D` is refused as a
+    the remainder diagnostic needs and which :math:`P_n\hat D` is refused as a
     substitute for -- can be integrated against an independent draw.  This is that object,
     and it holds arrays rather than models for the reason
     :class:`~cleverly.estimators.reduced.ReducedSet` does: a model cannot be serialised

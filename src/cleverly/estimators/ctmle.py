@@ -173,8 +173,8 @@ There is no cross-implementation check and none is planned.  R's ``ctmle`` is no
 against, here or in CI, so nothing in this package's evidence rules out a shared misreading of
 the algorithm that happens to satisfy every internal check listed above -- and note that a
 parity run would not have ruled it out either, which is why the comparison is refused rather
-than merely outstanding: two implementations reading one source agree about a misreading.  See
-``docs/roadmap.md``'s item 2 and ``CLAUDE.md``.
+than merely outstanding: two implementations reading one source agree about a misreading. See the
+derivation-first validation decision in ``docs/roadmap.md``.
 
 References
 ----------

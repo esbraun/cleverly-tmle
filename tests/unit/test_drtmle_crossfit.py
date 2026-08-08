@@ -40,7 +40,7 @@ split -- is asserted in :mod:`tests.unit.test_drtmle_companion` beside the rest 
 CompanionEstimates` rather than of this keyword, and asserting it in two places would let the
 two drift.
 
-**What the degeneracy control corrects.**  ``docs/roadmap.md``'s stop-ship 14 once said
+**What the degeneracy control corrects.** A fixture selected where two expressions cannot differ
 :mod:`tests.unit.test_influence_gateaux_drtmle` is silent about this construction "because
 every conditioning cell is a singleton at saturated reductions".  That reason is wrong twice
 over: on this law the design takes three values over a thousand rows, so the cells are not
@@ -458,7 +458,7 @@ class TestADataIndependentPrimaryLearnerMakesTheTwoConstructionsAgree:
     inner model and every outer model coincide and the two constructions must agree to the
     bit.  Asserted because it pins the plumbing -- a nested path that trained on the wrong
     rows would break it -- and labelled because agreement here is evidence about nothing
-    else.  ``docs/roadmap.md``'s stop-ship 14 is the rule this exists under.
+    else. This precondition keeps the identity check non-degenerate.
     """
 
     def test_the_estimates_are_identical(self, oracle_pair: dict[str, Any]) -> None:
@@ -645,7 +645,7 @@ class TestASaturatedReductionOnAFiniteLawCannotSeeItInGr1:
 
     :math:`Q_r` and :math:`g_{r,2}` still move, because their targets are a residual of
     :math:`\hat{\bar Q}` and a quotient by :math:`\hat g` -- which is the half of the
-    contamination ``fit_reduced``'s docstring and item 15 both used to leave out.
+    contamination that earlier descriptions of ``fit_reduced`` left out.
 
     So this is a degeneracy of the *fixture*, not of the construction, and it is written down
     rather than left to be rediscovered: a later reader finding ``gr1`` equal across the two

@@ -268,7 +268,7 @@ class TestABoundActiveFitKeepsTheIdentity:
     :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` clips -- so a companion
     rebuilt from ``(initial, epsilon)`` recovers the endpoint only on a fit where nothing
     touched a bound.  ``weak_overlap`` at a forced ``g_bounds`` is the fit where something
-    does, and it is the fixture ``docs/roadmap.md``'s piece B1b was characterised on.
+    does, and it is the fixture on which bounded targeting was characterized.
     """
 
     @pytest.fixture(scope="class")

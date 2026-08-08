@@ -1,16 +1,16 @@
-r"""Equation (9) solved at the mechanism the curve reads, which is ``docs/roadmap.md``'s B1b.
+r"""Equation (9) solved at the bounded mechanism the reported curve reads.
 
 :func:`~cleverly.fluctuation.mechanism.solve_mechanism` drives
 :math:`P_n[H_g(A - g^*)]` to zero at the raw :math:`\operatorname{expit}` tilt.
 :func:`~cleverly.inference.influence.reduced_correction_parts` subtracts
 :math:`Q_r/\bar g^*(1_a - \bar g^*)` at the **truncated** one.  Those are two expressions,
 identical on every row the bound leaves alone and different on every row it clips, and the
-gap between them was item 20: one clipped row of 600 left a reported curve uncentred at
+gap between them was the centring defect: one clipped row of 600 left a reported curve uncentred at
 ``5.8e-04`` while the solver recorded ``1e-09``.
 :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` solves the second.
 
 Nothing here runs a fit.  The claim is about a solver and a pair of bounds, so it is checked
-against arithmetic on arrays -- the identity that closes item 20 end to end is
+against arithmetic on arrays -- the identity that closes the defect end to end is
 ``tests/unit/test_drtmle_fit.py``'s, at the alternation's fixed point, because within a
 single solve the covariate's denominator is still at the *pre-tilt* mechanism (which is
 limitation 5 and is not what this closes).

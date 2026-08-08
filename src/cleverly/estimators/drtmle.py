@@ -135,7 +135,7 @@ __all__ = ["DRTMLE", "ReducedFit"]
 #: :data:`~cleverly.estimators.targeting.ReductionOrder`.  ``"paper"`` exists to be measured
 #: against ``"cleverly"`` rather than to be chosen: the theorem's exit is a fixed point and
 #: not a route, so the two are the same estimator if they land in the same place, which is
-#: what ``docs/roadmap.md``'s item 22 asks; ``docs/drtmle.md``'s *The update order* is what
+#: the update-order comparison; ``docs/drtmle.md``'s *The update order* is what
 #: the sweep that read it found.
 UPDATE_ORDERS = ("cleverly", "paper")
 
@@ -221,7 +221,7 @@ class DRTMLE(TMLE):
         solved, so ``guard=("g",)`` reports :math:`D = D^* - D^*_Q` and the score check's
         verdict names that curve.  The other equation's correction is still recomputed and
         reported, held to no threshold, because it is what says what the guard did not buy.
-        Subtracting both whatever the guard was is ``docs/roadmap.md``'s item 23.
+        Subtracting both regardless of the guard is a correctness defect.
     reduction:
         ``"univariate"`` (default) is Benkeser et al. (2017)'s three univariate regressions.
         ``"bivariate"`` -- van der Laan (2014)'s original single bivariate reduced mechanism
@@ -229,7 +229,7 @@ class DRTMLE(TMLE):
     update_order:
         Which route a round of the alternation takes, ``"cleverly"`` (default) or
         ``"paper"``.  **A diagnostic keyword rather than a tuning one**, and the reason is
-        the whole of ``docs/roadmap.md``'s item 22: the 2016 working paper's step 7 states
+        the update-order question: the 2016 working paper's step 7 states
         its own termination as the three empirical means being approximately zero, so its
         six-step order is one route to a fixed point rather than something Theorem 1
         assumes about the collection returned.  ``"paper"`` implements that order beside
@@ -251,7 +251,7 @@ class DRTMLE(TMLE):
         ``"pooled"`` (default) reuses the primary split as it stands, and ``"nested"`` takes
         them from primary models fitted with fold ``k`` left out as well.  **A diagnostic
         keyword rather than a tuning one**, exactly as ``update_order`` is, and for the same
-        kind of reason: ``docs/roadmap.md``'s item 15 asks whether the cheap construction's
+        kind of reason: the diagnostic asks whether the cheap construction's
         induced dependence is higher order, the argument for it needs one quantity to
         vanish, and that quantity *is* the difference between these two.  So the expensive
         one exists to be measured rather than to be used.
@@ -267,7 +267,7 @@ class DRTMLE(TMLE):
         :class:`~cleverly.data.CausalData` -- at which this fit's nuisances are **also**
         evaluated, one copy per outer fold, and moved by the same targeting steps the
         fitted arrays take.  **A third diagnostic keyword**, alongside ``update_order`` and
-        ``reduced_crossfit``, and for the same kind of reason: ``docs/roadmap.md``'s item 13
+        ``reduced_crossfit``, and for the same kind of reason: the remainder diagnostic
         asks whether :math:`\\sqrt n R_{\\text{remaining}} \\to 0`, that needs
         :math:`P_0\\hat D` -- the population mean of the **fitted** curve, for which
         :math:`P_n\\hat D` is refused since targeting drove it to zero -- and a curve is a
@@ -384,7 +384,7 @@ class DRTMLE(TMLE):
                 f"{self.update_order!r}. 'cleverly' is this package's alternation and the "
                 "default; 'paper' is the 2016 working paper's six-step recursion, which is "
                 "here so that the two routes to the theorem's stated exit can be compared "
-                "on real data (docs/roadmap.md item 22) rather than argued about."
+                "on real data rather than argued about."
             )
         if self.reduction not in REDUCTIONS:
             raise ValueError(f"reduction must be one of {list(REDUCTIONS)}; got {self.reduction!r}")
@@ -397,7 +397,7 @@ class DRTMLE(TMLE):
                 "reduced regressions and is what ships; 'nested' refits the primary "
                 "nuisances leaving each outer fold out as well, so that whether the cheap "
                 "construction's induced dependence matters is measured rather than argued "
-                "(docs/roadmap.md item 15)."
+                "(see the reduced-cross-fitting diagnostic)."
             )
         if self.reduced_crossfit == "nested":
             if not self.cross_fit:
