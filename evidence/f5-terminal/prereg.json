@@ -5,7 +5,7 @@
     "f4_seed": 20250801
   },
   "environment": {
-    "freeze_sha256": "a4cdc94c404da59972a56c29b8281f906746ae2bca3a7b136910074c876c31f2",
+    "freeze_sha256": "6dfbdbe2ca6ab6ee1213ef0de1df9d553080242d6c2d64fd3bff767179646c8a",
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.13.7",
     "resolved": {
@@ -699,6 +699,15 @@
     "draws_by_size": {
       "2400": 80,
       "600": 24
+    },
+    "nominable": [
+      "glm-nested",
+      "gam-pooled",
+      "gam-nested"
+    ],
+    "not_nominable": {
+      "ceiling": "a ceiling measures an attainable bound and is not a procedure a caller can run; its nested cell is bit-identical and is read by ceiling_crossfit_reading()",
+      "glm-pooled": "the shipped configuration, and C3c's. Not nominable **structurally** rather than by choice: it is the default already, so F7 'promoting' it would change nothing and the branch it lands on is the stop. It is also the arm every contrast is read against"
     },
     "powered": {
       "2400": "both",

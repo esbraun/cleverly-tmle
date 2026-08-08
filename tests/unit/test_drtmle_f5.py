@@ -115,9 +115,31 @@ class TestTheFiveArmsAreWhatTheTableSays:
         for slot in ("reduced_outcome_learner", "reduced_treatment_learner"):
             assert library[slot][1][1].get_params()["n_jobs"] == 1
 
-    def test_only_the_two_spline_arms_are_nominable(self) -> None:
+    def test_every_feasible_configuration_is_nominable(self) -> None:
+        """The roadmap excludes the ceiling by name and nothing else.
+
+        `glm-nested` is a feasible configuration -- `reduced_crossfit="nested"` is a shipped
+        keyword a caller can run -- so F7 could promote it by moving that default. Barring it
+        would leave F5 able to *measure* the cross-fitting axis and unable to *nominate* on it,
+        which is half the question this experiment asks.
+        """
         nominable = sorted(name for name, arm in drtmle_f5.ARMS.items() if arm.nominable)
-        assert nominable == ["gam-nested", "gam-pooled"]
+        assert nominable == ["gam-nested", "gam-pooled", "glm-nested"]
+
+    def test_the_baseline_is_not_nominable_structurally(self) -> None:
+        # Not a choice: `glm-pooled` is the default already, so promoting it changes nothing
+        # and the branch it lands on is the stop.
+        assert not drtmle_f5.ARMS[drtmle_f5.BASELINE_ARM].nominable
+
+    def test_the_manifest_records_who_may_be_nominated(self) -> None:
+        # Eligibility is as much part of the frozen design as a band is.
+        manifest = drtmle_f5.prereg(draws=4, replicates=4)
+        assert set(manifest["phase1"]["nominable"]) == {
+            name for name, arm in drtmle_f5.ARMS.items() if arm.nominable
+        }
+        assert set(manifest["phase1"]["not_nominable"]) == {
+            name for name, arm in drtmle_f5.ARMS.items() if not arm.nominable
+        }
 
     def test_the_ceiling_is_not_nominable(self) -> None:
         # A ceiling measures an attainable bound and is not a procedure a caller can run.

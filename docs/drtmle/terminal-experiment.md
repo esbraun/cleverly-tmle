@@ -226,6 +226,38 @@ difference with a tolerance would make the one quantity the study has an exact a
 statistical one, so it is not a declared column: any nonzero count on any arm is a veto, and a
 stop-immediately condition besides.
 
+### `glm-nested` was wrongly barred from nomination, and that is corrected
+
+The roadmap's phase-1 text excludes exactly one thing by name: *"a ceiling arm may not be
+nominated, because it is not a procedure a caller can run"*, with `boost-pooled` separately
+fenced by A1b. It says nothing about `glm-nested`. The first freeze nevertheless marked that arm
+non-nominable, on a reading of the roadmap table's label *construction comparator* as though a
+label were an exclusion. It is not.
+
+`reduced_crossfit="nested"` is a shipped keyword; a caller can run it; F7 could promote it by
+moving that default. And barring it cost more than one arm: F5's question has two halves — *can
+better reduced regressions close the gap, **and does the answer depend on pooled against nested
+cross-fitting?*** — and as first frozen, F5 could *measure* the cross-fitting axis but never
+**nominate** on it. A cross-fitting-only improvement could have been observed and then not
+recommended.
+
+**The timing is disclosed rather than smoothed over.** The correction was applied after 41
+partial selection draws existed and after their `√n R_remaining` readings had been reported —
+readings on which `glm-nested` looked favourable. The argument for the correction is
+data-independent, and the design intent behind it predates any result; but the sequence is what
+it is, and a reader is entitled to weigh it. Two facts bound what the correction could have
+done: `nominable` is read in exactly **one** place, `nominate()`, and by no fit path — so no
+draw, no estimate and no recorded column moves — and the decision **rule** block of the manifest
+is byte-identical, since eligibility is a design field and not a band.
+
+`glm-pooled` stays non-nominable, and that one is structural rather than a choice: it *is* the
+shipped default, so F7 promoting it would change nothing and the branch it lands on is the stop.
+It is also the arm every contrast is read against.
+
+The manifest now carries `phase1.nominable` and `phase1.not_nominable` with a reason apiece. The
+first one did not — `arms` held names only — so a reader could not have checked which of them a
+nomination was permitted to select. That was its own gap and is closed with this.
+
 ### One clause was corrected before the cohort was read, and the correction is on the statistic
 
 Nomination clause 5 asks that the flexible candidate carry real weight, so that an arm which

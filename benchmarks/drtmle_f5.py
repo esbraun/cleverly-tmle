@@ -325,14 +325,20 @@ ARMS: dict[str, Arm] = {
         crossfit="pooled",
         role="baseline",
         nominable=False,
-        why="the shipped configuration, and C3c's",
+        why="the shipped configuration, and C3c's. Not nominable **structurally** rather than "
+        "by choice: it is the default already, so F7 'promoting' it would change nothing and "
+        "the branch it lands on is the stop. It is also the arm every contrast is read against",
     ),
     "glm-nested": Arm(
         learner="glm",
         crossfit="nested",
-        role="comparator",
-        nominable=False,
-        why="the construction comparator: the shipped learner at the reference cross-fitting",
+        role="candidate",
+        nominable=True,
+        why="the shipped learner at the reference cross-fitting. It is the construction "
+        "comparator AND a feasible candidate: reduced_crossfit='nested' is a shipped keyword a "
+        "caller can run, so F7 could promote it by moving that default. Barring it would leave "
+        "F5 able to measure the cross-fitting axis and unable to nominate on it, which is half "
+        "of the question this experiment asks",
     ),
     "gam-pooled": Arm(
         learner="gam",
@@ -1809,6 +1815,12 @@ def prereg(
         "phase1": {
             "arms": list(ARMS),
             "arms_dropped": dict(ARMS_DROPPED),
+            # Which arms may be nominated, and why each of the rest may not. Recorded because
+            # eligibility is as much a part of the frozen design as a band is, and it was
+            # missing from the first manifest: `arms` carried names only, so a reader could not
+            # have checked which of them a nomination was allowed to select.
+            "nominable": [name for name, arm in ARMS.items() if arm.nominable],
+            "not_nominable": {name: arm.why for name, arm in ARMS.items() if not arm.nominable},
             "cells": list(CELLS),
             "cohorts": {
                 name: [list(pair) for pair in pairs]
