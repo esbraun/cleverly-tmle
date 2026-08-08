@@ -4,10 +4,15 @@
 statistical experiment in the `DRTMLE` investigation, and the plan ends in a promotion or a stop
 rather than in another row. This page is its record.
 
-**Status: the harness is built and the design is frozen; no inferential fit has run.** What is
-recorded below is the design, the arm matrix, the decision rule and the two readings that were
-taken to *shape* the experiment rather than to answer it. The verdicts, the nomination and the
-confirmation are not here yet, and nothing on this page may be read as a result.
+**Status: phase 1 has run to completion on both cohorts and the nomination is taken. Phase 2 has
+not run, and the branch table has therefore not been read.** [What phase 1
+measured](#what-phase-1-measured) is the readout; the short form is that the ceiling arm improves
+`√n R_remaining` in all four cells on **both** cohorts and **no feasible candidate is nominated** —
+`nominate()` returned `none`, with a recorded reason for each of the three nominable arms.
+
+Nothing on this page is a branch. The branch table is [the roadmap's](../roadmap.md#the-branch-table-and-every-branch-ends)
+and it reads what the **confirmation** measures; phase 1 nominates or it does not, and this one
+did not.
 
 ## What the experiment asks
 
@@ -381,9 +386,105 @@ that can support no theorem-backed claim is not the cell to spend a stress budge
 is measured too — over 20% of its quadrature grid sits outside `[0.025, 0.975]` against under 2%
 of the stress cell's.
 
+## What phase 1 measured
+
+Both cohorts ran to completion on a local box, **208 draws each** — `(24 + 80)` draws × two cells
+— at five arms, so `1,040` fits and `3,120` estimator/estimand rows per cohort. **Zero errors and
+zero identity failures**, on every arm of both cohorts. The rows are committed at
+[`evidence/f5-terminal/`](../../evidence/f5-terminal/) with a digest apiece; the nomination is
+`nomination.json` beside them.
+
+### The primary column, and it is the whole readout
+
+`√n R_remaining`, paired against `glm-pooled` within the draw, in every cell at both sizes on both
+cohorts. Negative is an improvement; the band is `0.125` in `q-drift` and `0.413` in `g-drift`.
+
+| arm | `q-drift` 600 | `q-drift` 2,400 | `g-drift` 600 | `g-drift` 2,400 |
+| --- | --- | --- | --- | --- |
+| `ceiling` — selection | **−0.9931** improved | **−1.0683** improved | **−1.3889** improved | **−2.7171** improved |
+| `ceiling` — audit | **−1.4428** improved | **−1.1412** improved | **−1.0583** improved | **−2.2128** improved |
+| `gam-pooled` — selection | +0.2717 unresolved | **+0.3176 worsened** | −0.5235 unresolved | −1.2328 improved |
+| `gam-pooled` — audit | **+0.3857 worsened** | **+0.2009 worsened** | −0.6059 unresolved | −0.6202 unresolved |
+| `gam-nested` — selection | +0.2874 unresolved | **+0.2424 worsened** | −0.3103 unresolved | −1.2369 improved |
+| `gam-nested` — audit | **+0.4378 worsened** | +0.1227 unresolved | −0.5147 unresolved | −0.6342 unresolved |
+| `glm-nested` — selection | −0.1608 unresolved | −0.0630 unresolved | +0.4324 unresolved | +0.3358 unresolved |
+| `glm-nested` — audit | −0.0663 unresolved | −0.1393 unresolved | +0.3003 unresolved | −0.1324 unresolved |
+
+**The ceiling improves in eight cells of eight, and that is the reproduction requirement met** —
+on draws disjoint from the ones that produced the first reading, at both sizes, in both
+misspecification regimes.
+
+**The negative half reproduces too, which is why it is a reading rather than a bad cohort.** `gam`
+worsens in `q-drift` on the audit as it did on the selection cohort; it improves in `g-drift` on
+the selection cohort at `n = 2,400` and falls back to `unresolved` there on the audit; and
+`glm-nested` is `unresolved` in all four cells on both cohorts, which is a column that resolves
+nothing rather than a construction that does nothing.
+
+### The nomination is `none`
+
+`--phase nominate` ran against both cohorts at once — the clauses are a conjunction and clause 6
+is *every clause above holds on the audit cohort as well* — and returned no eligible arm.
+`refuse_dead_gates()` passed first: every gating column has a finite reading, so each veto below
+is one that could have fired and did not, rather than one that could not.
+
+| arm | why it was rejected |
+| --- | --- |
+| `gam-pooled` | `root_n_remaining` **worsened** at `q-drift` `n=600` and `n=2,400` on the audit and at `n=2,400` on the selection cohort — failing clause 2 and, since that column also gates, clause 3. Never `improved` anywhere on the audit |
+| `gam-nested` | the same, at `q-drift` `n=600` on the audit and `n=2,400` on the selection cohort. Never `improved` anywhere on the audit |
+| `glm-nested` | `unresolved` in all four cells on both cohorts, so clause 2's *`improved` in at least one* is unmet on both |
+| `ceiling` | not nominable by design — it measures an attainable bound and is not a procedure a caller can run |
+
+`glm-pooled` is the baseline every contrast is read against and is non-nominable structurally.
+Clause 4 — zero identity failures — and clause 5 — the flexible candidate's **mean** SuperLearner
+weight — were satisfied by both `gam` arms and are not what stopped them.
+
+### The three readings worth having beside the verdict
+
+**The mechanism half says where the ceiling's advantage lives.** The ceiling **improves
+`risk_h3`** — the composite `q_r/g`, one of the two the correction actually divides by — in all
+eight cells, while `risk_h2` (`g_{r,2}/g_{r,1}`) is `equivalent` in all eight. Both `gam` arms are
+`equivalent` on *both* composites everywhere. That is consistent with a reduced-regression
+problem that the reference reductions solve and the feasible candidates do not touch — but it
+**ranks and does not bound**, exactly as [the standing decision](../roadmap.md#standing-decisions)
+on fidelity gates says: a held-out risk difference leaves a term common to every candidate, so
+shared inadequacy is invisible to it. It is diagnosis, not proof of consistency.
+
+**Coverage resolved nothing, and that was declared in advance.** `abs_coverage_gap` is
+`unresolved` in all eight cells for the ceiling and in fourteen of sixteen for the two `gam` arms.
+At 24 and 80 draws the Monte Carlo error swamps a `0.05` band; coverage in phase 1 is a **veto
+only**, `unresolved` fires no veto, and coverage is settled in phase 2 at 500 replicates a batch.
+This is the column the whole experiment is ultimately about, and phase 1 does not read it.
+
+**Every fit is bound-inactive.** The realized `bound_active` share is `0.0000` across all `2,080`
+`ate` fits in both cohorts. That is what [§7's scope decision](theorem-concordance.md#7-truncation-is-not-in-the-theorems-algorithm)
+asks of a fit before a theorem-backed claim is made of it, measured rather than assumed, and it is
+why a negative F5 is [item 13](../roadmap.md#what-is-still-open) and not an item-25 truncation
+question. Fit health beside it: `98.4%` of fits valid, `119` score failures in total, and exits
+`1,908` on tolerance against `109` on the cap and `63` on a stall.
+
+### What this readout does not say
+
+It does not name a branch. Three of the branch table's rows are compatible with what is above —
+the ceiling closing the gap with no feasible candidate approaching it, the ceiling improving but
+staying subnominal, and *either phase unresolved* — and **the column that separates them is
+coverage**, which phase 1 declared itself unable to resolve and did not. The remaining calibration
+gap is a reduced-regression problem and the ceiling shows it is closable; what the two cohorts
+also show is that neither feasible candidate closes it, and that the one which most looked like it
+might — `gam` — makes things worse in exactly the cell the coverage shortfall lives in. Which of
+those rows fires is phase 2's reading and no part of it is taken here.
+
 ## What has not run
 
-The nomination, both cohorts, the confirmation and every verdict. `--phase confirm`,
-`--phase readout`, `--phase verify` and the ceiling adequacy statistic are unbuilt. The
-mechanism component-risk columns are not yet computed, which is why `refuse_dead_gates()` exists
-and why a nomination cannot currently be taken.
+**Phase 2, entirely.** `--phase confirm`, `--phase readout`, `--phase verify` and `--phase cost`
+are unbuilt — the last raises `not implemented yet` rather than pretending — and so is
+`ceiling_adequacy()`, which the module docstring and `REFERENCE_SCRAMBLES` both name. So the
+ceiling arm's **numerical** error against the smallest decision margin in the frozen rule is not
+yet measured, and until it is, the rule that *a ceiling arm which cannot meet the numerical-error
+rule is reported unresolved on that arm* is a rule with nothing read against it.
+
+Two smaller gaps in the harness, recorded rather than fixed here. The module docstring advertises
+a `--phase exact-law` — the anchor that separates *the construction is right* from *the smoothing
+at tier 2 is adequate* — and no such phase exists in `PHASES`. And `--phase nominate` writes its
+digest over the **LF** bytes of what it wrote, which is the convention F4's committed table uses
+and is not the digest a `core.autocrlf` working copy hashes; the evidence README says so rather
+than leaving the next reader to rediscover it.
