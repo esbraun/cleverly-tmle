@@ -28,6 +28,48 @@ jobs:
       # Through the environment rather than interpolated into the command, so the
       # input is an argument and not a fragment of shell. The fallback is for the
       # scheduled path, where ``inputs`` is empty.
+      # `-n auto` resolves through psutil, else `os.cpu_count()` -- neither of which reads a
+      # container's CFS quota, so on a quota-limited runner it asks for the *host's* cores.
+      # `tests.parallel` goes through joblib/loky, which does read it.
+      - name: Size the worker pool from the cores this job may actually use
+        run: |
+          echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
+          python -m tests.parallel
       - env:
           SELECTION: ${{ inputs.selection || '-m slow' }}
         run: pytest $SELECTION -q -n auto --durations=20
+
+  # The guides' own examples, executed. A separate job rather than a wider selection on
+  # the one above, because the two fail for different reasons and want different
+  # responses: a `slow` failure is a statistical result to read, a `docs` failure is a
+  # page that has stopped being true and should be fixed before anyone reads it again.
+  # It also has to keep running when the tier above is dispatched at a single node id.
+  docs:
+    runs-on: ubuntu-latest
+    # Measured, not guessed, and the measurement moved once: the first green run of the
+    # whole set took **1:30:08**. Every earlier number was smaller because `user-guide.md`
+    # was aborting partway -- so 40:48 and 17:33 are the *first 29 blocks*, not the file.
+    # 150 leaves headroom on a runner slower than the box this was taken on.
+    #
+    # What dominates is **not yet measured**: `--durations` reports per test, and this tier
+    # is one test per document, so it cannot see inside. The `CoverageStudy` block is the
+    # obvious suspect at 200 replicates of a `default`-library fit. Worth taking before
+    # anyone trims an example to make the number smaller.
+    timeout-minutes: 150
+    # Only on the schedule: a manual dispatch is for re-running one slow case, and
+    # dragging half an hour of documentation fits along with it is what makes people
+    # stop dispatching.
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+      # `-n auto` resolves through psutil, else `os.cpu_count()` -- neither of which reads a
+      # container's CFS quota, so on a quota-limited runner it asks for the *host's* cores.
+      # `tests.parallel` goes through joblib/loky, which does read it.
+      - name: Size the worker pool from the cores this job may actually use
+        run: |
+          echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
+          python -m tests.parallel
+      - run: pytest -m docs -q -n auto --durations=20

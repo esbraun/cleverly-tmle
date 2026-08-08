@@ -18,7 +18,7 @@ The slow tier belongs in the nightly GitHub Actions workflow (`.github/workflows
 or on a developer machine with cores to spare.
 
 ```bash
-pytest -m "not slow" -q        # the only tier to run in the sandbox
+pytest -m "not slow and not docs" -q    # the only tier to run in the sandbox
 ```
 
 **`benchmarks/bench_tmle.py` is fine here at a reduced size, and is the one to reach for.**
@@ -132,6 +132,27 @@ path and the inner pool halves each of them. Measured over three paired runs on 
 cores, dropping it to `n_jobs=1` made the e2e tier **35% slower** (75.7s → 102.3s), with
 three xdist workers idling while the longest test ran twice as long. Nesting here is
 load-balancing the tail, not contending for cores.
+
+**Concurrency is `outer × inner × threads-per-fit`, the third is pinned to 1, and the split
+between the first two is per tier — because the tiers have opposite shapes.** The fast tier
+is thousands of short tests, so the *outer* layer (xdist) balances it and the inner `n_jobs`
+stays 1; adding an inner pool there contends rather than fills a gap. The `docs` tier is the
+mirror image — one test per document, and the long one is ~36 blocks sharing a namespace in
+reading order — so xdist sees one useful worker and the whole budget goes *inward*.
+`tests/e2e/test_doc_snippets.py`'s `cores_for_the_examples` fixture raises the `n_jobs`
+**default** for the run and puts it back; the guide's examples keep showing what a reader
+runs. That is legitimate only because `tests/unit/test_parallel_invariance.py` pins that
+`n_jobs` moves no number — estimates, curves and nuisance predictions bit for bit.
+
+**The core count is read, never assumed: `tests/parallel.available_cores()`.** It delegates
+to `joblib.cpu_count()`, which goes through loky, which reads a cgroup CFS quota *and* an
+affinity mask. `-n auto` does not: xdist prefers `psutil` (not a dependency here) and falls
+back to `os.cpu_count()`, so inside a quota-limited container — every CI runner, and this
+sandbox — `auto` asks for the *host's* cores. The CI jobs and `noxfile.py` therefore export
+`PYTEST_XDIST_AUTO_NUM_WORKERS` from `python -m tests.parallel --workers`. Do not hand-roll
+a `/sys/fs/cgroup` reader beside joblib's, and note that
+`benchmarks/numba/resources.logical_cores()` is the *narrower* one — affinity only, as its
+docstring now says rather than claiming the quota it never checked.
 
 ## Correctness is shown against a derivation, not against another implementation
 
@@ -638,7 +659,7 @@ round from the paper, is how the next reader traces where the code came from. Wh
 ```bash
 ruff check . && ruff format --check .
 mypy src/cleverly
-pytest -m "not slow" -q
+pytest -m "not slow and not docs" -q
 ```
 
 **The ruff version is pinned exactly**, in `pyproject.toml`'s `dev` extra and in

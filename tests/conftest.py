@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pytest
 from sklearn.base import BaseEstimator
 
 from cleverly import TMLE
@@ -349,3 +350,98 @@ def binary_mean_parts(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
 
     parts = counterfactual_mean_parts(*args, **kwargs)
     return parts[1.0], parts[0.0]
+
+
+def assert_estimate_coherent(
+    estimate: Any,
+    *,
+    variance_from_curve: bool = True,
+) -> None:
+    r"""Everything a :class:`~cleverly.inference.ParameterEstimate` owes itself.
+
+    Six fields of a reported estimate are *derived* -- ``std_error`` from ``variance``,
+    ``ci`` and ``pvalue`` from ``psi`` and ``std_error``, ``score`` from the curve -- so
+    each of them can be checked against the state the result carries, in the same process,
+    with no simulation and no truth to compare to.  ``CLAUDE.md`` records that this is the
+    check that settled the uncentred-curve question after two revisions had filed it behind
+    a cross-language fixture: "recompute the recorded number from the returned state in the
+    same process", thirty lines and one fit.  This is that check, written once so that
+    every test producing an estimate can spend a line on it.
+
+    What it pins, in the order the mistakes actually happen:
+
+    * **the variance is the variance of the curve that was returned.**  Everything
+      downstream -- the delta method, the cluster-robust variance, the simultaneous bands,
+      the score diagnostic -- reads the curve rather than the variance, so a curve that has
+      drifted from its variance makes those four disagree with the reported interval while
+      each stays internally consistent.  Pass ``variance_from_curve=False`` for a
+      ``targeting_scheme="fold"`` fit, whose variance is
+      :func:`~cleverly.inference.cluster.cross_validated_variance` by construction --
+      averaged over validation folds rather than taken over the pooled curve -- and for a
+      clustered fit, whose cluster assignment the estimate does not carry;
+    * **the interval and the p-value agree about the null.**  A Wald interval excludes the
+      null exactly when ``p < alpha``, and the two are computed by different code down
+      different branches for a ratio, where the interval is built on the log scale and
+      exponentiated.  A scale confusion in either shows up here and in almost nothing else;
+    * **NaN propagates rather than resolving to a number.**  Where the variance is not
+      usable, ``std_error``, both interval endpoints and the p-value are all ``nan`` -- not
+      zero, not a placeholder, and not an interval of width zero that reads as a certainty.
+
+    It deliberately does *not* assert that ``score`` is small: whether targeting solved the
+    score equation is a claim about the fit, which :mod:`cleverly.validation.score` makes
+    with a tolerance, and folding it in here would make a diagnostic into an invariant.
+    """
+    import math
+    import typing
+
+    name = estimate.name
+    ic = np.asarray(estimate.influence_curve, dtype=float)
+    assert ic.ndim == 1, f"{name}: influence curve has shape {ic.shape}"
+    assert ic.shape[0] == estimate.n, (
+        f"{name}: curve has {ic.shape[0]} rows for an estimate reporting n={estimate.n}"
+    )
+    assert 0 < estimate.alpha < 1, f"{name}: alpha={estimate.alpha}"
+    # Read off the Literal rather than written down, so a scale added there without a
+    # branch below fails here rather than falling silently into the difference case.
+    from cleverly.inference.influence import Scale
+
+    assert estimate.scale in typing.get_args(Scale), f"{name}: scale={estimate.scale!r}"
+    if estimate.scale == "ratio":
+        assert estimate.log_psi is not None, f"{name}: a ratio with no log_psi"
+
+    se = estimate.std_error
+    low, high = estimate.ci
+    pvalue = estimate.pvalue
+
+    if not math.isfinite(se) or se <= 0.0:
+        # The diff-diff rule, and the reason it is one assertion rather than three: an
+        # unusable standard error that leaves a finite interval behind reads as a precise
+        # answer rather than as a missing one.
+        assert math.isnan(low) and math.isnan(high) and math.isnan(pvalue), (
+            f"{name}: std_error={se} but ci={(low, high)} and p={pvalue}; "
+            f"a non-usable variance has to reach every field it feeds"
+        )
+        return
+
+    if variance_from_curve:
+        from cleverly.inference.cluster import influence_variance
+
+        recomputed = influence_variance(ic)
+        assert estimate.variance == pytest.approx(recomputed, rel=1e-12), (
+            f"{name}: reported variance {estimate.variance!r} is not the variance of the "
+            f"curve it returned ({recomputed!r}); everything downstream reads the curve"
+        )
+
+    assert low < high, f"{name}: interval {(low, high)} is not ordered"
+    centre = math.exp(estimate.log_psi) if estimate.scale == "ratio" else estimate.psi
+    assert low <= centre <= high, f"{name}: interval {(low, high)} does not contain {centre}"
+
+    null = 1.0 if estimate.scale == "ratio" else 0.0
+    excludes_null = not (low <= null <= high)
+    assert excludes_null == (pvalue < estimate.alpha), (
+        f"{name}: interval {(low, high)} {'excludes' if excludes_null else 'contains'} the "
+        f"null at {null} while p={pvalue} against alpha={estimate.alpha}. The interval and "
+        f"the p-value are the same statement twice; on a ratio they are computed down "
+        f"different branches, and this is where a scale confusion in either surfaces"
+    )
+    assert 0.0 <= pvalue <= 1.0, f"{name}: p={pvalue}"

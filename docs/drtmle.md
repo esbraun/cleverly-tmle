@@ -46,6 +46,9 @@ accepts.
 
 ```python
 from cleverly import DRTMLE
+from cleverly.datasets import make_nonlinear_ate
+
+frame, truth = make_nonlinear_ate(n=1000, seed=0)
 
 res = (
     DRTMLE(

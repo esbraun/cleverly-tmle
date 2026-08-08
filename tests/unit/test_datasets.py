@@ -8,6 +8,8 @@ estimands that are known in closed form.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -29,9 +31,11 @@ from cleverly.datasets import (
     make_linear_ate,
     make_missing_outcome,
     make_missing_outcome_binary,
+    make_multi_arm,
     make_nonlinear_ate,
     make_weak_overlap,
     missing_outcome_dgp,
+    multi_arm_dgp,
     nonlinear_dgp,
     weak_overlap_dgp,
 )
@@ -388,3 +392,82 @@ class TestSampling:
     def test_the_registry_lists_every_generator(self) -> None:
         assert set(available()) == set(GENERATORS)
         assert len(available()) >= 7
+
+
+class TestTheMultiArmBinomialLaw:
+    r"""``family="binomial"`` on the three-armed process, and the clip it replaced.
+
+    ``MultiArmDGP.sample`` used to ``np.clip`` the outcome mean into ``[0, 1]`` before
+    drawing, while :meth:`MultiArmDGP.truth` went on integrating the *unclipped* mean.  On
+    ``multi_arm_dgp()`` -- whose arm means are ``0``, ``0.6`` and ``1.44`` -- that reported
+    ``ey[high] = 1.44`` as the counterfactual mean of a binary outcome, and drew the high
+    arm as a constant one.  Nothing shipped reached it, which is exactly why it survived:
+    a footgun with no caller has no failing test either.
+
+    **Verified by mutation**: restoring the clip (``rng.binomial(1, np.clip(mean, 0, 1))``
+    and deleting the guard call) turns :meth:`test_the_gaussian_law_declared_binomial_is_
+    refused` red and leaves every other test in this file green -- including the ones about
+    the gaussian law, which is the point.
+
+    The binary law itself exists because ``rr`` and ``or``, and the E-value built on them,
+    need a binomial outcome and there was no multi-arm law to ask them of.
+    """
+
+    def test_the_arm_means_are_probabilities(self) -> None:
+        truth = multi_arm_dgp(family="binomial").truth()
+        means = [truth[f"ey[{label}]"] for label in ("low", "medium", "high")]
+        assert all(0.0 < mean < 1.0 for mean in means), means
+
+    def test_the_middle_arm_is_still_not_halfway(self) -> None:
+        """The property the gaussian law exists for, carried onto the logit scale.
+
+        An estimator that treated the treatment as one numeric column has to be *biased*
+        here rather than merely inefficient, and that needs the middle arm off centre.  The
+        expit is close to linear over this range, so a step vector chosen for the gaussian
+        law would have come out near halfway on the mean scale -- this asserts it did not.
+        """
+        truth = multi_arm_dgp(family="binomial").truth()
+        low, middle, high = (truth[f"ey[{label}]"] for label in ("low", "medium", "high"))
+        position = (middle - low) / (high - low)
+        assert 0.2 < position < 0.4, position
+
+    def test_the_draw_is_binary_and_the_gaussian_law_is_untouched(self) -> None:
+        frame, truth = make_multi_arm(400, seed=0, family="binomial")
+        assert set(np.unique(np.asarray(frame["Y"]))) == {0.0, 1.0}
+        # The default is unchanged to the last digit: this added a family, not a law.
+        _, gaussian = make_multi_arm(400, seed=0)
+        assert gaussian["ey[high]"] == pytest.approx(1.44, abs=1e-6)
+        assert truth["ey[high]"] != gaussian["ey[high]"]
+
+    def test_the_gaussian_law_declared_binomial_is_refused(self) -> None:
+        """The guard, at the configuration that used to lie.
+
+        Refused rather than rescaled: a law on the gaussian scale is a *different law*,
+        and squashing it would draw from one and report the other.
+        """
+        law = dataclasses.replace(multi_arm_dgp(), family="binomial")
+        with pytest.raises(ValueError, match="needs an outcome_mean that is a probability"):
+            law.sample(50, seed=0)
+
+    def test_the_refusal_names_the_arm_and_the_range(self) -> None:
+        law = dataclasses.replace(multi_arm_dgp(), family="binomial")
+        with pytest.raises(ValueError) as raised:
+            law.sample(50, seed=0)
+        message = str(raised.value)
+        assert "'low'" in message, message
+        assert "multi_arm_dgp(family='binomial')" in message, message
+
+    def test_the_verdict_does_not_depend_on_the_draw(self) -> None:
+        """Checked on the quadrature points, not the sample.
+
+        A law admissible at one ``n`` or seed and refused at the next would be worse than
+        either verdict, because it would turn a property of the law into a flake.
+        """
+        law = dataclasses.replace(multi_arm_dgp(), family="binomial")
+        for n, seed in ((10, 0), (10, 7), (5_000, 1)):
+            with pytest.raises(ValueError):
+                law.sample(n, seed=seed)
+
+    def test_an_unknown_family_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="family must be"):
+            multi_arm_dgp(family="poisson")

@@ -27,7 +27,29 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-__all__ = ["Row", "load_rows", "merge", "write_all"]
+__all__ = [
+    "MixedEnvironment",
+    "Row",
+    "fingerprint",
+    "load_rows",
+    "merge",
+    "mixed_fields",
+    "write_all",
+]
+
+#: The fields that identify *which box and which build* produced a row.  Not the core
+#: counts or the thread plan: those are the axes a sweep deliberately varies, and a table
+#: comparing four core counts is the point rather than a mixture.  These six are the ones
+#: no sweep varies on purpose, so a set of rows that disagrees on any of them is two
+#: measurements being presented as one.
+FINGERPRINT: tuple[str, ...] = (
+    "git_sha",
+    "cpu_model",
+    "python_version",
+    "numpy_version",
+    "numba_version",
+    "blas_backend",
+)
 
 
 @dataclass
@@ -115,6 +137,63 @@ def load_rows(output: Path) -> list[Row]:
     return rows
 
 
+class MixedEnvironment(RuntimeError):
+    """Raised rather than rendering a table whose cells came from different boxes."""
+
+
+def fingerprint(row: Row) -> tuple[Any, ...]:
+    """The box-and-build identity of one row."""
+    return tuple(getattr(row, field_name) for field_name in FINGERPRINT)
+
+
+def mixed_fields(rows: Sequence[Row]) -> dict[str, set[Any]]:
+    """The fingerprint fields on which ``rows`` disagree, with the values seen.
+
+    Empty when every row came from one box and one build, which is the only state in which
+    a summary table means anything.  A *skipped* row is excluded: it entered no plan, ran
+    no code and records the build it would have run on, so a sweep on a machine without
+    numba would otherwise report itself as mixed against its own skips.
+    """
+    measured = [row for row in rows if not row.skipped_reason]
+    seen: dict[str, set[Any]] = {}
+    for field_name in FINGERPRINT:
+        values = {getattr(row, field_name) for row in measured}
+        if len(values) > 1:
+            seen[field_name] = values
+    return seen
+
+
+def refuse_mixed_environment(rows: Sequence[Row]) -> None:
+    """Fail closed before a mixed set is rendered as a table.
+
+    ``load_rows`` carries the evidence on every row precisely so that appending a run from
+    another machine is not silent -- but "not silent" was a column a reader had to diff by
+    eye, and a summary table with a verdict at the bottom of it is read long before anyone
+    does that.  ``CLAUDE.md`` records the cost of the softer version: every committed
+    benchmark number here predates the timing harness's rotation, so a rerun is a different
+    instrument rather than a replication, and a ``1.02x`` against a ``0.98x`` was never
+    resolved by the numbers on record.  This is that warning made mechanical.
+
+    There is deliberately no override.  A mixed set has two honest resolutions -- rerun the
+    sweep, or point ``--output`` at a fresh directory so the two stay two tables -- and a
+    flag that suppressed this would be chosen under exactly the deadline that makes the
+    mixture a mistake.
+    """
+    mixed = mixed_fields(rows)
+    if not mixed:
+        return
+    detail = "; ".join(
+        f"{name}: {sorted(str(value) for value in values)}" for name, values in mixed.items()
+    )
+    raise MixedEnvironment(
+        f"these rows did not all come from one box and one build, so they cannot be one "
+        f"table: {detail}. A partial re-run leaves the rows it did not touch behind, and a "
+        f"ratio taken across the two is a comparison of instruments rather than of "
+        f"implementations. Re-run the sweep, or write to a fresh --output so the two stay "
+        f"two measurements"
+    )
+
+
 def _key(row: Row) -> tuple[Any, ...]:
     return (
         row.operation,
@@ -133,7 +212,13 @@ def merge(previous: Sequence[Row], current: Sequence[Row]) -> list[Row]:
 
 
 def write_all(rows: Sequence[Row], environment: Any, output: Path) -> Path:
-    """Write the four artefacts under ``output/latest`` and return that directory."""
+    """Write the four artefacts under ``output/latest`` and return that directory.
+
+    Refuses outright on a mixed set: the raw rows are not written either, because a
+    ``results.jsonl`` on disk is what the next ``--append`` reads and half-writing one is
+    how the mixture would survive the refusal.
+    """
+    refuse_mixed_environment(rows)
     latest = Path(output) / "latest"
     latest.mkdir(parents=True, exist_ok=True)
 

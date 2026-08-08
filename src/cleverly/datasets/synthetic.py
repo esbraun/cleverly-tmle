@@ -383,6 +383,34 @@ def _cached_truth(dgp: DGP, intermediate_value: float | None) -> tuple[tuple[str
     return tuple(dgp._integrate(intermediate_value).items())
 
 
+@lru_cache(maxsize=32)
+def _refuse_non_probability_means(dgp: MultiArmDGP) -> None:
+    """The body of :meth:`MultiArmDGP._refuse_means_outside_the_unit_interval`, cached.
+
+    Beside :func:`_cached_truth` and for the same reason: both integrate ``outcome_mean``
+    over the quadrature grid, both answer a question about the *law*, and both would
+    otherwise be repaid on every draw of a simulation study.  Keyed on the law itself --
+    ``MultiArmDGP`` is a frozen dataclass whose fields, callables included, are hashable.
+
+    A cache that memoises a *raising* call is worth being explicit about: ``lru_cache`` does
+    not store exceptions, so a law that fails re-raises on every call rather than being
+    remembered as bad.  That is the right way round here -- the refusal is what the caller
+    has to see, and it costs 32 ms once on a path that is about to stop.
+    """
+    latent = _sobol_normal(dgp.n_latent, _TRUTH_POINTS)
+    for index, label in enumerate(dgp.labels):
+        means = np.asarray(dgp.outcome_mean(latent, index), dtype=float)
+        if means.min() < 0.0 or means.max() > 1.0:
+            raise ValueError(
+                f"family='binomial' needs an outcome_mean that is a probability, and "
+                f"arm {label!r} reaches [{means.min():.4g}, {means.max():.4g}]. This is "
+                f"refused rather than clipped because truth() integrates the mean you "
+                f"passed: clipping would draw from one law and report another. For the "
+                f"three-armed process, multi_arm_dgp(family='binomial') is the binary "
+                f"law -- the same design on the logit scale, not this one squashed"
+            )
+
+
 # 32 rather than 8 because a caller measuring the rule's own error walks a *ladder* of point
 # counts across a *set* of scrambles, and the product of the two evicted the whole cache at 8.
 # What it costs to miss is one Sobol generation and one `norm.ppf` -- milliseconds at these
@@ -1055,6 +1083,33 @@ class MultiArmDGP:
                 )
         return truth
 
+    def _refuse_means_outside_the_unit_interval(self) -> None:
+        r"""Refuse a binomial family whose ``outcome_mean`` is not a probability.
+
+        This used to be an ``np.clip`` into ``[0, 1]``, which is the worst of the three
+        options available.  The draw then came from :math:`\min(\max(\bar Q, 0), 1)` while
+        :meth:`truth` went on integrating the *unclipped* :math:`\bar Q` -- so
+        ``multi_arm_dgp()`` with ``family="binomial"`` reported ``ey[high] = 1.44`` as the
+        counterfactual mean of a binary outcome, and every arm whose mean exceeded one was
+        drawn as a constant.  A test comparing an estimate against that truth measures the
+        gap between two different laws and reads as bias in the estimator.
+
+        The refusal rather than a rescale is the point: a law on the gaussian scale is not
+        a binomial law that needs squashing, it is a different law, and the caller has to
+        say which one they meant.  :func:`multi_arm_dgp` is where the binomial one lives.
+
+        Checked on the quadrature points :meth:`truth` integrates over rather than on the
+        drawn sample, so the verdict does not depend on ``n`` or on the seed -- a law that
+        is admissible for one draw and not the next would be worse than either.
+
+        **Cached per law**, for the reason :meth:`truth` is: it is a property of the law and
+        cannot change between draws, and uncached it measured at 32 ms -- *half* of
+        ``sample()``'s total, since the arm evaluation over 2**18 points is the same work
+        the truth integration does.  A 200-replicate study would have paid six seconds to
+        re-establish something settled before the first draw.
+        """
+        _refuse_non_probability_means(self)
+
     def sample(
         self,
         n: int,
@@ -1078,7 +1133,8 @@ class MultiArmDGP:
             if rows.any():
                 mean[rows] = np.asarray(self.outcome_mean(latent[rows], index), dtype=float)
         if self.family == "binomial":
-            y = rng.binomial(1, np.clip(mean, 0.0, 1.0)).astype(float)
+            self._refuse_means_outside_the_unit_interval()
+            y = rng.binomial(1, mean).astype(float)
         else:
             y = mean + rng.normal(scale=self.noise_scale, size=n)
 
@@ -1088,7 +1144,9 @@ class MultiArmDGP:
         return frame_from_dict(payload, backend=backend), self.truth()
 
 
-def multi_arm_dgp(*, effect: float = 0.6, confounding: float = 0.8) -> MultiArmDGP:
+def multi_arm_dgp(
+    *, effect: float = 0.6, confounding: float = 0.8, family: str = "gaussian"
+) -> MultiArmDGP:
     """Three arms, confounded, with an effect that is not linear in the arm index.
 
     The middle arm is not halfway between the other two, so an estimator that treated
@@ -1100,8 +1158,29 @@ def multi_arm_dgp(*, effect: float = 0.6, confounding: float = 0.8) -> MultiArmD
     deliberate: it makes recovery of the truth a genuine consistency check rather than a
     measurement of how much bias a misspecified working model happens to leave, which is
     a different question and needs a different test to answer honestly.
+
+    ``family="binomial"`` keeps both properties and moves them one scale in: the step and
+    the covariate terms become a *linear predictor* and the mean is its expit, so the arms
+    are still unevenly spaced and the design is still exact -- now on the logit scale,
+    which is the scale the outcome regression works on.  It is a different law rather than
+    the same law with a different draw, and it has to be, because a mean of ``1.44`` is not
+    a probability.  That is why :meth:`MultiArmDGP.sample` *refuses* a binomial family
+    whose means leave ``[0, 1]`` instead of clipping them: the clip was silent, and
+    ``truth()`` went on reporting the unclipped mean.
+
+    The binary law exists because the risk ratio, the odds ratio and the E-value built on
+    them need a binomial outcome, and there was otherwise no multi-arm law to ask them of
+    -- which is how ``docs/user-guide.md`` came to show ``evalue("rr[medium vs low]")``
+    against a gaussian fit.
     """
-    step = np.array([0.0, 1.0, 2.4])
+    if family not in {"gaussian", "binomial"}:
+        raise ValueError(f"family must be 'gaussian' or 'binomial'; got {family!r}")
+
+    #: Uneven on purpose, on whichever scale the family puts them.  The binomial steps are
+    #: not the gaussian ones rescaled: the expit is close to linear over the range these
+    #: land in, so a proportional shrink would have put the middle arm near halfway on the
+    #: mean scale and quietly cost the process the property it exists for.
+    step = np.array([0.0, 1.0, 2.4]) if family == "gaussian" else np.array([0.0, 0.5, 1.6])
 
     def arm_logits(w: FloatArray) -> FloatArray:
         return np.column_stack(
@@ -1112,16 +1191,24 @@ def multi_arm_dgp(*, effect: float = 0.6, confounding: float = 0.8) -> MultiArmD
             ]
         )
 
-    def outcome_mean(w: FloatArray, arm: int) -> FloatArray:
+    def gaussian_mean(w: FloatArray, arm: int) -> FloatArray:
         return effect * step[arm] + w[:, 0] - 0.5 * w[:, 1] + 0.2 * w[:, 2]
 
+    def binomial_mean(w: FloatArray, arm: int) -> FloatArray:
+        # Coefficients smaller than the gaussian law's so the linear predictor spans a
+        # useful part of the logit scale rather than saturating: every row stays strictly
+        # inside (0, 1), so no arm is a degenerate outcome the fluctuation cannot move.
+        eta = effect * step[arm] + 0.6 * w[:, 0] - 0.3 * w[:, 1] + 0.2 * w[:, 2] - 0.5
+        return expit(eta)
+
     return MultiArmDGP(
-        name="multi_arm",
+        name="multi_arm" if family == "gaussian" else "multi_arm_binary",
         n_latent=3,
         covariate_names=("W1", "W2", "W3"),
         arm_logits=arm_logits,
-        outcome_mean=outcome_mean,
+        outcome_mean=gaussian_mean if family == "gaussian" else binomial_mean,
         labels=("low", "medium", "high"),
+        family=family,
         noise_scale=0.8,
     )
 
@@ -1131,9 +1218,14 @@ def make_multi_arm(
     *,
     seed: int | np.random.Generator | None = None,
     backend: Backend | str | None = None,
+    family: str = "gaussian",
 ) -> tuple[Any, dict[str, float]]:
-    """A three-armed confounded process with known counterfactual means."""
-    return multi_arm_dgp().sample(n, seed=seed, backend=backend)
+    """A three-armed confounded process with known counterfactual means.
+
+    ``family="binomial"`` gives the binary-outcome version, which is what ``rr`` and
+    ``or`` -- and the E-value built on them -- need on a multi-valued treatment.
+    """
+    return multi_arm_dgp(family=family).sample(n, seed=seed, backend=backend)
 
 
 @dataclass(frozen=True)
