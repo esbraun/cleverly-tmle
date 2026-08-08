@@ -11,6 +11,9 @@ such evidence, and would ship on the strength of its author's arithmetic alone.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -526,3 +529,127 @@ class TestTheScalingContract:
             assert result["nnt"].psi != pytest.approx(1.0 / result["ate"].psi, rel=1e-3)
         finally:
             del TARGETS["nnt"]
+
+
+#: The manifest, and the columns it is read through.  Parsed rather than imported because
+#: the artefact has to be the thing a *reader* opens: a YAML file beside a rendered table
+#: would need a third test keeping the two in agreement, which is the duplication this
+#: repository's documentation rules exist to avoid.
+EVIDENCE = Path(__file__).resolve().parents[2] / "docs" / "evidence.md"
+
+#: The header the table must have, in order.  Written down so that renaming a column is a
+#: failure here rather than a silent reinterpretation of every row beneath it.
+EVIDENCE_COLUMNS = (
+    "target",
+    "oracle law",
+    "Gateaux",
+    "remainder",
+    "exact identity",
+    "not covered",
+)
+
+
+def _evidence_rows() -> dict[str, dict[str, str]]:
+    """The manifest's table, keyed by target, as ``{column: cell}``.
+
+    Reads the *first* pipe table whose header is :data:`EVIDENCE_COLUMNS`, so the
+    instruments table above it -- a different shape, about kinds rather than targets --
+    does not have to be skipped by counting lines.
+    """
+    lines = EVIDENCE.read_text(encoding="utf-8").splitlines()
+    header = [
+        index
+        for index, line in enumerate(lines)
+        if [cell.strip() for cell in line.strip().strip("|").split("|")] == list(EVIDENCE_COLUMNS)
+    ]
+    assert header, f"{EVIDENCE.name} has no table with the header {EVIDENCE_COLUMNS}"
+
+    rows: dict[str, dict[str, str]] = {}
+    for line in lines[header[0] + 2 :]:
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        assert len(cells) == len(EVIDENCE_COLUMNS), f"ragged row in {EVIDENCE.name}: {line}"
+        target = cells[0].strip("`")
+        assert target not in rows, f"{EVIDENCE.name} has two rows for {target!r}"
+        rows[target] = dict(zip(EVIDENCE_COLUMNS, cells, strict=True))
+    return rows
+
+
+class TestEvidenceManifest:
+    r"""``docs/evidence.md`` against the registry, and against the laws themselves.
+
+    :class:`TestOracleCoverage` asks whether a target *has* an oracle; the manifest records
+    which instruments it has and -- the column that is the point -- which it does not.  A
+    document saying so is worth nothing if it can drift, and the ways it can drift are
+    exactly three: a target with no row, a row for no target, and a row claiming an
+    instrument that is not there.  Each has a test.
+
+    The third is the one that makes this a gate rather than a note, and it is checked
+    against :func:`oracle_for` -- the same function the coverage gate reads -- so the
+    manifest's *oracle law* column cannot claim a law whose ``functional`` has no branch.
+
+    Verified by mutation: pointing ``ey_shift``'s row at ``tests/discrete_law.py`` turns
+    :meth:`test_the_oracle_column_is_the_law_that_really_covers_it` red while every other
+    test in this module stays green, which is the drift the column exists to catch.
+    """
+
+    def test_every_target_has_a_row_and_every_row_a_target(self) -> None:
+        rows = _evidence_rows()
+        assert set(rows) == set(TARGETS), (
+            f"docs/evidence.md and the registry disagree: rows with no target "
+            f"{sorted(set(rows) - set(TARGETS))}, targets with no row "
+            f"{sorted(set(TARGETS) - set(rows))}. A target reported without a row is one "
+            f"whose blind spots nobody wrote down"
+        )
+
+    @pytest.mark.parametrize("column", ["oracle law", "Gateaux", "remainder"])
+    def test_every_module_a_row_names_exists(self, column: str) -> None:
+        root = Path(__file__).resolve().parents[2]
+        missing = [
+            (target, path)
+            for target, row in _evidence_rows().items()
+            for path in re.findall(r"`(tests/[\w/]+\.py)`", row[column])
+            if not (root / path).exists()
+        ]
+        assert missing == [], f"docs/evidence.md names modules that do not exist: {missing}"
+
+    def test_the_oracle_column_is_the_law_that_really_covers_it(self) -> None:
+        """The column against the laws, not against care.
+
+        A target reports several parameter names; every one of them has to come from a law
+        the row names, or the row is describing a different estimand from the one it is
+        filed under.
+        """
+        wrong = []
+        for target, row in _evidence_rows().items():
+            claimed = set(re.findall(r"`(tests/[\w/]+\.py)`", row["oracle law"]))
+            for reported in reported_names(target):
+                law = oracle_for(reported)
+                assert law is not None, f"{reported} has no oracle at all; see TestOracleCoverage"
+                path = f"tests/{law.__name__.rsplit('.', 1)[-1]}.py"
+                if path not in claimed:
+                    wrong.append((target, reported, path, sorted(claimed)))
+        assert wrong == [], (
+            f"docs/evidence.md's oracle column disagrees with the law whose functional has "
+            f"the branch: {wrong}"
+        )
+
+    def test_no_row_leaves_its_blind_spots_blank(self) -> None:
+        """The column the manifest exists for, so an empty one is the failure.
+
+        A dash is the *other* columns' way of saying "no such instrument"; here it would
+        say "nothing is uncovered", which is a claim no estimand in this package can make.
+        """
+        blank = [
+            target
+            for target, row in _evidence_rows().items()
+            if len(row["not covered"]) < 30 or row["not covered"] in {"-", "--", "\u2014", ""}
+        ]
+        assert blank == [], (
+            f"rows whose 'not covered' cell says nothing: {blank}. Every instrument here "
+            f"goes blind somewhere -- an exact law wherever a quantity vanishes at the "
+            f"truth, an identity wherever the mistake is symmetric in what it relabels -- "
+            f"so a row with nothing in this column has not been thought about rather than "
+            f"having nothing to report"
+        )

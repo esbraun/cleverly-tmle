@@ -23,6 +23,29 @@ RUFF = "ruff==0.16.1"
 MYPY = "mypy==1.19.1"
 
 
+def _workers() -> str:
+    """Workers for ``-n auto``, sized from the cores this process may actually use.
+
+    ``pytest-xdist`` resolves ``auto`` through ``psutil`` if it is installed and
+    ``os.cpu_count()`` otherwise -- ``psutil`` is not a dependency of this project, so it is
+    always the second one, and that reports the *host's* cores.  Inside a container with a
+    CPU quota, which is every CI runner and the sandbox this repository is developed in,
+    that asks for several times the parallelism the job can be given.
+
+    ``tests.parallel`` goes through joblib, and joblib through loky, which reads the quota
+    and the affinity mask.  Imported lazily and defensively: a session that runs before the
+    test extras are installed should not fail on this, it should fall back to ``auto``'s own
+    answer.
+    """
+    try:
+        from tests.parallel import worker_count
+    except Exception:  # pragma: no cover - nox runs outside the package's environment
+        import os
+
+        return str(os.cpu_count() or 1)
+    return str(worker_count())
+
+
 @nox.session
 def lint(session: nox.Session) -> None:
     session.install(RUFF)
@@ -40,16 +63,57 @@ def typecheck(session: nox.Session) -> None:
 def tests(session: nox.Session) -> None:
     """Fast tier: everything except the statistical validation runs."""
     session.install("-e", ".[dev]")
-    # ``-n auto`` as CI runs it. The inner ``n_jobs=2`` on simulation studies balances the
-    # long-test tail under xdist, so a session without xdist is not the same tier.
-    session.run("pytest", "-m", "not slow", "-q", "-n", "auto", *session.posargs)
+    # ``-n auto`` as CI runs it, with the worker count sized from the cores this process may
+    # actually use. The inner ``n_jobs=2`` on simulation studies balances the long-test tail
+    # under xdist, so a session without xdist is not the same tier.
+    session.run(
+        "pytest",
+        "-m",
+        "not slow and not docs",
+        "-q",
+        "-n",
+        "auto",
+        *session.posargs,
+        env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
+    )
 
 
 @nox.session
 def slow(session: nox.Session) -> None:
     """Nightly tier: coverage, consistency and type I error studies."""
     session.install("-e", ".[dev]")
-    session.run("pytest", "-m", "slow", "-q", "-n", "auto", *session.posargs)
+    session.run(
+        "pytest",
+        "-m",
+        "slow",
+        "-q",
+        "-n",
+        "auto",
+        *session.posargs,
+        env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
+    )
+
+
+@nox.session
+def docs(session: nox.Session) -> None:
+    """The guides' own examples, run.
+
+    A separate tier from ``slow`` because it fails for a different reason and wants a
+    different response: ``slow`` failing is a statistical result, this failing is a page
+    that has stopped being true.  Its cost is the same order, though -- the README's first
+    example is a ``default``-library fit at n=2000 -- which is why it is not in ``tests``.
+    """
+    session.install("-e", ".[dev]")
+    session.run(
+        "pytest",
+        "-m",
+        "docs",
+        "-q",
+        "-n",
+        "auto",
+        *session.posargs,
+        env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
+    )
 
 
 @nox.session

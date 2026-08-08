@@ -27,7 +27,7 @@ uv pip install -e ".[dev]"
 ruff check .
 ruff format --check .
 mypy src/cleverly
-pytest -m "not slow" -q -n auto
+pytest -m "not slow and not docs" -q -n auto
 ```
 
 The fast test tier is the default local and pull-request check. The `slow` marker covers coverage,
@@ -124,6 +124,12 @@ coverage.
   cross-fitting work.
 - Keep intentionally expensive statistical tests marked `slow`. The nightly workflow is their
   validation tier, not an optional duplicate of fast CI.
+- The `docs` marker is the second nightly tier: it executes every fenced Python block in the
+  documentation, one namespace per document, in reading order. Keep the examples at the sizes the
+  guides quote — an example shrunk to make a test cheap is no longer the example. A block that
+  enumerates an API rather than working an example carries a `<!-- catalogue: -->` marker and is
+  checked statically instead; a marker the parser misses fails open, so its attachment is itself
+  asserted.
 - When adding a target, update the appropriate discrete-law oracle. Registry tests require targets
   and oracle branches to cover one another in both directions.
 - When a test protects a mathematical or architectural invariant, explain the invariant in the
@@ -206,6 +212,19 @@ Nuisance fits are single-threaded by default so parallelism occurs across folds 
 candidates. Callers can change the process-level limit through the public learner controls. Do not
 add nested native threading without an end-to-end measurement and an oversubscription plan.
 
+Concurrency is `outer × inner × threads-per-fit`, the third is pinned to one, and the split of the
+first two belongs to the tier. The fast tier is thousands of short tests, so xdist balances it and
+the inner `n_jobs` stays at its default of one. The `docs` tier is the mirror image — one test per
+document, and the long one is a single sequential namespace — so xdist has one useful worker and
+the budget goes inward, by raising the `n_jobs` default for the run. That is sound only because
+`n_jobs` invariance is pinned bit for bit; if that test fails, the injection comes out.
+
+Size every layer from `tests/parallel.available_cores()`, which reads a container's CPU quota and
+affinity mask through joblib. Neither `os.cpu_count()` nor xdist's `-n auto` does, so CI and the
+noxfile export `PYTEST_XDIST_AUTO_NUM_WORKERS` from it. Nesting pools is sometimes right and is
+never assumed: both the configuration in use and the alternative that measured worse are recorded
+with their numbers where the defaults are set.
+
 Before adding compiled code, compare against a competent numpy implementation and include the
 real learner workload. Track compile time, memory, core count, numerical equivalence, and the
 kernel's share of a fit. Generated benchmark output is not documentation; preserve environment
@@ -232,7 +251,7 @@ metadata and summarize durable conclusions in `docs/benchmarks/`.
 ruff check .
 ruff format --check .
 mypy src/cleverly
-pytest -m "not slow" -q -n auto
+pytest -m "not slow and not docs" -q -n auto
 ```
 
 Also run the smallest relevant slow test, backend smoke test, or benchmark correctness tier when

@@ -80,7 +80,21 @@ def bootstrap_environment(max_threads: int) -> None:
 
 
 def logical_cores() -> int:
-    """Cores this process may run on, honouring an affinity mask or a cgroup quota."""
+    """Cores this process may run on, honouring an **affinity mask**.
+
+    Not a cgroup quota, which this docstring used to claim and the code never checked.
+    ``sched_getaffinity`` reports which CPUs the scheduler will place the process on; a
+    container's CFS quota caps how much of them it may consume, and leaves the mask alone.
+    So inside a runner limited to two cores' worth of a sixteen-core host this returns
+    sixteen, and a benchmark that sized itself from it would be reporting a thread count it
+    never had.
+
+    The number is right for the *benchmark* case it is used in, where the sweep pins its own
+    thread plan and records what it asked for -- and the environment record carries the
+    request beside the result precisely so a reader can tell.  For sizing a *test* run,
+    :func:`tests.parallel.available_cores` is the one to use: it goes through joblib, which
+    goes through loky, which reads the quota.
+    """
     try:
         return len(os.sched_getaffinity(0))
     except AttributeError:  # pragma: no cover - not Linux

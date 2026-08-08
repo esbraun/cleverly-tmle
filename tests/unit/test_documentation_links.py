@@ -1,6 +1,6 @@
 r"""Every relative link in the documentation resolves, file and anchor.
 
-**This is the same kind of check as** ``tests/unit/test_evidence_manifest.py``: two things that
+**This is the same kind of check as** :class:`tests.unit.test_registry.TestEvidenceManifest`: two things that
 have to agree, kept in agreement by a test rather than by care.  The documentation is the argument
 this repository makes -- ``docs/roadmap.md``'s standing-decisions table exists so that a decision
 costs a table rather than seven write-ups, and every row of it links to its evidence -- so a link

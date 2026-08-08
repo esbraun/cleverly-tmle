@@ -69,11 +69,34 @@ effect conditions on `A = a` and so is not a function of the marginal means at a
 the two arms it names:
 
 ```python
+# `att[...]` is one of the opt-in conditional effects, so the fit has to be asked for it.
+res = (
+    TMLE(random_state=0, reference="low", estimands="all")
+    .fit(frame, outcome="Y", treatment="A")
+    .single()
+)
+
 res.sensitivity.omitted_variable("ate[medium vs low]")
 res.sensitivity.robustness_value("att[medium vs low]")
-res.sensitivity.evalue("rr[medium vs low]")
-res.sensitivity.missingness_tilt()  # every arm's mean, and every contrast
 ```
+
+The E-value is defined on the ratio scale, so it wants a binary outcome — the same three
+arms, with `family="binomial"`:
+
+```python
+binary, _ = make_multi_arm(n=2000, seed=0, family="binomial")
+risk = (
+    TMLE(random_state=0, reference="low", estimands=("ate", "rr"))
+    .fit(binary, outcome="Y", treatment="A")
+    .single()
+)
+
+risk.sensitivity.evalue("rr[medium vs low]")
+```
+
+The MNAR tilt is one per contrast in the same way — `missingness_tilt()` reports every
+arm's mean and every contrast — but it needs a fit with `delta=`, so its example lives
+with the others in [Sensitivity](#sensitivity).
 
 That is a wider loop rather than a wider derivation, and it is worth saying why: the
 omitted-variable bound's `nu^2` is the second moment of *that parameter's* Riesz
@@ -295,10 +318,16 @@ it. `intermediate=` adds `P(Z = z | A, W)` on the same footing, and the report i
 controlled direct effect *under the policy*, `E[Y^{d(A,W), z}]`.
 
 ```python
-# `frame` as above, with a `Delta` column and `Y` missing wherever it is zero.
+import numpy as np
+
+# The dose process again, with an outcome that goes missing more often at a high dose.
+rng = np.random.default_rng(0)
+observed = rng.random(len(frame)) < 1 / (1 + np.exp(-(1.5 - 0.4 * frame["A"])))
+missing = frame.assign(Delta=observed.astype(float), Y=frame["Y"].where(observed))
+
 res = (
     TMLE(shifts=[Shift(0.0, cap=None), Shift(0.5, cap=5.0)], density_bins=40, random_state=0)
-    .fit(frame, outcome="Y", treatment="A", delta="Delta")
+    .fit(missing, outcome="Y", treatment="A", delta="Delta")
     .single()
 )
 
@@ -1209,7 +1238,17 @@ curve is available as a *function*:
 
 ```python
 holdout, _ = make_nonlinear_ate(n=20_000, seed=99)
-res = DRTMLE(..., evaluation=holdout).fit(frame, outcome="Y", treatment="A").single()
+res = (
+    DRTMLE(
+        estimands=("ate",),
+        outcome_learner="glm",
+        treatment_learner="glm",
+        random_state=0,
+        evaluation=holdout,
+    )
+    .fit(frame, outcome="Y", treatment="A")
+    .single()
+)
 companion = res.repeats[0].fluctuations["mean"].reduction.evaluation
 ```
 
@@ -1407,9 +1446,9 @@ res = (
     .fit(frame, outcome="Y", treatment="A")
     .single()
 )
-res["rr"].psi  # averaged over folds (on the log scale) rather than pooled
-res["rr"].std_error  # the cross-validated standard error
-res.cv_targeting.pooled["rr"], res.cv_targeting.canonical["rr"]  # both, always
+res["att"].psi  # averaged over folds rather than pooled
+res["att"].std_error  # the cross-validated standard error
+res.cv_targeting.pooled["att"], res.cv_targeting.canonical["att"]  # both, always
 ```
 
 ## Observation weights, and which population they define
@@ -1422,10 +1461,16 @@ back is the requested causal parameter evaluated in the tilted population
 is what the reported standard errors are built from.
 
 ```python
+# A design: sampling weights that oversample one region, and a PSU per cluster of ten.
+surveyed = frame.assign(
+    sampling_weight=np.where(frame["W1"] > 0, 2.5, 1.0),
+    psu=np.arange(len(frame)) // 10,
+)
+
 res = (
     TMLE()
     .fit(
-        frame,
+        surveyed,
         outcome="Y",
         treatment="A",
         weights="sampling_weight",  # 1 / P(selected | observed variables)
@@ -1472,6 +1517,11 @@ the outcome, where the tilt changes `Qbar` itself. The short version:
 
 ## Sensitivity
 
+<!-- catalogue: what the suite offers, listed together. No single fit supports all of it —
+     `truncation_curve(mechanism=True)` needs a missingness mechanism, `evalue()` a binary
+     outcome, `missingness_tilt()` a `delta=` — so this enumerates rather than demonstrates,
+     and the sections below run each one against the fit it needs. -->
+
 ```python
 res.sensitivity.positivity()  # overlap, effective sample size, weight mass
 res.sensitivity.truncation_curve()  # estimate vs propensity-truncation bound
@@ -1498,12 +1548,24 @@ not mean what dropout after an effective one does — `arm_gamma=` declares a *d
 instead, and the grid sweeps its magnitude:
 
 ```python
+# The three arms again, with outcomes that go missing more often at a high `W1`.
+arms, _ = make_multi_arm(n=2000, seed=0)
+rng = np.random.default_rng(1)
+seen = rng.random(len(arms)) < 1 / (1 + np.exp(-(1.2 + 0.5 * arms["W1"])))
+dropout = arms.assign(Delta=seen.astype(float), Y=arms["Y"].where(seen))
+
+tilted = (
+    TMLE(random_state=0, reference="low")
+    .fit(dropout, outcome="Y", treatment="A", delta="Delta")
+    .single()
+)
+
 # the unobserved outcomes are worse than they look under `low`, better under
 # `medium`, and MAR under `high`
 direction = {"low": 1.0, "medium": -1.0, "high": 0.0}
 
-res.sensitivity.missingness_tilt([0.0, 0.5, 1.0], arm_gamma=direction)
-res.sensitivity.tipping_gamma("ate[medium vs low]", arm_gamma=direction)
+tilted.sensitivity.missingness_tilt([0.0, 0.5, 1.0], arm_gamma=direction)
+tilted.sensitivity.tipping_gamma("ate[medium vs low]", arm_gamma=direction)
 ```
 
 The tilt at arm `a` is then `arm_gamma[a] * gamma`, and the returned frame carries a

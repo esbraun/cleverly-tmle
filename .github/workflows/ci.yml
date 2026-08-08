@@ -59,7 +59,17 @@ jobs:
       - uses: ./.github/actions/setup-env
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pytest -m "not slow" -q -n auto
+      # `-n auto` resolves through psutil, else `os.cpu_count()` -- neither of which reads a
+      # container's CFS quota, so on a quota-limited runner it asks for the *host's* cores.
+      # `tests.parallel` goes through joblib/loky, which does read it.
+      - name: Size the worker pool from the cores this job may actually use
+        run: |
+          echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
+          python -m tests.parallel
+      # Two exclusions rather than one: `docs` executes the guides' own examples at
+      # the sizes they quote, which is minutes of real fits and belongs beside `slow`
+      # in the nightly workflow rather than on every PR.
+      - run: pytest -m "not slow and not docs" -q -n auto
 
   # The numba benchmark's *correctness* tier. It lives in `tests/unit/` and would
   # therefore run in the `tests` job above -- except that `tests` installs `.[dev]`, which
