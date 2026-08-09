@@ -272,12 +272,14 @@ repeats the selection for free.
 
 Classic point-treatment TMLE for a binary treatment. The table below covers what R's `tmle`
 package covers, plus the pieces that matter from `tmle3` and the literature — but read that
-as a statement about *features*, not about numbers: **`cleverly` is not compared against R's
-output, by decision.** No cross-language test exists here or in CI and none is planned —
-agreement with another implementation is evidence about a transcription, and what this package
-checks instead is that each method produces what its derivation predicts. There are also
-known deliberate divergences (`g_bounds="auto"` resolves at Kish's effective sample size on
-weighted fits). What the estimates *are* checked against is set out under
+as a statement about *features*, not as a general output-parity claim. The primary acceptance
+evidence is still independent: exact laws, Gateaux derivatives, remainder rates, identities,
+and deliberate mutations. One narrow cross-language fixture now exists for `LTMLE`: it compares
+a bound-active, nonzero-targeting end-of-study fit and survival fit with R `ltmle` 1.3-0 to pin
+two finite-sample algorithm choices those truth-only instruments cannot see. There are also
+known deliberate divergences (`g_bounds="auto"` resolves a symmetric pair at Kish's effective
+sample size on weighted fits, while R `ltmle` defaults to `c(0.01, 1)`). What the estimates are
+checked against is set out under
 [How this is validated](https://github.com/esbraun/cleverly-tmle/blob/main/docs/methodology.md#how-this-is-validated).
 
 | Capability | How you declare it | Where |

@@ -31,17 +31,18 @@ the per-regimen recursion already shares them.
 **Three things differ from the working model at one time point**, and each is a place the
 obvious generalisation is wrong.
 
-*The node fluctuation is pooled across the cells.*  At one time point the covariate's
+*The node fluctuation is pooled across the cells.*  At one time point the design's
 :math:`p` columns get their rank from summing over the arms *within one row*: a unit
 contributes :math:`\varphi(a, V)` at the arm it received.  Here there is nothing to sum
-over within a row -- a regimen is a plan, not a value some unit took -- so a per-cell
-covariate is :math:`\varphi(c, V)` times the scalar :math:`h_t^c`, and whenever the
-working model has no effect modifier :math:`\varphi(c, V)` is *constant down the rows*
-and the :math:`p` score equations collapse to one.  So each node solves a single
-fluctuation over the cells stacked, :math:`C \cdot n` rows and one shared
-:math:`\epsilon`.  Under a saturated model the stacked covariate is exactly
-block-diagonal and each cell's block is the covariate the per-regimen recursion would
-have used, which is why the report reduces to that one.
+over within a row -- a regimen is a plan, not a value some unit took -- and whenever the
+working model has no effect modifier :math:`\varphi(c, V)` is *constant down the rows*.
+A cell's :math:`p` score equations therefore collapse to one.  Each node instead solves
+a single fluctuation over the cells stacked, :math:`C \cdot n` rows and one shared
+:math:`\epsilon`.  The submodel design is :math:`(dm/d\eta)\varphi(c,V)` and the loss
+weight is :math:`h(c,V)h_t^c`, where :math:`h_t^c` is the cumulative inverse treatment
+and censoring probability.  Their product is the EIF numerator.  Under a saturated
+model the stacked design is exactly block-diagonal and its loss weights are those of the
+per-regimen recursion, which is why the report reduces to that one.
 
 *The recursion is therefore lockstep* -- outer loop over the nodes, inner loop over the
 cells for the regressions, then one pooled fluctuation, then every cell carried forward
@@ -60,10 +61,10 @@ carries ``scaler.range`` on its residual half and ``lower + range * Q̄*`` on it
 half, and the estimates never go through the unscaling the per-regimen report does.
 
 **:math:`h(\bar a, V)` and the observation weights are different objects.**  The first
-says how the cells are traded off against each other and sits inside the covariate; the
-second tilts the population the projection is taken over, tiles into the pooled
-fluctuation and multiplies the finished curve row-wise.  Merging them would divide the
-estimating equation by the very tilt it applies.
+says how the cells are traded off against each other; the second tilts the population
+the projection is taken over.  Both multiply the node's loss weight, while only the
+observation weight multiplies the finished curve row-wise.  The distinction remains in
+the estimand even though multiplication puts them in the same numerical array.
 """
 
 from __future__ import annotations
@@ -244,6 +245,25 @@ class RegimenMSM:
             )
         slope = np.asarray(spec.slope(self.fitted(beta)), dtype=float)
         return self.design * (self.weights * slope)[:, :, None]
+
+    def fluctuation_design_at(self, beta: FloatArray | None) -> FloatArray:
+        r""":math:`(dm/d\eta)\,\varphi`, the loss-weighted fluctuation's design.
+
+        The projection weight :math:`h` and cumulative inverse probability live in the
+        loss weight, following ``ltmle::UpdateQ``.  :meth:`weighted_design_at` retains
+        them in the EIF numerator; keeping the two arrays named separately prevents the
+        algebraically equivalent score from being mistaken for the same submodel path.
+        """
+        spec = link_for(str(self.link))
+        if spec.is_identity:
+            return self.design
+        if beta is None:
+            raise ValueError(
+                f"link={self.link!r} makes the fluctuation design a function of beta, "
+                "so it cannot be built before one is available"
+            )
+        slope = np.asarray(spec.slope(self.fitted(beta)), dtype=float)
+        return self.design * slope[:, :, None]
 
     def fitted(self, beta: FloatArray) -> FloatArray:
         """``(n, C)`` fitted means :math:`m(c, V; \\beta)`."""
@@ -434,10 +454,11 @@ def fit_regimens_msm(
     The recursion is **lockstep**: outer loop over the nodes, inner loop over the cells
     live at that node, then a single fluctuation over the cells stacked, then every cell
     carried forward together.  Pooling is not an optimisation -- it is what gives the
-    covariate its rank.  A per-cell covariate is :math:`\varphi(c, V)` scaled by the
-    scalar :math:`h_t^c`, so with no effect modifier its :math:`p` columns are multiples
-    of one another and the :math:`p` score equations collapse to one; stacking cells with
-    distinct :math:`\varphi` is what separates them again.
+    design its rank.  With no effect modifier a cell's :math:`p` columns are constant
+    down the rows and the :math:`p` score equations collapse to one; stacking cells with
+    distinct :math:`\varphi` is what separates them again.  As in
+    ``ltmle::UpdateQ``, cumulative inverse probability and projection weights multiply
+    the loss while :math:`(dm/d\eta)\varphi` defines the submodel direction.
 
     Under the identity link this runs once.  Under a link the covariate reads
     :math:`\beta`, so the pass is repeated at each new one until the coefficients settle
@@ -456,7 +477,7 @@ def fit_regimens_msm(
     masks = {plan.label: data.regimen_masks(plan.values) for plan in plans}
 
     def one_pass(beta: FloatArray | None) -> tuple[list[list[SequentialStep]], list[Fluctuation]]:
-        covariate = model.weighted_design_at(beta)
+        fluctuation_design = model.fluctuation_design_at(beta)
         carried = [seed_carried(data, scaler) for _ in model.cells]
         steps: list[list[SequentialStep]] = [[] for _ in model.cells]
         nodes: list[Fluctuation] = []
@@ -484,28 +505,19 @@ def fit_regimens_msm(
                 np.concatenate([prepared[k].pseudo_outcome for k in live]),
                 InitialFit(initial, {_REGIMEN_ARM: initial}),
                 Submodel(
-                    np.concatenate(
-                        [covariate[:, k, :] * prepared[k].clever[:, None] for k in live]
-                    ),
-                    {
-                        _REGIMEN_ARM: np.concatenate(
-                            [covariate[:, k, :] * prepared[k].counterfactual[:, None] for k in live]
-                        )
-                    },
-                    tuple(f"h[{term}, t={time}]" for term in model.terms),
+                    np.concatenate([fluctuation_design[:, k, :] for k in live]),
+                    {_REGIMEN_ARM: np.concatenate([fluctuation_design[:, k, :] for k in live])},
+                    tuple(f"epsilon[{term}, t={time}]" for term in model.terms),
                     "sequential",
                 ),
-                np.tile(data.weights, len(live)),
+                np.concatenate(
+                    [data.weights * model.weights[:, k] * prepared[k].counterfactual for k in live]
+                ),
                 # ``trained_on``: the set the score is taken over, and the same mask
                 # ``fit_regimen`` passes.  Note what this is *not* -- a guard on which
-                # rows reach the estimating equation.  The covariate above is
-                # ``prepared[k].clever``, which ``prepare_node`` has already zeroed off
-                # ``trained_on``, so a deviator contributes nothing whichever mask is
-                # given.  Substituting ``at_risk`` was applied here and moved no reported
-                # number at all; what it moves is ``score_scale``, and so what the
-                # relative-score convergence test means.  Keep it ``trained_on`` so that a
-                # pooled fit's threshold is the per-regimen one -- not because the
-                # arithmetic would otherwise be wrong.
+                # rows reach the estimating equation.  The loss weight above is nonzero
+                # on every at-risk row, so the same mask is material: only followers enter
+                # the score, exactly as in the per-regimen update and ltmle::UpdateQ.
                 np.concatenate([prepared[k].trained_on for k in live]),
                 alpha=alpha,
                 max_iter=max_iter,
@@ -651,8 +663,9 @@ def _influence(
     a projection does not promise -- so it is read from there rather than recomputed.
 
     The observation weights multiply the whole bracket row-wise, after :math:`m` has been
-    subtracted, exactly as :func:`fit_regimen` multiplies after subtracting ``psi``; the
-    working model's own :math:`h` is inside the covariate and is a different object.
+    subtracted, exactly as :func:`fit_regimen` multiplies after subtracting ``psi``.  The
+    working model's own :math:`h` is part of the EIF numerator and, at the targeting
+    step, part of the loss weight.
     """
     raw = _raw_first(steps, scaler)
     residual = np.column_stack(

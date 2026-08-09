@@ -1,10 +1,11 @@
-"""What the pooled clever covariate is, at the node where it is built.
+"""What the pooled loss-weighted fluctuation is, at the node where it is built.
 
-Covariate-level and exact: every claim here is about arrays a fit hands to
+Array-level and exact: every claim here is about values a fit hands to
 ``solve_fluctuation``, so none of it needs a statistical argument or a tolerance. The
-central one is the rank claim, which is *why* the fluctuation is pooled across the cells
-at all -- without it, pooling reads as a style choice rather than as the thing that keeps
-the score equations from collapsing into one.
+central claims pin both parts of the canonical decomposition: the working-model design
+is the submodel covariate, while ``h / cumulative_g`` is a loss weight.  Their product is
+the EIF numerator, but moving the inverse probability into the submodel changes the
+finite-sample targeting path.
 """
 
 from __future__ import annotations
@@ -76,15 +77,23 @@ def setup() -> tuple[LongitudinalData, Any, Any, dict[str, Any]]:
     return data, plans, mechanism, {"mechanism_kwargs": kwargs}
 
 
-def submodels_of(design: Any, terms: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Every ``Submodel`` a pooled fit hands to the fluctuation, deepest node first."""
+def calls_of(design: Any, terms: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Every pooled fluctuation call, deepest node first."""
     data, plans, mechanism, extra = setup()
-    seen: list[Submodel] = []
+    seen: list[tuple[Submodel, np.ndarray, np.ndarray]] = []
     original = longitudinal_msm.solve_fluctuation
 
-    def spy(outcome: Any, initial: Any, submodel: Submodel, *args: Any, **kwargs: Any) -> Any:
-        seen.append(submodel)
-        return original(outcome, initial, submodel, *args, **kwargs)
+    def spy(
+        outcome: Any,
+        initial: Any,
+        submodel: Submodel,
+        weights: Any,
+        mask: Any,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        seen.append((submodel, np.asarray(weights), np.asarray(mask)))
+        return original(outcome, initial, submodel, weights, mask, *args, **kwargs)
 
     monkeypatch.setattr(longitudinal_msm, "solve_fluctuation", spy)
     model = longitudinal_msm.evaluate_regimen_msm(
@@ -94,15 +103,20 @@ def submodels_of(design: Any, terms: tuple[str, ...], monkeypatch: pytest.Monkey
     return data, plans, mechanism, extra, seen
 
 
-class TestPoolingIsWhatGivesTheCovariateItsRank:
-    def test_a_per_cell_covariate_with_no_modifier_is_rank_one(
+def submodels_of(design: Any, terms: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Every ``Submodel`` a pooled fit hands to the fluctuation, deepest node first."""
+    data, plans, mechanism, extra, seen = calls_of(design, terms, monkeypatch)
+    return data, plans, mechanism, extra, [submodel for submodel, _, _ in seen]
+
+
+class TestPoolingIsWhatGivesTheDesignItsRank:
+    def test_a_per_cell_design_with_no_modifier_is_rank_one(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The whole reason the fluctuation is pooled across the cells.
 
         With no effect modifier ``phi(c, V)`` is constant down the rows, so a cell's
-        block is an outer product of that constant vector with the scalar clever
-        covariate: rank one, whatever ``p`` is, and the ``p`` score equations collapse
+        block has rank one, whatever ``p`` is, and its ``p`` score equations collapse
         into one. Stacking cells with distinct ``phi`` separates them again.
         """
         _, _, _, _, seen = submodels_of(flat_design, ("(intercept)", "duration"), monkeypatch)
@@ -115,14 +129,12 @@ class TestPoolingIsWhatGivesTheCovariateItsRank:
                 assert np.linalg.matrix_rank(block, tol=1e-12) == 1
             assert np.linalg.matrix_rank(submodel.observed, tol=1e-12) == 2
 
-    def test_the_pooled_covariate_has_a_column_per_term(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_the_pooled_design_has_a_column_per_term(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _, _, _, _, seen = submodels_of(flat_design, ("(intercept)", "duration"), monkeypatch)
         for submodel in seen:
             assert submodel.dim == 2
             assert submodel.group == "sequential"
-            assert submodel.names[0].startswith("h[(intercept)")
+            assert submodel.names[0].startswith("epsilon[(intercept)")
 
 
 class TestASaturatedModelIsBlockDiagonal:
@@ -138,32 +150,37 @@ class TestASaturatedModelIsBlockDiagonal:
                     if column != row:
                         np.testing.assert_array_equal(block[:, column], np.zeros(block.shape[0]))
 
-    def test_each_diagonal_block_is_the_plain_recursion_s_covariate(
+    def test_each_diagonal_block_is_the_plain_recursion_s_design(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Not merely proportional to it -- the same array, entry for entry."""
-        data, plans, mechanism, extra, seen = submodels_of(saturated_design, LABELS, monkeypatch)
+        """The inverse probability belongs to the loss weight, not this design."""
+        data, plans, mechanism, extra, seen = calls_of(saturated_design, LABELS, monkeypatch)
         plain = {
             plan.label: fit_regimen(data, plan, mechanism, **extra["mechanism_kwargs"])
             for plan in plans
         }
         # ``seen`` is deepest node first; a step is ascending, so index from the end.
-        for depth, submodel in enumerate(seen):
+        for depth, (submodel, weights, mask) in enumerate(seen):
             time = data.n_times - depth
             blocks = np.split(submodel.observed, len(LABELS))
+            weight_blocks = np.split(weights, len(LABELS))
+            mask_blocks = np.split(mask, len(LABELS))
             for index, label in enumerate(LABELS):
                 step = plain[label].steps[time - 1]
                 assert step.time == time
-                np.testing.assert_array_equal(blocks[index][:, index], step.clever)
+                np.testing.assert_array_equal(blocks[index][:, index], np.ones(data.n))
+                np.testing.assert_array_equal(mask_blocks[index], step.trained_on)
+                np.testing.assert_array_equal(
+                    weight_blocks[index][step.trained_on],
+                    data.weights[step.trained_on] * step.clever[step.trained_on],
+                )
 
 
-class TestTheTwoWeightingsStayApart:
-    def test_the_observation_weights_are_tiled_and_never_folded_into_h(
+class TestTheLossWeightsMultiply:
+    def test_the_projection_weight_multiplies_the_loss_weight_not_the_design(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """``h`` scales the covariate; ``w`` scales the score. They multiply different
-        things, and merging them would divide the estimating equation by the tilt it
-        applies."""
+        """Doubling ``h`` doubles the canonical loss weight and leaves phi unchanged."""
         data, plans, mechanism, extra = setup()
         seen: list[tuple[Submodel, np.ndarray]] = []
         original = longitudinal_msm.solve_fluctuation
@@ -192,10 +209,5 @@ class TestTheTwoWeightingsStayApart:
         )
 
         for (covariate, weights), (base_covariate, base_weights) in zip(seen, base, strict=True):
-            # h doubled the covariate ...
-            np.testing.assert_allclose(covariate.observed, 2.0 * base_covariate)
-            # ... and left the observation weights exactly where they were.
-            np.testing.assert_array_equal(weights, base_weights)
-            np.testing.assert_array_equal(
-                weights, np.tile(data.weights, covariate.observed.shape[0] // data.n)
-            )
+            np.testing.assert_array_equal(covariate.observed, base_covariate)
+            np.testing.assert_allclose(weights, 2.0 * base_weights)

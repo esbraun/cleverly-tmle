@@ -35,6 +35,7 @@ the coverage gate uses. A row cannot claim an oracle the laws do not provide.
 | **remainder** | the von Mises expansion's second-order term, measured as a rate under one wrong nuisance | a first-order error that cancels in the product |
 | **exact identity** | an algebraic relation that holds by definition and so must hold bit-for-bit | anything symmetric in whatever the identity is symmetric in |
 | **theorem** | a check against the source's own theorem, *at values where the quantity does not vanish* | — this is the anchor the others need |
+| **bounded implementation witness** | a frozen comparison with an independently maintained implementation, scoped to a named finite-sample choice that the scientific oracles cannot exercise | the estimand's derivation; any behavior outside the deliberately matched nuisance, bound, and targeting settings |
 
 ## The table
 
@@ -59,6 +60,20 @@ follows from it.
 | `ey_shift` | `tests/discrete_law_shift.py` | `tests/unit/test_influence_gateaux_shift.py`, `tests/unit/test_influence_gateaux_shift_cde.py` | `tests/unit/test_remainder_shift_cde.py` | the negative control: a shift's mean equals the induced stochastic regime's, and its **curve does not** (`tests/unit/test_influence_gateaux_shift.py`) | there is no plain-shift remainder module — the rate is measured only in the presence of a third nuisance (`_shift_cde`). And a Gateaux check on an exact law cannot see a counterfactual block, which is why `tests/unit/test_shift_submodel.py` and `tests/unit/test_shift_fit.py` pin those structurally and at `epsilon != 0` instead |
 | `ate_shift` | `tests/discrete_law_shift.py` | `tests/unit/test_influence_gateaux_shift.py`, `tests/unit/test_influence_gateaux_shift_cde.py` | `tests/unit/test_remainder_shift_cde.py` | the same negative control as `ey_shift`, taken on the contrast (`tests/unit/test_influence_gateaux_shift.py`) | no plain-shift remainder module, as for `ey_shift`; and the MNAR tilt is refused on this axis by name, so nothing here measures sensitivity to it |
 | `msm` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_msm.py` | `tests/unit/test_remainder_msm.py` | a **saturated** working model reproduces the per-arm report exactly, at the covariate and at the estimate (`tests/unit/test_msm_submodel.py`, `tests/e2e/test_msm.py`) | the identity above is blind to every link-specific mistake — the curvature term, the alternation's restart, the loss of exact double robustness — because a saturated model *fits*, which is what a projection does not promise. The oracle's model is three coefficients against six cells for exactly that reason |
+
+## Longitudinal estimands outside the target registry
+
+`LTMLE` parameters are indexed by regimen, horizon, and sometimes cause rather than by a
+`Target`, so they do not belong in the registry-gated table above. They have their own
+bidirectional oracle gates in the named Gateaux modules; this table makes the parallel
+evidence structure explicit.
+
+| longitudinal variant | parameter and EIF oracle | nonzero or mutation witness | canonical implementation witness | not covered |
+| --- | --- | --- | --- | --- |
+| end-of-study, static and dynamic regimens | `tests/discrete_law_longitudinal.py`, `tests/unit/test_influence_gateaux_longitudinal.py` | dynamic-rule arm evaluation and dropped-censoring mutations in the Gateaux module; loss/design decomposition in `tests/unit/test_longitudinal_msm_submodel.py` | R `ltmle` 1.3-0, fixed g and intercept-only Q, active cumulative bound and nonzero epsilon (`tests/unit/test_ltmle_canonical_r.py`) | the R witness covers one static regimen and no cross-fitting; dynamic rules are certified by the independent law instead |
+| absorbing survival curve | `tests/discrete_law_survival.py`, `tests/unit/test_influence_gateaux_survival.py` | the `t-1` risk-set mutation and end-of-study reduction in `tests/e2e/test_ltmle.py` | the same R fixture at horizon two, with cumulative event nodes and explicit post-event missingness | the R witness does not cover every horizon jointly or competing events |
+| competing-risks cumulative incidence | `tests/discrete_law_competing.py`, `tests/unit/test_influence_gateaux_competing.py` | mutation from all-cause to cause-specific survival in the Gateaux module; one-cause reduction in `tests/e2e/test_ltmle.py` | — | no canonical R comparison: the fixture would not add evidence beyond the exact law unless a distinct finite-sample blind spot is first named |
+| working model over regimen/horizon cells | `tests/discrete_law_longitudinal.py`, `tests/unit/test_influence_gateaux_longitudinal_msm.py` | non-saturated, nonuniform projection law plus exact pooled-design/loss-weight checks in `tests/unit/test_longitudinal_msm_submodel.py` | — | R `ltmleMSM` uses a quasibinomial working-model projection; cleverly declares an outcome-scale weighted least-squares projection, so raw coefficient parity would compare different estimands |
 
 ## What this table says is missing
 

@@ -236,6 +236,10 @@ class TestTheCovariateNumerator:
         expected = model.design * model.weights[:, :, None]
         np.testing.assert_array_equal(model.weighted_design_at(None), expected)
         np.testing.assert_array_equal(model.weighted_design_at(np.array([3.0, -1.0])), expected)
+        np.testing.assert_array_equal(model.fluctuation_design_at(None), model.design)
+        np.testing.assert_array_equal(
+            model.fluctuation_design_at(np.array([3.0, -1.0])), model.design
+        )
 
     def test_a_link_scales_each_cell_by_dm_deta(self) -> None:
         data = build(panel())
@@ -251,6 +255,9 @@ class TestTheCovariateNumerator:
         np.testing.assert_allclose(
             msm.weighted_design_at(beta), msm.design * (m * (1 - m))[..., None]
         )
+        np.testing.assert_allclose(
+            msm.fluctuation_design_at(beta), msm.design * (m * (1 - m))[..., None]
+        )
 
     def test_a_link_needs_a_beta_to_build_the_covariate_at(self) -> None:
         data = build(panel())
@@ -262,3 +269,5 @@ class TestTheCovariateNumerator:
         )
         with pytest.raises(ValueError, match="cannot be built before one is available"):
             model.weighted_design_at(None)
+        with pytest.raises(ValueError, match="cannot be built before one is available"):
+            model.fluctuation_design_at(None)

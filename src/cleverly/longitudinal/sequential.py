@@ -22,8 +22,12 @@ own.  Targeting supplies both.  At each step the initial regression is fluctuate
 
 .. math::
 
-    \operatorname{logit} \bar Q^*_t = \operatorname{logit} \bar Q_t + \epsilon_t\, h_t,
-    \qquad
+    \operatorname{logit} \bar Q^*_t = \operatorname{logit} \bar Q_t + \epsilon_t,
+
+by logistic loss weighted with
+
+.. math::
+
     h_t = \frac{\mathbb 1\{\bar A_t = \bar a_t,\, \bar C_t = 1\}}
                {\prod_{s \le t} g_s(a_s \mid H_s)\, c_s(H_s, a_s)}
 
@@ -35,7 +39,10 @@ whose score is the :math:`t`-th term of the efficient influence function
              + \bar Q^*_1(H_1) - \Psi.
 
 Solving all :math:`T` of them makes the estimator solve :math:`P_n D^* = 0`, which is
-what buys the asymptotic linearity the reported variance assumes.  Note the recursion
+what buys the asymptotic linearity the reported variance assumes.  This placement of
+:math:`h_t` in the loss follows the canonical ``ltmle::UpdateQ`` algorithm.  Putting it
+in the submodel gives the same score at zero but a different finite-sample substitution
+path.  Note the recursion
 carries the *targeted* prediction forward, not the initial one: the outcome of step
 :math:`t` is :math:`\bar Q^*_{t+1}`, so a residual left by one step is regressed away by
 the next rather than accumulating.
@@ -150,10 +157,12 @@ class Mechanism:
     ) -> FloatArray:
         r"""``(n, T)`` cumulative product :math:`\prod_{s \le t} g_s c_s`, bounded.
 
-        Each factor is truncated into ``bounds`` *before* multiplying rather than the
-        product afterwards, so a single near-deterministic node cannot be rescued by
-        the others -- a distinction that does not arise at one time point, where the
-        two are the same operation.
+        The raw factors are multiplied first and each cumulative prefix is then truncated
+        into ``bounds``.  This is the ``CalcCumG`` convention of R's canonical ``ltmle``
+        implementation and the meaning of that package's ``gbounds`` argument: bounds on
+        estimated *cumulative* probabilities.  Bounding every factor first is a different
+        regularisation whose discrepancy is invisible at one time point and grows with
+        the number of treatment and censoring nodes.
 
         The arm is read per *unit*, since a dynamic rule assigns different units
         different arms at the same node.  Under a static plan the column is constant and
@@ -165,13 +174,11 @@ class Mechanism:
         columns = []
         for time in range(1, data.n_times + 1):
             arm = plan.arm(time)
-            # ``g1`` is clipped and the control arm is its complement, so the two sum to
-            # one -- the same convention ``Propensity.bounded`` keeps at one time point.
-            g1 = bound(self.treatment[time - 1][plan.label], lower, upper)
+            g1 = self.treatment[time - 1][plan.label]
             running = running * np.where(arm == 1.0, g1, 1.0 - g1)
             if data.censoring_names:
-                running = running * bound(self.censoring[time - 1][plan.label], lower, upper)
-            columns.append(running.copy())
+                running = running * self.censoring[time - 1][plan.label]
+            columns.append(bound(running, lower, upper))
         return np.column_stack(columns)
 
 
@@ -187,11 +194,11 @@ class NodeInputs:
     any of them is updated.  Both read the same regressions, from here.
 
     ``counterfactual`` is :math:`1/\\prod g` on the at-risk set and zero elsewhere -- the
-    covariate the *update* is applied at.  ``clever`` is that masked down to the units
-    that actually followed, which is the covariate the *score* is taken against.  The
-    two differ exactly as ``submodel.arms[a]`` differs from ``submodel.observed`` at one
-    time point, and reading the wrong one is the mistake that stops every node after the
-    first from being updated at all.
+    inverse-probability loss weight the *update* is fitted with.  ``clever`` is that
+    masked down to the units that actually followed, which is the multiplier in the EIF
+    and score.  The logistic submodel itself is an intercept shift; putting ``clever`` in
+    that submodel instead would solve the same score along a different path and cease to
+    match the loss-weighted update in canonical R ``ltmle``.
     """
 
     time: int
@@ -598,16 +605,22 @@ def fit_regimen(
             n_jobs=n_jobs,
         )
         with phase("fluctuation"):
+            # Canonical longitudinal TMLE uses an intercept fluctuation with the
+            # cumulative inverse probability in the *loss weight* (ltmle::UpdateQ), not
+            # as the logistic submodel's covariate.  Both choices solve sum H(Y-Q*)=0;
+            # they do not produce the same finite-sample substitution estimator when
+            # epsilon is nonzero, which is why the distinction is explicit here.
+            intercept = np.ones((data.n, 1))
             fluctuation = solve_fluctuation(
                 node.pseudo_outcome,
                 InitialFit(node.initial, {_REGIMEN_ARM: node.initial}),
                 Submodel(
-                    node.clever.reshape(-1, 1),
-                    {_REGIMEN_ARM: node.counterfactual.reshape(-1, 1)},
-                    (f"h[{plan.label}, t={time}]",),
+                    intercept,
+                    {_REGIMEN_ARM: intercept},
+                    (f"epsilon[{plan.label}, t={time}]",),
                     "sequential",
                 ),
-                data.weights,
+                data.weights * node.counterfactual,
                 node.trained_on,
                 alpha=alpha,
                 max_iter=max_iter,

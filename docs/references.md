@@ -37,6 +37,18 @@ not a citation; a page number is.
 - Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*.
 - van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
   multiple time point interventions*.
+- Stitelman, De Gruttola & van der Laan (2012), *A General Implementation of TMLE for
+  Longitudinal Data Applied to Causal Inference in Survival Analysis*, DOI
+  [10.1515/1557-4679.1334](https://doi.org/10.1515/1557-4679.1334).
+- Petersen, Schwab, Gruber, Blaser, Schomaker & van der Laan (2014), *Targeted Maximum
+  Likelihood Estimation for Dynamic and Static Longitudinal Marginal Structural Working
+  Models*, DOI [10.1515/jci-2013-0007](https://doi.org/10.1515/jci-2013-0007). Section 3
+  defines the pooled longitudinal TMLE; Appendix A derives its efficient influence curve.
+- Lendle, Schwab, Petersen & van der Laan (2017), *ltmle: An R Package Implementing
+  Targeted Minimum Loss-Based Estimation for Longitudinal Data*, DOI
+  [10.18637/jss.v081.i01](https://doi.org/10.18637/jss.v081.i01). The package source's
+  `FixedTimeTMLE`, `CalcCumG`, and `UpdateQ` are the implementation locators used by the
+  bounded canonical fixture.
 - Neugebauer & van der Laan (2007), *Nonparametric causal effects based on marginal structural
   models*.
 - Orellana, Rotnitzky & Robins (2010), *Dynamic regime marginal structural mean models for

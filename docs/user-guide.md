@@ -621,7 +621,7 @@ ate_regimen[always vs never]  0.3731    0.0236      [0.3268, 0.4193]  <1e-4
   regimens: always=(1/1), never=(0/0)
   reference: never
   cross-fitting: 5 fold(s)
-  g_bounds: [0.009532, 0.9905] on the treatment and censoring mechanism at every node
+  g_bounds: [0.009532, 0.9905] on each cumulative treatment-and-censoring probability
   confidence level: 95%
   ...
   always: 1263 of 4000 units followed it throughout; max weight 12.0, effective n 1096
@@ -648,10 +648,11 @@ Pass `simultaneous=False` to skip them.
 **Positivity is the assumption that bites**, and it does so differently here. The clever
 covariate divides by a *cumulative* product of `2T` probabilities, so a mechanism that
 looks harmless node by node still leaves a handful of units carrying most of the weight —
-above, `never` is supported by 822 units whose effective sample size is 630. Each factor is
-truncated *before* multiplying rather than the product afterwards, so one near-deterministic
-node cannot be rescued by the others; `res.diagnostics()` reports the weight and the
-effective `n` per regimen per node, beside that node's `epsilon` and whether it converged.
+above, `never` is supported by 822 units whose effective sample size is 630. Following
+canonical `ltmle`, the raw treatment-and-censoring factors are multiplied first and each
+cumulative prefix is then truncated to `g_bounds`; `res.diagnostics()` reports the
+resulting weight and effective `n` per regimen per node, beside that node's `epsilon` and
+whether it converged.
 
 **Observation weights** are read here exactly as they are at one time point. Pass
 `weights="w"` to `.fit()` and the estimand becomes the same regimen parameter in the tilted
@@ -867,9 +868,10 @@ Why this is the right number, and how it is checked:
 
 ### A survival outcome
 
-Everything above has one outcome, at the end. Pass **one event indicator per node**
-instead and the outcome joins the time ordering — `W → A₁ → C₁ → Y₁ → L₂ → A₂ → C₂ → Y₂` —
-the event is absorbing, and the parameter becomes a **curve**: the cumulative risk
+Everything above has one outcome, at the end. Pass **one cumulative event indicator per
+node** instead — `Y_t = 1` means the event has happened by `t`, so it stays one thereafter —
+and the outcome joins the time ordering `W → A₁ → C₁ → Y₁ → L₂ → A₂ → C₂ → Y₂`. The
+parameter becomes a **curve**: the cumulative risk
 `F_ā(t) = P(event by t under ā)` at every horizon.
 
 ```python

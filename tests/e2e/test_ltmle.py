@@ -298,12 +298,13 @@ def test_runs_without_censoring_nodes() -> None:
     assert result.converged
     fit = result.fits["always"]
     lower, upper = result.config.g_bounds
-    g1 = np.clip(result.mechanism.treatment[0]["always"], lower, upper)
-    g2 = np.clip(result.mechanism.treatment[1]["always"], lower, upper)
-    np.testing.assert_allclose(fit.cumulative[:, -1], g1 * g2, atol=1e-12, rtol=0)
+    g1 = result.mechanism.treatment[0]["always"]
+    g2 = result.mechanism.treatment[1]["always"]
+    cumulative = np.clip(g1 * g2, lower, upper)
+    np.testing.assert_allclose(fit.cumulative[:, -1], cumulative, atol=1e-12, rtol=0)
     followed = fit.steps[-1].trained_on
     np.testing.assert_allclose(
-        fit.steps[-1].clever[followed], 1.0 / (g1 * g2)[followed], atol=1e-10, rtol=0
+        fit.steps[-1].clever[followed], 1.0 / cumulative[followed], atol=1e-10, rtol=0
     )
 
 
@@ -352,32 +353,33 @@ def test_diagnostics_report_the_cumulative_leverage(
         )
 
 
-def test_each_mechanism_factor_is_truncated_before_the_product() -> None:
-    """Truncating the factors and truncating the product are different operations.
+def test_each_cumulative_mechanism_is_truncated_after_the_product() -> None:
+    """Pin the canonical ``ltmle::CalcCumG`` order with a bound-active witness.
 
-    They coincide at one time point, which is why this needs saying at all.  Over ``T``
-    nodes a bound of ``b`` on each factor caps the cumulative product's *reciprocal* at
-    ``b**-2T``; bounding the product afterwards would cap it at ``b**-1``.  With a bound
-    this tight the two differ by orders of magnitude, so a fit that truncated the product
-    would fail here rather than merely reporting a smaller weight.
+    The unbounded exact laws cannot distinguish the two orders.  This fixture deliberately
+    activates a tight bound: bounding the four individual factors and multiplying them is
+    then different from multiplying first and bounding each cumulative prefix, which is
+    what the published R implementation does.
     """
     frame, _ = make_longitudinal(n=1200, seed=17)
     tight = run(frame, g_bounds=(0.3, 0.7))
     fit = tight.fits["always"]
-    # Four factors -- two treatment, two censoring -- each at least 0.3.
-    assert fit.max_weight <= 0.3**-4 + 1e-9
-    assert fit.max_weight > 0.3**-1
     lower, upper = tight.config.g_bounds
-    expected = np.ones(tight.n)
+    raw = np.ones(tight.n)
+    expected_columns = []
+    factor_bounded = np.ones(tight.n)
     for time in range(tight.data.n_times):
-        expected = expected * np.clip(tight.mechanism.treatment[time]["always"], lower, upper)
-        expected = expected * np.clip(tight.mechanism.censoring[time]["always"], lower, upper)
-    np.testing.assert_allclose(fit.cumulative[:, -1], expected, atol=1e-12, rtol=0)
-    # Note the weight is *larger* here than under the default bound, not smaller: the
-    # upper bound clips a near-one probability down too, which shrinks the product.  That
-    # is the same asymmetry `Propensity.bounded` keeps at one time point, and it is why
-    # "tighter g_bounds" is not a reliable way to reduce leverage in either estimator.
-    assert fit.max_weight > run(frame).fits["always"].max_weight
+        treatment = tight.mechanism.treatment[time]["always"]
+        censoring = tight.mechanism.censoring[time]["always"]
+        raw = raw * treatment * censoring
+        expected_columns.append(np.clip(raw, lower, upper))
+        factor_bounded *= np.clip(treatment, lower, upper) * np.clip(censoring, lower, upper)
+    expected = np.column_stack(expected_columns)
+    np.testing.assert_allclose(fit.cumulative, expected, atol=1e-12, rtol=0)
+    assert np.max(np.abs(fit.cumulative[:, -1] - factor_bounded)) > 0.1
+    # The lower cumulative bound caps the inverse probability at 1 / lower, irrespective
+    # of how many raw factors went into it.
+    assert fit.max_weight <= 1.0 / lower + 1e-12
 
 
 def test_contrast_and_covariance_use_the_joint_curve(
