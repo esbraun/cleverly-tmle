@@ -82,7 +82,7 @@ def describe_cores() -> str:
 #: xdist keeps every worker fed, so an extra worker buys context switches.
 #:
 #: The *inner* layer is where deliberate oversubscription lives, and it is measured rather
-#: than chosen -- ``CLAUDE.md``'s row for ``n_jobs=2`` on the simulation studies: three
+#: than chosen.  For ``n_jobs=2`` on the simulation studies, three
 #: paired runs on four cores, 35% faster than ``n_jobs=1``, because xdist cannot split the
 #: one 6-13s study that is the critical path and the inner pool halves it.  That number is
 #: for four cores and this plan does not rescale it by assumption.

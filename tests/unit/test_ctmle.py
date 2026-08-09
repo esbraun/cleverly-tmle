@@ -199,9 +199,7 @@ class TestPaths:
     def test_partial_correlation_ordering_matches_weighted_residualization(
         self, instrument_frame
     ) -> None:
-        selector = _selector(
-            instrument_frame, search="ordered", preorder="partial_correlation"
-        )[0]
+        selector = _selector(instrument_frame, search="ordered", preorder="partial_correlation")[0]
         residual = selector.scaled - selector.base.outcome.observed
         scores = {
             name: abs(
@@ -214,9 +212,7 @@ class TestPaths:
             )
             for column, name in enumerate(selector.data.covariate_names)
         }
-        assert selector._ordering() == tuple(
-            sorted(scores, key=scores.__getitem__, reverse=True)
-        )
+        assert selector._ordering() == tuple(sorted(scores, key=scores.__getitem__, reverse=True))
 
     def test_an_explicit_ordering_is_followed_exactly(self, instrument_frame) -> None:
         selector = _selector(instrument_frame, search="ordered", ordering=["W3", "W2", "W1"])[0]
@@ -409,9 +405,7 @@ class TestEquivalenceWithPlainTmle:
         plain = TMLE(**TMLE_KWARGS).fit(frame, outcome="Y", treatment="A").single()
 
         assert collaborative.psi("ate") == pytest.approx(plain.psi("ate"), abs=1e-12)
-        assert collaborative["ate"].std_error == pytest.approx(
-            plain["ate"].std_error, abs=1e-12
-        )
+        assert collaborative["ate"].std_error == pytest.approx(plain["ate"].std_error, abs=1e-12)
         assert np.allclose(
             collaborative["ate"].influence_curve,
             plain["ate"].influence_curve,
@@ -422,9 +416,7 @@ class TestEquivalenceWithPlainTmle:
     def test_the_selected_targeted_outcome_is_the_final_targeting_start(
         self, instrument_frame
     ) -> None:
-        result = CTMLE(**CTMLE_KWARGS).fit(
-            instrument_frame, outcome="Y", treatment="A"
-        ).single()
+        result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A").single()
         selected = result.nuisance.targeting_outcome
         assert selected is not None
         final = result.fluctuations["mean"]
@@ -432,9 +424,7 @@ class TestEquivalenceWithPlainTmle:
         assert np.allclose(final.targeted.observed, selected.observed, atol=1e-8, rtol=0.0)
 
     def test_selected_targeting_state_survives_serialization(self, instrument_frame) -> None:
-        result = CTMLE(**CTMLE_KWARGS).fit(
-            instrument_frame, outcome="Y", treatment="A"
-        ).single()
+        result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A").single()
         restored = loads(dumps(result))
         assert result.nuisance.targeting_outcome is not None
         assert restored.nuisance.targeting_outcome is not None
@@ -504,9 +494,7 @@ class TestValidation:
     def test_controlled_direct_effect_composition_is_refused(self) -> None:
         frame, _ = make_cde(n=100, seed=4)
         with pytest.raises(ValueError, match="binary point-treatment estimator"):
-            CTMLE(**CTMLE_KWARGS).fit(
-                frame, outcome="Y", treatment="A", intermediate="Z"
-            )
+            CTMLE(**CTMLE_KWARGS).fit(frame, outcome="Y", treatment="A", intermediate="Z")
 
     def test_the_target_estimand_must_be_reported(self, instrument_frame) -> None:
         estimator = CTMLE(**{**FAST_KWARGS, "estimands": ("ey1",), "ctmle_estimand": "ate"})

@@ -135,8 +135,8 @@ def test_every_python_block_parses(document: Path) -> None:
     """Free, and in the fast tier, because a syntax error in a guide should not wait a day.
 
     ``ruff format`` already reformats these blocks, so in practice it catches the same
-    thing -- but it catches it only when someone runs the formatter over the whole tree,
-    which ``CLAUDE.md`` records having been a live trap once already: a formatter release
+    thing -- but it catches it only when someone runs the formatter over the whole tree.
+    This has been a live trap before: a formatter release
     began formatting markdown and turned CI red with no commit to blame.  This is the same
     guarantee under the test suite's own control.
     """
@@ -286,8 +286,8 @@ def cores_for_the_examples() -> Iterator[int]:
     **The outer layer cannot help here and never will.**  This tier is one test per
     *document*, and the long one is ~36 blocks sharing a namespace in reading order --
     deliberately, since block ``N`` uses names block ``N-1`` bound.  So ``-n auto`` sees
-    three tests, one of which is the entire critical path.  ``CLAUDE.md`` states the same
-    shape for the simulation studies: "xdist parallelises *between* tests and cannot split
+    three tests, one of which is the entire critical path.  The simulation studies have the
+    same shape: xdist parallelises *between* tests and cannot split
     one."  The whole core budget therefore goes inward, where the folds are.
 
     **Patched here rather than written into the guide**, and that is the point of doing it

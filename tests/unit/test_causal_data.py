@@ -705,8 +705,8 @@ class TestContinuousTreatment:
 class TestTheDiscretePathDidNotMove:
     """``treatment_kind`` defaults to the arm-coded path, byte for byte.
 
-    CLAUDE.md calls the arm path a regression surface.  The continuous branch is new code
-    on the same methods, so these assert the old answers directly rather than trusting
+    The arm path is a regression surface.  The continuous branch is new code on the same
+    methods, so these assert the old answers directly rather than trusting
     that a default argument left them alone.
     """
 

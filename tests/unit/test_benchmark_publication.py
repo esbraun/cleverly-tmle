@@ -7,7 +7,7 @@ this package refuses to make silently, so the evidence stays on every row."
 
 **Not silent is not the same as not published.**  Six columns a reader has to diff by eye
 sit under a summary table with a verdict at the bottom of it, and the verdict is what gets
-quoted.  ``CLAUDE.md`` records what that costs, in the present tense: *every* committed
+quoted.  The cost is concrete: *every* committed
 benchmark number here predates the timing harness's rotation, so a rerun is a different
 instrument rather than a replication, and a small ratio -- ``1.02x`` against ``0.98x`` --
 was never resolved by the numbers on record.  The provenance blocks said so, in prose, and

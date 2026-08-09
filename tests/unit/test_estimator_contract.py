@@ -1,7 +1,7 @@
 r"""What every estimator owes the subsystems around it, and what each of them refuses.
 
-``CLAUDE.md`` states the rule this module enforces, and states it as prose: every subsystem
-keyed to :class:`~cleverly.estimators.base.TMLEResult` has to be *either* reused
+This module enforces the public contract directly: every subsystem keyed to
+:class:`~cleverly.estimators.base.TMLEResult` has to be *either* reused
 deliberately *or* refused by name, and "an ``AttributeError`` from a subsystem that was
 never taught about a new result type is not a refusal; nor is a replicate loop's blanket
 ``except Exception`` turning a missing method into 'the fit is too unstable to bootstrap'".
@@ -25,8 +25,8 @@ Three things are checked, and they fail on disjoint mistakes:
 * **the shared surface** -- every (result, subsystem) cell of :data:`SURFACE` either works
   or raises the declared exception with a message that says what the derivation would need.
   A cell answered by ``AttributeError`` fails whichever way it is declared;
-* **the backend promise** -- narwhals returns results in the backend the caller passed in,
-  and ``CLAUDE.md`` records that promise being broken in six ``to_frame``\ s at once because
+* **the backend promise** -- narwhals returns results in the backend the caller passed in.
+  That promise was once broken in six ``to_frame``\ s at once because
   ``emit_frame``'s ``data=`` defaulted to ``None`` and nothing ever passed it.  That is a
   property of a *class*, so it is checked over every class in the package that has a
   ``to_frame`` at all, statically, and then confirmed on a real polars fit.
@@ -78,9 +78,8 @@ NON_ESTIMATORS: dict[str, str] = {
 }
 
 #: Exported classes with a public ``fit`` that are deliberately *not* the point-treatment
-#: estimator, and why each could not be.  ``CLAUDE.md``'s rule is to prefer overriding
-#: :meth:`TMLE._nuisances` "wherever the parameter allows it, precisely so this does not
-#: arise", so a row here is a claim that the parameter does not allow it.
+#: estimator, and why each could not be.  A row here is a claim that the parameter cannot
+#: reuse the point-treatment result contract.
 SEPARATE_ESTIMATORS: dict[str, str] = {
     "LTMLE": (
         "a regimen is a plan over nodes rather than a value some unit took, so the "
@@ -360,8 +359,8 @@ def test_every_cell_is_answered_on_purpose(
         f"{expected.says!r}: {message!r}"
     )
     if expected.error is not NOT_A_REFUSAL:
-        # The rule from CLAUDE.md, in a test: a subsystem that was never taught the result
-        # type raises AttributeError, and that is not a refusal.  Where the declared error
+        # A subsystem that was never taught the result type raises AttributeError, and that
+        # is not a refusal.  Where the declared error
         # is something else, an AttributeError reaching here would have failed the raises
         # block above -- this pins the remaining half, that the message says something.
         assert len(message) > 80, (
@@ -390,8 +389,8 @@ def _package_classes() -> dict[str, type]:
 #: How a class that emits a frame gets hold of the caller's backend.  Every class with a
 #: ``to_frame`` has to be in exactly one of these, and the name of the route is the claim:
 #:
-#: * ``field`` -- it carries ``backend: str | None`` and passes it to ``emit_frame``.  This
-#:   is the route ``CLAUDE.md`` describes: *a name, not a frame*, because holding the input
+#: * ``field`` -- it carries ``backend: str | None`` and passes it to ``emit_frame``: a
+#:   name, not a frame, because holding the input
 #:   frame pinned it in memory for the life of every result and could not be restored by
 #:   ``load()``;
 #: * ``container`` -- it holds the :class:`~cleverly.data.CausalData` and emits through

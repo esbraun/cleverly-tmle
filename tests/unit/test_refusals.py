@@ -228,8 +228,8 @@ def test_a_redirection_says_where_to_go_instead(row: Row) -> None:
 def test_a_real_refusal_says_what_the_derivation_would_need(row: Row) -> None:
     """The length floor, which is the cheapest proxy for "it gives a reason".
 
-    ``CLAUDE.md``'s rule is to prefer refusing "with a message that says what the derivation
-    would need" over quietly reporting the wrong thing.  A one-line refusal satisfies the
+    A useful refusal says what the derivation would need instead of quietly reporting the
+    wrong thing.  A one-line refusal satisfies the
     letter of that and not the point of it.
     """
     # The floor is 60 rather than a rounder number because ``shifts=`` sets it: "a shift

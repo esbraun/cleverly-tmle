@@ -152,14 +152,18 @@ class TestCombinedWithOtherOptions:
 
     def test_missingness_is_refit_inside_selection_folds(self) -> None:
         frame, _ = make_missing_outcome(n=300, seed=17)
-        result = CTMLE(
-            **{
-                **SETTINGS,
-                "missingness_learner": "glm",
-                "selection_folds": 2,
-                "n_folds": 3,
-            }
-        ).fit(frame, outcome="Y", treatment="A", delta="Delta").single()
+        result = (
+            CTMLE(
+                **{
+                    **SETTINGS,
+                    "missingness_learner": "glm",
+                    "selection_folds": 2,
+                    "n_folds": 3,
+                }
+            )
+            .fit(frame, outcome="Y", treatment="A", delta="Delta")
+            .single()
+        )
         assert result.nuisance.missingness is not None
         assert result.validation.score_check().passed
 

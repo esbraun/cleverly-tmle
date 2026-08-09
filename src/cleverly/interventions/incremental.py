@@ -249,8 +249,8 @@ class IPSISet:
             )
         # The control column is taken as the complement rather than read off, so that the
         # tilted density sums to one exactly. This is the same choice `Propensity.bounded`
-        # makes for the binary path, and for the same reason -- see CLAUDE.md on the binary
-        # path being a regression surface.
+        # makes for the binary path, and for the same reason: the generalized path must
+        # preserve the binary regression surface.
         one = g[:, arms.index(1.0)]
 
         code = 0.0

@@ -9,10 +9,8 @@ on:
     inputs:
       selection:
         # The whole tier is ~1 hour, which makes "run the one case I changed" a
-        # thing nobody does. A node id here turns that into minutes, and the
-        # sandbox this repository is developed in cannot run the tier at all
-        # (see CLAUDE.md), so this is the only way a new slow case gets checked
-        # before the next scheduled run.
+        # thing nobody does. A node id here turns that into minutes, so a new
+        # slow case can be checked before the next scheduled run.
         description: "pytest selection: -m slow, or a node id"
         default: "-m slow"
 

@@ -461,8 +461,7 @@ class CTMLE(TMLE):
             )
         if self.preorder not in ("logistic", "partial_correlation"):
             raise ValueError(
-                "preorder must be 'logistic' or 'partial_correlation'; "
-                f"got {self.preorder!r}"
+                f"preorder must be 'logistic' or 'partial_correlation'; got {self.preorder!r}"
             )
         if self.search == "discrete" and not self.candidates:
             raise ValueError("search='discrete' needs an explicit candidates= list")
@@ -544,14 +543,14 @@ class CTMLE(TMLE):
             train_risk=np.array([candidate.risk for candidate in path], dtype=float),
             train_loss=np.array([candidate.loss for candidate in path], dtype=float),
             penalty=np.array([candidate.penalty for candidate in path], dtype=float),
-            treatment_risk=np.array(
-                [candidate.treatment_risk for candidate in path], dtype=float
-            ),
+            treatment_risk=np.array([candidate.treatment_risk for candidate in path], dtype=float),
             cv_risk=cv_risk,
             selected=selected,
-            selected_score_norm=float(abs(np.mean(selector.influence(
-                chosen.targeted, chosen.submodel, selector.all_rows
-            )))),
+            selected_score_norm=float(
+                abs(
+                    np.mean(selector.influence(chosen.targeted, chosen.submodel, selector.all_rows))
+                )
+            ),
             covariates=data.covariate_names,
         )
         return nuisance, {"ctmle": selection}
@@ -963,12 +962,14 @@ class _Selector:
             weights = self.data.weights[usable]
             scores = np.array(
                 [
-                    abs(_weighted_partial_correlation(
-                        residual,
-                        self.data.covariates[usable, column],
-                        treatment,
-                        weights,
-                    ))
+                    abs(
+                        _weighted_partial_correlation(
+                            residual,
+                            self.data.covariates[usable, column],
+                            treatment,
+                            weights,
+                        )
+                    )
                     for column in range(self.data.covariates.shape[1])
                 ]
             )
@@ -1138,9 +1139,7 @@ def _weighted_partial_correlation(
     right_centered = right_residual - np.average(right_residual, weights=weights)
     numerator = float(np.sum(weights * left_centered * right_centered))
     denominator = float(
-        np.sqrt(
-            np.sum(weights * left_centered**2) * np.sum(weights * right_centered**2)
-        )
+        np.sqrt(np.sum(weights * left_centered**2) * np.sum(weights * right_centered**2))
     )
     return 0.0 if denominator <= np.finfo(float).eps else numerator / denominator
 

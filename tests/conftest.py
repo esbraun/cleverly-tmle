@@ -362,8 +362,8 @@ def assert_estimate_coherent(
     Six fields of a reported estimate are *derived* -- ``std_error`` from ``variance``,
     ``ci`` and ``pvalue`` from ``psi`` and ``std_error``, ``score`` from the curve -- so
     each of them can be checked against the state the result carries, in the same process,
-    with no simulation and no truth to compare to.  ``CLAUDE.md`` records that this is the
-    check that settled the uncentred-curve question after two revisions had filed it behind
+    with no simulation and no truth to compare to.  This is the check that settled the
+    uncentred-curve question after two revisions had filed it behind
     a cross-language fixture: "recompute the recorded number from the returned state in the
     same process", thirty lines and one fit.  This is that check, written once so that
     every test producing an estimate can spend a line on it.

@@ -357,7 +357,7 @@ def _arm_mechanism(propensity: FloatArray, n: int, k: int, arms: tuple[float, ..
 
     One definition rather than three, because every builder that divides by ``g`` needs
     exactly this and had been repeating it: the vector form matters for the binary
-    regression surface (see ``CLAUDE.md``) and a copy of it that drifted would move the
+    regression surface, and a copy of it that drifted would move the
     two-arm numbers.
     """
     g = np.asarray(propensity, dtype=float)

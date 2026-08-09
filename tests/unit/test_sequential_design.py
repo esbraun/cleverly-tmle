@@ -9,7 +9,7 @@ design already carries, so adding it buys no information.
 
 **This module does not check that argument, and cannot.**  Both designs are consistent,
 so there is no second answer to compare against; the measured attempts are recorded in
-``tests/e2e/test_ltmle.py`` and in ``CLAUDE.md``.  What it checks is the *call site*: that
+``tests/e2e/test_ltmle.py``.  What this module checks is the *call site*: that
 the matrix ``fit_regimen`` passes is that method's output and not the other one's, bit for
 bit, so the decision cannot be reversed silently by an edit that looks like a tidy-up.  A
 statistical test would be the wrong instrument for that and a structural one is the right
