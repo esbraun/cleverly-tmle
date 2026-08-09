@@ -1,7 +1,7 @@
 """Task automation for cleverly.
 
-The sessions here mirror the GitHub Actions workflows: ``lint``/``typecheck``/``tests``
-run on every push, ``slow`` is the nightly statistical-validation tier.
+The sessions mirror CI: ordinary checks and selected documentation run on pull requests;
+statistical validation and complete documentation transcripts are manual.
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ def tests(session: nox.Session) -> None:
     session.run(
         "pytest",
         "-m",
-        "not slow and not docs",
+        "not slow and not docs and not docs_full",
         "-q",
         "-n",
         "auto",
@@ -80,7 +80,7 @@ def tests(session: nox.Session) -> None:
 
 @nox.session
 def slow(session: nox.Session) -> None:
-    """Nightly tier: coverage, consistency and type I error studies."""
+    """Manual tier: coverage, consistency and type I error studies."""
     session.install("-e", ".[dev]")
     session.run(
         "pytest",
@@ -96,18 +96,28 @@ def slow(session: nox.Session) -> None:
 
 @nox.session
 def docs(session: nox.Session) -> None:
-    """The guides' own examples, run.
-
-    A separate tier from ``slow`` because it fails for a different reason and wants a
-    different response: ``slow`` failing is a statistical result, this failing is a page
-    that has stopped being true.  Its cost is the same order, though -- the README's first
-    example is a ``default``-library fit at n=2000 -- which is why it is not in ``tests``.
-    """
+    """The ordinary modular guide sections, optionally selected with session arguments."""
     session.install("-e", ".[dev]")
     session.run(
         "pytest",
         "-m",
         "docs",
+        "-q",
+        "-n",
+        "auto",
+        *session.posargs,
+        env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
+    )
+
+
+@nox.session(name="docs-transcript")
+def docs_transcript(session: nox.Session) -> None:
+    """Manual gate: every guide runs as one complete reading-order transcript."""
+    session.install("-e", ".[dev]")
+    session.run(
+        "pytest",
+        "-m",
+        "docs_full",
         "-q",
         "-n",
         "auto",

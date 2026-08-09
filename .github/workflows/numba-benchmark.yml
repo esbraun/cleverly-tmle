@@ -11,8 +11,7 @@
 #
 #   `smoke`      -- one representative kernel per estimator flavour, small, with a
 #                   deliberately wide regression bar. It answers "did something become
-#                   catastrophically slower", not "is this fast". Scheduled weekly and
-#                   dispatchable.
+#                   catastrophically slower", not "is this fast". Dispatchable manually.
 #   `full`       -- the whole sweep from benchmarks/configs/full.yaml, dispatch only,
 #                   uploading the artefacts. GitHub's runners are shared virtual machines
 #                   with two cores and noisy neighbours, so a scaling table from one is
@@ -54,10 +53,6 @@ on:
         description: Space-separated core counts for the full tier, or empty for the config's
         type: string
         default: ""
-  schedule:
-    # Weekly, well clear of the nightly statistical tier so the two are not measuring each
-    # other's load.
-    - cron: "0 5 * * 0"
 
 concurrency:
   group: numba-benchmark-${{ github.ref }}
@@ -68,8 +63,7 @@ permissions:
 
 jobs:
   smoke:
-    # A scheduled run is always the smoke tier; a dispatch runs whichever was chosen.
-    if: github.event_name == 'schedule' || inputs.tier == 'smoke'
+    if: inputs.tier == 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -106,9 +100,7 @@ jobs:
 
   full:
     if: github.event_name == 'workflow_dispatch' && inputs.tier == 'full'
-    # Dispatch-only, which is also what keeps a self-hosted `runner:` off the pull-request
-    # path. `inputs` is empty on a schedule, so only this job may be templated -- `smoke`
-    # runs on the schedule and stays on a literal label.
+    # Dispatch-only, which also keeps a self-hosted `runner:` off the pull-request path.
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 350
     steps:

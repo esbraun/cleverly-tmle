@@ -82,9 +82,20 @@ add nested native threading without an end-to-end measurement and an oversubscri
 
 Concurrency is `outer × inner × threads-per-fit`; the third factor is pinned to one, and the split
 of the first two belongs to the test tier. The fast tier consists of thousands of short tests, so
-xdist balances it and inner `n_jobs` remains one. The docs tier is the mirror image: one test per
-document and a long sequential namespace, so xdist has one useful worker and the budget goes
-inward. That is sound only because `n_jobs` invariance is pinned bit for bit.
+xdist balances it and inner `n_jobs` remains one. Pull-request documentation execution selects
+only affected H2/H3 modules, each in a fresh namespace with its declared setup closure. The manual
+full transcript remains one sequential namespace per document. Both documentation modes put the
+budget inward, which is sound only because `n_jobs` invariance is pinned bit for bit.
+
+Every executable documentation section and block has a stable ID. Section metadata names its
+setup blocks and directly affected source paths; common or unclassified implementation changes
+fail closed by selecting all ordinary sections. Statistical blocks never enter pull-request
+execution. Syntax, links, catalogue members, and the metadata graph are checked over the complete
+documentation set in the ordinary fast tier.
+
+Put `doc-section: id=...; requires=...; paths=...` metadata immediately below each executable H2
+or H3, and `doc-block: id=...; tier=fast|slow` immediately above each Python fence. Dependencies
+name blocks, not whole sections, and may only name an earlier setup block in the same document.
 
 Size every layer from `tests/parallel.available_cores()`, which reads a container's CPU quota and
 affinity mask through joblib. Neither `os.cpu_count()` nor xdist's `-n auto` does. Nesting pools is

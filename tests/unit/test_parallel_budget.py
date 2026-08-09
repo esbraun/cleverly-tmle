@@ -112,9 +112,9 @@ class TestTheBudget:
     def test_the_docs_tier_product_stays_inside_the_budget(self) -> None:
         """The one tier that spends the whole budget inward, and why that is not a breach.
 
-        Its outer layer is one useful worker by construction -- one test per document, and
-        the long document is a single sequential namespace -- so inner × 1 is the product,
-        and inner is the budget.
+        A pull request selects a bounded set of sections and the manual transcript keeps
+        each document sequential. For any one running section or transcript, inner × 1 is
+        the product and inner is the budget.
         """
         docs_outer, docs_inner = 1, available_cores()
         assert docs_outer * docs_inner <= available_cores() * OUTER_OVERSUBSCRIPTION
