@@ -8,8 +8,8 @@ nobody multiplies them: a tier raises its inner ``n_jobs`` for a good local reas
 outer layer is already saturating the machine, and the run gets slower while looking
 parallel.
 
-That is not hypothetical in this repository.  ``CLAUDE.md`` records the cost of the other
-end of it -- a ``SIGKILL``ed run leaving ``LokyProcess`` workers "at ~75% CPU each,
+That is not hypothetical in this repository.  The failure at the other end was a
+``SIGKILL``ed run leaving ``LokyProcess`` workers "at ~75% CPU each,
 reparented to init, still going a minute later", and a benchmark taken afterwards reading a
 300x bogus timing.  Oversubscription and orphaned workers are the same resource failing in
 two directions.
@@ -102,8 +102,8 @@ class TestTheBudget:
     def test_the_studies_keep_their_measured_setting(self) -> None:
         """``STUDY_JOBS`` is a record of a measurement, not a tuning knob.
 
-        ``CLAUDE.md``: three paired runs on four cores, ``n_jobs=1`` made the e2e tier 35%
-        slower (75.7s to 102.3s), with three xdist workers idle while the longest test ran
+        Three paired runs on four cores found that ``n_jobs=1`` made the e2e tier 35% slower
+        (75.7s to 102.3s), with three xdist workers idle while the longest test ran
         twice as long.  If this constant changes, that row changes with it and needs its own
         three paired runs -- on the box the new number is claimed for.
         """

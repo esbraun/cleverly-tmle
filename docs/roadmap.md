@@ -73,7 +73,7 @@ These are properties of the current methods or implementation, not live release 
 ### Candidate features
 
 The following are well-posed gaps, not promises or defects. A contribution should begin with the
-derivation and acceptance tests described in `CLAUDE.md` and the technical appendix.
+derivation in the technical appendix and the acceptance instruments in `docs/evidence.md`.
 
 - multi-valued-treatment support for CTMLE and DR-TMLE;
 - bivariate DR-TMLE reductions and the currently unsupported DR-TMLE compositions;

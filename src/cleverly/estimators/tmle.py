@@ -987,8 +987,8 @@ class TMLE:
     def _check_incremental(self, data: CausalData) -> None:
         """Refuse what an incremental fit has no derivation for.
 
-        Refusing by name is the house rule (see CLAUDE.md); the arm-indexed estimands
-        support both of these and are the thing to reach for.
+        An unsupported composition is refused by name; the arm-indexed estimands support
+        both of these and are the thing to reach for.
 
         ``delta=`` used to be refused here too, on the grounds that a further mechanism in
         the outcome half of the covariate would be a different derivation and no oracle law

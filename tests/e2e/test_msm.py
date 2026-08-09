@@ -8,7 +8,7 @@ from data, that the score equation it reports having solved is solved, and that 
 surrounding machinery -- positivity, contrasts, serialization -- works on this axis without
 having been told about it.
 
-``library="glm"`` throughout, per ``CLAUDE.md``: nothing here is about flexible learning,
+``library="glm"`` throughout: nothing here is about flexible learning,
 and the outcome regression is correctly specified for this process anyway.
 """
 

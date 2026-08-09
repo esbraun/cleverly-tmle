@@ -50,9 +50,11 @@ Three ways of building the sequence are available, mirroring the entry points of
 ``search="ordered"``
     Scalable C-TMLE (Ju et al., 2019).  The sequence is fixed in advance by an
     ordering, so only ``O(V p)`` fits are needed.  This is what makes C-TMLE usable
-    when ``p`` is large.  The default ordering is by decreasing marginal association
-    with the *outcome*, which puts confounders ahead of instruments; pass
-    ``ordering=`` to supply your own.
+    when ``p`` is large.  ``preorder="logistic"`` implements Algorithm 2 of Ju et al.:
+    it ranks one-variable propensity models by the empirical loss of the Qbar each
+    targets.  ``preorder="partial_correlation"`` implements Algorithm 3, ranking the
+    absolute partial correlation of ``Y - Qbar0(A,W)`` and each covariate conditional
+    on treatment.  Pass ``ordering=`` to supply a fixed order instead.
 
 ``search="discrete"``
     Cross-validated selection among an explicit list of candidate covariate sets --
@@ -117,19 +119,12 @@ is meant to separate.
 What the final estimate is
 --------------------------
 
-Selection chooses a propensity model; everything after that is an ordinary TMLE
-against it, run through :meth:`~cleverly.TMLE.retarget`.  So the reported estimate,
-its influence curve, and every sensitivity and validation diagnostic are the same
-code paths a plain fit uses, and they are all consistent with each other.
-
-Two consequences are worth stating plainly.
-
-The TMLE-step incrementing inside the greedy search shapes the candidate sequence and
-its risks, but the final reported estimator is the TMLE at the selected ``g`` rather
-than the multi-step targeted fit the search happened to end on.  The two are
-asymptotically equivalent -- and the iterative targeting step already fluctuates
-repeatedly until the score is solved -- but they are not identical in finite samples.
-``result.extra["ctmle"].n_steps`` records how many steps the search used.
+Selection chooses the complete candidate pair ``(g_k, Qbar*_k)``.  The reported
+estimator continues the pooled targeting step from that selected Qbar rather than
+discarding it and restarting from ``Qbar0``.  The continuation is normally numerical
+only -- its epsilon is approximately zero -- but keeping it on the ordinary retargeting
+path makes the estimate, influence curve, score check and sensitivity analyses agree.
+The initial Qbar is retained separately for nuisance diagnostics.
 
 The influence-curve standard error conditions on the selected propensity model.  It
 does not include the variability the *selection* contributes, and so runs mildly
@@ -169,12 +164,11 @@ instrument out -- while a selector restricted to the empty candidate is biased b
 against the collaborative fit's 0.037.  See
 ``tests/e2e/test_ctmle.py::TestSelectionIsForcedWhenTheOutcomeModelCannotHelp``.
 
-There is no cross-implementation check and none is planned.  R's ``ctmle`` is not compared
-against, here or in CI, so nothing in this package's evidence rules out a shared misreading of
-the algorithm that happens to satisfy every internal check listed above -- and note that a
-parity run would not have ruled it out either, which is why the comparison is refused rather
-than merely outstanding: two implementations reading one source agree about a misreading. See the
-derivation-first validation decision in ``docs/roadmap.md``.
+The ``tmle3`` source is used as a reference for the shared construction -- out-of-fold
+nuisance predictions followed by a pooled fluctuation.  It does not implement
+collaborative selection, so the search itself is checked against the paper equations,
+training-row audit tests and mutation controls rather than presented as cross-package
+parity.
 
 References
 ----------
@@ -216,21 +210,21 @@ from ..data.causal_data import CausalData
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.influence import counterfactual_means, ratio_estimates
-from ..learners._fitting import predict_mean
+from ..learners._fitting import Task, predict_mean
 from ..learners.crossfit import Folds, make_folds
-from ..learners.screeners import correlation_strength
 from ..learners.super_learner import resolve_learner
-from ..utils.bounds import OutcomeScaler
+from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.text import format_table
 from ._nuisance import NuisanceEstimates, Propensity, cross_fit_predictions, fit_on_rows
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
 
-__all__ = ["CTMLE", "CTMLELoss", "CTMLESearch", "CTMLESelection"]
+__all__ = ["CTMLE", "CTMLELoss", "CTMLEPreorder", "CTMLESearch", "CTMLESelection"]
 
 CTMLESearch = Literal["greedy", "ordered", "discrete"]
 CTMLELoss = Literal["auto", "loglik", "squared"]
+CTMLEPreorder = Literal["logistic", "partial_correlation"]
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
@@ -278,14 +272,19 @@ class CTMLESelection:
     """
 
     search: CTMLESearch
+    preorder: str | None
     estimand: str
     loss: str
     penalized: bool
     path: tuple[tuple[str, ...], ...]
     n_steps: tuple[int, ...]
     train_risk: FloatArray
+    train_loss: FloatArray
+    penalty: FloatArray
+    treatment_risk: FloatArray
     cv_risk: FloatArray
     selected: int
+    selected_score_norm: float
     covariates: tuple[str, ...]
 
     @property
@@ -307,6 +306,9 @@ class CTMLESelection:
             "n_covariates": [len(names) for names in self.path],
             "n_steps": list(self.n_steps),
             "train_risk": self.train_risk.tolist(),
+            "train_loss": self.train_loss.tolist(),
+            "penalty": self.penalty.tolist(),
+            "treatment_risk": self.treatment_risk.tolist(),
             "cv_risk": self.cv_risk.tolist(),
             "selected": [index == self.selected for index in range(len(self.path))],
         }
@@ -337,7 +339,8 @@ class CTMLESelection:
         header = [
             "Collaborative TMLE selection",
             "=" * 28,
-            f"search = {self.search}; target = {self.estimand}; "
+            f"search = {self.search}; preorder = {self.preorder or 'n/a'}; "
+            f"target = {self.estimand}; "
             f"criterion = cross-validated {criterion}{loss_name} loss",
             "",
         ]
@@ -367,6 +370,8 @@ class _Candidate:
     epsilon: FloatArray
     n_steps: int
     loss: float
+    penalty: float
+    treatment_risk: float
     risk: float
 
 
@@ -377,10 +382,10 @@ class CTMLE(TMLE):
     *targeted* outcome model, rather than the loss of ``g`` itself.  See the module
     docstring for the algorithm and the loss.
 
-    Every :class:`~cleverly.TMLE` keyword is accepted and behaves identically; the
-    selection happens in place of the ordinary propensity fit.  The result is an
-    ordinary :class:`~cleverly.estimators.TMLEResult` with the selection recorded
-    under ``result.extra["ctmle"]``.
+    Shared :class:`~cleverly.TMLE` nuisance and targeting controls behave identically
+    within the supported pooled point-treatment scope.  The result is an ordinary
+    :class:`~cleverly.estimators.TMLEResult` with the selection recorded under
+    ``result.extra["ctmle"]``.
 
     Parameters
     ----------
@@ -388,9 +393,11 @@ class CTMLE(TMLE):
         ``"greedy"`` (default), ``"ordered"`` or ``"discrete"``; see the module
         docstring.
     ordering:
-        Covariate order for ``search="ordered"``.  Defaults to decreasing marginal
-        association with the outcome, which is the ordering that puts confounders
-        ahead of instruments.
+        Explicit covariate order for ``search="ordered"``.  When omitted, ``preorder``
+        determines the published data-adaptive ordering.
+    preorder:
+        ``"logistic"`` (default) or ``"partial_correlation"`` for Algorithms 2 and 3
+        of Ju et al. (2019).  Ignored when an explicit ``ordering=`` is supplied.
     candidates:
         Explicit candidate covariate sets for ``search="discrete"``.
     selection_folds:
@@ -425,6 +432,7 @@ class CTMLE(TMLE):
         self,
         *,
         search: CTMLESearch = "greedy",
+        preorder: CTMLEPreorder = "logistic",
         ordering: Sequence[str] | None = None,
         candidates: Sequence[Sequence[str]] | None = None,
         selection_folds: int = 5,
@@ -435,6 +443,7 @@ class CTMLE(TMLE):
     ) -> None:
         super().__init__(**kwargs)
         self.search = search
+        self.preorder = preorder
         self.ordering = ordering
         self.candidates = candidates
         self.selection_folds = selection_folds
@@ -450,6 +459,10 @@ class CTMLE(TMLE):
             raise ValueError(
                 f"search must be 'greedy', 'ordered' or 'discrete'; got {self.search!r}"
             )
+        if self.preorder not in ("logistic", "partial_correlation"):
+            raise ValueError(
+                f"preorder must be 'logistic' or 'partial_correlation'; got {self.preorder!r}"
+            )
         if self.search == "discrete" and not self.candidates:
             raise ValueError("search='discrete' needs an explicit candidates= list")
         if self.search != "discrete" and self.candidates is not None:
@@ -462,6 +475,17 @@ class CTMLE(TMLE):
             raise ValueError(
                 f"ctmle_estimand must be one of {sorted(MEAN_GROUP_ESTIMANDS)}; "
                 f"got {self.ctmle_estimand!r}"
+            )
+        if self.targeting_scheme != "pooled":
+            raise ValueError(
+                "CTMLE implements the published pooled collaborative estimator only; "
+                "targeting_scheme='fold' composes it with a different CV-TMLE estimator "
+                "that has not been derived. Use targeting_scheme='pooled'."
+            )
+        if self.cv_evaluation:
+            raise ValueError(
+                "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
+                "requires a separate fold-specific collaborative derivation."
             )
 
     # --------------------------------------------------------------- the hook
@@ -503,23 +527,56 @@ class CTMLE(TMLE):
         nuisance = replace(
             base,
             propensity=_binary_propensity(chosen.propensity),
+            targeting_outcome=chosen.targeted,
             treatment_covariates=chosen.covariates,
         )
         selection = CTMLESelection(
             search=self.search,
+            preorder=("custom" if self.ordering is not None else self.preorder)
+            if self.search == "ordered"
+            else None,
             estimand=self.ctmle_estimand,
             loss=selector.loss_kind,
             penalized=self.penalty,
             path=tuple(candidate.covariates for candidate in path),
             n_steps=tuple(candidate.n_steps for candidate in path),
             train_risk=np.array([candidate.risk for candidate in path], dtype=float),
+            train_loss=np.array([candidate.loss for candidate in path], dtype=float),
+            penalty=np.array([candidate.penalty for candidate in path], dtype=float),
+            treatment_risk=np.array([candidate.treatment_risk for candidate in path], dtype=float),
             cv_risk=cv_risk,
             selected=selected,
+            selected_score_norm=float(
+                abs(
+                    np.mean(selector.influence(chosen.targeted, chosen.submodel, selector.all_rows))
+                )
+            ),
             covariates=data.covariate_names,
         )
         return nuisance, {"ctmle": selection}
 
+    def _retarget_detailed(
+        self, data: CausalData, nuisance: NuisanceEstimates, **kwargs: Any
+    ) -> Any:
+        """Continue targeting from the collaboratively selected ``Qbar*``.
+
+        Keep that state separate from ``nuisance.outcome``: the latter is the initial
+        outcome learner and is what calibration and risk diagnostics are about.  The
+        replacement is local, so the result continues to expose both states faithfully.
+        """
+        initial = nuisance.targeting_outcome
+        if initial is None:
+            return super()._retarget_detailed(data, nuisance, **kwargs)
+        working = replace(nuisance, outcome=initial, targeting_outcome=None)
+        return super()._retarget_detailed(data, working, **kwargs)
+
     def _check_estimands(self, data: CausalData) -> None:
+        if data.has_intermediate:
+            raise ValueError(
+                "CTMLE implements the published binary point-treatment estimator and "
+                "does not compose collaborative selection with an intermediate outcome. "
+                "Fit each controlled direct effect with TMLE instead."
+            )
         if not data.is_binary_treatment:
             raise ValueError(
                 f"CTMLE supports a binary treatment only; {data.treatment_name} has "
@@ -603,6 +660,11 @@ class _Selector:
         return values
 
     def _fit_propensity(self, covariates: tuple[str, ...], train: IntArray | None) -> FloatArray:
+        return self._fit_propensity_with(self.learner, covariates, train)
+
+    def _fit_propensity_with(
+        self, learner: Learner, covariates: tuple[str, ...], train: IntArray | None
+    ) -> FloatArray:
         data = self.data
         if not covariates:
             return self._intercept_propensity(train)
@@ -611,7 +673,7 @@ class _Selector:
         design = np.ascontiguousarray(data.covariates[:, columns])
         if train is None:
             predictions, _ = cross_fit_predictions(
-                self.learner,
+                learner,
                 design,
                 data.treatment,
                 data.weights,
@@ -625,7 +687,7 @@ class _Selector:
             return predictions["g1"]
 
         model = fit_on_rows(
-            self.learner,
+            learner,
             design,
             data.treatment,
             data.weights,
@@ -770,7 +832,7 @@ class _Selector:
         rows = self.all_rows if train is None else train
         if self.est.search == "discrete":
             return self._discrete_path(rows, train, tag)
-        order = self._ordering() if self.est.search == "ordered" else None
+        order = self._ordering(rows, train, tag) if self.est.search == "ordered" else None
         return self._forward_path(rows, train, tag, order)
 
     def _discrete_path(self, rows: IntArray, train: IntArray | None, tag: str) -> list[_Candidate]:
@@ -837,6 +899,10 @@ class _Selector:
         targeted, epsilon = self.target(initial, submodel, rows)
         loss = self.loss(targeted, rows)
         penalty = self.penalty(targeted, submodel, rows) if self.est.penalty else 0.0
+        g = np.clip(propensity[rows], _LOSS_EPS, 1.0 - _LOSS_EPS)
+        a = self.data.treatment[rows]
+        w = self.data.weights[rows]
+        treatment_risk = float(-np.sum(w * (a * np.log(g) + (1.0 - a) * np.log(1.0 - g))))
         return _Candidate(
             covariates=covariates,
             propensity=propensity,
@@ -845,16 +911,19 @@ class _Selector:
             epsilon=epsilon,
             n_steps=n_steps,
             loss=loss,
+            penalty=penalty,
+            treatment_risk=treatment_risk,
             risk=loss + penalty,
         )
 
-    def _ordering(self) -> tuple[str, ...]:
-        """Covariate order for the scalable search.
-
-        The default ranks by marginal association with the outcome.  A confounder is
-        associated with the outcome; an instrument is not, so it sinks to the end of
-        the queue where the cross-validated risk has already turned back up.
-        """
+    def _ordering(
+        self,
+        rows: IntArray | None = None,
+        train: IntArray | None = None,
+        tag: str = "ordering",
+    ) -> tuple[str, ...]:
+        """Published logistic or partial-correlation order for the scalable search."""
+        rows = self.all_rows if rows is None else rows
         if self.est.ordering is not None:
             names = tuple(self.est.ordering)
             unknown = [name for name in names if name not in self.data.covariate_names]
@@ -871,15 +940,40 @@ class _Selector:
                 )
             return names
 
-        observed = self.data.observed
-        strength = np.abs(
-            correlation_strength(
-                self.data.covariates[observed],
-                self.data.outcome[observed],
-                sample_weight=self.data.weights[observed],
+        if self.est.preorder == "logistic":
+            score_values = []
+            logistic = resolve_learner(
+                "glm",
+                task="classification",
+                n_folds=self.est.learner_folds,
+                random_state=self.seed,
             )
-        )
-        order = np.argsort(-strength, kind="stable")
+            for name in self.data.covariate_names:
+                propensity = self._fit_propensity_with(logistic, (name,), train)
+                submodel = self.submodel(propensity)
+                targeted, _ = self.target(self.base.outcome, submodel, rows)
+                score_values.append(self.loss(targeted, rows))
+            scores = np.asarray(score_values, dtype=float)
+            order = np.argsort(scores, kind="stable")
+        else:
+            usable = rows[self.data.observed[rows]]
+            residual = self.scaled[usable] - self.base.outcome.observed[usable]
+            treatment = self.data.treatment[usable]
+            weights = self.data.weights[usable]
+            scores = np.array(
+                [
+                    abs(
+                        _weighted_partial_correlation(
+                            residual,
+                            self.data.covariates[usable, column],
+                            treatment,
+                            weights,
+                        )
+                    )
+                    for column in range(self.data.covariates.shape[1])
+                ]
+            )
+            order = np.argsort(-scores, kind="stable")
         return tuple(self.data.covariate_names[j] for j in order)
 
     # -------------------------------------------------------------- selection
@@ -916,7 +1010,20 @@ class _Selector:
         loss = np.zeros(len(path))
         influence = np.zeros((len(path), data.n))
         for fold, (train, test) in enumerate(folds):
-            fold_path = self.build_path(train=train, tag=f"cv{fold}")
+            fold_base = self._selection_base(train)
+            fold_data = data.subset(train)
+            fold_bounds = resolve_g_bounds(
+                self.est.g_bounds, self.est._bounds_n(fold_data), for_att=False
+            )
+            fold_selector = _Selector(
+                self.est,
+                data,
+                fold_base,
+                fold_bounds,
+                self.intermediate_value,
+                seed=self.seed,
+            )
+            fold_path = fold_selector.build_path(train=train, tag=f"cv{fold}")
             if len(fold_path) < len(path):
                 raise RuntimeError(
                     f"selection fold {fold} produced {len(fold_path)} candidates but the "
@@ -925,13 +1032,84 @@ class _Selector:
                 )
             for index in range(len(path)):
                 candidate = fold_path[index]
-                loss[index] += self.loss(candidate.targeted, test)
-                influence[index, test] = self.influence(
+                loss[index] += fold_selector.loss(candidate.targeted, test)
+                influence[index, test] = fold_selector.influence(
                     candidate.targeted, candidate.submodel, test
                 )
         if not self.est.penalty:
             return loss
         return loss + np.array([_penalty_of(row) for row in influence])
+
+    def _selection_base(self, train: IntArray) -> NuisanceEstimates:
+        """Nuisances fitted only on one selection fold's training observations."""
+        data = self.data
+        fold_scaler = self.est._scaler(data.subset(train))
+        scaled = fold_scaler.scale(data.outcome)
+        outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        learner = self.est._resolve_learner(
+            self.est.outcome_learner, task=outcome_task, seed=self.seed
+        )
+        design = data.treatment_design()
+        observed_train = train[data.observed[train]]
+        model = fit_on_rows(
+            learner,
+            design,
+            scaled,
+            data.weights,
+            observed_train,
+            outcome_task,
+            data.cluster,
+        )
+        outcome = InitialFit(
+            np.clip(predict_mean(model, design, outcome_task), 0.0, 1.0),
+            {
+                arm: np.clip(
+                    predict_mean(model, data.counterfactual_design(arm), outcome_task),
+                    0.0,
+                    1.0,
+                )
+                for arm in data.arm_codes
+            },
+        )
+
+        missingness = self.base.missingness
+        if data.has_missing_outcome:
+            missing_learner = self.est._resolve_learner(
+                self.est.missingness_learner,
+                task="classification",
+                fallback=self.est.treatment_learner,
+                seed=self.seed,
+            )
+            missing_design = data.missingness_design()
+            missing_model = fit_on_rows(
+                missing_learner,
+                missing_design,
+                data.observed.astype(float),
+                data.weights,
+                train,
+                "classification",
+                data.cluster,
+            )
+            missingness = np.column_stack(
+                [
+                    np.clip(
+                        predict_mean(
+                            missing_model, data.counterfactual_design(arm), "classification"
+                        ),
+                        0.0,
+                        1.0,
+                    )
+                    for arm in data.arm_codes
+                ]
+            )
+        return replace(
+            self.base,
+            outcome=outcome,
+            targeting_outcome=None,
+            scaler=fold_scaler,
+            missingness=missingness,
+            diagnostics={},
+        )
 
 
 def _penalty_of(influence_curve: FloatArray) -> float:
@@ -941,6 +1119,29 @@ def _penalty_of(influence_curve: FloatArray) -> float:
     return float(
         np.var(influence_curve, ddof=1) + influence_curve.size * np.mean(influence_curve) ** 2
     )
+
+
+def _weighted_partial_correlation(
+    left: FloatArray, right: FloatArray, conditional: FloatArray, weights: FloatArray
+) -> float:
+    """Weighted correlation of residuals after projecting both variables on ``A``."""
+    design = np.column_stack([np.ones(left.size), conditional])
+    root = np.sqrt(weights)
+    weighted_design = design * root[:, None]
+
+    def residual(values: FloatArray) -> FloatArray:
+        coefficient = np.linalg.lstsq(weighted_design, values * root, rcond=None)[0]
+        return values - design @ coefficient
+
+    left_residual = residual(np.asarray(left, dtype=float))
+    right_residual = residual(np.asarray(right, dtype=float))
+    left_centered = left_residual - np.average(left_residual, weights=weights)
+    right_centered = right_residual - np.average(right_residual, weights=weights)
+    numerator = float(np.sum(weights * left_centered * right_centered))
+    denominator = float(
+        np.sqrt(np.sum(weights * left_centered**2) * np.sum(weights * right_centered**2))
+    )
+    return 0.0 if denominator <= np.finfo(float).eps else numerator / denominator
 
 
 def _restrict_fit(fit: InitialFit, index: IntArray) -> InitialFit:

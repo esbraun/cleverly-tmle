@@ -506,7 +506,7 @@ def reduced_corrections(
     anything it returns.  That is a decision and not a gap: both implementations descend from
     one source, so agreement would be evidence about the transcription and blind to exactly
     the error above, which is why the sign was settled by the appendices instead. The roadmap's
-    standing decisions carry the reasoning and ``CLAUDE.md`` the development rule.
+    standing decisions carry the reasoning for using independent validation.
 
     **The two terms are built by** :func:`reduced_correction_parts` **and added here**, so
     that :func:`~cleverly.validation.drtmle.correction_check` takes each one's empirical

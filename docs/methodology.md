@@ -416,7 +416,26 @@ than a second estimator: end-of-study, then survival, then this.
 
 ## C-TMLE: how the selection is evidenced
 
-Two more things about how this is evidenced, because they change how the numbers in
+The implementation follows the published pooled construction step by step:
+
+| Paper operation | Implementation invariant | Validation |
+| --- | --- | --- |
+| Build increasingly adaptive `g_k` candidates | greedy, preordered, and discrete paths retain nested candidate state | exact path and treatment-risk tests |
+| Target `Qbar0` with each `g_k` | every candidate carries its complete `Qbar*_k`, fluctuation and influence curve | longhand loss, penalty and score equations |
+| Cross-validate the stopping index | every selection fold refits `Qbar0`, auxiliary mechanisms and every `g_k` using training rows only | spy learners with unequal outer and selection fold counts |
+| Select the candidate estimator | the final fit persists both selected `g_k` and selected `Qbar*_k` | mutation test that discarding `Qbar*_k` fails |
+| Report and retarget | pooled targeting continues from the selected state; the continuation score is numerical zero | score, sensitivity and serialization round trips |
+
+`search="ordered"` implements both scalable preorders from Ju et al. (2019): logistic
+one-variable targeting loss and partial correlation of `Y-Qbar0(A,W)` with each covariate
+conditional on treatment. The former is the default. Marginal correlation with `Y` is not
+a published preorder and is not used.
+
+Selection folds are separate from nuisance cross-fitting. In particular, matching fold
+counts or seeds is never relied upon for independence: a selection validation observation
+or cluster contributes to no nuisance fit used to score it.
+
+Two more things about the statistical evidence change how the numbers in
 [the C-TMLE example](user-guide.md#collaborative-tmle) should be read. When `Qbar` is
 correctly specified — as it is in the example process — the
 *empty* propensity model is a legitimate MSE-minimising choice, and C-TMLE usually makes
@@ -426,10 +445,15 @@ a selector hard-wired to select nothing, so it is not evidence that the search
 discriminates between covariates. The claim that it does is tested where selecting nothing
 is *wrong* — with the outcome model reduced to a constant, the search includes the
 confounder in every seed and still leaves the instrument out, while a do-nothing selector
-is biased by 0.81 against 0.037. Second, there is no cross-language check: R's `ctmle` is not
-compared against here or in CI under the roadmap's
-[derivation-first validation decision](roadmap.md#standing-decisions).
-`cleverly.estimators.ctmle` sets both out in full.
+is biased by 0.81 against 0.037. The `tmle3` source is the reference for the shared
+out-of-fold-nuisance/pooled-fluctuation architecture. Because `tmle3` does not implement
+C-TMLE selection, the candidate search is validated against the source equations rather
+than claimed to have numerical R parity.
+
+Only the pooled collaborative estimator is exposed. `targeting_scheme="fold"` and
+`cv_evaluation=True` are refused: composing collaborative model selection with fold-targeted
+or canonical CV-TMLE changes the estimator and needs a separate derivation. Retargeting a
+sensitivity analysis holds the selected candidate fixed; rerun the fit to redo selection.
 
 ## Doubly-robust inference: what the extra equations remove
 

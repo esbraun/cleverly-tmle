@@ -11,8 +11,7 @@ that covariate, with no noise at all. A one-nearest-neighbour learner then repro
 held-out row's outcome to the bit whenever a same-cluster row is available to train on,
 and cannot come close when it is not. So the two assertions are array equality and array
 inequality -- no tolerance, no seed sensitivity, no "the effect shrinks". A statistical
-version of this test would be weaker and slower for no gain (CLAUDE.md, "prefer an exact
-check over a statistical one").
+version of this test would be weaker and slower for no gain.
 
 The end-to-end case at the bottom is the regression test proper: it guards the wiring that
 carries cluster codes from ``id=`` down to the splitter, which the exact checks above say

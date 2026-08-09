@@ -9,8 +9,7 @@ is not what this page is for.
 not.** The distinction matters because the instruments go blind in different places, and
 `docs/methodology.md`'s [*How to read a
 refusal*](methodology.md#how-to-read-a-refusal) is not the only thing worth writing down —
-so is how to read a *pass*. The trap is stated in `CLAUDE.md` and is worth restating here,
-because it is the one that survives a green suite:
+so is how to read a *pass*. The trap that survives a green suite is:
 
 > an exact-law instrument goes blind wherever a quantity vanishes at the truth, which is
 > where a parity check is blind too. At correct nuisances `Q_r` and `g_{r,2}` are zero row

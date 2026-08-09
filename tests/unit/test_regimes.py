@@ -29,7 +29,7 @@ def fit(frame, **overrides):
 
 
 class TestAStaticFitIsTheArmFit:
-    """The regression surface. See ``CLAUDE.md``: the binary path is not to move."""
+    """The regression surface: a static regime must preserve the binary arm path."""
 
     @pytest.fixture(scope="class")
     def pair(self, frame):
