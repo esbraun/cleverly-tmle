@@ -487,8 +487,9 @@ class TestCollaborativeTmle:
         studies = self._pair(instrument_dgp())
         tmle, ctmle = studies["tmle"], studies["ctmle"]
 
-        # Measured when written: se 0.064 vs 0.087, rmse 0.075 vs 0.097, coverage
-        # 0.875 vs 0.908. The thresholds sit well inside those gaps.
+        # Measured after nested selection cross-fitting (120 replicates): se 0.0641
+        # vs 0.0872, rmse 0.0773 vs 0.0972, coverage 0.867 vs 0.908. The
+        # thresholds sit well inside those gaps.
         assert ctmle.mean_std_error < 0.9 * tmle.mean_std_error, studies
         assert ctmle.rmse < 0.9 * tmle.rmse, studies
         # A floor rather than a nominal-rate check. C-TMLE's interval is narrower, and
@@ -510,9 +511,10 @@ class TestCollaborativeTmle:
         studies = self._pair(weak_overlap_dgp())
         tmle, ctmle = studies["tmle"], studies["ctmle"]
 
-        # Measured when written: rmse 0.116 vs 0.191, coverage 0.783 vs 0.708. Neither
-        # covers at the nominal rate -- this process is brutal at n=1000 and that is
-        # the point of it -- so the comparison is relative on purpose.
+        # Measured after nested selection cross-fitting (120 replicates): rmse 0.117
+        # vs 0.191, coverage 0.767 vs 0.708. Neither covers at the nominal rate --
+        # this process is brutal at n=1000 and that is the point of it -- so the
+        # comparison is relative on purpose.
         assert ctmle.rmse < 0.8 * tmle.rmse, studies
         assert ctmle.coverage > tmle.coverage, studies
 
