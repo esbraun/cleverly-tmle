@@ -26,6 +26,7 @@ the full reopening criteria.
 | Rademacher multiplier bootstrap | a bounded numpy buffer was 3.4–3.9× faster and reduced the measured `n = 10⁶` allocation from 1,881 MB to 92 MB without changing the seeded stream | [bootstrap](bootstrap_numpy.md) |
 | cluster aggregation | once cluster labels are densified at ingestion, the compiled advantage is negligible or negative at the measured sizes | [cluster aggregation](cluster_integration.md) |
 | longitudinal masks | carrying prefix state changes mask construction from `O(T²n)` to `O(Tn)`, but the term is only 0.06% of the measured fit | [longitudinal masks](longitudinal_masks.md) |
+| C-TMLE selection cross-fitting | ten implicit inner folds made the guide-size GLM fit about 3.9× slower; an explicit two-fold inner split preserved the fold/full-fit construction at 1.56–1.62× baseline | [C-TMLE nested cross-fitting](ctmle_nested_crossfit.md) |
 
 The benchmark harness under `benchmarks/numba/` retains the wider kernel suite, correctness gates,
 memory measurements, compile amortization, core-count controls, and post-nuisance pipeline
