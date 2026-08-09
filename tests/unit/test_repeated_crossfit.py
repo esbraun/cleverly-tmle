@@ -45,13 +45,12 @@ COLUMNS: dict[str, Any] = {"outcome": "Y", "treatment": "A", "covariates": ["W1"
 N = 400
 REPEATS = 3
 
-#: The canonical construction, on a binary outcome so that the report includes a ratio --
-#: which is where fold-wise evaluation actually differs from pooled, and where the log
-#: scale in both averaging rules has to line up.
+#: The canonical construction includes ATT, whose fold-specific conditioning population
+#: makes fold-wise evaluation differ from pooled. Ratio parameters are deliberately absent:
+#: their fold-varying gradient needs a separate canonical targeting score.
 CANONICAL: dict[str, Any] = {
-    "targeting_scheme": "fold",
     "cv_evaluation": True,
-    "estimands": ["ate", "rr", "att"],
+    "estimands": ["ate", "att"],
 }
 
 
@@ -67,7 +66,7 @@ def binary_frame() -> Any:
 
 @pytest.fixture(scope="module")
 def canonical(binary_frame: Any) -> Any:
-    """One repeated canonical CV-TMLE, shared by everything that only reads one."""
+    """One repeated fold-evaluated CV-TMLE, shared by everything that reads one."""
     return fast_tmle(repeats=REPEATS, **CANONICAL).fit(binary_frame, **COLUMNS).single()
 
 
@@ -296,7 +295,7 @@ def _per_draw_detail(result: Any) -> list[Any]:
 
 
 class TestRepeatedCanonicalCVTMLE:
-    """``repeats=R`` with ``cv_evaluation=True``: the average of ``R`` canonical fits.
+    """``repeats=R`` with ``cv_evaluation=True``: average ``R`` fold-evaluated fits.
 
     The combination used to be refused, on the ground that the cross-validated variance is
     defined by a fold partition and an across-draw average curve belongs to none of them.
@@ -358,23 +357,31 @@ class TestRepeatedCanonicalCVTMLE:
             assert detail.canonical[name].psi == estimate.psi
             assert detail.canonical[name].variance == estimate.variance
 
-    def test_the_pooled_report_is_what_cv_evaluation_false_would_have_said(
+    def test_the_pooled_report_stitches_the_same_fold_weighted_update(
         self, binary_frame: Any, canonical: Any
     ) -> None:
+        # ``detail.pooled`` changes only the evaluation of the fold-evaluated fit; it
+        # deliberately does not rerun Levy's default row-weighted targeting loss. The
+        # standalone default below is therefore close under balanced folds, but need not
+        # be identical. Both pooled reports use ordinary from-curve inference.
         settings = {**CANONICAL, "cv_evaluation": False}
-        pooled = fast_tmle(repeats=REPEATS, **settings).fit(binary_frame, **COLUMNS).single()
-        for name, estimate in pooled.estimates.items():
-            assert canonical.cv_targeting.pooled[name].psi == pytest.approx(estimate.psi, rel=1e-12)
-            assert canonical.cv_targeting.pooled[name].variance == pytest.approx(
-                estimate.variance, rel=1e-12
+        levy = fast_tmle(repeats=REPEATS, **settings).fit(binary_frame, **COLUMNS).single()
+        differs = []
+        for name, estimate in levy.estimates.items():
+            comparison = canonical.cv_targeting.pooled[name]
+            assert comparison.variance == pytest.approx(
+                influence_variance(comparison.influence_curve), rel=1e-12
             )
+            assert abs(comparison.psi - estimate.psi) < 0.1 * estimate.std_error
+            differs.append(comparison.psi != estimate.psi)
+        assert any(differs)
 
-    def test_the_two_reports_still_diverge_on_a_ratio(self, canonical: Any) -> None:
-        # The reason cv_evaluation exists at all, and it has to survive averaging: a
-        # ratio of means is not a mean of ratios, while the ATE is linear either way.
+    def test_the_two_reports_still_diverge_on_att(self, canonical: Any) -> None:
+        # The pooled ATT conditions under the whole-sample arm share; canonical ATT
+        # averages the fold-specific conditioning populations.
         detail = canonical.cv_targeting
         assert detail.canonical["ate"].psi == pytest.approx(detail.pooled["ate"].psi, rel=1e-9)
-        assert detail.canonical["rr"].psi != pytest.approx(detail.pooled["rr"].psi, rel=1e-9)
+        assert detail.canonical["att"].psi != pytest.approx(detail.pooled["att"].psi, rel=1e-9)
 
     def test_the_fold_level_detail_describes_the_first_draw(self, canonical: Any) -> None:
         # Fold 3 of one draw is not fold 3 of another, so these are the only fields with
@@ -390,7 +397,7 @@ class TestRepeatedCanonicalCVTMLE:
 
     def test_the_summary_names_the_estimator_and_the_variance_rule(self, canonical: Any) -> None:
         summary = canonical.summary()
-        assert "canonical CV-TMLE" in summary
+        assert "fold-evaluated CV-TMLE" in summary
         assert "independent draws" in summary
         assert "mean of the draws' cross-validated variances" in summary
 
@@ -527,11 +534,9 @@ class TestRefusedCombinations:
         assert result.n_repeats == 2
         assert np.isfinite(result["ate"].std_error)
 
-    def test_cv_evaluation_still_needs_a_fold_fit_to_evaluate(self) -> None:
-        # Unchanged by repeats: fold-wise evaluation needs fold-wise targeting whether
-        # there is one draw or twenty.
-        with pytest.raises(ValueError, match="needs a fold-specific fit"):
-            fast_tmle(repeats=3, cv_evaluation=True)
+    def test_cv_evaluation_needs_cross_fitted_predictions(self) -> None:
+        with pytest.raises(ValueError, match="cross_fit=True"):
+            fast_tmle(repeats=3, cv_evaluation=True, cross_fit=False)
 
 
 class TestTheSensitivityLayerFollowsTheDraws:

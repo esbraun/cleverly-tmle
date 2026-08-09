@@ -1325,22 +1325,34 @@ Why this is the right number, and how it is checked:
 
 ## Cross-fitting and CV-TMLE
 
-Three constructions, and it is worth knowing which one you are running:
+Both literature routes use one common targeting coefficient. The original CV-TMLE usually
+minimises the equal average validation-fold loss and evaluates the plug-in inside each
+fold. Levy's easy implementation stacks all out-of-fold predictions and then performs an
+otherwise ordinary TMLE; that is the package default. The pinned `tmle3` source snapshot
+in the references implements the same route through
+`tmle3_Update(cvtmle=TRUE)`. Levy's paper is the stable specification here; `tmle3` is an
+implementation cross-check. The package also keeps a separate-per-fold epsilon extension:
 
 | setting | estimator |
 | --- | --- |
-| `cross_fit=True, targeting_scheme="pooled"` (default) | cross-fitted TMLE |
-| `targeting_scheme="fold"` | fold-targeted CV-TMLE |
-| `targeting_scheme="fold", cv_evaluation=True` | canonical CV-TMLE |
+| `cross_fit=True, targeting_scheme="pooled"` (default) | stacked CV-TMLE (Levy 2018): common epsilon, stacked evaluation; matched by the pinned `tmle3` snapshot |
+| `targeting_scheme="pooled", cv_evaluation=True` | original fold-evaluated CV-TMLE: common epsilon, fold-wise evaluation and variance |
+| `targeting_scheme="fold"` | extension with one epsilon per fold |
 
 ```python
-res = TMLE(targeting_scheme="fold").fit(frame, outcome="Y", treatment="A").single()
-res.cv_targeting.summary()  # both reports side by side, per-fold psi and epsilon
+res = TMLE(cv_evaluation=True).fit(frame, outcome="Y", treatment="A").single()
+res.cv_targeting.summary()  # fold-evaluated and stacked reports, fold estimates, epsilon
 res.cv_targeting.variance["ate"]
 ```
 
 Which of the three ran is not left to be reconstructed from the settings —
 `res.config.estimator_name` says it in words, and `res.summary()` prints it.
+
+Validation-fold outcomes fit epsilon in both schemes. What is out of fold is each row's
+*initial nuisance prediction*. The difference is whether epsilon is common across the
+validation risks (the common update) or separately estimated inside each fold (the
+extension). The default stacked route preserves the ordinary row-weighted empirical loss;
+the fold-evaluated route normalises weights within fold before its equal `1/V` average.
 
 Why this is the right number, and how it is checked:
 [what the folds do and do not buy](methodology.md#cross-fitting-what-the-folds-do-and-do-not-buy).
@@ -1430,7 +1442,7 @@ belongs to none of the `R`, so what is reported is the mean of the `R` cross-val
 variances, each computed on its own draw's partition:
 
 ```python
-TMLE(targeting_scheme="fold", cv_evaluation=True, repeats=5)
+TMLE(cv_evaluation=True, repeats=5)
 ```
 
 Each of those is consistent for `Var(D*)/n`, which is what `Var(psi_bar)` converges to as
@@ -1443,23 +1455,29 @@ at equal fold sizes the fold-averaged second moment equals `mean(IC²)` for *eve
 partition, so the fold structure contributes nothing and the result would be the pooled
 uncentred second moment wearing a cross-validated name.
 
-Fold-specific targeting is only the first of canonical CV-TMLE's three parts; the others
-are fold-wise evaluation of the parameter and the cross-validated variance. By default
-this estimator does neither — the fold-targeted predictions are stitched together and the
-pooled plug-in and pooled standard error are reported. For `ate`, `ey1` and `ey0` that is
-the same number, since they are linear in the targeted predictions. For `rr`, `or`, `att`
-and `atc` it is not: a ratio of means is not a mean of ratios, and the pooled conditional
-effects weight by the whole sample's arm share rather than each fold's.
+Original fold evaluation computes the updated parameter inside each validation fold and
+averages with weight `1/V`. The common targeting loss and observation weights are likewise
+normalised within fold. With unequal folds the variance keeps its exact `n_v^-2` factors,
+and the aggregate influence-curve rows are scaled by `n/(V n_v)`; the shortcut
+`mean(IC²)/n` is exact only for equal folds.
+
+`ate`, counterfactual levels, regime/shift/incremental levels and contrasts, and ATT/ATC
+have supported fold evaluations. ATT/ATC rebuild the empirical arm probability inside
+each fold before the common update. `rr`, `or`, and MSM coefficients are deliberately
+refused with `cv_evaluation=True`: averaging those nonlinear parameters changes their
+gradient by fold, and reusing the ordinary fluctuation leaves a nonzero influence-curve
+score. Their valid stacked-validation estimates remain available with the default pooled
+evaluation.
 
 ```python
 res = (
-    TMLE(targeting_scheme="fold", cv_evaluation=True)
+    TMLE(cv_evaluation=True, estimands=("ate", "att"))
     .fit(frame, outcome="Y", treatment="A")
     .single()
 )
 res["att"].psi  # averaged over folds rather than pooled
 res["att"].std_error  # the cross-validated standard error
-res.cv_targeting.pooled["att"], res.cv_targeting.canonical["att"]  # both, always
+res.cv_targeting.pooled["att"], res.cv_targeting.fold_evaluated["att"]  # both, always
 ```
 
 ## Observation weights, and which population they define

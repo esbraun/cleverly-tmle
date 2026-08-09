@@ -21,6 +21,16 @@ not a citation; a page number is.
   bounded continuous outcome*.
 - Gruber & van der Laan (2012), *tmle: An R Package for Targeted Maximum Likelihood Estimation*.
 - Zheng & van der Laan (2011), *Cross-validated targeted minimum-loss-based estimation*.
+- Levy (2018), *An Easy Implementation of CV-TMLE*, arXiv:1811.04573. The abstract
+  distinguishes the original fold-wise plug-in evaluation from the common targeting
+  regression pooled over validation folds.
+- Coyle et al., R package `tmle3`, source at commit
+  `ed72f8a20e64c914ab25ffe015d865f7a9963d27`. `R/tmle3_Update.R` selects the
+  `"validation"` likelihood when `cvtmle=TRUE` and fits one update to the stacked
+  validation predictions; `R/Param_TSM.R` evaluates the treatment-specific mean and its
+  influence curve from those validation likelihood values. Used as an implementation
+  reference, not as an oracle for the estimand derivation or as a moving specification.
+  Levy (2018) is the stable marker for the default stacked construction.
 - van der Laan & Gruber (2016), *One-step targeted minimum loss-based estimation*.
 
 ## Collaborative TMLE

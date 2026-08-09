@@ -316,7 +316,7 @@ class TestRepeatedCrossFitting:
 
 
 class TestCvTmle:
-    """Cross-fitted TMLE and CV-TMLE, and what separates them empirically.
+    """Levy's default stacked CV-TMLE and the per-fold epsilon extension.
 
     **Cross-fitted nuisances** (``cross_fit=True``) remove the Donsker condition on the
     nuisance *estimators* -- a smoothness condition that aggressive machine learning
@@ -325,17 +325,15 @@ class TestCvTmle:
     stops being understated.  That is the effect these studies are able to resolve, and
     it is large.
 
-    **Fold-wise targeting** (``targeting_scheme="fold"``) solves the fluctuation inside
-    each validation fold instead of once over all of them, which is the construction
-    Zheng & van der Laan (2011) analyse.  Pooled targeting on cross-fitted nuisances is
-    a different estimator -- the cross-fitted TMLE of the debiased-ML literature -- whose
-    own empirical-process term is controlled by a separate argument: conditional on the
-    training-fold fits ``Qbar`` is fixed, and ``{Qbar(epsilon)}`` is then indexed by a
-    fixed finite-dimensional coefficient over a compact set -- two entries here, one per
-    arm -- so it is Donsker however complex ``Qbar`` is.  That argument covers the
-    empirical-process term only; the product-rate remainder, positivity and ``L_2``
-    convergence of the influence curve are still required, and are what these studies
-    are really exercising.
+    **Stacked CV-TMLE** (the default ``targeting_scheme="pooled"``) fits one common
+    epsilon over all out-of-fold rows and evaluates their stitched distribution, as
+    Levy's easy implementation defines. The pinned ``tmle3`` snapshot corroborates that
+    path. The original fold-evaluated construction instead averages fold empirical risks
+    and plug-ins. **Fold-specific targeting** solves a separate fluctuation inside each
+    validation fold and is a package extension. Conditional on the training-fold fits,
+    ``Qbar_v`` is fixed and the common fluctuated family is finite-dimensional. The
+    product-rate remainder, positivity and ``L_2`` convergence of the influence curve
+    are still required, and are what these studies are really exercising.
 
     Their first-order limits coincide under those conditions, so the honest expectation
     is that they *agree* here, and agreement is what is asserted.  Note what that does
@@ -391,8 +389,8 @@ class TestCvTmle:
         # The two constructions share a first-order limit under the conditions in the
         # class docstring, all of which hold here, so equivalence is what theory predicts
         # and improvement is not. Asserting equivalence is the point: if this test ever
-        # showed fold-wise targeting *winning* on coverage, one of those conditions would
-        # have stopped holding and the pooled path would be the thing to go and look at.
+        # showed the extension *winning* on coverage, one of those conditions would have
+        # stopped holding and the common-update path would be the thing to inspect.
         assert abs(fold_wise.coverage - pooled.coverage) < 0.05, (pooled, fold_wise)
         assert fold_wise.se_ratio > 0.85
         assert abs(fold_wise.rmse - pooled.rmse) < 0.1 * pooled.rmse

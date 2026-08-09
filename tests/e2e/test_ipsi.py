@@ -147,17 +147,21 @@ class TestTheDegenerateTilt:
             float(np.mean(fit.data.outcome)), abs=1e-8
         )
 
-    def test_it_survives_fold_wise_targeting(self) -> None:
-        """The sharpest test of the per-fold stitching, and it needs no truth."""
+    def test_it_survives_canonical_common_targeting(self) -> None:
+        """The canonical common update preserves an identity needing no truth."""
         frame, _ = make_nonlinear_ate(n=1200, seed=3)
         fit = (
-            TMLE(**LEARNERS, incremental=TILTS, targeting_scheme="fold")
+            TMLE(**LEARNERS, incremental=TILTS, cv_evaluation=True)
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
         assert fit.estimates["ey_ipsi[natural course]"].psi == pytest.approx(
             float(np.mean(fit.data.outcome)), abs=1e-6
         )
+
+    def test_fold_specific_mechanism_alternation_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="both equations re-solved inside every fold"):
+            TMLE(**LEARNERS, incremental=TILTS, targeting_scheme="fold")
 
     def test_it_survives_repeated_cross_fitting(self) -> None:
         """Averaging over draws must not break an identity each draw satisfies."""

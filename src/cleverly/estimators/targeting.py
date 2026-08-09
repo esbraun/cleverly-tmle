@@ -225,6 +225,7 @@ def build_submodel(
     missingness_override: FloatArray | None = None,
     reference: float | None = None,
     msm_beta: FloatArray | None = None,
+    arm_fractions: FloatArray | None = None,
 ) -> Submodel:
     """Clever covariates for one estimand family, at the given truncation bounds.
 
@@ -265,7 +266,11 @@ def build_submodel(
         # Read lazily: `arm_fractions` names no quantity on a continuous treatment and
         # raises, and every builder is called through this one signature -- so evaluating
         # it eagerly would refuse a shift fit on behalf of a builder that discards it.
-        arm_fractions=None if data.is_continuous_treatment else data.arm_fractions,
+        arm_fractions=(
+            None
+            if data.is_continuous_treatment
+            else (data.arm_fractions if arm_fractions is None else arm_fractions)
+        ),
         reference=reference,
         missingness=missingness,
         intermediate_density=intermediate_density,
