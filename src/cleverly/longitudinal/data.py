@@ -603,8 +603,8 @@ class LongitudinalData:
         :attr:`cleverly.data.CausalData.effective_n`: not only a diagnostic, but the
         sample size ``g_bounds="auto"`` is resolved at, since the rule is a bias-variance
         compromise and this is the number the variance side is working from.  Over ``T``
-        nodes that matters more rather than less -- the bound is applied to every one of
-        the ``2T`` factors.
+        nodes that matters more rather than less -- each bounded cumulative probability
+        can contain up to ``2T`` treatment and censoring factors.
         """
         return effective_sample_size(self.weights)
 

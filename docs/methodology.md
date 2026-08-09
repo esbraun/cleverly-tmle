@@ -229,13 +229,22 @@ units the previous step is fitted on. That is what makes the recursion close, an
 leaving it to be read off this paragraph.
 
 That substitution estimator is not efficient and has no influence curve. Each node
-therefore gets its own logistic submodel, with clever covariate
+therefore gets its own loss-weighted logistic intercept submodel. Write
 
 ```
-h_t = 1{Ā_t = ā_t, C̄_t = 1} / ∏_{s ≤ t} g_s(a_s | H_s) c_s(H_s, a_s)
+H_t = 1 / ∏_{s ≤ t} g_s(a_s | H_s) c_s(H_s, a_s)
 ```
 
-whose score is the `t`-th term of
+on the regimen-consistent, uncensored rows. The raw treatment and censoring factors are
+multiplied first and each cumulative prefix is then truncated to `g_bounds`, matching
+canonical `ltmle::CalcCumG`; bounding each factor before multiplication is a different
+regularisation. The update is
+
+```
+logit Qbar_t(epsilon) = logit Qbar_t + epsilon
+```
+
+fitted with loss weight `H_t`; its score is the `t`-th term of
 
 ```
 D*(O) = Σ_t h_t ( Q̄*_{t+1} − Q̄*_t ) + Q̄*_1(H_1) − Ψ
@@ -244,6 +253,28 @@ D*(O) = Σ_t h_t ( Q̄*_{t+1} − Q̄*_t ) + Q̄*_1(H_1) − Ψ
 so solving all `T` of them makes the fit solve `P_n D* = 0`. The recursion carries the
 **targeted** prediction forward, not the initial one, so a residual left by one node is
 regressed away by the next instead of accumulating.
+
+The location of `H_t` is part of the algorithm, not notation. This is the loss-weighted
+`ltmle::UpdateQ` implementation in the R package described by Lendle et al. (2017).
+Putting `H_t` in the logistic submodel instead solves the same score
+along a different path and gives a different finite-sample substitution estimate whenever
+targeting moves. The bound-active canonical fixture in
+`tests/unit/test_ltmle_canonical_r.py` is the nonzero witness; the exact laws cannot see
+this distinction because every `epsilon` is zero there.
+
+That fixture is intentionally narrower than the scientific evidence. It freezes R
+`ltmle` 1.3-0 with fixed numeric mechanism predictions, intercept-only Q regressions, no
+cross-fitting, and `gbounds=(0.2, 0.99)`. One baseline stratum binds only at the second
+cumulative prefix and the deepest `|epsilon|` exceeds 0.4. It compares the estimate, every
+row of the influence curve, both used cumulative probabilities, and both targeting
+coefficients for an end-of-study fit and a survival fit. Its predetermined interpretation
+is equally narrow: disagreement means the implementation choices differ and must be
+reconciled; agreement is evidence only for those choices. The independently derived law
+and Gateaux checks above remain the acceptance evidence for the parameter and EIF.
+The fixture uses an explicit pair because the public default is a deliberate package-wide
+divergence: `g_bounds="auto"` resolves a sample-size-dependent symmetric pair (at Kish's
+effective sample size under observation weights), whereas R `ltmle` defaults to
+`c(0.01, 1)`.
 
 The influence curve is checked on the same footing as every other estimand in this library:
 against the complex-step Gateaux derivative of an independently written g-formula, on a
@@ -300,18 +331,19 @@ integrated as two Gauss–Legendre panels meeting at the jump, which makes the a
 `res.coefficients(scale="ratio")` exponentiates them. Three things differ inside, and each
 is a place the obvious generalisation is wrong:
 
-- **The node fluctuation is pooled across the regimens.** At one node the covariate's `p`
+- **The node fluctuation is pooled across the regimens.** At one node the design's `p`
   columns get their rank by summing over the arms *within a row*: a unit contributes
   `φ(a, V)` at the arm it received. A regimen is a plan and not a value some unit took, so
-  there is nothing to sum over within a row — a per-regimen covariate is `φ(ā, V)` times
-  the scalar `h_t`, and whenever the working model has no effect modifier `φ(ā, V)` is
-  *constant down the rows*, making that covariate rank one and collapsing its `p` score
-  equations into one. So each node solves a **single** fluctuation over the regimens
-  stacked, with one shared `epsilon`. The backward recursion is therefore *lockstep*:
-  outer over the nodes, inner over the regimens, one update, all carried forward together.
+  there is nothing to sum over within a row. Whenever the working model has no effect
+  modifier `φ(ā, V)` is *constant down the rows*, making a per-regimen design rank one and
+  collapsing its `p` score equations into one. So each node solves a **single**
+  fluctuation over the regimens stacked, with one shared `epsilon`. Its submodel design is
+  `(dm/dη)φ(ā,V)` and its loss weight is `h(ā,V)h_t`; their product is the EIF numerator.
+  The backward recursion is therefore *lockstep*: outer over the nodes, inner over the
+  regimens, one update, all carried forward together.
 - **A saturated working model reproduces the per-regimen report** — one indicator per
-  regimen makes the stacked covariate exactly block-diagonal, and each block is the array
-  the plain recursion would have used, entry for entry. Not *bit for bit* on the estimate,
+  regimen makes the stacked design exactly block-diagonal, and each block carries the
+  same loss weight the plain recursion uses. Not *bit for bit* on the estimate,
   though, and that is worth knowing: the pooled Newton's convergence test and line search
   are taken over all the stacked rows, so the two can stop on different iterates. On a law
   the sample realises exactly no step is taken at all and the agreement is exact; elsewhere
@@ -324,11 +356,11 @@ is a place the obvious generalisation is wrong:
   mechanism is free of `β` and is fitted once.
 
 `h(ā, V)` and `weights=` are different objects and must stay so: the first says how the
-regimens are traded off inside the projection and sits in the covariate, the second tilts
-the *population* the projection is taken over. Merging them would divide the estimating
-equation by the very tilt it applies. The projection is solved on the **raw** outcome
-scale, as it is at one node and for the same reason — a coefficient vector has no single
-scale to map back with.
+regimens are traded off inside the projection, while the second tilts the *population*
+the projection is taken over. Both multiply the node's loss weight, but only the
+observation weight multiplies the finished influence curve row-wise. The projection is
+solved on the **raw** outcome scale, as it is at one node and for the same reason — a
+coefficient vector has no single scale to map back with.
 
 The influence curve is checked against the complex-step Gateaux derivative of an
 independently written projection on the same exact law
@@ -368,7 +400,8 @@ of that module's 30 tests red.
 What does **not** change is the positivity story. Being event-free is part of the history,
 not an intervened node, so it enters the *indicator* of the clever covariate and never its
 denominator: the cumulative product is still over the `2T` treatment and censoring factors,
-truncated per factor, and `res.diagnostics()` reports the same weights — now with a
+with each cumulative prefix truncated after multiplication, and `res.diagnostics()` reports
+the same weights — now with a
 `horizon` column beside the `time` one, since the leverage is shared across horizons and
 the `epsilon` is not.
 
@@ -878,6 +911,12 @@ The full list, with the locators the `DRTMLE` prose cites, is
 - Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*.
 - van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
   multiple time point interventions*.
+- Stitelman, De Gruttola & van der Laan (2012), *A General Implementation of TMLE for
+  Longitudinal Data Applied to Causal Inference in Survival Analysis*.
+- Petersen, Schwab, Gruber, Blaser, Schomaker & van der Laan (2014), *Targeted Maximum
+  Likelihood Estimation for Dynamic and Static Longitudinal Marginal Structural Working Models*.
+- Lendle, Schwab, Petersen & van der Laan (2017), *ltmle: An R Package Implementing Targeted
+  Minimum Loss-Based Estimation for Longitudinal Data*.
 - Neugebauer & van der Laan (2007), *Nonparametric causal effects based on marginal structural
   models*.
 - Orellana, Rotnitzky & Robins (2010), *Dynamic regime marginal structural mean models for

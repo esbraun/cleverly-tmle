@@ -320,10 +320,10 @@ class LongitudinalConfig:
             "cross-fitting: none -- nuisances fitted in sample"
             if self.n_folds <= 1
             else f"cross-fitting: {self.n_folds} fold(s)",
-            # Both factors of every node's mechanism go through this bound, not just
-            # the treatment one, and the difference matters wherever censoring is heavy.
-            f"g_bounds: [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}] on the treatment "
-            "and censoring mechanism at every node"
+            # Both factors enter the product before its prefix is bounded, as in ltmle's
+            # CalcCumG.  Saying "mechanism at every node" used to conceal the order.
+            f"g_bounds: [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}] on each cumulative "
+            "treatment-and-censoring probability"
             # Named because it is a deliberate divergence from R's rule, and because a
             # reader comparing two fits needs to know the bound moved with the weights.
             + (
@@ -834,7 +834,8 @@ class LTMLE:
         Outer cross-fitting folds; one split serves every node and every regimen, so a
         unit is out of fold in all of them at once.
     g_bounds:
-        Truncation applied to each mechanism factor *before* the cumulative product.
+        Truncation applied to each cumulative treatment-and-censoring probability, after
+        multiplying the raw node factors, following R ``ltmle``'s ``CalcCumG`` convention.
     alpha:
         Predicted probabilities are bounded into ``[1 - alpha, alpha]`` before the logit
         is taken, as for :class:`~cleverly.TMLE`.
@@ -1045,7 +1046,7 @@ class LTMLE:
         # Kish's effective n rather than the row count, which they are equal to on an
         # unweighted fit: ``5 / (sqrt(n) log n)`` is a bias-variance compromise, and both
         # sides of it are governed by the information in the sample.  Over ``T`` nodes the
-        # bound reaches every one of the ``2T`` factors, so resolving it too loosely
+        # cumulative probability contains up to ``2T`` factors, so resolving it too loosely
         # compounds rather than cancels.
         bounds = resolve_g_bounds(self.g_bounds, prepared.effective_n)
 
