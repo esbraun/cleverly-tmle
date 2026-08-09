@@ -169,7 +169,8 @@ def refuse_mixed_environment(rows: Sequence[Row]) -> None:
     ``load_rows`` carries the evidence on every row precisely so that appending a run from
     another machine is not silent -- but "not silent" was a column a reader had to diff by
     eye, and a summary table with a verdict at the bottom of it is read long before anyone
-    does that.  The cost of the softer version is concrete: every committed
+    does that. The benchmark evidence rule is recorded in
+    ``docs/architecture-invariants.md``. The cost of the softer version is concrete: every committed
     benchmark number here predates the timing harness's rotation, so a rerun is a different
     instrument rather than a replication, and a ``1.02x`` against a ``0.98x`` was never
     resolved by the numbers on record.  This is that warning made mechanical.

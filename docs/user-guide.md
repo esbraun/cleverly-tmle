@@ -1079,12 +1079,23 @@ standard error here is about 25% below a plain TMLE's on the same samples.
 rather than `O(p²)`. Its `preorder="logistic"` default ranks variables by the empirical
 loss after one-variable targeting; `preorder="partial_correlation"` ranks the absolute
 partial correlation of the initial outcome residual and each covariate conditional on
-treatment. `search="discrete"` cross-validates an explicit list of candidate models.
+treatment. `preorder=` is refused for other searches and when `ordering=` supplies an
+explicit order, so an inapplicable setting cannot be silently ignored. `search="discrete"`
+cross-validates an explicit list of candidate models.
+
+Each selection fold cross-fits the predictions used on its training rows and uses one
+full-selection-training refit for its validation rows, following the `tmle3`/`sl3`
+`fold_fits` plus `full_fit` convention. `selection_inner_folds=2` controls that inner split.
+Larger values are available but multiply the candidate-fitting cost; two is the measured
+default, not a claim that the inner and outer fold counts should match.
 
 The selected object is the pair `(g_k, Qbar*_k)`, not `g_k` alone. The final pooled
 targeting pass continues from that selected outcome state, and save/load and sensitivity
-retargeting preserve it. Fold-targeted and canonical CV-TMLE composition is refused until
-separately derived.
+retargeting preserve it. A truncation, missingness-tilt, omitted-variable, or nuisance-bound
+sweep therefore starts each perturbed targeting step from the selected candidate's
+`Qbar*_k`; it holds selection fixed and does not restart from the original `Qbar0`. Rerun
+the fit if the candidate itself should be reselected. Fold-targeted and canonical CV-TMLE
+composition is refused until separately derived.
 
 One caveat worth knowing: the influence-curve standard error treats the selected
 model as given, so it does not include the variability the selection itself contributes,

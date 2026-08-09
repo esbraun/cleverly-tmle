@@ -24,23 +24,32 @@ not a citation; a page number is.
 - Levy (2018), *An Easy Implementation of CV-TMLE*, arXiv:1811.04573. The abstract
   distinguishes the original fold-wise plug-in evaluation from the common targeting
   regression pooled over validation folds.
-- Coyle et al., R package `tmle3`, source at commit
-  `ed72f8a20e64c914ab25ffe015d865f7a9963d27`. `R/tmle3_Update.R` selects the
+- Coyle et al., R package [`tmle3`](https://github.com/tlverse/tmle3), source at commit
+  [`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27).
+  `R/tmle3_Update.R` selects the
   `"validation"` likelihood when `cvtmle=TRUE` and fits one update to the stacked
   validation predictions; `R/Param_TSM.R` evaluates the treatment-specific mean and its
   influence curve from those validation likelihood values. Used as an implementation
   reference, not as an oracle for the estimand derivation or as a moving specification.
   Levy (2018) is the stable marker for the default stacked construction.
+- The fold/full prediction mechanism used by `tmle3` lives in its `sl3` dependency, pinned
+  here at [`0e8f236`](https://github.com/tlverse/sl3/tree/0e8f2365bcbe54010b8120c04a7a2dcfc8119227).
+  `R/Lrnr_cv.R` builds `fold_fits` and, when requested, a `full_fit`; `predict_fold(...,
+  "validation")` assembles held-out predictions while `predict_fold(..., "full")` uses the
+  all-training fit. This is the design source for C-TMLE's nested selection predictions.
 - van der Laan & Gruber (2016), *One-step targeted minimum loss-based estimation*.
 
 ## Collaborative TMLE
 
-- van der Laan & Gruber (2010), *Collaborative double robust targeted maximum likelihood
-  estimation*.
-- Gruber & van der Laan (2010), *An application of collaborative targeted maximum likelihood
-  estimation in causal inference and genomics*.
-- Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), *Scalable
-  collaborative targeted learning for high-dimensional data*.
+- van der Laan & Gruber (2010), [*Collaborative double robust targeted maximum likelihood
+  estimation*](https://pmc.ncbi.nlm.nih.gov/articles/PMC2898626/), DOI
+  10.2202/1557-4679.1181.
+- Gruber & van der Laan (2010), [*An application of collaborative targeted maximum likelihood
+  estimation in causal inference and genomics*](https://pmc.ncbi.nlm.nih.gov/articles/PMC3126668/),
+  DOI 10.2202/1557-4679.1182.
+- Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
+  collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
+  DOI 10.1177/0962280217729845.
 
 ## Longitudinal, survival and marginal structural models
 

@@ -9,6 +9,9 @@ development commands, and the public overview. `docs/README.md` routes technical
 `docs/evidence.md` records the test-enforced correctness evidence. Current behavior is determined
 by code and tests, not historical plans or investigation notes.
 
+Cross-module constraints that are not derivable from one implementation live in
+`docs/architecture-invariants.md`.
+
 ## Scientific changes
 
 - Begin with the identified parameter and its paper or derivation. A reference implementation such

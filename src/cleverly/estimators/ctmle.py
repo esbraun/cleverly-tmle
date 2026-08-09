@@ -144,9 +144,9 @@ implementation.
 On a process whose outcome model is correctly specified, the *empty* propensity model is
 a legitimate mean-squared-error-minimising choice -- collaborative double robustness says
 the confounding is already handled, and adjusting for nothing carries the least variance.
-So C-TMLE selects one, often.  Measured on the instrument process at ``n = 700``: the
-greedy search selects no covariates in 10 seeds out of 10, the ordered search in 7 out of
-10.  That is correct behaviour, not a defect.
+So C-TMLE selects one, often. Measured on the instrument process at ``n = 700`` after
+nested selection cross-fitting, the ordered search selects no covariates on all five fixed
+unit-test seeds. That is correct behaviour, not a defect.
 
 It does mean a comparison against plain TMLE on such a process is weaker evidence than it
 looks.  A selector hard-wired to return the empty model would win it, so winning it does
@@ -160,8 +160,8 @@ The claim that the search selects what it needs is therefore made where selectin
 is *wrong*.  Reduce the outcome learner to a constant, so every bit of adjustment has to
 come through ``g``, and on the same instrument process the greedy search includes the
 confounder ``W1`` in every seed, never selects the empty model, and still leaves the
-instrument out -- while a selector restricted to the empty candidate is biased by 0.81
-against the collaborative fit's 0.037.  See
+instrument out -- while a selector restricted to the empty candidate has mean absolute
+error 0.696 against the collaborative fit's 0.017. See
 ``tests/e2e/test_ctmle.py::TestSelectionIsForcedWhenTheOutcomeModelCannotHelp``.
 
 The ``tmle3`` source is used as a reference for the shared construction -- out-of-fold
@@ -205,13 +205,13 @@ from typing import Any, Literal
 
 import numpy as np
 
-from .._typing import FloatArray, IntArray, Learner
+from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.influence import counterfactual_means, ratio_estimates
 from ..learners._fitting import Task, predict_mean
-from ..learners.crossfit import Folds, make_folds
+from ..learners.crossfit import Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.text import format_table
@@ -284,7 +284,6 @@ class CTMLESelection:
     treatment_risk: FloatArray
     cv_risk: FloatArray
     selected: int
-    selected_score_norm: float
     covariates: tuple[str, ...]
 
     @property
@@ -403,6 +402,10 @@ class CTMLE(TMLE):
     selection_folds:
         Folds used to cross-validate the candidate sequence.  Separate from
         ``n_folds``, which cross-fits the nuisance models.
+    selection_inner_folds:
+        Inner folds used to make selection-training predictions out of fold. Two is the
+        default because every selection fold also needs a full-training fit for its
+        validation rows; increasing it improves the inner cross-fit at a linear fit-cost.
     loss:
         ``"auto"`` (default) uses the squared-error loss for a continuous outcome and
         the quasi-binomial log-likelihood for a binary one, as R's ``ctmle`` does.
@@ -432,25 +435,34 @@ class CTMLE(TMLE):
         self,
         *,
         search: CTMLESearch = "greedy",
-        preorder: CTMLEPreorder = "logistic",
+        preorder: CTMLEPreorder | None = None,
         ordering: Sequence[str] | None = None,
         candidates: Sequence[Sequence[str]] | None = None,
         selection_folds: int = 5,
+        selection_inner_folds: int = 2,
         loss: CTMLELoss = "auto",
         penalty: bool = True,
         ctmle_estimand: str = "ate",
         **kwargs: Any,
     ) -> None:
+        if kwargs.get("cv_evaluation", False):
+            raise ValueError(
+                "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
+                "requires a separate fold-specific collaborative derivation."
+            )
         super().__init__(**kwargs)
         self.search = search
         self.preorder = preorder
         self.ordering = ordering
         self.candidates = candidates
         self.selection_folds = selection_folds
+        self.selection_inner_folds = selection_inner_folds
         self.loss = loss
         self.penalty = penalty
         self.ctmle_estimand = ctmle_estimand
         self._validate_ctmle_settings()
+        if self.search == "ordered" and self.ordering is None and self.preorder is None:
+            self.preorder = "logistic"
 
     def _validate_ctmle_settings(self) -> None:
         if self.loss not in ("auto", "loglik", "squared"):
@@ -459,7 +471,7 @@ class CTMLE(TMLE):
             raise ValueError(
                 f"search must be 'greedy', 'ordered' or 'discrete'; got {self.search!r}"
             )
-        if self.preorder not in ("logistic", "partial_correlation"):
+        if self.preorder not in (None, "logistic", "partial_correlation"):
             raise ValueError(
                 f"preorder must be 'logistic' or 'partial_correlation'; got {self.preorder!r}"
             )
@@ -469,23 +481,31 @@ class CTMLE(TMLE):
             raise ValueError(f"candidates= only applies to search='discrete', not {self.search!r}")
         if self.search != "ordered" and self.ordering is not None:
             raise ValueError(f"ordering= only applies to search='ordered', not {self.search!r}")
+        if self.search != "ordered" and self.preorder is not None:
+            raise ValueError(f"preorder= only applies to search='ordered', not {self.search!r}")
+        if self.ordering is not None and self.preorder is not None:
+            raise ValueError("preorder= cannot be combined with an explicit ordering=")
         if self.selection_folds < 2:
             raise ValueError(f"selection_folds must be at least 2; got {self.selection_folds}")
+        if self.selection_inner_folds < 2:
+            raise ValueError(
+                f"selection_inner_folds must be at least 2; got {self.selection_inner_folds}"
+            )
         if self.ctmle_estimand not in MEAN_GROUP_ESTIMANDS:
             raise ValueError(
                 f"ctmle_estimand must be one of {sorted(MEAN_GROUP_ESTIMANDS)}; "
                 f"got {self.ctmle_estimand!r}"
+            )
+        if self.cv_evaluation:
+            raise ValueError(
+                "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
+                "requires a separate fold-specific collaborative derivation."
             )
         if self.targeting_scheme != "pooled":
             raise ValueError(
                 "CTMLE implements the published pooled collaborative estimator only; "
                 "targeting_scheme='fold' composes it with a different CV-TMLE estimator "
                 "that has not been derived. Use targeting_scheme='pooled'."
-            )
-        if self.cv_evaluation:
-            raise ValueError(
-                "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
-                "requires a separate fold-specific collaborative derivation."
             )
 
     # --------------------------------------------------------------- the hook
@@ -546,11 +566,6 @@ class CTMLE(TMLE):
             treatment_risk=np.array([candidate.treatment_risk for candidate in path], dtype=float),
             cv_risk=cv_risk,
             selected=selected,
-            selected_score_norm=float(
-                abs(
-                    np.mean(selector.influence(chosen.targeted, chosen.submodel, selector.all_rows))
-                )
-            ),
             covariates=data.covariate_names,
         )
         return nuisance, {"ctmle": selection}
@@ -619,12 +634,18 @@ class _Selector:
         bounds: tuple[float, float],
         intermediate_value: float | None,
         seed: int | None = None,
+        train_folds: Folds | None = None,
+        train_mask: BoolArray | None = None,
     ) -> None:
         self.est = estimator
         self.data = data
         self.base = base
         self.bounds = bounds
         self.intermediate_value = intermediate_value
+        if (train_folds is None) != (train_mask is None):
+            raise ValueError("train_folds and train_mask must be supplied together")
+        self.train_folds = train_folds
+        self.train_mask = train_mask
         #: The cross-fitting draw this selector belongs to, under the same convention
         #: ``TMLE._folds`` uses: ``None`` means the estimator's own ``random_state``.
         #: Every split made below is drawn from it, so a repeat redraws the selection.
@@ -671,6 +692,22 @@ class _Selector:
 
         columns = [data.covariate_names.index(name) for name in covariates]
         design = np.ascontiguousarray(data.covariates[:, columns])
+        if self.train_folds is not None:
+            assert self.train_mask is not None
+            predictions, _ = cross_fit_predictions(
+                learner,
+                design,
+                data.treatment,
+                data.weights,
+                self.train_folds,
+                task="classification",
+                predict_designs={"g1": design},
+                fit_mask=self.train_mask,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                n_jobs=self.est.n_jobs,
+            )
+            return predictions["g1"]
         if train is None:
             predictions, _ = cross_fit_predictions(
                 learner,
@@ -706,6 +743,12 @@ class _Selector:
         """
         data = self.data
         values = np.empty(data.n)
+        if self.train_folds is not None:
+            assert self.train_mask is not None
+            for fit_rows, test in self.train_folds:
+                eligible = fit_rows[self.train_mask[fit_rows]]
+                values[test] = np.average(data.treatment[eligible], weights=data.weights[eligible])
+            return values
         if train is not None:
             values[:] = np.average(data.treatment[train], weights=data.weights[train])
             return values
@@ -832,7 +875,7 @@ class _Selector:
         rows = self.all_rows if train is None else train
         if self.est.search == "discrete":
             return self._discrete_path(rows, train, tag)
-        order = self._ordering(rows, train, tag) if self.est.search == "ordered" else None
+        order = self._ordering(rows, train) if self.est.search == "ordered" else None
         return self._forward_path(rows, train, tag, order)
 
     def _discrete_path(self, rows: IntArray, train: IntArray | None, tag: str) -> list[_Candidate]:
@@ -918,12 +961,10 @@ class _Selector:
 
     def _ordering(
         self,
-        rows: IntArray | None = None,
-        train: IntArray | None = None,
-        tag: str = "ordering",
+        rows: IntArray,
+        train: IntArray | None,
     ) -> tuple[str, ...]:
         """Published logistic or partial-correlation order for the scalable search."""
-        rows = self.all_rows if rows is None else rows
         if self.est.ordering is not None:
             names = tuple(self.est.ordering)
             unknown = [name for name in names if name not in self.data.covariate_names]
@@ -1010,7 +1051,8 @@ class _Selector:
         loss = np.zeros(len(path))
         influence = np.zeros((len(path), data.n))
         for fold, (train, test) in enumerate(folds):
-            fold_base = self._selection_base(train)
+            train_folds, train_mask = self._nested_folds(train)
+            fold_base = self._selection_base(train_folds, train_mask)
             fold_data = data.subset(train)
             fold_bounds = resolve_g_bounds(
                 self.est.g_bounds, self.est._bounds_n(fold_data), for_att=False
@@ -1022,6 +1064,8 @@ class _Selector:
                 fold_bounds,
                 self.intermediate_value,
                 seed=self.seed,
+                train_folds=train_folds,
+                train_mask=train_mask,
             )
             fold_path = fold_selector.build_path(train=train, tag=f"cv{fold}")
             if len(fold_path) < len(path):
@@ -1040,36 +1084,53 @@ class _Selector:
             return loss
         return loss + np.array([_penalty_of(row) for row in influence])
 
-    def _selection_base(self, train: IntArray) -> NuisanceEstimates:
-        """Nuisances fitted only on one selection fold's training observations."""
+    def _nested_folds(self, train: IntArray) -> tuple[Folds, BoolArray]:
+        """Inner cross-fit on ``train`` plus one full-training fit for validation rows."""
         data = self.data
-        fold_scaler = self.est._scaler(data.subset(train))
-        scaled = fold_scaler.scale(data.outcome)
+        train_data = data.subset(train)
+        inner = make_folds(
+            train.size,
+            self.est.selection_inner_folds,
+            stratify=self.est._fold_strata(train_data),
+            cluster=train_data.cluster,
+            random_state=self.seed,
+        )
+        assignment = np.full(data.n, inner.n_folds, dtype=np.int64)
+        assignment[train] = inner.assignment
+        mask = np.zeros(data.n, dtype=bool)
+        mask[train] = True
+        nested = Folds(assignment, inner.n_folds + 1)
+        check_integrity(nested, cluster=data.cluster)
+        return nested, mask
+
+    def _selection_base(self, train_folds: Folds, train_mask: BoolArray) -> NuisanceEstimates:
+        """Cross-fitted nuisances trained only on one selection fold's training rows."""
+        data = self.data
+        scaled = self.base.scaler.scale(data.outcome)
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         learner = self.est._resolve_learner(
             self.est.outcome_learner, task=outcome_task, seed=self.seed
         )
         design = data.treatment_design()
-        observed_train = train[data.observed[train]]
-        model = fit_on_rows(
+        outcome_out, _ = cross_fit_predictions(
             learner,
             design,
             scaled,
             data.weights,
-            observed_train,
-            outcome_task,
-            data.cluster,
+            train_folds,
+            task=outcome_task,
+            predict_designs={
+                "observed": design,
+                **{f"arm@{arm}": data.counterfactual_design(arm) for arm in data.arm_codes},
+            },
+            fit_mask=train_mask & data.observed,
+            groups=data.cluster,
+            clip=(0.0, 1.0),
+            n_jobs=self.est.n_jobs,
         )
         outcome = InitialFit(
-            np.clip(predict_mean(model, design, outcome_task), 0.0, 1.0),
-            {
-                arm: np.clip(
-                    predict_mean(model, data.counterfactual_design(arm), outcome_task),
-                    0.0,
-                    1.0,
-                )
-                for arm in data.arm_codes
-            },
+            outcome_out["observed"],
+            {arm: outcome_out[f"arm@{arm}"] for arm in data.arm_codes},
         )
 
         missingness = self.base.missingness
@@ -1081,32 +1142,28 @@ class _Selector:
                 seed=self.seed,
             )
             missing_design = data.missingness_design()
-            missing_model = fit_on_rows(
+            missing_out, _ = cross_fit_predictions(
                 missing_learner,
                 missing_design,
                 data.observed.astype(float),
                 data.weights,
-                train,
-                "classification",
-                data.cluster,
+                train_folds,
+                task="classification",
+                predict_designs={
+                    f"arm@{arm}": data.counterfactual_design(arm) for arm in data.arm_codes
+                },
+                fit_mask=train_mask,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                n_jobs=self.est.n_jobs,
             )
-            missingness = np.column_stack(
-                [
-                    np.clip(
-                        predict_mean(
-                            missing_model, data.counterfactual_design(arm), "classification"
-                        ),
-                        0.0,
-                        1.0,
-                    )
-                    for arm in data.arm_codes
-                ]
-            )
+            missingness = np.column_stack([missing_out[f"arm@{arm}"] for arm in data.arm_codes])
         return replace(
             self.base,
             outcome=outcome,
             targeting_outcome=None,
-            scaler=fold_scaler,
+            scaler=self.base.scaler,
+            folds=train_folds,
             missingness=missingness,
             diagnostics={},
         )

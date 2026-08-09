@@ -23,6 +23,8 @@ import pytest
 
 from cleverly import CTMLE, TMLE
 from cleverly.datasets import instrument_dgp, make_instrument, make_missing_outcome
+from cleverly.estimators.targeting import build_submodel
+from cleverly.inference.influence import counterfactual_means
 from tests.conftest import FAST_KWARGS
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
@@ -102,6 +104,35 @@ class TestDownstreamMachineryStillWorks:
     def test_to_frame_returns_the_callers_backend(self, fit) -> None:
         frame = fit.to_frame()
         assert len(frame) == len(fit.estimates)
+
+    @pytest.mark.parametrize("targeting", ["iterative", "one_step"])
+    def test_every_truncation_retarget_solves_the_score(self, targeting: str) -> None:
+        from sklearn.dummy import DummyRegressor
+
+        frame, _ = instrument_dgp().sample(400, seed=22)
+        result = (
+            CTMLE(
+                **{
+                    **SETTINGS,
+                    "outcome_learner": DummyRegressor(strategy="mean"),
+                    "n_folds": 3,
+                    "selection_folds": 2,
+                    "targeting": targeting,
+                }
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        for lower in (0.05, 0.2, 0.4):
+            estimates, fluctuations = result.estimator.retarget(
+                result.data,
+                result.nuisance,
+                estimands=("ate",),
+                g_bounds=(lower, 1.0 - lower),
+                g_bounds_conditional=(lower, 1.0 - lower),
+            )
+            assert fluctuations["mean"].score_norm < 1e-8
+            assert abs(float(np.mean(estimates["ate"].influence_curve))) < 1e-8
 
 
 class TestBackendParity:
@@ -189,8 +220,8 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
     ``1 + a + 1.5 W1 + 0.8 W3``, which a GLM fits exactly.  Under collaborative double
     robustness the confounding is then already handled before ``g`` is asked for anything,
     so an **empty** propensity model is genuinely the mean-squared-error-minimising choice,
-    and C-TMLE duly selects one: measured over ten seeds at ``n = 700``, the greedy search
-    selects nothing 10 times out of 10 and the ordered search 7 times out of 10.
+    and C-TMLE duly selects one: the ordered search selects nothing on all five fixed
+    ``n = 700`` seeds in the unit evidence tier.
 
     That is correct behaviour, and it is also why the variance and RMSE comparisons against
     plain TMLE prove less than they appear to.  A hypothetical selector hard-wired to
@@ -202,8 +233,8 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
     This class removes the escape route.  The outcome learner is reduced to a constant, so
     every bit of confounding adjustment has to come through ``g``, and the empty model goes
     from optimal to badly biased.  A working search must now *include* the confounder, and
-    the measured gap is not subtle: bias 0.037 for the collaborative fit against 0.810 for
-    a selector restricted to the empty candidate, a factor of twenty-two.
+    the measured gap is not subtle: mean absolute error 0.017 for the collaborative fit
+    against 0.696 for a selector restricted to the empty candidate, a factor of forty-one.
     """
 
     SEEDS = (0, 1, 2)
@@ -269,6 +300,31 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
     def test_it_never_selects_nothing(self, fits) -> None:
         for collaborative, _, _ in fits:
             assert collaborative.extra["ctmle"].selected_covariates != ()
+
+    def test_a_multistep_selection_reports_the_selected_targeted_state(self, fits) -> None:
+        collaborative = fits[0][0]
+        selection = collaborative.extra["ctmle"]
+        assert selection.n_steps[selection.selected] > 1
+        targeted = collaborative.nuisance.targeting_outcome
+        assert targeted is not None
+        submodel = build_submodel(
+            collaborative.data,
+            collaborative.nuisance,
+            "mean",
+            bounds=collaborative.config.g_bounds,
+            nuisance_bound=collaborative.config.missingness_bound,
+            intermediate_value=None,
+        )
+        scaled = collaborative.nuisance.scaler.scale(collaborative.data.outcome)
+        means = counterfactual_means(
+            scaled,
+            targeted,
+            submodel,
+            collaborative.data.weights,
+            collaborative.data.observed,
+        )
+        expected = collaborative.nuisance.scaler.unscale_difference(means[1.0].psi - means[0.0].psi)
+        assert collaborative.psi("ate") == pytest.approx(expected, abs=1e-10)
 
     def test_it_still_leaves_the_instrument_out(self, fits) -> None:
         # And this is now a real exclusion rather than a consequence of selecting nothing:
