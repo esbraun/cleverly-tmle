@@ -1,11 +1,11 @@
 """The cross-validated targeting step, and the variance that goes with it.
 
-CV-TMLE (Zheng & van der Laan, 2011) has three parts, and this package lets you take
-the first without the other two.  The fluctuation is solved separately within each
-validation fold, against nuisance predictions from models that never saw those rows
-(``targeting_scheme="fold"``); the parameter is then evaluated fold by fold and paired
-with the cross-validated variance only if you also ask for ``cv_evaluation=True``.
-The difference between the two reports is not cosmetic and is pinned below.
+Original CV-TMLE (Zheng & van der Laan, 2011) commonly fits one fluctuation by
+minimising the average validation-fold loss, then evaluates the updated distribution
+fold by fold. Levy's easy implementation stacks the out-of-fold predictions and performs
+an otherwise ordinary TMLE; that is the package default and is corroborated by the pinned
+``cvtmle=TRUE`` path in R ``tmle3``.
+``targeting_scheme="fold"`` is a separate extension with one epsilon per fold.
 
 Everything asserted here is an exact algebraic consequence of the construction, so
 these tests fail deterministically rather than statistically.  The claim CV-TMLE
@@ -14,6 +14,8 @@ actually exists to make -- that it keeps nominal coverage where a pooled fit doe
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -32,6 +34,7 @@ from tests.conftest import FAST_KWARGS
 ALL_BINARY = ("ey1", "ey0", "ate", "rr", "or", "att", "atc")
 LINEAR = ("ey1", "ey0", "ate")
 NONLINEAR = ("rr", "or", "att", "atc")
+CANONICAL = (*LINEAR, "att", "atc")
 
 
 @pytest.fixture(scope="module")
@@ -53,7 +56,7 @@ def binary_frame() -> object:
 
 @pytest.fixture(scope="module")
 def pooled_report(binary_frame) -> object:
-    settings = {**FAST_KWARGS, "targeting_scheme": "fold", "estimands": ALL_BINARY}
+    settings = {**FAST_KWARGS, "estimands": ALL_BINARY}
     return TMLE(**settings).fit(binary_frame, outcome="Y", treatment="A").single()
 
 
@@ -61,9 +64,8 @@ def pooled_report(binary_frame) -> object:
 def canonical_report(binary_frame) -> object:
     settings = {
         **FAST_KWARGS,
-        "targeting_scheme": "fold",
         "cv_evaluation": True,
-        "estimands": ALL_BINARY,
+        "estimands": CANONICAL,
     }
     return TMLE(**settings).fit(binary_frame, outcome="Y", treatment="A").single()
 
@@ -105,7 +107,7 @@ class TestFoldWiseTargeting:
         # With a single fold there is no validation split to target within, so the two
         # schemes must agree exactly rather than merely closely -- and the fallback has
         # to be announced rather than silently honoured, because a caller who asked for
-        # a CV-TMLE and got a cross-fitted TMLE should hear about it.
+        # the fold-specific extension and got pooled targeting should hear about it.
         frame, _ = make_linear_ate(n=400, seed=19)
         settings = {**FAST_KWARGS, "estimands": ("ate",), "cross_fit": False}
         pooled = TMLE(**settings).fit(frame, outcome="Y", treatment="A").single()
@@ -118,6 +120,52 @@ class TestFoldWiseTargeting:
         assert fold_wise.psi("ate") == pooled.psi("ate")
         assert fold_wise["ate"].std_error == pooled["ate"].std_error
         assert fold_wise.cv_targeting is None
+
+
+class TestCanonicalTargeting:
+    """Structural pins for the common validation update used by the source algorithm."""
+
+    def test_it_fits_one_common_epsilon_not_one_per_fold(
+        self, canonical_report, pooled_report
+    ) -> None:
+        differs_from_stacked = []
+        for group, fluctuation in canonical_report.fluctuations.items():
+            assert not fluctuation.folds
+            assert canonical_report.cv_targeting.epsilon[group] == pytest.approx(
+                fluctuation.epsilon
+            )
+            differs_from_stacked.append(
+                not np.array_equal(fluctuation.epsilon, pooled_report.fluctuations[group].epsilon)
+            )
+        # This stratified partition is not exactly row-balanced. The original
+        # construction gives every fold risk mass 1/V, whereas Levy stacks rows,
+        # so their common coefficients are allowed (and here known) to differ.
+        assert any(differs_from_stacked)
+
+    def test_the_fold_specific_extension_is_not_the_canonical_update(
+        self, canonical_report, cv_fit
+    ) -> None:
+        common = canonical_report.fluctuations["mean"].epsilon
+        per_fold = [record.epsilon for record in cv_fit.fluctuations["mean"].folds]
+        assert len(per_fold) == canonical_report.cv_targeting.n_folds
+        assert any(not np.allclose(value, common) for value in per_fold)
+
+    def test_the_common_loss_normalises_observation_weights_inside_each_fold(
+        self, canonical_report
+    ) -> None:
+        weights = np.linspace(0.2, 2.0, canonical_report.n)
+        weights /= weights.mean()
+        data = replace(canonical_report.data, weights=weights)
+        balanced = canonical_report.estimator._validation_weights(data, canonical_report.nuisance)
+        masses = [float(np.sum(balanced[test])) for _, test in canonical_report.nuisance.folds]
+        assert masses == pytest.approx([canonical_report.n / len(masses)] * len(masses), rel=1e-12)
+
+    def test_levys_stacked_loss_keeps_the_empirical_weights(self, pooled_report) -> None:
+        weights = np.linspace(0.2, 2.0, pooled_report.n)
+        weights /= weights.mean()
+        data = replace(pooled_report.data, weights=weights)
+        stacked = pooled_report.estimator._validation_weights(data, pooled_report.nuisance)
+        np.testing.assert_array_equal(stacked, weights)
 
 
 class TestCrossValidatedVariance:
@@ -154,6 +202,10 @@ class TestCrossValidatedVariance:
             cross_validated_variance(ic, [np.arange(5)])
         with pytest.raises(ValueError, match="partition"):
             cross_validated_variance(ic, [np.arange(6), np.arange(4, 10)])
+        with pytest.raises(ValueError, match="must lie in"):
+            cross_validated_variance(ic, [np.arange(-1, 4), np.arange(4, 9)])
+        with pytest.raises(ValueError, match="must be integers"):
+            cross_validated_variance(ic, [np.arange(5, dtype=float), np.arange(5, 10)])
 
     def test_singleton_clusters_agree_with_the_unclustered_form(self) -> None:
         rng = np.random.default_rng(5)
@@ -177,20 +229,19 @@ class TestCrossValidatedVariance:
         ic = np.array([0.1, -0.1, 0.2, -0.2, 0.15, -0.15, 3.0, -3.0, 2.5, -2.5])
         index = [np.arange(6), np.array([6, 7]), np.array([8, 9])]
 
-        by_fold = float(np.mean([np.mean(ic[test] ** 2) for test in index]) / 10)
-        by_row = float(np.mean(ic**2) / 10)
-        assert cross_validated_variance(ic, index) == pytest.approx(by_fold, rel=1e-12)
-        # Not a rounding difference: the small fold holds six of the ten rows but only a
-        # third of the weight, so the two answers differ by two thirds.
-        assert by_fold > 1.6 * by_row
+        exact = float(sum(np.sum(ic[test] ** 2) / test.size**2 for test in index) / len(index) ** 2)
+        old_scaling = float(np.mean([np.mean(ic[test] ** 2) for test in index]) / 10)
+        assert cross_validated_variance(ic, index) == pytest.approx(exact, rel=1e-12)
+        # Dividing the fold-averaged second moment by total n is correct only when
+        # n_v=n/V.  This partition makes the old shortcut visibly wrong.
+        assert exact > 1.6 * old_scaling
 
     def test_it_matches_a_longhand_cluster_aware_loop(self) -> None:
         """Real clusters, not the singleton degenerate case.
 
-        With several observations per cluster the fold contribution is the mean squared
-        *cluster sum* rather than the mean squared row, and the ``n_clusters / n**2``
-        scaling replaces ``1 / n``.  The singleton test above cannot see either, because
-        both reduce to the unclustered form when every cluster has one member.
+        With several observations per cluster the fold contribution uses squared
+        *cluster sums* rather than squared rows. The singleton test above cannot see that
+        distinction because both reduce to the same expression with one row per cluster.
         """
         rng = np.random.default_rng(23)
         cluster = np.repeat(np.arange(10), 4)
@@ -199,12 +250,12 @@ class TestCrossValidatedVariance:
         ic = np.repeat(rng.normal(size=10), 4) + 0.3 * rng.normal(size=40)
         index = [np.arange(40).reshape(10, 4)[k::5].reshape(-1) for k in range(5)]
 
-        moments = []
+        contributions = []
         for test in index:
             codes = cluster[test]
             sums = [ic[test][codes == code].sum() for code in np.unique(codes)]
-            moments.append(float(np.mean(np.square(sums))))
-        expected = 10 * float(np.mean(moments)) / 40**2
+            contributions.append(float(np.sum(np.square(sums))) / test.size**2)
+        expected = float(np.sum(contributions)) / len(index) ** 2
         assert cross_validated_variance(ic, index, cluster) == pytest.approx(expected, rel=1e-12)
 
     def test_ignoring_real_clusters_understates_the_variance(self) -> None:
@@ -218,33 +269,43 @@ class TestCrossValidatedVariance:
         naive = cross_validated_variance(ic, index)
         assert clustered > 2.0 * naive
 
-    def test_splitting_a_cluster_across_folds_understates_it_too(self) -> None:
-        """Why folds have to respect clusters, stated as a number rather than advice.
-
-        The function sums within a cluster *inside each fold*, which is the only thing it
-        can do -- it sees one fold at a time.  So a cluster split across folds contributes
-        several small partial sums instead of one large one, and the dependence it was
-        meant to capture is discarded exactly in proportion to how finely it was split.
-        Fold construction is the caller's job (:func:`~cleverly.learners.crossfit.make_folds`
-        takes ``groups=``), and this is what neglecting it costs.
-        """
+    def test_it_refuses_a_cluster_split_across_folds(self) -> None:
+        """A split cluster is detectable invalid input, not a variance to report."""
         rng = np.random.default_rng(25)
         cluster = np.repeat(np.arange(10), 4)
         ic = np.repeat(rng.normal(size=10), 4) + 0.3 * rng.normal(size=40)
-        whole = [np.arange(40).reshape(10, 4)[k::5].reshape(-1) for k in range(5)]
-        # The same five folds, but assigned round-robin by row, so every cluster is
-        # spread across all of them.
         shredded = [np.arange(40)[k::5] for k in range(5)]
-        assert cross_validated_variance(ic, whole, cluster) > 2.0 * cross_validated_variance(
-            ic, shredded, cluster
+        with pytest.raises(ValueError, match="clusters must be assigned whole"):
+            cross_validated_variance(ic, shredded, cluster)
+
+    def test_unequal_fold_aggregation_scales_the_stored_curve(self) -> None:
+        indices = [np.arange(6), np.array([6, 7]), np.array([8, 9])]
+        raw = [np.arange(1, index.size + 1, dtype=float) for index in indices]
+        per_fold = [
+            {"ate": _fake_estimate("ate", psi, curve)}
+            for psi, curve in zip((0.1, 0.4, 0.7), raw, strict=True)
+        ]
+
+        estimate = _average_over_folds(per_fold, ("ate",), indices, n=10, cluster=None, alpha=0.05)[
+            "ate"
+        ]
+
+        assert estimate.psi == pytest.approx(0.4, rel=1e-12)
+        expected_curve = np.empty(10)
+        for index, curve in zip(indices, raw, strict=True):
+            expected_curve[index] = 10 / (3 * index.size) * curve
+        np.testing.assert_allclose(estimate.influence_curve, expected_curve, rtol=0, atol=0)
+        stitched = np.concatenate(raw)
+        assert estimate.variance == pytest.approx(
+            cross_validated_variance(stitched, indices), rel=1e-12
         )
 
 
 class TestCanonicalEvaluation:
     """Fold-wise evaluation is a different estimator, not a different view of one.
 
-    Stitching the fold-targeted predictions back together and evaluating once is not
-    what Zheng & van der Laan analyse.  For an estimand linear in those predictions the
+    Stitching the common-update validation predictions and evaluating once is not what
+    Zheng & van der Laan analyse. For an estimand linear in those predictions the
     distinction is invisible; for every other estimand it is real, and the whole point
     of these tests is that it stays visible in the code rather than being papered over.
     """
@@ -258,7 +319,7 @@ class TestCanonicalEvaluation:
         # assert it to machine precision rather than to a tolerance.
         assert canonical_report.psi(name) == pytest.approx(pooled_report.psi(name), abs=1e-12)
 
-    @pytest.mark.parametrize("name", NONLINEAR)
+    @pytest.mark.parametrize("name", ("att", "atc"))
     def test_the_two_reports_diverge_on_every_other_estimand(
         self, name: str, pooled_report, canonical_report
     ) -> None:
@@ -273,33 +334,25 @@ class TestCanonicalEvaluation:
     def test_the_canonical_estimate_is_the_fold_average(self, canonical_report) -> None:
         cv = canonical_report.cv_targeting
         assert len(set(cv.fold_sizes)) == 1, "equal folds, so 1/V weighting is unambiguous"
-        for name in (*LINEAR, "att", "atc"):
+        for name in CANONICAL:
             assert canonical_report.psi(name) == pytest.approx(
                 float(np.mean(cv.fold_estimates[name])), rel=1e-12
             )
-        for name in ("rr", "or"):
-            # Ratios are averaged on the log scale -- where the influence curve and the
-            # interval already live -- so that psi == exp(log_psi) continues to hold.
-            expected = float(np.exp(np.mean(np.log(cv.fold_estimates[name]))))
-            assert canonical_report.psi(name) == pytest.approx(expected, rel=1e-12)
-            assert canonical_report[name].psi == pytest.approx(
-                float(np.exp(canonical_report[name].log_psi)), rel=1e-12
-            )
 
-    def test_the_canonical_influence_curve_is_centred_inside_every_fold(
+    def test_the_canonical_influence_curve_is_not_recentred_inside_folds(
         self, canonical_report, pooled_report
     ) -> None:
-        # This is the structural difference, and it is what licenses the *uncentred*
-        # second moment in cross_validated_variance: a fold-specific curve is centred at
-        # its own fold's estimate, so nothing is discarded by not centring again. The
-        # pooled curve is only mean-zero over the whole sample, which is why feeding it
-        # to the same formula was an approximation.
-        folds = [record.index for record in canonical_report.fluctuations["mean"].folds]
+        # One common epsilon solves the *average* validation score, not every fold's
+        # score separately.  The nonzero fold means are therefore part of the canonical
+        # influence curve and must not be erased by recentering before its second moment.
+        folds = [test for _, test in canonical_report.nuisance.folds]
         for name in canonical_report.estimates:
             canonical = canonical_report[name].influence_curve
             pooled = pooled_report[name].influence_curve
-            assert max(abs(float(np.mean(canonical[i]))) for i in folds) < 1e-10
-            assert max(abs(float(np.mean(pooled[i]))) for i in folds) > 1e-3
+            fold_means = np.array([np.mean(canonical[i]) for i in folds])
+            assert np.max(np.abs(fold_means)) > 1e-4
+            assert float(np.mean(fold_means)) == pytest.approx(0.0, abs=1e-9)
+            assert not np.array_equal(canonical, pooled)
 
     def test_the_canonical_standard_error_is_the_cross_validated_one(
         self, canonical_report
@@ -311,28 +364,38 @@ class TestCanonicalEvaluation:
     def test_both_reports_are_kept_whichever_one_is_headline(
         self, pooled_report, canonical_report
     ) -> None:
-        # Switching cv_evaluation must never make the other construction unavailable,
-        # because comparing them is how you find out whether the choice mattered.
-        for result in (pooled_report, canonical_report):
-            cv = result.cv_targeting
-            assert sorted(cv.pooled) == sorted(cv.canonical) == sorted(ALL_BINARY)
-        headline = {"pooled": pooled_report, "canonical": canonical_report}
-        for label, result in headline.items():
-            for name, estimate in result.estimates.items():
-                assert estimate.psi == getattr(result.cv_targeting, label)[name].psi
+        cv = canonical_report.cv_targeting
+        assert pooled_report.cv_targeting is None
+        assert sorted(cv.pooled) == sorted(cv.canonical) == sorted(CANONICAL)
+        assert cv.fold_evaluated is cv.canonical
+        for name, estimate in canonical_report.estimates.items():
+            assert estimate.psi == cv.canonical[name].psi
+            assert cv.pooled[name].variance == pytest.approx(
+                influence_variance(cv.pooled[name].influence_curve, canonical_report.data.cluster),
+                rel=1e-12,
+            )
 
     def test_the_score_equation_still_holds(self, canonical_report) -> None:
-        # A curve that is mean-zero in every fold is mean-zero pooled, so the diagnostic
-        # that checks the targeting step has to keep passing.
+        # The common update solves the average validation score even though individual
+        # folds retain nonzero score contributions.
         assert canonical_report.validation.score_check().passed
 
     def test_it_names_the_estimator_it_ran(self, pooled_report, canonical_report) -> None:
-        assert pooled_report.config.estimator_name == "fold-targeted CV-TMLE"
-        assert canonical_report.config.estimator_name == "canonical CV-TMLE"
+        assert pooled_report.config.estimator_name == "stacked CV-TMLE (Levy)"
+        assert canonical_report.config.estimator_name == "fold-evaluated CV-TMLE"
 
     def test_canonical_evaluation_needs_something_to_evaluate(self) -> None:
-        with pytest.raises(ValueError, match="targeting_scheme='fold'"):
-            TMLE(cv_evaluation=True)
+        with pytest.raises(ValueError, match="cross_fit=True"):
+            TMLE(cv_evaluation=True, cross_fit=False)
+
+    @pytest.mark.parametrize("name", ("rr", "or"))
+    def test_nonlinear_fold_aggregation_is_refused_until_its_score_is_targeted(
+        self, binary_frame, name: str
+    ) -> None:
+        with pytest.raises(ValueError, match="nonlinear parameter"):
+            TMLE(**{**FAST_KWARGS, "cv_evaluation": True, "estimands": (name,)}).fit(
+                binary_frame, outcome="Y", treatment="A"
+            )
 
     def test_a_fold_that_cannot_produce_an_estimand_drops_it(self) -> None:
         # Constructed rather than fitted: a fold with no units in the conditioning arm
@@ -367,7 +430,7 @@ def _fake_estimate(name: str, psi: float, ic: np.ndarray) -> object:
 class TestWhichVarianceIsTheInferentialOne:
     """Which number the interval is built from, asserted rather than left to the prose.
 
-    The package reports two variances for a fold-targeted fit and the README says which is
+    The package reports two variances for a fold-evaluated fit and the README says which is
     headline; nothing checked that the code agreed.  The distinction matters because they
     are variances of two different estimators: the pooled one is the sample variance of the
     stitched influence curve, the canonical one is the fold-averaged uncentred second
@@ -382,7 +445,7 @@ class TestWhichVarianceIsTheInferentialOne:
             assert estimate.variance == pytest.approx(expected, rel=1e-12), name
 
     def test_the_canonical_report_uses_the_cross_validated_variance(self, canonical_report) -> None:
-        folds = [record.index for record in canonical_report.fluctuations["mean"].folds]
+        folds = [test for _, test in canonical_report.nuisance.folds]
         for name in LINEAR:
             estimate = canonical_report[name]
             expected = cross_validated_variance(
@@ -397,28 +460,39 @@ class TestWhichVarianceIsTheInferentialOne:
         # different curves by different formulas, so they are not equal. If they came out
         # identical, the two tests above would not be distinguishing anything.
         differs = 0
-        for name in ALL_BINARY:
+        for name in CANONICAL:
             pooled = pooled_report[name].variance
             canonical = canonical_report[name].variance
             assert canonical == pytest.approx(pooled, rel=0.05), name
             differs += canonical != pooled
-        assert differs == len(ALL_BINARY)
+        assert differs == len(CANONICAL)
 
     def test_a_pooled_fit_reports_no_cross_validated_variance_as_headline(
-        self, pooled_report
+        self, pooled_report, canonical_report
     ) -> None:
-        # The headline standard error of a fold-targeted-but-pooled-evaluation fit must be
-        # the pooled one, even though the cross-validated number is computed and kept.
-        cv = pooled_report.cv_targeting
-        for name, estimate in pooled_report.estimates.items():
-            assert estimate.std_error == pytest.approx(cv.pooled[name].std_error, rel=1e-12)
+        # Without fold-wise evaluation the ordinary stitched-curve variance remains the
+        # headline. The fold-evaluated fit also keeps the ordinary variance of its own
+        # common update for comparison; it is not a second fit under tmle3's row-weighted
+        # loss, so the two comparison reports need not be numerically identical.
+        assert pooled_report.cv_targeting is None
+        cv = canonical_report.cv_targeting
+        for name in CANONICAL:
+            estimate = pooled_report[name]
+            assert estimate.variance == pytest.approx(
+                influence_variance(estimate.influence_curve, pooled_report.data.cluster),
+                rel=1e-12,
+            )
+            assert cv.pooled[name].variance == pytest.approx(
+                influence_variance(cv.pooled[name].influence_curve, canonical_report.data.cluster),
+                rel=1e-12,
+            )
             assert estimate.variance != cv.variance[name]
 
 
 class TestRepeatedDraws:
-    """The canonical construction over several draws of the split.
+    """The original fold-evaluated construction over several split draws.
 
-    ``repeats=R`` averages ``R`` canonical CV-TMLEs, and the one thing that cannot follow
+    ``repeats=R`` averages ``R`` fold-evaluated CV-TMLEs, and the one thing that cannot follow
     the influence curve is the variance: the cross-validated one is defined by a fold
     partition, and the averaged curve belongs to none of the ``R``.  What is reported is
     the mean of the draws' cross-validated variances instead.  The arithmetic of that is
@@ -430,25 +504,22 @@ class TestRepeatedDraws:
     def repeated(self, binary_frame) -> object:
         settings = {
             **FAST_KWARGS,
-            "targeting_scheme": "fold",
             "cv_evaluation": True,
             "repeats": 3,
-            "estimands": ALL_BINARY,
+            "estimands": CANONICAL,
         }
         return TMLE(**settings).fit(binary_frame, outcome="Y", treatment="A").single()
 
     def test_it_is_still_the_canonical_estimator(self, repeated) -> None:
-        assert repeated.config.estimator_name == "canonical CV-TMLE"
+        assert repeated.config.estimator_name == "fold-evaluated CV-TMLE"
         assert repeated.cv_targeting.repeats == 3
 
-    def test_the_averaged_curve_is_no_longer_centred_inside_any_draws_folds(self, repeated) -> None:
-        # The negative control behind the whole variance decision. A *single* draw's
-        # canonical curve is exactly mean-zero within each of its own folds, which is what
-        # licenses the uncentred second moment. Average R of them and that property is
-        # gone in every one of the R partitions -- so there is no partition under which
-        # the averaged curve is the thing cross_validated_variance was defined for.
+    def test_the_averaged_curve_belongs_to_none_of_the_draws_partitions(self, repeated) -> None:
+        # Each draw has its own fold-specific curve and partition.  Averaging the curves
+        # does not create a curve belonging to any one of those partitions, so its
+        # within-fold means remain visibly nonzero under every draw's split.
         for repeat in repeated.repeats:
-            folds = [record.index for record in repeat.fluctuations["mean"].folds]
+            folds = [test for _, test in repeat.nuisance.folds]
             worst = max(
                 abs(float(np.mean(repeated[name].influence_curve[index])))
                 for name in repeated.estimates
@@ -463,7 +534,7 @@ class TestRepeatedDraws:
         detail = repeated.cv_targeting
         for name in LINEAR:
             assert detail.canonical[name].psi == pytest.approx(detail.pooled[name].psi, rel=1e-9)
-        for name in NONLINEAR:
+        for name in ("att", "atc"):
             assert detail.canonical[name].psi != pytest.approx(detail.pooled[name].psi, rel=1e-9)
 
     def test_the_cross_validated_variance_is_reported_for_every_estimand(self, repeated) -> None:
@@ -484,7 +555,7 @@ class TestCVTargetingReport:
     def test_the_summary_names_the_folds_and_the_coefficients(self, cv_fit) -> None:
         text = cv_fit.cv_targeting.summary()
         assert "Cross-validated targeting over 5 folds" in text
-        assert "fluctuation coefficients by fold" in text
+        assert "fold-specific fluctuation coefficients" in text
         assert "ate" in text
 
     def test_to_frame_has_one_row_per_estimand(self, cv_fit) -> None:

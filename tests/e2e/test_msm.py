@@ -312,10 +312,10 @@ class TestALinkChangesTheParameterAndNotTheMachinery:
 class TestFoldWiseTargetingGivesEachFoldItsOwnBeta:
     """``targeting_scheme="fold"`` under a link, where the covariate is fold-specific.
 
-    The point of fold-wise targeting is that no row contributes to the coefficient that
-    fluctuates it.  Under a link ``beta`` is one of those coefficients, so it is solved on
-    each fold's own rows -- and the pooled score has to stay exactly zero anyway, because
-    each fold's score is zero at the ``beta`` its own rows were fluctuated at.
+    Under a link ``beta`` is one of the coefficients the covariate reads, so the
+    fold-specific extension solves it on each fold's own rows. Those rows also fit the
+    epsilon used on that fold; what is removed is coupling *between* folds. The pooled
+    score stays zero because each fold's score is zero at its own ``beta``.
     """
 
     @pytest.fixture(scope="class")

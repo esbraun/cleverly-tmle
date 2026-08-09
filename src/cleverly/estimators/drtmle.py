@@ -301,8 +301,9 @@ class DRTMLE(TMLE):
       axes -- each is a different score equation with no reduced-dimension derivation;
     * ``delta=`` and ``intermediate=`` -- the equations above carry no missingness or
       intermediate factor;
-    * ``targeting_scheme="fold"`` and ``cv_evaluation=True`` -- each fold would need its own
-      reduced regressions, fitted out of that fold, and its own alternation inside it;
+    * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and
+      alternation; and ``cv_evaluation=True`` -- the common-update construction would need
+      the corrected parameter and curve derived under fold-wise evaluation;
     * combining with :class:`~cleverly.CTMLE`.  A reduced regression conditions on
       :math:`\\hat g` *as a covariate*, and C-TMLE's :math:`\\hat g` is deliberately not an
       estimate of :math:`g_0`; and C-TMLE scores its path by the loss of the targeted
@@ -442,11 +443,11 @@ class DRTMLE(TMLE):
                 )
         if self.targeting_scheme == "fold" or self.cv_evaluation:
             raise NotImplementedError(
-                "DRTMLE targets pooled only. Fold-wise targeting would need each fold's "
-                "reduced-dimension regressions fitted out of that fold and its own "
-                "alternation run inside it -- the reductions are regressions *of* an "
-                "out-of-fold prediction, so a per-fold alternation is a derivation rather "
-                "than a loop over the one here. Use targeting_scheme='pooled'."
+                "DRTMLE supports only its pooled report. targeting_scheme='fold' would "
+                "need each fold's reduced regressions and alternation; cv_evaluation=True "
+                "would need the corrected parameter and influence curve derived under "
+                "fold-wise evaluation. Neither follows by looping over the pooled "
+                "reduction. Use targeting_scheme='pooled', cv_evaluation=False."
             )
         for keyword in ("interventions", "shifts", "incremental", "msm"):
             if getattr(self, keyword, None):

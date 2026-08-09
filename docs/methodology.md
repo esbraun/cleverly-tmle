@@ -181,9 +181,10 @@ Three things change inside, and each is a place the obvious generalisation is wr
   still gives exactly zero, under every link.
 
 Under `targeting_scheme="fold"` each fold solves its own `β`, since `β` is a coefficient the
-covariate reads and the point of fold-wise targeting is that no row contributes to any
-coefficient that fluctuates it. The pooled score is still exactly zero — each fold's is zero
-at the `β` its own rows were fluctuated at.
+covariate reads. This removes coupling *between* folds, but the rows inside a fold still fit
+both the `β` and epsilon used for that fold. The pooled score is exactly zero because each
+fold's is zero at the `β` its own rows were fluctuated at. This is a package extension, not
+the common-update CV-TMLE of Zheng & van der Laan.
 
 A saturated working model still reproduces the per-arm report, now through the link:
 `expit(β_a)` is `E[Y(a)]` to machine precision, with influence curves related by the delta
@@ -611,12 +612,19 @@ implementation that accepts an argument is not a proof that the argument is lice
 ## Cross-fitting: what the folds do and do not buy
 
 Cross-fitting the nuisances is what removes the Donsker condition on the nuisance
-*estimators*. Pooled targeting on top of that adds an empirical-process term of its own,
-because `epsilon` is fit on the rows it fluctuates — controlled, but by a different
-argument: *conditional on the training-fold fits* `Qbar` is fixed, and `{Qbar(epsilon)}`
-is then indexed by a fixed finite-dimensional coefficient over a compact set (two entries
-for the default estimand, one per arm), Lipschitz in it, and so Donsker however complex
-`Qbar` is.
+*estimators*. The original CV-TMLE commonly fits one epsilon by minimising the equal
+average validation-fold loss, then evaluates the parameter inside each fold. Levy's easy
+implementation stacks all out-of-fold predictions and otherwise runs an ordinary TMLE;
+that is the default here. The pinned `tmle3` source snapshot cited in the references
+selects the same `"validation"` likelihood path with
+`tmle3_Update(cvtmle=TRUE)`. Levy's paper defines the behavior; the R source is a fixed
+implementation cross-check, not a moving specification. The two targeting regressions
+coincide for equal unweighted folds, while their evaluation rules are exactly equal only
+for the linear examples Levy
+identifies. Conditional on the training-fold fits, each `Qbar_v` is fixed and the common
+fluctuated family is indexed only by a fixed finite-dimensional coefficient over a compact
+set. The validation outcomes do fit epsilon; sample splitting makes the *initial
+nuisances*, not the targeted predictions, out of fold.
 
 That controls the empirical-process term and nothing else. Efficiency still needs the rest:
 positivity bounding the clever covariate (the `g_bounds` truncation), the estimated
@@ -625,12 +633,22 @@ remainder that is `o_P(n^-1/2)` by a *product rate* on `ghat` and `Qbarhat` — 
 on the learners, which the finite-dimensional fluctuation does not supply. That last one is
 the condition [doubly-robust inference](#doubly-robust-inference-what-the-extra-equations-remove)
 weakens, and the only one of the four that a *variant* of the estimator can do anything
-about. Note too that a
-single pooled `epsilon_hat` couples the folds: each row's nuisance prediction is out of
-fold, but its *targeted* prediction is not. The two schemes share a first-order limit under
-those conditions — but they are not the same estimator, and Zheng & van der Laan prove
-their result for the fold-targeted construction specifically. See `targeting_scheme` in the
-API docs for the full statement.
+about.
+
+`targeting_scheme="fold"` is a separate finite-sample extension: it replaces the common
+epsilon with one fitted inside each validation fold. It removes cross-fold coupling through
+epsilon, but a row still contributes to the coefficient used on its own fold. The extension
+and the common update share a first-order limit under the conditions above; they are not the
+same estimator. Only the common update is attributed to the cited literature. The stacked
+evaluation is defined by Levy and corroborated by the pinned `tmle3` snapshot.
+
+Original fold evaluation averages the fold plug-ins with weight `1/V`. Its validation
+risks and observation weights are normalised inside fold to match that aggregation. The variance is
+`V^-2 Σ_v n_v^-2 Σ_{i in v} D_{v,i}²`, not a fold-averaged second moment divided by total
+`n`; those coincide only for exactly equal folds. A nonlinear fold aggregate has a
+fold-varying gradient. Until its own common targeting score is implemented, `rr`, `or`, and
+MSM coefficients are refused under `cv_evaluation=True` rather than given an interval whose
+reported curve has nonzero score.
 
 **The doubly-robust variant's reduced regressions need a further argument, and they have one.**
 A reduction is a regression *on* an out-of-fold prediction, so fold `k`'s fits on rows whose

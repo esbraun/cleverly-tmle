@@ -142,16 +142,19 @@ class TMLEConfig:
     def estimator_name(self) -> str:
         """Which of the three cross-fitting constructions this fit actually ran.
 
-        Worth naming rather than reporting the raw settings: pooled targeting on
-        cross-fitted nuisances and CV-TMLE are different estimators with different
-        asymptotic arguments, and only the last of these is the canonical CV-TMLE of
-        Zheng & van der Laan (2011).
+        Worth naming rather than reporting the raw settings: one common update over the
+        validation losses is the source CV-TMLE targeting step, while a separate update
+        per fold is an optional extension with different finite-sample behavior.
         """
         if not self.cross_fit:
             return "TMLE (in-sample nuisances)"
-        if self.targeting_scheme != "fold":
-            return "cross-fitted TMLE"
-        return "canonical CV-TMLE" if self.cv_evaluation else "fold-targeted CV-TMLE"
+        if self.targeting_scheme == "pooled":
+            return "fold-evaluated CV-TMLE" if self.cv_evaluation else "stacked CV-TMLE (Levy)"
+        return (
+            "fold-specific fold-evaluated TMLE"
+            if self.cv_evaluation
+            else "fold-specific targeted TMLE"
+        )
 
     def describe(self) -> list[str]:
         """Human-readable lines for :meth:`TMLEResult.summary`."""
@@ -222,18 +225,24 @@ class TMLEConfig:
 
 @dataclass(frozen=True)
 class CVTargeting:
-    """Fold-level detail from a fit that targeted fold by fold.
+    """Fold-level detail from a cross-validated TMLE fit.
 
-    Each fold gets its own ``epsilon``, fit against nuisance predictions from models
-    trained on the other folds, and its own plug-in estimate.  Keeping the pieces is the
-    point: fold estimates that disagree far more than their standard errors allow, or an
-    ``epsilon`` that changes sign between folds, mean the fluctuation is being driven by
-    a handful of extreme clever-covariate values rather than by the sample.
+    The original CV-TMLE evaluates updated fold-specific distributions one fold at a
+    time.  Its usual pooled targeting step fits one common ``epsilon`` by minimising the
+    equal average of their validation losses; :attr:`epsilon` records that update.  Levy's
+    easy implementation instead stacks the out-of-fold predictions, targets and evaluates
+    them just like one ordinary TMLE. That stacked construction is the package default,
+    defined here by Levy (2018). The pinned ``tmle3`` source snapshot in the references
+    implements the same path by requesting its ``"validation"`` likelihood in
+    ``tmle3_Update``; it is corroborating implementation evidence, not the specification.
+    The optional ``targeting_scheme="fold"`` extension fits one update per fold; those
+    coefficients are kept separately in :attr:`fold_epsilon`.
 
     The two reports here are genuinely different estimators, not two views of one.
-    :attr:`pooled` stitches the fold-targeted predictions back together and evaluates the
-    estimand once over the whole sample; :attr:`canonical` evaluates it inside each fold
-    and averages, which is the construction Zheng & van der Laan (2011) analyse.  They
+    :attr:`pooled` stitches the updated validation predictions together and evaluates the
+    estimand once over the whole sample; :attr:`canonical` (the compatibility name for
+    the original fold-evaluated report) evaluates it inside each fold and averages, which
+    is the construction Zheng & van der Laan (2011) analyse.  They
     coincide exactly for estimands linear in the targeted predictions at equal fold
     sizes -- ``ate``, ``ey1``, ``ey0`` -- and diverge for ``rr``, ``or``, ``att`` and
     ``atc``, where a ratio of means is not a mean of ratios and the pooled conditional
@@ -264,9 +273,12 @@ class CVTargeting:
         Estimands that some fold could not evaluate (no units in the conditioning arm, a
         boundary counterfactual mean) are absent, and their omission was warned about at
         fit time.
+    epsilon:
+        Per-targeting-group common fluctuation coefficient.  For the fold-specific
+        extension this is only the mass-weighted summary reported by ``Fluctuation``.
     fold_epsilon:
-        Per-targeting-group tuple of that fold's fluctuation coefficients, from the first
-        draw.
+        Per-targeting-group tuple of fold-specific fluctuation coefficients, from the
+        first draw. Empty for common pooled-validation targeting.
     pooled, canonical:
         The two reports, per estimand, averaged over every draw.
     repeats:
@@ -278,6 +290,7 @@ class CVTargeting:
     fold_sizes: tuple[int, ...]
     variance: dict[str, float]
     fold_estimates: dict[str, tuple[float, ...]]
+    epsilon: dict[str, tuple[float, ...]]
     fold_epsilon: dict[str, tuple[tuple[float, ...], ...]]
     pooled: dict[str, ParameterEstimate] = field(default_factory=dict)
     canonical: dict[str, ParameterEstimate] = field(default_factory=dict)
@@ -290,6 +303,11 @@ class CVTargeting:
     def std_error(self) -> dict[str, float]:
         """Cross-validated standard error per estimand."""
         return {name: float(np.sqrt(value)) for name, value in self.variance.items()}
+
+    @property
+    def fold_evaluated(self) -> dict[str, ParameterEstimate]:
+        """The original fold-evaluated report (clear alias for ``canonical``)."""
+        return self.canonical
 
     def to_frame(self, data: CausalData | None = None) -> Any:
         """One row per estimand: both reports, the CV standard error and the spread."""
@@ -330,7 +348,7 @@ class CVTargeting:
         table = format_table(
             [
                 "estimand",
-                "canonical",
+                "fold-evaluated",
                 "cv std_err",
                 "pooled",
                 "std_err",
@@ -342,8 +360,8 @@ class CVTargeting:
         header = [
             f"Cross-validated targeting over {self.n_folds} folds "
             f"(sizes {min(self.fold_sizes)}-{max(self.fold_sizes)})",
-            "canonical: evaluated fold by fold and averaged (Zheng & van der Laan).",
-            "pooled: the fold-targeted fits stitched together, evaluated once.",
+            "fold-evaluated: evaluated inside each fold and averaged (original CV-TMLE).",
+            "pooled: this fit's updated validation predictions stitched and evaluated once.",
         ]
         if self.repeats > 1:
             header.append(
@@ -351,7 +369,12 @@ class CVTargeting:
                 "split; the fold columns describe the first."
             )
         header.append("")
-        epsilon_lines = ["", "fluctuation coefficients by fold:"]
+        epsilon_lines = ["", "common fluctuation coefficients:"]
+        for group, eps in self.epsilon.items():
+            formatted = "(" + ", ".join(f"{e:.4g}" for e in eps) + ")"
+            epsilon_lines.append(f"  {group}: {formatted}")
+        if self.fold_epsilon:
+            epsilon_lines.append("fold-specific fluctuation coefficients:")
         for group, per_fold in self.fold_epsilon.items():
             formatted = ", ".join(
                 "(" + ", ".join(f"{e:.4g}" for e in eps) + ")" for eps in per_fold
@@ -498,10 +521,11 @@ class TMLEResult:
 
     @property
     def cv_targeting(self) -> CVTargeting | None:
-        """Fold-level detail, when the fit used ``targeting_scheme="fold"``.
+        """Fold-level detail for fold evaluation or fold-specific targeting.
 
-        Carries both the pooled and the canonical CV-TMLE report whichever one
-        ``result[name]`` was configured to show, so the two can always be compared.
+        Carries both the stacked and original fold-evaluated reports whichever one
+        ``result[name]`` was configured to show, so the two can always be compared. The
+        latter retains the :attr:`CVTargeting.canonical` compatibility name.
         """
         value = self.extra.get("cv_tmle")
         return value if isinstance(value, CVTargeting) else None

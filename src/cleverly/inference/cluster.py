@@ -137,26 +137,25 @@ def cross_validated_variance(
     influence curve, computed from nuisance fits that never saw those rows, and the
     folds are then averaged.
 
+    For the equally weighted fold estimator
+    :math:`\hat\psi_{CV}=V^{-1}\sum_v\hat\psi_v`, the finite-sample scaling is
+
     .. math::
 
-        \hat\sigma^2_{CV} = \frac{1}{V} \sum_{v=1}^{V}
-                            \frac{1}{n_v} \sum_{i \in \mathcal V_v} \mathrm{IC}_i^2,
-        \qquad
-        \widehat{\mathrm{Var}}(\hat\psi) = \hat\sigma^2_{CV} / n.
+        \widehat{\mathrm{Var}}(\hat\psi_{CV}) =
+        \frac{1}{V^2}\sum_{v=1}^{V}\frac{1}{n_v^2}
+        \sum_{i \in \mathcal V_v} \mathrm{IC}_{v,i}^2.
 
-    The second moment rather than the centred variance is deliberate, and what it costs
-    depends on which influence curve you hand it.  Given the *fold-specific* curves that
-    canonical CV-TMLE produces -- each centred at its own fold's estimate -- the mean
-    within a fold is already exactly zero, so not centring again discards nothing and
-    this is the estimator Zheng & van der Laan define.  Given a *pooled* curve, mean-zero
-    only over the whole sample, centring within a fold would throw away a real
-    contribution, so the uncentred form remains the right choice but the result is an
-    approximation to the same quantity rather than that quantity.
+    The second moment rather than a fold-centred variance is deliberate.  Canonical
+    CV-TMLE uses one common fluctuation coefficient, so a validation fold's efficient
+    influence curve need not have empirical mean zero by itself; the fold scores cancel
+    only after the validation risks are aggregated.  Recentring within folds would erase
+    that real component.
 
-    At equal fold sizes the fold weights cancel and this reduces exactly to
-    ``mean(IC**2) / n`` -- which is why it agrees with :func:`influence_variance` on a
-    well-solved fit, and why the two can be compared as a check rather than trusted
-    separately.
+    At equal fold sizes this reduces exactly to ``mean(IC**2) / n``.  Keeping the
+    :math:`n_v^{-2}` factors is essential when a partition is not exactly balanced:
+    dividing a fold-averaged second moment by the total ``n`` instead estimates a
+    different, row-weighted aggregation.
 
     Folds are weighted equally, at ``1/V``.  The point estimate they go with is averaged
     the same way, so the two stay consistent without a weighting argument.
@@ -172,10 +171,17 @@ def cross_validated_variance(
     if n < 2:
         raise ValueError("need at least 2 observations to estimate a variance")
 
-    partition: Sequence[IntArray] = [np.asarray(index).reshape(-1) for index in folds]
+    raw_partition = [np.asarray(index).reshape(-1) for index in folds]
+    if any(not np.issubdtype(index.dtype, np.integer) for index in raw_partition):
+        raise ValueError("validation-fold indices must be integers")
+    partition: Sequence[IntArray] = [index.astype(np.int64, copy=False) for index in raw_partition]
     if not partition:
         raise ValueError("need at least one validation fold")
+    if any(index.size == 0 for index in partition):
+        raise ValueError("validation folds must not be empty")
     covered = np.concatenate(partition) if len(partition) > 1 else partition[0]
+    if np.any(covered < 0) or np.any(covered >= n):
+        raise ValueError(f"validation-fold indices must lie in [0, {n}); got {covered.tolist()}")
     if covered.shape[0] != n or np.unique(covered).shape[0] != n:
         raise ValueError(
             f"validation folds must partition the {n} observations; "
@@ -183,21 +189,33 @@ def cross_validated_variance(
             f"{np.unique(covered).shape[0]} distinct rows"
         )
 
+    nonempty = list(partition)
+    n_folds = len(nonempty)
     if cluster is None:
-        moments = [float(np.mean(ic[index] ** 2)) for index in partition if index.size]
-        return float(np.mean(moments) / n)
+        return float(
+            sum(float(np.sum(ic[index] ** 2)) / index.size**2 for index in nonempty) / n_folds**2
+        )
 
     codes = np.asarray(cluster).reshape(-1)
-    moments = []
-    for index in partition:
-        if index.size == 0:
-            continue
+    if codes.shape[0] != n:
+        raise ValueError(f"cluster has {codes.shape[0]} entries but influence curve has {n} rows")
+    cluster_folds: dict[object, int] = {}
+    contributions = []
+    for fold_number, index in enumerate(nonempty):
+        for code in np.unique(codes[index]):
+            key = code.item() if hasattr(code, "item") else code
+            previous = cluster_folds.setdefault(key, fold_number)
+            if previous != fold_number:
+                raise ValueError(
+                    f"cluster {key!r} appears in validation folds {previous} and "
+                    f"{fold_number}; clusters must be assigned whole to one fold"
+                )
         sums = cluster_sums(ic[index], codes[index])
-        moments.append(float(np.mean(sums**2)))
+        contributions.append(float(np.sum(sums**2)) / index.size**2)
     n_clusters = int(np.unique(codes).size)
     if n_clusters < 2:
         raise ValueError("need at least 2 clusters to estimate a cluster-robust variance")
-    return float(n_clusters * np.mean(moments) / n**2)
+    return float(sum(contributions) / n_folds**2)
 
 
 def influence_covariance(

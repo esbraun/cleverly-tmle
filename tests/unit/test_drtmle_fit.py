@@ -794,7 +794,7 @@ class TestTheRefusals:
             DRTMLE(**{**SETTINGS, keyword: value})
 
     def test_fold_wise_targeting(self) -> None:
-        with pytest.raises(NotImplementedError, match="pooled only"):
+        with pytest.raises(NotImplementedError, match="supports only its pooled report"):
             DRTMLE(targeting_scheme="fold", **SETTINGS)
 
     def test_a_missing_outcome(self) -> None:

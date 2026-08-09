@@ -92,7 +92,8 @@ raise at construction or at `fit`, with a message naming what a derivation would
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |
 | `delta=`, `intermediate=` | the equations carry no missingness or intermediate factor. There is also an unsettled derivation question behind `delta=`: R's `eval_Dstar_g` applies the missingness indicator to `D*_g` and `reduced_corrections` does not. It is not live — no fit either package accepts has a missing outcome — and it must be settled **from the derivation** before the refusal is lifted. |
-| `targeting_scheme="fold"`, `cv_evaluation=True` | each fold would need its own reduced regressions, fitted out of that fold, and its own alternation inside it |
+| `targeting_scheme="fold"` | each fold would need its own reduced regressions and alternation |
+| `cv_evaluation=True` | the common-update construction would need the corrected parameter and influence curve derived under fold-wise evaluation |
 | composition with `CTMLE` | a reduced regression conditions on `ĝ` *as a covariate*, and C-TMLE's `ĝ` is deliberately not an estimate of `g_0`; and C-TMLE scores its path by the loss of the targeted `Q̄`, so the criterion choosing `ĝ` presupposes `Q̄` is informative — precisely the case this variant insures against. |
 | estimated weights (`weights_estimated=`) | the ordinary answer — that the interval conditions on the weights — is an argument about `D*` rather than about `Q_r`, `g_{r,1}` and `g_{r,2}` |
 | `evaluation=` with `repeats>1`, `targeting="one_step"`, or `target_weights=True` | each by name; the middle one on cost, up to 20,000 adaptive steps |
