@@ -456,7 +456,7 @@ The implementation follows the published pooled construction step by step:
 | --- | --- | --- |
 | Build increasingly adaptive `g_k` candidates | greedy, preordered, and discrete paths retain nested candidate state | exact path and treatment-risk tests |
 | Target `Qbar0` with each `g_k` | every candidate carries its complete `Qbar*_k`, fluctuation and influence curve | longhand loss, penalty and score equations |
-| Cross-validate the stopping index | every selection fold refits `Qbar0`, auxiliary mechanisms and every `g_k` using training rows only | spy learners with unequal outer and selection fold counts |
+| Cross-validate the stopping index | every selection fold refits `Qbar0`, auxiliary mechanisms and every `g_k`; training-row predictions are inner-fold out-of-fold and validation-row predictions come from the full selection-training fit | row-ID spy learners and the two-fold degeneracy case |
 | Select the candidate estimator | the final fit persists both selected `g_k` and selected `Qbar*_k` | mutation test that discarding `Qbar*_k` fails |
 | Report and retarget | pooled targeting continues from the selected state; the continuation score is numerical zero | score, sensitivity and serialization round trips |
 
@@ -465,29 +465,41 @@ one-variable targeting loss and partial correlation of `Y-Qbar0(A,W)` with each 
 conditional on treatment. The former is the default. Marginal correlation with `Y` is not
 a published preorder and is not used.
 
-Selection folds are separate from nuisance cross-fitting. In particular, matching fold
-counts or seeds is never relied upon for independence: a selection validation observation
-or cluster contributes to no nuisance fit used to score it.
+Selection folds are separate from nuisance cross-fitting. Within each selection-training
+set, a dedicated inner split produces out-of-fold predictions for its training rows and one
+additional model trained on the whole set predicts the selection-validation rows. Matching
+fold counts or seeds is never relied upon for independence: a selection validation
+observation or cluster contributes to no nuisance fit used to score it, and no training row
+contributes to the model that predicts that row. The outcome support transform is fixed from
+the outer fit, so every fold's loss and influence curve remain in the same unit.
+`selection_inner_folds=2` is the explicit cost control: a selection path uses three fits per
+nuisance or candidate (two fold fits and one full fit) rather than silently borrowing the
+outer nuisance fold count.
 
 Two more things about the statistical evidence change how the numbers in
 [the C-TMLE example](user-guide.md#collaborative-tmle) should be read. When `Qbar` is
 correctly specified — as it is in the example process — the
-*empty* propensity model is a legitimate MSE-minimising choice, and C-TMLE usually makes
-it: 10 seeds out of 10 for the greedy search at `n = 700`. That is right, not a defect, but
+*empty* propensity model is a legitimate MSE-minimising choice, and the ordered C-TMLE
+makes it on all five fixed `n = 700` unit-test seeds. That is right, not a defect, but
 it means a favourable comparison against plain TMLE on such a process would also be won by
 a selector hard-wired to select nothing, so it is not evidence that the search
 discriminates between covariates. The claim that it does is tested where selecting nothing
 is *wrong* — with the outcome model reduced to a constant, the search includes the
 confounder in every seed and still leaves the instrument out, while a do-nothing selector
-is biased by 0.81 against 0.037. The `tmle3` source is the reference for the shared
-out-of-fold-nuisance/pooled-fluctuation architecture. Because `tmle3` does not implement
-C-TMLE selection, the candidate search is validated against the source equations rather
-than claimed to have numerical R parity.
+has mean absolute error 0.696 against 0.017. The `tmle3` source is a design reference for
+the shared
+out-of-fold-nuisance/pooled-fluctuation architecture. It localises the convention that
+training rows use fold fits while new rows use a full-training refit; it is not acceptance
+evidence. Because `tmle3` does not implement C-TMLE selection, the candidate search is
+accepted on the paper equations, exact identities, row-membership audits, mutation controls,
+score checks and statistical tier described here, not on numerical R parity.
 
 Only the pooled collaborative estimator is exposed. `targeting_scheme="fold"` and
 `cv_evaluation=True` are refused: composing collaborative model selection with fold-targeted
 or canonical CV-TMLE changes the estimator and needs a separate derivation. Retargeting a
-sensitivity analysis holds the selected candidate fixed; rerun the fit to redo selection.
+sensitivity analysis holds the selected candidate fixed and begins each perturbed targeting
+step from that candidate's own `Qbar*_k`, not from the original `Qbar0`. Both iterative and
+one-step sweeps are checked to solve the perturbed score. Rerun the fit to redo selection.
 
 ## Doubly-robust inference: what the extra equations remove
 
@@ -803,13 +815,13 @@ root-n consistency, type I error and the estimator variants live in
 push, in both a comfortable-overlap and a weak-overlap version — and the two disagree, which
 is the point of having both.
 
-Two things this does **not** include, stated plainly because their absence is easy to miss.
-There is no comparison against another implementation — not R's `tmle`, not `tmle3`, not
-`ctmle` — and that is a standing decision: agreement with a second implementation is evidence
-about a transcription, and what is checked here instead is that each method produces what its
-derivation predicts. The roadmap's [standing decisions](roadmap.md#standing-decisions) carry the
-reasoning. And `score_check()` passing is not evidence that the equation was the right one —
-see below.
+Two limitations are stated plainly because their absence is easy to miss. Reference
+implementations such as R's `tmle`, `tmle3`, and `ctmle` may be used to understand a
+construction or localise a discrepancy, and the C-TMLE section above names the one convention
+adopted that way. Agreement with them is not an oracle or an acceptance criterion: the evidence
+here checks that each method produces what its derivation predicts. The roadmap's
+[standing decisions](roadmap.md#standing-decisions) carry the reasoning. And `score_check()`
+passing is not evidence that the equation was the right one — see below.
 
 ## How to read a refusal
 
