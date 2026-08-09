@@ -1,0 +1,51 @@
+name: manual-validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Long-running validation to execute
+        type: choice
+        options: [statistical, docs-transcript, docs-section]
+        default: statistical
+      selection:
+        description: Optional pytest node id, or section id for docs-section
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+      - name: Size the worker pool from the cores this job may actually use
+        run: |
+          echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
+          python -m tests.parallel
+      - name: Statistical validation
+        if: inputs.suite == 'statistical'
+        env:
+          SELECTION: ${{ inputs.selection }}
+        run: |
+          if [ -n "$SELECTION" ]; then
+            pytest "$SELECTION" -q -n auto --durations=20
+          else
+            pytest -m slow -q -n auto --durations=20
+          fi
+      - name: Complete documentation transcripts
+        if: inputs.suite == 'docs-transcript'
+        run: pytest tests/e2e/test_doc_snippets.py -m docs_full -q -n auto --durations=20
+      - name: One documentation section
+        if: inputs.suite == 'docs-section'
+        env:
+          SECTION: ${{ inputs.selection }}
+        run: |
+          test -n "$SECTION"
+          pytest tests/e2e/test_doc_snippets.py -m docs --doc-section "$SECTION" -q

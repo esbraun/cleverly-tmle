@@ -8,21 +8,19 @@ example that stopped working renders as an ordinary example.  It is only on runn
 the reader finds out, and by then they are debugging their own script against a page that
 was wrong before they opened it.
 
-**Two tiers, because the two halves cost three orders of magnitude apart.**
+**Separate tiers, because the halves cost three orders of magnitude apart.**
 
 * :func:`test_every_python_block_parses` compiles every block and runs nothing.  It costs
   milliseconds, it is in the fast tier, and it catches the class of breakage that a rename
   in ``src`` cannot cause but a careless edit to the prose can;
-* :class:`TestTheExamplesRun` executes them, and is marked ``docs`` -- excluded from the
-  fast tier for the same reason ``slow`` is, and belonging beside it in
-  ``.github/workflows/nightly.yml``.  These are real fits at the sizes the guide quotes,
-  which is the point: an example whose ``n`` was reduced to make a test cheap is no longer
-  the example.
+* modular ``docs`` tests execute one affected H2/H3 section and its declared setup blocks
+  on pull requests;
+* ``slow`` blocks are statistical evidence and the complete ``docs_full`` reading-order
+  transcript is a manual validation gate. These are real fits at the sizes the guide quotes.
 
-**A document is executed as a document**: one namespace, blocks in the order a reader meets
-them, so a block that uses a frame an earlier block built works exactly as it reads.  That
-is also why there is one test per *file* rather than one per block -- a cascade of thirty
-failures from one broken import tells a reader less than the first failure and its line.
+The manual transcript still executes a document as a document: one namespace, blocks in
+reading order. Modular tests deliberately use fresh namespaces, making every dependency
+reviewable in the document's ``doc-section`` metadata.
 
 What this does **not** do is check output.  A block showing a printed table would need its
 numbers pinned, and those move with every learner and seed; the claim here is that the code
@@ -33,7 +31,6 @@ numbers is what the oracle laws are for, on quantities chosen to be exact.
 from __future__ import annotations
 
 import ast
-import re
 import warnings
 from collections.abc import Iterator
 from pathlib import Path
@@ -47,42 +44,34 @@ from cleverly.sensitivity.api import SensitivityAnalysis
 from cleverly.targets import TARGETS
 from cleverly.validation import CoverageStudy
 from cleverly.validation.api import ValidationSuite
+from tests.doc_sections import (
+    CATALOGUE,
+    DOCUMENTS,
+    ROOT,
+    DocBlock,
+    DocSection,
+    all_blocks,
+    all_sections,
+    dependency_blocks,
+    validate,
+)
 from tests.parallel import available_cores
 
-ROOT = Path(__file__).resolve().parents[2]
-
-#: Every markdown file the documentation set is made of, in the order a reader meets them:
-#: the front page, then the guides.  The same set :mod:`tests.unit.test_documentation_links`
-#: walks, and for the same reason -- the root-level files link into ``docs/`` and back, so
-#: taking only one of the two checks one direction of a two-way relationship.
-DOCUMENTS = sorted({*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md")})
-
-#: Fenced blocks tagged ``python``, with whatever HTML comment immediately precedes them.
-#: Not ``pycon``, and not untagged blocks: a block that does not claim to be Python is a
-#: shell line or a table, and executing it would be a category error rather than a check.
-#: The optional comment group is how :data:`CATALOGUE` is declared -- in the document, above
-#: the block it is about, rather than in a list here that a reader of the guide never sees.
-#: ``\s*`` after the comment rather than a bare newline: a marker and its block read better
-#: with a blank line between them, an author will leave one, and requiring adjacency made the
-#: marker fail **open** -- unrecognised meant "no catalogue here", so the block was executed
-#: and :func:`test_every_catalogue_block_names_methods_that_exist` iterated over nothing and
-#: passed.  Both halves looked green.  Found the expensive way: an eighteen-minute run
-#: failing on the one block that was supposed to be exempt.
-BLOCK = re.compile(r"(?:^<!--(.*?)-->[ \t]*\n\s*)?^```python\n(.*?)^```", re.M | re.S)
-
-#: The marker that says a block enumerates the API rather than working an example.
-CATALOGUE = "catalogue:"
+SECTIONS = all_sections()
+BLOCKS = all_blocks()
 
 
 def blocks_of(document: Path) -> list[str]:
-    return [code for _, code in BLOCK.findall(document.read_text(encoding="utf-8"))]
+    return [block.code for block in BLOCKS if block.document == document]
 
 
 def catalogue_reason(document: Path, index: int) -> str | None:
     """The reason on a block's ``<!-- catalogue: ... -->`` marker, or ``None``."""
-    comment = BLOCK.findall(document.read_text(encoding="utf-8"))[index][0] or ""
-    stripped = comment.strip()
-    return stripped[len(CATALOGUE) :].strip() if stripped.startswith(CATALOGUE) else None
+    return next(
+        block.catalogue_reason
+        for block in BLOCKS
+        if block.document == document and block.index == index
+    )
 
 
 #: The documents that carry any Python at all, computed rather than listed so that a new
@@ -96,6 +85,16 @@ def test_the_extractor_found_something() -> None:
     assert sum(len(blocks_of(document)) for document in WITH_CODE) >= 20
 
 
+def test_every_python_block_has_execution_metadata() -> None:
+    """A new fence must not silently fall outside both modular and transcript execution."""
+    written = sum(document.read_text(encoding="utf-8").count("```python") for document in DOCUMENTS)
+    assert len(BLOCKS) == written
+
+
+def test_section_metadata_is_well_formed() -> None:
+    assert validate(SECTIONS) == []
+
+
 def test_the_catalogue_marker_is_recognised_where_it_is_written() -> None:
     """Counts the markers in the *text* against the ones the parser attaches to a block.
 
@@ -104,7 +103,7 @@ def test_the_catalogue_marker_is_recognised_where_it_is_written() -> None:
     iterates over nothing and passes, *and* the ``docs`` tier goes on to execute a block that
     was declared unexecutable.  Both halves look green.  That is what happened -- the marker
     was written with a blank line before its fence and the pattern required adjacency, and
-    the failure surfaced eighteen minutes into a nightly-shaped run rather than here.
+    the failure surfaced eighteen minutes into a full-transcript run rather than here.
     """
     written = sum(
         document.read_text(encoding="utf-8").count(f"<!-- {CATALOGUE}") for document in WITH_CODE
@@ -283,12 +282,9 @@ def _parallel_defaults(cores: int) -> tuple[tuple[type, str, int], ...]:
 def cores_for_the_examples() -> Iterator[int]:
     r"""Raise the default ``n_jobs`` for the run, and put it back.
 
-    **The outer layer cannot help here and never will.**  This tier is one test per
-    *document*, and the long one is ~36 blocks sharing a namespace in reading order --
-    deliberately, since block ``N`` uses names block ``N-1`` bound.  So ``-n auto`` sees
-    three tests, one of which is the entire critical path.  The simulation studies have the
-    same shape: xdist parallelises *between* tests and cannot split
-    one."  The whole core budget therefore goes inward, where the folds are.
+    A selected module or one document transcript is sequential. Xdist can balance multiple
+    selected modules or documents but cannot split an individual example, so the useful
+    budget for its nuisance folds remains inward.
 
     **Patched here rather than written into the guide**, and that is the point of doing it
     in a fixture: the examples have to keep showing what a reader actually runs, and a
@@ -317,67 +313,118 @@ def cores_for_the_examples() -> Iterator[int]:
             cls.__init__.__kwdefaults__.update(defaults)
 
 
-@pytest.mark.docs
-class TestTheExamplesRun:
-    """Every block, in order, in one namespace per document."""
+def _selected(section: DocSection, request: pytest.FixtureRequest) -> bool:
+    requested = set(request.config.getoption("--doc-section") or ())
+    active = request.config._doc_selection_active  # type: ignore[attr-defined]
+    return not active or section.section_id in requested
 
-    @pytest.mark.parametrize("document", WITH_CODE, ids=lambda path: str(path.relative_to(ROOT)))
-    def test_the_document_runs_start_to_finish(
-        self,
-        document: Path,
+
+def _run(blocks: tuple[DocBlock, ...], namespace: dict[str, object]) -> None:
+    for block in blocks:
+        if block.catalogue_reason is not None:
+            continue  # checked statically above, in the fast tier
+        relative = block.document.relative_to(ROOT)
+        key = (relative.as_posix(), block.index)
+        known = KNOWN_BROKEN.get(key)
+        first_line = next(
+            (line for line in block.code.splitlines() if line.strip()), "(empty)"
+        ).strip()
+        with warnings.catch_warnings():
+            # The guides deliberately show configurations that warn -- weak overlap is
+            # a worked example there. A warning is the documentation working, not the
+            # documentation failing, and `filterwarnings = error::RuntimeWarning` in
+            # pyproject would otherwise make it the latter.
+            warnings.simplefilter("ignore")
+            try:
+                exec(compile(block.code, f"{relative}#{block.index}", "exec"), namespace)
+            except Exception as error:
+                if known is None:
+                    pytest.fail(
+                        f"{relative} block {block.index} ({block.block_id}) raised "
+                        f"{type(error).__name__}: {error}\n  the block begins: {first_line}"
+                    )
+                continue
+        assert known is None, (
+            f"{relative} block {block.index} is listed in KNOWN_BROKEN and now runs. Delete "
+            f"its row -- an exemption nobody removed reads as a standing decision. The "
+            f"row said: {known}"
+        )
+
+
+class _IsolatedRun:
+    @staticmethod
+    def run(
+        blocks: tuple[DocBlock, ...],
+        name: str,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
-        cores_for_the_examples: int,
     ) -> None:
-        relative = document.relative_to(ROOT)
-        # Run *from* a scratch directory rather than the repository root: the guides show
-        # `res.save("fit.joblib")`, and a documentation check that left one behind in the
-        # tree would be found later as a mystery rather than as this.
         monkeypatch.chdir(tmp_path)
-        # The guide's last section *registers a target*, and the registry is module state:
-        # leaving `nnt` behind would turn `test_registry.py`'s reverse coverage gate red in
-        # whatever runs next in this interpreter, which is a failure with no connection to
-        # its cause. Snapshot and restore, exactly as that module does around its own
-        # throwaway registration.
         targets, builders = dict(TARGETS), dict(SUBMODEL_BUILDERS)
-        namespace: dict[str, object] = {"__name__": f"doc:{relative}"}
         try:
-            self._run(document, relative, namespace)
+            _run(blocks, {"__name__": f"doc:{name}"})
         finally:
             TARGETS.clear()
             TARGETS.update(targets)
             SUBMODEL_BUILDERS.clear()
             SUBMODEL_BUILDERS.update(builders)
 
-    @staticmethod
-    def _run(document: Path, relative: Path, namespace: dict[str, object]) -> None:
-        for index, block in enumerate(blocks_of(document)):
-            if catalogue_reason(document, index) is not None:
-                continue  # checked statically above, in the fast tier
-            key = (relative.as_posix(), index)
-            known = KNOWN_BROKEN.get(key)
-            first_line = next(
-                (line for line in block.splitlines() if line.strip()), "(empty)"
-            ).strip()
-            with warnings.catch_warnings():
-                # The guides deliberately show configurations that warn -- weak overlap is
-                # a worked example there. A warning is the documentation working, not the
-                # documentation failing, and `filterwarnings = error::RuntimeWarning` in
-                # pyproject would otherwise make it the latter.
-                warnings.simplefilter("ignore")
-                try:
-                    exec(compile(block, f"{relative}#{index}", "exec"), namespace)
-                except Exception as error:
-                    if known is None:
-                        pytest.fail(
-                            f"{relative} block {index} raised {type(error).__name__}: "
-                            f"{error}\n  the block begins: {first_line}\n"
-                            f"  blocks run in one namespace in reading order, so an "
-                            f"earlier block may be what has to change"
-                        )
-                    continue
-            assert known is None, (
-                f"{relative} block {index} is listed in KNOWN_BROKEN and now runs. Delete "
-                f"its row -- an exemption nobody removed reads as a standing decision. The "
-                f"row said: {known}"
-            )
+
+FAST_SECTIONS = tuple(
+    section
+    for section in SECTIONS
+    if any(block.tier == "fast" and block.catalogue_reason is None for block in section.blocks)
+)
+SLOW_BLOCKS = tuple(block for block in BLOCKS if block.tier == "slow")
+
+
+@pytest.mark.docs
+@pytest.mark.parametrize("section", FAST_SECTIONS, ids=lambda section: section.section_id)
+def test_documentation_section_runs(
+    section: DocSection,
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cores_for_the_examples: int,
+) -> None:
+    """One selected section runs with only its declared setup closure."""
+    if not _selected(section, request):
+        pytest.skip("section was not selected by --doc-section")
+    prerequisites = dependency_blocks(section, SECTIONS)
+    own = tuple(
+        block for block in section.blocks if block.tier == "fast" and block.catalogue_reason is None
+    )
+    _IsolatedRun.run(prerequisites + own, section.section_id, tmp_path, monkeypatch)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("slow_block", SLOW_BLOCKS, ids=lambda block: block.block_id)
+def test_statistical_documentation_block_runs(
+    slow_block: DocBlock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cores_for_the_examples: int,
+) -> None:
+    section = next(item for item in SECTIONS if item.section_id == slow_block.section_id)
+    prerequisites = dependency_blocks(section, SECTIONS)
+    earlier = tuple(
+        block
+        for block in section.blocks
+        if block.index < slow_block.index and block.catalogue_reason is None
+    )
+    _IsolatedRun.run(
+        prerequisites + earlier + (slow_block,), slow_block.block_id, tmp_path, monkeypatch
+    )
+
+
+@pytest.mark.docs_full
+@pytest.mark.parametrize("document", WITH_CODE, ids=lambda path: str(path.relative_to(ROOT)))
+def test_document_runs_as_a_complete_transcript(
+    document: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cores_for_the_examples: int,
+) -> None:
+    """Manual gate: every ordinary and statistical block in literal reading order."""
+    blocks = tuple(block for block in BLOCKS if block.document == document)
+    _IsolatedRun.run(blocks, str(document.relative_to(ROOT)), tmp_path, monkeypatch)

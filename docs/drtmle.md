@@ -40,10 +40,13 @@ estimator — which is exactly the case the variant is not for.
 
 ## 1. Supported estimands
 
+<!-- doc-section: id=drtmle-contract; requires=; paths=src/cleverly/estimators/drtmle.py,src/cleverly/datasets/synthetic.py -->
+
 A **binary point treatment** and the `mean` group: `ey1`, `ey0` and `ate`, reported under those
 names. Scope is what the sources *derive*, which is narrower than what the R package `drtmle`
 accepts.
 
+<!-- doc-block: id=drtmle-contract-fit; tier=fast -->
 ```python
 from cleverly import DRTMLE
 from cleverly.datasets import make_nonlinear_ate

@@ -318,7 +318,7 @@ constant arm turns six influence-curve comparisons red and leaves *every point e
 green*, because with an exact initial fit `epsilon` is zero, `psi` is the plug-in, and no
 error in `g` can move it.
 
-`make_longitudinal` ships a quadrature truth for a rule too, so the nightly coverage tier
+`make_longitudinal` ships a quadrature truth for a rule too, so the manual coverage tier
 covers one. Getting that right needed a different integration rule rather than a wider one:
 an indicator puts a step function into the integrand, where a Gauss–Hermite rule converges
 algebraically rather than spectrally, and the naive version moved by `1.7e-3` between 48
@@ -811,7 +811,7 @@ swapped sign, a swapped conditioning population.
 
 **Simulation, for the claims that are about repeated sampling and nothing else.** Coverage,
 root-n consistency, type I error and the estimator variants live in
-`tests/e2e/test_coverage_slow.py` and run nightly. The double-robustness grid runs on every
+`tests/e2e/test_coverage_slow.py` and run during manual statistical validation. The double-robustness grid runs on every
 push, in both a comfortable-overlap and a weak-overlap version — and the two disagree, which
 is the point of having both.
 

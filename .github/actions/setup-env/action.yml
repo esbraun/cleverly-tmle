@@ -32,7 +32,7 @@ runs:
     # `--system` stopped working. `ubuntu-latest`'s Debian Python is marked externally
     # managed (PEP 668), so `uv pip install --system` is now refused outright -- which
     # turned every job in this repository except `lint` red, with no commit to blame, and
-    # kept them red while the merges went on. The scheduled and dispatched workflows failed
+    # kept them red while the merges went on. The manually dispatched workflows failed
     # the same way and more quietly still: a run that dies at its install step reports a
     # failed tier rather than a missing one.
     #
