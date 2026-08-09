@@ -330,6 +330,12 @@ class NuisanceEstimates:
     outcome: InitialFit
     scaler: OutcomeScaler
     folds: Folds
+    #: Optional outcome state from which targeting must continue.  Ordinarily the
+    #: targeting step starts at ``outcome``.  A collaborative estimator is different:
+    #: model selection returns a *targeted* candidate Qbar and the reported estimator
+    #: must continue from that selected state, while ``outcome`` remains the genuine
+    #: initial learner fit used by nuisance diagnostics.
+    targeting_outcome: InitialFit | None = None
     missingness: FloatArray | None = None
     intermediate: FloatArray | None = None
     treatment_covariates: tuple[str, ...] = ()

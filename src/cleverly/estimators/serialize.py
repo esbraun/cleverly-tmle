@@ -119,7 +119,11 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: absent.  The same omission cost every ``ipsi`` fit its mechanism tilt and every linked
 #: ``msm`` fit its projection; the three are siblings on ``Fluctuation`` and are written
 #: together so that a fourth is not forgotten in its turn.
-FORMAT_VERSION = 10
+#:
+#: ``11`` records an optional selected outcome state from which targeting continues.
+#: C-TMLE selects a pair ``(g_k, Qbar*_k)`` rather than ``g_k`` alone; omitting the
+#: latter made a loaded result silently revert to an ordinary TMLE at the selected g.
+FORMAT_VERSION = 11
 
 _ARRAY_MARK = "__array__"
 
@@ -478,6 +482,11 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
         "propensity": arrays.put(f"{prefix}.propensity", nuisance.propensity.values),
         "propensity_arms": [float(arm) for arm in nuisance.propensity.arms],
         "outcome": _fit_to(arrays, f"{prefix}.outcome", nuisance.outcome),
+        "targeting_outcome": (
+            None
+            if nuisance.targeting_outcome is None
+            else _fit_to(arrays, f"{prefix}.targeting_outcome", nuisance.targeting_outcome)
+        ),
         "scaler": {"lower": nuisance.scaler.lower, "upper": nuisance.scaler.upper},
         "folds": {
             "assignment": arrays.put(f"{prefix}.folds", nuisance.folds.assignment),
@@ -604,6 +613,11 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
             tuple(float(arm) for arm in payload["propensity_arms"]),
         ),
         outcome=_fit_from(arrays, payload["outcome"]),
+        targeting_outcome=(
+            None
+            if payload["targeting_outcome"] is None
+            else _fit_from(arrays, payload["targeting_outcome"])
+        ),
         scaler=OutcomeScaler(payload["scaler"]["lower"], payload["scaler"]["upper"]),
         folds=Folds(
             arrays.get(payload["folds"]["assignment"]).astype(np.int64),

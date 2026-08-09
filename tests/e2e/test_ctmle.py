@@ -1,10 +1,9 @@
 """C-TMLE end to end: a real fit, and everything downstream of one.
 
 The design commitment behind :class:`~cleverly.CTMLE` is that collaborative selection
-changes *which propensity model is used* and nothing else -- the targeting step, the
-influence curves, the sensitivity analyses and the validation suite are the same code
-a plain fit runs.  This file is where that commitment is checked, by taking a C-TMLE
-result and putting it through the whole public surface.
+returns the complete selected ``(g_k, Qbar*_k)`` pair and then uses the ordinary pooled
+targeting, influence-curve, sensitivity and validation layers.  This file checks that
+commitment by taking a C-TMLE result through the whole public surface.
 
 The statistical payoff -- smaller variance when an instrument is present -- needs
 replications and lives in ``test_coverage_slow.py``.
@@ -23,7 +22,7 @@ import numpy as np
 import pytest
 
 from cleverly import CTMLE, TMLE
-from cleverly.datasets import instrument_dgp, make_instrument
+from cleverly.datasets import instrument_dgp, make_instrument, make_missing_outcome
 from tests.conftest import FAST_KWARGS
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
@@ -121,11 +120,9 @@ class TestBackendParity:
 
 
 #: The option each test in :class:`TestCombinedWithOtherOptions` combines the selection
-#: with.  Fitted once in the ``variants`` fixture: the cross-validated case is read by two
-#: tests, and a CTMLE fit is far too expensive to run twice for that.
+#: with.  Fitted once in the ``variants`` fixture.
 COMBINATIONS: dict[str, dict[str, object]] = {
     "one_step": {"targeting": "one_step"},
-    "cv_tmle": {"targeting_scheme": "fold"},
     "weighted_form": {"target_weights": True},
     "linear": {"fluctuation": "linear"},
     "ordered": {"search": "ordered"},
@@ -149,10 +146,22 @@ class TestCombinedWithOtherOptions:
         assert result.validation.score_check().passed
         assert "ctmle" in result.extra
 
-    def test_a_cross_validated_ctmle_reports_both_diagnostics(self, variants) -> None:
-        result = variants["cv_tmle"]
-        assert result.extra["ctmle"] is not None
-        assert result.cv_targeting is not None
+    def test_fold_targeted_composition_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="published pooled collaborative estimator"):
+            CTMLE(**{**SETTINGS, "targeting_scheme": "fold"})
+
+    def test_missingness_is_refit_inside_selection_folds(self) -> None:
+        frame, _ = make_missing_outcome(n=300, seed=17)
+        result = CTMLE(
+            **{
+                **SETTINGS,
+                "missingness_learner": "glm",
+                "selection_folds": 2,
+                "n_folds": 3,
+            }
+        ).fit(frame, outcome="Y", treatment="A", delta="Delta").single()
+        assert result.nuisance.missingness is not None
+        assert result.validation.score_check().passed
 
     def test_the_bootstrap_repeats_the_selection(self, frame_and_truth) -> None:
         # The influence-curve standard error treats the selected propensity model as

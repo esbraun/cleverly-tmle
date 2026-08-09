@@ -12,7 +12,7 @@ from .base import (
     TMLEResultSet,
     resolve_estimands,
 )
-from .ctmle import CTMLE, CTMLESearch, CTMLESelection
+from .ctmle import CTMLE, CTMLEPreorder, CTMLESearch, CTMLESelection
 from .drtmle import DRTMLE, ReducedFit
 from .tmle import TMLE, tmle
 
@@ -22,6 +22,7 @@ __all__ = [
     "DEFAULT_ESTIMANDS",
     "DRTMLE",
     "TMLE",
+    "CTMLEPreorder",
     "CTMLESearch",
     "CTMLESelection",
     "CVTargeting",

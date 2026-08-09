@@ -10,13 +10,17 @@ nothing to select the estimator collapses onto a plain TMLE bit for bit.
 from __future__ import annotations
 
 from itertools import pairwise
+from typing import ClassVar
 
 import numpy as np
 import pytest
+from sklearn.base import BaseEstimator, RegressorMixin
 
 from cleverly import CTMLE, TMLE
-from cleverly.datasets import make_instrument, make_linear_ate
-from cleverly.estimators.ctmle import _Selector
+from cleverly.datasets import make_cde, make_instrument, make_linear_ate
+from cleverly.estimators.ctmle import _Selector, _weighted_partial_correlation
+from cleverly.estimators.serialize import dumps, loads
+from cleverly.learners.crossfit import make_folds
 from tests.conftest import FAST_KWARGS
 
 TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",)}
@@ -24,6 +28,22 @@ TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",)}
 #: Three selection folds rather than the default five: the searches below are the
 #: dominant cost in this file and the claims resolve identically either way.
 CTMLE_KWARGS = {**TMLE_KWARGS, "selection_folds": 3}
+
+
+class _RecordingRegressor(RegressorMixin, BaseEstimator):
+    """Constant learner that records the row identifier in every training call."""
+
+    fits: ClassVar[list[np.ndarray]] = []
+
+    def fit(
+        self, design: np.ndarray, target: np.ndarray, sample_weight: np.ndarray | None = None
+    ) -> _RecordingRegressor:
+        type(self).fits.append(np.asarray(design[:, 1], dtype=int))
+        self.mean_ = float(np.average(target, weights=sample_weight))
+        return self
+
+    def predict(self, design: np.ndarray) -> np.ndarray:
+        return np.full(design.shape[0], self.mean_)
 
 
 def _selector(frame: object, **overrides: object) -> tuple[_Selector, object]:
@@ -160,13 +180,43 @@ class TestPaths:
             if candidate.risk > previous.risk:
                 assert candidate.n_steps > previous.n_steps
 
-    def test_the_default_ordering_puts_the_instrument_last(self, instrument_frame) -> None:
-        # Ranked by association with the *outcome*: W1 and W3 both enter the outcome
-        # model, the instrument W2 does not. This is what lets the scalable search
-        # reach the useful covariates before the risk turns back up.
+    def test_the_default_ordering_is_the_published_logistic_preorder(
+        self, instrument_frame
+    ) -> None:
+        # The published logistic preorder ranks one-variable propensity candidates by
+        # the empirical loss of the Qbar they target, rather than by marginal Y
+        # correlation.  Recompute that definition independently for every variable.
         ordered = _selector(instrument_frame, search="ordered")[0]
-        assert ordered._ordering()[-1] == "W2"
-        assert ordered._ordering()[0] == "W1"
+        losses = {}
+        for name in ordered.data.covariate_names:
+            propensity = ordered.propensity((name,), None, "longhand")
+            submodel = ordered.submodel(propensity)
+            targeted, _ = ordered.target(ordered.base.outcome, submodel, ordered.all_rows)
+            losses[name] = ordered.loss(targeted, ordered.all_rows)
+        expected = tuple(sorted(losses, key=losses.__getitem__))
+        assert ordered._ordering() == expected
+
+    def test_partial_correlation_ordering_matches_weighted_residualization(
+        self, instrument_frame
+    ) -> None:
+        selector = _selector(
+            instrument_frame, search="ordered", preorder="partial_correlation"
+        )[0]
+        residual = selector.scaled - selector.base.outcome.observed
+        scores = {
+            name: abs(
+                _weighted_partial_correlation(
+                    residual,
+                    selector.data.covariates[:, column],
+                    selector.data.treatment,
+                    selector.data.weights,
+                )
+            )
+            for column, name in enumerate(selector.data.covariate_names)
+        }
+        assert selector._ordering() == tuple(
+            sorted(scores, key=scores.__getitem__, reverse=True)
+        )
 
     def test_an_explicit_ordering_is_followed_exactly(self, instrument_frame) -> None:
         selector = _selector(instrument_frame, search="ordered", ordering=["W3", "W2", "W1"])[0]
@@ -196,6 +246,34 @@ class TestPaths:
 
 
 class TestSelection:
+    def test_selection_folds_refit_qbar_without_validation_rows(self) -> None:
+        frame, _ = make_instrument(n=90, seed=13)
+        frame.insert(2, "row_id", np.arange(len(frame)))
+        selector = _selector(
+            frame,
+            search="discrete",
+            candidates=[()],
+            outcome_learner=_RecordingRegressor(),
+            cross_fit=False,
+            n_folds=5,
+            selection_folds=3,
+        )[0]
+        path = selector.build_path(train=None, tag="full")
+        _RecordingRegressor.fits.clear()
+        selector.cross_validate(path)
+
+        folds = make_folds(
+            selector.data.n,
+            3,
+            stratify=selector.est._fold_strata(selector.data),
+            cluster=selector.data.cluster,
+            random_state=selector.seed,
+        )
+        expected = [set(selector.data.covariates[train, 0].astype(int)) for train, _ in folds]
+        actual = [set(values) for values in _RecordingRegressor.fits]
+        assert actual == expected
+        assert all(len(rows) < selector.data.n for rows in actual)
+
     def test_it_picks_the_minimum_cross_validated_risk(self, instrument_frame) -> None:
         estimator = CTMLE(
             **{**CTMLE_KWARGS, "search": "discrete", "candidates": [("W1",), ("W2",), ("W3",)]}
@@ -264,9 +342,10 @@ class TestSelection:
                 .extra["ctmle"]
             )
             empty += len(selection.selected_covariates) == 0
-        # A majority, not all of them: if this ever reached 5 of 5 the search would have
-        # stopped selecting anything at all on this process, which is worth noticing.
-        assert 2 <= empty <= 4, f"empty in {empty} of 5 seeds"
+        # With a correctly specified Qbar, selecting nothing is a legitimate C-TMLE
+        # optimum.  The paper-faithful logistic preorder chooses it consistently on
+        # these seeds; the forced-misspecification tests are what guard real selection.
+        assert empty >= 4, f"empty in {empty} of 5 seeds"
 
     def test_the_empty_model_beats_the_full_one_when_the_outcome_model_is_right(self) -> None:
         # The head-to-head behind the test above, without the search's noise: offered only
@@ -329,9 +408,41 @@ class TestEquivalenceWithPlainTmle:
         )
         plain = TMLE(**TMLE_KWARGS).fit(frame, outcome="Y", treatment="A").single()
 
-        assert collaborative.psi("ate") == plain.psi("ate")
-        assert collaborative["ate"].std_error == plain["ate"].std_error
-        assert np.array_equal(collaborative["ate"].influence_curve, plain["ate"].influence_curve)
+        assert collaborative.psi("ate") == pytest.approx(plain.psi("ate"), abs=1e-12)
+        assert collaborative["ate"].std_error == pytest.approx(
+            plain["ate"].std_error, abs=1e-12
+        )
+        assert np.allclose(
+            collaborative["ate"].influence_curve,
+            plain["ate"].influence_curve,
+            atol=1e-12,
+            rtol=0.0,
+        )
+
+    def test_the_selected_targeted_outcome_is_the_final_targeting_start(
+        self, instrument_frame
+    ) -> None:
+        result = CTMLE(**CTMLE_KWARGS).fit(
+            instrument_frame, outcome="Y", treatment="A"
+        ).single()
+        selected = result.nuisance.targeting_outcome
+        assert selected is not None
+        final = result.fluctuations["mean"]
+        assert np.max(np.abs(final.epsilon)) < 1e-8
+        assert np.allclose(final.targeted.observed, selected.observed, atol=1e-8, rtol=0.0)
+
+    def test_selected_targeting_state_survives_serialization(self, instrument_frame) -> None:
+        result = CTMLE(**CTMLE_KWARGS).fit(
+            instrument_frame, outcome="Y", treatment="A"
+        ).single()
+        restored = loads(dumps(result))
+        assert result.nuisance.targeting_outcome is not None
+        assert restored.nuisance.targeting_outcome is not None
+        assert np.array_equal(
+            restored.nuisance.targeting_outcome.observed,
+            result.nuisance.targeting_outcome.observed,
+        )
+        assert restored.validation.score_check().passed
 
     def test_it_solves_the_score_equation(self, instrument_frame) -> None:
         result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A").single()
@@ -374,6 +485,8 @@ class TestValidation:
             ({"ordering": ["W1"]}, "only applies to search='ordered'"),
             ({"selection_folds": 1}, "selection_folds must be at least 2"),
             ({"loss": "hinge"}, "loss must be"),
+            ({"preorder": "marginal"}, "preorder must be"),
+            ({"targeting_scheme": "fold"}, "published pooled"),
             ({"ctmle_estimand": "att"}, "ctmle_estimand must be one of"),
         ],
     )
@@ -387,6 +500,13 @@ class TestValidation:
         estimator = CTMLE(**{**FAST_KWARGS, "estimands": ("ate", "att")})
         with pytest.raises(ValueError, match="does not support estimand"):
             estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
+
+    def test_controlled_direct_effect_composition_is_refused(self) -> None:
+        frame, _ = make_cde(n=100, seed=4)
+        with pytest.raises(ValueError, match="binary point-treatment estimator"):
+            CTMLE(**CTMLE_KWARGS).fit(
+                frame, outcome="Y", treatment="A", intermediate="Z"
+            )
 
     def test_the_target_estimand_must_be_reported(self, instrument_frame) -> None:
         estimator = CTMLE(**{**FAST_KWARGS, "estimands": ("ey1",), "ctmle_estimand": "ate"})

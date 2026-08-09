@@ -1043,7 +1043,13 @@ from cleverly.datasets import make_instrument
 # W1 confounds; W2 predicts treatment but not the outcome; W3 predicts only the outcome.
 frame, truth = make_instrument(n=2000, seed=0)
 res = (
-    CTMLE(search="ordered", estimands=("ate",), outcome_learner="glm", treatment_learner="glm")
+    CTMLE(
+        search="ordered",
+        preorder="logistic",
+        estimands=("ate",),
+        outcome_learner="glm",
+        treatment_learner="glm",
+    )
     .fit(frame, outcome="Y", treatment="A")
     .single()
 )
@@ -1051,22 +1057,16 @@ print(res.extra["ctmle"].summary())
 ```
 
 ```
-search = ordered; target = ate; criterion = cross-validated penalized squared-error loss
+search = ordered; preorder = logistic; target = ate; criterion = cross-validated penalized squared-error loss
 
-k  covariates in g  steps  risk     cv risk
-0  (intercept)      1      7.19957  7.22364  <--
-1  W1               2      7.20063  7.22640
-2  W1, W3           2      7.20060  7.22598
-3  W1, W3, W2       3      7.20876  7.24196
+... one row per candidate, with training and cross-validated risks ...
 
 selected g: (intercept only)
 left out: W1, W2, W3 -- adjusting for these would have cost more variance than the bias
 they remove
 ```
 
-Two things to read off. The instrument is last in the ordering and adding it costs the
-largest jump in cross-validated risk of any covariate — that is instrument inflation,
-priced. And the selector stops at the intercept: a GLM is correctly specified for the
+The selector stops at the intercept: a GLM is correctly specified for the
 outcome in this process, so `Qbar` has already done the adjusting and there is no
 residual confounding left for `g` to remove. That is collaborative double robustness —
 the two nuisance fits only have to be right between them — and it is why C-TMLE's
@@ -1074,8 +1074,17 @@ standard error here is about 25% below a plain TMLE's on the same samples.
 
 `search="greedy"` (the default) builds the ordering by forward selection instead;
 `search="ordered"` is the scalable variant (Ju et al. 2019) at `O(p)` propensity fits
-rather than `O(p²)`; `search="discrete"` cross-validates an explicit list of candidate
-models. One caveat worth knowing: the influence-curve standard error treats the selected
+rather than `O(p²)`. Its `preorder="logistic"` default ranks variables by the empirical
+loss after one-variable targeting; `preorder="partial_correlation"` ranks the absolute
+partial correlation of the initial outcome residual and each covariate conditional on
+treatment. `search="discrete"` cross-validates an explicit list of candidate models.
+
+The selected object is the pair `(g_k, Qbar*_k)`, not `g_k` alone. The final pooled
+targeting pass continues from that selected outcome state, and save/load and sensitivity
+retargeting preserve it. Fold-targeted and canonical CV-TMLE composition is refused until
+separately derived.
+
+One caveat worth knowing: the influence-curve standard error treats the selected
 model as given, so it does not include the variability the selection itself contributes,
 and is mildly anti-conservative as a result. Pass `n_bootstrap=` for inference that does
 — each replicate re-runs the search.
