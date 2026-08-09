@@ -14,10 +14,11 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
-from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
 from cleverly import CTMLE, TMLE
 from cleverly.datasets import make_cde, make_instrument, make_linear_ate
+from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators.ctmle import _Selector, _weighted_partial_correlation
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.learners.crossfit import make_folds
@@ -34,16 +35,44 @@ class _RecordingRegressor(RegressorMixin, BaseEstimator):
     """Constant learner that records the row identifier in every training call."""
 
     fits: ClassVar[list[np.ndarray]] = []
+    predictions: ClassVar[list[tuple[np.ndarray, np.ndarray]]] = []
 
     def fit(
         self, design: np.ndarray, target: np.ndarray, sample_weight: np.ndarray | None = None
     ) -> _RecordingRegressor:
-        type(self).fits.append(np.asarray(design[:, 1], dtype=int))
+        self.fit_rows_ = np.asarray(design[:, 1], dtype=int)
+        type(self).fits.append(self.fit_rows_)
         self.mean_ = float(np.average(target, weights=sample_weight))
         return self
 
     def predict(self, design: np.ndarray) -> np.ndarray:
+        type(self).predictions.append((self.fit_rows_, np.asarray(design[:, 1], dtype=int)))
         return np.full(design.shape[0], self.mean_)
+
+
+class _RecordingClassifier(ClassifierMixin, BaseEstimator):
+    """Intercept classifier recording the row IDs it fits and predicts."""
+
+    fits: ClassVar[list[np.ndarray]] = []
+    predictions: ClassVar[list[tuple[np.ndarray, np.ndarray]]] = []
+
+    def fit(
+        self, design: np.ndarray, target: np.ndarray, sample_weight: np.ndarray | None = None
+    ) -> _RecordingClassifier:
+        self.fit_rows_ = np.asarray(design[:, 0], dtype=int)
+        type(self).fits.append(self.fit_rows_)
+        self.rate_ = float(np.average(target, weights=sample_weight))
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, design: np.ndarray) -> np.ndarray:
+        type(self).predictions.append((self.fit_rows_, np.asarray(design[:, 0], dtype=int)))
+        return np.column_stack(
+            [
+                np.full(design.shape[0], 1.0 - self.rate_),
+                np.full(design.shape[0], self.rate_),
+            ]
+        )
 
 
 def _selector(frame: object, **overrides: object) -> tuple[_Selector, object]:
@@ -152,6 +181,17 @@ class TestPenalty:
         candidate = selector._candidate(("W2",), selector.base.outcome, rows, None, "t", 1)
         assert candidate.risk == candidate.loss
 
+    def test_treatment_risk_is_weighted_binomial_deviance(self, selector) -> None:
+        rows = selector.all_rows
+        candidate = selector._candidate(("W1",), selector.base.outcome, rows, None, "g-risk", 1)
+        propensity = np.clip(candidate.propensity, 1e-12, 1.0 - 1e-12)
+        treatment = selector.data.treatment
+        expected = -np.sum(
+            selector.data.weights
+            * (treatment * np.log(propensity) + (1.0 - treatment) * np.log(1.0 - propensity))
+        )
+        assert candidate.treatment_risk == pytest.approx(float(expected), rel=1e-12)
+
 
 class TestPaths:
     def test_the_greedy_path_is_nested(self, selector) -> None:
@@ -194,7 +234,26 @@ class TestPaths:
             targeted, _ = ordered.target(ordered.base.outcome, submodel, ordered.all_rows)
             losses[name] = ordered.loss(targeted, ordered.all_rows)
         expected = tuple(sorted(losses, key=losses.__getitem__))
-        assert ordered._ordering() == expected
+        assert ordered._ordering(ordered.all_rows, None) == expected
+
+    def test_logistic_preorder_places_the_smaller_loss_first(
+        self, instrument_frame, monkeypatch
+    ) -> None:
+        selector = _selector(instrument_frame, search="ordered")[0]
+        scores = {"W1": 0.8, "W2": 0.2, "W3": 0.5}
+        monkeypatch.setattr(
+            selector,
+            "_fit_propensity_with",
+            lambda learner, names, train: np.full(selector.data.n, scores[names[0]]),
+        )
+        monkeypatch.setattr(selector, "submodel", lambda propensity: propensity)
+        monkeypatch.setattr(
+            selector,
+            "target",
+            lambda initial, submodel, rows: (submodel, np.zeros(1)),
+        )
+        monkeypatch.setattr(selector, "loss", lambda targeted, rows: float(targeted[0]))
+        assert selector._ordering(selector.all_rows, None) == ("W2", "W3", "W1")
 
     def test_partial_correlation_ordering_matches_weighted_residualization(
         self, instrument_frame
@@ -212,7 +271,45 @@ class TestPaths:
             )
             for column, name in enumerate(selector.data.covariate_names)
         }
-        assert selector._ordering() == tuple(sorted(scores, key=scores.__getitem__, reverse=True))
+        assert selector._ordering(selector.all_rows, None) == tuple(
+            sorted(scores, key=scores.__getitem__, reverse=True)
+        )
+
+    def test_partial_correlation_preorder_places_the_larger_magnitude_first(
+        self, instrument_frame, monkeypatch
+    ) -> None:
+        selector = _selector(instrument_frame, search="ordered", preorder="partial_correlation")[0]
+        scores = iter((0.2, -0.9, 0.5))
+        monkeypatch.setattr(
+            ctmle_module,
+            "_weighted_partial_correlation",
+            lambda left, right, conditional, weights: next(scores),
+        )
+        assert selector._ordering(selector.all_rows, None) == ("W2", "W3", "W1")
+
+    def test_weighted_partial_correlation_matches_the_closed_form(self) -> None:
+        left = np.array([0.0, 1.0, 4.0, 2.0, 5.0, 8.0])
+        right = np.array([1.0, 3.0, 2.0, 6.0, 7.0, 4.0])
+        conditional = np.array([0.0, 0.0, 1.0, 0.0, 1.0, 1.0])
+        weights = np.array([1.0, 2.0, 1.0, 4.0, 2.0, 3.0])
+
+        def correlation(x: np.ndarray, y: np.ndarray) -> float:
+            x_centered = x - np.average(x, weights=weights)
+            y_centered = y - np.average(y, weights=weights)
+            covariance = np.average(x_centered * y_centered, weights=weights)
+            scale = np.sqrt(
+                np.average(x_centered**2, weights=weights)
+                * np.average(y_centered**2, weights=weights)
+            )
+            return float(covariance / scale)
+
+        xy = correlation(left, right)
+        xa = correlation(left, conditional)
+        ya = correlation(right, conditional)
+        expected = (xy - xa * ya) / np.sqrt((1.0 - xa**2) * (1.0 - ya**2))
+        assert _weighted_partial_correlation(left, right, conditional, weights) == pytest.approx(
+            expected, rel=1e-12
+        )
 
     def test_an_explicit_ordering_is_followed_exactly(self, instrument_frame) -> None:
         selector = _selector(instrument_frame, search="ordered", ordering=["W3", "W2", "W1"])[0]
@@ -242,7 +339,7 @@ class TestPaths:
 
 
 class TestSelection:
-    def test_selection_folds_refit_qbar_without_validation_rows(self) -> None:
+    def test_selection_folds_cross_fit_qbar_without_validation_rows(self) -> None:
         frame, _ = make_instrument(n=90, seed=13)
         frame.insert(2, "row_id", np.arange(len(frame)))
         selector = _selector(
@@ -256,19 +353,77 @@ class TestSelection:
         )[0]
         path = selector.build_path(train=None, tag="full")
         _RecordingRegressor.fits.clear()
+        _RecordingRegressor.predictions.clear()
         selector.cross_validate(path)
 
-        folds = make_folds(
+        assert len(_RecordingRegressor.fits) == 3 * (2 + 1)
+        assert _RecordingRegressor.predictions
+        for fitted, predicted in _RecordingRegressor.predictions:
+            assert set(fitted).isdisjoint(predicted)
+        outer = make_folds(
             selector.data.n,
             3,
             stratify=selector.est._fold_strata(selector.data),
             cluster=selector.data.cluster,
             random_state=selector.seed,
         )
-        expected = [set(selector.data.covariates[train, 0].astype(int)) for train, _ in folds]
-        actual = [set(values) for values in _RecordingRegressor.fits]
-        assert actual == expected
-        assert all(len(rows) < selector.data.n for rows in actual)
+        fits_per_outer = selector.est.selection_inner_folds + 1
+        for fold, (train, _) in enumerate(outer):
+            start = fold * fits_per_outer
+            fitted_sets = [
+                set(values) for values in _RecordingRegressor.fits[start : start + fits_per_outer]
+            ]
+            expected_full_fit = set(selector.data.covariates[train, 0].astype(int))
+            assert expected_full_fit in fitted_sets
+
+    def test_selection_folds_cross_fit_candidate_propensities(self) -> None:
+        frame, _ = make_instrument(n=90, seed=14)
+        frame.insert(2, "row_id", np.arange(len(frame)))
+        selector = _selector(
+            frame,
+            search="discrete",
+            candidates=[("row_id",)],
+            treatment_learner=_RecordingClassifier(),
+            cross_fit=False,
+            n_folds=5,
+            selection_folds=2,
+        )[0]
+        path = selector.build_path(train=None, tag="full")
+        _RecordingClassifier.fits.clear()
+        _RecordingClassifier.predictions.clear()
+        selector.cross_validate(path)
+
+        assert _RecordingClassifier.predictions
+        for fitted, predicted in _RecordingClassifier.predictions:
+            assert set(fitted).isdisjoint(predicted)
+        outer = make_folds(
+            selector.data.n,
+            2,
+            stratify=selector.est._fold_strata(selector.data),
+            cluster=selector.data.cluster,
+            random_state=selector.seed,
+        )
+        fits_per_outer = selector.est.selection_inner_folds + 1
+        assert len(_RecordingClassifier.fits) == len(outer) * fits_per_outer
+        for fold, (_, validation) in enumerate(outer):
+            start = fold * fits_per_outer
+            for fitted in _RecordingClassifier.fits[start : start + fits_per_outer]:
+                assert set(fitted).isdisjoint(validation)
+
+    def test_selection_folds_keep_the_outer_outcome_scaler(self) -> None:
+        frame, _ = make_instrument(n=90, seed=15)
+        selector = _selector(frame, selection_folds=2)[0]
+        folds = make_folds(
+            selector.data.n,
+            2,
+            stratify=selector.est._fold_strata(selector.data),
+            cluster=selector.data.cluster,
+            random_state=selector.seed,
+        )
+        train, _ = next(iter(folds))
+        nested, mask = selector._nested_folds(train)
+        fold_base = selector._selection_base(nested, mask)
+        assert fold_base.scaler is selector.base.scaler
 
     def test_it_picks_the_minimum_cross_validated_risk(self, instrument_frame) -> None:
         estimator = CTMLE(
@@ -301,8 +456,8 @@ class TestSelection:
             excluded += "W2" not in selection.selected_covariates
         assert excluded == 5
 
-    def test_the_exclusion_is_mostly_carried_by_selecting_nothing(self) -> None:
-        """How often the selected propensity model is empty on this process: usually.
+    def test_the_right_outcome_model_makes_the_empty_propensity_optimal(self) -> None:
+        """The selected propensity is empty on every fixed seed for this process.
 
         This is recorded as an assertion rather than left as folklore, because it changes
         what every other C-TMLE claim in the suite is evidence *for*.  On
@@ -310,8 +465,8 @@ class TestSelection:
         ``Qbar`` -- the outcome mean is exactly ``1 + a + 1.5 W1 + 0.8 W3`` -- so under
         collaborative double robustness the confounding is already handled before ``g`` is
         asked for anything, and an empty propensity model is a legitimate risk-minimising
-        choice rather than a failure.  Measured at ``n = 700``: the ordered search selects
-        nothing in 7 of 10 seeds and the greedy search in 10 of 10.
+        choice rather than a failure. Measured at ``n = 700`` after nested selection
+        cross-fitting, the ordered search selects nothing in all five fixed seeds below.
 
         The consequence is the point, and it was checked rather than assumed: replacing the
         selection with ``selected = 0`` -- a selector hard-wired to return the empty
@@ -338,10 +493,9 @@ class TestSelection:
                 .extra["ctmle"]
             )
             empty += len(selection.selected_covariates) == 0
-        # With a correctly specified Qbar, selecting nothing is a legitimate C-TMLE
-        # optimum.  The paper-faithful logistic preorder chooses it consistently on
-        # these seeds; the forced-misspecification tests are what guard real selection.
-        assert empty >= 4, f"empty in {empty} of 5 seeds"
+        # This is no longer used as a loose proxy for search discrimination. The direct
+        # forced-misspecification suite below is what fails a do-nothing selector.
+        assert empty == 5, f"empty in {empty} of 5 seeds"
 
     def test_the_empty_model_beats_the_full_one_when_the_outcome_model_is_right(self) -> None:
         # The head-to-head behind the test above, without the search's noise: offered only
@@ -461,6 +615,16 @@ class TestReporting:
         assert len(frame["candidate"]) == len(selection.path)
         assert sum(frame["selected"]) == 1
 
+    def test_reported_training_components_match_their_formulas(self, selection) -> None:
+        np.testing.assert_allclose(
+            selection.train_loss + selection.penalty,
+            selection.train_risk,
+            rtol=1e-12,
+            atol=0.0,
+        )
+        assert np.isfinite(selection.treatment_risk).all()
+        assert (selection.treatment_risk > 0.0).all()
+
     def test_the_intercept_candidate_is_labelled(self, selection) -> None:
         assert "(intercept)" in selection.summary()
 
@@ -474,8 +638,19 @@ class TestValidation:
             ({"candidates": [("W1",)]}, "only applies to search='discrete'"),
             ({"ordering": ["W1"]}, "only applies to search='ordered'"),
             ({"selection_folds": 1}, "selection_folds must be at least 2"),
+            ({"selection_inner_folds": 1}, "selection_inner_folds must be at least 2"),
             ({"loss": "hinge"}, "loss must be"),
             ({"preorder": "marginal"}, "preorder must be"),
+            ({"preorder": "logistic"}, "only applies to search='ordered'"),
+            (
+                {
+                    "search": "ordered",
+                    "ordering": ["W1"],
+                    "preorder": "logistic",
+                },
+                "cannot be combined",
+            ),
+            ({"cv_evaluation": True}, "canonical CV-TMLE selection"),
             ({"targeting_scheme": "fold"}, "published pooled"),
             ({"ctmle_estimand": "att"}, "ctmle_estimand must be one of"),
         ],
