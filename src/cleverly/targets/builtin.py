@@ -167,6 +167,20 @@ _MSM_ID = Identification(
     ),
 )
 
+_POPULATION_INTERVENTION_ID = Identification(
+    assumptions=(
+        *_POINT_TREATMENT,
+        "the observed outcome is complete; under missingness at random the natural-course "
+        "mean needs an additional outcome/missingness score equation",
+    ),
+    required_nuisances=("outcome_regression", "treatment_mechanism"),
+    dr_condition=(
+        "the intervention mean is consistent if either Qbar(A, W) or g(W) is consistent; "
+        "the complete-data natural-course mean is empirical and needs neither nuisance"
+    ),
+    references=("Díaz Muñoz & van der Laan (2012)",),
+)
+
 
 def _ey(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y(a)]`` for every arm, always named with its label.
@@ -192,6 +206,41 @@ def _ey1(ctx: TargetContext) -> list[ParameterEstimate]:
 def _ey0(ctx: TargetContext) -> list[ParameterEstimate]:
     mean = ctx.means[0.0]
     return [ctx.finish("ey0", mean.psi, mean.influence_curve, "level")]
+
+
+def _ey_obs(ctx: TargetContext) -> list[ParameterEstimate]:
+    r"""The natural-course mean :math:`E[Y]`."""
+    mean = ctx.observed_mean
+    return [ctx.finish("ey_obs", mean.psi, mean.influence_curve, "level")]
+
+
+def _par(ctx: TargetContext) -> list[ParameterEstimate]:
+    r""":math:`E[Y] - E[Y^{a_0}]`, with ``reference=`` selecting :math:`a_0`."""
+    observed = ctx.observed_mean
+    intervention = ctx.means[ctx.reference]
+    name = ctx.name_for("par", ctx.reference)
+    return [
+        ctx.finish(
+            name,
+            observed.psi - intervention.psi,
+            observed.influence_curve - intervention.influence_curve,
+            "difference",
+        )
+    ]
+
+
+def _paf(ctx: TargetContext) -> list[ParameterEstimate]:
+    r""":math:`1 - E[Y^{a_0}]/E[Y]`, on its own identity inference scale."""
+    observed = ctx.observed_mean
+    intervention = ctx.means[ctx.reference]
+    if observed.psi <= 0.0:
+        raise ValueError("paf is undefined when the observed outcome risk is zero")
+    psi = 1.0 - intervention.psi / observed.psi
+    curve = (
+        -intervention.influence_curve / observed.psi
+        + intervention.psi * observed.influence_curve / observed.psi**2
+    )
+    return [ctx.finish_unscaled(ctx.name_for("paf", ctx.reference), psi, curve, "fraction")]
 
 
 def _difference_against_reference(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
@@ -452,6 +501,32 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         requires_binary_treatment=True,
         in_default_set=True,
         description="counterfactual mean under control, E[Y^0]",
+    ),
+    Target(
+        name="ey_obs",
+        group="mean",
+        scale="level",
+        build=_ey_obs,
+        identification=_POPULATION_INTERVENTION_ID,
+        description="natural-course outcome mean, E[Y]",
+    ),
+    Target(
+        name="par",
+        group="mean",
+        scale="difference",
+        build=_par,
+        identification=_POPULATION_INTERVENTION_ID,
+        description="population attributable risk, E[Y] - E[Y^reference]",
+    ),
+    Target(
+        name="paf",
+        group="mean",
+        scale="fraction",
+        build=_paf,
+        identification=_POPULATION_INTERVENTION_ID,
+        requires_family="binomial",
+        undefined_when="the observed outcome risk is zero, leaving the fraction undefined",
+        description="population attributable fraction, 1 - E[Y^reference] / E[Y]",
     ),
     Target(
         name="rr",

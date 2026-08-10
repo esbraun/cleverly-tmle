@@ -199,6 +199,7 @@ def functional(probs: Any, estimand: str) -> Any:
 
     psi_one = (p_w * q[:, 1]).sum()
     psi_zero = (p_w * q[:, 0]).sum()
+    psi_observed = p[:, :, 1].sum()
 
     if estimand in ("ey1", "ey[1]"):
         return psi_one
@@ -206,6 +207,12 @@ def functional(probs: Any, estimand: str) -> Any:
         return psi_zero
     if estimand == "ate":
         return psi_one - psi_zero
+    if estimand == "ey_obs":
+        return psi_observed
+    if estimand == "par":
+        return psi_observed - psi_zero
+    if estimand == "paf":
+        return 1.0 - psi_zero / psi_observed
     if estimand == "rr":
         return np.log(psi_one) - np.log(psi_zero)
     if estimand == "or":
@@ -347,6 +354,9 @@ TRUTH = {
         "ey[0]",
         "ey[1]",
         "ate",
+        "ey_obs",
+        "par",
+        "paf",
         "rr",
         "or",
         "att",

@@ -308,6 +308,27 @@ class TargetContext:
     always_label: bool = False
 
     @cached_property
+    def observed_mean(self) -> ArmMean:
+        r"""The natural-course mean :math:`E[Y]` and its empirical influence curve.
+
+        This is deliberately available only for a fully observed outcome.  Under MAR the
+        efficient curve gains an outcome-regression and missingness block, and the mean
+        fluctuation used for static interventions does not solve that additional score.
+        Refusing that composition is what keeps PAR/PAF from silently becoming a
+        complete-case parameter.
+        """
+        if not np.all(self.observed):
+            raise ValueError(
+                "ey_obs, par and paf do not yet support delta=: under missingness at "
+                "random E[Y] needs its own outcome/missingness score equation, and the "
+                "complete-case mean is a different parameter"
+            )
+        y = np.asarray(self.scaled, dtype=float)
+        w = np.asarray(self.weights, dtype=float)
+        psi = float(np.average(y, weights=w))
+        return ArmMean(psi, w * (y - psi))
+
+    @cached_property
     def means(self) -> dict[float, ArmMean]:
         """Each arm's -- or regime's, or shift's -- mean and influence curve.
 

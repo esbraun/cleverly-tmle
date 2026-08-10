@@ -16,7 +16,11 @@ not a citation; a page number is.
 
 ## Targeted learning, in general
 
-- van der Laan & Rubin (2006), *Targeted Maximum Likelihood Learning*.
+- van der Laan & Rubin (2006), [*Targeted Maximum Likelihood Learning*](https://doi.org/10.2202/1557-4679.1043),
+  DOI 10.2202/1557-4679.1043.
+- Díaz Muñoz & van der Laan (2012), [*Population Intervention Causal Effects Based on
+  Stochastic Interventions*](https://doi.org/10.1111/j.1541-0420.2011.01685.x), DOI
+  10.1111/j.1541-0420.2011.01685.x.
 - Gruber & van der Laan (2010), *A targeted maximum likelihood estimator of a causal effect on a
   bounded continuous outcome*.
 - Gruber & van der Laan (2012), *tmle: An R Package for Targeted Maximum Likelihood Estimation*.
@@ -68,8 +72,12 @@ not a citation; a page number is.
   [10.18637/jss.v081.i01](https://doi.org/10.18637/jss.v081.i01). The package source's
   `FixedTimeTMLE`, `CalcCumG`, and `UpdateQ` are the implementation locators used by the
   bounded canonical fixture.
-- Neugebauer & van der Laan (2007), *Nonparametric causal effects based on marginal structural
-  models*.
+- Neugebauer & van der Laan (2007), [*Nonparametric causal effects based on marginal
+  structural models*](https://doi.org/10.1016/j.jspi.2005.12.008), DOI
+  10.1016/j.jspi.2005.12.008.
+- Rosenblum & van der Laan (2010), [*Targeted Maximum Likelihood Estimation of the
+  Parameter of a Marginal Structural Model*](https://doi.org/10.2202/1557-4679.1238),
+  DOI 10.2202/1557-4679.1238.
 - Orellana, Rotnitzky & Robins (2010), *Dynamic regime marginal structural mean models for
   estimation of optimal dynamic treatment regimes*.
 
@@ -86,6 +94,12 @@ not a citation; a page number is.
   E-value*.
 - Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
   nonresponse models*.
+
+## Multiple testing
+
+- Benjamini & Hochberg (1995), [*Controlling the False Discovery Rate: A Practical and
+  Powerful Approach to Multiple Testing*](https://doi.org/10.1111/j.2517-6161.1995.tb02031.x),
+  DOI 10.1111/j.2517-6161.1995.tb02031.x.
 
 ## Doubly-robust inference (`DRTMLE`)
 

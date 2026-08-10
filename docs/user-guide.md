@@ -483,6 +483,32 @@ same data divides by it.
 Why this is the right number, and how it is checked:
 [two score equations](methodology.md#tilting-the-odds-of-treatment-two-score-equations).
 
+## Population intervention measures and baseline strata
+
+The opt-in targets `ey_obs`, `par`, and `paf` add the observed mean, population
+attributable risk `E[Y] - E[Y(0)]`, and population attributable fraction
+`1 - E[Y(0)] / E[Y]`. They are population-intervention parameters in the sense of Díaz
+Muñoz & van der Laan (2012), not synonyms for the ATE. `paf` requires a binary outcome
+and positive observed risk. These targets currently require complete outcomes: under
+`delta=` the natural-course mean needs an additional MAR score, and complete-case
+substitution would answer a different question.
+
+Passing `strata=("V",)` to `fit` adds a parameter for every finite baseline level while
+retaining the marginal report. The stratum columns must remain in `covariates=`. The
+targeting step jointly solves `I(V=v) H_v / P_n(V=v)` for every level; for ATT and ATC,
+`H_v` is rebuilt with `P_n(A=a | V=v)`, rather than multiplying a clever covariate that
+was normalised by the marginal arm share. Parameter names carry the level, for example
+`ate[V='high']`. Pooled targeting is supported; fold-specific and fold-evaluated strata
+are explicitly refused until their fold-local probabilities are implemented.
+
+`variable_importance(...)` repeats a declared target with each candidate column taking
+the treatment role. By default the other candidates join the adjustment set; turn off
+`adjust_for_other_candidates` when that conditioning is causally inappropriate. Every
+row records its actual adjustment set and retains its underlying fit. Tests are
+two-sided on the target's native null and adjusted together using Benjamini & Hochberg
+(1995); this is exposure-wise causal screening, not a new model-prediction importance
+score.
+
 ## Summarising the arms: a marginal structural model
 
 <!-- doc-section: id=arm-msm; requires=; paths=src/cleverly/msm.py,src/cleverly/datasets/synthetic.py -->
@@ -560,8 +586,9 @@ so a coefficient becomes a log risk ratio or a log odds ratio:
 
 <!-- doc-block: id=arm-msm-link-fit; tier=fast -->
 ```python
-from cleverly import MSM, TMLE
+from cleverly import TMLE
 from cleverly.datasets import make_binary_outcome
+from cleverly.msm import MSM
 
 frame, truth = make_binary_outcome(n=2000, seed=0)
 
@@ -601,6 +628,27 @@ not a quantity.
 
 Why this is the right number, and how it is checked:
 [the projection, its matrix and its remainder](methodology.md#the-msm-projection-its-matrix-and-its-remainder).
+
+### A continuous dose
+
+For a treatment declared with `treatment_kind="continuous"`, `MSM.linear` accepts a
+strictly increasing `doses=` grid. The grid is part of the estimand and deterministic
+trapezoidal quadrature approximates the Neugebauer & van der Laan (2007) projection.
+For example, `MSM.linear(doses=np.linspace(-2, 2, 21))` targets the best line over that
+dose interval. The projection uses the quadrature masses, while the outcome-residual
+score uses
+
+`h(A,V) phi(A,V) / g(A | W)`.
+
+There is deliberately no quadrature-width factor in that observed-data density ratio.
+The outcome regression is evaluated at every declared grid dose, and the conditional
+treatment density is estimated by the same cross-fitted hazard-density machinery used
+for modified treatment policies. This follows the working-model projection of
+Neugebauer & van der Laan (2007) and its targeted estimator in Rosenblum & van der Laan
+(2010). It does not copy a random Monte Carlo grid, so repeating or reloading the fit
+cannot silently change its target. Missing outcomes and controlled intermediates are
+refused on this path until their mechanisms are evaluated at both observed and grid
+doses.
 
 ## Treatment given over time
 

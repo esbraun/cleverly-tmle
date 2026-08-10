@@ -113,6 +113,7 @@ from ..inference.influence import (
     CorrectionParts,
     ParameterEstimate,
     average_estimates,
+    make_estimate,
     reduced_correction_parts,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
@@ -560,6 +561,7 @@ class TMLE:
         weights_estimated: bool = False,
         id: str | None = None,
         intermediate: str | None = None,
+        strata: Sequence[str] | None = None,
         treatment_kind: TreatmentKind | None = None,
     ) -> TMLEResultSet:
         """Fit the estimator.
@@ -609,6 +611,7 @@ class TMLE:
             weights_estimated=weights_estimated,
             id=id,
             intermediate=intermediate,
+            strata=strata,
             treatment_kind=treatment_kind,
         )
 
@@ -697,6 +700,7 @@ class TMLE:
         weights: str | None,
         id: str | None,
         intermediate: str | None,
+        strata: Sequence[str] | None = None,
         weights_type: str = "probability",
         weights_estimated: bool = False,
         treatment_kind: TreatmentKind | None = None,
@@ -719,6 +723,7 @@ class TMLE:
                     weights,
                     id,
                     intermediate,
+                    strata,
                     treatment_kind,
                 )
             ):
@@ -745,6 +750,7 @@ class TMLE:
             weights_estimated=weights_estimated,
             id=id,
             intermediate=intermediate,
+            strata=strata,
             family=self.family,
             treatment_kind=(
                 ("continuous" if self.shifts else "discrete")
@@ -779,7 +785,34 @@ class TMLE:
         """
         self._check_shifts(data)
         self._check_incremental(data)
+        if data.has_strata and (self.cv_evaluation or self.targeting_scheme == "fold"):
+            raise NotImplementedError(
+                "baseline strata currently use one joint pooled fluctuation. "
+                "cv_evaluation=True or targeting_scheme='fold' would require the "
+                "stratum probabilities and conditional treatment shares to be rebuilt "
+                "inside every validation fold; use the default pooled targeting scheme"
+            )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
+        population_intervention = {"ey_obs", "par", "paf"}.intersection(estimands)
+        if (
+            population_intervention
+            and self.estimands == "all"
+            and (data.has_missing_outcome or data.has_intermediate)
+        ):
+            estimands = tuple(name for name in estimands if name not in population_intervention)
+            population_intervention = set()
+        if population_intervention and data.has_missing_outcome:
+            raise NotImplementedError(
+                f"{sorted(population_intervention)} do not yet support delta=: under MAR "
+                "the natural-course mean E[Y] needs an additional outcome/missingness "
+                "score equation; using complete cases would estimate a different parameter"
+            )
+        if population_intervention and data.has_intermediate:
+            raise NotImplementedError(
+                f"{sorted(population_intervention)} do not yet support intermediate=: "
+                "combining the natural course with a controlled mediator intervention "
+                "needs a separately identified population-intervention parameter"
+            )
         if self.cv_evaluation:
             unsupported = [
                 name for name in estimands if parameter_stem(name) in {"rr", "or", "msm"}
@@ -1019,12 +1052,13 @@ class TMLE:
                 "interventions=. To treat this column as a dose, build the CausalData "
                 "with treatment_kind='continuous'."
             )
-        if data.is_continuous_treatment and not self.shifts:
+        if data.is_continuous_treatment and not self.shifts and self.msm is None:
             raise DataError(
                 f"{data.treatment_name} was declared continuous, so it has no arms and "
                 "none of the arm-indexed estimands name a parameter it has. Say which "
                 "doses to compare with shifts=[Shift(delta, cap=...), ...]; "
-                "Shift(0.0, cap=None) is the natural course, whose mean is E[Y]."
+                "Shift(0.0, cap=None) is the natural course, whose mean is E[Y], or "
+                "declare an MSM with a dose integration grid."
             )
 
     def _reference_arm(
@@ -1050,6 +1084,10 @@ class TMLE:
         alphabetical, so the default reference on ``{"high", "low", "medium"}`` is
         ``"high"``; this argument is how to say otherwise.
         """
+        if self.msm is not None:
+            # Coefficients have no contrast reference; the config field is retained for
+            # the shared result schema and is ignored on the MSM parameter axis.
+            return 0.0
         if shifts is not None:
             return shifts.reference
         if regimes is not None:
@@ -1129,6 +1167,7 @@ class TMLE:
         companion: CausalData | None = None,
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
+        msm = self._msm(data)
         estimates = fit_nuisances(
             data,
             outcome_learner=self._resolve_learner(
@@ -1169,6 +1208,7 @@ class TMLE:
             incremental=self.incremental,
             incremental_reference=None if self.reference is None else str(self.reference),
             density_bins=self.density_bins,
+            msm=msm,
             companion=companion,
             n_jobs=self.n_jobs,
         )
@@ -1176,7 +1216,7 @@ class TMLE:
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
         # the regimes and the working model this fit declared, without re-running the
         # caller's rules or its design.
-        return replace(estimates, regimes=self._regimes(data), msm=self._msm(data))
+        return replace(estimates, regimes=self._regimes(data), msm=msm)
 
     def _msm(self, data: CausalData) -> MSMSet | None:
         """The declared working model evaluated on ``data``, or ``None`` if none was."""
@@ -1475,6 +1515,17 @@ class TMLE:
             # re-tilted at the targeted g. `targeted` is what the estimates are read
             # from; `nuisance` stays the initial fit and is what the result reports.
             targeted = nuisance
+            targeting_submodel: Submodel | None = None
+            if data.has_strata and (
+                needs_mechanism(group)
+                or needs_reduction(nuisance, group)
+                or needs_projection(nuisance, group)
+            ):
+                raise NotImplementedError(
+                    f"baseline strata are not yet combined with the {group!r} group's "
+                    "alternating targeting equations. Fit the marginal parameter, or "
+                    "use an arm/regime/shift target whose outcome fluctuation is fixed."
+                )
             if needs_mechanism(group):
                 submodel, fluctuation, targeted = solve_with_mechanism(
                     data,
@@ -1521,13 +1572,42 @@ class TMLE:
                     # again inside the builder.
                     reference,
                 )
-                submodel, fluctuation = self._solve(data, nuisance, submodel)
+                targeting_submodel = (
+                    self._stratified_submodel(
+                        data,
+                        nuisance,
+                        group,
+                        bounds,
+                        intermediate_value,
+                        missingness,
+                        nuisance_bound,
+                        reference,
+                    )
+                    if data.has_strata
+                    else submodel
+                )
+                _, fluctuation = self._solve(data, nuisance, targeting_submodel)
             fluctuations[group] = fluctuation
 
             pooled = self._estimates_for(
                 data, targeted, group, submodel, fluctuation, requested, level, reference
             )
             pooled_report.update(pooled)
+            if data.has_strata:
+                assert targeting_submodel is not None
+                stratified = self._stratum_estimates(
+                    data,
+                    targeted,
+                    group,
+                    submodel,
+                    targeting_submodel,
+                    fluctuation,
+                    requested,
+                    level,
+                    reference,
+                )
+                pooled.update(stratified)
+                pooled_report.update(stratified)
             group_indices = (
                 [record.index for record in fluctuation.folds]
                 if fluctuation.folds
@@ -1793,6 +1873,77 @@ class TMLE:
             )
             pieces.append((test, restrict(fold_submodel, test)))
         return stitch(pieces, data.n)
+
+    def _stratified_submodel(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: TargetGroup,
+        bounds: tuple[float, float],
+        intermediate_value: float | None,
+        missingness_override: FloatArray | None,
+        nuisance_bound: float | None,
+        reference: float,
+    ) -> Submodel:
+        r"""One disjoint score block per baseline stratum.
+
+        For stratum ``s`` the block is ``I(S=s) H_s / P_n(S=s)``.  ``H_s`` is
+        rebuilt with the *conditional* arm shares for ATT/ATC; multiplying a globally
+        normalised conditional-effect covariate, as a generic wrapper would do, targets
+        the wrong denominator.  The blocks have disjoint support, so no redundant
+        marginal column is added: the marginal score is their empirical weighted sum.
+        """
+        assert data.strata is not None
+        lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
+        pieces: list[Submodel] = []
+        for code in range(data.n_strata):
+            mask = data.strata == code
+            probability = float(np.average(mask, weights=data.weights))
+            fractions = np.array(
+                [
+                    np.average(data.treatment[mask] == arm, weights=data.weights[mask])
+                    for arm in nuisance.arms
+                ],
+                dtype=float,
+            )
+            if fractions.size and np.any(fractions <= 0.0):
+                absent = [
+                    data.arm_label(arm)
+                    for arm, fraction in zip(nuisance.arms, fractions, strict=True)
+                    if fraction <= 0.0
+                ]
+                raise DataError(
+                    f"baseline stratum {data.stratum_label(code)} contains no positive-"
+                    f"weight observations from treatment arm(s) {absent}; its empirical "
+                    "targeting score is unidentified"
+                )
+            base = build_submodel(
+                data,
+                nuisance,
+                group,
+                bounds=bounds,
+                nuisance_bound=lower,
+                intermediate_value=intermediate_value,
+                missingness_override=missingness_override,
+                reference=reference,
+                arm_fractions=fractions,
+            )
+            multiplier = mask.astype(float) / probability
+            label = data.stratum_label(code)
+            pieces.append(
+                Submodel(
+                    base.observed * multiplier[:, None],
+                    {arm: values * multiplier[:, None] for arm, values in base.arms.items()},
+                    tuple(f"{name} | {label}" for name in base.names),
+                    base.group,
+                )
+            )
+        return Submodel(
+            np.hstack([piece.observed for piece in pieces]),
+            {arm: np.hstack([piece.arms[arm] for piece in pieces]) for arm in pieces[0].arms},
+            tuple(name for piece in pieces for name in piece.names),
+            group,
+        )
 
     def _solve(
         self, data: CausalData, nuisance: NuisanceEstimates, submodel: Submodel
@@ -2265,6 +2416,72 @@ class TMLE:
                 # subsample; anything else failing is a bug and must not be swallowed.
                 if not (drop_undefined and target.undefined_when):
                     raise
+        return out
+
+    def _stratum_estimates(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: TargetGroup,
+        marginal_submodel: Submodel,
+        targeting_submodel: Submodel,
+        fluctuation: Fluctuation,
+        requested: Sequence[str],
+        alpha_sig: float,
+        reference: float,
+    ) -> dict[str, ParameterEstimate]:
+        """Conditional plug-ins and full-sample influence curves for every stratum."""
+        assert data.strata is not None
+        width = marginal_submodel.dim
+        if targeting_submodel.dim != width * data.n_strata:
+            raise RuntimeError(
+                "the stratified targeting submodel does not contain one base block per stratum"
+            )
+        out: dict[str, ParameterEstimate] = {}
+        for code in range(data.n_strata):
+            index = np.flatnonzero(data.strata == code).astype(np.int64)
+            probability = float(np.average(data.strata == code, weights=data.weights))
+            block = slice(code * width, (code + 1) * width)
+            # Undo I_s / p_s before the ordinary target builder renormalises weights in
+            # the subset.  Its resulting curve is on the n_s-row empirical scale; the
+            # n/n_s embedding below restores I_s D_s / P_n(S=s), the full-law gradient.
+            conditional_submodel = Submodel(
+                targeting_submodel.observed[:, block] * probability,
+                {
+                    arm: values[:, block] * probability
+                    for arm, values in targeting_submodel.arms.items()
+                },
+                marginal_submodel.names,
+                group,
+                dict(marginal_submodel.arm_columns),
+                dict(marginal_submodel.contrast_columns),
+            )
+            estimates = self._estimates_for(
+                data,
+                nuisance,
+                group,
+                conditional_submodel,
+                fluctuation,
+                requested,
+                alpha_sig,
+                reference,
+                index=index,
+            )
+            label = data.stratum_label(code)
+            for estimate in estimates.values():
+                name = f"{estimate.name}[{label}]"
+                curve = np.zeros(data.n, dtype=float)
+                curve[index] = estimate.influence_curve * (data.n / index.size)
+                out[name] = make_estimate(
+                    name,
+                    estimate.psi,
+                    curve,
+                    n=data.n,
+                    cluster=data.cluster,
+                    scale=estimate.scale,
+                    alpha=estimate.alpha,
+                    log_psi=estimate.log_psi,
+                )
         return out
 
     def _bootstrap_point_estimates(

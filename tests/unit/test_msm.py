@@ -140,7 +140,7 @@ class TestEvaluate:
         assert evaluated.codes == (0.0, 1.0)
         assert evaluated.labels == {0.0: "(intercept)", 1.0: "a"}
 
-    def test_a_continuous_treatment_is_refused(self) -> None:
+    def test_a_continuous_treatment_needs_a_declared_grid(self) -> None:
         rng = np.random.default_rng(0)
         frame = pd.DataFrame(
             {
@@ -152,8 +152,28 @@ class TestEvaluate:
         data = CausalData.from_frame(
             frame, outcome="Y", treatment="A", covariates=["W1"], treatment_kind="continuous"
         )
-        with pytest.raises(DataError, match="which has none"):
+        with pytest.raises(DataError, match="integration grid"):
             MSMSet.evaluate(constant_design(), data)
+
+    def test_continuous_quadrature_and_observed_design_are_exact(self) -> None:
+        rng = np.random.default_rng(1)
+        frame = pd.DataFrame(
+            {"Y": rng.normal(size=60), "A": rng.normal(size=60), "W1": rng.normal(size=60)}
+        )
+        data = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", covariates=["W1"], treatment_kind="continuous"
+        )
+        evaluated = MSMSet.evaluate(MSM.linear(doses=(-1.0, 0.0, 2.0)), data)
+        assert evaluated.continuous
+        np.testing.assert_allclose(evaluated.weights[0], (0.5, 1.5, 1.0))
+        np.testing.assert_allclose(evaluated.clever_weights, 1.0)
+        assert evaluated.observed_design is not None
+        np.testing.assert_allclose(evaluated.observed_design[:, 1], data.treatment)
+        assert evaluated.observed_weights is not None
+        np.testing.assert_array_equal(
+            evaluated.observed_weights,
+            (data.treatment >= -1.0) & (data.treatment <= 2.0),
+        )
 
     def test_a_design_of_the_wrong_shape_says_which_shape_it_wanted(self) -> None:
         data = make_data()

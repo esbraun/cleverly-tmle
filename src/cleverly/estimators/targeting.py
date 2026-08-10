@@ -31,6 +31,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray, TargetingMethod
 from ..data.causal_data import CausalData
+from ..exceptions import DataError
 from ..fluctuation._score import relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
     CarryItem,
@@ -249,6 +250,57 @@ def build_submodel(
     (:func:`solve_with_projection`) rather than building this once.
     """
     lower = float(nuisance_bound)
+    if group == "msm" and nuisance.msm is not None and nuisance.msm.continuous:
+        if nuisance.density is None:
+            raise ValueError("a continuous MSM needs the fitted conditional treatment density")
+        if missingness_override is not None or data.has_missing_outcome or data.has_intermediate:
+            raise NotImplementedError(
+                "continuous-treatment MSMs do not yet combine with delta= or intermediate=: "
+                "those mechanisms must be evaluated at both the observed dose and every "
+                "quadrature dose in the outcome score"
+            )
+        observed_numerator, grid_numerator = nuisance.msm.continuous_clever_design_at(msm_beta)
+        observed_density = nuisance.density.density_at(data.treatment)
+        grid_density = np.column_stack(
+            [
+                nuisance.density.density_at(np.full(data.n, dose))
+                for dose in nuisance.msm.dose_values
+            ]
+        )
+        if np.any((observed_density <= 0.0) & np.any(observed_numerator != 0.0, axis=1)):
+            raise DataError(
+                "the continuous-MSM outcome score has positive target weight where the "
+                "estimated observed-dose density is zero"
+            )
+        unsupported_grid = (grid_density <= 0.0) & np.any(grid_numerator != 0.0, axis=2)
+        if np.any(unsupported_grid):
+            doses = np.asarray(nuisance.msm.dose_values)
+            failed = doses[np.any(unsupported_grid, axis=0)]
+            raise DataError(
+                f"continuous-MSM grid doses {failed.tolist()} have positive target weight "
+                "outside the estimated treatment support; restrict doses= or set the "
+                "known MSM weight to zero there"
+            )
+        observed_covariate = np.divide(
+            observed_numerator,
+            observed_density[:, None],
+            out=np.zeros_like(observed_numerator),
+            where=observed_density[:, None] > 0.0,
+        )
+        return Submodel(
+            observed_covariate,
+            {
+                code: np.divide(
+                    grid_numerator[:, j, :],
+                    grid_density[:, j, None],
+                    out=np.zeros_like(grid_numerator[:, j, :]),
+                    where=grid_density[:, j, None] > 0.0,
+                )
+                for j, code in enumerate(nuisance.msm.arms)
+            },
+            tuple(f"h_msm{j}" for j in range(nuisance.msm.n_terms)),
+            "msm",
+        )
     propensity = nuisance.bounded_propensity(bounds)
     missingness = (
         nuisance.bounded_missingness(lower)

@@ -123,7 +123,10 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: ``11`` records an optional selected outcome state from which targeting continues.
 #: C-TMLE selects a pair ``(g_k, Qbar*_k)`` rather than ``g_k`` alone; omitting the
 #: latter made a loaded result silently revert to an ordinary TMLE at the selected g.
-FORMAT_VERSION = 11
+#:
+#: ``12`` records the finite baseline partition used by stratified targets.  Without
+#: the row codes and labels a loaded result cannot reproduce the conditional targets.
+FORMAT_VERSION = 12
 
 _ARRAY_MARK = "__array__"
 
@@ -437,11 +440,15 @@ def _data_to(arrays: _Arrays, data: CausalData) -> dict[str, Any]:
             }
             for e in data.encodings
         ],
+        "strata": arrays.put("data.strata", data.strata),
+        "strata_names": list(data.strata_names),
+        "strata_levels": [list(level) for level in data.strata_levels],
     }
 
 
 def _data_from(arrays: _Arrays, payload: dict[str, Any]) -> CausalData:
     cluster = arrays.get(payload["cluster"])
+    strata = arrays.get(payload["strata"])
     return CausalData(
         outcome=arrays.get(payload["outcome"]),
         treatment=arrays.get(payload["treatment"]),
@@ -474,6 +481,9 @@ def _data_from(arrays: _Arrays, payload: dict[str, Any]) -> CausalData:
             )
             for e in payload["encodings"]
         ),
+        strata=None if strata is None else strata.astype(np.int64),
+        strata_names=tuple(payload["strata_names"]),
+        strata_levels=tuple(tuple(level) for level in payload["strata_levels"]),
     )
 
 
@@ -575,6 +585,16 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
                 "weights": arrays.put(f"{prefix}.msm.weights", nuisance.msm.weights),
                 "arms": [float(arm) for arm in nuisance.msm.arms],
                 "link": str(nuisance.msm.link),
+                "clever_weights": arrays.put(
+                    f"{prefix}.msm.clever_weights", nuisance.msm.clever_weights
+                ),
+                "observed_design": arrays.put(
+                    f"{prefix}.msm.observed_design", nuisance.msm.observed_design
+                ),
+                "observed_weights": arrays.put(
+                    f"{prefix}.msm.observed_weights", nuisance.msm.observed_weights
+                ),
+                "dose_values": list(nuisance.msm.dose_values),
             }
         ),
         # The reduced-dimension regressions, as arrays for the reason the tilts are: they
@@ -667,11 +687,15 @@ def _msm_from(arrays: _Arrays, payload: dict[str, Any] | None) -> MSMSet | None:
     if payload is None:
         return None
     return MSMSet(
-        tuple(payload["terms"]),
-        arrays.get(payload["design"]),
-        arrays.get(payload["weights"]),
-        tuple(float(arm) for arm in payload["arms"]),
-        payload["link"],
+        terms=tuple(payload["terms"]),
+        design=arrays.get(payload["design"]),
+        weights=arrays.get(payload["weights"]),
+        arms=tuple(float(arm) for arm in payload["arms"]),
+        link=payload["link"],
+        clever_weights=arrays.get(payload["clever_weights"]),
+        observed_design=arrays.get(payload["observed_design"]),
+        observed_weights=arrays.get(payload["observed_weights"]),
+        dose_values=tuple(float(value) for value in payload["dose_values"]),
     )
 
 

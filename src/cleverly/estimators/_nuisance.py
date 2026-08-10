@@ -431,6 +431,8 @@ class NuisanceEstimates:
     @property
     def arms(self) -> tuple[float, ...]:
         """The arm codes every per-arm array here is keyed by."""
+        if not self.propensity.arms and self.msm is not None and self.msm.continuous:
+            return self.msm.arms
         return self.propensity.arms
 
     def at_level(self, value: float) -> NuisanceEstimates:
@@ -846,6 +848,7 @@ def fit_nuisances(
     incremental_reference: str | None = None,
     shift_reference: str | None = None,
     density_bins: int = 20,
+    msm: MSMSet | None = None,
     companion: CausalData | None = None,
     n_jobs: int = 1,
 ) -> NuisanceEstimates:
@@ -906,7 +909,8 @@ def fit_nuisances(
         )
         diagnostics["density"] = density_diagnostics
         propensity = Propensity(np.zeros((data.n, 0)), ())
-        shift_set = ShiftSet.evaluate(tuple(shifts), data, density, reference=shift_reference)
+        if shifts:
+            shift_set = ShiftSet.evaluate(tuple(shifts), data, density, reference=shift_reference)
     else:
         propensity_out, propensity_companion, propensity_diagnostics = cross_fit_companion(
             treatment_model,
@@ -1012,8 +1016,13 @@ def fit_nuisances(
     # one sets. An arm fit sets one level for everybody; a shift fit sets a *different*
     # dose per row, which is what makes a modified treatment policy modified -- so the
     # value here is an (n,) array rather than a scalar, and the keys are shift codes.
-    if shift_set is None:
-        counterfactual: dict[float, float | FloatArray] = {arm: arm for arm in arms}
+    counterfactual: dict[float, float | FloatArray]
+    if msm is not None and msm.continuous:
+        counterfactual = {
+            code: float(dose) for code, dose in zip(msm.arms, msm.dose_values, strict=True)
+        }
+    elif shift_set is None:
+        counterfactual = {arm: arm for arm in arms}
     else:
         counterfactual = {
             code: shift_set.shifted[:, index] for index, code in enumerate(shift_set.codes)
@@ -1093,6 +1102,7 @@ def fit_nuisances(
         density=density,
         shifts=shift_set,
         incremental=ipsi_set,
+        msm=msm,
         companion=companion_estimates,
     )
 
