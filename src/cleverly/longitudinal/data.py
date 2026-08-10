@@ -599,12 +599,10 @@ class LongitudinalData:
     def effective_n(self) -> float:
         """Kish effective sample size of the observation weights, ``(sum w)^2 / sum w^2``.
 
-        The same quantity, for the same reason, as
-        :attr:`cleverly.data.CausalData.effective_n`: not only a diagnostic, but the
-        sample size ``g_bounds="auto"`` is resolved at, since the rule is a bias-variance
-        compromise and this is the number the variance side is working from.  Over ``T``
-        nodes that matters more rather than less -- each bounded cumulative probability
-        can contain up to ``2T`` treatment and censoring factors.
+        The same diagnostic quantity, for the same reason, as
+        :attr:`cleverly.data.CausalData.effective_n`.  It does not tune longitudinal
+        ``g_bounds``: LTMLE has no automatic bound-selection procedure and its default is
+        the fixed cumulative pair ``(0.01, 1.0)``.
         """
         return effective_sample_size(self.weights)
 

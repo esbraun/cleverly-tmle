@@ -98,10 +98,11 @@ population the parameter is defined in, and it enters the estimating equation as
 multiplier of each row's score, not as a denominator.  Putting :math:`w` inside
 :math:`h_t` would divide the equation by the very tilt it is supposed to apply.
 
-The one thing that does change is the same one that changes at a single node:
-``g_bounds="auto"`` is resolved at Kish's effective sample size, discussed next -- and over
-:math:`T` nodes it reaches every one of the :math:`2T` factors, so resolving it at the row
-count compounds rather than cancels.
+Unlike the point-treatment estimator discussed next, LTMLE has no
+``g_bounds="auto"`` procedure.  Its default is the visible fixed cumulative pair
+``(0.01, 1.0)``; observation weights do not change it.  A cumulative probability can
+naturally fall below that heuristic as follow-up grows even when each factor is moderate,
+so the fit reports the raw-versus-bounded share at every node.
 
 Under doubly-robust inference
 -----------------------------

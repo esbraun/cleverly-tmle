@@ -60,6 +60,7 @@ fluctuation is pooled across the regimens where the point-treatment one is not.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
@@ -67,8 +68,9 @@ from typing import Any
 
 import numpy as np
 
-from .._typing import FloatArray, GBounds, Learner
+from .._typing import CumulativeGBounds, FloatArray, Learner
 from ..data.weighting import effective_sample_size
+from ..exceptions import PositivityWarning
 from ..inference.cluster import influence_covariance
 from ..inference.delta import delta_method
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
@@ -78,7 +80,11 @@ from ..learners.super_learner import resolve_learner
 from ..msm import MSM
 from ..provenance import Provenance, fingerprint_array
 from ..provenance import build as provenance_build
-from ..utils.bounds import OutcomeScaler, resolve_g_bounds
+from ..utils.bounds import (
+    DEFAULT_LTMLE_G_BOUNDS,
+    OutcomeScaler,
+    resolve_cumulative_g_bounds,
+)
 from ..utils.phases import PhaseProfile, phase, profile_phases
 from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData
@@ -87,6 +93,10 @@ from .regimen import DynamicRegimen, RegimenSpec, describe_plan, resolve_plans, 
 from .sequential import Mechanism, RegimenFit, fit_mechanism, fit_regimen
 
 __all__ = ["LTMLE", "LongitudinalConfig", "LongitudinalResult", "ltmle"]
+
+#: Match the point-treatment estimator's warning threshold.  The exact share remains
+#: available in ``diagnostics()`` below this value; the warning is only the interruption.
+_TRUNCATION_WARN_FRACTION = 0.05
 
 
 #: What each point-treatment keyword would need before this estimator could take it.
@@ -246,10 +256,6 @@ class LongitudinalConfig:
     g_bounds: tuple[float, float]
     q_bounds: tuple[float, float] | None
     alpha_sig: float
-    #: The sample size ``g_bounds="auto"`` was resolved at, when that is not the row
-    #: count -- a weighted fit truncates at Kish's effective ``n``.  ``None`` whenever the
-    #: bound was explicit or the fit unweighted, exactly as on a point-treatment config.
-    auto_bounds_n: float | None = None
     random_state: int | None = None
     #: ``(label, digest)`` per regimen, digesting the ``(n, T)`` arms it assigned *this*
     #: sample.  A static plan is already stated in full by its ``1/0``; a rule is not, and
@@ -322,14 +328,12 @@ class LongitudinalConfig:
             else f"cross-fitting: {self.n_folds} fold(s)",
             # Both factors enter the product before its prefix is bounded, as in ltmle's
             # CalcCumG.  Saying "mechanism at every node" used to conceal the order.
-            f"g_bounds: [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}] on each cumulative "
-            "treatment-and-censoring probability"
-            # Named because it is a deliberate divergence from R's rule, and because a
-            # reader comparing two fits needs to know the bound moved with the weights.
+            f"g_bounds: fixed [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}] on each "
+            "cumulative treatment-and-censoring probability"
             + (
-                ""
-                if self.auto_bounds_n is None
-                else f" (auto, resolved at the effective n of {self.auto_bounds_n:.0f})"
+                " (package default; R ltmle-compatible heuristic -- inspect truncation diagnostics)"
+                if self.g_bounds == DEFAULT_LTMLE_G_BOUNDS
+                else ""
             ),
         ]
         if self.q_bounds is not None:
@@ -467,6 +471,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         column doubles as a check on the plan the fit actually ran; for a dynamic rule it
         is the number a reader needs, since what a rule assigns is a property of the data
         rather than of the declaration and appears nowhere in the settings report.
+
+        ``share_truncated`` compares the raw and bounded cumulative probabilities on the
+        same ``trained_on`` rows as the node's score.  Unlike ``max_weight``, it reveals
+        when the configured cap replaced every contributing row.
         """
         survival = self.data.is_survival
         competing = self.data.is_competing
@@ -487,6 +495,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "share_assigned_1": [],
             "max_weight": [],
             "effective_n": [],
+            "share_truncated": [],
             **{column: [] for column in epsilon_columns},
             "converged": [],
         }
@@ -509,6 +518,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 )
                 rows["max_weight"].append(float(np.max(weights)) if weights.size else float("nan"))
                 rows["effective_n"].append(effective_sample_size(weights, on_degenerate=0.0))
+                raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
+                bounded = fit.cumulative[:, step.time - 1][step.trained_on]
+                rows["share_truncated"].append(
+                    float(np.mean(raw != bounded)) if raw.size else float("nan")
+                )
                 for column, name in enumerate(epsilon_columns):
                     rows[name].append(float(step.fluctuation.epsilon[column]))
                 rows["converged"].append(bool(step.fluctuation.converged))
@@ -577,8 +591,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "g_bounds enters the pseudo-outcome of every earlier node through the "
             "recursion, so changing it changes what the earlier regressions were fitted "
             "to and the whole backward pass has to run again. Use result.diagnostics(), "
-            "which reports the cumulative weight and effective n per regimen per node -- "
-            "the leverage a longitudinal fit's positivity assumption actually produces"
+            "which reports the raw-versus-bounded truncation share, cumulative weight, "
+            "and effective n per regimen per node -- the leverage a longitudinal fit's "
+            "positivity assumption actually produces"
         )
 
     @property
@@ -791,10 +806,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         for fit in self.fits.values():
             if fit.horizon != deepest:
                 continue
+            truncated, truncated_time = self._max_truncated(fit)
             lines.append(
                 f"  {fit.regimen.label}: {fit.steps[-1].n_trained} of {self.n} units "
                 f"followed it throughout; max weight {fit.max_weight:.1f}, "
-                f"effective n {fit.effective_n:.0f}"
+                f"effective n {fit.effective_n:.0f}; max truncated share "
+                f"{truncated:.1%} at t={truncated_time}"
             )
         if self.simultaneous is not None:
             lines.append("")
@@ -811,6 +828,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"LongitudinalResult({', '.join(self.estimates)})"
+
+    @staticmethod
+    def _max_truncated(fit: RegimenFit) -> tuple[float, int]:
+        """Largest on-score truncation share and its earliest node."""
+        shares = []
+        for step in fit.steps:
+            raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
+            bounded = fit.cumulative[:, step.time - 1][step.trained_on]
+            shares.append((float(np.mean(raw != bounded)) if raw.size else 0.0, step.time))
+        return max(shares, key=lambda item: (item[0], -item[1]))
 
 
 class LTMLE:
@@ -834,8 +861,10 @@ class LTMLE:
         Outer cross-fitting folds; one split serves every node and every regimen, so a
         unit is out of fold in all of them at once.
     g_bounds:
-        Truncation applied to each cumulative treatment-and-censoring probability, after
-        multiplying the raw node factors, following R ``ltmle``'s ``CalcCumG`` convention.
+        Fixed truncation applied to each cumulative treatment-and-censoring probability,
+        after multiplying the raw node factors.  The default is the explicit pair
+        ``(0.01, 1.0)``, R ``ltmle``'s heuristic convention.  It is not an automatic,
+        sample-size-dependent, or follow-up-depth-dependent selection procedure.
     alpha:
         Predicted probabilities are bounded into ``[1 - alpha, alpha]`` before the logit
         is taken, as for :class:`~cleverly.TMLE`.
@@ -874,7 +903,7 @@ class LTMLE:
         censoring_learner: Learner | str | Sequence[Any] | None = None,
         n_folds: int = 10,
         learner_folds: int = 5,
-        g_bounds: GBounds = "auto",
+        g_bounds: CumulativeGBounds = DEFAULT_LTMLE_G_BOUNDS,
         q_bounds: tuple[float, float] | None = None,
         alpha: float = 0.9995,
         alpha_sig: float = 0.05,
@@ -1043,12 +1072,10 @@ class LTMLE:
 
         folds = self._folds(prepared)
         scaler = self._scaler(prepared)
-        # Kish's effective n rather than the row count, which they are equal to on an
-        # unweighted fit: ``5 / (sqrt(n) log n)`` is a bias-variance compromise, and both
-        # sides of it are governed by the information in the sample.  Over ``T`` nodes the
-        # cumulative probability contains up to ``2T`` factors, so resolving it too loosely
-        # compounds rather than cancels.
-        bounds = resolve_g_bounds(self.g_bounds, prepared.effective_n)
+        # A cumulative path probability is not a point-treatment propensity.  There is no
+        # automatic rule here: the constructor default is the visible fixed R ``ltmle``
+        # heuristic, and every other accepted value is an explicit scalar or pair.
+        bounds = resolve_cumulative_g_bounds(self.g_bounds)
 
         mechanism = fit_mechanism(
             prepared,
@@ -1127,6 +1154,8 @@ class LTMLE:
                 for fit in msm_fit.fits
             }
 
+        self._warn_on_truncation(fits)
+
         config = LongitudinalConfig(
             family=prepared.family,
             n_times=prepared.n_times,
@@ -1139,9 +1168,6 @@ class LTMLE:
             g_bounds=bounds,
             q_bounds=self.q_bounds,
             alpha_sig=self.alpha_sig,
-            auto_bounds_n=(
-                prepared.effective_n if self.g_bounds == "auto" and prepared.is_weighted else None
-            ),
             random_state=self.random_state,
             # From the matrix ``resolve_plans`` already built, so this is the assignment
             # the fit ran on rather than a second evaluation of the rules.
@@ -1265,6 +1291,51 @@ class LTMLE:
         if len(set(wanted)) != len(wanted):
             raise ValueError(f"horizons= repeats a time point: {list(wanted)}")
         return tuple(sorted(wanted))
+
+    @staticmethod
+    def _warn_on_truncation(fits: Mapping[str, RegimenFit]) -> None:
+        """Warn once with every regimen/node whose scored rows are materially clipped."""
+        found: dict[tuple[str, int], tuple[float, bool]] = {}
+        for fit in fits.values():
+            for step in fit.steps:
+                raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
+                bounded = fit.cumulative[:, step.time - 1][step.trained_on]
+                if not raw.size:
+                    continue
+                share = float(np.mean(raw != bounded))
+                constant = bool(share == 1.0 and np.unique(bounded).size == 1)
+                key = (fit.regimen.label, step.time)
+                previous = found.get(key, (0.0, False))
+                found[key] = max(previous[0], share), previous[1] or constant
+
+        affected = [
+            (label, time, share, constant)
+            for (label, time), (share, constant) in sorted(found.items())
+            if share > _TRUNCATION_WARN_FRACTION
+        ]
+        if not affected:
+            return
+        details = "; ".join(
+            f"{label} at t={time}: {share:.1%}"
+            + (
+                " (the bounded cumulative probability, and hence the clever covariate, "
+                "is constant on scored rows)"
+                if constant
+                else ""
+            )
+            for label, time, share, constant in affected
+        )
+        warnings.warn(
+            "Cumulative mechanism truncation exceeded 5% of scored rows: "
+            f"{details}. The fit solves the score built from the truncated weights; "
+            "material truncation can trade reduced weight extremes for truncation bias and "
+            "can make plug-in "
+            "influence-curve inference unreliable. Inspect res.diagnostics(), report "
+            "the configured bounds, and refit the full backward recursion under "
+            "substantively justified alternatives.",
+            PositivityWarning,
+            stacklevel=3,
+        )
 
     def _bands(
         self, estimates: Mapping[str, ParameterEstimate], data: LongitudinalData

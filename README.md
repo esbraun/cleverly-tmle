@@ -284,10 +284,11 @@ package covers, plus the pieces that matter from `tmle3` and the literature — 
 as a statement about *features*, not as a general output-parity claim. The primary acceptance
 evidence is still independent: exact laws, Gateaux derivatives, remainder rates, identities,
 and deliberate mutations. One narrow cross-language fixture now exists for `LTMLE`: it compares
-a bound-active, nonzero-targeting end-of-study fit and survival fit with R `ltmle` 1.3-0 to pin
-two finite-sample algorithm choices those truth-only instruments cannot see. There are also
-known deliberate divergences (`g_bounds="auto"` resolves a symmetric pair at Kish's effective
-sample size on weighted fits, while R `ltmle` defaults to `c(0.01, 1)`). What the estimates are
+a bound-active, nonzero-targeting end-of-study fit, a censoring-active variant, and a survival
+fit with R `ltmle` 1.3-0 to pin finite-sample algorithm choices those truth-only instruments
+cannot see. `LTMLE` uses the explicit fixed default `g_bounds=(0.01, 1.0)` for R compatibility;
+it is a heuristic value pair, not an automatic selection procedure. Point-treatment
+`g_bounds="auto"` remains sample-size dependent and is a different API. What the estimates are
 checked against is set out under
 [How this is validated](https://github.com/esbraun/cleverly-tmle/blob/main/docs/methodology.md#how-this-is-validated).
 

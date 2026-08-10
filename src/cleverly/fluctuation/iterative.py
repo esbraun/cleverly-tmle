@@ -452,7 +452,9 @@ def solve_fluctuation(
     relative = relative_score(score, scale)
     converged = bool(relative <= tol)
     failure = (
-        None if converged else _classify(epsilon, current, detail, alpha, iterations, max_iter)
+        None
+        if converged
+        else _classify(epsilon, current, detail, alpha, iterations, max_iter, mask)
     )
     if not converged and warn:
         warnings.warn(
@@ -489,6 +491,7 @@ def _classify(
     alpha: float,
     iterations: int,
     max_iter: int,
+    mask: BoolArray,
 ) -> TargetingFailure:
     """Name the failure mode of a targeting step that did not converge.
 
@@ -502,7 +505,8 @@ def _classify(
     if epsilon.size and np.max(np.abs(epsilon)) >= _SEPARATION_EPSILON:
         return "separation_suspected"
     edge = 1.0 - alpha
-    pinned = np.mean((current.observed <= edge * 1.000001) | (current.observed >= alpha * 0.999999))
+    scored = current.observed[mask]
+    pinned = np.mean((scored <= edge * 1.000001) | (scored >= alpha * 0.999999))
     if pinned > 0.01:
         return "bounds_pinned"
     if iterations >= max_iter:

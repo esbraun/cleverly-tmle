@@ -20,7 +20,8 @@ import numpy as np
 import pytest
 
 from cleverly.exceptions import ConvergenceWarning
-from cleverly.fluctuation.iterative import InitialFit, solve_fluctuation
+from cleverly.fluctuation.iterative import InitialFit, NewtonDetail, _classify, solve_fluctuation
+from cleverly.fluctuation.one_step import _classify_one_step
 from cleverly.fluctuation.submodel import Submodel
 
 
@@ -46,6 +47,21 @@ def _submodel(columns: np.ndarray, names: tuple[str, ...]) -> Submodel:
 
 
 class TestNamedFailures:
+    def test_off_mask_fillers_do_not_diagnose_bounds_pinned(self) -> None:
+        """Failure labels read the rows whose score failed, not carried filler rows."""
+        n = 100
+        mask = np.zeros(n, dtype=bool)
+        mask[:10] = True
+        values = np.full(n, 0.9995)
+        values[mask] = 0.5
+        current = _fit(values)
+        epsilon = np.array([10.0])
+
+        assert _classify(epsilon, current, NewtonDetail(), 0.9995, 1, 2, mask) == (
+            "max_iter_reached"
+        )
+        assert _classify_one_step(epsilon, current, 0.9995, 1, 2, mask) == ("line_search_exhausted")
+
     def test_separation_is_recognised_as_separation(self) -> None:
         """A perfectly separating covariate drives the logistic MLE to infinity."""
         n = 200

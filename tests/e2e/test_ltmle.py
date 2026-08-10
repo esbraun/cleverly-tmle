@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 import re
+import warnings
 from typing import Any, ClassVar
 
 import numpy as np
@@ -14,7 +16,7 @@ from cleverly.datasets import (
     make_longitudinal_competing,
     make_longitudinal_survival,
 )
-from cleverly.exceptions import DataError
+from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.longitudinal import LTMLE, LongitudinalError, LongitudinalResult
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
@@ -52,6 +54,16 @@ def run(frame: Any, **overrides: Any) -> LongitudinalResult:
         **{key: settings.pop(key) for key in FIT_ARGUMENTS if key in settings},
     }
     return LTMLE(regimens, **settings).fit(frame, **columns)
+
+
+def test_the_signature_exposes_a_fixed_numeric_default() -> None:
+    assert inspect.signature(LTMLE).parameters["g_bounds"].default == (0.01, 1.0)
+
+
+def test_auto_is_not_a_longitudinal_bound_selection_procedure() -> None:
+    frame, _ = make_longitudinal(n=200, seed=90)
+    with pytest.raises(ValueError, match="no automatic cumulative-bound selection"):
+        run(frame, g_bounds="auto")
 
 
 @pytest.fixture(scope="module")
@@ -341,6 +353,9 @@ def test_diagnostics_report_the_cumulative_leverage(
             # node or the wrong mask moves the ratio by orders of magnitude, not by a ULP.
             kish = float(np.sum(weights) ** 2 / np.sum(weights**2))
             assert row["effective_n"] == pytest.approx(kish, rel=1e-12)
+            raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
+            bounded = fit.cumulative[:, step.time - 1][step.trained_on]
+            assert row["share_truncated"] == pytest.approx(float(np.mean(raw != bounded)))
         # The summary quotes the *final* node, where the product is longest and the
         # leverage is therefore largest -- not the first, and not an average.
         assert fit.max_weight == pytest.approx(float(np.max(fit.steps[-1].clever)), abs=0)
@@ -380,6 +395,29 @@ def test_each_cumulative_mechanism_is_truncated_after_the_product() -> None:
     # The lower cumulative bound caps the inverse probability at 1 / lower, irrespective
     # of how many raw factors went into it.
     assert fit.max_weight <= 1.0 / lower + 1e-12
+
+
+def test_material_cumulative_truncation_warns_and_reports_the_share() -> None:
+    frame, _ = make_longitudinal(n=400, seed=91)
+    with pytest.warns(PositivityWarning, match="constant on scored rows"):
+        result = run(frame, regimens={"always": 1}, g_bounds=0.9)
+    diagnostics = result.diagnostics()
+    assert float(diagnostics["share_truncated"].max()) == 1.0
+    fit = result.fits["always"]
+    np.testing.assert_allclose(fit.cumulative[:, -1], 0.9)
+    assert "max truncated share 100.0%" in result.summary()
+
+
+def test_a_nonbinding_bound_reports_zero_without_a_positivity_warning() -> None:
+    frame, _ = make_longitudinal(n=400, seed=92)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = run(frame, regimens={"always": 1}, g_bounds=(1e-12, 1.0))
+    assert not any(item.category is PositivityWarning for item in caught)
+    np.testing.assert_array_equal(
+        result.fits["always"].cumulative_unbounded, result.fits["always"].cumulative
+    )
+    assert float(result.diagnostics()["share_truncated"].max()) == 0.0
 
 
 def test_contrast_and_covariance_use_the_joint_curve(
@@ -538,8 +576,8 @@ class TestObservationWeights:
     ``tests/unit/test_weighted_estimand_longitudinal.py`` proves the estimand and the
     influence curve, on a law a sample realises exactly and handed a saturated learner.
     What is left over is everything around them: that the fit accepts the column, that the
-    weighting reaches the report, that ``g_bounds="auto"`` moves with the effective ``n``,
-    and that an unweighted fit is untouched.
+    weighting reaches the report, that the fixed cumulative bound does not move with the
+    effective ``n``, and that an unweighted fit is untouched.
     """
 
     @staticmethod
@@ -607,28 +645,18 @@ class TestObservationWeights:
         assert "observation weights (w, estimated)" in result.summary()
         assert "conditions on the fitted weights" in result.data.weight_report().summary()
 
-    def test_the_auto_bound_is_resolved_at_the_effective_n(self) -> None:
-        """Which is not the row count, and over ``2T`` factors that compounds.
-
-        ``5 / (sqrt(n) log n)`` is a bias-variance compromise, and the variance side of it
-        is working from the information in the sample rather than from how many rows it
-        was written on.
-        """
+    def test_the_default_bound_is_fixed_not_resolved_from_effective_n(self) -> None:
         frame, _ = self._biased()
         result = run(frame, weights="w")
-        effective = result.data.effective_n
-        expected = 5.0 / (np.sqrt(effective) * np.log(effective))
-        assert result.config.g_bounds[0] == pytest.approx(expected)
-        assert result.config.auto_bounds_n == pytest.approx(effective)
-        assert expected > 5.0 / (np.sqrt(result.n) * np.log(result.n))
-        assert "resolved at the effective n" in result.summary()
+        assert result.data.effective_n < result.n
+        assert result.config.g_bounds == (0.01, 1.0)
+        assert "R ltmle-compatible heuristic" in result.summary()
 
     def test_an_explicit_bound_is_never_second_guessed(self) -> None:
         frame, _ = self._biased()
         result = run(frame, weights="w", g_bounds=(0.02, 0.98))
         assert result.config.g_bounds == (0.02, 0.98)
-        assert result.config.auto_bounds_n is None
-        assert "resolved at the effective n" not in result.summary()
+        assert "package default" not in result.summary()
 
     def test_the_diagnostics_fold_the_weights_into_the_leverage(self) -> None:
         """The two reweightings multiply, so the leverage reported is their product.

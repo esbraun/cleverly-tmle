@@ -701,11 +701,14 @@ ate_regimen[always vs never]  0.3731    0.0236      [0.3268, 0.4193]  <1e-4
   regimens: always=(1/1), never=(0/0)
   reference: never
   cross-fitting: 5 fold(s)
-  g_bounds: [0.009532, 0.9905] on each cumulative treatment-and-censoring probability
+  g_bounds: fixed [0.01, 1] on each cumulative treatment-and-censoring probability
+    (package default; R ltmle-compatible heuristic -- inspect truncation diagnostics)
   confidence level: 95%
   ...
-  always: 1263 of 4000 units followed it throughout; max weight 12.0, effective n 1096
-  never: 822 of 4000 units followed it throughout; max weight 34.6, effective n 630
+  always: 1263 of 4000 units followed it throughout; max weight 12.0, effective n 1096;
+    max truncated share 0.0% at t=1
+  never: 822 of 4000 units followed it throughout; max weight 34.6, effective n 630;
+    max truncated share 0.0% at t=1
 
   simultaneous 95% bands (multiplier bootstrap, critical value 2.329 vs 1.960 pointwise):
     ey_regimen[always]  [0.7381, 0.7989]
@@ -731,8 +734,25 @@ looks harmless node by node still leaves a handful of units carrying most of the
 above, `never` is supported by 822 units whose effective sample size is 630. Following
 canonical `ltmle`, the raw treatment-and-censoring factors are multiplied first and each
 cumulative prefix is then truncated to `g_bounds`; `res.diagnostics()` reports the
-resulting weight and effective `n` per regimen per node, beside that node's `epsilon` and
-whether it converged.
+raw-versus-bounded `share_truncated`, resulting weight, and effective `n` per regimen per
+node, beside that node's `epsilon` and whether it converged.
+
+The default is the explicit fixed pair `g_bounds=(0.01, 1.0)`, matching R `ltmle`. It is
+a heuristic value set, **not** an automatic selection procedure: it does not read `n`, the
+effective sample size, the fitted mechanism, or the follow-up depth. A cumulative path
+probability can naturally fall below `0.01` even when every individual factor is moderate,
+so clipping is not by itself proof of a node-level positivity violation. The fixed floor
+also does not vanish with `n` and can make the clever covariate constant when it binds for
+every scored row. If `share_truncated` is material, report it with the configured bounds,
+maximum weights, and effective sample sizes, then rerun the **complete** fit under
+substantively justified alternatives; the earlier pseudo-outcome regressions depend on
+later targeting and cannot be left fixed.
+
+The standard errors here are plug-in influence-curve standard errors. Unlike R's default
+`variance.method="tmle"`, cleverly does not also compute a recursive robust variance and
+take the larger result. R warns that IC-only variance can be anti-conservative under
+positivity problems or rare outcomes, so an active bound is a reason to qualify the
+interval, not evidence that its uncertainty already includes the truncation choice.
 
 **Observation weights** are read here exactly as they are at one time point. Pass
 `weights="w"` to `.fit()` and the estimand becomes the same regimen parameter in the tilted
@@ -742,10 +762,10 @@ fluctuation solves the weighted score `Σ w h_t (Z_t − Q̄*_t) = 0`, the plug-
 average, and the reported curve is `(w / E[w]) · D*(P_w)`. A weight is a tilt of the
 *population*, so it is **not** a factor in `h_t` — the denominator is still the `2T`
 mechanism factors and nothing else. `res.diagnostics()` reports the leverage of `w / ∏g`
-rather than of `1/∏g`, since the two reweightings multiply, and `g_bounds="auto"` is
-resolved at the effective `n` for the reason
-[the weights section](#observation-weights-and-which-population-they-define) gives — which
-bites harder here, because that bound reaches all `2T` factors.
+rather than of `1/∏g`, since the two reweightings multiply. Observation weights do not
+change LTMLE's fixed cumulative `g_bounds`; this differs deliberately from the
+point-treatment automatic rule described in
+[the weights section](#observation-weights-and-which-population-they-define).
 `tests/unit/test_weighted_estimand_longitudinal.py` checks the estimand and the curve
 against a longhand `Ψ(P_w)` on the exact law, including for a weight reading the treatment,
 the censoring indicator, the time-varying confounder and the outcome — where the tilt moves
@@ -1658,9 +1678,10 @@ does **not** rescue estimated weights — every replicate inherits and renormali
 weight column rather than re-deriving it, so those intervals condition on the fitted
 weights too; the package says so at fit time rather than letting the mistake pass.
 
-`LTMLE` takes `weights=` on exactly these terms — the same tilted-population estimand, the
-same influence function, the same `g_bounds="auto"` divergence — with every node's nuisance
-fitted by weighted loss and every node's score equation weighted; see
+`LTMLE` takes `weights=` on exactly these terms — the same tilted-population estimand and
+the same influence function — with every node's nuisance fitted by weighted loss and every
+node's score equation weighted. Its cumulative bounds remain the explicit fixed pair
+described above rather than using the point-treatment `"auto"` procedure; see
 [treatment over time](#treatment-given-over-time).
 
 That statement is derived and its limits set out in

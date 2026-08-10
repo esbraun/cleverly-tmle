@@ -470,7 +470,11 @@ def fit_regimens_msm(
     missing = sorted({cell.label for cell in model.cells} - set(plan_of))
     if missing:  # pragma: no cover - LTMLE.fit builds the cells from these very plans
         raise DataError(f"the working model names regimens the fit did not declare: {missing}")
-    cumulative = {plan.label: mechanism.cumulative(data, plan, g_bounds) for plan in plans}
+    cumulative_pairs = {
+        plan.label: mechanism.cumulative_with_unbounded(data, plan, g_bounds) for plan in plans
+    }
+    cumulative_unbounded = {label: pair[0] for label, pair in cumulative_pairs.items()}
+    cumulative = {label: pair[1] for label, pair in cumulative_pairs.items()}
     # Once per regimen for the whole alternation, not once per node per round: a link
     # costs a further backward pass per round, so rebuilding the masks inside `one_pass`
     # would multiply the quadratic term by the round count as well.
@@ -601,7 +605,16 @@ def fit_regimens_msm(
         projection=projection,
         alternation=alternation,
         fits=tuple(
-            _cell_fit(data, model, steps, cause, cumulative, plan_of, k)
+            _cell_fit(
+                data,
+                model,
+                steps,
+                cause,
+                cumulative_unbounded,
+                cumulative,
+                plan_of,
+                k,
+            )
             for k in range(model.n_cells)
         ),
         nodes=tuple(node_fits),
@@ -690,6 +703,7 @@ def _cell_fit(
     model: RegimenMSM,
     steps: Sequence[Sequence[SequentialStep]],
     cause: str | None,
+    cumulative_unbounded: dict[str, FloatArray],
     cumulative: dict[str, FloatArray],
     plan_of: dict[str, Plan],
     index: int,
@@ -714,6 +728,7 @@ def _cell_fit(
         horizon=cell.horizon,
         cause=cause,
         steps=tuple(cell_steps),
+        cumulative_unbounded=cumulative_unbounded[cell.label],
         cumulative=cumulative[cell.label],
         assignment=np.asarray(plan_of[cell.label].values),
         obs_weights=np.asarray(data.weights, dtype=float),
