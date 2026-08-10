@@ -140,14 +140,21 @@ def solve_one_step(
         score_scale=scale,
         score_initial=score_before,
         failure=(
-            None if converged else _classify_one_step(epsilon, current, alpha, steps, max_steps)
+            None
+            if converged
+            else _classify_one_step(epsilon, current, alpha, steps, max_steps, mask)
         ),
         loglik=loglik,
     )
 
 
 def _classify_one_step(
-    epsilon: FloatArray, current: InitialFit, alpha: float, steps: int, max_steps: int
+    epsilon: FloatArray,
+    current: InitialFit,
+    alpha: float,
+    steps: int,
+    max_steps: int,
+    mask: BoolArray,
 ) -> TargetingFailure:
     """Why the walk stopped short of the root.
 
@@ -158,7 +165,8 @@ def _classify_one_step(
     if epsilon.size and np.max(np.abs(epsilon)) >= SEPARATION_EPSILON:
         return "separation_suspected"
     edge = 1.0 - alpha
-    pinned = np.mean((current.observed <= edge * 1.000001) | (current.observed >= alpha * 0.999999))
+    scored = current.observed[mask]
+    pinned = np.mean((scored <= edge * 1.000001) | (scored >= alpha * 0.999999))
     if pinned > 0.01:
         return "bounds_pinned"
     if steps >= max_steps:

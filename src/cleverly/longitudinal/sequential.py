@@ -169,17 +169,31 @@ class Mechanism:
         the ``where`` picks the same branch for every row, which is why this is the old
         expression rather than a generalisation of it.
         """
+        return self.cumulative_with_unbounded(data, plan, bounds)[1]
+
+    def cumulative_with_unbounded(
+        self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
+    ) -> tuple[FloatArray, FloatArray]:
+        """Raw and bounded cumulative mechanism probabilities for one regimen.
+
+        Keeping the raw prefix is not optional diagnostic bookkeeping: without it a
+        result cannot distinguish a naturally small path probability from one replaced
+        by the configured floor.  :meth:`cumulative` retains its historical bounded-only
+        interface and delegates here.
+        """
         lower, upper = bounds
         running = np.ones(data.n)
-        columns = []
+        raw_columns = []
+        bounded_columns = []
         for time in range(1, data.n_times + 1):
             arm = plan.arm(time)
             g1 = self.treatment[time - 1][plan.label]
             running = running * np.where(arm == 1.0, g1, 1.0 - g1)
             if data.censoring_names:
                 running = running * self.censoring[time - 1][plan.label]
-            columns.append(bound(running, lower, upper))
-        return np.column_stack(columns)
+            raw_columns.append(running)
+            bounded_columns.append(bound(running, lower, upper))
+        return np.column_stack(raw_columns), np.column_stack(bounded_columns)
 
 
 @dataclass(frozen=True)
@@ -260,6 +274,9 @@ class RegimenFit:
     #: parsing it back out of a report name, so the two cannot drift.
     cause: str | None
     steps: tuple[SequentialStep, ...]
+    #: Raw cumulative treatment-and-censoring probability before ``g_bounds``.
+    cumulative_unbounded: FloatArray
+    #: The same prefixes after applying ``g_bounds``; these enter the score and EIF.
     cumulative: FloatArray
     #: The ``(n, T)`` arms this regimen assigned *this* sample.  Constant down each
     #: column for a static plan; for a rule it is the thing ``diagnostics()`` reports,
@@ -582,7 +599,7 @@ def fit_regimen(
     horizon = data.n_times if horizon is None else horizon
     if not 1 <= horizon <= data.n_times:
         raise LongitudinalError(f"horizon {horizon} is outside 1..{data.n_times}")
-    cumulative = mechanism.cumulative(data, plan, g_bounds)
+    cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     carried = seed_carried(data, scaler)
     # Once per regimen, not once per node: the masks are prefix scans of one conjunction,
     # and rebuilding them at every node is what made this pass quadratic in T.
@@ -666,6 +683,7 @@ def fit_regimen(
         horizon=horizon,
         cause=cause,
         steps=tuple(steps),
+        cumulative_unbounded=cumulative_unbounded,
         cumulative=cumulative,
         assignment=np.asarray(plan.values),
         obs_weights=np.asarray(data.weights, dtype=float),

@@ -26,6 +26,7 @@ from cleverly.fluctuation.submodel import Submodel
 from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import LongitudinalData, resolve_plans, resolve_regimens
 from cleverly.longitudinal import sequential as longitudinal_sequential
+from cleverly.longitudinal.data import RegimenMasks
 from cleverly.longitudinal.sequential import Mechanism, RegimenFit, fit_regimen
 from cleverly.utils.bounds import OutcomeScaler
 
@@ -48,7 +49,7 @@ def _fit(variant: str) -> tuple[RegimenFit, pd.DataFrame]:
     frame = pd.read_csv(FIXTURES / f"{variant}.csv")
     outcome: str | list[str]
     time_varying: list[list[str]]
-    if variant == "longitudinal":
+    if variant in {"longitudinal", "censored"}:
         outcome = "Y"
         time_varying = [[], ["L2"]]
     else:
@@ -80,39 +81,40 @@ def _fit(variant: str) -> tuple[RegimenFit, pd.DataFrame]:
     return fit, frame
 
 
-@pytest.mark.parametrize("variant", ["longitudinal", "survival"])
+@pytest.mark.parametrize("variant", ["longitudinal", "censored", "survival"])
 def test_plain_ltmle_matches_the_frozen_r_reference(variant: str) -> None:
     fit, _ = _fit(variant)
     reference = pd.read_csv(FIXTURES / "reference.csv").query("variant == @variant")
 
     # Canonical R's glm update stops at its 1e-8 IRLS criterion; cleverly's direct
-    # Newton solve is tighter, so the frozen comparison is at the resulting 1e-9 scale.
-    assert fit.psi_scaled == pytest.approx(reference["estimate"].iloc[0], abs=1e-9)
+    # Newton solve is tighter.  The censoring witness stops at a 1.44e-8 coefficient
+    # difference, while both original variants stop below 3e-9, so keep the narrower
+    # tolerance where it is evidence the fixture actually supplies.
+    atol = 2e-8 if variant == "censored" else 3e-9
+    assert fit.psi_scaled == pytest.approx(reference["estimate"].iloc[0], abs=atol)
     np.testing.assert_allclose(
         fit.influence_curve_scaled,
         reference["influence_curve"].to_numpy(),
         rtol=0,
-        atol=3e-9,
+        atol=atol,
     )
-    np.testing.assert_allclose(fit.cumulative[:, 0], reference["cumulative_g_t1"], atol=1e-15)
-    # Canonical R freezes cumulative g after an event; cleverly can keep evaluating the
-    # supplied numeric mechanism, but the second value is used only on this at-risk set.
-    at_risk_t2 = fit.steps[1].at_risk
-    np.testing.assert_allclose(
-        fit.cumulative[at_risk_t2, 1],
-        reference.loc[at_risk_t2, "cumulative_g_t2"],
-        rtol=0,
-        atol=1e-15,
-    )
+    # Compare the rows each value can enter the update on.  R freezes cumulative g after
+    # censoring or an event; cleverly may keep evaluating the supplied numeric mechanism,
+    # and those off-mask values are deliberately irrelevant to both implementations.
+    for step, column in zip(fit.steps, ["cumulative_g_t1", "cumulative_g_t2"], strict=True):
+        used = step.trained_on
+        np.testing.assert_allclose(
+            fit.cumulative[used, step.time - 1], reference.loc[used, column], rtol=0, atol=1e-15
+        )
     np.testing.assert_allclose(
         [step.fluctuation.epsilon[0] for step in fit.steps],
         reference[["epsilon_t1", "epsilon_t2"]].iloc[0].to_numpy(),
         rtol=0,
-        atol=3e-9,
+        atol=atol,
     )
 
 
-@pytest.mark.parametrize("variant", ["longitudinal", "survival"])
+@pytest.mark.parametrize("variant", ["longitudinal", "censored", "survival"])
 def test_the_reference_exercises_both_corrected_algorithmic_choices(variant: str) -> None:
     fit, frame = _fit(variant)
     raw_first = frame["g_A1"].to_numpy() * frame["g_C1"].to_numpy()
@@ -130,7 +132,7 @@ def test_the_reference_exercises_both_corrected_algorithmic_choices(variant: str
     assert abs(fit.steps[-1].fluctuation.epsilon[0]) > 0.4
 
 
-@pytest.mark.parametrize("variant", ["longitudinal", "survival"])
+@pytest.mark.parametrize("variant", ["longitudinal", "censored", "survival"])
 def test_putting_inverse_probability_back_in_the_submodel_fails_the_reference(
     variant: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -159,3 +161,36 @@ def test_putting_inverse_probability_back_in_the_submodel_fails_the_reference(
     mutated, _ = _fit(variant)
     reference = pd.read_csv(FIXTURES / "reference.csv").query("variant == @variant")
     assert abs(mutated.psi_scaled - reference["estimate"].iloc[0]) > 1e-3
+
+
+def test_the_censoring_reference_uses_both_censoring_masks() -> None:
+    fit, frame = _fit("censored")
+    np.testing.assert_array_equal(np.flatnonzero(frame["C1"].fillna(0).to_numpy() == 0), [3, 15])
+    np.testing.assert_array_equal(
+        np.flatnonzero(frame["C2"].fillna(0).to_numpy() == 0), [3, 7, 15, 19]
+    )
+    # C1-censored followers leave both score masks; C2-censored followers contribute at
+    # the first node but not the second.
+    assert not fit.steps[0].trained_on[[3, 15]].any()
+    assert not fit.steps[1].trained_on[[3, 7, 15, 19]].any()
+    assert fit.steps[0].trained_on[[7, 19]].all()
+
+
+def test_dropping_the_censoring_mask_fails_the_canonical_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deliberate mutation: censored followers must not enter later score equations."""
+    original = LongitudinalData.regimen_masks
+
+    def ignore_censoring(self, assignment):  # type: ignore[no-untyped-def]
+        masks = original(self, assignment)
+        return RegimenMasks(
+            uncensored=np.ones_like(masks.uncensored),
+            followed=masks.followed,
+            event_free=masks.event_free,
+        )
+
+    monkeypatch.setattr(LongitudinalData, "regimen_masks", ignore_censoring)
+    mutated, _ = _fit("censored")
+    reference = pd.read_csv(FIXTURES / "reference.csv").query("variant == 'censored'")
+    assert abs(mutated.psi_scaled - reference["estimate"].iloc[0]) > 0.04

@@ -13,6 +13,7 @@ from numpy.typing import NDArray
 __all__ = [
     "Backend",
     "BoolArray",
+    "CumulativeGBounds",
     "Estimand",
     "Family",
     "FloatArray",
@@ -68,3 +69,9 @@ ParameterAxis = Literal["arm", "regime", "shift", "ipsi", "msm"]
 #: Propensity-score truncation: ``"auto"`` for the sample-size dependent
 #: default, a single float ``lo`` meaning ``[lo, 1 - lo]``, or an explicit pair.
 GBounds = Literal["auto"] | float | tuple[float, float]
+
+#: Bounds on an estimated cumulative longitudinal treatment-and-censoring
+#: probability.  There is deliberately no ``"auto"`` member: cleverly has no
+#: data-adaptive or depth-adaptive rule for choosing this bound.  LTMLE's package
+#: default is an explicit fixed pair, recorded in :mod:`cleverly.utils.bounds`.
+CumulativeGBounds = float | tuple[float, float]

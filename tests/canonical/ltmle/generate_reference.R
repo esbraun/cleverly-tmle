@@ -49,6 +49,30 @@ longitudinal_fit <- ltmle(
   variance.method = "ic"
 )
 
+# A distinct end-of-study witness for the censoring masks.  Rows are one-indexed:
+# 4 and 16 follow A1=1 but leave at C1; 8 and 20 follow (A1,A2)=(1,1) but leave
+# at C2.  Values after censoring are absent, as they would be in an observed panel.
+censored <- longitudinal
+censored$C1[c(4, 16)] <- 0
+censored[c(4, 16), c("L2", "A2", "C2", "Y")] <- NA
+censored$C2[c(8, 20)] <- 0
+censored$Y[c(8, 20)] <- NA
+censored_fit <- ltmle(
+  censored[c("W", "A1", "C1", "L2", "A2", "C2", "Y")],
+  Anodes = c("A1", "A2"),
+  Cnodes = c("C1", "C2"),
+  Lnodes = "L2",
+  Ynodes = "Y",
+  survivalOutcome = FALSE,
+  Qform = c(L2 = "Q.kplus1 ~ 1", Y = "Q.kplus1 ~ 1"),
+  gform = as.matrix(censored[g_columns]),
+  abar = c(1, 1),
+  gbounds = c(0.2, 0.99),
+  SL.library = "glm",
+  stratify = TRUE,
+  variance.method = "ic"
+)
+
 survival <- make_common()
 survival$Y1 <- c(
   1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
@@ -82,6 +106,7 @@ survival_fit <- ltmle(
 )
 
 write.csv(longitudinal, file.path(fixture_dir, "longitudinal.csv"), row.names = FALSE)
+write.csv(censored, file.path(fixture_dir, "censored.csv"), row.names = FALSE)
 write.csv(survival, file.path(fixture_dir, "survival.csv"), row.names = FALSE)
 
 write_result <- function(fit, variant) {
@@ -100,6 +125,7 @@ write_result <- function(fit, variant) {
 }
 expected <- rbind(
   write_result(longitudinal_fit, "longitudinal"),
+  write_result(censored_fit, "censored"),
   write_result(survival_fit, "survival")
 )
 write.csv(expected, file.path(fixture_dir, "reference.csv"), row.names = FALSE)
@@ -107,4 +133,5 @@ write.csv(expected, file.path(fixture_dir, "reference.csv"), row.names = FALSE)
 cat("ltmle ", as.character(packageVersion("ltmle")), "\n", sep = "")
 cat("R ", R.version.string, "\n", sep = "")
 cat("longitudinal estimate ", unname(longitudinal_fit$estimates["tmle"]), "\n", sep = "")
+cat("censored estimate ", unname(censored_fit$estimates["tmle"]), "\n", sep = "")
 cat("survival estimate ", unname(survival_fit$estimates["tmle"]), "\n", sep = "")

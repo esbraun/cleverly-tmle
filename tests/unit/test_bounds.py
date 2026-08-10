@@ -8,11 +8,13 @@ import pytest
 from cleverly.fluctuation.submodel import SUBMODEL_BUILDERS
 from cleverly.utils.bounds import (
     CONDITIONAL_GROUPS,
+    DEFAULT_LTMLE_G_BOUNDS,
     OutcomeScaler,
     bound,
     expit,
     g_bounds_for,
     logit,
+    resolve_cumulative_g_bounds,
     resolve_g_bounds,
     shrink_probabilities,
 )
@@ -92,6 +94,36 @@ class TestResolveGBounds:
     def test_rejects_unknown_string(self) -> None:
         with pytest.raises(ValueError, match="must be 'auto'"):
             resolve_g_bounds("tight", 500)  # type: ignore[arg-type]
+
+
+class TestResolveCumulativeGBounds:
+    def test_the_ltmle_default_is_a_visible_fixed_pair(self) -> None:
+        assert DEFAULT_LTMLE_G_BOUNDS == (0.01, 1.0)
+        assert resolve_cumulative_g_bounds(DEFAULT_LTMLE_G_BOUNDS) == (0.01, 1.0)
+
+    def test_a_scalar_is_lower_only(self) -> None:
+        assert resolve_cumulative_g_bounds(0.02) == (0.02, 1.0)
+        np.testing.assert_array_equal(
+            bound(np.array([0.005, 0.95]), *resolve_cumulative_g_bounds(0.02)),
+            [0.02, 0.95],
+        )
+
+    def test_an_upper_bound_of_one_round_trips(self) -> None:
+        assert resolve_cumulative_g_bounds((0.01, 1.0)) == (0.01, 1.0)
+
+    @pytest.mark.parametrize("spec", [0.0, 1.0, 1.2, -0.1])
+    def test_rejects_invalid_scalar(self, spec: float) -> None:
+        with pytest.raises(ValueError, match="scalar cumulative g_bounds"):
+            resolve_cumulative_g_bounds(spec)
+
+    @pytest.mark.parametrize("spec", [(0.0, 1.0), (0.9, 0.1), (0.1, 1.1)])
+    def test_rejects_invalid_pair(self, spec: tuple[float, float]) -> None:
+        with pytest.raises(ValueError, match="0 < lower < upper <= 1"):
+            resolve_cumulative_g_bounds(spec)
+
+    def test_auto_is_rejected_as_a_procedure_the_estimator_does_not_have(self) -> None:
+        with pytest.raises(ValueError, match="no automatic cumulative-bound selection"):
+            resolve_cumulative_g_bounds("auto")  # type: ignore[arg-type]
 
 
 class TestWhichBoundAGroupGets:

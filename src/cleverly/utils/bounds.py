@@ -14,19 +14,26 @@ from typing import cast
 
 import numpy as np
 
-from .._typing import FloatArray, GBounds
+from .._typing import CumulativeGBounds, FloatArray, GBounds
 
 __all__ = [
+    "DEFAULT_LTMLE_G_BOUNDS",
     "OutcomeScaler",
     "bound",
     "expit",
     "logit",
+    "resolve_cumulative_g_bounds",
     "resolve_g_bounds",
     "shrink_probabilities",
 ]
 
 # Largest magnitude passed to ``exp`` before ``expit`` saturates anyway.
 _EXP_CLIP = 709.0
+
+#: Fixed heuristic used by R ``ltmle`` for estimated cumulative treatment-and-
+#: censoring probabilities.  This is a visible value, not an automatic selection
+#: procedure: it does not depend on sample size, follow-up depth, or the fitted data.
+DEFAULT_LTMLE_G_BOUNDS: tuple[float, float] = (0.01, 1.0)
 
 
 def bound(x: FloatArray, lower: float, upper: float) -> FloatArray:
@@ -125,6 +132,40 @@ def resolve_g_bounds(spec: GBounds, n: float, *, for_att: bool = False) -> tuple
     lower, upper = (float(v) for v in cast("tuple[float, float]", spec))
     if not 0.0 < lower < upper < 1.0:
         raise ValueError(f"g_bounds pair must satisfy 0 < lower < upper < 1; got {(lower, upper)}")
+    return lower, upper
+
+
+def resolve_cumulative_g_bounds(spec: CumulativeGBounds) -> tuple[float, float]:
+    """Validate bounds on a cumulative longitudinal mechanism probability.
+
+    A scalar is lower-only shorthand: unlike a point-treatment propensity, the
+    regimen-specific cumulative probability is already for the selected path and no
+    complementary arm is constructed from it.  An upper value of one is therefore both
+    meaningful and the package default.
+
+    There is intentionally no ``"auto"`` case.  The package has no data-adaptive or
+    depth-adaptive cumulative-bound selection procedure; callers who want R ``ltmle``'s
+    fixed heuristic can pass :data:`DEFAULT_LTMLE_G_BOUNDS` explicitly (and LTMLE uses
+    that pair as its default).
+    """
+    if isinstance(spec, str):
+        raise ValueError(
+            "LTMLE has no automatic cumulative-bound selection procedure; its package "
+            "default is the fixed heuristic (0.01, 1.0). Pass a scalar lower bound or "
+            "an explicit (lower, upper) pair."
+        )
+
+    if isinstance(spec, (int, float)) and not isinstance(spec, bool):
+        lower = float(spec)
+        if not 0.0 < lower < 1.0:
+            raise ValueError(f"scalar cumulative g_bounds must lie in (0, 1); got {lower}")
+        return lower, 1.0
+
+    lower, upper = (float(v) for v in cast("tuple[float, float]", spec))
+    if not 0.0 < lower < upper <= 1.0:
+        raise ValueError(
+            f"cumulative g_bounds pair must satisfy 0 < lower < upper <= 1; got {(lower, upper)}"
+        )
     return lower, upper
 
 

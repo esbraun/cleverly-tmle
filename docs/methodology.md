@@ -266,16 +266,34 @@ this distinction because every `epsilon` is zero there.
 That fixture is intentionally narrower than the scientific evidence. It freezes R
 `ltmle` 1.3-0 with fixed numeric mechanism predictions, intercept-only Q regressions, no
 cross-fitting, and `gbounds=(0.2, 0.99)`. One baseline stratum binds only at the second
-cumulative prefix and the deepest `|epsilon|` exceeds 0.4. It compares the estimate, every
-row of the influence curve, both used cumulative probabilities, and both targeting
-coefficients for an end-of-study fit and a survival fit. Its predetermined interpretation
-is equally narrow: disagreement means the implementation choices differ and must be
-reconciled; agreement is evidence only for those choices. The independently derived law
-and Gateaux checks above remain the acceptance evidence for the parameter and EIF.
-The fixture uses an explicit pair because the public default is a deliberate package-wide
-divergence: `g_bounds="auto"` resolves a sample-size-dependent symmetric pair (at Kish's
-effective sample size under observation weights), whereas R `ltmle` defaults to
-`c(0.01, 1)`.
+cumulative prefix and the deepest `|epsilon|` exceeds 0.4. The end-of-study witness now
+has a second, censoring-active variant so the `uncensored` and `trained_on` masks are not
+inferred from a fixture where every `C` equals one. The original end-of-study first-node
+epsilon is structurally zero; both nodes move only in the survival variant. The explicit
+upper bound never binds. The fixtures compare the estimate, every row of the influence
+curve, used cumulative probabilities, and targeting coefficients. Their predetermined
+interpretation is equally narrow: disagreement means the implementation choices differ
+and must be reconciled; agreement is evidence only for those choices. The independently
+derived law and Gateaux checks above remain the acceptance evidence for the parameter and
+EIF.
+
+LTMLE's public default is the explicit fixed pair `g_bounds=(0.01, 1.0)`, matching R
+`ltmle`'s `c(0.01, 1)`. It is a **heuristic convention**, not an automatic procedure or a
+derived rate. It does not depend on row count, effective sample size, fitted probabilities,
+or follow-up depth. A cumulative path probability naturally shrinks with depth, so falling
+below `0.01` does not by itself prove a node-level positivity failure; conversely, clipping
+can replace every scored row and make the clever covariate constant. The fixed floor does
+not vanish asymptotically. `res.diagnostics()["share_truncated"]` therefore reports its
+effect per regimen and node. When it is material, report the bounds, truncation shares,
+maximum weights, and effective sample sizes, and refit the complete backward recursion
+under substantively justified alternatives.
+
+The reported standard error is the plug-in influence-curve variance. It does not implement
+R's default recursive `variance.method="tmle"`, which takes the larger of that variance and
+a robust estimate. R itself warns that IC-only inference can be substantially
+anti-conservative under positivity problems or rare outcomes; the robust method also has
+availability restrictions. Active truncation is thus a reason to qualify the interval,
+not evidence that the interval has absorbed truncation uncertainty.
 
 The influence curve is checked on the same footing as every other estimand in this library:
 against the complex-step Gateaux derivative of an independently written g-formula, on a
