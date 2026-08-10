@@ -330,6 +330,10 @@ class MSM:
     #: called ``"0"`` would be read as a dose of zero and reported without complaint --
     #: a flag on the declaration is what makes that structural rather than lucky.
     from_linear: bool = False
+    #: Increasing dose grid used to integrate a continuous-treatment projection.
+    #: Empty on the ordinary finite-arm path.  The grid is part of the estimand, not a
+    #: random Monte Carlo tuning parameter.
+    doses: tuple[float, ...] = ()
 
     def __post_init__(self) -> None:
         link_for(str(self.link))
@@ -347,6 +351,10 @@ class MSM:
             # of estimated weights, which is precisely what the message addresses.
             refuse_unsupported("estimated_weights")  # pragma: no cover - a type violation
         object.__setattr__(self, "terms", terms)
+        doses = tuple(float(value) for value in self.doses)
+        if doses and (len(doses) < 3 or np.any(np.diff(doses) <= 0.0)):
+            raise DataError("a continuous MSM needs at least three strictly increasing doses")
+        object.__setattr__(self, "doses", doses)
 
     # ---------------------------------------------------------------- shorthand
 
@@ -358,6 +366,7 @@ class MSM:
         interaction: bool = True,
         weights: Callable[[Any, Any], Any] | None = None,
         link: MSMLink = "identity",
+        doses: Sequence[float] = (),
     ) -> MSM:
         r"""The usual dose-response model, without writing the design out by hand.
 
@@ -381,15 +390,22 @@ class MSM:
             terms = (*terms, *(f"a:{name}" for name in names))
 
         def build(level: Any, frame: Any) -> FloatArray:
-            dose = _numeric_level(level)
-            columns = [np.ones(_frame_len(frame)), np.full(_frame_len(frame), dose)]
+            dose = _numeric_dose(level, _frame_len(frame))
+            columns = [np.ones(_frame_len(frame)), dose]
             modifier_values = [_column(frame, name) for name in names]
             columns.extend(modifier_values)
             if interaction:
                 columns.extend(dose * values for values in modifier_values)
             return np.column_stack(columns)
 
-        return cls(design=build, terms=terms, weights=weights, link=link, from_linear=True)
+        return cls(
+            design=build,
+            terms=terms,
+            weights=weights,
+            link=link,
+            from_linear=True,
+            doses=tuple(float(value) for value in doses),
+        )
 
 
 def _frame_len(frame: Any) -> int:
@@ -426,6 +442,20 @@ def _numeric_level(level: Any) -> float:
             "would fall back on is not one anybody chose. Pass design= and code the arms "
             "explicitly."
         ) from None
+
+
+def _numeric_dose(level: Any, n: int) -> FloatArray:
+    """A scalar dose broadcast to rows, or one observed dose per row."""
+    try:
+        values = np.asarray(level, dtype=float).reshape(-1)
+    except (TypeError, ValueError):
+        _numeric_level(level)  # raises the established message
+        raise  # pragma: no cover
+    if values.size == 1:
+        return np.full(n, float(values[0]))
+    if values.size != n or not np.all(np.isfinite(values)):
+        raise DataError(f"a dose must be finite and have length 1 or {n}; got {values.size}")
+    return values
 
 
 # ------------------------------------------------------------------- the evaluation
@@ -466,6 +496,11 @@ class MSMSet:
     weights: FloatArray
     arms: tuple[float, ...]
     link: MSMLink = "identity"
+    #: ``h(a,V)`` without quadrature mass, used in the continuous clever covariate.
+    clever_weights: FloatArray | None = None
+    observed_design: FloatArray | None = None
+    observed_weights: FloatArray | None = None
+    dose_values: tuple[float, ...] = ()
 
     def __post_init__(self) -> None:
         link_for(str(self.link))
@@ -495,11 +530,30 @@ class MSMSet:
             )
         object.__setattr__(self, "design", design)
         object.__setattr__(self, "weights", weights)
+        clever = (
+            weights if self.clever_weights is None else np.asarray(self.clever_weights, dtype=float)
+        )
+        if clever.shape != weights.shape or np.any(~np.isfinite(clever)) or np.any(clever < 0.0):
+            raise DataError("continuous-MSM clever weights must match the projection-weight shape")
+        object.__setattr__(self, "clever_weights", clever)
+        doses = tuple(float(value) for value in self.dose_values)
+        if doses:
+            if len(doses) != len(self.arms):
+                raise DataError("continuous-MSM doses must have one value per integration code")
+            observed_design = np.asarray(self.observed_design, dtype=float)
+            observed_weights = np.asarray(self.observed_weights, dtype=float).reshape(-1)
+            if observed_design.shape != (design.shape[0], design.shape[2]):
+                raise DataError("continuous-MSM observed design has the wrong shape")
+            if observed_weights.shape != (design.shape[0],):
+                raise DataError("continuous-MSM observed weights have the wrong shape")
+            object.__setattr__(self, "observed_design", observed_design)
+            object.__setattr__(self, "observed_weights", observed_weights)
+        object.__setattr__(self, "dose_values", doses)
         self._check_rank()
 
     def _check_rank(self) -> None:
         """Refuse a design whose projection is not one vector."""
-        check_projection_rank(self.gram, self.terms, axis="arms")
+        check_projection_rank(self.gram, self.terms, axis="doses" if self.continuous else "arms")
 
     # ------------------------------------------------------------------ build
 
@@ -511,15 +565,35 @@ class MSMSet:
         retargeted from it agree on what the working model is by construction rather than
         by re-running the user's function and hoping it is deterministic.
         """
-        if data.is_continuous_treatment:
-            raise DataError(
-                "a working model is a projection of the counterfactual means over the "
-                f"arms, and {data.treatment_name} was declared continuous, which has none. "
-                "Declare shifts= for a continuous dose, or drop treatment_kind="
-                "'continuous' to read the levels as arms."
-            )
         _check_support(link_for(str(msm.link)), data)
         frame = _covariate_frame(data)
+        if data.is_continuous_treatment:
+            if not msm.doses:
+                raise DataError(
+                    "a continuous-treatment MSM needs a declared integration grid; pass "
+                    "doses= to MSM.linear(...)"
+                )
+            grid_designs = [_arm_design(msm, dose, frame, data.n) for dose in msm.doses]
+            raw_weights = [_arm_weights(msm, dose, frame, data.n) for dose in msm.doses]
+            grid = np.asarray(msm.doses, dtype=float)
+            quadrature = np.empty(grid.size)
+            quadrature[0] = (grid[1] - grid[0]) / 2.0
+            quadrature[-1] = (grid[-1] - grid[-2]) / 2.0
+            quadrature[1:-1] = (grid[2:] - grid[:-2]) / 2.0
+            clever = np.column_stack(raw_weights)
+            observed_weights = _arm_weights(msm, data.treatment, frame, data.n)
+            observed_weights *= (data.treatment >= grid[0]) & (data.treatment <= grid[-1])
+            return cls(
+                msm.terms,
+                np.stack(grid_designs, axis=1),
+                clever * quadrature[None, :],
+                tuple(float(code) for code in range(grid.size)),
+                msm.link,
+                clever_weights=clever,
+                observed_design=_arm_design(msm, data.treatment, frame, data.n),
+                observed_weights=observed_weights,
+                dose_values=msm.doses,
+            )
         designs: list[FloatArray] = []
         weights: list[FloatArray] = []
         for code in data.arm_codes:
@@ -547,6 +621,10 @@ class MSMSet:
     @property
     def n_terms(self) -> int:
         return len(self.terms)
+
+    @property
+    def continuous(self) -> bool:
+        return bool(self.dose_values)
 
     @property
     def codes(self) -> tuple[float, ...]:
@@ -631,6 +709,32 @@ class MSMSet:
         slope = np.asarray(link.slope(self.fitted(beta)), dtype=float)
         return np.asarray(self.design * (self.weights * slope)[:, :, None], dtype=float)
 
+    def continuous_clever_design_at(self, beta: FloatArray | None) -> tuple[FloatArray, FloatArray]:
+        """Clever-design numerators at observed and quadrature-grid doses."""
+        if not self.continuous:
+            raise DataError("continuous_clever_design_at needs a continuous MSM")
+        assert self.observed_design is not None and self.observed_weights is not None
+        link = link_for(str(self.link))
+        grid_slope = np.ones(self.design.shape[:2])
+        observed_slope = np.ones(self.n)
+        if not link.is_identity:
+            if beta is None:
+                raise DataError(
+                    f"a continuous MSM with link={self.link!r} needs beta to build its score"
+                )
+            grid_slope = np.asarray(link.slope(self.fitted(beta)), dtype=float)
+            observed_mean = np.asarray(
+                link.inverse(np.asarray(self.observed_design) @ np.asarray(beta, dtype=float)),
+                dtype=float,
+            )
+            observed_slope = np.asarray(link.slope(observed_mean), dtype=float)
+        grid = self.design * (np.asarray(self.clever_weights) * grid_slope)[:, :, None]
+        observed = (
+            np.asarray(self.observed_design)
+            * (np.asarray(self.observed_weights) * observed_slope)[:, None]
+        )
+        return np.asarray(observed, dtype=float), np.asarray(grid, dtype=float)
+
     def arm_column(self, code: float) -> FloatArray:
         """One arm's ``(n, p)`` design."""
         return np.asarray(self.design[:, self.arms.index(float(code)), :], dtype=float)
@@ -650,7 +754,18 @@ class MSMSet:
         idx = np.asarray(index)
         if idx.dtype == bool:
             idx = np.flatnonzero(idx)
-        return replace(self, design=self.design[idx], weights=self.weights[idx])
+        return replace(
+            self,
+            design=self.design[idx],
+            weights=self.weights[idx],
+            clever_weights=np.asarray(self.clever_weights)[idx],
+            observed_design=(
+                None if self.observed_design is None else np.asarray(self.observed_design)[idx]
+            ),
+            observed_weights=(
+                None if self.observed_weights is None else np.asarray(self.observed_weights)[idx]
+            ),
+        )
 
 
 # ------------------------------------------------------------------- the projection

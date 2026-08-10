@@ -52,6 +52,11 @@ from .longitudinal import (
 )
 from .provenance import Provenance
 from .targets import TARGETS, Identification, Target, register
+from .variable_importance import (
+    VariableImportanceEntry,
+    VariableImportanceResult,
+    variable_importance,
+)
 
 __all__ = [
     "ALL_ESTIMANDS",
@@ -81,10 +86,13 @@ __all__ = [
     "TMLEResult",
     "TMLEResultSet",
     "Target",
+    "VariableImportanceEntry",
+    "VariableImportanceResult",
     "WeightingWarning",
     "__version__",
     "load",
     "ltmle",
     "register",
     "tmle",
+    "variable_importance",
 ]

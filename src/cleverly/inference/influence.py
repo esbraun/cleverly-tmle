@@ -84,7 +84,7 @@ __all__ = [
     "shift_means",
 ]
 
-Scale = Literal["level", "difference", "ratio"]
+Scale = Literal["level", "difference", "ratio", "fraction"]
 
 
 @dataclass(frozen=True)
@@ -141,8 +141,8 @@ class ParameterEstimate:
     def pvalue(self) -> float:
         """Two-sided p-value against the null of no effect.
 
-        The null is zero for a level or difference and one for a ratio (i.e. zero
-        on the log scale).
+        The null is zero for a level, difference or fraction and one for a ratio
+        (i.e. zero on the log scale).
         """
         if self.scale == "ratio":
             assert self.log_psi is not None

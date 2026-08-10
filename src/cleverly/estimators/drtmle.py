@@ -566,6 +566,7 @@ class DRTMLE(TMLE):
             weights=None,
             id=None,
             intermediate=None,
+            strata=None,
             treatment_kind="discrete",
         )
 

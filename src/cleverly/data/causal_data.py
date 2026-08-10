@@ -133,6 +133,13 @@ class CausalData:
     weight_spec: WeightSpec = field(default_factory=WeightSpec)
     dropped_covariates: tuple[str, ...] = ()
     encodings: tuple[CategoricalEncoding, ...] = ()
+    #: Optional finite baseline partition used for conditional target parameters.  Codes
+    #: are ``0..S-1`` and :attr:`strata_levels` maps them back to the caller's labels.
+    #: The raw columns remain in the adjustment set; this is target metadata, not a
+    #: replacement for confounding control.
+    strata: IntArray | None = None
+    strata_names: tuple[str, ...] = ()
+    strata_levels: tuple[tuple[Any, ...], ...] = ()
     #: Name of the dataframe backend the data arrived in, or ``None`` for numpy input.
     #: A *name* and not the frame it came from: this used to hold the whole input
     #: frame, which pinned it in memory for the life of every result derived from the
@@ -157,6 +164,7 @@ class CausalData:
         weights_estimated: bool = False,
         id: str | None = None,
         intermediate: str | None = None,
+        strata: Sequence[str] | None = None,
         family: str = "auto",
         treatment_kind: TreatmentKind = "discrete",
     ) -> CausalData:
@@ -203,6 +211,12 @@ class CausalData:
         ):
             if name is not None:
                 roles[role] = name
+        strata_names = tuple(strata or ())
+        absent_strata = [name for name in strata_names if name not in columns]
+        if absent_strata:
+            raise DataError(f"strata columns not found: {absent_strata}; available: {columns}")
+        if len(set(strata_names)) != len(strata_names):
+            raise DataError(f"strata= contains duplicate columns: {list(strata_names)}")
         missing = {role: name for role, name in roles.items() if name not in columns}
         if missing:
             raise DataError(f"columns not found in the frame: {missing}; available: {columns}")
@@ -224,6 +238,15 @@ class CausalData:
             absent = [name for name in covariate_names if name not in columns]
             if absent:
                 raise DataError(f"covariate columns not found: {absent}; available: {columns}")
+
+        outside = [name for name in strata_names if name not in covariate_names]
+        if outside:
+            raise DataError(
+                f"baseline strata must also be adjustment covariates; add {outside} to "
+                "covariates= (or leave covariates=None)"
+            )
+
+        strata_codes, strata_levels = _encode_strata(frame, strata_names)
 
         w_matrix, w_names, encodings = _encode_covariates(frame, covariate_names)
 
@@ -251,6 +274,9 @@ class CausalData:
             weights_name=weights,
             cluster_name=id,
             intermediate_name=intermediate,
+            strata=strata_codes,
+            strata_names=strata_names,
+            strata_levels=strata_levels,
             encodings=encodings,
             backend=backend_of(frame),
         )
@@ -273,6 +299,8 @@ class CausalData:
         treatment_kind: TreatmentKind = "discrete",
         outcome_name: str = "Y",
         treatment_name: str = "A",
+        strata: np.ndarray | None = None,
+        strata_names: Sequence[str] | None = None,
     ) -> CausalData:
         """Build from numpy arrays, mirroring ``tmle(Y, A, W, ...)`` in R.
 
@@ -305,6 +333,9 @@ class CausalData:
             weights_name="weights" if weights is not None else None,
             cluster_name="id" if id is not None else None,
             intermediate_name="Z" if intermediate is not None else None,
+            strata=None if strata is None else np.asarray(strata),
+            strata_names=tuple(strata_names or ()),
+            strata_levels=(),
             encodings=(),
             backend=None,
         )
@@ -333,6 +364,9 @@ class CausalData:
         intermediate_name: str | None,
         encodings: Sequence[CategoricalEncoding],
         backend: str | None,
+        strata: np.ndarray | None = None,
+        strata_names: Sequence[str] = (),
+        strata_levels: Sequence[tuple[Any, ...]] = (),
     ) -> CausalData:
         n = len(outcome)
         if n < _MIN_OBSERVATIONS:
@@ -388,6 +422,46 @@ class CausalData:
         if intermediate is not None:
             z, _ = encode_binary(intermediate, intermediate_name or "Z")
 
+        strata_codes: IntArray | None = None
+        resolved_strata_levels: tuple[tuple[Any, ...], ...] = tuple(strata_levels)
+        if strata is not None:
+            raw = np.asarray(strata)
+            if raw.ndim == 0 or raw.shape[0] != n:
+                actual = 1 if raw.ndim == 0 else raw.shape[0]
+                raise DataError(f"strata has length {actual}, expected {n}")
+            if resolved_strata_levels:
+                codes_array = np.asarray(raw, dtype=np.int64).reshape(-1)
+                expected = np.arange(len(resolved_strata_levels), dtype=np.int64)
+                if not np.array_equal(np.unique(codes_array), expected):
+                    raise DataError(
+                        "encoded strata must use every code 0..S-1 named by strata_levels"
+                    )
+                strata_codes = codes_array
+            else:
+                matrix = raw.reshape(n, -1)
+                rows = [tuple(_python_scalar(value) for value in row) for row in matrix]
+                strata_codes, resolved_strata_levels = _codes_for_rows(rows)
+            if len(resolved_strata_levels) < 2:
+                raise DataError("strata defines only one baseline stratum")
+            if not strata_names:
+                strata_names = tuple(f"V{j + 1}" for j in range(len(resolved_strata_levels[0])))
+            if len(set(strata_names)) != len(tuple(strata_names)):
+                raise DataError("strata_names must be distinct")
+            if len(tuple(strata_names)) != len(resolved_strata_levels[0]):
+                raise DataError("strata_names must have one entry per stratum-defining column")
+            zero_mass = [
+                resolved_strata_levels[code]
+                for code in range(len(resolved_strata_levels))
+                if float(obs_weights[strata_codes == code].sum()) <= 0.0
+            ]
+            if zero_mass:
+                raise DataError(
+                    f"baseline strata {zero_mass} have zero observation-weight mass in "
+                    "the target population"
+                )
+        elif strata_names or resolved_strata_levels:
+            raise DataError("strata_names/strata_levels require strata values")
+
         kept = set(w_names)
         retained_encodings = tuple(
             enc for enc in encodings if any(name in kept for name in enc.generated)
@@ -414,6 +488,9 @@ class CausalData:
             weight_spec=spec,
             dropped_covariates=tuple(dropped),
             encodings=retained_encodings,
+            strata=strata_codes,
+            strata_names=tuple(strata_names),
+            strata_levels=resolved_strata_levels,
             backend=backend,
         )
 
@@ -442,6 +519,24 @@ class CausalData:
     @property
     def has_intermediate(self) -> bool:
         return self.intermediate is not None
+
+    @property
+    def has_strata(self) -> bool:
+        """Whether conditional target parameters were requested."""
+        return self.strata is not None
+
+    @property
+    def n_strata(self) -> int:
+        return len(self.strata_levels)
+
+    def stratum_label(self, code: int) -> str:
+        """A stable, human-readable label for one baseline stratum."""
+        if self.strata is None or not 0 <= int(code) < self.n_strata:
+            raise DataError(f"{code!r} is not one of this dataset's baseline strata")
+        values = self.strata_levels[int(code)]
+        return ", ".join(
+            f"{name}={value!r}" for name, value in zip(self.strata_names, values, strict=True)
+        )
 
     @property
     def is_weighted(self) -> bool:
@@ -735,6 +830,7 @@ class CausalData:
             observed=self.observed[idx],
             cluster=None if cluster is None else np.asarray(cluster, dtype=np.int64),
             intermediate=None if self.intermediate is None else self.intermediate[idx],
+            strata=None if self.strata is None else self.strata[idx],
         )
 
     def with_treatment(self, treatment: FloatArray) -> CausalData:
@@ -873,6 +969,48 @@ def _reject_null_labels(frame: nw.DataFrame[Any], name: str, role: str) -> None:
         "Impute them, drop those rows, or encode the column yourself before "
         "handing it to CausalData."
     )
+
+
+def _python_scalar(value: Any) -> Any:
+    """Turn numpy scalar labels into serialisable Python values."""
+    return value.item() if isinstance(value, np.generic) else value
+
+
+def _codes_for_rows(
+    rows: Sequence[tuple[Any, ...]],
+) -> tuple[IntArray, tuple[tuple[Any, ...], ...]]:
+    """Encode a finite row partition in stable first-appearance order."""
+    lookup: dict[tuple[Any, ...], int] = {}
+    levels: list[tuple[Any, ...]] = []
+    codes = np.empty(len(rows), dtype=np.int64)
+    for i, row in enumerate(rows):
+        try:
+            code = lookup.get(row)
+        except TypeError as exc:  # an array/list-valued dataframe cell
+            raise DataError("strata columns must contain scalar, hashable values") from exc
+        if code is None:
+            code = len(levels)
+            lookup[row] = code
+            levels.append(row)
+        codes[i] = code
+    return codes, tuple(levels)
+
+
+def _encode_strata(
+    frame: nw.DataFrame[Any], names: Sequence[str]
+) -> tuple[IntArray | None, tuple[tuple[Any, ...], ...]]:
+    """Encode the requested baseline columns without changing their covariate encoding."""
+    if not names:
+        return None, ()
+    for name in names:
+        if has_nulls(frame, name):
+            raise DataError(f"strata column {name!r} contains missing values")
+    columns = [frame[name].to_numpy() for name in names]
+    rows = [tuple(_python_scalar(column[i]) for column in columns) for i in range(len(columns[0]))]
+    codes, levels = _codes_for_rows(rows)
+    if len(levels) < 2:
+        raise DataError("strata= defines only one baseline stratum")
+    return codes, levels
 
 
 def _encode_covariates(

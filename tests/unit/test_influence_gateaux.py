@@ -44,7 +44,7 @@ from cleverly import TMLE
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
 
-ESTIMANDS = ("ey1", "ey0", "ate", "att", "atc", "rr", "or")
+ESTIMANDS = ("ey1", "ey0", "ate", "att", "atc", "ey_obs", "par", "paf", "rr", "or")
 
 
 @pytest.fixture(scope="module")

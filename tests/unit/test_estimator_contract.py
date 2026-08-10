@@ -408,6 +408,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "SupportReport": "field",
     "TMLEResult": "container",
     "TMLEResultSet": "container",
+    "VariableImportanceResult": "field",
     "LongitudinalResult": "container",
     "CTMLESelection": "argument",
     "StudyResult": "argument",

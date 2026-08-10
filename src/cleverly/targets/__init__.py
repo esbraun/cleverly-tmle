@@ -117,7 +117,7 @@ def default_names(family: str, n_arms: int = 2, *, axis: ParameterAxis = "arm") 
         and target.matches_axis(axis)
         and not (target.default_arms == "multi" and n_arms == 2)
         and not (target.default_arms == "binary" and n_arms != 2)
-        and (target.in_default_set or family == "binomial")
+        and (target.in_default_set or (family == "binomial" and target.scale == "ratio"))
     )
 
 

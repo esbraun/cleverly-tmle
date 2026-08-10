@@ -48,7 +48,7 @@ LAWS = (law, shift_law)
 #: Read off the submodel registry rather than written down, so a fluctuation added there
 #: does not need this list edited too -- which is the whole point of the registry.
 VALID_GROUPS = set(SUBMODEL_BUILDERS)
-VALID_SCALES = {"level", "difference", "ratio"}
+VALID_SCALES = {"level", "difference", "ratio", "fraction"}
 
 
 def oracle_for(reported: str):  # type: ignore[no-untyped-def]
@@ -165,7 +165,12 @@ class TestResolution:
         # target left out: it reports a mean per arm, which on two arms is `ey1` and
         # `ey0` under clumsier names, so it joins the default report only when there
         # are more arms than those two can name.
-        assert set(default_names("binomial")) == set(all_names("binomial")) - {"ey"}
+        assert set(default_names("binomial")) == set(all_names("binomial")) - {
+            "ey",
+            "ey_obs",
+            "par",
+            "paf",
+        }
 
     def test_the_default_report_follows_the_arm_count(self) -> None:
         """Three arms drop what names two of them, and gain the per-arm mean."""
