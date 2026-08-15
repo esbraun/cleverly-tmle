@@ -42,9 +42,14 @@ estimator — which is exactly the case the variant is not for.
 
 <!-- doc-section: id=drtmle-contract; requires=; paths=src/cleverly/estimators/drtmle.py,src/cleverly/datasets/synthetic.py -->
 
-A **binary point treatment** and the `mean` group: `ey1`, `ey0` and `ate`, reported under those
-names. Scope is what the sources *derive*, which is narrower than what the R package `drtmle`
-accepts.
+A **discrete point treatment** and the `mean` group: every treatment-specific mean and the
+reference-arm contrasts requested through `ey` and `ate`. For multiple levels, the
+implementation follows R `drtmle`'s armwise construction: reduced regressions and the two
+extra equations are fitted once per arm, and equation (9) independently fluctuates each
+one-vs-rest mechanism margin. The targeted margins are not renormalised, because doing so
+would reopen their solved score equations; the point estimate itself does not use them.
+The initial categorical mechanism remains compatible and sums to one, using cleverly's
+existing multiclass learner path.
 
 <!-- doc-block: id=drtmle-contract-fit; tier=fast -->
 ```python
@@ -89,8 +94,7 @@ raise at construction or at `fit`, with a message naming what a derivation would
 
 | refused | why |
 | --- | --- |
-| multi-valued treatment (`n_arms != 2`) | no multi-arm theorem is reproduced anywhere in hand, and the *targeted* mechanism's simplex compatibility is an open question rather than a known defect. A new multi-arm implementation should prefer a simplex-preserving multinomial fluctuation unless a theorem licenses independent armwise updates. |
-| continuous treatment | as above |
+| continuous treatment | the reductions and corrections are indexed by treatment mass at a discrete arm; a continuous dose requires density-based equations |
 | `reduction="bivariate"` | van der Laan (2014)'s single bivariate reduced mechanism. The equations are reproduced in Benkeser & Hejazi (2023); the **theorem** requires van der Laan (2014) Theorem 3, which is not in hand. Missing with it: the formal statement, its assumptions, the asymptotic expansion, its influence function, its remainder decomposition, and any cross-fitted version. |
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |

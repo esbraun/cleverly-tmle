@@ -32,7 +32,7 @@ right on its own.
 Three ways of building the sequence are available, mirroring the entry points of R's
 ``ctmle`` package:
 
-``search="greedy"`` (default)
+``strategy="greedy"`` (default)
     Forward stepwise selection, van der Laan & Gruber (2010).  At each stage every
     covariate not yet in the model is tried, and the one whose resulting *targeted*
     outcome model has the smallest penalized loss is added.  When no addition improves
@@ -47,7 +47,7 @@ Three ways of building the sequence are available, mirroring the entry points of
     variance term that reverses that, and without it the forward search reaches for the
     instrument first.
 
-``search="ordered"``
+``strategy="ordered"``
     Scalable C-TMLE (Ju et al., 2019).  The sequence is fixed in advance by an
     ordering, so only ``O(V p)`` fits are needed.  This is what makes C-TMLE usable
     when ``p`` is large.  ``preorder="logistic"`` implements Algorithm 2 of Ju et al.:
@@ -56,9 +56,16 @@ Three ways of building the sequence are available, mirroring the entry points of
     absolute partial correlation of ``Y - Qbar0(A,W)`` and each covariate conditional
     on treatment.  Pass ``ordering=`` to supply a fixed order instead.
 
-``search="discrete"``
+``strategy="discrete"``
     Cross-validated selection among an explicit list of candidate covariate sets --
     the analogue of ``ctmleDiscrete`` / ``ctmleGlmnet``.
+
+``strategy="oat"``
+    The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  This is not a
+    fourth candidate sequence: it fits categorical treatment on the complete vector
+    ``[Qbar(a, W): a in arms]`` and then uses the ordinary all-arm mean fluctuation.
+    Consequently it supports multi-valued treatment and has no selector loss or stopping
+    index.
 
 The loss
 --------
@@ -220,9 +227,16 @@ from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
 
-__all__ = ["CTMLE", "CTMLELoss", "CTMLEPreorder", "CTMLESearch", "CTMLESelection"]
+__all__ = [
+    "CTMLE",
+    "CTMLELoss",
+    "CTMLEOutcomeAdaptiveFit",
+    "CTMLEPreorder",
+    "CTMLESelection",
+    "CTMLEStrategy",
+]
 
-CTMLESearch = Literal["greedy", "ordered", "discrete"]
+CTMLEStrategy = Literal["greedy", "ordered", "discrete", "oat"]
 CTMLELoss = Literal["auto", "loglik", "squared"]
 CTMLEPreorder = Literal["logistic", "partial_correlation"]
 
@@ -271,7 +285,7 @@ class CTMLESelection:
         Index into ``path`` of the chosen candidate.
     """
 
-    search: CTMLESearch
+    strategy: CTMLEStrategy
     preorder: str | None
     estimand: str
     loss: str
@@ -338,7 +352,7 @@ class CTMLESelection:
         header = [
             "Collaborative TMLE selection",
             "=" * 28,
-            f"search = {self.search}; preorder = {self.preorder or 'n/a'}; "
+            f"strategy = {self.strategy}; preorder = {self.preorder or 'n/a'}; "
             f"target = {self.estimand}; "
             f"criterion = cross-validated {criterion}{loss_name} loss",
             "",
@@ -356,6 +370,42 @@ class CTMLESelection:
                 "they remove"
             )
         return "\n".join([*header, table, *footer])
+
+    @property
+    def treatment_features(self) -> tuple[str, ...]:
+        """The covariates entering the selected treatment model."""
+        return self.selected_covariates
+
+    @property
+    def treatment_risk_selected(self) -> float:
+        """Treatment negative log likelihood at the selected path position."""
+        return float(self.treatment_risk[self.selected])
+
+
+@dataclass(frozen=True)
+class CTMLEOutcomeAdaptiveFit:
+    """Diagnostics for the ctmle3-style outcome-adaptive treatment model."""
+
+    strategy: CTMLEStrategy
+    treatment_features: tuple[str, ...]
+    treatment_risk: float
+
+    @property
+    def treatment_risk_selected(self) -> float:
+        """Treatment negative log likelihood, under the shared C-TMLE diagnostic API."""
+        return self.treatment_risk
+
+    def summary(self) -> str:
+        features = ", ".join(self.treatment_features)
+        return "\n".join(
+            [
+                "Collaborative TMLE outcome-adaptive fit",
+                "=" * 39,
+                "strategy = oat; treatment model = A ~ [Qbar(a, W)]",
+                f"features: {features}",
+                f"treatment negative log likelihood: {self.treatment_risk:.6g}",
+            ]
+        )
 
 
 @dataclass(frozen=True)
@@ -375,7 +425,7 @@ class _Candidate:
 
 
 class CTMLE(TMLE):
-    """Collaborative TMLE for a binary point treatment.
+    """Collaborative TMLE for a discrete point treatment.
 
     Selects the covariates entering ``g(W)`` by cross-validating the loss of the
     *targeted* outcome model, rather than the loss of ``g`` itself.  See the module
@@ -388,17 +438,18 @@ class CTMLE(TMLE):
 
     Parameters
     ----------
-    search:
-        ``"greedy"`` (default), ``"ordered"`` or ``"discrete"``; see the module
-        docstring.
+    strategy:
+        ``"greedy"`` (default), ``"ordered"``, ``"discrete"`` or ``"oat"``.  The
+        selector strategies are binary; ``"oat"`` fits treatment on the vector of all
+        arm-specific outcome predictions and supports any number of discrete arms.
     ordering:
-        Explicit covariate order for ``search="ordered"``.  When omitted, ``preorder``
+        Explicit covariate order for ``strategy="ordered"``.  When omitted, ``preorder``
         determines the published data-adaptive ordering.
     preorder:
         ``"logistic"`` (default) or ``"partial_correlation"`` for Algorithms 2 and 3
         of Ju et al. (2019).  Ignored when an explicit ``ordering=`` is supplied.
     candidates:
-        Explicit candidate covariate sets for ``search="discrete"``.
+        Explicit candidate covariate sets for ``strategy="discrete"``.
     selection_folds:
         Folds used to cross-validate the candidate sequence.  Separate from
         ``n_folds``, which cross-fits the nuisance models.
@@ -434,7 +485,7 @@ class CTMLE(TMLE):
     def __init__(
         self,
         *,
-        search: CTMLESearch = "greedy",
+        strategy: CTMLEStrategy = "greedy",
         preorder: CTMLEPreorder | None = None,
         ordering: Sequence[str] | None = None,
         candidates: Sequence[Sequence[str]] | None = None,
@@ -445,13 +496,15 @@ class CTMLE(TMLE):
         ctmle_estimand: str = "ate",
         **kwargs: Any,
     ) -> None:
+        if "search" in kwargs:
+            raise TypeError("search= was replaced by strategy=; use CTMLE(strategy=...)")
         if kwargs.get("cv_evaluation", False):
             raise ValueError(
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
                 "requires a separate fold-specific collaborative derivation."
             )
         super().__init__(**kwargs)
-        self.search = search
+        self.strategy = strategy
         self.preorder = preorder
         self.ordering = ordering
         self.candidates = candidates
@@ -461,28 +514,30 @@ class CTMLE(TMLE):
         self.penalty = penalty
         self.ctmle_estimand = ctmle_estimand
         self._validate_ctmle_settings()
-        if self.search == "ordered" and self.ordering is None and self.preorder is None:
+        if self.strategy == "ordered" and self.ordering is None and self.preorder is None:
             self.preorder = "logistic"
 
     def _validate_ctmle_settings(self) -> None:
         if self.loss not in ("auto", "loglik", "squared"):
             raise ValueError(f"loss must be 'auto', 'loglik' or 'squared'; got {self.loss!r}")
-        if self.search not in ("greedy", "ordered", "discrete"):
+        if self.strategy not in ("greedy", "ordered", "discrete", "oat"):
             raise ValueError(
-                f"search must be 'greedy', 'ordered' or 'discrete'; got {self.search!r}"
+                f"strategy must be 'greedy', 'ordered', 'discrete' or 'oat'; got {self.strategy!r}"
             )
         if self.preorder not in (None, "logistic", "partial_correlation"):
             raise ValueError(
                 f"preorder must be 'logistic' or 'partial_correlation'; got {self.preorder!r}"
             )
-        if self.search == "discrete" and not self.candidates:
-            raise ValueError("search='discrete' needs an explicit candidates= list")
-        if self.search != "discrete" and self.candidates is not None:
-            raise ValueError(f"candidates= only applies to search='discrete', not {self.search!r}")
-        if self.search != "ordered" and self.ordering is not None:
-            raise ValueError(f"ordering= only applies to search='ordered', not {self.search!r}")
-        if self.search != "ordered" and self.preorder is not None:
-            raise ValueError(f"preorder= only applies to search='ordered', not {self.search!r}")
+        if self.strategy == "discrete" and not self.candidates:
+            raise ValueError("strategy='discrete' needs an explicit candidates= list")
+        if self.strategy != "discrete" and self.candidates is not None:
+            raise ValueError(
+                f"candidates= only applies to strategy='discrete', not {self.strategy!r}"
+            )
+        if self.strategy != "ordered" and self.ordering is not None:
+            raise ValueError(f"ordering= only applies to strategy='ordered', not {self.strategy!r}")
+        if self.strategy != "ordered" and self.preorder is not None:
+            raise ValueError(f"preorder= only applies to strategy='ordered', not {self.strategy!r}")
         if self.ordering is not None and self.preorder is not None:
             raise ValueError("preorder= cannot be combined with an explicit ordering=")
         if self.selection_folds < 2:
@@ -506,6 +561,22 @@ class CTMLE(TMLE):
                 "CTMLE implements the published pooled collaborative estimator only; "
                 "targeting_scheme='fold' composes it with a different CV-TMLE estimator "
                 "that has not been derived. Use targeting_scheme='pooled'."
+            )
+
+        if self.strategy == "oat" and self.ctmle_estimand != "ate":
+            raise ValueError(
+                "ctmle_estimand= does not apply to strategy='oat': ctmle3's "
+                "outcome-adaptive construction targets all treatment-specific means together"
+            )
+        if self.strategy == "oat" and (
+            self.selection_folds != 5
+            or self.selection_inner_folds != 2
+            or self.loss != "auto"
+            or not self.penalty
+        ):
+            raise ValueError(
+                "selection_folds=, selection_inner_folds=, loss= and penalty= configure "
+                "selector strategies and do not apply to strategy='oat'"
             )
 
     # --------------------------------------------------------------- the hook
@@ -537,6 +608,8 @@ class CTMLE(TMLE):
             )
         self._check_estimands(data)
         base = self._fit_nuisances(data, folds, scaler, intermediate_value, seed=seed)
+        if self.strategy == "oat":
+            return self._outcome_adaptive_nuisances(data, base, seed=seed)
         selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)
 
         path = selector.build_path(train=None, tag="full")
@@ -551,9 +624,9 @@ class CTMLE(TMLE):
             treatment_covariates=chosen.covariates,
         )
         selection = CTMLESelection(
-            search=self.search,
+            strategy=self.strategy,
             preorder=("custom" if self.ordering is not None else self.preorder)
-            if self.search == "ordered"
+            if self.strategy == "ordered"
             else None,
             estimand=self.ctmle_estimand,
             loss=selector.loss_kind,
@@ -569,6 +642,54 @@ class CTMLE(TMLE):
             covariates=data.covariate_names,
         )
         return nuisance, {"ctmle": selection}
+
+    def _outcome_adaptive_nuisances(
+        self, data: CausalData, base: NuisanceEstimates, *, seed: int | None
+    ) -> tuple[NuisanceEstimates, dict[str, Any]]:
+        """Fit categorical ``A`` on the vector of arm-specific Qbar predictions.
+
+        This is the construction in ``ctmle3::LF_oat``: no candidate path or
+        parameter-specific risk is involved.  The ordinary K-column mean fluctuation
+        targets the returned nuisances later in the shared TMLE pipeline.
+        """
+        arms = data.arm_codes
+        design = np.column_stack([base.outcome.arms[arm] for arm in arms])
+        learner = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
+        predictions, diagnostics = cross_fit_predictions(
+            learner,
+            design,
+            data.treatment,
+            data.weights,
+            base.folds,
+            task="classification",
+            predict_designs={"g": design},
+            groups=data.cluster,
+            clip=(0.0, 1.0),
+            classes=arms,
+            n_jobs=self.n_jobs,
+        )
+        propensity = Propensity(predictions["g"], arms)
+        observed_columns = np.array(
+            [propensity.column_for(float(arm)) for arm in data.treatment], dtype=int
+        )
+        observed_probability = propensity.values[np.arange(data.n), observed_columns]
+        risk = float(-np.sum(data.weights * np.log(np.clip(observed_probability, _LOSS_EPS, 1.0))))
+        features = tuple(f"Qbar[{data.arm_label(arm)}]" for arm in arms)
+        nuisance_diagnostics = dict(base.diagnostics)
+        nuisance_diagnostics.pop("propensity", None)
+        if diagnostics:
+            nuisance_diagnostics["propensity"] = diagnostics
+        nuisance = replace(
+            base,
+            propensity=propensity,
+            treatment_covariates=features,
+            diagnostics=nuisance_diagnostics,
+        )
+        return nuisance, {
+            "ctmle": CTMLEOutcomeAdaptiveFit(
+                strategy="oat", treatment_features=features, treatment_risk=risk
+            )
+        }
 
     def _retarget_detailed(
         self, data: CausalData, nuisance: NuisanceEstimates, **kwargs: Any
@@ -586,15 +707,22 @@ class CTMLE(TMLE):
         return super()._retarget_detailed(data, working, **kwargs)
 
     def _check_estimands(self, data: CausalData) -> None:
+        if data.is_continuous_treatment:
+            raise ValueError(
+                "CTMLE strategies require a discrete treatment. strategy='oat' fits a "
+                "categorical mechanism on one Qbar prediction per arm, and a continuous "
+                "dose has no finite arm vector."
+            )
         if data.has_intermediate:
             raise ValueError(
-                "CTMLE implements the published binary point-treatment estimator and "
-                "does not compose collaborative selection with an intermediate outcome. "
+                "CTMLE does not compose either collaborative strategy with an intermediate "
+                "outcome. "
                 "Fit each controlled direct effect with TMLE instead."
             )
-        if not data.is_binary_treatment:
+        if not data.is_binary_treatment and self.strategy != "oat":
             raise ValueError(
-                f"CTMLE supports a binary treatment only; {data.treatment_name} has "
+                f"CTMLE strategy={self.strategy!r} supports a binary treatment only; "
+                f"{data.treatment_name} has "
                 f"{data.n_arms} levels {list(data.treatment_levels)}. Both searches order "
                 "candidates by how much a covariate moves a single propensity margin, and "
                 "with more than two arms there is no one margin to order them by -- the "
@@ -610,7 +738,7 @@ class CTMLE(TMLE):
                 "selected treatment model cannot serve them alongside the ATE. Request them "
                 f"from a plain TMLE, or set estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
             )
-        if self.ctmle_estimand not in estimands:
+        if self.strategy != "oat" and self.ctmle_estimand not in estimands:
             raise ValueError(
                 f"ctmle_estimand={self.ctmle_estimand!r} is not among the requested estimands "
                 f"{list(estimands)}; the selection has to be made for an estimand you are "
@@ -873,9 +1001,9 @@ class _Selector:
     def build_path(self, train: IntArray | None, tag: str) -> list[_Candidate]:
         """The candidate sequence, fit on ``train`` (or cross-fitted when ``None``)."""
         rows = self.all_rows if train is None else train
-        if self.est.search == "discrete":
+        if self.est.strategy == "discrete":
             return self._discrete_path(rows, train, tag)
-        order = self._ordering(rows, train) if self.est.search == "ordered" else None
+        order = self._ordering(rows, train) if self.est.strategy == "ordered" else None
         return self._forward_path(rows, train, tag, order)
 
     def _discrete_path(self, rows: IntArray, train: IntArray | None, tag: str) -> list[_Candidate]:
@@ -977,7 +1105,7 @@ class _Selector:
             if missing:
                 raise ValueError(
                     f"ordering must cover every covariate; missing {missing}. Use "
-                    "search='discrete' to search a restricted set of models."
+                    "strategy='discrete' to search a restricted set of models."
                 )
             return names
 

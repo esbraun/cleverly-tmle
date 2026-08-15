@@ -82,10 +82,12 @@ __all__ = [
     "MechanismCarry",
     "MechanismFluctuation",
     "apply_mechanism_tilt",
+    "armwise_mechanism_score",
     "mechanism_covariate",
     "mechanism_score",
     "needs_mechanism",
     "register_mechanism",
+    "solve_armwise_bounded_mechanism",
     "solve_bounded_mechanism",
     "solve_mechanism",
     "split_mechanism_carry",
@@ -260,6 +262,39 @@ def mechanism_score(
     w = np.asarray(weights, dtype=float).reshape(-1)
     everywhere = np.ones(a.size, dtype=bool)
     return score_columns(a, g, h, w, everywhere), score_scale(h, w, everywhere)
+
+
+def armwise_mechanism_score(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    covariate: FloatArray,
+    weights: FloatArray,
+    arms: tuple[float, ...],
+) -> tuple[FloatArray, FloatArray]:
+    r"""Equation-(9) scores for independent one-vs-rest mechanism fluctuations.
+
+    This is the multi-valued construction used by ``drtmle``: each arm has the binary
+    likelihood score ``H_a {1(A=a) - g_a}`` and its own scalar fluctuation.  The columns
+    are intentionally not renormalised after targeting.  They are nuisance denominators,
+    not a stochastic intervention, and renormalising would disturb every solved score.
+    """
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    g = np.asarray(propensity, dtype=float)
+    h = np.asarray(covariate, dtype=float)
+    if g.shape != (a.size, len(arms)) or h.shape != g.shape:
+        raise ValueError(
+            f"armwise mechanism and covariate must both be ({a.size}, {len(arms)}); "
+            f"got {g.shape} and {h.shape}"
+        )
+    scores: list[float] = []
+    scales: list[float] = []
+    for column, arm in enumerate(arms):
+        score, scale = mechanism_score(
+            (a == arm).astype(float), g[:, column], h[:, column : column + 1], weights
+        )
+        scores.append(float(score[0]))
+        scales.append(float(scale[0]))
+    return np.asarray(scores, dtype=float), np.asarray(scales, dtype=float)
 
 
 def apply_mechanism_tilt(
@@ -522,4 +557,85 @@ def solve_bounded_mechanism(
         hessian_condition=plain.hessian_condition,
         loglik=plain.loglik,
         failure=failure,
+    )
+
+
+def solve_armwise_bounded_mechanism(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    covariate: FloatArray,
+    weights: FloatArray,
+    arms: tuple[float, ...],
+    *,
+    bounds: tuple[float, float],
+    max_iter: int = 50,
+    tol: float = 1e-12,
+    carry: Sequence[MechanismCarry] = (),
+) -> MechanismFluctuation:
+    r"""Apply :func:`solve_bounded_mechanism` independently to every treatment arm.
+
+    The R ``drtmle`` implementation calls the binary fluctuation once per arm with
+    ``1(A=a)`` as its response.  This wrapper is that loop with the package's bounded-root
+    convention retained.  Keeping it here makes the multi-arm route reuse the vetted
+    binary solver rather than grow a second optimisation implementation.
+    """
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    g = np.asarray(propensity, dtype=float)
+    h = np.asarray(covariate, dtype=float)
+    if g.shape != (a.size, len(arms)) or h.shape != g.shape:
+        raise ValueError(
+            f"armwise mechanism and covariate must both be ({a.size}, {len(arms)}); "
+            f"got {g.shape} and {h.shape}"
+        )
+
+    bases, covariates = split_mechanism_carry(carry, h)
+    for base, own in zip(bases, covariates, strict=True):
+        if np.asarray(base).shape != g.shape or np.asarray(own).shape != h.shape:
+            raise ValueError(
+                "an armwise carried mechanism and its covariate must have the same "
+                f"shape as the fitted mechanism {g.shape}; got "
+                f"{np.asarray(base).shape} and {np.asarray(own).shape}"
+            )
+
+    solved: list[MechanismFluctuation] = []
+    for column, arm in enumerate(arms):
+        solved.append(
+            solve_bounded_mechanism(
+                (a == arm).astype(float),
+                g[:, column],
+                h[:, column : column + 1],
+                weights,
+                bounds=bounds,
+                max_iter=max_iter,
+                tol=tol,
+                carry=tuple(
+                    (np.asarray(base)[:, column], np.asarray(own)[:, column : column + 1])
+                    for base, own in zip(bases, covariates, strict=True)
+                ),
+            )
+        )
+
+    failures = [fit.failure for fit in solved if fit.failure is not None]
+    standard_errors = [fit.epsilon_std_error for fit in solved]
+    conditions = [fit.hessian_condition for fit in solved if fit.hessian_condition is not None]
+    logliks = [fit.loglik for fit in solved if fit.loglik is not None]
+    return MechanismFluctuation(
+        propensity=np.column_stack([fit.propensity for fit in solved]),
+        carried=tuple(
+            np.column_stack([fit.carried[item] for fit in solved]) for item in range(len(bases))
+        ),
+        epsilon=np.concatenate([fit.epsilon for fit in solved]),
+        score=np.concatenate([fit.score for fit in solved]),
+        score_scale=np.concatenate([fit.score_scale for fit in solved]),
+        score_initial=np.concatenate([fit.score_initial for fit in solved]),
+        converged=all(fit.converged for fit in solved),
+        n_iter=max((fit.n_iter for fit in solved), default=0),
+        epsilon_std_error=(
+            None
+            if any(value is None for value in standard_errors)
+            else np.concatenate([value for value in standard_errors if value is not None])
+        ),
+        hessian_condition=max(conditions) if conditions else None,
+        loglik=sum(logliks) if logliks else None,
+        failure=failures[0] if failures else None,
     )

@@ -754,19 +754,18 @@ class TestAnEquationStopsOnEitherRuler:
 
 
 class TestTheRefusals:
-    """Each names what the derivation would need, rather than reporting a plain number."""
+    """Unsupported compositions name what their derivation would need."""
 
-    def test_a_multi_valued_treatment(self) -> None:
-        """``estimands=("ate",)`` because ``ey1``/``ey0`` are refused a step earlier.
-
-        The registry rejects a binary-only *parameter name* at three arms before any
-        estimator sees the data, which is a different refusal from this one -- and reporting
-        it here would leave the doubly-robust refusal untested.
-        """
+    def test_a_multi_valued_treatment_is_fitted_armwise(self) -> None:
         sample = frame().copy()
         sample.loc[sample.index[:100], "A"] = 2
-        with pytest.raises(NotImplementedError, match="binary treatment"):
-            DRTMLE(**{**SETTINGS, "estimands": ("ate",)}).fit(sample, outcome="Y", treatment="A")
+        fit = (
+            DRTMLE(**{**SETTINGS, "estimands": ("ate",)})
+            .fit(sample, outcome="Y", treatment="A")
+            .single()
+        )
+        assert fit.nuisance.propensity.n_arms == 3
+        assert len(fit.estimates) == 2
 
     def test_the_conditional_effects(self) -> None:
         with pytest.raises(NotImplementedError, match="ATT and ATC"):

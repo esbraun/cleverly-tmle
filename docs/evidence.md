@@ -64,6 +64,16 @@ follows from it.
 | `ate_shift` | `tests/discrete_law_shift.py` | `tests/unit/test_influence_gateaux_shift.py`, `tests/unit/test_influence_gateaux_shift_cde.py` | `tests/unit/test_remainder_shift_cde.py` | the same negative control as `ey_shift`, taken on the contrast (`tests/unit/test_influence_gateaux_shift.py`) | no plain-shift remainder module, as for `ey_shift`; and the MNAR tilt is refused on this axis by name, so nothing here measures sensitivity to it |
 | `msm` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_msm.py` | `tests/unit/test_remainder_msm.py` | a **saturated** working model reproduces the per-arm report exactly, at the covariate and at the estimate (`tests/unit/test_msm_submodel.py`, `tests/e2e/test_msm.py`); continuous-dose quadrature and its nonzero density-ratio score are pinned in `tests/unit/test_msm.py` and `tests/unit/test_continuous_msm.py` | the saturated identity is blind to every link-specific mistake — the curvature term, the alternation's restart, the loss of exact double robustness — because a saturated model *fits*, which is what a projection does not promise. The continuous test uses a linear truth; a nonlinear continuous-dose Gateaux oracle remains absent |
 
+## Estimator variants over registered targets
+
+`CTMLE` and `DRTMLE` estimate the same registered `ey` and `ate` targets as `TMLE`, so they
+do not add registry rows. Their multi-arm constructions have separate evidence in
+`tests/unit/test_multi_arm_collaborative.py`: both recover every mean and reference-arm
+contrast on `tests/discrete_law_multi.py`; DR-TMLE additionally passes the per-arm correction
+identity check; and a nonzero `Qr` witness fails under the plausible binary-sign mutation
+that the exact law cannot see. Binary compatibility remains covered by the existing C-TMLE
+and DR-TMLE suites, which continue down their original branches.
+
 ## Longitudinal estimands outside the target registry
 
 `LTMLE` parameters are indexed by regimen, horizon, and sometimes cause rather than by a

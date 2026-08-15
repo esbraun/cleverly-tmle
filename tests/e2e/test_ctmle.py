@@ -66,7 +66,7 @@ class TestTheFit:
 
     def test_the_selection_is_reported(self, fit) -> None:
         selection = fit.extra["ctmle"]
-        assert selection.search == "greedy"
+        assert selection.strategy == "greedy"
         assert selection.estimand == "ate"
         assert 0 <= selection.selected < len(selection.path)
         assert set(selection.selected_covariates) <= set(fit.data.covariate_names)
@@ -156,7 +156,7 @@ COMBINATIONS: dict[str, dict[str, object]] = {
     "one_step": {"targeting": "one_step"},
     "weighted_form": {"target_weights": True},
     "linear": {"fluctuation": "linear"},
-    "ordered": {"search": "ordered"},
+    "ordered": {"strategy": "ordered"},
 }
 
 
@@ -263,7 +263,7 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
             frame, _ = dgp.sample(self.N, seed=seed)
             collaborative = CTMLE(**settings).fit(frame, outcome="Y", treatment="A").single()
             nothing = (
-                CTMLE(**{**settings, "search": "discrete", "candidates": [()]})
+                CTMLE(**{**settings, "strategy": "discrete", "candidates": [()]})
                 .fit(frame, outcome="Y", treatment="A")
                 .single()
             )

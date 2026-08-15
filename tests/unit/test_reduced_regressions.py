@@ -451,27 +451,44 @@ class TestTheRefusals:
                 reduction="trivariate",
             )
 
-    def test_a_multi_arm_fit_is_refused_with_the_reason(self) -> None:
-        """On the genuine three-armed law, so the message names real levels.
-
-        The scope is binary because that is what has been *derived*: ``drtmle`` accepts a
-        multi-valued treatment and the software paper works an example, but van der Laan
-        (2014) states its problem for a binary one.
-        """
+    def test_a_multi_arm_fit_returns_one_reduction_per_arm(self) -> None:
+        """The R ``drtmle`` construction loops the same three regressions over arms."""
         data = CausalData.from_frame(multi.frame(), outcome="Y", treatment="A", covariates=["W"])
-        mechanism = np.full((data.n, data.n_arms), 1.0 / data.n_arms)
-        wider = replace(
-            nuisances(WRONG_G, WRONG_Q),
-            propensity=Propensity(mechanism, data.arm_codes),
+        w = data.covariates[:, 0].astype(int)
+        mechanism = np.column_stack(
+            [multi.G_EXACT[w, multi.ARM_OF_CODE[int(code)]] for code in data.arm_codes]
         )
-        with pytest.raises(NotImplementedError, match="binary treatment"):
-            fit_reduced(
-                data,
-                wider,
-                regression_learner=CellMeans(),
-                classification_learner=CellMeans(),
-                g_bounds=INERT_BOUNDS,
+        arms = {code: multi.Q_EXACT[w, multi.ARM_OF_CODE[int(code)]] for code in data.arm_codes}
+        columns = np.array(
+            [data.arm_codes.index(float(code)) for code in data.treatment], dtype=int
+        )
+        outcome = np.column_stack([arms[code] for code in data.arm_codes])
+        wider = NuisanceEstimates(
+            propensity=Propensity(mechanism, data.arm_codes),
+            outcome=InitialFit(
+                observed=outcome[np.arange(data.n), columns],
+                arms=arms,
+            ),
+            scaler=OutcomeScaler(0.0, 1.0),
+            folds=Folds.single(data.n),
+        )
+        reduced, _, _ = fit_reduced(
+            data,
+            wider,
+            regression_learner=CellMeans(),
+            classification_learner=CellMeans(),
+            g_bounds=INERT_BOUNDS,
+        )
+        assert reduced.arms == data.arm_codes
+        assert (
+            reduced.qr.shape
+            == reduced.gr1.shape
+            == reduced.gr2.shape
+            == (
+                data.n,
+                data.n_arms,
             )
+        )
 
 
 class TestTheSetItself:

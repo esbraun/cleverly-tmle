@@ -439,7 +439,7 @@ class TestTheRefusals:
         with pytest.raises(ValueError, match="empty guard"):
             alternate(WRONG_G, WRONG_Q, guard=())
 
-    def test_more_than_two_arms_is_refused(self) -> None:
+    def test_inconsistent_data_and_nuisance_arms_are_refused(self) -> None:
         data = causal_data()
         three = replace(
             nuisances(WRONG_G, WRONG_Q),
@@ -452,7 +452,7 @@ class TestTheRefusals:
                 g_bounds=INERT_BOUNDS,
             ),
         )
-        with pytest.raises(ValueError, match="two arms"):
+        with pytest.raises(ValueError, match="the two must describe the same ones"):
             solve_with_reduction(
                 data,
                 three,

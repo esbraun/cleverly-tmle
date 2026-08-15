@@ -54,6 +54,11 @@ not a citation; a page number is.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
   DOI 10.1177/0962280217729845.
+- The `tlverse/ctmle3` implementation at commit
+  [`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea).
+  `R/LF_oat.R` fits categorical treatment on the complete vector of treatment-specific
+  outcome predictions; `R/tmle3_Spec_TSM_all.R` requests all treatment-specific means.
+  This is the implementation source for `CTMLE(strategy="oat")`.
 
 ## Longitudinal, survival and marginal structural models
 
@@ -127,4 +132,7 @@ implementation for the influence curve. What each supplies, and where in it, is
 The `benkeser/drtmle` R package's source and reference documentation are cited in a few places as
 **provenance** — where a formula was transcribed from, and what it is named there. Running it is
 [retired by decision](roadmap.md#standing-decisions): two checks that cannot fail against the same
-class of error are one check.
+class of error are one check. The inspected source is pinned at
+[`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c):
+`R/estimate.R` loops the reductions over treatment levels and constructs a compatible initial
+mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuations.

@@ -12,7 +12,13 @@ from .base import (
     TMLEResultSet,
     resolve_estimands,
 )
-from .ctmle import CTMLE, CTMLEPreorder, CTMLESearch, CTMLESelection
+from .ctmle import (
+    CTMLE,
+    CTMLEOutcomeAdaptiveFit,
+    CTMLEPreorder,
+    CTMLESelection,
+    CTMLEStrategy,
+)
 from .drtmle import DRTMLE, ReducedFit
 from .tmle import TMLE, tmle
 
@@ -22,9 +28,10 @@ __all__ = [
     "DEFAULT_ESTIMANDS",
     "DRTMLE",
     "TMLE",
+    "CTMLEOutcomeAdaptiveFit",
     "CTMLEPreorder",
-    "CTMLESearch",
     "CTMLESelection",
+    "CTMLEStrategy",
     "CVTargeting",
     "NuisanceEstimates",
     "ReducedFit",
