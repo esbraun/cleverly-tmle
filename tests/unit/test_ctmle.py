@@ -9,6 +9,7 @@ nothing to select the estimator collapses onto a plain TMLE bit for bit.
 
 from __future__ import annotations
 
+import importlib
 from itertools import pairwise
 from typing import ClassVar
 
@@ -29,6 +30,32 @@ TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",)}
 #: Three selection folds rather than the default five: the searches below are the
 #: dominant cost in this file and the claims resolve identically either way.
 CTMLE_KWARGS = {**TMLE_KWARGS, "selection_folds": 3}
+tmle_module = importlib.import_module("cleverly.estimators.tmle")
+
+
+@pytest.mark.parametrize(
+    ("strategy", "extra"),
+    [
+        ("greedy", {}),
+        ("ordered", {"ordering": ["W1", "W2", "W3", "W4"]}),
+        ("discrete", {"candidates": [(), ("W1",), ("W1", "W2")]}),
+        ("oat", {"selection_folds": 5}),
+    ],
+)
+def test_every_ctmle_strategy_skips_the_unused_shared_propensity_fit(
+    monkeypatch: pytest.MonkeyPatch, strategy: str, extra: dict[str, object]
+) -> None:
+    seen: list[bool] = []
+    original = tmle_module.fit_nuisances
+
+    def recording(*args: object, **kwargs: object) -> object:
+        seen.append(bool(kwargs["fit_treatment"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(tmle_module, "fit_nuisances", recording)
+    frame, _ = make_linear_ate(n=180, seed=91)
+    CTMLE(**{**CTMLE_KWARGS, "strategy": strategy, **extra}).fit(frame, outcome="Y", treatment="A")
+    assert seen == [False]
 
 
 class _RecordingRegressor(RegressorMixin, BaseEstimator):

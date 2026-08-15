@@ -1201,7 +1201,9 @@ cross-validates an explicit list of candidate models.
 
 `strategy="oat"` is the outcome-adaptive treatment model from `ctmle3`: it first fits
 `Qbar(a, W)` for every treatment level, then fits the categorical treatment mechanism on
-that vector of predictions. Unlike the three selector strategies, it has no candidate path
+that vector of predictions. The shared nuisance pass is outcome-first, so it does not also
+fit and discard an ordinary `g(W)` before this model. Unlike the three selector strategies,
+it has no candidate path
 or parameter-specific selection loss and supports multi-valued treatment. The record under
 `res.extra["ctmle"]` shares the practical diagnostic fields `.strategy`,
 `.treatment_features`, and `.treatment_risk_selected` across both API paths.

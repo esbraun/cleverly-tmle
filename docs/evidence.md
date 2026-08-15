@@ -45,10 +45,10 @@ follows from it.
 
 | target | oracle law | Gateaux | remainder | exact identity | not covered |
 | --- | --- | --- | --- | --- | --- |
-| `ate` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py`, `tests/unit/test_influence_gateaux_multi.py` | `tests/unit/test_remainder.py` | `IC_ate == IC_ey1 - IC_ey0`, and a null outcome model gives zero in every population (`tests/unit/test_invariants.py`) | no theorem anchor; the derivation is checked only where the oracle law can represent it |
+| `ate` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py`, `tests/unit/test_influence_gateaux_multi.py`, `tests/unit/test_influence_gateaux_multi_collaborative.py` | `tests/unit/test_remainder.py`, `tests/unit/test_remainder_multi.py` | `IC_ate == IC_ey1 - IC_ey0`, and a null outcome model gives zero in every population (`tests/unit/test_invariants.py`) | no theorem anchor; the derivation is checked only where the oracle law can represent it |
 | `att` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py`, `tests/unit/test_influence_gateaux_multi.py` | `tests/unit/test_remainder.py` | relabelling the arms gives `ATT' == -ATC` (`tests/unit/test_invariants.py`) | swapping the two conditioning populations outright — symmetric in the arms, so the symmetry test cannot see it; the closed-form comparison is what catches it |
 | `atc` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py`, `tests/unit/test_influence_gateaux_multi.py` | `tests/unit/test_remainder.py` | relabelling the arms gives `ATC' == -ATT` (`tests/unit/test_invariants.py`) | as `att`, and for the same reason |
-| `ey` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_multi.py` | `tests/unit/test_remainder.py` | — | no identity of its own; it is the per-arm level the contrasts are built from, so its errors surface in them |
+| `ey` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_multi.py`, `tests/unit/test_influence_gateaux_multi_collaborative.py` | `tests/unit/test_remainder.py`, `tests/unit/test_remainder_multi.py` | — | no identity of its own; it is the per-arm level the contrasts are built from, so its errors surface in them |
 | `ey1` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py` | `tests/unit/test_remainder.py` | `IC_ate == IC_ey1 - IC_ey0` (`tests/unit/test_influence_gateaux.py`) | binary-only by declaration; the multi-arm path reports `ey` instead |
 | `ey0` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py` | `tests/unit/test_remainder.py` | `IC_ate == IC_ey1 - IC_ey0` (`tests/unit/test_influence_gateaux.py`) | binary-only by declaration, as `ey1`; and the identity it shares with `ey1` is symmetric in the two arms, so a defect that swaps them survives it |
 | `ey_obs` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux.py` | — | its empirical influence curve is `w(Y - E_w[Y])`; it is zero-mean without a targeting equation | missing outcomes are refused until the MAR natural-course score is derived; no separate remainder exists because the complete-data estimator is empirical |
@@ -89,10 +89,17 @@ nonzero instrument:
 | `reduced_mechanism_covariate` at `K` arms | `test_multi_arm_reduced_mechanism_covariate_has_the_r_formula` on a nonzero `Qr` | the binary sign convention carried over, which the exact law cannot see |
 | the `oat` design | `test_oat_fits_the_treatment_model_on_the_arm_specific_qbar_matrix` and `test_oat_recovers_a_mechanism_generated_by_qbar` — a saturated learner on a law where `Qbar(·, W)` is a bijection of `W`, so the fitted `g` must equal `g_0` exactly | zeroing, permuting or substituting the design, none of which any exact-law or field-name assertion detects |
 
-What is still absent, and is a well-posed gap rather than an oversight: no multi-arm
-remainder or Gateaux module, and no multi-arm coverage study. The binary ones
-(`tests/unit/test_theorem_drtmle.py`, `tests/unit/test_influence_gateaux_drtmle.py`) are
-unchanged and do not reach these branches.
+The nonzero scientific instruments are now completed by
+`tests/unit/test_remainder_multi.py` and
+`tests/unit/test_influence_gateaux_multi_collaborative.py`. The former checks every arm's
+product remainder, both DR-TMLE projections and an OAT design that deliberately coarsens
+`W`; the latter checks both multi-arm DR-TMLE union-model cells against the complex-step
+derivative and exercises OAT on the regular exact law where its generated design identifies
+`W`. `tests/e2e/test_coverage_slow.py::TestMultiArmCollaborativeCoverage` is the repeated-
+sampling regression guard: it requires finite, non-dropped replicates, controlled bias and
+non-collapsed coverage relative to TMLE. It is deliberately not a nuisance-rate experiment
+and therefore does not establish the union-model theorem or OAT asymptotics at a tied,
+nonregular generated-regressor design.
 
 ## Longitudinal estimands outside the target registry
 

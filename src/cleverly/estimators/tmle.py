@@ -1165,6 +1165,7 @@ class TMLE:
         extra_levels: Sequence[float] = (),
         seed: int | None = None,
         companion: CausalData | None = None,
+        fit_treatment: bool = True,
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         msm = self._msm(data)
@@ -1211,6 +1212,7 @@ class TMLE:
             msm=msm,
             companion=companion,
             n_jobs=self.n_jobs,
+            fit_treatment=fit_treatment,
         )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets

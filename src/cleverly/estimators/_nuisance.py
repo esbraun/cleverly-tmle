@@ -851,6 +851,7 @@ def fit_nuisances(
     msm: MSMSet | None = None,
     companion: CausalData | None = None,
     n_jobs: int = 1,
+    fit_treatment: bool = True,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -867,6 +868,11 @@ def fit_nuisances(
     come from one out-of-fold model by construction and there is no second model for a
     later step to get wrong.
 
+    ``fit_treatment=False`` is the outcome-first staging path used by collaborative
+    estimators, which replace the ordinary treatment model before any targeting or
+    reporting occurs.  It is intentionally internal: the returned propensity is only a
+    shape-correct placeholder and must not escape the caller without replacement.
+
     ``companion`` is an independent draw at which every fold's mechanism and outcome
     regression is *also* evaluated, returned on
     :attr:`NuisanceEstimates.companion`.  It contributes to no fit, no fold and no score,
@@ -880,6 +886,11 @@ def fit_nuisances(
     groups = data.cluster
     if companion is not None:
         _check_companion(data, companion)
+    if not fit_treatment and (data.is_continuous_treatment or incremental or companion is not None):
+        raise ValueError(
+            "fit_treatment=False only supports discrete point-treatment nuisances without "
+            "incremental interventions or companion evaluation"
+        )
 
     # --- treatment mechanism -------------------------------------------------
     treatment_model = (
@@ -911,7 +922,7 @@ def fit_nuisances(
         propensity = Propensity(np.zeros((data.n, 0)), ())
         if shifts:
             shift_set = ShiftSet.evaluate(tuple(shifts), data, density, reference=shift_reference)
-    else:
+    elif fit_treatment:
         propensity_out, propensity_companion, propensity_diagnostics = cross_fit_companion(
             treatment_model,
             data.covariates,
@@ -938,6 +949,11 @@ def fit_nuisances(
             ipsi_set = IPSISet.evaluate(
                 tuple(incremental), data, propensity.values, reference=incremental_reference
             )
+    else:
+        # A staging value, not an estimated mechanism.  Keeping the arm metadata and
+        # matrix shape valid lets the shared outcome/missingness pipeline return its
+        # ordinary container; CTMLE replaces this before any consumer can read it.
+        propensity = Propensity(np.zeros((data.n, len(arms)), dtype=float), arms)
 
     retained = data.covariate_names
     if screen_treatment:

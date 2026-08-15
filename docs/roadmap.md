@@ -77,10 +77,6 @@ The following are well-posed gaps, not promises or defects. A contribution shoul
 derivation in the technical appendix and the acceptance instruments in `docs/evidence.md`.
 
 - multi-valued extensions of the selector-based C-TMLE strategies;
-- a multi-arm remainder module, Gateaux oracle and coverage study for DR-TMLE and for
-  `CTMLE(strategy="oat")` — the binary ones do not reach either branch, and
-  [the evidence register](evidence.md#estimator-variants-over-registered-targets) records
-  what stands in for them today;
 - bivariate DR-TMLE reductions and the currently unsupported DR-TMLE compositions;
 - an MNAR tilt whose estimand is derived for continuous-dose shifts;
 - intermediate variables with incremental interventions;

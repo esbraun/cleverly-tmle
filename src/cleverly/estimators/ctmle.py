@@ -648,7 +648,18 @@ class CTMLE(TMLE):
                 "it minimises would have no fixed target. Use a plain TMLE."
             )
         self._check_estimands(data)
-        base = self._fit_nuisances(data, folds, scaler, intermediate_value, seed=seed)
+        # Every collaborative strategy replaces the ordinary treatment mechanism: the
+        # selectors fit their candidate path and OAT fits A on the Qbar vector.  Fit only
+        # the shared outcome/missingness nuisances here so g(W) is not paid for and thrown
+        # away first.
+        base = self._fit_nuisances(
+            data,
+            folds,
+            scaler,
+            intermediate_value,
+            seed=seed,
+            fit_treatment=False,
+        )
         if self.strategy == "oat":
             return self._outcome_adaptive_nuisances(data, base, seed=seed)
         selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)
