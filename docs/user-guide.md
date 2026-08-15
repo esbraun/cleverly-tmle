@@ -1162,7 +1162,7 @@ from cleverly.datasets import make_instrument
 frame, truth = make_instrument(n=2000, seed=0)
 res = (
     CTMLE(
-        search="ordered",
+        strategy="ordered",
         preorder="logistic",
         estimands=("ate",),
         outcome_learner="glm",
@@ -1175,7 +1175,7 @@ print(res.extra["ctmle"].summary())
 ```
 
 ```
-search = ordered; preorder = logistic; target = ate; criterion = cross-validated penalized squared-error loss
+strategy = ordered; preorder = logistic; target = ate; criterion = cross-validated penalized squared-error loss
 
 ... one row per candidate, with training and cross-validated risks ...
 
@@ -1190,14 +1190,36 @@ residual confounding left for `g` to remove. That is collaborative double robust
 the two nuisance fits only have to be right between them — and it is why C-TMLE's
 standard error here is about 25% below a plain TMLE's on the same samples.
 
-`search="greedy"` (the default) builds the ordering by forward selection instead;
-`search="ordered"` is the scalable variant (Ju et al. 2019) at `O(p)` propensity fits
+`strategy="greedy"` (the default) builds the ordering by forward selection instead;
+`strategy="ordered"` is the scalable variant (Ju et al. 2019) at `O(p)` propensity fits
 rather than `O(p²)`. Its `preorder="logistic"` default ranks variables by the empirical
 loss after one-variable targeting; `preorder="partial_correlation"` ranks the absolute
 partial correlation of the initial outcome residual and each covariate conditional on
 treatment. `preorder=` is refused for other searches and when `ordering=` supplies an
-explicit order, so an inapplicable setting cannot be silently ignored. `search="discrete"`
+explicit order, so an inapplicable setting cannot be silently ignored. `strategy="discrete"`
 cross-validates an explicit list of candidate models.
+
+`strategy="oat"` is the outcome-adaptive treatment model from `ctmle3`: it first fits
+`Qbar(a, W)` for every treatment level, then fits the categorical treatment mechanism on
+that vector of predictions. Unlike the three selector strategies, it has no candidate path
+or parameter-specific selection loss and supports multi-valued treatment. The record under
+`res.extra["ctmle"]` shares the practical diagnostic fields `.strategy`,
+`.treatment_features`, and `.treatment_risk_selected` across both API paths.
+
+**It is a sharper trade than the other three, and worth making on purpose.** The selector
+strategies pick a *subset of your covariates* for `g`, so the full model is always in the
+candidate path and collaborative double robustness survives: if the outcome model is wrong,
+the search can keep adding until `g` is right. `strategy="oat"` never puts `W` into `g` at
+all. Its mechanism is the projection of `A` onto the fitted `Qbar` vector, so it is
+consistent for the true propensity only when the true propensity is a function of the
+outcome regression — and when `Qbar` is wrong, `g` is generally wrong with it and the
+estimator has neither leg to stand on. What you get in exchange is the collaborative
+benefit in its purest form: `g` carries only the confounding `Qbar` left behind, so an
+instrument cannot reach the denominator. Prefer it when you trust the outcome model and
+positivity is the binding problem; prefer a selector strategy, or a plain `TMLE`, when you
+would rather keep the second leg. Its treatment design is also a fitted quantity
+cross-fitted on the same split as `Qbar`, which `ctmle3` does not do at all (`LF_oat` uses
+the full sample) — see the `cleverly.estimators.ctmle` module docstring for what that costs.
 
 Each selection fold cross-fits the predictions used on its training rows and uses one
 full-selection-training refit for its validation rows, following the `tmle3`/`sl3`
@@ -1423,8 +1445,7 @@ stops being arithmetic on cached arrays, so a truncation curve on a `DRTMLE` fit
 a fit per point rather than a fraction of one, and a result read back from disk cannot
 retarget at all.
 
-Scope is what the sources *derive*, which is narrower than what R's `drtmle` accepts: a
-binary treatment and the `mean` group. A multi-valued treatment, `att`/`atc`, the other
+Scope is a discrete treatment and the `mean` group. `att`/`atc`, the other
 parameter axes, `delta=`, `intermediate=`, fold-wise targeting,
 `reduction="bivariate"` and composition with `CTMLE` are all refused by name.
 

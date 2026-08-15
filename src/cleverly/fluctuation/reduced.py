@@ -132,13 +132,10 @@ def reduced_mechanism_covariate(
     *,
     bounds: tuple[float, float],
 ) -> FloatArray:
-    r"""Equation (9)'s covariate: ``(n, 2)``, for a logistic tilt of :math:`g^*(a_1|W)`.
+    r"""Equation (9)'s covariate, one column per treatment arm.
 
-    :func:`~cleverly.fluctuation.mechanism.solve_mechanism` tilts one probability --
-    :math:`g(a_1 \mid W)`, the higher arm -- and forms the score
-    :math:`P_n[H_g^\top\{A - g^*(a_1|W)\}]`.  Equation (9) is stated once per arm, so both
-    arms' equations have to be expressed against that one residual.  For the higher arm
-    they already are; for the lower,
+    At two arms, :func:`~cleverly.fluctuation.mechanism.solve_mechanism` tilts the higher
+    arm probability and both equations are expressed against its residual.  For the lower,
 
     .. math::
 
@@ -151,21 +148,23 @@ def reduced_mechanism_covariate(
 
     Parameters
     ----------
+    At more than two arms, R ``drtmle`` instead poses one binary equation per arm,
+    :math:`P_n[Q_r(a,W)/g_a^*\{1_a-g_a^*\}]=0`.  The returned matrix is therefore simply
+    :math:`Q_r/g^*` column by column.  Those independent fluctuations are not renormalised:
+    renormalisation would reopen the scores they just solved.
+
     reduced:
-        Supplies :math:`Q_r` and the arm order.  Binary only: the tilt above is a statement
-        about *two* arms, and at :math:`K` arms the per-arm tilts do not renormalise, so
-        the targeted :math:`g^*(\cdot|W)` would not be a distribution over the arms.
+        Supplies :math:`Q_r` and the arm order.
     propensity:
-        ``(n,)``, the current :math:`g^*(a_1 \mid W)`.  The **targeted** mechanism, not the
-        initial one: this covariate reads the very mechanism it fluctuates, which is where
+        The current upper-arm margin as ``(n,)`` for binary treatment, or the armwise
+        ``(n, K)`` mechanism otherwise.  The **targeted** mechanism, not the initial one:
+        this covariate reads the very mechanism it fluctuates, which is where
         it departs from :func:`~cleverly.fluctuation.mechanism.ipsi_mechanism_covariate`
         (that one reads only the targeted :math:`\bar Q^*`) and why the alternation rebuilds
         it after every mechanism step rather than once.
     bounds:
-        Truncation for the mechanism in the denominator.  The lower arm's is the
-        *complement* of the clipped upper one rather than a separately clipped array, which
-        is :meth:`~cleverly.estimators._nuisance.Propensity.bounded`'s two-arm rule and is
-        what keeps the binary path a regression surface.
+        Truncation for the mechanism in the denominator.  Binary treatment retains the
+        complement convention; multiple arms are bounded column by column.
 
     Notes
     -----
@@ -177,19 +176,22 @@ def reduced_mechanism_covariate(
     see whether this function is right.
     """
     arms = reduced.arms
-    if len(arms) != 2:
-        raise ValueError(
-            f"the reduced mechanism tilt is derived for two arms; got {list(arms)}. "
-            "At K arms the per-arm tilts do not renormalise, so the targeted mechanism "
-            "would not be a distribution over the arms."
-        )
-    g1 = bound(np.asarray(propensity, dtype=float).reshape(-1), float(bounds[0]), float(bounds[1]))
-    if g1.shape[0] != reduced.n:
-        raise ValueError(
-            f"the mechanism has {g1.shape[0]} rows and the reduced regressions {reduced.n}"
-        )
-    qr = np.asarray(reduced.qr, dtype=float)
-    mechanism = np.column_stack([1.0 - g1, g1])
-    # +1 for the arm the tilt is on, -1 for the one whose residual is its negation.
-    signs = np.array([-1.0, 1.0])
-    return np.asarray(signs * qr / mechanism, dtype=float)
+    values = np.asarray(propensity, dtype=float)
+    if values.ndim == 1:
+        if len(arms) != 2:
+            raise ValueError(f"a one-column reduced mechanism requires two arms; got {list(arms)}")
+        g1 = bound(values.reshape(-1), float(bounds[0]), float(bounds[1]))
+        if g1.shape[0] != reduced.n:
+            raise ValueError(
+                f"the mechanism has {g1.shape[0]} rows and the reduced regressions {reduced.n}"
+            )
+        qr = np.asarray(reduced.qr, dtype=float)
+        mechanism = np.column_stack([1.0 - g1, g1])
+        # +1 for the arm the tilt is on, -1 for the one whose residual is its negation.
+        signs = np.array([-1.0, 1.0])
+        return np.asarray(signs * qr / mechanism, dtype=float)
+
+    if values.shape != (reduced.n, len(arms)):
+        raise ValueError(f"the mechanism must be ({reduced.n}, {len(arms)}); got {values.shape}")
+    mechanism = bound(values, float(bounds[0]), float(bounds[1]))
+    return np.asarray(reduced.qr, dtype=float) / mechanism

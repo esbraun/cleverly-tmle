@@ -478,7 +478,7 @@ The implementation follows the published pooled construction step by step:
 | Select the candidate estimator | the final fit persists both selected `g_k` and selected `Qbar*_k` | mutation test that discarding `Qbar*_k` fails |
 | Report and retarget | pooled targeting continues from the selected state; the continuation score is numerical zero | score, sensitivity and serialization round trips |
 
-`search="ordered"` implements both scalable preorders from Ju et al. (2019): logistic
+`strategy="ordered"` implements both scalable preorders from Ju et al. (2019): logistic
 one-variable targeting loss and partial correlation of `Y-Qbar0(A,W)` with each covariate
 conditional on treatment. The former is the default. Marginal correlation with `Y` is not
 a published preorder and is not used.
@@ -656,12 +656,20 @@ read. The two **agree**, and the reason that took an argument is that the paper'
 prints the mechanism correction with a leading minus its own appendices contradict — see
 [the sign of the mechanism correction](drtmle.md#the-sign-of-the-mechanism-correction),
 which is where a reader who wants the derivation rather than the verdict should go. The
-*published* 2017 article is still unread and no longer gates this. Scope is likewise set by what has been *derived* rather than by what `drtmle`
-accepts: a binary treatment, the `mean` group, and the univariate reduction. A multi-valued
-treatment is a candidate rather than a refusal on principle — the equations are written with
-a free `a` and nothing in them has a two-arm step — but van der Laan (2014) states its
-problem for a binary treatment, the per-arm mechanism tilts do not renormalise, and an
-implementation that accepts an argument is not a proof that the argument is licensed.
+*published* 2017 article is still unread and no longer gates this. Multi-valued treatment
+follows the published R `drtmle` workflow: each reduction and correction is indexed by a
+free treatment level, and equation (9) is solved by independent one-vs-rest fluctuations.
+Those targeted margins deliberately do not renormalise, because a simplex projection would
+reopen the armwise equations — and they are not inert either: equation (8) divides by them,
+so the estimate does read a mechanism that no longer sums to one.
+
+What pins that extension is **not** the exact multi-arm law, which makes every new term
+vanish and so cannot fail. It is the independent `brentq` solve of `drtmle`'s own
+`fluctuateG` equation, the misspecified fit where `Qr` is nonzero and the mechanism visibly
+leaves the simplex, and the column-permutation witness on the exit state — all in
+`tests/unit/test_multi_arm_collaborative.py` and tabulated in
+[the evidence register](evidence.md#estimator-variants-over-registered-targets), which also
+names what is still missing (no multi-arm remainder, Gateaux or coverage module).
 
 ## Cross-fitting: what the folds do and do not buy
 
@@ -871,24 +879,26 @@ so rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| `CTMLE` on a multi-valued treatment | [multi-valued treatment](user-guide.md#multi-valued-treatment) |
-| `DRTMLE` on a multi-valued treatment, with `delta=`/`intermediate=`, fold-wise, or composed with `CTMLE`; and `reduction="bivariate"` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
+| selector-based `CTMLE` on a multi-valued treatment; use `strategy="oat"` for the ctmle3 outcome-adaptive construction | [multi-valued treatment](user-guide.md#multi-valued-treatment) |
+| `DRTMLE` with `delta=`/`intermediate=`, fold-wise, or composed with `CTMLE`; and `reduction="bivariate"` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
 | the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](user-guide.md#tilting-the-odds-of-treatment) |
 | a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |
 | blocked-temporal and rolling-origin splits | [cross-fitting](user-guide.md#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](user-guide.md#observation-weights-and-which-population-they-define) |
 
-Several former gaps have landed: `ATT` / `ATC` on a multi-valued treatment, observation weights
+Several former gaps have landed: multi-valued outcome-adaptive C-TMLE and DR-TMLE,
+`ATT` / `ATC` on a multi-valued treatment, observation weights
 and a working model over regimens for `LTMLE`, shift fits with `delta=`, `intermediate=` and
 weights, and multi-arm omitted-variable and MNAR sensitivity analyses. The remaining shift gap is
 narrower: the tilt itself is written, while the missing derivation must establish whether the
 tilted parameter is still the shift parameter.
 The rest are there because nobody
 has asked, not because anything stands in the way — with one exception worth naming:
-`CTMLE` on a multi-valued treatment is the only row here whose *derivation* is unsettled,
-since both searches order candidates by one propensity margin and with `K` arms there is no
-canonical single ordering. That is now the whole of its row, where it used to share one with
+the three selector-based C-TMLE strategies remain binary because they order candidates by
+one propensity margin and with `K` arms there is no canonical single ordering. The separate
+`strategy="oat"` path does not pretend to generalise that selector: it copies ctmle3's
+outcome-adaptive categorical mechanism. That is now the whole of its row, where it used to share one with
 two refusals that turned out to be transcription: an omitted-variable bound is one linear
 functional at a time and an MNAR tilt is one arm's regression at a time, so both are a wider
 loop over the contrasts rather than a derivation that stops at two arms.

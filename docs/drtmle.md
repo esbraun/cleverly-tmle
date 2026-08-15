@@ -42,9 +42,32 @@ estimator — which is exactly the case the variant is not for.
 
 <!-- doc-section: id=drtmle-contract; requires=; paths=src/cleverly/estimators/drtmle.py,src/cleverly/datasets/synthetic.py -->
 
-A **binary point treatment** and the `mean` group: `ey1`, `ey0` and `ate`, reported under those
-names. Scope is what the sources *derive*, which is narrower than what the R package `drtmle`
-accepts.
+A **discrete point treatment** and the `mean` group: every treatment-specific mean and the
+reference-arm contrasts requested through `ey` and `ate`. For multiple levels, the
+implementation follows R `drtmle`'s armwise construction (`R/fluctuate.R`, `fluctuateG`):
+reduced regressions and the two extra equations are fitted once per arm, and equation (9)
+independently fluctuates each one-vs-rest mechanism margin — response `1(A = a)`, offset
+`logit(g_a)`, covariate `Qr_a / g_a`, one scalar per arm.
+
+The targeted margins are **not renormalised**, and the reason is that what this estimator
+owes is a set of solved score equations rather than a likelihood: projecting the `K` tilted
+margins back onto the simplex would move every one of them off the root just found. They
+are not inert, and it would be wrong to say the estimate does not see them — the next
+round's equation (8) divides by `g_a*`, so the targeted `Qbar*` and hence `psi` do depend on
+margins that sum to something other than one (measured: `0.9975` on the three-armed
+fixture). That is what `drtmle` does too, and it is licensed by the score equations rather
+than by the mechanism still being a conditional distribution. The initial categorical
+mechanism *is* compatible and sums to one, using cleverly's existing multiclass learner
+path; `sensitivity.positivity()` reports how far the targeted rows depart from it.
+
+**Two arms keep their own route, which is not the armwise one.** `drtmle` fluctuates both
+margins independently even at `K = 2`; cleverly instead tilts `g_1` alone along a
+two-column covariate, so `g_0* = 1 - g_1*` holds exactly. Both solve the *same two* score
+equations — column 0's is `P_n[Qr_0/g_0* {1(A=a_0) - g_0*}] = 0` once the sign convention
+in `reduced_mechanism_covariate` is unwound — and differ only in the submodel, hence at
+second order. So the estimator is not continuous in `K`, and a reader comparing a two-arm
+cleverly fit against a two-arm `drtmle` fit should expect agreement in the equations solved
+rather than in the iterates.
 
 <!-- doc-block: id=drtmle-contract-fit; tier=fast -->
 ```python
@@ -89,8 +112,7 @@ raise at construction or at `fit`, with a message naming what a derivation would
 
 | refused | why |
 | --- | --- |
-| multi-valued treatment (`n_arms != 2`) | no multi-arm theorem is reproduced anywhere in hand, and the *targeted* mechanism's simplex compatibility is an open question rather than a known defect. A new multi-arm implementation should prefer a simplex-preserving multinomial fluctuation unless a theorem licenses independent armwise updates. |
-| continuous treatment | as above |
+| continuous treatment | the reductions and corrections are indexed by treatment mass at a discrete arm; a continuous dose requires density-based equations |
 | `reduction="bivariate"` | van der Laan (2014)'s single bivariate reduced mechanism. The equations are reproduced in Benkeser & Hejazi (2023); the **theorem** requires van der Laan (2014) Theorem 3, which is not in hand. Missing with it: the formal statement, its assumptions, the asymptotic expansion, its influence function, its remainder decomposition, and any cross-fitted version. |
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |

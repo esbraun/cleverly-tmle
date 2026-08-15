@@ -672,13 +672,28 @@ def reduced_correction_parts(
     """
     y = np.asarray(outcome, dtype=float).reshape(-1)
     a = np.asarray(treatment, dtype=float).reshape(-1)
-    raw1 = np.asarray(propensity, dtype=float).reshape(-1)
-    g1 = bound(raw1, float(bounds[0]), float(bounds[1]))
-    mechanism = {reduced.arms[0]: 1.0 - g1, reduced.arms[1]: g1}
-    # The complement rather than a separately clipped array, exactly as `Propensity.bounded`
-    # and `reduced_mechanism_covariate` take it -- so the raw and bounded mechanisms differ
-    # on the same rows at both arms and `clipped` describes one event.
-    untruncated = {reduced.arms[0]: 1.0 - raw1, reduced.arms[1]: raw1}
+    raw = np.asarray(propensity, dtype=float)
+    if len(reduced.arms) == 2:
+        raw1 = raw.reshape(-1)
+        g1 = bound(raw1, float(bounds[0]), float(bounds[1]))
+        mechanism = {reduced.arms[0]: 1.0 - g1, reduced.arms[1]: g1}
+        # The complement rather than a separately clipped array, exactly as
+        # `Propensity.bounded` and `reduced_mechanism_covariate` take it.
+        untruncated = {reduced.arms[0]: 1.0 - raw1, reduced.arms[1]: raw1}
+        clipped = np.asarray(raw1 != g1, dtype=bool)
+    else:
+        if raw.shape != (y.size, len(reduced.arms)):
+            raise ValueError(
+                f"the targeted mechanism must be ({y.size}, {len(reduced.arms)}); got {raw.shape}"
+            )
+        bounded = bound(raw, float(bounds[0]), float(bounds[1]))
+        mechanism = {arm: bounded[:, j] for j, arm in enumerate(reduced.arms)}
+        untruncated = {arm: raw[:, j] for j, arm in enumerate(reduced.arms)}
+        # Reduced **over the arms**, so this stays one bit per row as the binary branch's
+        # is and as `clipped` is documented and reported: the arms are clipped column by
+        # column here, and counting the cells would report "3800 row(s) of 2000" on a
+        # three-armed fit whose bound binds on two arms at most rows.
+        clipped = np.asarray((raw != bounded).any(axis=1), dtype=bool)
     ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)
     keep = np.ones(y.shape[0]) if observed is None else np.asarray(observed, dtype=float)
 
@@ -693,7 +708,7 @@ def reduced_correction_parts(
         # at `arm`; `keep` is the missing-outcome mask every residual here carries.
         d_q[arm] = indicator * keep * ratio[:, j] * (y - targeted.observed)
         clip_bias[arm] = qr / mechanism[arm] * (untruncated[arm] - mechanism[arm])
-    return CorrectionParts(d_g, d_q, clip_bias, np.asarray(raw1 != g1, dtype=bool), tuple(guard))
+    return CorrectionParts(d_g, d_q, clip_bias, clipped, tuple(guard))
 
 
 def shift_means(

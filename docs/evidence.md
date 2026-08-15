@@ -64,6 +64,36 @@ follows from it.
 | `ate_shift` | `tests/discrete_law_shift.py` | `tests/unit/test_influence_gateaux_shift.py`, `tests/unit/test_influence_gateaux_shift_cde.py` | `tests/unit/test_remainder_shift_cde.py` | the same negative control as `ey_shift`, taken on the contrast (`tests/unit/test_influence_gateaux_shift.py`) | no plain-shift remainder module, as for `ey_shift`; and the MNAR tilt is refused on this axis by name, so nothing here measures sensitivity to it |
 | `msm` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_msm.py` | `tests/unit/test_remainder_msm.py` | a **saturated** working model reproduces the per-arm report exactly, at the covariate and at the estimate (`tests/unit/test_msm_submodel.py`, `tests/e2e/test_msm.py`); continuous-dose quadrature and its nonzero density-ratio score are pinned in `tests/unit/test_msm.py` and `tests/unit/test_continuous_msm.py` | the saturated identity is blind to every link-specific mistake — the curvature term, the alternation's restart, the loss of exact double robustness — because a saturated model *fits*, which is what a projection does not promise. The continuous test uses a linear truth; a nonlinear continuous-dose Gateaux oracle remains absent |
 
+## Estimator variants over registered targets
+
+`CTMLE` and `DRTMLE` estimate the same registered `ey` and `ate` targets as `TMLE`, so they
+do not add registry rows. Their multi-arm constructions have separate evidence in
+`tests/unit/test_multi_arm_collaborative.py`. Binary compatibility remains covered by the
+existing C-TMLE and DR-TMLE suites, which continue down their original branches.
+
+**The exact law alone is not evidence for either construction, and this is worth writing
+down rather than leaving to be rediscovered.** Handed the oracle nuisances,
+`tests/discrete_law_multi.py` makes every new term vanish: `max|Qr| = 1.9e-17`, `gr2 = 0`
+exactly, the mechanism's `epsilon` is `[0, 0, 0]` and the targeted mechanism equals the
+initial one to `2.8e-17`. A fit that recovers all five parameters to `2e-15` there has
+therefore said nothing about equation (9), the corrections, or the outcome-adaptive design
+— reversing the columns of the targeted mechanism leaves the exact-law assertions,
+`score_check()` and `correction_check()` all passing. So each construction carries its own
+nonzero instrument:
+
+| construction | instrument | what fails without it |
+| --- | --- | --- |
+| armwise equation (9) | `test_armwise_mechanism_matches_an_independent_glm_solve` — `brentq` on `drtmle`'s own `fluctuateG` score equation, arm by arm, sharing no code with the solver | any change to the response, offset, covariate or arm alignment; agreement is to `1e-13` |
+| the reported corrections | `test_drtmle_corrections_are_nonzero_and_solved_under_misspecification` — glm nuisances, so `max|Qr| ≈ 4e-2` and the mechanism genuinely leaves the simplex | a targeted mechanism that does not move, or an identity that holds only because both sides are zero |
+| arm alignment of the exit state | `test_multi_arm_exit_state_solves_each_arms_equation` — equation (9) recomputed from the reported arrays, and the same expression under a column permutation asserted **not** solved | a per-arm quantity read at the wrong arm, which is invisible to any symmetric check |
+| `reduced_mechanism_covariate` at `K` arms | `test_multi_arm_reduced_mechanism_covariate_has_the_r_formula` on a nonzero `Qr` | the binary sign convention carried over, which the exact law cannot see |
+| the `oat` design | `test_oat_fits_the_treatment_model_on_the_arm_specific_qbar_matrix` and `test_oat_recovers_a_mechanism_generated_by_qbar` — a saturated learner on a law where `Qbar(·, W)` is a bijection of `W`, so the fitted `g` must equal `g_0` exactly | zeroing, permuting or substituting the design, none of which any exact-law or field-name assertion detects |
+
+What is still absent, and is a well-posed gap rather than an oversight: no multi-arm
+remainder or Gateaux module, and no multi-arm coverage study. The binary ones
+(`tests/unit/test_theorem_drtmle.py`, `tests/unit/test_influence_gateaux_drtmle.py`) are
+unchanged and do not reach these branches.
+
 ## Longitudinal estimands outside the target registry
 
 `LTMLE` parameters are indexed by regimen, horizon, and sometimes cause rather than by a

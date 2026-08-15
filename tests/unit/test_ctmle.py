@@ -226,7 +226,7 @@ class TestPaths:
         # The published logistic preorder ranks one-variable propensity candidates by
         # the empirical loss of the Qbar they target, rather than by marginal Y
         # correlation.  Recompute that definition independently for every variable.
-        ordered = _selector(instrument_frame, search="ordered")[0]
+        ordered = _selector(instrument_frame, strategy="ordered")[0]
         losses = {}
         for name in ordered.data.covariate_names:
             propensity = ordered.propensity((name,), None, "longhand")
@@ -239,7 +239,7 @@ class TestPaths:
     def test_logistic_preorder_places_the_smaller_loss_first(
         self, instrument_frame, monkeypatch
     ) -> None:
-        selector = _selector(instrument_frame, search="ordered")[0]
+        selector = _selector(instrument_frame, strategy="ordered")[0]
         scores = {"W1": 0.8, "W2": 0.2, "W3": 0.5}
         monkeypatch.setattr(
             selector,
@@ -258,7 +258,9 @@ class TestPaths:
     def test_partial_correlation_ordering_matches_weighted_residualization(
         self, instrument_frame
     ) -> None:
-        selector = _selector(instrument_frame, search="ordered", preorder="partial_correlation")[0]
+        selector = _selector(instrument_frame, strategy="ordered", preorder="partial_correlation")[
+            0
+        ]
         residual = selector.scaled - selector.base.outcome.observed
         scores = {
             name: abs(
@@ -278,7 +280,9 @@ class TestPaths:
     def test_partial_correlation_preorder_places_the_larger_magnitude_first(
         self, instrument_frame, monkeypatch
     ) -> None:
-        selector = _selector(instrument_frame, search="ordered", preorder="partial_correlation")[0]
+        selector = _selector(instrument_frame, strategy="ordered", preorder="partial_correlation")[
+            0
+        ]
         scores = iter((0.2, -0.9, 0.5))
         monkeypatch.setattr(
             ctmle_module,
@@ -312,7 +316,7 @@ class TestPaths:
         )
 
     def test_an_explicit_ordering_is_followed_exactly(self, instrument_frame) -> None:
-        selector = _selector(instrument_frame, search="ordered", ordering=["W3", "W2", "W1"])[0]
+        selector = _selector(instrument_frame, strategy="ordered", ordering=["W3", "W2", "W1"])[0]
         path = selector.build_path(train=None, tag="o")
         assert [candidate.covariates for candidate in path] == [
             (),
@@ -323,7 +327,7 @@ class TestPaths:
 
     def test_a_discrete_path_is_the_candidate_list(self, instrument_frame) -> None:
         candidates = [("W1",), ("W1", "W3"), ("W2",)]
-        selector = _selector(instrument_frame, search="discrete", candidates=candidates)[0]
+        selector = _selector(instrument_frame, strategy="discrete", candidates=candidates)[0]
         path = selector.build_path(train=None, tag="d")
         assert [candidate.covariates for candidate in path] == candidates
         # Each fluctuates from the same initial fit, so none of them chains onto another.
@@ -344,7 +348,7 @@ class TestSelection:
         frame.insert(2, "row_id", np.arange(len(frame)))
         selector = _selector(
             frame,
-            search="discrete",
+            strategy="discrete",
             candidates=[()],
             outcome_learner=_RecordingRegressor(),
             cross_fit=False,
@@ -381,7 +385,7 @@ class TestSelection:
         frame.insert(2, "row_id", np.arange(len(frame)))
         selector = _selector(
             frame,
-            search="discrete",
+            strategy="discrete",
             candidates=[("row_id",)],
             treatment_learner=_RecordingClassifier(),
             cross_fit=False,
@@ -427,7 +431,7 @@ class TestSelection:
 
     def test_it_picks_the_minimum_cross_validated_risk(self, instrument_frame) -> None:
         estimator = CTMLE(
-            **{**CTMLE_KWARGS, "search": "discrete", "candidates": [("W1",), ("W2",), ("W3",)]}
+            **{**CTMLE_KWARGS, "strategy": "discrete", "candidates": [("W1",), ("W2",), ("W3",)]}
         )
         result = estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
         selection = result.extra["ctmle"]
@@ -448,7 +452,7 @@ class TestSelection:
         for seed in range(5):
             frame, _ = make_instrument(n=700, seed=seed)
             selection = (
-                CTMLE(**{**CTMLE_KWARGS, "search": "ordered"})
+                CTMLE(**{**CTMLE_KWARGS, "strategy": "ordered"})
                 .fit(frame, outcome="Y", treatment="A")
                 .single()
                 .extra["ctmle"]
@@ -487,7 +491,7 @@ class TestSelection:
         for seed in range(5):
             frame, _ = make_instrument(n=700, seed=seed)
             selection = (
-                CTMLE(**{**CTMLE_KWARGS, "search": "ordered"})
+                CTMLE(**{**CTMLE_KWARGS, "strategy": "ordered"})
                 .fit(frame, outcome="Y", treatment="A")
                 .single()
                 .extra["ctmle"]
@@ -507,7 +511,7 @@ class TestSelection:
             CTMLE(
                 **{
                     **CTMLE_KWARGS,
-                    "search": "discrete",
+                    "strategy": "discrete",
                     "candidates": [(), ("W1", "W2", "W3")],
                 }
             )
@@ -527,18 +531,18 @@ class TestSelection:
         )
 
     def test_selection_is_recorded_for_every_search(self, instrument_frame) -> None:
-        for search, extra in (
+        for strategy, extra in (
             ("greedy", {}),
             ("ordered", {}),
             ("discrete", {"candidates": [("W1",), ("W1", "W2")]}),
         ):
             result = (
-                CTMLE(**{**CTMLE_KWARGS, "search": search, **extra})
+                CTMLE(**{**CTMLE_KWARGS, "strategy": strategy, **extra})
                 .fit(instrument_frame, outcome="Y", treatment="A")
                 .single()
             )
             selection = result.extra["ctmle"]
-            assert selection.search == search
+            assert selection.strategy == strategy
             assert len(selection.cv_risk) == len(selection.path)
             assert len(selection.train_risk) == len(selection.path)
             assert np.isfinite(selection.cv_risk).all()
@@ -552,7 +556,7 @@ class TestEquivalenceWithPlainTmle:
         frame, _ = make_linear_ate(n=500, seed=21)
         every = ("W1", "W2", "W3", "W4")
         collaborative = (
-            CTMLE(**{**CTMLE_KWARGS, "search": "discrete", "candidates": [every]})
+            CTMLE(**{**CTMLE_KWARGS, "strategy": "discrete", "candidates": [every]})
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
@@ -606,7 +610,7 @@ class TestReporting:
     def test_the_summary_marks_the_chosen_candidate(self, selection) -> None:
         text = selection.summary()
         assert "Collaborative TMLE selection" in text
-        assert "search = greedy" in text
+        assert "strategy = greedy" in text
         assert "squared-error" in text
         assert text.count("<--") == 1
 
@@ -630,21 +634,25 @@ class TestReporting:
 
 
 class TestValidation:
+    def test_the_replaced_search_keyword_has_a_migration_message(self) -> None:
+        with pytest.raises(TypeError, match="search= was replaced by strategy="):
+            CTMLE(search="ordered")
+
     @pytest.mark.parametrize(
         ("kwargs", "message"),
         [
-            ({"search": "stepwise"}, "search must be"),
-            ({"search": "discrete"}, "needs an explicit candidates"),
-            ({"candidates": [("W1",)]}, "only applies to search='discrete'"),
-            ({"ordering": ["W1"]}, "only applies to search='ordered'"),
+            ({"strategy": "stepwise"}, "strategy must be"),
+            ({"strategy": "discrete"}, "needs an explicit candidates"),
+            ({"candidates": [("W1",)]}, "only applies to strategy='discrete'"),
+            ({"ordering": ["W1"]}, "only applies to strategy='ordered'"),
             ({"selection_folds": 1}, "selection_folds must be at least 2"),
             ({"selection_inner_folds": 1}, "selection_inner_folds must be at least 2"),
             ({"loss": "hinge"}, "loss must be"),
             ({"preorder": "marginal"}, "preorder must be"),
-            ({"preorder": "logistic"}, "only applies to search='ordered'"),
+            ({"preorder": "logistic"}, "only applies to strategy='ordered'"),
             (
                 {
-                    "search": "ordered",
+                    "strategy": "ordered",
                     "ordering": ["W1"],
                     "preorder": "logistic",
                 },
@@ -668,7 +676,7 @@ class TestValidation:
 
     def test_controlled_direct_effect_composition_is_refused(self) -> None:
         frame, _ = make_cde(n=100, seed=4)
-        with pytest.raises(ValueError, match="binary point-treatment estimator"):
+        with pytest.raises(ValueError, match="does not compose either collaborative strategy"):
             CTMLE(**CTMLE_KWARGS).fit(frame, outcome="Y", treatment="A", intermediate="Z")
 
     def test_the_target_estimand_must_be_reported(self, instrument_frame) -> None:
@@ -677,11 +685,11 @@ class TestValidation:
             estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
 
     def test_an_ordering_must_name_every_covariate(self, instrument_frame) -> None:
-        estimator = CTMLE(**{**CTMLE_KWARGS, "search": "ordered", "ordering": ["W1", "W2"]})
+        estimator = CTMLE(**{**CTMLE_KWARGS, "strategy": "ordered", "ordering": ["W1", "W2"]})
         with pytest.raises(ValueError, match="must cover every covariate"):
             estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
 
     def test_an_ordering_cannot_name_an_unknown_covariate(self, instrument_frame) -> None:
-        estimator = CTMLE(**{**CTMLE_KWARGS, "search": "ordered", "ordering": ["W1", "W2", "W9"]})
+        estimator = CTMLE(**{**CTMLE_KWARGS, "strategy": "ordered", "ordering": ["W1", "W2", "W9"]})
         with pytest.raises(ValueError, match="unknown covariate"):
             estimator.fit(instrument_frame, outcome="Y", treatment="A").single()

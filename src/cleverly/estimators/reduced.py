@@ -112,16 +112,6 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
             "reduction='univariate', which is Benkeser et al.'s replacement for it and "
             "drtmle's own default."
         )
-    if kind == "multi_arm":
-        raise NotImplementedError(
-            f"the reduced-dimension regressions are derived for a binary treatment; {detail} "
-            "van der Laan (2014) states its problem for a binary treatment and no theorem "
-            "read here covers K arms, so an implementation that accepted one would be "
-            "reporting a parameter nothing has derived -- and the per-arm mechanism tilts "
-            "do not renormalise, so the targeted g*(.|W) at K arms is not a distribution "
-            "over the arms, which is exactly the sort of thing a theorem would settle and "
-            "an example would not. Fit a plain TMLE, which is derived at K arms."
-        )
     if kind == "continuous":
         raise NotImplementedError(
             "the reduced-dimension regressions read a per-arm mechanism g(a | W), and a "
@@ -347,14 +337,6 @@ def fit_reduced(
         refuse_unsupported(reduction)
     if data.is_continuous_treatment:
         refuse_unsupported("continuous")
-    if data.n_arms != 2:
-        # Read off the data rather than off ``nuisance.arms``, so the message can name the
-        # levels the caller passed rather than the internal codes -- which is what every
-        # error message here reports in.
-        refuse_unsupported(
-            "multi_arm",
-            f"{data.treatment_name} has {data.n_arms} levels {list(data.treatment_levels)}.",
-        )
     if crossfit not in REDUCED_CROSSFITS:
         raise ValueError(f"crossfit must be one of {list(REDUCED_CROSSFITS)}; got {crossfit!r}")
     inner = nuisance.inner if crossfit == "nested" else None

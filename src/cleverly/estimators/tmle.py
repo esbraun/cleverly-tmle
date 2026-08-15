@@ -2556,7 +2556,11 @@ def correction_parts(
     mechanism = (
         fluctuation.mechanism.propensity
         if fluctuation.mechanism is not None
-        else nuisance.propensity.arm(reduction.reduced.arms[1])
+        else (
+            nuisance.propensity.arm(reduction.reduced.arms[1])
+            if len(reduction.reduced.arms) == 2
+            else nuisance.propensity.values
+        )
     )
     return reduced_correction_parts(
         scaled,

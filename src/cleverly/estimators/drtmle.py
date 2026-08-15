@@ -107,9 +107,9 @@ alternation, plus a mechanism fluctuation.  A truncation curve or an MNAR sweep 
 ``retarget`` here is no longer arithmetic on cached arrays, which is the one contract this
 variant breaks and the reason it is a class of its own rather than a keyword.
 
-Scope is what the sources *derive*, which is narrower than what ``drtmle`` accepts: a binary
-treatment, the ``mean`` group, and Benkeser et al.'s univariate reduction.  Everything else
-is refused by name.
+Scope follows the vetted R implementation for arbitrary discrete treatment levels, the
+``mean`` group, and Benkeser et al.'s univariate reduction.  Continuous treatment and other
+target groups remain refused by name.
 """
 
 from __future__ import annotations
@@ -188,9 +188,9 @@ class ReducedFit:
 
 
 class DRTMLE(TMLE):
-    r"""TMLE with doubly-robust inference, for a binary point treatment.
+    r"""TMLE with doubly-robust inference, for a discrete point treatment.
 
-    Reports ``ey1``, ``ey0`` and ``ate`` under those names -- a different estimator behind
+    Reports treatment-specific means and reference-arm contrasts -- a different estimator behind
     the same parameters, exactly as :class:`~cleverly.CTMLE` is -- with an influence curve
     and therefore an interval that stays valid when only one of the two nuisances is
     consistently estimated.
@@ -296,7 +296,7 @@ class DRTMLE(TMLE):
     Refused by name, each because the derivation read here does not cover it rather than
     because the loop would not run:
 
-    * a multi-valued or continuous treatment, and ``reduction="bivariate"``;
+    * a continuous treatment and ``reduction="bivariate"``;
     * ``att``/``atc`` and the ``interventions=``, ``shifts=``, ``incremental=`` and ``msm=``
       axes -- each is a different score equation with no reduced-dimension derivation;
     * ``delta=`` and ``intermediate=`` -- the equations above carry no missingness or
@@ -453,7 +453,7 @@ class DRTMLE(TMLE):
             if getattr(self, keyword, None):
                 raise NotImplementedError(
                     f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
-                    "regressions are derived for the counterfactual means of a binary "
+                    "regressions are derived for counterfactual means under static treatment "
                     f"treatment; {keyword}= is a different score equation, and no theorem "
                     "read here says what its reductions would be. Fit a plain TMLE, which "
                     "is derived there."
@@ -619,11 +619,6 @@ class DRTMLE(TMLE):
             )
         if data.is_continuous_treatment:
             refuse_unsupported("continuous")
-        if data.n_arms != 2:
-            refuse_unsupported(
-                "multi_arm",
-                f"{data.treatment_name} has {data.n_arms} levels {list(data.treatment_levels)}.",
-            )
         if data.has_missing_outcome or data.has_intermediate:
             missing = "delta=" if data.has_missing_outcome else "intermediate="
             raise NotImplementedError(

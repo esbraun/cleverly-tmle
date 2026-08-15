@@ -501,7 +501,7 @@ class TestCollaborativeTmle:
     def test_the_scalable_search_matches_the_greedy_one(self) -> None:
         # Ju et al.'s ordered search costs O(p) fits instead of O(p^2). If it gave up
         # much accuracy for that there would be no reason to offer it.
-        studies = self._pair(instrument_dgp(), search="ordered")
+        studies = self._pair(instrument_dgp(), strategy="ordered")
         assert studies["ctmle"].rmse < 0.9 * studies["tmle"].rmse, studies
 
     def test_it_degrades_more_gracefully_under_weak_overlap(self) -> None:

@@ -567,7 +567,11 @@ def correction_check(
             margin = _margin(
                 mechanism.propensity
                 if mechanism is not None
-                else repeat.nuisance.propensity.arm(reduction.reduced.arms[1]),
+                else (
+                    repeat.nuisance.propensity.arm(reduction.reduced.arms[1])
+                    if len(reduction.reduced.arms) == 2
+                    else repeat.nuisance.propensity.values
+                ),
                 reduction.bounds,
             )
             # Item 25's other two witnesses. Both are properties of this draw rather than of
