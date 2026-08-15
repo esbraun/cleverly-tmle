@@ -1206,6 +1206,21 @@ or parameter-specific selection loss and supports multi-valued treatment. The re
 `res.extra["ctmle"]` shares the practical diagnostic fields `.strategy`,
 `.treatment_features`, and `.treatment_risk_selected` across both API paths.
 
+**It is a sharper trade than the other three, and worth making on purpose.** The selector
+strategies pick a *subset of your covariates* for `g`, so the full model is always in the
+candidate path and collaborative double robustness survives: if the outcome model is wrong,
+the search can keep adding until `g` is right. `strategy="oat"` never puts `W` into `g` at
+all. Its mechanism is the projection of `A` onto the fitted `Qbar` vector, so it is
+consistent for the true propensity only when the true propensity is a function of the
+outcome regression — and when `Qbar` is wrong, `g` is generally wrong with it and the
+estimator has neither leg to stand on. What you get in exchange is the collaborative
+benefit in its purest form: `g` carries only the confounding `Qbar` left behind, so an
+instrument cannot reach the denominator. Prefer it when you trust the outcome model and
+positivity is the binding problem; prefer a selector strategy, or a plain `TMLE`, when you
+would rather keep the second leg. Its treatment design is also a fitted quantity
+cross-fitted on the same split as `Qbar`, which `ctmle3` does not do at all (`LF_oat` uses
+the full sample) — see the `cleverly.estimators.ctmle` module docstring for what that costs.
+
 Each selection fold cross-fits the predictions used on its training rows and uses one
 full-selection-training refit for its validation rows, following the `tmle3`/`sl3`
 `fold_fits` plus `full_fit` convention. `selection_inner_folds=2` controls that inner split.

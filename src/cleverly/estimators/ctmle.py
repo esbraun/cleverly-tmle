@@ -67,6 +67,27 @@ Three ways of building the sequence are available, mirroring the entry points of
     Consequently it supports multi-valued treatment and has no selector loss or stopping
     index.
 
+    **It also trades away one leg of double robustness, and that is the reason to reach
+    for it deliberately rather than as a default.**  The three selector strategies choose
+    a *subset of the analyst's covariates*, so the full model is always in the candidate
+    path and a search that keeps going recovers :math:`g_0`; collaborative double
+    robustness is retained.  Here :math:`W` never enters :math:`g` at all.  The fitted
+    mechanism is the projection of :math:`A` on :math:`\sigma(\hat{\bar Q})`, so it is
+    consistent for :math:`g_0` only when :math:`g_0` is a function of the outcome
+    regression -- and if :math:`\hat{\bar Q}` is inconsistent then in general so is
+    :math:`\hat g`, and the estimator has *neither* leg.  What it buys in exchange is the
+    collaborative one: an :math:`\hat g` that carries only the confounding the outcome
+    regression left behind, which is what keeps an instrument out of the denominator.
+
+    **Its design is a generated regressor**, and the mechanism is cross-fitted on the same
+    split :math:`\hat{\bar Q}` was, so row :math:`i`'s outcome reaches its own propensity
+    through the training rows' predictions.  That is the dependence
+    :func:`~cleverly.estimators.reduced.fit_reduced`'s notes set out for the reduced
+    regressions, arriving here through the design matrix; the same second-order reading
+    applies, and the reduction is to :math:`K` columns rather than one.  ``ctmle3`` does
+    not cross-fit this fit at all -- ``LF_oat`` pins ``cv_fold = -1`` -- so reusing the
+    split is a deviation from the source in the stricter direction.
+
 The loss
 --------
 
@@ -206,6 +227,7 @@ fit.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal
@@ -442,6 +464,8 @@ class CTMLE(TMLE):
         ``"greedy"`` (default), ``"ordered"``, ``"discrete"`` or ``"oat"``.  The
         selector strategies are binary; ``"oat"`` fits treatment on the vector of all
         arm-specific outcome predictions and supports any number of discrete arms.
+        ``"oat"`` excludes ``W`` from ``g`` entirely and so gives up
+        consistency-when-only-``g``-is-right; see the module docstring.
     ordering:
         Explicit covariate order for ``strategy="ordered"``.  When omitted, ``preorder``
         determines the published data-adaptive ordering.
@@ -568,16 +592,33 @@ class CTMLE(TMLE):
                 "ctmle_estimand= does not apply to strategy='oat': ctmle3's "
                 "outcome-adaptive construction targets all treatment-specific means together"
             )
-        if self.strategy == "oat" and (
-            self.selection_folds != 5
-            or self.selection_inner_folds != 2
-            or self.loss != "auto"
-            or not self.penalty
-        ):
+        overridden = self._selector_only_overrides() if self.strategy == "oat" else []
+        if overridden:
             raise ValueError(
-                "selection_folds=, selection_inner_folds=, loss= and penalty= configure "
-                "selector strategies and do not apply to strategy='oat'"
+                f"{', '.join(f'{name}=' for name in overridden)} configure selector "
+                "strategies and do not apply to strategy='oat', which fits one categorical "
+                "mechanism and selects nothing"
             )
+
+    def _selector_only_overrides(self) -> list[str]:
+        """Which selector-only settings sit away from their constructor defaults.
+
+        Read off :meth:`__init__`'s own signature rather than compared against literals,
+        so the check cannot invert when a default changes -- a hard-coded ``!= 5`` would
+        silently start refusing *every* ``strategy="oat"`` fit the day
+        ``selection_folds``'s default moved.
+
+        A value equal to the default passes whether or not it was written out, which is
+        deliberate rather than a gap: :class:`~cleverly.estimators.recipe.TMLERecipe`
+        records every constructor setting by name, so a reloaded ``oat`` fit arrives with
+        all four of these supplied explicitly and has to rebuild rather than raise.
+        """
+        defaults = inspect.signature(CTMLE.__init__).parameters
+        return [
+            name
+            for name in ("selection_folds", "selection_inner_folds", "loss", "penalty")
+            if getattr(self, name) != defaults[name].default
+        ]
 
     # --------------------------------------------------------------- the hook
 
@@ -723,8 +764,9 @@ class CTMLE(TMLE):
             raise ValueError(
                 f"CTMLE strategy={self.strategy!r} supports a binary treatment only; "
                 f"{data.treatment_name} has "
-                f"{data.n_arms} levels {list(data.treatment_levels)}. Both searches order "
-                "candidates by how much a covariate moves a single propensity margin, and "
+                f"{data.n_arms} levels {list(data.treatment_levels)}. All three selector "
+                "strategies order candidates by how much a covariate moves a single "
+                "propensity margin, and "
                 "with more than two arms there is no one margin to order them by -- the "
                 "selection would have to choose a model for each arm and score them jointly, "
                 "which is a different algorithm rather than a wider loop. Use a plain TMLE."

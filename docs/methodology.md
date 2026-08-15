@@ -660,8 +660,16 @@ which is where a reader who wants the derivation rather than the verdict should 
 follows the published R `drtmle` workflow: each reduction and correction is indexed by a
 free treatment level, and equation (9) is solved by independent one-vs-rest fluctuations.
 Those targeted margins deliberately do not renormalise, because a simplex projection would
-reopen the armwise equations. The exact multi-arm law and a nonzero `Qr` mutation witness
-pin that extension in `tests/unit/test_multi_arm_collaborative.py`.
+reopen the armwise equations — and they are not inert either: equation (8) divides by them,
+so the estimate does read a mechanism that no longer sums to one.
+
+What pins that extension is **not** the exact multi-arm law, which makes every new term
+vanish and so cannot fail. It is the independent `brentq` solve of `drtmle`'s own
+`fluctuateG` equation, the misspecified fit where `Qr` is nonzero and the mechanism visibly
+leaves the simplex, and the column-permutation witness on the exit state — all in
+`tests/unit/test_multi_arm_collaborative.py` and tabulated in
+[the evidence register](evidence.md#estimator-variants-over-registered-targets), which also
+names what is still missing (no multi-arm remainder, Gateaux or coverage module).
 
 ## Cross-fitting: what the folds do and do not buy
 

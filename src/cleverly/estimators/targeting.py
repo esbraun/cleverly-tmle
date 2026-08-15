@@ -1069,7 +1069,7 @@ def _combine(inner: tuple[Any, ...] | None, companion: tuple[Any, ...]) -> tuple
 
 
 def _solve_reduced_mechanism(
-    treatment: FloatArray,
+    response: FloatArray,
     propensity: FloatArray,
     reduced: ReducedSet,
     weights: FloatArray,
@@ -1079,14 +1079,19 @@ def _solve_reduced_mechanism(
     tol: float,
     carry: Sequence[MechanismCarry] = (),
 ) -> MechanismFluctuation:
-    """Solve equation (9), retaining the exact binary route and looping at K arms."""
+    """Solve equation (9), retaining the exact binary route and looping at K arms.
+
+    ``response`` is ``1(A = a_1)`` at two arms and the arm codes themselves at more --
+    the two solvers take different things, and ``solve_with_reduction`` builds it on the
+    same test this branches on.
+    """
     covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
     if len(arms) == 2:
         return solve_bounded_mechanism(
-            treatment, propensity, covariate, weights, bounds=bounds, tol=tol, carry=carry
+            response, propensity, covariate, weights, bounds=bounds, tol=tol, carry=carry
         )
     return solve_armwise_bounded_mechanism(
-        treatment,
+        response,
         propensity,
         covariate,
         weights,
@@ -1098,7 +1103,7 @@ def _solve_reduced_mechanism(
 
 
 def _reduced_mechanism_score(
-    treatment: FloatArray,
+    response: FloatArray,
     propensity: FloatArray,
     reduced: ReducedSet,
     weights: FloatArray,
@@ -1106,11 +1111,11 @@ def _reduced_mechanism_score(
     *,
     bounds: tuple[float, float],
 ) -> tuple[FloatArray, FloatArray]:
-    """Re-evaluate equation (9) at the current mechanism."""
+    """Re-evaluate equation (9) at the current mechanism, ``response`` as above."""
     covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
     if len(arms) == 2:
-        return mechanism_score(treatment, propensity, covariate, weights)
-    return armwise_mechanism_score(treatment, propensity, covariate, weights, arms)
+        return mechanism_score(response, propensity, covariate, weights)
+    return armwise_mechanism_score(response, propensity, covariate, weights, arms)
 
 
 def solve_with_reduction(
@@ -1281,7 +1286,14 @@ def solve_with_reduction(
         )
     arms = nuisance.arms
     upper = arms[1]
-    indicator = (
+    # Equation (9)'s **response**, and it is a different array on the two branches, which
+    # is why it is not called an indicator: the two-arm tilt moves one margin and so
+    # regresses `1(A = a_1)`, while the armwise route poses one binary equation per arm
+    # and forms `1(A = a)` inside the solver from the arm codes.  Both branches of
+    # `_solve_reduced_mechanism` and `_reduced_mechanism_score` read it, and nothing else
+    # does -- a consumer that treated this as an indicator at K arms would be silently
+    # regressing the codes themselves.
+    response = (
         (np.asarray(data.treatment, dtype=float) == float(upper)).astype(float)
         if len(arms) == 2
         else np.asarray(data.treatment, dtype=float)
@@ -1425,7 +1437,7 @@ def solve_with_reduction(
                 if companion is not None:
                     companion.take_partial(twice_companion, ("qr",))
                 mechanism = _solve_reduced_mechanism(  # step 6: equation (9), along H_3
-                    indicator,
+                    response,
                     targeted_g,
                     reduced,
                     weights,
@@ -1444,7 +1456,7 @@ def solve_with_reduction(
         else:
             if "Q" in guard:
                 mechanism = _solve_reduced_mechanism(
-                    indicator,
+                    response,
                     targeted_g,
                     reduced,
                     weights,
@@ -1573,7 +1585,7 @@ def solve_with_reduction(
         mechanism_absolute = 0.0
         if mechanism is not None:
             settled_g, scale_g = _reduced_mechanism_score(
-                indicator,
+                response,
                 targeted_g,
                 reduced,
                 weights,
@@ -1644,7 +1656,7 @@ def solve_with_reduction(
         weights=weights,
         observed=observed,
         mask=mask,
-        indicator=indicator,
+        response=response,
         arms=arms,
         targeted_g=targeted_g,
         fluctuation=fluctuation,
@@ -1781,7 +1793,7 @@ def _close_at_frozen_reductions(
     weights: FloatArray,
     observed: BoolArray,
     mask: BoolArray,
-    indicator: FloatArray,
+    response: FloatArray,
     arms: tuple[float, ...],
     targeted_g: FloatArray,
     fluctuation: Fluctuation,
@@ -1864,7 +1876,7 @@ def _close_at_frozen_reductions(
         for _ in range(max_steps):
             steps += 1
             solved = _solve_reduced_mechanism(
-                indicator,
+                response,
                 targeted_g,
                 reduced,
                 weights,
@@ -1877,7 +1889,7 @@ def _close_at_frozen_reductions(
             if companion is not None:
                 companion.take_mechanism(solved.carried)
             settled, scale = _reduced_mechanism_score(
-                indicator,
+                response,
                 targeted_g,
                 reduced,
                 weights,

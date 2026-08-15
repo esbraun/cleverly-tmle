@@ -689,7 +689,11 @@ def reduced_correction_parts(
         bounded = bound(raw, float(bounds[0]), float(bounds[1]))
         mechanism = {arm: bounded[:, j] for j, arm in enumerate(reduced.arms)}
         untruncated = {arm: raw[:, j] for j, arm in enumerate(reduced.arms)}
-        clipped = np.asarray(raw != bounded, dtype=bool)
+        # Reduced **over the arms**, so this stays one bit per row as the binary branch's
+        # is and as `clipped` is documented and reported: the arms are clipped column by
+        # column here, and counting the cells would report "3800 row(s) of 2000" on a
+        # three-armed fit whose bound binds on two arms at most rows.
+        clipped = np.asarray((raw != bounded).any(axis=1), dtype=bool)
     ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)
     keep = np.ones(y.shape[0]) if observed is None else np.asarray(observed, dtype=float)
 
