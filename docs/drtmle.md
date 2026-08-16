@@ -237,38 +237,33 @@ efficient influence function is
 D* = 1(A=a, Delta=1)/g · {Y − Qbar(a,W)} + Qbar(a,W) − psi(a).
 ```
 
-Their Theorem 1 has separate treatment- and observation-mechanism corrections. Equations
-(11)–(13) imply the exact rowwise collapse used here:
+The implementation keeps the five one-dimensional regressions and the three correction
+blocks in the paper separate:
 
 ```text
-D_A + D_Delta
-  = e/g_A · {1(A=a) − g_A}
-    + 1(A=a)e/g · {Delta − g_Delta}
-  = e/g · {1(A=a, Delta=1) − g}.
+gamma_A = P(A=a | Qbar_a)
+gamma_Delta = P(Delta=1 | A=a,Qbar_a)
+r_A = E[{1(A=a)-g_A}/g_A | Qbar_a]
+r_Delta = E[{Delta-g_Delta}/(g_A g_Delta) | A=a,Qbar_a]
+e = E[Y-Qbar_a | A=a,Delta=1,g_A g_Delta]
+
+D_A = e/g_A · {1(A=a)-g_A}
+D_Delta = 1(A=a)e/(g_A g_Delta) · {Delta-g_Delta}
+D_Y = 1(A=a,Delta=1) · {r_A/(gamma_A gamma_Delta)+r_Delta/gamma_Delta}
+      · {Y-Qbar_a}
 ```
 
-Thus the missing-outcome reduction conditions on the joint mechanism `g`, and its mechanism
-response is the joint event `1(A=a, Delta=1)`, not merely `1(A=a)`. The latter mistake vanishes
-when all outcomes are observed, so `test_drtmle_missing.py` keeps both a nonzero mask mutation and
-the displayed decomposition as independent witnesses. The ordinary treatment and missingness
-nuisances remain separate on the fitted result; only the reduction and correction use their
-joint product.
+The targeting cycle jointly updates the ordinary outcome and `D_Y` covariates, updates
+`g_Delta` within each arm, updates the shared binary `g_A` path, refits all five reductions,
+and repeats until all four score blocks settle. `correction_check` reports `D_A`, `D_Delta`
+and `D_Y` separately; checking only `D_A + D_Delta` would be blind to equal and opposite score
+errors. Missing-outcome fits therefore require `guard=("Q", "g")`.
 
-**`g` is truncated arm by arm**, and that is a consequence of the display above rather than a
-detail of the implementation. `g_0 + g_1` is the probability of being observed at all, not one, so
-the joint mechanism is *not* a distribution over the arms and arm 0's denominator cannot be
-recovered as `1 − g_1`. `Propensity` carries `simplex=False` for exactly this array, which routes
-it to the same column-by-column truncation a multi-arm mechanism gets, and refuses a two-arm
-mechanism that is off the simplex without saying so — because the complement rule applied here
-returns a finite, plausible, wrong estimate rather than an error. The witness is a rowwise identity
-on the fitted clever covariate, `h_a = 1/clip(g_a)`, with the complement form kept beside it as the
-control (`tests/unit/test_drtmle_missing.py`).
-
-Everything downstream reads the same array. `correction_check`'s `margin` and `initial_clipped`,
-the positivity report's `P(A=a,Delta=1|W)` row, the truncation curve's `truncated_fraction`, and
-the fit-time positivity warning are all computed on `g` rather than on the separately reported
-`g_A` — the two come apart on a randomized trial, where `g_A` is flat and only their product
-approaches a bound.
+Treatment probabilities and observation probabilities retain their own bounds: `g_bounds`
+applies to `g_A` and `gamma_A`, while `nuisance_bound` applies to `g_Delta` and
+`gamma_Delta`. Their product is derived for the ordinary outcome clever covariate and the
+positivity report, never stored as a third nuisance. The treatment truncation curve moves only
+the treatment bound; `mechanism=True` moves only the observation bound.
 
 The shipped scope follows the paper rather than the broader canonical package: binary randomized
 treatment, MAR and positivity, no cross-fitting, and no weights, repeats, fold targeting, or
@@ -277,7 +272,9 @@ row-aligned probabilities and bypasses the treatment learner. Prefer the mapping
 `{"placebo": p0, "active": p1}`: the positional forms bind to arm *codes*, which are indices into
 the sorted levels, so a `(n,)` vector is the probability of the second sorted level and not of
 "the treated arm". Observational treatment and missing treatment remain refused because this paper
-does not derive those compositions.
+does not derive those compositions. Because known probabilities are row-aligned fit data, a saved
+result preserves all fitted arrays and retargeting operations but deliberately cannot reconstruct
+an estimator for later refits whose row identity and order cannot be proved.
 
 ### The sign of the mechanism correction
 

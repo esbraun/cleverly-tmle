@@ -321,12 +321,12 @@ def make_longitudinal(
     with the name it read off the result.  A rule is in there because a coverage study
     keys into ``truth`` by reported name and so cannot supply its own.
 
-    ``cluster_size`` adds an ``id`` column and, with it, a per-cluster component of ``W2``
+    ``cluster_size`` adds an ``id`` column and, with it, a per-cluster component of ``L2``
     -- so the influence curves are correlated within a cluster and ignoring ``id=``
     understates the standard error.  There is an ``id`` column over independent rows
     otherwise, which makes a cluster-robust variance *equal* the plain one and tests
     nothing.  ``truth`` holds on a clustered draw, and for a reason rather than by
-    assertion: the sharing preserves ``W2``'s standard normal marginal exactly, which is
+    assertion: the sharing preserves ``L2``'s standard normal noise marginal exactly, which is
     the law :func:`longitudinal_truth` integrates over.  See
     :func:`_shared_within_clusters`, which also says why the hidden-variable construction
     this replaced did not.

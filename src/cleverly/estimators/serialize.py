@@ -55,8 +55,13 @@ from ..utils.bounds import OutcomeScaler
 from ._nuisance import NuisanceEstimates, Propensity, RepeatFit
 from .base import TMLEConfig, TMLEResult
 from .recipe import TMLERecipe
-from .reduced import ReducedSet
-from .targeting import ProjectionFluctuation, ReductionFluctuation, TargetingSpec
+from .reduced import MissingOutcomeReducedSet, ReducedSet
+from .targeting import (
+    ObservationMechanismFluctuation,
+    ProjectionFluctuation,
+    ReductionFluctuation,
+    TargetingSpec,
+)
 
 __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save"]
 
@@ -131,13 +136,12 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: a jointly selected multi-arm target.  Without them a loaded result loses which vector
 #: was optimized even though it retains the selected propensity and targeted outcome.
 #:
-#: ``14`` records the joint arm-and-observation mechanism used by missing-outcome
-#: DR-TMLE.  Reconstructing it from the two primary mechanisms after targeting would
-#: recover the initial product, not the mechanism the reduction was defined against.
-#: Only the array is written: it is restored with ``simplex=False`` unconditionally,
-#: because whatever occupies this slot is the joint product and is never a distribution
-#: over the arms.
-FORMAT_VERSION = 14
+#: ``14`` was the draft PR's collapsed joint-mechanism representation.
+#:
+#: ``15`` records the five separate missing-outcome reductions and the targeted
+#: observation mechanism.  It intentionally refuses draft version-14 artifacts rather
+#: than reading their joint score as the paper's separate treatment and observation scores.
+FORMAT_VERSION = 15
 
 _ARRAY_MARK = "__array__"
 
@@ -287,6 +291,40 @@ def _mechanism_from(arrays: _Arrays, payload: dict[str, Any] | None) -> Mechanis
     )
 
 
+def _observation_to(arrays: _Arrays, prefix: str, observation: Any | None) -> dict[str, Any] | None:
+    if observation is None:
+        return None
+    return {
+        "propensity": arrays.put(f"{prefix}.propensity", observation.propensity),
+        "epsilon": arrays.put(f"{prefix}.epsilon", observation.epsilon),
+        "score": arrays.put(f"{prefix}.score", observation.score),
+        "score_scale": arrays.put(f"{prefix}.score_scale", observation.score_scale),
+        "score_initial": arrays.put(f"{prefix}.score_initial", observation.score_initial),
+        "names": list(observation.names),
+        "converged": bool(observation.converged),
+        "failure": observation.failure,
+        "loglik": float(observation.loglik),
+    }
+
+
+def _observation_from(
+    arrays: _Arrays, payload: dict[str, Any] | None
+) -> ObservationMechanismFluctuation | None:
+    if payload is None:
+        return None
+    return ObservationMechanismFluctuation(
+        propensity=arrays.get(payload["propensity"]),
+        epsilon=arrays.get(payload["epsilon"]),
+        score=arrays.get(payload["score"]),
+        score_scale=arrays.get(payload["score_scale"]),
+        score_initial=arrays.get(payload["score_initial"]),
+        names=tuple(payload["names"]),
+        converged=bool(payload["converged"]),
+        failure=payload["failure"],
+        loglik=float(payload["loglik"]),
+    )
+
+
 def _projection_to(arrays: _Arrays, prefix: str, proj: Any | None) -> dict[str, Any] | None:
     """Store a linked working model's half: the coefficients the report is taken at.
 
@@ -347,6 +385,8 @@ def _reduction_to(arrays: _Arrays, prefix: str, red: Any | None) -> dict[str, An
         "closing_capped": bool(red.closing_capped),
         "ill_conditioned": int(red.ill_conditioned),
         "closing": int(red.closing),
+        "observation": _observation_to(arrays, f"{prefix}.observation", red.observation),
+        "missingness_bound": red.missingness_bound,
     }
 
 
@@ -373,6 +413,8 @@ def _reduction_from(arrays: _Arrays, payload: dict[str, Any] | None) -> Reductio
         closing_capped=payload["closing_capped"],
         ill_conditioned=payload["ill_conditioned"],
         closing=payload["closing"],
+        observation=_observation_from(arrays, payload.get("observation")),
+        missingness_bound=payload.get("missingness_bound"),
     )
 
 
@@ -514,11 +556,6 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
             "n_folds": nuisance.folds.n_folds,
         },
         "missingness": arrays.put(f"{prefix}.missingness", nuisance.missingness),
-        "reduction_mechanism": (
-            None
-            if nuisance.reduction_mechanism is None
-            else arrays.put(f"{prefix}.reduction_mechanism", nuisance.reduction_mechanism.values)
-        ),
         "intermediate": arrays.put(f"{prefix}.intermediate", nuisance.intermediate),
         "treatment_covariates": list(nuisance.treatment_covariates),
         "outcome_task": nuisance.outcome_task,
@@ -622,7 +659,11 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
     }
 
 
-def _reduced_to(arrays: _Arrays, prefix: str, reduced: ReducedSet | None) -> dict[str, Any] | None:
+def _reduced_to(
+    arrays: _Arrays,
+    prefix: str,
+    reduced: ReducedSet | MissingOutcomeReducedSet | None,
+) -> dict[str, Any] | None:
     """Store a set of reduced regressions, wherever it hangs.
 
     Two records carry one: the nuisances' initial fit, and the refit the alternation
@@ -632,7 +673,20 @@ def _reduced_to(arrays: _Arrays, prefix: str, reduced: ReducedSet | None) -> dic
     """
     if reduced is None:
         return None
+    if isinstance(reduced, MissingOutcomeReducedSet):
+        return {
+            "kind": "missing_outcome",
+            "gamma_a": arrays.put(f"{prefix}.gamma_a", reduced.gamma_a),
+            "gamma_m": arrays.put(f"{prefix}.gamma_m", reduced.gamma_m),
+            "r_a": arrays.put(f"{prefix}.r_a", reduced.r_a),
+            "r_m": arrays.put(f"{prefix}.r_m", reduced.r_m),
+            "e": arrays.put(f"{prefix}.e", reduced.e),
+            "arms": [float(arm) for arm in reduced.arms],
+            "g_bounds": [float(value) for value in reduced.g_bounds],
+            "missingness_bound": float(reduced.missingness_bound),
+        }
     return {
+        "kind": "complete",
         "qr": arrays.put(f"{prefix}.qr", reduced.qr),
         "gr1": arrays.put(f"{prefix}.gr1", reduced.gr1),
         "gr2": arrays.put(f"{prefix}.gr2", reduced.gr2),
@@ -660,20 +714,6 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
             payload["folds"]["n_folds"],
         ),
         missingness=arrays.get(payload["missingness"]),
-        reduction_mechanism=(
-            None
-            if payload.get("reduction_mechanism") is None
-            else Propensity(
-                arrays.get(payload["reduction_mechanism"]),
-                tuple(float(arm) for arm in payload["propensity_arms"]),
-                # Not written to the payload because it is a property of the slot rather
-                # than of the draw: whatever is in `reduction_mechanism` is the joint
-                # `g_a pi_a`, which is never a distribution over the arms. A file written
-                # before this flag existed therefore loads with the truncation rule its
-                # writer should have used.
-                simplex=False,
-            )
-        ),
         intermediate=arrays.get(payload["intermediate"]),
         treatment_covariates=tuple(payload["treatment_covariates"]),
         # Learner diagnostics are reporting objects rather than estimation inputs and
@@ -689,9 +729,23 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
     )
 
 
-def _reduced_from(arrays: _Arrays, payload: dict[str, Any] | None) -> ReducedSet | None:
+def _reduced_from(
+    arrays: _Arrays, payload: dict[str, Any] | None
+) -> ReducedSet | MissingOutcomeReducedSet | None:
     if payload is None:
         return None
+    if payload.get("kind") == "missing_outcome":
+        lower, upper = payload["g_bounds"]
+        return MissingOutcomeReducedSet(
+            gamma_a=arrays.get(payload["gamma_a"]),
+            gamma_m=arrays.get(payload["gamma_m"]),
+            r_a=arrays.get(payload["r_a"]),
+            r_m=arrays.get(payload["r_m"]),
+            e=arrays.get(payload["e"]),
+            arms=tuple(float(arm) for arm in payload["arms"]),
+            g_bounds=(float(lower), float(upper)),
+            missingness_bound=float(payload["missingness_bound"]),
+        )
     lower, upper = payload["g_bounds"]
     return ReducedSet(
         qr=arrays.get(payload["qr"]),
@@ -1014,8 +1068,13 @@ class _LazyEstimator:
     def __init__(self, recipe: TMLERecipe) -> None:
         self._recipe = recipe
         self._built: Any = None
+        self._retargeter: Any = None
 
     def __getattr__(self, name: str) -> Any:
+        if name == "retarget":
+            if self._retargeter is None:
+                self._retargeter = self._recipe.build_for_retarget()
+            return self._retargeter.retarget
         if self._built is None:
             self._built = self._recipe.build()
         return getattr(self._built, name)

@@ -114,6 +114,7 @@ from ..inference.influence import (
     ParameterEstimate,
     average_estimates,
     make_estimate,
+    missing_outcome_correction_parts,
     reduced_correction_parts,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
@@ -1393,29 +1394,6 @@ class TMLE:
                 stacklevel=3,
             )
 
-        # The joint arm-and-observation mechanism, when a missing-outcome DR-TMLE built one.
-        # Checked separately and against `g_bounds` because it is a third quantity: `g` and
-        # `pi` are each within their own bound above and below, and their *product* -- the
-        # one the clever covariate actually divides by -- can still sit under `g_bounds`
-        # with neither factor doing so. That is the case a reader has no other way to see,
-        # since both models look immaculate in the nuisance diagnostics.
-        joint = nuisance.reduction_mechanism
-        if joint is not None:
-            product = np.asarray(joint.values, dtype=float)
-            under = float(np.mean(np.any((product < lower) | (product > upper), axis=1)))
-            if under > _TRUNCATION_WARN_FRACTION:
-                warnings.warn(
-                    f"{under:.1%} of units have a joint treatment-and-observation "
-                    f"probability P(A = a, Delta = 1 | W) outside the truncation bounds "
-                    f"[{lower:.4g}, {upper:.4g}] for at least one arm. That product is what "
-                    "the missing-outcome clever covariate divides by, and it can bind when "
-                    "neither the treatment nor the missingness model does on its own. "
-                    "Inspect res.sensitivity.positivity() and "
-                    "res.sensitivity.truncation_curve() before trusting the estimate.",
-                    PositivityWarning,
-                    stacklevel=3,
-                )
-
         # The propensity is not the only denominator in the clever covariate. A
         # missingness or intermediate probability near zero gives a row exactly the same
         # unbounded leverage, and it is the one a reader is least likely to be watching
@@ -2555,14 +2533,9 @@ def reported_mechanism(
 ) -> FloatArray:
     """The mechanism the reduced corrections were formed at, in the shape they read it in.
 
-    Three cases, and the shape is part of the answer rather than incidental to it.  A
-    tilted mechanism is whatever the alternation solved for.  A **joint** one --
-    :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.reduction_mechanism`, the
-    missing-outcome construction's ``g_a(W) pi_a(W)`` -- goes back as ``(n, K)`` so that
-    :func:`~cleverly.inference.influence.reduced_correction_parts` truncates it column by
-    column, because its columns are not complements of each other.  Anything else keeps
-    the single upper-arm vector the binary path has always passed, which is what leaves
-    every complete-data fit bit for bit what it was.
+    A tilted mechanism is whatever the alternation solved for. Missing-outcome targeting
+    keeps treatment and observation mechanisms separate; this function returns the former,
+    while the latter is stored on the reduction fluctuation.
 
     Shared by :func:`correction_parts` and
     :func:`~cleverly.validation.drtmle.correction_check` for the same reason
@@ -2571,9 +2544,6 @@ def reported_mechanism(
     """
     if fluctuation.mechanism is not None:
         return np.asarray(fluctuation.mechanism.propensity, dtype=float)
-    joint = nuisance.reduction_mechanism
-    if joint is not None:
-        return np.asarray(joint.values, dtype=float)
     if len(arms) == 2:
         return nuisance.propensity.arm(arms[1])
     return np.asarray(nuisance.propensity.values, dtype=float)
@@ -2612,6 +2582,21 @@ def correction_parts(
     if reduction is None:
         return None
     mechanism = reported_mechanism(nuisance, fluctuation, reduction.reduced.arms)
+    if reduction.observation is not None:
+        if reduction.missingness_bound is None:
+            raise ValueError("a missing-outcome reduction record has no observation bound")
+        return missing_outcome_correction_parts(
+            scaled,
+            targeted,
+            data.treatment,
+            data.observed,
+            reduction.reduced,
+            mechanism,
+            np.asarray(reduction.observation.propensity, dtype=float),
+            g_bounds=reduction.bounds,
+            missingness_bound=reduction.missingness_bound,
+            guard=tuple(reduction.guard),
+        )
     return reduced_correction_parts(
         scaled,
         targeted,

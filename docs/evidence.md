@@ -74,20 +74,14 @@ existing C-TMLE and DR-TMLE suites, which continue down their original branches.
 The randomized missing-outcome DR-TMLE surface is likewise an estimator variant over those
 registered targets. Its acceptance evidence is Díaz & van der Laan (2017), §2.1, equation (6),
 Theorems 1–2, and equations (11)–(13), plus `tests/unit/test_drtmle_missing.py`. That module keeps
-the theorem's exact identity
-`D_A + D_Delta = e/(g_A g_Delta){1(A=a,Delta=1)-g_A g_Delta}` at nonzero values, mutates the
-observation mask so the wrong complete-data correction fails, fits the public learned and known-
-probability paths end to end, checks refusal boundaries, and round-trips the joint mechanism.
-It also pins the *denominator*: an exact rowwise identity on the fitted equation-(8) covariate,
-`h_a = 1/clip(g_A g_Delta at arm a)`, rebuilt through `build_submodel` from the state the fit
-returned, with the two-arm complement form kept beside it as a nonzero mutation control that
-differs by more than one. `g_A g_Delta` does not sum to one over the arms, so the complement rule
-is wrong there, and a `slow`-marked consistency study at `n = 20,000` — misspecified outcome
-regression, correct treatment and missingness mechanisms — is what shows the wrong denominator as
-bias rather than as a failed identity. That study is the evidence a self-consistent check cannot
-supply: `score_check` and `correction_check` compare a fit against itself, the alternation drives
-whatever covariate it is handed to zero, and `gr2`'s target and the correction's ratio are
-truncated by the same array, so both pass under either truncation rule.
+all five reduced regressions and the separate `D_A`, `D_Delta`, and `D_Y` corrections, with a
+nonzero finite-array witness that fails if the treatment correction is silently absorbed into
+the observation correction. End-to-end fits require all three correction rows to agree with the
+scores actually solved, exercise learned and known-randomization paths, refuse partial guards,
+and round-trip the five reductions plus the targeted observation mechanism. A rowwise clever-
+covariate identity verifies that treatment and observation are bounded separately before their
+product is formed. A `slow` consistency study at `n = 20,000` keeps the deliberately misspecified-
+outcome/correct-mechanism half of the union model as statistical evidence beyond score identities.
 The canonical R package's missing-data path is provenance only; no numeric parity is an
 acceptance gate. Cross-validated, observational, and missing-treatment compositions are not
 covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because

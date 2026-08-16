@@ -36,14 +36,9 @@ pinned -- what survives a solved score equation is a **product** of the reduced
 regression's error with a primary nuisance error, which is why a univariate rate suffices
 however badly the primary nuisances do.
 
-For Díaz & van der Laan (2017)'s randomized missing-outcome construction, the same code is
-fed the joint mechanism :math:`g_A(a|W)g_\Delta(a,W)` and
-:math:`1_a` is replaced by :math:`1\{A=a,\Delta=1\}`.  This is deliberately explicit in
-:attr:`~cleverly.estimators._nuisance.NuisanceEstimates.reduction_mechanism`: the ordinary
-treatment and observation nuisances remain separate everywhere else.  That product is not a
-distribution over the arms -- it sums to the probability of being observed at all -- so it
-carries ``simplex=False`` and :math:`g_{r,2}`'s target below is truncated arm by arm rather
-than by :meth:`~cleverly.estimators._nuisance.Propensity.bounded`'s two-arm complement rule.
+Randomized missing-outcome inference uses a different five-regression state, implemented by
+:func:`fit_missing_outcome_reduced`.  It deliberately keeps the treatment and observation
+mechanisms separate, as the Díaz & van der Laan (2017) targeting algorithm does.
 
 **Why a residual regression is not degenerate here.**  :math:`Q_r` and :math:`g_{r,2}` are
 identically zero when the nuisance they are residuals of is right -- row by row, not merely
@@ -82,7 +77,9 @@ from ._nuisance import (
 
 __all__ = [
     "REDUCED_CROSSFITS",
+    "MissingOutcomeReducedSet",
     "ReducedSet",
+    "fit_missing_outcome_reduced",
     "fit_reduced",
     "reduced_designs",
     "refuse_unsupported",
@@ -214,6 +211,169 @@ class ReducedSet:
         they do not sum to one even before any truncation.
         """
         return bound(self.gr1, float(bounds[0]), float(bounds[1]))
+
+
+@dataclass(frozen=True)
+class MissingOutcomeReducedSet:
+    r"""The five univariate regressions in Díaz & van der Laan (2017).
+
+    Every array is ``(n, K)`` and indexed by :attr:`arms`.  ``gamma_a`` and
+    ``gamma_m`` are probabilities; ``r_a``, ``r_m`` and ``e`` are signed
+    conditional residual means.  The two bounds are recorded because ``r_a`` and
+    ``r_m`` are fitted to targets that already divide by the primary mechanisms.
+    """
+
+    gamma_a: FloatArray
+    gamma_m: FloatArray
+    r_a: FloatArray
+    r_m: FloatArray
+    e: FloatArray
+    arms: tuple[float, ...]
+    g_bounds: tuple[float, float]
+    missingness_bound: float
+    reduction: str = "missing_outcome"
+
+    def __post_init__(self) -> None:
+        k = len(self.arms)
+        shapes = {
+            name: np.asarray(getattr(self, name), dtype=float).shape
+            for name in ("gamma_a", "gamma_m", "r_a", "r_m", "e")
+        }
+        for name, shape in shapes.items():
+            if len(shape) != 2 or shape[1] != k:
+                raise ValueError(
+                    f"{name} must be (n, {k}) for arms {list(self.arms)}; got shape {shape}"
+                )
+        if len({shape[0] for shape in shapes.values()}) != 1:
+            raise ValueError(f"the five missing-outcome reductions disagree about n: {shapes}")
+
+    @property
+    def n(self) -> int:
+        return int(np.asarray(self.e).shape[0])
+
+    def bounded_gamma_a(self, bounds: tuple[float, float]) -> FloatArray:
+        return bound(self.gamma_a, float(bounds[0]), float(bounds[1]))
+
+    def bounded_gamma_m(self, lower: float) -> FloatArray:
+        return bound(self.gamma_m, float(lower), 1.0)
+
+
+def fit_missing_outcome_reduced(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    *,
+    regression_learner: Learner,
+    classification_learner: Learner,
+    g_bounds: tuple[float, float],
+    missingness_bound: float,
+    n_jobs: int = 1,
+) -> tuple[MissingOutcomeReducedSet, dict[str, list[SuperLearnerDiagnostics]]]:
+    r"""Fit the five reduced nuisances for a randomized trial with MAR outcomes.
+
+    This path is deliberately separate from :func:`fit_reduced`: the paper targets
+    the treatment and observation mechanisms separately.  Collapsing them into the
+    event ``A=a, Delta=1`` proves an algebraic identity for two correction terms but
+    does not fit the five functions or solve the three mechanism-side scores the
+    published theorem assumes.
+    """
+    if nuisance.missingness is None:
+        raise ValueError("missing-outcome reductions need a fitted observation mechanism")
+    if len(nuisance.arms) != 2:
+        raise ValueError("missing-outcome reductions require binary treatment")
+
+    scaled = nuisance.scaler.scale(data.outcome)
+    observed = np.asarray(data.observed, dtype=bool)
+    treatment = np.asarray(data.treatment, dtype=float)
+    g_a = nuisance.bounded_propensity(g_bounds)
+    raw_g_a = np.asarray(nuisance.propensity.values, dtype=float)
+    bounded_m = nuisance.bounded_missingness(missingness_bound)
+    assert bounded_m is not None
+    g_m = np.asarray(bounded_m, dtype=float)
+    raw_g_m = np.asarray(nuisance.missingness, dtype=float)
+    diagnostics: dict[str, list[SuperLearnerDiagnostics]] = {
+        name: [] for name in ("gamma_a", "gamma_m", "r_a", "r_m", "e")
+    }
+    columns: dict[str, list[FloatArray]] = {name: [] for name in diagnostics}
+
+    for j, arm in enumerate(nuisance.arms):
+        indicator = (treatment == float(arm)).astype(float)
+        at_arm = np.asarray(indicator == 1.0, dtype=bool)
+        complete = at_arm & observed
+        q_a = np.asarray(nuisance.outcome.arms[arm], dtype=float)
+        joint = np.asarray(g_a[:, j] * g_m[:, j], dtype=float)
+        joint_design = np.asarray(raw_g_a[:, j] * raw_g_m[:, j], dtype=float)
+        roles: tuple[
+            tuple[
+                str,
+                Learner,
+                Task,
+                FloatArray,
+                FloatArray,
+                BoolArray | None,
+                tuple[float, float] | None,
+            ],
+            ...,
+        ] = (
+            ("gamma_a", classification_learner, "classification", q_a, indicator, None, (0.0, 1.0)),
+            (
+                "gamma_m",
+                classification_learner,
+                "classification",
+                q_a,
+                observed.astype(float),
+                at_arm,
+                (0.0, 1.0),
+            ),
+            (
+                "r_a",
+                regression_learner,
+                "regression",
+                q_a,
+                (indicator - g_a[:, j]) / g_a[:, j],
+                None,
+                None,
+            ),
+            (
+                "r_m",
+                regression_learner,
+                "regression",
+                q_a,
+                (observed.astype(float) - g_m[:, j]) / joint,
+                at_arm,
+                None,
+            ),
+            ("e", regression_learner, "regression", joint_design, scaled - q_a, complete, None),
+        )
+        for name, learner, task, design, target, fit_mask, clip in roles:
+            values, _ = _reduced_column(
+                learner,
+                design=design,
+                target=target,
+                training=None,
+                companion=None,
+                fit_mask=fit_mask,
+                data=data,
+                nuisance=nuisance,
+                task=task,
+                clip=clip,
+                n_jobs=n_jobs,
+                diagnostics=diagnostics[name],
+            )
+            columns[name].append(values)
+
+    return (
+        MissingOutcomeReducedSet(
+            gamma_a=np.column_stack(columns["gamma_a"]),
+            gamma_m=np.column_stack(columns["gamma_m"]),
+            r_a=np.column_stack(columns["r_a"]),
+            r_m=np.column_stack(columns["r_m"]),
+            e=np.column_stack(columns["e"]),
+            arms=nuisance.arms,
+            g_bounds=(float(g_bounds[0]), float(g_bounds[1])),
+            missingness_bound=float(missingness_bound),
+        ),
+        diagnostics,
+    )
 
 
 def fit_reduced(
@@ -383,13 +543,8 @@ def fit_reduced(
     # ``(K, m)`` per role per arm, assembled into one ``ReducedSet`` per fold at the end.
     companion_columns: dict[str, list[FloatArray]] = {"qr": [], "gr1": [], "gr2": []}
 
-    joint = nuisance.reduction_mechanism
     for arm in arms:
         indicator = (np.asarray(data.treatment, dtype=float) == float(arm)).astype(float)
-        if joint is not None:
-            # Díaz & van der Laan (2017), eqs. (6)--(13), use the joint event
-            # ``A=a, M=1`` throughout the collapsed univariate construction.
-            indicator = indicator * np.asarray(data.observed, dtype=float)
         production = _roles(nuisance, arm, scaled=scaled, indicator=indicator, g_bounds=g_bounds)
         training = (
             None
@@ -507,7 +662,7 @@ def _roles(
     estimate.
     """
     if inner is None:
-        mechanism_fit = nuisance.reduction_mechanism or nuisance.propensity
+        mechanism_fit = nuisance.propensity
         regression_fit = nuisance.outcome
     else:
         mechanism_fit, regression_fit = inner.propensity[fold], inner.outcome[fold]

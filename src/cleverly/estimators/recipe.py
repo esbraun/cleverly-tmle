@@ -17,7 +17,7 @@ and raises a specific error for the two analyses that genuinely refit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 __all__ = ["LEARNER_SLOTS", "SETTING_NAMES", "TMLERecipe"]
@@ -148,6 +148,11 @@ class TMLERecipe:
             # reached through retarget still works: the evaluated design is stored with
             # the nuisances, so the fit goes on targeting the model it declared.
             unreconstructible.append("msm")
+        if getattr(estimator, "_treatment_probabilities", None) is not None:
+            # Fit-time row-aligned data, not an estimator setting. Persisting the matrix
+            # would still not prove that a later refit's rows have the same identity and
+            # order, so reconstruction is refused instead of risking silent misalignment.
+            unreconstructible.append("treatment_probabilities")
         return cls(
             settings=settings,
             learners=learners,
@@ -173,11 +178,17 @@ class TMLERecipe:
             callable_slots = {
                 "interventions": "a rule or a stochastic density",
                 "msm": "a working model's design",
+                "treatment_probabilities": "row-aligned known treatment probabilities",
             }
             held = (
                 f"{callable_slots[self.unreconstructible_slots[0]]}, which is a callable"
                 if self.unreconstructible_slots in (("interventions",), ("msm",))
-                else "a scikit-learn estimator rather than a library name"
+                else (
+                    "row-aligned known treatment probabilities whose identity and order "
+                    "cannot be established for later data"
+                    if self.unreconstructible_slots == ("treatment_probabilities",)
+                    else "a scikit-learn estimator rather than a library name"
+                )
             )
             raise ValueError(
                 f"this result's {slots} held {held}, so the estimator cannot be rebuilt "
@@ -199,6 +210,25 @@ class TMLERecipe:
         if self.incremental:
             kwargs["incremental"] = _incremental_from(self.incremental)
         return klass(**kwargs)
+
+    def build_for_retarget(self) -> TMLE:
+        """Rebuild when only row-aligned fit data prevents a general refit.
+
+        ``DRTMLE.retarget`` refits reduced regressions against stored primary nuisance
+        arrays but never reads ``treatment_probabilities``. Omitting that fit-time matrix is
+        therefore exact for retargeting and still unsafe for :meth:`TMLE.refit`, which
+        remains routed through :meth:`build` and its explicit refusal.
+        """
+        blocked = tuple(
+            slot for slot in self.unreconstructible_slots if slot != "treatment_probabilities"
+        )
+        if blocked:
+            return self.build()
+        return replace(
+            self,
+            learners_reconstructible=True,
+            unreconstructible_slots=(),
+        ).build()
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -1403,7 +1403,9 @@ case: it is one draw, and 0.06828 against 0.06850 is well inside what a differen
 `g`; `"g"` guards against a misspecified *mechanism* and adds the one that fluctuates `Qbar`.
 Both by default; `guard=()` fits no reduced regressions at all and is bit-for-bit a plain
 TMLE. `reduced_outcome_learner=` and `reduced_treatment_learner=` take the reduced
-regressions' learners, defaulting to the primary ones.
+regressions' learners, defaulting to the primary ones. The randomized missing-outcome
+construction requires both guards because the cited algorithm targets its treatment,
+observation, and outcome correction blocks together.
 
 Missing outcomes are supported for the theorem-backed randomized-trial case. With binary
 treatment, an observation indicator `Delta`, no cross-fitting, and no weights, fit with
@@ -1416,18 +1418,22 @@ level as you wrote it. A bare `(n,)` vector is also accepted, but it binds to th
 is `1`, which is the *second sorted level*, so in a trial labelled `active`/`placebo` it is
 `P(A='placebo'|W)` and not "the probability of treatment".
 
-The reduced mechanism is the joint product `P(A=a|W) P(Delta=1|A=a,W)`, and the correction uses
-`1(A=a, Delta=1)`. That product is what the clever covariate divides by, so it is also what the
-truncation bound applies to, what `res.sensitivity.positivity()` reports as
-`P(A=a,Delta=1|W)`, and what `res.sensitivity.truncation_curve()` sweeps. Watch it rather than
-the propensity: randomization makes `P(A=a|W)` flat and immaculate while the product can still
-approach the bound, and neither model looks wrong on its own.
+The paper's five reductions keep treatment and observation separate. Targeting solves distinct
+`D_A`, `D_Delta`, and `D_Y` scores, and `res.validation.correction_check()` reports all three.
+The ordinary outcome clever covariate still divides by
+`P(A=a|W) P(Delta=1|A=a,W)`, so `res.sensitivity.positivity()` reports that derived product,
+but it is not a third stored mechanism. `g_bounds` and the ordinary truncation curve apply to
+treatment; `nuisance_bound` and `truncation_curve(mechanism=True)` apply to observation.
 
 Observational treatment, cross-fitting, missing treatment, and `treatment_probabilities=` with
 `n_bootstrap=` all remain refused; the exact restrictions and derivation are in the
-[DR-TMLE contract](drtmle.md#randomized-trials-with-missing-outcomes).
+[DR-TMLE contract](drtmle.md#randomized-trials-with-missing-outcomes). Saved fits that used
+row-aligned known probabilities retain their estimates and retargeting operations, but cannot
+reconstruct an estimator for refit-based analyses because later row identity and order cannot be
+verified.
 
-`update_order=` is a **diagnostic** keyword rather than a tuning one, and it is here because a
+For missing-outcome fits the dedicated Díaz--van der Laan cycle is always used; `update_order=`
+controls only the complete-outcome construction. There it is a **diagnostic** keyword rather than a tuning one, and it is here because a
 question about this estimator is open rather than because there is a choice to make. The source's
 own algorithm states six steps in a particular order; this package's alternation is not a
 transcription of them, and the source's termination condition is the three score equations rather

@@ -1,18 +1,8 @@
-"""The theorem-backed randomized missing-outcome DR-TMLE surface.
-
-The canonical R implementation writes the mechanism correction with
-``I(A=a, Delta=1)`` while its ordinary complete-data reduction is easy to read as
-``I(A=a)``.  The nonzero array witness below is the acceptance evidence for that mask;
-the end-to-end tests cover the public eligibility and known-randomization contracts.
-
-Everything the fit solves it solves *against the covariate it was handed*, so a score of
-zero says nothing about whether that covariate was the right one -- the alternation drives
-whatever it is given to zero, and ``gr2``'s target and the correction's ratio are truncated
-by the same array, so their identity holds either way.  The tests that pin the denominator
-therefore compare the fit against something outside it: the joint mechanism's own columns.
-"""
+"""The separate randomized missing-outcome DR-TMLE construction."""
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -21,12 +11,11 @@ from sklearn.base import BaseEstimator
 from sklearn.dummy import DummyRegressor
 
 from cleverly import DRTMLE, load
-from cleverly.estimators.reduced import ReducedSet
-from cleverly.estimators.targeting import _retargeted_mechanism
+from cleverly.estimators._nuisance import Propensity
+from cleverly.estimators.reduced import MissingOutcomeReducedSet
 from cleverly.estimators.tmle import build_submodel, correction_parts
-from cleverly.exceptions import PositivityWarning
 from cleverly.fluctuation.iterative import InitialFit
-from cleverly.inference.influence import reduced_correction_parts
+from cleverly.inference.influence import missing_outcome_correction_parts
 
 
 def _trial(n: int = 320, seed: int = 13) -> pd.DataFrame:
@@ -74,210 +63,153 @@ def randomized_fit():
 
 def test_randomized_missing_outcomes_solve_the_reported_equations(randomized_fit) -> None:
     assert randomized_fit.validation.score_check().passed
-    assert randomized_fit.validation.correction_check().passed
-    joint = randomized_fit.nuisance.reduction_mechanism
-    assert joint is not None
-    np.testing.assert_allclose(
-        joint.values,
-        randomized_fit.nuisance.propensity.values * randomized_fit.nuisance.missingness,
-        rtol=0,
-        atol=0,
-    )
+    check = randomized_fit.validation.correction_check()
+    assert check.passed
+    assert {row.equation for row in check.rows} == {"D*_A", "D*_M", "D*_Y"}
+    assert len(check.rows) == 6
 
 
-def test_each_arms_covariate_divides_by_its_own_joint_probability(randomized_fit) -> None:
-    """Equation (8)'s covariate is ``1 / g_a pi_a``, arm by arm -- not by a complement.
-
-    The fitted submodel is not kept on the result, but every input the closing pass gave
-    :func:`build_submodel` is, so this rebuilds it through the production functions rather
-    than re-deriving the arithmetic.  ``_retargeted_mechanism`` sets ``missingness=None``
-    on the joint path, so ``pi`` is one inside ``mean_submodel`` and the covariate is
-    exactly the reciprocal of the truncated joint -- ``nuisance_bound`` cannot enter it.
-    """
+def test_each_arms_covariate_divides_by_separately_targeted_mechanisms(randomized_fit) -> None:
     data = randomized_fit.data
     repeat = randomized_fit.repeats[0]
     fluctuation = repeat.fluctuations["mean"]
     lower, upper = fluctuation.reduction.bounds
-    joint = np.asarray(fluctuation.mechanism.propensity, dtype=float)
+    targeted_upper = np.asarray(fluctuation.mechanism.propensity, dtype=float)
+    targeted_g = np.column_stack([1.0 - targeted_upper, targeted_upper])
+    targeted_m = np.asarray(fluctuation.reduction.observation.propensity, dtype=float)
+    current = replace(
+        repeat.nuisance,
+        propensity=Propensity(targeted_g, data.arm_codes),
+        missingness=targeted_m,
+    )
 
     submodel = build_submodel(
         data,
-        _retargeted_mechanism(repeat.nuisance, joint, data.arm_codes, joint=True),
+        current,
         "mean",
         bounds=fluctuation.reduction.bounds,
         nuisance_bound=randomized_fit.config.missingness_bound,
     )
     for column, arm in enumerate(data.arm_codes):
-        np.testing.assert_array_equal(
-            submodel.arms[arm][:, column], 1.0 / np.clip(joint[:, column], lower, upper)
+        expected = 1.0 / (
+            np.clip(targeted_g[:, column], lower, upper)
+            * np.clip(targeted_m[:, column], randomized_fit.config.missingness_bound, 1.0)
         )
-    # The mutation control. Arm 0's denominator under the complement rule is the
-    # probability of *not* being treated-and-observed, which is a far larger number, so the
-    # equality above is one only the per-arm rule can satisfy.
-    complement = 1.0 / (1.0 - np.clip(joint[:, 1], lower, upper))
-    assert np.max(np.abs(1.0 / np.clip(joint[:, 0], lower, upper) - complement)) > 1.0
+        np.testing.assert_array_equal(submodel.arms[arm][:, column], expected)
+    assert fluctuation.mechanism.propensity.ndim == 1
+    assert fluctuation.reduction.observation.propensity.shape == targeted_m.shape
 
 
-def test_the_joint_mechanism_truncates_arm_by_arm(randomized_fit) -> None:
-    """The other site the same rule reaches: ``gr2``'s target in ``reduced._roles``."""
-    joint = randomized_fit.nuisance.reduction_mechanism
-    bounds = randomized_fit.repeats[0].fluctuations["mean"].reduction.bounds
-    assert joint.simplex is False
-    np.testing.assert_array_equal(joint.bounded(bounds), np.clip(joint.values, *bounds))
-
-
-def test_the_joint_mechanism_survives_serialization(randomized_fit, tmp_path) -> None:
+def test_the_five_reductions_and_observation_tilt_survive_serialization(
+    randomized_fit, tmp_path
+) -> None:
     path = tmp_path / "drtmle-missing.cleverly"
     randomized_fit.save(path)
     restored = load(path)
-    assert restored.nuisance.reduction_mechanism is not None
-    np.testing.assert_array_equal(
-        restored.nuisance.reduction_mechanism.values,
-        randomized_fit.nuisance.reduction_mechanism.values,
-    )
-    # Not merely the array: a reloaded joint that forgot it was off the simplex would
-    # truncate by the complement rule and give a retarget a different denominator.
-    assert restored.nuisance.reduction_mechanism.simplex is False
+    before = randomized_fit.repeats[0].fluctuations["mean"].reduction
+    after = restored.repeats[0].fluctuations["mean"].reduction
+    assert isinstance(after.reduced, MissingOutcomeReducedSet)
+    for name in ("gamma_a", "gamma_m", "r_a", "r_m", "e"):
+        np.testing.assert_array_equal(getattr(after.reduced, name), getattr(before.reduced, name))
+    np.testing.assert_array_equal(after.observation.propensity, before.observation.propensity)
     assert restored.validation.score_check() == randomized_fit.validation.score_check()
 
 
 def test_the_report_shows_the_product_the_covariate_divides_by(randomized_fit) -> None:
-    """``g`` and ``pi`` stay separately reported, and their product gets its own row."""
     mechanisms = randomized_fit.sensitivity.positivity().mechanisms
-    joint = randomized_fit.nuisance.reduction_mechanism.values
+    joint = randomized_fit.nuisance.propensity.values * randomized_fit.nuisance.missingness
     assert mechanisms["P(A=a,Delta=1|W)"]["min"] == pytest.approx(float(joint.min()))
-    # Strictly smaller than either factor, which is the whole reason it needs its own row.
     assert mechanisms["P(A=a,Delta=1|W)"]["min"] < mechanisms["P(Delta=1|A,W)"]["min"]
 
 
-def test_the_truncation_sweep_counts_the_joint_it_would_clip(randomized_fit) -> None:
-    """``g_bounds`` is applied to the joint, so the swept fraction must be the joint's."""
-    joint = randomized_fit.nuisance.reduction_mechanism.values
-    bound = float(np.quantile(joint, 0.25))
+def test_treatment_truncation_sweep_counts_only_the_treatment_mechanism(randomized_fit) -> None:
+    propensity = randomized_fit.nuisance.propensity.values
+    bound = 0.1
     curve = randomized_fit.sensitivity.truncation_curve(bounds=[bound])
     reported = float(np.asarray(curve["truncated_fraction"])[0])
-    assert reported == pytest.approx(float(np.mean(joint < bound)))
-    # The marginal propensity is a constant one half here, so it would report nothing at
-    # all -- the number this column used to show.
-    assert reported > 0.0
-    assert np.mean(randomized_fit.nuisance.propensity.values < bound) == 0.0
+    assert reported == pytest.approx(float(np.mean((propensity < bound) | (propensity > 0.9))))
 
 
-@pytest.fixture(scope="module")
-def pinched_fit():
-    """A fit whose *joint* mechanism binds against ``g_bounds`` while its ``g`` does not.
+def test_observation_truncation_sweep_refits_at_and_counts_the_selected_bound(
+    randomized_fit,
+) -> None:
+    missingness = randomized_fit.nuisance.missingness
+    assert missingness is not None
+    bound = 0.2
+    curve = randomized_fit.sensitivity.truncation_curve(bounds=[bound], mechanism=True)
+    reported = float(np.asarray(curve["truncated_fraction"])[0])
+    assert reported == pytest.approx(float(np.mean(missingness < bound)))
 
-    Randomization makes the propensity a flat one half, so a bound between the joint's
-    range and that half is active for the reductions and invisible in the propensity --
-    which is exactly the gap a diagnostic reading the propensity cannot see.
-    """
-    with pytest.warns(PositivityWarning, match="P\\(A = a, Delta = 1"):
-        return (
-            _estimator(guard=("g",), g_bounds=0.25)
-            .fit(_trial(), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta")
-            .single()
-        )
+    estimator = randomized_fit.estimator
+    assert estimator is not None
+    _, fluctuations = estimator.retarget(
+        randomized_fit.data,
+        randomized_fit.repeats[0].nuisance,
+        estimands=("ate",),
+        nuisance_bound=bound,
+    )
+    reduced = fluctuations["mean"].reduction.reduced
+    assert isinstance(reduced, MissingOutcomeReducedSet)
+    assert reduced.missingness_bound == bound
 
 
-def test_the_correction_is_formed_at_the_mechanism_the_fit_divided_by(pinched_fit) -> None:
-    """With no ``"Q"`` guard nothing was tilted, so the corrections read the initial fit.
-
-    The initial mechanism the covariates divided by is the joint one, not the separately
-    reported propensity -- and on a randomized trial those are far apart, because the
-    propensity is a constant one half.
-    """
-    repeat = pinched_fit.repeats[0]
+def test_corrections_keep_the_three_paper_blocks_separate(randomized_fit) -> None:
+    repeat = randomized_fit.repeats[0]
     fluctuation = repeat.fluctuations["mean"]
-    assert fluctuation.mechanism is None  # no "Q" guard, so nothing was tilted
     parts = correction_parts(
-        pinched_fit.data,
+        randomized_fit.data,
         repeat.nuisance,
         fluctuation,
         fluctuation.targeted,
-        repeat.nuisance.scaler.scale(pinched_fit.data.outcome),
+        repeat.nuisance.scaler.scale(randomized_fit.data.outcome),
     )
-    reduced = fluctuation.reduction.reduced
-    joint = np.clip(repeat.nuisance.reduction_mechanism.values, *fluctuation.reduction.bounds)
-    treatment = np.asarray(pinched_fit.data.treatment, dtype=float)
-    observed = np.asarray(pinched_fit.data.observed, dtype=float)
-    for column, arm in enumerate(reduced.arms):
-        indicator = (treatment == arm).astype(float) * observed
-        expected = reduced.qr[:, column] / joint[:, column] * (indicator - joint[:, column])
-        np.testing.assert_allclose(parts.d_g[arm], expected, rtol=0, atol=1e-14)
-    # The mutation control: the propensity is a flat one half here, so a correction formed
-    # at it is a different array entirely rather than a rounding away.
-    marginal = repeat.nuisance.propensity.arm(1.0)
-    assert np.max(np.abs(marginal - joint[:, 1])) > 0.1
+    assert parts.d_a is not None and parts.d_m is not None and parts.d_y is not None
+    for arm in randomized_fit.data.arm_codes:
+        np.testing.assert_array_equal(parts.d_g[arm], parts.d_a[arm] + parts.d_m[arm])
 
 
-def test_the_contract_witness_reports_the_bound_that_actually_bound(pinched_fit) -> None:
-    """``initial_clipped`` must come off the joint, or ``contract`` overstates the fit.
-
-    The joint is uniformly the smaller of the two mechanisms, so a witness reading the
-    propensity can only ever under-report -- and under-reporting here means claiming the
-    theorem's estimator when a bound was active.
-    """
-    check = pinched_fit.validation.correction_check()
-    assert check.initial_clip_share > 0.0
-    assert "g-hat at the initial fit" in check.truncations_active
-    assert check.contract == "bound-active"
-    # Nothing about the reported propensity says so, which is the point.
-    lower, upper = pinched_fit.repeats[0].fluctuations["mean"].reduction.bounds
-    marginal = pinched_fit.nuisance.propensity.values
-    assert not np.any((marginal < lower) | (marginal > upper))
-
-
-def test_the_mechanism_correction_uses_the_observation_mask() -> None:
-    observed = np.array([True, False, True, False])
-    treatment = np.array([0.0, 0.0, 1.0, 1.0])
-    joint = np.array([[0.30, 0.40], [0.25, 0.35], [0.30, 0.40], [0.25, 0.35]])
-    reduced = ReducedSet(
-        qr=np.array([[0.2, -0.1], [0.3, -0.2], [0.4, -0.3], [0.5, -0.4]]),
-        gr1=np.full((4, 2), 0.5),
-        gr2=np.full((4, 2), 0.1),
+def test_treatment_correction_has_a_nonzero_independent_witness() -> None:
+    reduced = MissingOutcomeReducedSet(
+        gamma_a=np.full((4, 2), 0.5),
+        gamma_m=np.full((4, 2), 0.7),
+        r_a=np.full((4, 2), 0.2),
+        r_m=np.full((4, 2), -0.1),
+        e=np.array([[0.2, -0.1], [0.3, -0.2], [0.4, -0.3], [0.5, -0.4]]),
         arms=(0.0, 1.0),
         g_bounds=(1e-6, 1 - 1e-6),
+        missingness_bound=0.01,
     )
-    targeted = InitialFit(np.array([0.2, 0.3, 0.4, 0.5]), {0.0: np.zeros(4), 1.0: np.ones(4)})
-    parts = reduced_correction_parts(
+    treatment = np.array([0.0, 0.0, 1.0, 1.0])
+    observed = np.array([True, False, True, False])
+    targeted = InitialFit(
+        np.array([0.2, 0.3, 0.4, 0.5]),
+        {0.0: np.zeros(4), 1.0: np.ones(4)},
+    )
+    parts = missing_outcome_correction_parts(
         np.array([0.1, 0.2, 0.3, 0.4]),
         targeted,
         treatment,
+        observed,
         reduced,
-        joint,
-        bounds=(1e-6, 1 - 1e-6),
-        observed=observed,
+        np.array([0.45, 0.55, 0.60, 0.50]),
+        np.full((4, 2), 0.7),
+        g_bounds=(1e-6, 1 - 1e-6),
+        missingness_bound=0.01,
         guard=("Q", "g"),
     )
-    for column, arm in enumerate(reduced.arms):
-        indicator = ((treatment == arm) & observed).astype(float)
-        expected = reduced.qr[:, column] / joint[:, column] * (indicator - joint[:, column])
-        np.testing.assert_allclose(parts.d_g[arm], expected, rtol=0, atol=1e-15)
-        wrong = (
-            reduced.qr[:, column]
-            / joint[:, column]
-            * ((treatment == arm).astype(float) - joint[:, column])
+    assert parts.d_a is not None and parts.d_m is not None
+    assert np.max(np.abs(parts.d_a[1.0])) > 0.1
+    collapsed = parts.d_a[1.0] + parts.d_m[1.0]
+    np.testing.assert_array_equal(parts.d_g[1.0], collapsed)
+    assert np.max(np.abs(parts.d_a[1.0] - collapsed)) > 0.01
+
+
+@pytest.mark.parametrize("guard", [("Q",), ("g",)])
+def test_partial_guards_are_refused_for_missing_outcomes(guard) -> None:
+    with pytest.raises(NotImplementedError, match="requires guard"):
+        _estimator(guard=guard).fit(
+            _trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"
         )
-        assert np.max(np.abs(parts.d_g[arm] - wrong)) > 0.1
-
-
-def test_joint_mechanism_correction_is_diaz_theorem_decomposition() -> None:
-    """D_M + D_A collapses to e/g {I(A=a, Delta=1) - g}."""
-    treatment = np.array([0.0, 1.0, 1.0, 0.0])
-    observed = np.array([1.0, 0.0, 1.0, 0.0])
-    arm = 1.0
-    indicator = (treatment == arm).astype(float)
-    g_a = np.array([0.42, 0.57, 0.63, 0.48])
-    g_delta = np.array([0.76, 0.69, 0.81, 0.72])
-    e = np.array([0.17, -0.23, 0.31, -0.14])
-    joint = g_a * g_delta
-
-    collapsed = e / joint * (indicator * observed - joint)
-    d_a = e / g_a * (indicator - g_a)
-    d_m = indicator * e / joint * (observed - g_delta)
-
-    np.testing.assert_allclose(collapsed, d_a + d_m, rtol=0, atol=2e-16)
-    assert np.max(np.abs(collapsed)) > 0.1
 
 
 class _FailIfFit(BaseEstimator):
@@ -297,6 +229,7 @@ def test_known_probabilities_bypass_the_treatment_learner() -> None:
         reduced_treatment_learner="glm",
         estimands=("ate",),
         simultaneous=False,
+        random_state=0,
     )
     result = estimator.fit(
         frame,
@@ -308,6 +241,51 @@ def test_known_probabilities_bypass_the_treatment_learner() -> None:
     ).single()
     np.testing.assert_array_equal(result.nuisance.propensity.values, np.full((len(frame), 2), 0.5))
     assert result.validation.score_check().passed
+
+
+def test_two_dimensional_known_probabilities_are_copied() -> None:
+    frame = _trial(n=140, seed=29)
+    supplied = np.full((len(frame), 2), 0.5)
+    result = (
+        _estimator()
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
+            treatment_probabilities=supplied,
+        )
+        .single()
+    )
+    before = result.nuisance.propensity.values.copy()
+    assert not np.shares_memory(supplied, result.nuisance.propensity.values)
+    supplied[:, :] = (0.2, 0.8)
+    np.testing.assert_array_equal(result.nuisance.propensity.values, before)
+
+
+def test_known_probability_recipe_is_explicitly_unreconstructible(tmp_path) -> None:
+    frame = _trial(n=120, seed=31)
+    result = (
+        _estimator()
+        .fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
+            treatment_probabilities=np.full(len(frame), 0.5),
+        )
+        .single()
+    )
+    path = tmp_path / "known-probabilities.cleverly"
+    result.save(path)
+    restored = load(path)
+    assert restored.validation.score_check() == result.validation.score_check()
+    curve = restored.sensitivity.truncation_curve(bounds=[0.05])
+    assert len(curve) == len(result.estimates)
+    with pytest.raises(ValueError, match="row-aligned known treatment probabilities"):
+        restored.estimator.refit(restored.data)
 
 
 def test_observational_missing_outcomes_are_refused() -> None:
@@ -426,7 +404,7 @@ def test_an_unnamed_probability_vector_says_which_arm_it_bound_to() -> None:
 
 @pytest.mark.slow
 def test_the_estimator_is_consistent_when_only_the_outcome_model_is_wrong() -> None:
-    """Double robustness through the joint mechanism, at a size where bias would show.
+    """Double robustness through the treatment and observation mechanisms.
 
     The check the exact identities above cannot make: a deliberately misspecified outcome
     regression against correctly specified treatment and missingness mechanisms, where

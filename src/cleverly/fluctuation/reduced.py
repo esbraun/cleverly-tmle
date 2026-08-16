@@ -52,9 +52,39 @@ from ..utils.bounds import bound
 from .submodel import Submodel
 
 if TYPE_CHECKING:  # pragma: no cover - `estimators` imports `fluctuation`, not the reverse
-    from ..estimators.reduced import ReducedSet
+    from ..estimators.reduced import MissingOutcomeReducedSet, ReducedSet
 
-__all__ = ["reduced_mechanism_covariate", "reduced_outcome_submodel"]
+__all__ = [
+    "missing_outcome_outcome_submodel",
+    "reduced_mechanism_covariate",
+    "reduced_outcome_submodel",
+]
+
+
+def missing_outcome_outcome_submodel(
+    treatment: FloatArray,
+    reduced: MissingOutcomeReducedSet,
+    *,
+    g_bounds: tuple[float, float],
+    missingness_bound: float,
+) -> Submodel:
+    r"""The paper's outcome-drift covariate, one column per treatment arm."""
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    gamma_a = reduced.bounded_gamma_a(g_bounds)
+    gamma_m = reduced.bounded_gamma_m(missingness_bound)
+    w2 = np.asarray(reduced.r_a, dtype=float) / (gamma_a * gamma_m)
+    w2 += np.asarray(reduced.r_m, dtype=float) / gamma_m
+    zeros = np.zeros(a.shape[0])
+    return Submodel(
+        np.column_stack([(a == arm) * w2[:, j] for j, arm in enumerate(reduced.arms)]),
+        {
+            arm: np.column_stack([w2[:, j] if i == j else zeros for i in range(len(reduced.arms))])
+            for j, arm in enumerate(reduced.arms)
+        },
+        tuple(f"h_missing_dr{arm:g}" for arm in reduced.arms),
+        "mean",
+        {arm: j for j, arm in enumerate(reduced.arms)},
+    )
 
 
 def reduced_outcome_submodel(

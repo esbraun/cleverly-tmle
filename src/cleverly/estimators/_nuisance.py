@@ -51,7 +51,7 @@ from ..utils.parallel import map_parallel
 from .direct_effect import check_level
 
 if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes one way
-    from .reduced import ReducedSet
+    from .reduced import MissingOutcomeReducedSet, ReducedSet
 
 __all__ = [
     "CompanionEstimates",
@@ -96,12 +96,9 @@ class Propensity:
     margin to be the propensity: the mechanism is a distribution over the arms, and every
     arm needs its own denominator.
 
-    ``simplex`` says whether the rows are that distribution.  They are for every treatment
-    mechanism, and they are **not** for the joint arm-and-observation mechanism
-    :math:`g_a(W) \pi_a(W)` a missing-outcome DR-TMLE divides by -- see
-    :attr:`NuisanceEstimates.reduction_mechanism`.  The flag exists because
-    :meth:`bounded`'s two-arm shortcut is only valid on the simplex; a non-simplex
-    mechanism is clipped column by column like a multi-arm one.
+    ``simplex`` says whether the rows are that distribution. The flag also supports
+    deliberately armwise collaborative mechanisms: :meth:`bounded`'s two-arm shortcut is
+    valid only on the simplex, while a non-simplex mechanism is clipped column by column.
     """
 
     values: FloatArray
@@ -384,10 +381,6 @@ class NuisanceEstimates:
         **untruncated** here and are bounded at targeting time by
         :meth:`bounded_missingness` and :meth:`intermediate_density`, which is what keeps
         ``nuisance_bound=`` a choice ``retarget`` can revisit without refitting.
-    reduction_mechanism:
-        Optional joint ``P(A=a, Delta=1 | W)`` used only by randomized
-        missing-outcome DR-TMLE reductions.  It does not replace the separately reported
-        propensity and missingness nuisances.
     scaler:
         The transformation used to put the outcome on ``[0, 1]``.
     diagnostics:
@@ -406,17 +399,6 @@ class NuisanceEstimates:
     #: initial learner fit used by nuisance diagnostics.
     targeting_outcome: InitialFit | None = None
     missingness: FloatArray | None = None
-    #: Joint arm-and-observation mechanism used only by the missing-outcome DR-TMLE:
-    #: ``P(A=a, Delta=1 | W) = g_a(W) pi_a(W)``.  The ordinary propensity and
-    #: missingness arrays stay separate above so reports and diagnostics retain their
-    #: public meaning; the reduction/targeting code reads this field when present.
-    #:
-    #: Always ``simplex=False``: its columns sum to the probability of being observed at
-    #: all rather than to one, so it is truncated arm by arm.  Anything reporting on *the
-    #: denominator a fit divided by* -- the correction diagnostics, the positivity report,
-    #: the truncation curve -- must read this field and not ``propensity``, which on a
-    #: randomized trial is flat and says nothing about the product.
-    reduction_mechanism: Propensity | None = None
     intermediate: FloatArray | None = None
     treatment_covariates: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -477,7 +459,7 @@ class NuisanceEstimates:
     #: :func:`~cleverly.estimators.reduced.fit_reduced` takes a whole
     #: :class:`NuisanceEstimates` and reads ``folds`` off it, so it cannot be handed a
     #: mechanism and a split that did not come from one construction.
-    reduced: ReducedSet | None = None
+    reduced: ReducedSet | MissingOutcomeReducedSet | None = None
     #: Fold-free copies of the primary nuisances, or ``None`` for every fit that did not
     #: ask for them -- which is every fit but a :class:`~cleverly.DRTMLE` with
     #: ``reduced_crossfit="nested"``.  Carried here rather than in that estimator for the

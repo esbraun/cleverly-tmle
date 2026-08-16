@@ -568,6 +568,48 @@ def correction_check(
                 reported_mechanism(repeat.nuisance, fluctuation, reduction.reduced.arms),
                 reduction.bounds,
             )
+            if parts.d_a is not None and parts.d_m is not None and parts.d_y is not None:
+                observation = reduction.observation
+                if mechanism is None or observation is None:
+                    raise ValueError(
+                        "a missing-outcome correction has no targeted treatment or "
+                        "observation mechanism"
+                    )
+                initial = np.asarray(repeat.nuisance.propensity.values, dtype=float)
+                lower, upper = reduction.bounds
+                initial_clipped = int(np.count_nonzero((initial < lower) | (initial > upper)))
+                gamma_margin = min(
+                    _margin(reduction.reduced.gamma_a, reduction.bounds),
+                    _margin(
+                        reduction.reduced.gamma_m,
+                        (float(reduction.missingness_bound), 1.0),
+                    ),
+                )
+                stored = {
+                    "D*_A": np.asarray(mechanism.score),
+                    "D*_M": np.asarray(observation.score),
+                    "D*_Y": np.asarray(reduction.score),
+                }
+                reported = {"D*_A": parts.d_a, "D*_M": parts.d_m, "D*_Y": parts.d_y}
+                for column, arm in enumerate(reduction.reduced.arms):
+                    for equation in ("D*_A", "D*_M", "D*_Y"):
+                        values = stored[equation]
+                        rows.append(
+                            CorrectionRow(
+                                draw=draw,
+                                arm=float(arm),
+                                label=str(data.arm_label(arm)),
+                                equation=equation,
+                                stored=scale * float(values[column]),
+                                reported=scale * float(np.mean(weights * reported[equation][arm])),
+                                clipped=clipped,
+                                margin=margin,
+                                initial_clipped=initial_clipped,
+                                gr1_margin=gamma_margin,
+                                solved=True,
+                            )
+                        )
+                continue
             # Item 25's other two witnesses. Both are properties of this draw rather than of
             # a single arm's equation, so they ride on every row of it exactly as `clipped`
             # and `margin` do -- and both come off the arrays the covariates divide by: the
@@ -577,7 +619,7 @@ def correction_check(
             # propensity -- and since the joint is uniformly the smaller of the two, reading
             # the propensity here could only ever *under*-report the clipping, which is the
             # one direction a witness for `contract` must not err in.
-            initial_fit = repeat.nuisance.reduction_mechanism or repeat.nuisance.propensity
+            initial_fit = repeat.nuisance.propensity
             initial = np.column_stack([initial_fit.arm(arm) for arm in reduction.reduced.arms])
             lower, upper = reduction.bounds
             initial_clipped = int(np.count_nonzero((initial < lower) | (initial > upper)))

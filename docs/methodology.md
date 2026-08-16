@@ -597,19 +597,15 @@ single-guard fit reports one of the two and a shorter curve. All three empirical
 zero after targeting, so the subtraction **cannot move the point estimate**; it moves only
 the variance.
 
-For the binary randomized-trial missing-outcome surface, Díaz & van der Laan (2017) replaces
-the mechanism in these expressions by the joint probability
-`g(a,W)=P(A=a|W)P(Delta=1|A=a,W)` and `1_a` by `1(A=a,Delta=1)`. Its separate treatment and
-observation corrections collapse exactly to
-`e/g * {1(A=a,Delta=1)-g}`. This mask is present in both the fitted reduction and the reported
-correction; a nonzero mutation test and the rowwise decomposition in
-`tests/unit/test_drtmle_missing.py` ensure it cannot disappear merely because complete-data
-tests set `Delta=1`. `g` is truncated arm by arm rather than by the binary complement rule,
-because `g(0,W)+g(1,W)` is the probability of being observed at all and not one; the same module
-pins the fitted covariate at `1/clip(g(a,W))` against the complement form as a control, and a
-`slow` consistency study is what would show the wrong denominator as bias, since every score
-identity holds under either rule. The paper does not pursue a cross-validated extension, so this surface
-requires `cross_fit=False` and retains the other restrictions stated in the
+For the binary randomized-trial missing-outcome surface, Díaz & van der Laan (2017) instead
+defines five reductions (`gamma_A`, `gamma_Delta`, `r_A`, `r_Delta`, and `e`) and three
+separate corrections. The targeter updates the treatment and observation mechanisms in their
+own logistic submodels and updates the outcome along both its ordinary and drift-correction
+covariates. `tests/unit/test_drtmle_missing.py` checks the three score blocks separately and
+keeps a nonzero mutation witness: merely zeroing their algebraic sum is insufficient evidence.
+Treatment and observation are bounded separately and their product is derived only for the
+ordinary missing-outcome clever covariate. The paper does not pursue a cross-validated extension,
+so this surface requires `cross_fit=False`, both guards, and the other restrictions stated in the
 [contract](drtmle.md#randomized-trials-with-missing-outcomes).
 
 Four things about this are easy to get wrong, and each has an instrument.

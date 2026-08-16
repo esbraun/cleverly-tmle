@@ -76,6 +76,7 @@ __all__ = [
     "counterfactual_means",
     "ipsi_means",
     "make_estimate",
+    "missing_outcome_correction_parts",
     "msm_coefficients",
     "ratio_estimates",
     "reduced_correction_parts",
@@ -440,11 +441,9 @@ def reduced_corrections(
         D^*_g &= \frac{Q_r(a, W)}{g^*(a|W)}\,\{1_a - g^*(a|W)\} \\
         D^*_Q &= 1_a\,\frac{g_{r,2}(a|W)}{g_{r,1}(a|W)}\,\{Y - \bar Q^*(a, W)\}
 
-    Under Díaz & van der Laan (2017)'s randomized missing-outcome construction,
-    :math:`g^*` is the joint treatment-observation mechanism and
-    :math:`1_a` in both rows is :math:`1\{A=a,\Delta=1\}`.  It arrives here as ``(n, K)``
-    rather than as the binary path's single upper-arm vector, which is what routes it to
-    the column-by-column truncation below: its columns are not each other's complements.
+    Randomized missing-outcome fits do not enter this two-correction function. They use
+    :func:`missing_outcome_correction_parts`, which keeps the paper's treatment,
+    observation and outcome blocks separate.
 
     In either setting the reported curve is :math:`D^* - D^*_Q - D^*_g`.  **Minus**, both
     of them: that is
@@ -626,6 +625,9 @@ class CorrectionParts:
     clip_bias: dict[float, FloatArray]
     clipped: BoolArray
     guard: tuple[str, ...]
+    d_a: dict[float, FloatArray] | None = None
+    d_m: dict[float, FloatArray] | None = None
+    d_y: dict[float, FloatArray] | None = None
 
     def total(self) -> dict[float, FloatArray]:
         """What the curve subtracts: one correction per equation :attr:`guard` solved.
@@ -721,6 +723,62 @@ def reduced_correction_parts(
         d_q[arm] = indicator * keep * ratio[:, j] * (y - targeted.observed)
         clip_bias[arm] = qr / mechanism[arm] * (untruncated[arm] - mechanism[arm])
     return CorrectionParts(d_g, d_q, clip_bias, clipped, tuple(guard))
+
+
+def missing_outcome_correction_parts(
+    outcome: FloatArray,
+    targeted: InitialFit,
+    treatment: FloatArray,
+    observed: BoolArray,
+    reduced: Any,
+    propensity: FloatArray,
+    missingness: FloatArray,
+    *,
+    g_bounds: tuple[float, float],
+    missingness_bound: float,
+    guard: tuple[str, ...],
+) -> CorrectionParts:
+    r"""The separate treatment, observation and outcome corrections in the paper."""
+    y = np.asarray(outcome, dtype=float).reshape(-1)
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    delta = np.asarray(observed, dtype=float).reshape(-1)
+    raw_g = np.asarray(propensity, dtype=float).reshape(-1)
+    bounded_upper = bound(raw_g, float(g_bounds[0]), float(g_bounds[1]))
+    g_a = np.column_stack([1.0 - bounded_upper, bounded_upper])
+    raw_m = np.asarray(missingness, dtype=float)
+    g_m = bound(raw_m, float(missingness_bound), 1.0)
+    gamma_a = reduced.bounded_gamma_a(g_bounds)
+    gamma_m = reduced.bounded_gamma_m(missingness_bound)
+    w2 = np.asarray(reduced.r_a, dtype=float) / (gamma_a * gamma_m)
+    w2 += np.asarray(reduced.r_m, dtype=float) / gamma_m
+    e = np.asarray(reduced.e, dtype=float)
+
+    d_a: dict[float, FloatArray] = {}
+    d_m: dict[float, FloatArray] = {}
+    d_y: dict[float, FloatArray] = {}
+    d_g: dict[float, FloatArray] = {}
+    zeros: dict[float, FloatArray] = {}
+    for j, arm in enumerate(reduced.arms):
+        indicator = (a == float(arm)).astype(float)
+        d_a[arm] = e[:, j] / g_a[:, j] * (indicator - g_a[:, j])
+        d_m[arm] = indicator * e[:, j] / (g_a[:, j] * g_m[:, j]) * (delta - g_m[:, j])
+        d_y[arm] = indicator * delta * w2[:, j] * (y - np.asarray(targeted.observed, dtype=float))
+        d_g[arm] = np.asarray(d_a[arm] + d_m[arm], dtype=float)
+        zeros[arm] = np.zeros_like(d_g[arm])
+    clipped = np.asarray(
+        (raw_g != bounded_upper) | np.any(raw_m != g_m, axis=1),
+        dtype=bool,
+    )
+    return CorrectionParts(
+        d_g=d_g,
+        d_q=d_y,
+        clip_bias=zeros,
+        clipped=clipped,
+        guard=tuple(guard),
+        d_a=d_a,
+        d_m=d_m,
+        d_y=d_y,
+    )
 
 
 def shift_means(
