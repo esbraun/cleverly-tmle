@@ -65,6 +65,58 @@ _HORIZON_INFIX = " @ t="
 #: because it puts the rule furthest from both constants -- it is unusable as a *truth*.
 RULE_LABEL = "treat then continue if l2 positive"
 
+#: How much of :math:`L_2`'s own noise is the cluster's rather than the unit's on a
+#: clustered draw.  See :func:`_shared_within_clusters`.
+_CLUSTER_RHO = 0.9
+
+
+def _shared_within_clusters(
+    rng: np.random.Generator, individual: FloatArray, ids: Any, arm: FloatArray
+) -> FloatArray:
+    r"""A standard normal with a per-cluster component and the *same* marginal.
+
+    :math:`\sqrt{\rho}\,S_{c(i)} + \sqrt{1-\rho}\,E_i` with both terms standard normal and
+    independent is standard normal for any :math:`\rho`.  Applied to :math:`L_2`'s own
+    noise, that leaves :math:`L_2 \mid W_1, A_1` exactly the
+    :math:`N(0.6W_1 + 0.9A_1, 1)` law :func:`longitudinal_truth`'s quadrature integrates
+    over, so a clustered draw's ``truth`` is the *same number* as an unclustered one's --
+    which is the property this construction is chosen for, and which the dataset tests
+    assert directly.
+
+    **Two independent per-cluster draws**, one used by the rows at :math:`A_1 = 1` and one
+    by the rows at :math:`A_1 = 0`, because a *contrast* of regimens otherwise sees no
+    clustering at all.  A single shared component moves both regimens' curves the same way,
+    the difference cancels it, and the cluster-robust interval on the contrast comes out
+    **narrower** than the independent one -- correctly, and it would leave the process
+    unable to test clustering for every parameter it reports.  Two independent draws leave
+    the two curves' cluster components independent, so the contrast's variance is their sum.
+    Measured on ``ate_regimen[never vs always]``: ``0.92-1.00`` times the independent
+    standard error with one draw, ``1.11-1.15`` with two.
+
+    **Why not a hidden shared variable**, which is the obvious construction and is wrong
+    twice over: entering the treatment mechanisms it confounds, so the declared
+    counterfactual means stop being what an adjusted fit estimates; and entering the
+    outcome on the logit scale it shifts them outright, since
+    :math:`E_S[\text{expit}(\eta + \gamma S)] \neq \text{expit}(\eta)`.
+
+    **And why** :math:`L_2` **rather than** :math:`W_2`, which also has a marginal worth
+    preserving.  Sharing a baseline covariate reaches the influence curve only through the
+    plug-in term :math:`\bar Q_1(W) - \psi`, and that term is small next to the weighted
+    residuals: measured intracluster correlation was under ``0.002`` at every :math:`\rho`,
+    and the cluster-robust standard error did not move.  :math:`L_2` is drawn *after* the
+    first node, so the shared part lands in the node-one residual
+    :math:`\bar Q_2(L_2, \cdot) - \bar Q_1(W)` -- mean zero given :math:`W`, but not given
+    the cluster's draw -- which is a first-order component of the curve rather than a
+    correction to it.
+
+    The individual component is the noise already drawn rather than a fresh normal, which
+    is what keeps an *unclustered* draw's random stream byte-for-byte what it was.
+    """
+    codes = np.asarray(ids).astype(int)
+    treated, control = (rng.standard_normal(int(codes.max()) + 1)[codes] for _ in range(2))
+    shared = np.where(np.asarray(arm) == 1.0, treated, control)
+    return np.sqrt(_CLUSTER_RHO) * shared + np.sqrt(1.0 - _CLUSTER_RHO) * individual
+
 
 def rule_arm_at_node_two(l2: Any) -> Any:
     """``d_2 = 1{L_2 > 0}``, the second node of the regimen :data:`RULE_LABEL` names.
@@ -269,45 +321,37 @@ def make_longitudinal(
     with the name it read off the result.  A rule is in there because a coverage study
     keys into ``truth`` by reported name and so cannot supply its own.
 
-    ``cluster_size`` adds an ``id`` column and, with it, an *unobserved* effect shared
-    within each cluster that moves both treatment decisions and the outcome -- so the
-    influence curves are correlated within a cluster and ignoring ``id=`` understates the
-    standard error.  The same construction as
-    :func:`~cleverly.datasets.make_clustered`, and for the same reason: an ``id`` column
-    over independent rows makes a cluster-robust variance *equal* the plain one, which
-    tests nothing.  The counterfactual means are unchanged -- the shared effect is
-    marginalised over and enters neither ``L2`` nor the outcome regression's form -- so
-    ``truth`` still holds.
+    ``cluster_size`` adds an ``id`` column and, with it, a per-cluster component of ``W2``
+    -- so the influence curves are correlated within a cluster and ignoring ``id=``
+    understates the standard error.  There is an ``id`` column over independent rows
+    otherwise, which makes a cluster-robust variance *equal* the plain one and tests
+    nothing.  ``truth`` holds on a clustered draw, and for a reason rather than by
+    assertion: the sharing preserves ``W2``'s standard normal marginal exactly, which is
+    the law :func:`longitudinal_truth` integrates over.  See
+    :func:`_shared_within_clusters`, which also says why the hidden-variable construction
+    this replaced did not.
     """
     rng = np.random.default_rng(seed)
     w1 = rng.standard_normal(n)
     w2 = rng.standard_normal(n)
 
-    if cluster_size is None:
-        ids = None
-        shared = np.zeros(n)
-    else:
-        ids = np.arange(n) // cluster_size
-        # Drawn per cluster and repeated, and deliberately not among the covariates.
-        shared = rng.standard_normal(int(ids.max()) + 1)[ids]
+    ids = None if cluster_size is None else np.arange(n) // cluster_size
 
-    a1 = rng.binomial(1, expit(0.3 * w1 - 0.4 * w2 + 0.8 * shared)).astype(float)
+    a1 = rng.binomial(1, expit(0.3 * w1 - 0.4 * w2)).astype(float)
     c1 = (
         rng.binomial(1, expit(2.2 + 0.3 * w1 - 0.3 * a1)).astype(float) if censoring else np.ones(n)
     )
     alive1 = c1 == 1.0
 
-    l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + rng.standard_normal(n)
-    a2 = rng.binomial(1, expit(0.5 * l2 + 0.6 * a1 - 0.2 * w2 + 0.8 * shared)).astype(float)
+    noise = rng.standard_normal(n)
+    if ids is not None:
+        noise = _shared_within_clusters(rng, noise, ids, a1)
+    l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + noise
+    a2 = rng.binomial(1, expit(0.5 * l2 + 0.6 * a1 - 0.2 * w2)).astype(float)
     c2 = rng.binomial(1, expit(2.4 + 0.2 * l2)).astype(float) if censoring else np.ones(n)
     alive2 = alive1 & (c2 == 1.0)
 
-    probability = _outcome_probability(w1, w2, l2, a1, a2)
-    if cluster_size is not None:
-        # Tilt the outcome by the same shared effect, so the residual -- and with it the
-        # influence curve -- carries the within-cluster correlation.
-        probability = expit(np.log(probability / (1.0 - probability)) + 0.8 * shared)
-    y = rng.binomial(1, probability).astype(float)
+    y = rng.binomial(1, _outcome_probability(w1, w2, l2, a1, a2)).astype(float)
 
     payload = {
         "W1": w1,
@@ -503,36 +547,30 @@ def make_longitudinal_survival(
     w1 = rng.standard_normal(n)
     w2 = rng.standard_normal(n)
 
-    if cluster_size is None:
-        ids = None
-        shared = np.zeros(n)
-    else:
-        ids = np.arange(n) // cluster_size
-        shared = rng.standard_normal(int(ids.max()) + 1)[ids]
+    ids = None if cluster_size is None else np.arange(n) // cluster_size
 
-    a1 = rng.binomial(1, expit(0.3 * w1 - 0.4 * w2 + 0.8 * shared)).astype(float)
+    a1 = rng.binomial(1, expit(0.3 * w1 - 0.4 * w2)).astype(float)
     c1 = (
         rng.binomial(1, expit(2.2 + 0.3 * w1 - 0.3 * a1)).astype(float) if censoring else np.ones(n)
     )
     observed1 = c1 == 1.0
 
-    hazard1 = _hazard_one(w1, w2, a1)
-    if cluster_size is not None:
-        hazard1 = expit(np.log(hazard1 / (1.0 - hazard1)) + 0.8 * shared)
-    y1 = rng.binomial(1, hazard1).astype(float)
+    y1 = rng.binomial(1, _hazard_one(w1, w2, a1)).astype(float)
     at_risk2 = observed1 & (y1 == 0.0)
 
     # Drawn from (W, A1) and *not* from Y1 -- see ``survival_truth``, whose second line
-    # is only right because the survivors' L2 law is the marginal one.
-    l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + rng.standard_normal(n)
-    a2 = rng.binomial(1, expit(0.5 * l2 + 0.6 * a1 - 0.2 * w2 + 0.8 * shared)).astype(float)
+    # is only right because the survivors' L2 law is the marginal one.  The clustered
+    # draw shares part of the noise and leaves that law alone; see
+    # ``_shared_within_clusters``.
+    noise = rng.standard_normal(n)
+    if ids is not None:
+        noise = _shared_within_clusters(rng, noise, ids, a1)
+    l2 = _L2["w1"] * w1 + _L2["a1"] * a1 + noise
+    a2 = rng.binomial(1, expit(0.5 * l2 + 0.6 * a1 - 0.2 * w2)).astype(float)
     c2 = rng.binomial(1, expit(2.4 + 0.2 * l2)).astype(float) if censoring else np.ones(n)
     observed2 = at_risk2 & (c2 == 1.0)
 
-    hazard2 = _hazard_two(w1, w2, l2, a1, a2)
-    if cluster_size is not None:
-        hazard2 = expit(np.log(hazard2 / (1.0 - hazard2)) + 0.8 * shared)
-    y2 = rng.binomial(1, hazard2).astype(float)
+    y2 = rng.binomial(1, _hazard_two(w1, w2, l2, a1, a2)).astype(float)
 
     payload = {
         "W1": w1,

@@ -159,6 +159,29 @@ evidence structure explicit.
 | competing-risks cumulative incidence | `tests/discrete_law_competing.py`, `tests/unit/test_influence_gateaux_competing.py` | mutation from all-cause to cause-specific survival in the Gateaux module; one-cause reduction in `tests/e2e/test_ltmle.py` | — | no canonical R comparison: the fixture would not add evidence beyond the exact law unless a distinct finite-sample blind spot is first named |
 | working model over regimen/horizon cells | `tests/discrete_law_longitudinal.py`, `tests/unit/test_influence_gateaux_longitudinal_msm.py` | non-saturated, nonuniform projection law plus exact pooled-design/loss-weight checks in `tests/unit/test_longitudinal_msm_submodel.py` | — | R `ltmleMSM` uses a quasibinomial working-model projection; cleverly declares an outcome-scale weighted least-squares projection, so raw coefficient parity would compare different estimands |
 
+## A simulated law is an instrument too, and it can be wrong the same way
+
+A coverage study is only evidence if the number it calls the truth is the number an adjusted
+fit is estimating. Two of the generators shipped for clustered inference failed that: the
+per-cluster latent drove the treatment mechanism as well as the outcome and was not emitted
+as a covariate, so the declared ATE of `1.0` was not identified — `1.83` was — and every
+interval missed by six to ten standard errors while the docstring claimed the counterfactual
+means were unchanged. The longitudinal generator failed it twice, since its shared effect
+also tilted the outcome on the logit scale, where `E_S[expit(eta + gamma S)] != expit(eta)`
+moves the means whatever the mechanism does.
+
+Both now put the sharing where it does not confound and assert it: `clustered_dgp` makes the
+latent an **effect modifier** independent of treatment, and the longitudinal generators share
+part of `L2`'s own noise, whose conditional law is preserved exactly so a clustered draw's
+`truth` is the *same number* as an unclustered one's (`tests/unit/test_datasets.py`,
+`tests/unit/test_datasets_longitudinal.py`).
+
+The second half is the part that is easy to lose. Removing the confounding *also removes the
+clustering*, because a shared additive residual reaches the influence curve only through
+`E[H | W]`, which is zero for a well-specified `g` — measured design effect fell from 1.87 to
+1.00. So each generator carries a nonzero within-cluster witness beside its identification
+test; without one, a correct-looking fix leaves the study measuring nothing.
+
 ## What this table says is missing
 
 Read down the **not covered** column and one thing recurs: the **theorem** column is empty

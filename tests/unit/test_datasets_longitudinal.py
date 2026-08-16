@@ -208,6 +208,37 @@ class TestTheProcess:
         right, _ = make_longitudinal(n=100, seed=4)
         assert not np.array_equal(np.nan_to_num(left.to_numpy()), np.nan_to_num(right.to_numpy()))
 
+    @pytest.mark.parametrize("generator", [make_longitudinal, make_longitudinal_survival])
+    @pytest.mark.parametrize("cluster_size", [5, 10, 20])
+    def test_clustering_leaves_the_truth_the_number_it_was(
+        self, generator: Any, cluster_size: int
+    ) -> None:
+        """Exact equality, and it is the claim the clustered draw's docstring makes.
+
+        The within-cluster component goes into ``L2``'s own noise as
+        ``sqrt(rho) * shared + sqrt(1 - rho) * individual``, which is standard normal for
+        any ``rho``, so ``L2 | W1, A1`` is the same law the quadrature integrates over. The
+        construction this replaced put a hidden variable in the treatment mechanisms and in
+        the outcome logit, and moved the counterfactual means twice over while claiming
+        here that it did not.
+        """
+        assert generator(n=400, seed=6)[1] == generator(n=400, seed=6, cluster_size=cluster_size)[1]
+
+    def test_clustering_leaves_l2s_own_law_alone_and_still_shares_it(self) -> None:
+        """Both halves: the marginal is untouched *and* the sharing is really there.
+
+        Without the second assertion a ``rho`` of zero would pass the first one.
+        """
+        frame, _ = make_longitudinal(n=40_000, seed=8, cluster_size=10)
+        l2 = frame["L2"].to_numpy()
+        a1 = frame["A1"].to_numpy()
+        residual = l2 - (_L2["w1"] * frame["W1"].to_numpy() + _L2["a1"] * a1)
+        assert float(np.nanstd(residual, ddof=1)) == pytest.approx(1.0, abs=0.02)
+        groups = residual.reshape(-1, 10)
+        variance = float(np.nanvar(residual, ddof=1))
+        icc = (float(np.nanvar(groups.mean(axis=1), ddof=1)) * 10 - variance) / (9 * variance)
+        assert icc > 0.2
+
     def test_a_censored_units_later_nodes_are_missing(self) -> None:
         """The convention ``LongitudinalData`` enforces, produced rather than assumed."""
         frame, _ = make_longitudinal(n=2000, seed=2)
