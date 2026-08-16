@@ -15,12 +15,12 @@ That report then removed two of the three grounds this module was built on:
 
 .. code-block:: text
 
-    # what this module still transcribes, and what the grounds below assumed
+    # what this module used to transcribe, and what its original grounds assumed
     xi = signs((chunk, n))        # 8 bytes/entry: 200 MB at chunk=256, n=1e6
     draws = (xi @ centred) / n    # a (chunk, n) x (n, m) dgemm for m ~ 5
 
-    # what ships now: expand in place into a reused, byte-budgeted buffer
-    np.copyto(out, bits); out *= 2; out -= 1
+    # what ships, and what :func:`numpy_multiplier` now transcribes
+    np.copyto(out, bits); out *= 2; out -= 1   # into a reused, byte-budgeted buffer
 
 The large temporary is gone -- the buffer is sized by a **32 MB budget with a
 four-replicate floor**, and the measured allocation at ``n = 10^6`` fell from 1,881 MB to
@@ -32,13 +32,15 @@ compile.
 What is genuinely left for a compiler is narrower, and worth stating exactly: a fused loop
 never forms the sign array at all, which is the 89% step; multiplying by a sign is an add
 or a subtract rather than a multiply; and replicates remain an independent parallel axis.
-The compiled four-core arm (7.4-7.6x) is still ahead of the current numpy path, by about
-2x rather than by 3x, and *that* margin is what adopting numba here would have to be worth.
+That is the margin this module measures, and it is now almost entirely a *parallel* one --
+see ``docs/benchmarks/bootstrap_numpy.md``, which records the rerun against the corrected
+reference and its box.
 
-**The reference below is the pre-report baseline, not the shipped path.**  See
-:func:`numpy_multiplier`.  Until it is brought forward, every ratio this module reports
-against it overstates the compiled advantage by the cost of an expansion the package no
-longer performs.
+``findings.md``'s 2.4-2.5x serial and 7.4-7.6x four-core figures were taken against the
+old spelling and are **not** comparable to anything this module reports now.  Neither is
+any result recorded before the reference was brought forward; the fixture identity did not
+change, so the two cannot be told apart by their dimensions and must be told apart by their
+commit.
 
 **Reproducibility across thread counts.**  The parallel implementation gives each
 replicate its own counter-based stream, seeded from ``(seed, replicate_index)``, so the
@@ -64,8 +66,10 @@ from . import KernelSpec, register
 
 __all__ = ["build", "numba_multiplier", "numba_multiplier_parallel", "numpy_multiplier"]
 
-#: The package's chunk size, so the reference allocates what the package allocates.
-_CHUNK = 256
+#: ``None`` lets the reference derive its block the way the package does, from a byte
+#: budget and ``n``.  A fixed number here would pin the one thing the package stopped
+#: fixing; pass ``--bootstrap-chunk-size`` to sweep it deliberately instead.
+_CHUNK = None
 
 #: 2**64, for turning a 64-bit counter hash into the one bit a Rademacher draw needs.
 _SPLITMIX_GAMMA = np.uint64(0x9E3779B97F4A7C15)
@@ -75,7 +79,7 @@ def build(
     n: int = 100_000,
     n_estimands: int = 5,
     n_replicates: int = 2000,
-    chunk: int = _CHUNK,
+    chunk: int | None = None,
     seed: int = 20260803,
 ) -> dict[str, Any]:
     """Centred influence curves and the standard errors the statistic divides by."""
@@ -107,8 +111,20 @@ def build(
 
 # --------------------------------------------------------------------------- numpy
 
-#: Sign lookup indexed by a 0/1 bit -- the package's own `_SIGNS`.
-_SIGNS = np.array([-1.0, 1.0])
+#: The package's block budget and bounds, from `cleverly.inference.multiplier`.  The shipped
+#: path derives its block from a byte target and `n` rather than fixing a replicate count,
+#: because what the timing tracks is the buffer's footprint against the cache.
+_BLOCK_BYTES = 32 << 20
+_MIN_BLOCK = 4
+_MAX_BLOCK = 256
+
+
+def _package_block(n_rows: int, n_replicates: int) -> int:
+    """Transcribed from :func:`cleverly.inference.multiplier._block_size`."""
+    wanted = _BLOCK_BYTES // max(1, n_rows * 8)
+    block = min(_MAX_BLOCK, max(_MIN_BLOCK, int(wanted)))
+    block -= block % 4
+    return max(_MIN_BLOCK, min(block, max(1, n_replicates)))
 
 
 def _summarise(statistics: np.ndarray, alpha: float) -> dict[str, float]:
@@ -138,41 +154,51 @@ def _summarise(statistics: np.ndarray, alpha: float) -> dict[str, float]:
 
 
 def numpy_multiplier(inputs: dict[str, Any]) -> dict[str, float]:
-    """Pack bits, unpack to signs, one dgemm per chunk.
+    """Pack bits, widen them in place into a reused buffer, one dgemm per block.
 
-    Transcribed from :func:`cleverly.inference.multiplier.multiplier_critical_value` and
-    :func:`~cleverly.inference.multiplier._multipliers` rather than called, so the timed
-    region is the arithmetic alone -- the package function also validates shapes, resolves
-    the kind and (with a cluster) sums within clusters first, none of which the compiled
-    variants do either.  A comparison whose two sides do different amounts of bookkeeping
-    is a comparison of the bookkeeping.
+    Transcribed from :func:`cleverly.inference.multiplier._two_point_statistics` and
+    :func:`~cleverly.inference.multiplier._fill_multipliers` rather than called, so the
+    timed region is the arithmetic alone -- the package function also validates shapes,
+    resolves the kind and (with a cluster) sums within clusters first, none of which the
+    compiled variants do either.  A comparison whose two sides do different amounts of
+    bookkeeping is a comparison of the bookkeeping.
 
-    **This transcription has fallen behind the path it names, and the gap is the one the
-    measurement rules warn about.**  ``_SIGNS[np.unpackbits(...)]`` below is the
-    fancy-index expansion that ``docs/benchmarks/bootstrap_numpy.md`` measured at 89% of
-    the kernel and then removed; the shipped ``_multipliers`` now writes into a buffer
-    allocated once and reused, sized by a byte budget rather than by ``inputs["chunk"]``.
-    So this is a comparison against the previous spelling of a function, which
-    ``docs/benchmarks/README.md``'s first measurement rule exists to forbid.  Bringing it
-    forward changes every ratio this module reports and is deliberately left as its own
-    change, with its own rerun, rather than folded into a documentation sweep.
+    **Transcribed from the current path, which is the whole point of transcribing it.**
+    This once read ``_SIGNS[np.unpackbits(...)]``, the fancy-index expansion that
+    ``docs/benchmarks/bootstrap_numpy.md`` measured at 89% of the kernel and then removed,
+    against a fresh ``(chunk, n)`` array per block.  Timing the compiled kernels against
+    that spelling charged them for work the package had stopped doing, which is what
+    ``docs/benchmarks/README.md``'s first measurement rule forbids: compare against a
+    competent numpy baseline, not merely the previous spelling of a function.
+
+    ``inputs["chunk"]`` overrides the block for a sweep; ``None`` derives it as the package
+    does, and that is the configuration whose ratio is the one to quote.
     """
     centred = inputs["centred"]
     se = inputs["std_errors"]
     n = inputs["n"]
     n_replicates = inputs["n_replicates"]
-    chunk = inputs["chunk"]
+    rows = centred.shape[0]
+    chunk = inputs["chunk"] or _package_block(rows, n_replicates)
     rng = np.random.default_rng(inputs["seed"])
 
     usable = np.isfinite(se) & (se > 0)
     statistics = np.empty(n_replicates, dtype=float)
+    scale = se[usable]
+    # Allocated once and written over per block, as the package does: the bounded
+    # footprint is the capability change, not an incidental tidy-up.
+    buffer = np.empty((chunk, rows), dtype=float)
+    packed_columns = (rows + 7) // 8
     done = 0
     while done < n_replicates:
         size = min(chunk, n_replicates - done)
-        packed = rng.integers(0, 256, size=(size, (centred.shape[0] + 7) // 8), dtype=np.uint8)
-        xi = _SIGNS[np.unpackbits(packed, axis=1, count=centred.shape[0])]
+        xi = buffer[:size]
+        packed = rng.integers(0, 256, size=(size, packed_columns), dtype=np.uint8)
+        np.copyto(xi, np.unpackbits(packed, axis=1, count=rows))
+        xi *= 2.0
+        xi -= 1.0
         draws = (xi @ centred) / n
-        standardised = np.abs(draws[:, usable]) / se[usable]
+        standardised = np.abs(draws[:, usable]) / scale
         statistics[done : done + size] = standardised.max(axis=1)
         done += size
     return _summarise(statistics, inputs["alpha"])
@@ -222,9 +248,11 @@ def _block_statistics(
     """Accumulate ``count`` replicates starting at ``first``, in one pass over the rows.
 
     ``xi`` never exists.  Each row draws its bit per replicate and is added to or
-    subtracted from that replicate's ``m``-vector, so the ``(chunk, n)`` float64 array the
-    numpy path materialises -- 200 MB at ``n = 1e6`` -- is not allocated at all, and the
-    multiply by plus-or-minus one becomes a sign flip.
+    subtracted from that replicate's ``m``-vector, so the sign matrix is not formed at
+    all and the multiply by plus-or-minus one becomes a sign flip.  Against the numpy
+    path that is a narrower advantage than it once was: numpy no longer materialises a
+    fresh ``(chunk, n)`` array either, it writes into one bounded buffer, so what is left
+    here is the widen-and-rescale pass over that buffer rather than the whole allocation.
     """
     rows, columns = centred.shape
     accumulator = np.zeros((count, columns))
@@ -378,8 +406,8 @@ register(
         tolerance=(4.0, 4.0),
         parallel_axis="replicates",
         note=(
-            "generation-bound and allocates a (chunk, n) float64 array; the fused kernel "
-            "never forms it"
+            "expansion-bound: numpy widens packed bits into a bounded reused buffer; the "
+            "fused kernel never forms the sign matrix at all"
         ),
         dimensions={
             "n": 100_000,
