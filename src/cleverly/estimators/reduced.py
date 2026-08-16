@@ -16,8 +16,10 @@ estimator reaches this yet"*, which was true for one commit and has not been sin
 **These three are the only nuisances a learner fits in the validation study**, whose two
 primaries are injected analytic sequences -- and their consistency is the theorem premise
 that study did not establish.  ``reduced_outcome_learner=`` and
-``reduced_treatment_learner=`` are therefore not a tuning detail: see piece E of
-``docs/roadmap.md``, which is open on exactly that question.
+``reduced_treatment_learner=`` are therefore not a tuning detail: ``docs/drtmle.md``,
+*What the nuisances must satisfy*, states the conditions they have to meet, and *What the
+validation programme established* records that the reference study for the reduced
+regressions did not establish them.
 
 Written in this package's notation, with :math:`1_a = 1\{A = a\}` and both reduced
 mechanisms defined relative to a *given* :math:`\hat{\bar Q}` and :math:`\hat g`,
@@ -261,7 +263,7 @@ def fit_reduced(
     Notes
     -----
     **Which folds.**  ``nuisance.folds``, the same split the primary nuisances used, and
-    the argument is not the one the roadmap first wrote down.  A reduced regression's
+    the argument for it is subtler than the obvious one.  A reduced regression's
     *design* is an out-of-fold prediction, so with the split reused, fold ``k``'s reduced
     regression trains on rows ``j`` outside ``k`` whose design :math:`\hat g(W_j)` came
     from a model that *did* see fold ``k`` -- and row ``i``'s own data therefore reaches
@@ -484,8 +486,8 @@ def _roles(
     r"""The ``(design, target)`` of each reduced regression, off one pair of primary arrays.
 
     Written once and called twice -- at the production arrays, and at outer fold ``k``'s
-    fold-free copies -- because **both halves are generated regressors**, and the roadmap's
-    earlier descriptions used to say only the design was. :math:`Q_r`'s
+    fold-free copies -- because **both halves are generated regressors**, where the obvious
+    reading is that only the design is. :math:`Q_r`'s
     target is a residual of :math:`\hat{\bar Q}` and :math:`g_{r,2}`'s is a quotient by
     :math:`\hat g`, so a nested construction that replaced the designs and left the targets
     alone would have removed half of the dependence and reported itself as having removed

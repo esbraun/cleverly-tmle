@@ -2,9 +2,9 @@ r"""Every relative link in the documentation resolves, file and anchor.
 
 **This is the same kind of check as** :class:`tests.unit.test_registry.TestEvidenceManifest`: two things that
 have to agree, kept in agreement by a test rather than by care.  The documentation is the argument
-this repository makes -- ``docs/roadmap.md``'s standing-decisions table exists so that a decision
-costs a table rather than seven write-ups, and every row of it links to its evidence -- so a link
-that silently stops resolving turns a cited decision into an unsupported one.
+this repository makes -- ``docs/architecture-invariants.md`` states each standing decision beside
+the evidence that supports it and the condition that would reopen it -- so a link that silently
+stops resolving turns a cited decision into an unsupported one.
 
 **And it fails silently, which is why it needs a test.**  A wrong anchor renders as an ordinary
 link: it is only on the click that the reader lands at the top of the page instead of at the
@@ -19,6 +19,14 @@ Two kinds of mistake are checked, and a third is refused rather than checked:
   rather than derived;
 * and a heading whose slug this module cannot derive *exactly* is a test failure asking for the
   heading to be reworded, rather than a check that is skipped.  See :func:`slug`.
+
+**Source files are checked too, and the reason is a link this module once missed.**  A
+restructure deleted ``docs/roadmap.md``'s *Current limitations* section while a docstring in
+:mod:`tests.unit.test_oracle_reductions` still linked to that anchor, and the whole sweep passed
+green: the globs below used to cover ``*.md`` alone, so a markdown link inside a Python docstring
+was invisible to exactly the check written to catch it.  :data:`SOURCES` closes that.  It reaches
+only ``[text](target)`` forms -- prose that names ``docs/roadmap.md`` in double backticks is still
+unchecked, and there is a lot of it -- so this is one hole closed rather than the class solved.
 """
 
 from __future__ import annotations
@@ -38,6 +46,17 @@ DOCUMENTS = sorted(
     {
         *ROOT.glob("*.md"),
         *ROOT.glob("docs/**/*.md"),
+    }
+)
+
+#: Every Python file that may carry a cross-reference in a docstring or comment.  These are not
+#: link *destinations* -- nothing anchors into a module -- but they are link *sources*, and a
+#: reference that rots here rots as silently as one in a document.
+SOURCES = sorted(
+    {
+        *ROOT.glob("src/**/*.py"),
+        *ROOT.glob("tests/**/*.py"),
+        *ROOT.glob("benchmarks/**/*.py"),
     }
 )
 
@@ -122,7 +141,11 @@ ANCHORS = {
 def test_there_are_documents_to_check() -> None:
     """The negative control: a glob that stopped matching would make every test below vacuous."""
     assert len(DOCUMENTS) > 10
+    assert len(SOURCES) > 10
     assert ROOT / "docs" / "roadmap.md" in ANCHORS
+    # The document this module's own rationale rests on: standing decisions live here, and a
+    # rename that quietly emptied it would leave every cited decision unsupported.
+    assert ROOT / "docs" / "architecture-invariants.md" in ANCHORS
 
 
 @pytest.mark.parametrize("path", DOCUMENTS, ids=lambda p: str(p.relative_to(ROOT)))
@@ -142,11 +165,10 @@ def test_every_heading_has_a_derivable_anchor(path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("path", DOCUMENTS, ids=lambda p: str(p.relative_to(ROOT)))
-def test_every_relative_link_resolves(path: Path) -> None:
-    """Both halves of a target: the file exists, and the fragment names one of its headings."""
+def unresolved(path: Path, targets: list[str]) -> list[str]:
+    """Both halves of each target: the file exists, and the fragment names one of its headings."""
     broken: list[str] = []
-    for target in links(path.read_text(encoding="utf-8")):
+    for target in targets:
         if target.startswith(("http://", "https://", "mailto:", "#!")):
             continue
         relative, _, fragment = target.partition("#")
@@ -163,5 +185,25 @@ def test_every_relative_link_resolves(path: Path) -> None:
             continue
         if fragment not in known:
             broken.append(f"{target} -- no heading anchors at #{fragment}")
+    return broken
 
+
+@pytest.mark.parametrize("path", DOCUMENTS, ids=lambda p: str(p.relative_to(ROOT)))
+def test_every_relative_link_resolves(path: Path) -> None:
+    """Both halves of a target: the file exists, and the fragment names one of its headings."""
+    broken = unresolved(path, links(path.read_text(encoding="utf-8")))
+    assert not broken, f"{path.relative_to(ROOT)}: " + "; ".join(broken)
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
+def test_every_documentation_link_in_source_resolves(path: Path) -> None:
+    """The same two halves, for links written inside docstrings and comments.
+
+    **Narrowed to targets naming a markdown file on purpose.**  ``]( `` is not rare in Python --
+    ``handlers[name](arg)`` matches :data:`LINK` and means nothing -- so an unfiltered sweep would
+    report call expressions as broken documentation.  The filter costs the ability to catch a link
+    to a non-markdown path and buys a check that does not cry wolf.
+    """
+    targets = [target for target in links(path.read_text(encoding="utf-8")) if ".md" in target]
+    broken = unresolved(path, targets)
     assert not broken, f"{path.relative_to(ROOT)}: " + "; ".join(broken)

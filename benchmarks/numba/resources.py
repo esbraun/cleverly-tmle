@@ -235,8 +235,8 @@ def peak_rss_bytes() -> int:
 
     A high-water mark rather than a current reading, so it survives an allocation that
     has already been freed by the time the measurement ends -- which is exactly the
-    allocation worth reporting: the multiplier bootstrap's ``(chunk, n)`` array exists
-    only inside its loop and is the largest thing the process ever holds.
+    allocation worth reporting: the multiplier bootstrap's block buffer exists only inside
+    its loop and is the largest thing the process ever holds.
 
     It is also monotone over the life of the process, so a *difference* across a timed
     block is what a caller wants; :func:`peak_rss_delta` in :mod:`.timing` takes it.

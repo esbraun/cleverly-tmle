@@ -87,7 +87,7 @@ class Measurement:
     #: is a process high-water mark that never falls, so once the interpreter has touched
     #: a page it counts forever and every implementation after the first reads zero.  What
     #: a caller wants to know is what *this call* allocates -- the multiplier bootstrap's
-    #: ``(chunk, n)`` array against a fused kernel's ``block x m`` accumulator -- and that
+    #: ``block x n`` buffer against a fused kernel's ``block x m`` accumulator -- and that
     #: is a per-call peak, not a process one.
     peak_alloc_bytes: int = 0
     #: Calls behind each entry of :attr:`samples`.  ``1`` is one call timed directly; above

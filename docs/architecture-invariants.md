@@ -1,8 +1,29 @@
 # Architecture invariants
 
-These are stable constraints that are easy to violate across module boundaries and are not fully
-recoverable from any one implementation. The current architecture remains provisional, but a
-change to one of these constraints must be intentional, documented, and backed by evidence.
+These are stable constraints and standing decisions that are easy to violate across module
+boundaries and are not fully recoverable from any one implementation. The current architecture
+remains provisional, and none of these is permanent: each holds until its stated **reconsider
+when** condition is met, and a change to one must be intentional, documented, and backed by
+evidence. When a condition is met, update the implementation, its independent evidence, and this
+document in the same change. Superseded rationale belongs in Git history or in the underlying
+evidence report.
+
+## Validation and evidence
+
+Validate a derivation independently. Cross-language comparison against a canonical implementation
+is a bounded secondary check and never the acceptance criterion: implementations descended from
+one source share transcription errors, while derivative, exact-law, remainder, mutation, and score
+checks fail against distinct error classes. [`docs/evidence.md`](evidence.md) records which
+instrument covers which estimand, in both directions. The `LTMLE` fixture is the scoped exception,
+because it pins cumulative-bound placement and a nonzero finite-sample targeting path that exact
+laws at `epsilon=0` cannot see. *Reconsider when* another named blind spot is demonstrated, the
+compared implementations target the same estimand, and the comparison has predetermined pass/fail
+actions.
+
+Keep feature selection separate from statistical certification. Evaluating a configuration on the
+draws that selected it makes the reported result selection-dependent, so a study that selects must
+certify on draws that did not do the selecting. *Reconsider when* a study performs no
+data-dependent selection, or uses disjoint selection and certification cohorts.
 
 ## Dataframes and labels
 
@@ -19,6 +40,11 @@ compose the known names forward and retain a structured index.
 The binary path is a bit-for-bit regression surface for generalized treatment support. A
 multi-arm change must leave binary results unchanged unless a documented compatibility change is
 intended.
+
+Internal tabular arithmetic stays in NumPy. The dataframe boundary is a negligible share of a fit,
+supported learners consume NumPy arrays, and the public dataframe contract is already isolated
+through narwhals, so a columnar engine has no share here to win. *Reconsider when* a supported
+workload becomes dominated by joins, grouping, IO, or conversion rather than estimation.
 
 ## Targets, interventions, and variants
 
@@ -84,7 +110,11 @@ across arms and explicitly arm-specific assumptions.
 
 Nuisance fits are single-threaded by default so parallelism occurs across folds and learner
 candidates. Callers can change the process-level limit through the public learner controls. Do not
-add nested native threading without an end-to-end measurement and an oversubscription plan.
+add nested native threading without an end-to-end measurement and an oversubscription plan. Nested
+model parallelism oversubscribes small fits, and repeatedly constructing the thread-pool controller
+was itself a major cost — see the [thread-limit profile](benchmarks/thread_limit_profile.md).
+*Reconsider when* a measured workload benefits from giving one model the machine; callers can
+already opt out with `set_thread_limit(None)`.
 
 Concurrency is `outer × inner × threads-per-fit`; the third factor is pinned to one, and the split
 of the first two belongs to the test tier. The fast tier consists of thousands of short tests, so
@@ -112,3 +142,20 @@ Before adding compiled code, compare against a competent NumPy implementation an
 learner workload. Track compile time, memory, core count, numerical equivalence, and the kernel's
 share of a fit. Generated benchmark output is not documentation; preserve environment metadata
 and summarize durable conclusions in `docs/benchmarks/`.
+
+Production code stays pure Python and `numba` remains benchmark-only; nothing under `src/` imports
+it. Nuisance fitting dominates representative workloads, and competent NumPy implementations
+removed the apparent advantage in the clearest candidate kernels — the [benchmark
+verdict](benchmarks/README.md#current-verdict) carries the evidence. *Reconsider when* a competent
+compiled implementation wins materially in a full supported workload, including compilation,
+memory, data movement, packaging, and maintenance cost. HAL is the clearest known workload likely
+to meet that condition.
+
+Choose the algorithm before choosing the compiler. Newton targeting is the default because the
+universal least-favourable one-step walk can dominate a cheap GLM fit, and the Gaussian multiplier
+option avoids the Rademacher resampling matrix where its approximation is appropriate. Neither
+choice removes the need to inspect overlap and influence-curve behavior.
+
+Scale is constrained by statistical learning and memory before it is constrained by targeting
+arithmetic. The conditional-density learner's long design is the remaining known superlinear
+allocation. Benchmark with the intended learner and data shape before changing a numerical kernel.

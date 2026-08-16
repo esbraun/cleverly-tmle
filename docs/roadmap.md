@@ -1,133 +1,161 @@
 # Roadmap
 
-What ships today, where its limits are, and what is worth building next. This is a
-forward-looking document: detailed records of completed investigations belong in Git history
-and release tags, while current contracts and evidence stay on `main`.
+This document contains only proposed work and the evidence required to begin it. Implemented
+capabilities belong in the [user guide](user-guide.md), scientific contracts in the
+[technical appendix](methodology.md) and [DR-TMLE contract](drtmle.md), validation results in
+[`docs/evidence.md`](evidence.md), and performance findings in [the benchmark reports](benchmarks/).
 
-## Current status
+What is still *open* in a released estimator is a limitation of that estimator rather than a
+roadmap item, so it is not listed here. `DRTMLE`'s are in
+[what the validation programme established](drtmle.md#what-the-validation-programme-established),
+which states what is not established and why the release claim is conditional.
 
-`cleverly` is an alpha-stage library with a broad implemented surface, not a feature-complete
-one. The [user guide](user-guide.md) is the capability reference and the [technical
-appendix](methodology.md) gives the corresponding estimands, influence functions, assumptions,
-and validation strategy.
+## Eligibility
 
-`cleverly.DRTMLE` is **released under conditional validity**. Its production contract is
-[DR-TMLE: doubly-robust inference](drtmle.md): the implementation agrees with the source
-derivation, its component identities and score equations are regression-tested, and its interval
-is valid conditional on adequate primary and reduced-regression nuisance fits. A fit cannot verify
-those statistical rate conditions from its own output.
+`cleverly` implements established statistical methods; it does not use a package feature as the
+place to invent one. A scientific feature enters implementation only when a published derivation
+covers the estimand and the requested inference regime. For a new estimator or composition, that
+means an identified parameter, its influence function, the targeting or estimating equations, and
+the remainder and rate conditions needed for the interval being claimed. If one of those is
+absent, the roadmap item is to locate published theory, not to create it here.
 
-The completed DR-TMLE validation programme is archived at the
-`drtmle-validation-archive-2026-08` tag. That archive contains the study harnesses, replicate
-records, differential diagnostics, dispatch workflows, and working notes. Two issues that once
-blocked release—the mechanism-correction sign review and centring under bounded mechanism
-targeting—are closed and covered by theorem, derivative, score, and regression tests on `main`.
+A canonical public implementation is valuable implementation provenance. It can settle intended
+control flow, data layout, and named conventions, and it can expose cases the paper leaves easy to
+misread. It is not acceptance evidence by itself. Where code and paper appear to disagree, the
+published derivation governs and the discrepancy becomes a nonzero regression or mutation test.
+The independent evidence requirements in [the technical appendix](methodology.md) and
+[`docs/evidence.md`](evidence.md) still apply.
 
-## Variants
+The status labels below rate **published-method support**, not programming effort:
 
-Estimator variants share the package's data, learner, targeting, inference, sensitivity, and
-validation infrastructure. New variants should reuse those layers and document only the behavior
-they change.
+- **published support** — a paper derives the requested method and inference claim;
+- **source audit** — published theory and/or canonical code appear to cover it, but the exact
+  construction must be matched and any discrepancy resolved before implementation;
+- **theory-neutral** — an engineering capability that preserves an already-derived estimator;
+- **waiting on published theory** — related estimators or code exist, but not the requested
+  composition or inference claim. This is not an active research assignment for this project.
 
-- **Point-treatment TMLE (`cleverly.TMLE`)** supports binary and multi-valued treatments,
-  deterministic and stochastic interventions, shifts, incremental interventions, marginal
-  structural models, missing outcomes, controlled direct effects, weights, cross-fitting, and
-  repeated cross-fitting.
-- **Collaborative TMLE (`cleverly.CTMLE`)** provides greedy, ordered, and discrete propensity
-  selection with one shared categorical path for any discrete treatment, plus ctmle3-style
-  outcome-adaptive treatment modelling through `strategy="oat"`.
-- **Doubly-robust inference (`cleverly.DRTMLE`)** is released for its documented point-treatment
-  scope. It estimates the reduced regressions and additional corrections needed for an interval
-  that remains valid when one primary nuisance is inconsistent, subject to the conditions in its
-  [contract](drtmle.md).
-- **Longitudinal TMLE (`cleverly.longitudinal.LTMLE`)** is released for static and dynamic
-  regimens, time-varying confounding, monotone censoring, survival outcomes, competing risks,
-  observation weights, and working marginal structural models over regimens.
+A label may add **pending source read**, meaning the governing result is published and identified
+but has not yet been read first-hand into this package's contract. An item is not started on the
+strength of a result nobody here has read.
 
-## What is still open
+## Definition of done
 
-### Current limitations
+An item is finished when all of these hold, not when the estimator runs and returns a plausible
+number:
 
-These are properties of the current methods or implementation, not live release defects.
+- the estimand is registered and covered **in both directions** by the oracle and evidence gates in
+  `tests/unit/test_registry.py`, with a row in [`docs/evidence.md`](evidence.md) naming which
+  instruments check its influence curve and which mistakes none of them would see;
+- a well-posed composition this package still refuses has a test pinning the refusal and its
+  message, so the refusal cannot decay into a silent approximation of a different estimand;
+- wherever a sign, mask, guard, or counterfactual block can vanish at the truth, an exact-law check
+  is accompanied by a nonzero witness or a deliberate-mutation control that fails when that
+  component is wrong. Exact-law checks alone are blind to terms that disappear at the truth;
+- a cross-module change satisfies [the architecture invariants](architecture-invariants.md), which
+  also hold the standing decisions and the condition that would reopen each one;
+- **every check has been run locally.** GitHub Actions is out of budget: jobs currently fail at
+  startup in seconds with no steps run, which looks identical to a red build. A pull request's
+  checks are not a verdict on its code, and pushing does not test anything.
 
-- **DR-TMLE inference remains conditional on nuisance quality.** Numerical score convergence does
-  not establish the required primary or reduced-regression rates. The archived finite-sample
-  studies showed a material improvement over ordinary TMLE in the intended one-bad-nuisance
-  regime, but did not establish nominal coverage at the reachable sample sizes or isolate the
-  remaining finite-sample remainder.
-- **DR-TMLE's targeting alternation has no general convergence proof.** Every returned fit exposes
-  convergence, conditioning, and score diagnostics; callers must inspect them. The mechanism
-  equation is solved iteratively because its covariate depends on the mechanism being tilted, so
-  its final residual is small rather than algebraically zero.
-- **DR-TMLE retargeting may require nuisance refits.** The reduced regressions are defined at the
-  targeted state. Consequently a truncation or missingness sweep can cost about as much as a fit,
-  and a deserialized result cannot perform an operation that requires learners which were not
-  serialized.
-- **Some sensitivity paths are intentionally fixed at fit time.** In particular, the reduced
-  `gr2` regression contains the fitted mechanism in its target and cannot be losslessly
-  reconstructed by re-truncating a stored array. Diagnostics identify this behavior rather than
-  presenting a flat curve as evidence of insensitivity.
-- **Scale is constrained by statistical learning and memory before targeting arithmetic.** The
-  conditional-density learner's long design is the remaining known superlinear allocation.
-  Benchmark with the intended learner and data shape before changing numerical kernels.
+## Ordered priorities
 
-### Candidate features
+### 1. Extend the published DR-TMLE surface
 
-The following are well-posed gaps, not promises or defects. A contribution should begin with the
-derivation in the technical appendix and the acceptance instruments in `docs/evidence.md`.
+Work these in order. The canonical implementation reference is the MIT-licensed
+[`benkeser/drtmle`](https://github.com/benkeser/drtmle) R package, read at the commit
+[the references](references.md#doubly-robust-inference-drtmle) pin. Its source is implementation
+provenance; van der Laan (2014), Benkeser et al. (2017), and Benkeser & Hejazi (2023) supply the
+statistical claims.
 
-- bivariate DR-TMLE reductions and the currently unsupported DR-TMLE compositions;
-- an MNAR tilt whose estimand is derived for continuous-dose shifts;
-- intermediate variables with incremental interventions;
-- multi-valued nodes, targeted bootstrap, persistence, and sensitivity analysis for LTMLE;
-- blocked-temporal and rolling-origin cross-fitting;
-- replicate-weight designs such as BRR and jackknife;
-- additional longitudinal estimands, including interventions on competing events, once their
-  separate identification assumptions and influence functions are specified;
-- HAL and undersmoothed HAL learners, with the native implementation needed for their basis and
-  optimization workload.
+1. **Missing outcomes, then missing treatment — source audit.** The canonical package has a
+   documented missing-data construction and executable [missing-`A`/`Y`
+   tests](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/tests/testthat/test-drtmle-missingAY.R),
+   so this has a real implementation to follow. Díaz & van der Laan (2017) give a published
+   doubly-robust-inference construction for randomized trials with missing outcomes. Before
+   porting, reconcile the package's use of the observation mask in `eval_Dstar_g` with its
+   omission from the separately computed reduced correction, and state exactly which published
+   theorem covers the observational-treatment composition. Do not choose a convention from
+   whichever code path is easiest to copy.
+2. **Cross-validated DR-TMLE — source audit.** Benkeser & Hejazi (2023, §4.7) and the canonical
+   package's `cvFolds` path provide published and executable guidance. First map that construction
+   to this package's distinct nuisance cross-fitting, `targeting_scheme="fold"`, and
+   `cv_evaluation=True` semantics. Implement only the modes for which the published parameter,
+   corrected influence curve, and fold aggregation coincide; a shared name such as “CV-TMLE” is
+   not proof that they do.
+3. **Bivariate reduction — published support, pending source read.** van der Laan (2014),
+   Theorem 3, supplies the regularity conditions; Benkeser et al. (2017) supplies the bivariate
+   expansion; and the canonical package implements and tests
+   `reduction="bivariate"`. Read Theorem 3 into the
+   contract before transcribing the single two-column reduced mechanism and its different extra
+   score equation. This is an alternative to the implemented univariate reduction, not an assumed
+   improvement over it.
 
-The full refusal taxonomy remains in [How to read a refusal](methodology.md#how-to-read-a-refusal).
-It distinguishes missing package functionality from a different causal question and from a method
-that would be wrong by construction.
+The remaining DR-TMLE refusals are **waiting on published theory** for this package's requested
+composition. Public implementations of ordinary TMLE for `att`/`atc`, stochastic interventions,
+continuous shifts, incremental interventions, marginal structural models, mediation, and C-TMLE
+do not establish an interval that remains valid when one primary nuisance is inconsistent.
+Estimated weights likewise need a published influence contribution for estimating the weights.
+Keep these refusals until a paper supplies the missing reduced regressions, corrected influence
+curve, remainder, and rate conditions; do not generalize the mean construction by analogy.
 
-## Standing decisions
+### 2. Complete the LTMLE implementation surface
 
-These are current engineering decisions backed by evidence. They are constraints on an
-implementation until their reopening condition is met, not declarations that the design can
-never evolve.
+Work these in order, retaining the same oracle and evidence gates as the implemented longitudinal
+estimands.
 
-| decision | current evidence | reopen when |
-| --- | --- | --- |
-| Keep production code pure Python; keep `numba` benchmark-only | nuisance fitting dominates realistic workloads, and properly written numpy removed the apparent wins in the clearest candidate kernels | a competent compiled implementation wins materially in a full supported workload, including compile and data-movement cost |
-| Keep internal tabular arithmetic in numpy | the dataframe boundary is a negligible share of a fit and supported learners consume numpy arrays | a supported workload becomes dominated by joins, grouping, IO, or conversion rather than estimation |
-| Parallelize across folds and learner candidates; run individual nuisance fits single-threaded by default | nested model parallelism oversubscribes small fits, and constructing the thread-pool controller repeatedly was itself a major cost | a measured workload benefits from giving one model the machine; callers can already opt out with `set_thread_limit(None)` |
-| Validate derivations independently; use cross-language comparison only as a bounded secondary check | implementations descended from the same source share transcription errors, while derivative, exact-law, remainder, mutation, and score checks fail against distinct error classes. The `LTMLE` fixture is the scoped exception: it pins cumulative-bound placement and the nonzero finite-sample targeting path, which exact laws at `epsilon=0` cannot see | another named blind spot is demonstrated, the compared implementations target the same estimand, and the comparison has predetermined pass/fail actions |
-| Keep generated benchmark results out of Git | timings are properties of the recorded hardware and environment, not timeless package facts | never for unlabelled raw results; durable conclusions belong in reviewed reports with reproducible commands and environment metadata |
-| Separate feature selection from statistical certification | evaluating a configuration on the draws that selected it makes the result selection-dependent | a study performs no data-dependent selection, or uses disjoint selection and certification cohorts |
+1. **Multi-valued treatment nodes — published support, pending source audit.** Poulos et al.
+   (2024) study longitudinal TMLE with multi-valued treatments and provide public MIT-licensed
+   [`multi-ltmle`](https://github.com/jvpoulos/multi-ltmle) reproduction code. Confirm the
+   cumulative treatment mechanism, regimen indexing, influence curve, and working-MSM map against
+   the paper and code before extending the binary-node implementation.
+2. **Targeted bootstrap — waiting on a citable construction.** Keep this second in the LTMLE
+   queue, but do not infer a procedure from the name. Implementation begins when a published
+   source states what is held fixed, what is resampled, which nuisance and targeting steps are
+   rerun, and what sampling law the resulting interval estimates. Resampling a stored influence
+   curve, retargeting cached arrays, and refitting the complete estimator are distinct procedures.
+3. **Persistence and serialization — theory-neutral.** Preserve the complete fitted recursion,
+   regimen and node metadata, targeting state, diagnostics, and enough learner state to
+   distinguish operations that can be replayed from those that require a refit. Round trips must
+   leave estimates, curves, scores, and refusals unchanged.
+4. **Sensitivity analysis — source audit for each operation.** A sweep over prespecified nuisance
+   bounds may refit the already-derived estimator and report diagnostics without defining a new
+   estimand. Any operation that changes the intervention, missingness law, or reported parameter
+   needs its own published identification and influence-function result. In every case the full
+   backward recursion must rerun when the bound changes an earlier pseudo-outcome.
 
-## Native acceleration
+### 3. Add published longitudinal estimands
 
-The current benchmarks support numpy for production kernels. Nuisance estimation dominates a
-realistic fit and already executes in compiled third-party code; cleverly-authored targeting and
-dataframe work is generally a small share. Past apparent compiler wins shrank after improving the
-numpy baseline, removing redundant encoding, or measuring the kernel as part of a full fit.
+Additional longitudinal estimands, including interventions on competing events, are **waiting on
+published theory** until their separate identification assumptions, influence functions, targeting
+construction, and inference conditions are available. Once a source supplies those objects, add
+the estimand in both directions to the oracle registry and evidence gates rather than treating it
+as another option on the existing cause-specific estimand.
 
-This is not a permanent ban. Revisit native code when one of these conditions holds:
+### 4. Add time-respecting cross-fitting
 
-- HAL or another supported learner moves substantial estimation work into package-owned basis
-  construction and optimization;
-- profiling a real supported workflow shows package-owned arithmetic dominates end-to-end time;
-- a compiled kernel beats the competent numpy implementation on representative sizes and core
-  counts without unacceptable compile, memory, packaging, or maintenance cost.
+Blocked-temporal and rolling-origin cross-fitting are next after the longitudinal estimands. Treat
+each as a **source audit**: select a published sample-splitting result whose dependence assumptions
+match the supported data structure, then record which rows may train each prediction and which
+asymptotic argument licenses the reported influence-curve interval. Reusing the iid fold machinery
+with ordered indices is not sufficient.
 
-Use `benchmarks/bench_tmle.py` for end-to-end shares and `benchmarks/numba/` for isolated kernels
-and post-nuisance pipelines. The [benchmark guide](benchmarks/README.md) records the current
-verdict, focused evidence, controls, and commands. Always include a realistic learner preset:
-`library="glm"` intentionally makes every non-learner line look larger than it does in the default
-library.
+## Later candidates
 
-At very large `n`, choose the algorithm before choosing a compiler. Newton targeting is the
-default because the universal least-favourable one-step walk can dominate a cheap GLM fit, and the
-Gaussian multiplier option avoids the Rademacher resampling matrix when its approximation is
-appropriate. Neither choice changes the need to inspect overlap and influence-curve behavior.
+These remain worthwhile but are not ahead of the ordered work above:
+
+- replicate-weight designs such as BRR and jackknife, once the published variance construction is
+  matched to the package's weighted-law estimands;
+- an MNAR tilt for continuous-dose shifts, and intermediate variables with incremental
+  interventions, only when published identification and influence-function results cover those
+  exact compositions;
+- HAL and undersmoothed HAL learners, following their published loss, basis, optimization, and
+  undersmoothing criteria. Consider native implementation only if profiling shows that their
+  package-owned workload materially dominates end-to-end time.
+
+## Reading a gap correctly
+
+Not every absence on this page is the same kind of absence, and the full refusal taxonomy is in
+[How to read a refusal](methodology.md#how-to-read-a-refusal). It distinguishes missing package
+functionality from a different causal question and from a method that would be wrong by
+construction. Only the first is a roadmap item.

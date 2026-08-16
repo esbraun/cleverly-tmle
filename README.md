@@ -28,7 +28,8 @@ reason, rather than approximated.
 | --- | --- |
 | [User guide](https://github.com/esbraun/cleverly-tmle/blob/main/docs/user-guide.md) | one runnable recipe per capability — multi-arm treatments, dynamic and stochastic regimes, continuous doses, incremental interventions, marginal structural models, longitudinal and survival fits, C-TMLE, cross-fitting, weights |
 | [Technical appendix](https://github.com/esbraun/cleverly-tmle/blob/main/docs/methodology.md) | per algorithm: the estimand, its efficient influence curve, the second-order remainder, and the test that fails when it is built wrong |
-| [Roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) | what ships, its current limitations, candidate features, and the evidence-based [standing decisions](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md#standing-decisions) that guide future work |
+| [Roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) | proposed methods in priority order, with the publication and canonical-source evidence required before implementation |
+| [Architecture invariants](https://github.com/esbraun/cleverly-tmle/blob/main/docs/architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Benchmarks](https://github.com/esbraun/cleverly-tmle/blob/main/docs/benchmarks/) | where a fit's time goes, and what compiling or parallelising the package's own arithmetic would buy |
 
 Everything under [`docs/`](https://github.com/esbraun/cleverly-tmle/blob/main/docs/) is indexed in

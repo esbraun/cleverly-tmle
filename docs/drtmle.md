@@ -118,7 +118,7 @@ raise at construction or at `fit`, with a message naming what a derivation would
 | `reduction="bivariate"` | van der Laan (2014)'s single bivariate reduced mechanism. The equations are reproduced in Benkeser & Hejazi (2023); the **theorem** requires van der Laan (2014) Theorem 3, which is not in hand. Missing with it: the formal statement, its assumptions, the asymptotic expansion, its influence function, its remainder decomposition, and any cross-fitted version. |
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |
-| `delta=`, `intermediate=` | the equations carry no missingness or intermediate factor. There is also an unsettled derivation question behind `delta=`: R's `eval_Dstar_g` applies the missingness indicator to `D*_g` and `reduced_corrections` does not. It is not live — no fit either package accepts has a missing outcome — and it must be settled **from the derivation** before the refusal is lifted. |
+| `delta=`, `intermediate=` | the equations carry no missingness or intermediate factor. There is also an unsettled derivation question behind `delta=`: R's `eval_Dstar_g` applies the missingness indicator to `D*_g` and `reduced_corrections` does not. The canonical R package accepts and tests missing outcomes, so that path is implementation provenance rather than acceptance evidence; the discrepancy must be settled **from the published derivation** before the refusal is lifted. |
 | `targeting_scheme="fold"` | each fold would need its own reduced regressions and alternation |
 | `cv_evaluation=True` | the common-update construction would need the corrected parameter and influence curve derived under fold-wise evaluation |
 | composition with `CTMLE` | a reduced regression conditions on `ĝ` *as a covariate*, and C-TMLE's `ĝ` is deliberately not an estimate of `g_0`; and C-TMLE scores its path by the loss of the targeted `Q̄`, so the criterion choosing `ĝ` presupposes `Q̄` is informative — precisely the case this variant insures against. |
@@ -609,7 +609,10 @@ second.
 A closed programme of six pieces — a theoretical audit against the sources, a targeting-and-exit
 study, a controlled coverage demonstration, a reference study for the reduced regressions, a
 construction ablation, and a terminal experiment — is what this page's claims rest on. The
-[roadmap's standing decisions](roadmap.md#standing-decisions) carry what it decided. In summary:
+[evidence index](evidence.md) records the acceptance instruments, and the programme itself — its
+study harnesses, replicate records, differential diagnostics, dispatch workflows, and working
+notes — is archived at the `drtmle-validation-archive-2026-08` tag rather than on `main`. In
+summary:
 
 **Established.** The implementation is faithful to Theorem 1: the corrected curve is the Gateaux
 derivative of the parameter, the sign of the mechanism correction is the appendices' orientation,
