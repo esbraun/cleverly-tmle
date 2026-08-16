@@ -37,9 +37,10 @@ they change.
   selection with one shared categorical path for any discrete treatment, plus ctmle3-style
   outcome-adaptive treatment modelling through `strategy="oat"`.
 - **Doubly-robust inference (`cleverly.DRTMLE`)** is released for its documented point-treatment
-  scope. It estimates the reduced regressions and additional corrections needed for an interval
-  that remains valid when one primary nuisance is inconsistent, subject to the conditions in its
-  [contract](drtmle.md).
+  scope, including binary randomized trials with MAR outcomes under the published no-cross-fitting
+  construction. It estimates the reduced regressions and additional corrections needed for an
+  interval that remains valid when one primary nuisance is inconsistent, subject to the conditions
+  in its [contract](drtmle.md).
 - **Longitudinal TMLE (`cleverly.longitudinal.LTMLE`)** is released for static and dynamic
   regimens, time-varying confounding, monotone censoring, survival outcomes, competing risks,
   observation weights, and working marginal structural models over regimens.
@@ -67,6 +68,12 @@ These are properties of the current methods or implementation, not live release 
   `gr2` regression contains the fitted mechanism in its target and cannot be losslessly
   reconstructed by re-truncating a stored array. Diagnostics identify this behavior rather than
   presenting a flat curve as evidence of insensitivity.
+- **Several DR-TMLE compositions still lack published support.** Cross-validated DR-TMLE needs its
+  published fold construction reconciled with this package's targeting and evaluation semantics;
+  bivariate reduction still needs van der Laan (2014), Theorem 3 read into the contract. Missing
+  treatment remains refused: canonical smoke tests are implementation provenance, but no located
+  theorem supplies the identified parameter, corrected curve, and remainder. The future public
+  API name `treatment_delta=` is reserved rather than accepted.
 - **Scale is constrained by statistical learning and memory before targeting arithmetic.** The
   conditional-density learner's long design is the remaining known superlinear allocation.
   Benchmark with the intended learner and data shape before changing numerical kernels.
@@ -76,7 +83,8 @@ These are properties of the current methods or implementation, not live release 
 The following are well-posed gaps, not promises or defects. A contribution should begin with the
 derivation in the technical appendix and the acceptance instruments in `docs/evidence.md`.
 
-- bivariate DR-TMLE reductions and the currently unsupported DR-TMLE compositions;
+- cross-validated DR-TMLE, followed by bivariate reductions and the remaining published DR-TMLE
+  compositions;
 - an MNAR tilt whose estimand is derived for continuous-dose shifts;
 - intermediate variables with incremental interventions;
 - multi-valued nodes, targeted bootstrap, persistence, and sensitivity analysis for LTMLE;

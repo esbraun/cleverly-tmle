@@ -597,6 +597,17 @@ single-guard fit reports one of the two and a shorter curve. All three empirical
 zero after targeting, so the subtraction **cannot move the point estimate**; it moves only
 the variance.
 
+For the binary randomized-trial missing-outcome surface, Díaz & van der Laan (2017) replaces
+the mechanism in these expressions by the joint probability
+`g(a,W)=P(A=a|W)P(Delta=1|A=a,W)` and `1_a` by `1(A=a,Delta=1)`. Its separate treatment and
+observation corrections collapse exactly to
+`e/g * {1(A=a,Delta=1)-g}`. This mask is present in both the fitted reduction and the reported
+correction; a nonzero mutation test and the rowwise decomposition in
+`tests/unit/test_drtmle_missing.py` ensure it cannot disappear merely because complete-data
+tests set `Delta=1`. The paper does not pursue a cross-validated extension, so this surface
+requires `cross_fit=False` and retains the other restrictions stated in the
+[contract](drtmle.md#randomized-trials-with-missing-outcomes).
+
 Four things about this are easy to get wrong, and each has an instrument.
 
 **`guard=` is crossed.** `guard="Q"` guards against a misspecified *outcome regression* and
@@ -902,7 +913,7 @@ so rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| `DRTMLE` with `delta=`/`intermediate=`, fold-wise, or composed with `CTMLE`; and `reduction="bivariate"` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
+| `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, or composition with `CTMLE`; and `reduction="bivariate"` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
 | the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](user-guide.md#tilting-the-odds-of-treatment) |
 | a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |

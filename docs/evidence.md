@@ -71,6 +71,17 @@ do not add registry rows. Their multi-arm constructions have separate evidence i
 `tests/unit/test_multi_arm_collaborative.py`. Binary compatibility remains covered by the
 existing C-TMLE and DR-TMLE suites, which continue down their original branches.
 
+The randomized missing-outcome DR-TMLE surface is likewise an estimator variant over those
+registered targets. Its acceptance evidence is Díaz & van der Laan (2017), §2.1, equation (6),
+Theorems 1–2, and equations (11)–(13), plus `tests/unit/test_drtmle_missing.py`. That module keeps
+the theorem's exact identity
+`D_A + D_Delta = e/(g_A g_Delta){1(A=a,Delta=1)-g_A g_Delta}` at nonzero values, mutates the
+observation mask so the wrong complete-data correction fails, fits the public learned and known-
+probability paths end to end, checks refusal boundaries, and round-trips the joint mechanism.
+The canonical R package's missing-data path is provenance only; no numeric parity is an
+acceptance gate. Cross-validated, observational, and missing-treatment compositions are not
+covered.
+
 **The exact law alone is not evidence for either construction, and this is worth writing
 down rather than leaving to be rediscovered.** Handed the oracle nuisances,
 `tests/discrete_law_multi.py` makes every new term vanish: `max|Qr| = 1.9e-17`, `gr2 = 0`

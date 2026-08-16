@@ -36,6 +36,12 @@ pinned -- what survives a solved score equation is a **product** of the reduced
 regression's error with a primary nuisance error, which is why a univariate rate suffices
 however badly the primary nuisances do.
 
+For Díaz & van der Laan (2017)'s randomized missing-outcome construction, the same code is
+fed the joint mechanism :math:`g_A(a|W)g_\Delta(a,W)` and
+:math:`1_a` is replaced by :math:`1\{A=a,\Delta=1\}`.  This is deliberately explicit in
+:attr:`~cleverly.estimators._nuisance.NuisanceEstimates.reduction_mechanism`: the ordinary
+treatment and observation nuisances remain separate everywhere else.
+
 **Why a residual regression is not degenerate here.**  :math:`Q_r` and :math:`g_{r,2}` are
 identically zero when the nuisance they are residuals of is right -- row by row, not merely
 on average.  So under an exact law with a saturated learner all of this vanishes and the
@@ -374,8 +380,13 @@ def fit_reduced(
     # ``(K, m)`` per role per arm, assembled into one ``ReducedSet`` per fold at the end.
     companion_columns: dict[str, list[FloatArray]] = {"qr": [], "gr1": [], "gr2": []}
 
+    joint = nuisance.reduction_mechanism
     for arm in arms:
         indicator = (np.asarray(data.treatment, dtype=float) == float(arm)).astype(float)
+        if joint is not None:
+            # Díaz & van der Laan (2017), eqs. (6)--(13), use the joint event
+            # ``A=a, M=1`` throughout the collapsed univariate construction.
+            indicator = indicator * np.asarray(data.observed, dtype=float)
         production = _roles(nuisance, arm, scaled=scaled, indicator=indicator, g_bounds=g_bounds)
         training = (
             None
@@ -493,7 +504,8 @@ def _roles(
     estimate.
     """
     if inner is None:
-        mechanism_fit, regression_fit = nuisance.propensity, nuisance.outcome
+        mechanism_fit = nuisance.reduction_mechanism or nuisance.propensity
+        regression_fit = nuisance.outcome
     else:
         mechanism_fit, regression_fit = inner.propensity[fold], inner.outcome[fold]
     designs = reduced_designs(mechanism_fit, regression_fit, arm)

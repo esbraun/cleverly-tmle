@@ -440,7 +440,12 @@ def reduced_corrections(
         D^*_g &= \frac{Q_r(a, W)}{g^*(a|W)}\,\{1_a - g^*(a|W)\} \\
         D^*_Q &= 1_a\,\frac{g_{r,2}(a|W)}{g_{r,1}(a|W)}\,\{Y - \bar Q^*(a, W)\}
 
-    and the reported curve is :math:`D^* - D^*_Q - D^*_g`.  **Minus**, both of them: that is
+    Under Díaz & van der Laan (2017)'s randomized missing-outcome construction,
+    :math:`g^*` is the joint treatment-observation mechanism and
+    :math:`1_a` in both rows is :math:`1\{A=a,\Delta=1\}`.
+
+    In either setting the reported curve is :math:`D^* - D^*_Q - D^*_g`.  **Minus**, both
+    of them: that is
     what ``drtmle`` computes and what Theorem 1 derives (see below), and a sum is the
     plausible transcription error.  Since the
     targeting drove all three empirical means to zero, the combination cannot move the point
@@ -673,7 +678,7 @@ def reduced_correction_parts(
     y = np.asarray(outcome, dtype=float).reshape(-1)
     a = np.asarray(treatment, dtype=float).reshape(-1)
     raw = np.asarray(propensity, dtype=float)
-    if len(reduced.arms) == 2:
+    if len(reduced.arms) == 2 and raw.ndim == 1:
         raw1 = raw.reshape(-1)
         g1 = bound(raw1, float(bounds[0]), float(bounds[1]))
         mechanism = {reduced.arms[0]: 1.0 - g1, reduced.arms[1]: g1}
@@ -701,7 +706,12 @@ def reduced_correction_parts(
     d_q: dict[float, FloatArray] = {}
     clip_bias: dict[float, FloatArray] = {}
     for j, arm in enumerate(reduced.arms):
-        indicator = (a == float(arm)).astype(float)
+        # With missing outcomes the theorem's mechanism is the joint probability
+        # P(A=a, Delta=1 | W), so its residual is I(A=a, Delta=1) - g_a.  This is
+        # deliberately applied here as well as in the reduced-regression targets: a
+        # missing mask on only one side is the canonical-source discrepancy that gated
+        # this feature.
+        indicator = (a == float(arm)).astype(float) * keep
         qr = np.asarray(reduced.qr, dtype=float)[:, j]
         d_g[arm] = qr / mechanism[arm] * (indicator - mechanism[arm])
         # The outcome residual is at the arm this row took, so the indicator already puts it

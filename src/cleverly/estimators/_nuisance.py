@@ -347,6 +347,10 @@ class NuisanceEstimates:
         **untruncated** here and are bounded at targeting time by
         :meth:`bounded_missingness` and :meth:`intermediate_density`, which is what keeps
         ``nuisance_bound=`` a choice ``retarget`` can revisit without refitting.
+    reduction_mechanism:
+        Optional joint ``P(A=a, Delta=1 | W)`` used only by randomized
+        missing-outcome DR-TMLE reductions.  It does not replace the separately reported
+        propensity and missingness nuisances.
     scaler:
         The transformation used to put the outcome on ``[0, 1]``.
     diagnostics:
@@ -365,6 +369,11 @@ class NuisanceEstimates:
     #: initial learner fit used by nuisance diagnostics.
     targeting_outcome: InitialFit | None = None
     missingness: FloatArray | None = None
+    #: Joint arm-and-observation mechanism used only by the missing-outcome DR-TMLE:
+    #: ``P(A=a, Delta=1 | W) = g_a(W) pi_a(W)``.  The ordinary propensity and
+    #: missingness arrays stay separate above so reports and diagnostics retain their
+    #: public meaning; the reduction/targeting code reads this field when present.
+    reduction_mechanism: Propensity | None = None
     intermediate: FloatArray | None = None
     treatment_covariates: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -1213,8 +1222,9 @@ def fit_inner_designs(
     Only the treatment mechanism and the outcome regression are refitted, because those are
     the two arrays a reduced regression conditions on and takes residuals of.  There is no
     missingness or intermediate model here and no shift or incremental set: a
-    :class:`~cleverly.DRTMLE` refuses ``delta=``, ``intermediate=`` and all four of the other
-    parameter axes by name, so this reproduces the whole of what such a fit's nuisances are.
+    :class:`~cleverly.DRTMLE` refuses ``intermediate=`` and the other parameter axes by
+    name, while its supported ``delta=`` surface requires ``cross_fit=False`` and therefore
+    cannot enter this nested construction.
 
     **Cost is ``K`` times the primary nuisance fitting**, paid once at the initial fit --
     ``K²`` models of each nuisance against ``K``.  Every refit inside the alternation reuses

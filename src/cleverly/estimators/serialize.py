@@ -130,7 +130,11 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: ``13`` records C-TMLE selection diagnostics, including the exact component names of
 #: a jointly selected multi-arm target.  Without them a loaded result loses which vector
 #: was optimized even though it retains the selected propensity and targeted outcome.
-FORMAT_VERSION = 13
+#:
+#: ``14`` records the joint arm-and-observation mechanism used by missing-outcome
+#: DR-TMLE.  Reconstructing it from the two primary mechanisms after targeting would
+#: recover the initial product, not the mechanism the reduction was defined against.
+FORMAT_VERSION = 14
 
 _ARRAY_MARK = "__array__"
 
@@ -507,6 +511,13 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
             "n_folds": nuisance.folds.n_folds,
         },
         "missingness": arrays.put(f"{prefix}.missingness", nuisance.missingness),
+        "reduction_mechanism": (
+            None
+            if nuisance.reduction_mechanism is None
+            else arrays.put(
+                f"{prefix}.reduction_mechanism", nuisance.reduction_mechanism.values
+            )
+        ),
         "intermediate": arrays.put(f"{prefix}.intermediate", nuisance.intermediate),
         "treatment_covariates": list(nuisance.treatment_covariates),
         "outcome_task": nuisance.outcome_task,
@@ -648,6 +659,14 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
             payload["folds"]["n_folds"],
         ),
         missingness=arrays.get(payload["missingness"]),
+        reduction_mechanism=(
+            None
+            if payload.get("reduction_mechanism") is None
+            else Propensity(
+                arrays.get(payload["reduction_mechanism"]),
+                tuple(float(arm) for arm in payload["propensity_arms"]),
+            )
+        ),
         intermediate=arrays.get(payload["intermediate"]),
         treatment_covariates=tuple(payload["treatment_covariates"]),
         # Learner diagnostics are reporting objects rather than estimation inputs and

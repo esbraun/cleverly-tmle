@@ -108,21 +108,27 @@ alternation, plus a mechanism fluctuation.  A truncation curve or an MNAR sweep 
 variant breaks and the reason it is a class of its own rather than a keyword.
 
 Scope follows the vetted R implementation for arbitrary discrete treatment levels, the
-``mean`` group, and Benkeser et al.'s univariate reduction.  Continuous treatment and other
-target groups remain refused by name.
+``mean`` group, and Benkeser et al.'s univariate reduction.  It also includes Díaz & van der
+Laan (2017)'s binary randomized-trial construction for MAR outcomes, without cross-fitting;
+there :math:`g` in the reduced equations is the joint treatment-observation mechanism and
+:math:`1_a` becomes :math:`1\{A=a,\Delta=1\}`.  Continuous treatment, observational missing
+outcomes, missing treatment, and other target groups remain refused by name.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import copy
 from dataclasses import dataclass, field, replace
 from typing import Any
+
+import numpy as np
 
 from ..data.causal_data import CausalData
 from ..learners.crossfit import Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
-from ._nuisance import NuisanceEstimates, fit_inner_designs
+from ._nuisance import NuisanceEstimates, Propensity, fit_inner_designs
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .ctmle import CTMLE
 from .reduced import REDUCED_CROSSFITS, REDUCTIONS, ReducedSet, fit_reduced, refuse_unsupported
@@ -290,6 +296,11 @@ class DRTMLE(TMLE):
         of a signed quantity.  **A learner *instance* built for classification cannot serve**
         :math:`Q_r`, whose target is an outcome residual -- if ``outcome_learner=`` is an
         object rather than a name, name a regression learner here.
+    randomized:
+        Declare that treatment was randomized for a fit with ``delta=``.  The treatment
+        learner is still fitted, following Díaz & van der Laan's finite-sample recommendation.
+        To use known probabilities instead, pass row-aligned ``treatment_probabilities=``
+        to :meth:`fit`; doing so bypasses the treatment learner.
 
     Notes
     -----
@@ -299,8 +310,9 @@ class DRTMLE(TMLE):
     * a continuous treatment and ``reduction="bivariate"``;
     * ``att``/``atc`` and the ``interventions=``, ``shifts=``, ``incremental=`` and ``msm=``
       axes -- each is a different score equation with no reduced-dimension derivation;
-    * ``delta=`` and ``intermediate=`` -- the equations above carry no missingness or
-      intermediate factor;
+    * observational treatment with ``delta=``, missing treatment, and ``intermediate=``.
+      Díaz & van der Laan (2017) covers binary randomized treatment with MAR outcomes;
+      the other compositions need their own corrected curve and remainder;
     * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and
       alternation; and ``cv_evaluation=True`` -- the common-update construction would need
       the corrected parameter and curve derived under fold-wise evaluation;
@@ -356,6 +368,7 @@ class DRTMLE(TMLE):
         reduced_crossfit: str = "pooled",
         update_order: ReductionOrder = "cleverly",
         evaluation: Any = None,
+        randomized: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -366,7 +379,27 @@ class DRTMLE(TMLE):
         self.reduced_crossfit = reduced_crossfit
         self.update_order = update_order
         self.evaluation = evaluation
+        self.randomized = bool(randomized)
+        self._treatment_probabilities: Any = None
         self._validate_drtmle_settings()
+
+    def fit(
+        self,
+        data: Any,
+        *,
+        treatment_probabilities: Any = None,
+        **roles: Any,
+    ) -> Any:
+        """Fit, optionally using known randomized-treatment probabilities.
+
+        ``treatment_probabilities`` is accepted at fit time because it is row-aligned data:
+        either ``(n,)`` with ``P(A=1|W)`` or ``(n, 2)`` in encoded arm order.  Supplying it
+        implies ``randomized=True`` for the missing-outcome theorem and bypasses the
+        treatment learner.  A shallow per-fit copy keeps an unfitted estimator reusable.
+        """
+        fitted = copy(self)
+        fitted._treatment_probabilities = treatment_probabilities
+        return TMLE.fit(fitted, data, **roles)
 
     def _validate_drtmle_settings(self) -> None:
         unknown = [name for name in self.guard if name not in GUARDS]
@@ -481,6 +514,7 @@ class DRTMLE(TMLE):
         ``folds`` off it.
         """
         self._check_drtmle(data)
+        known = self._known_treatment_probabilities(data)
         base = self._fit_nuisances(
             data,
             folds,
@@ -488,7 +522,18 @@ class DRTMLE(TMLE):
             intermediate_value,
             seed=seed,
             companion=self._companion(data),
+            fit_treatment=known is None,
         )
+        if known is not None:
+            base = replace(base, propensity=known)
+        if data.has_missing_outcome and self.guard:
+            assert base.missingness is not None
+            joint = Propensity(
+                np.asarray(base.propensity.values, dtype=float)
+                * np.asarray(base.missingness, dtype=float),
+                base.arms,
+            )
+            base = replace(base, reduction_mechanism=joint)
         if self.guard and self.reduced_crossfit == "nested":
             # Before the reductions, because they read it. Once per fit rather than once
             # per round: every refit inside the alternation moves these arrays by the
@@ -521,6 +566,28 @@ class DRTMLE(TMLE):
             replace(base, reduced=reduced),
             {"drtmle": ReducedFit(self.guard, self.reduction, config.g_bounds, diagnostics)},
         )
+
+    def _known_treatment_probabilities(self, data: CausalData) -> Propensity | None:
+        supplied = self._treatment_probabilities
+        if supplied is None:
+            return None
+        values = np.asarray(supplied, dtype=float)
+        if values.ndim == 1:
+            if values.shape[0] != data.n:
+                raise ValueError(
+                    f"treatment_probabilities has {values.shape[0]} rows; expected {data.n}"
+                )
+            values = np.column_stack([1.0 - values, values])
+        if values.shape != (data.n, 2):
+            raise ValueError(
+                "treatment_probabilities must be (n,) for P(A=1|W) or (n, 2) "
+                f"in treatment-level order; got {values.shape}"
+            )
+        if not np.all(np.isfinite(values)) or np.any(values <= 0.0) or np.any(values >= 1.0):
+            raise ValueError("treatment_probabilities must be finite and strictly between 0 and 1")
+        if not np.allclose(values.sum(axis=1), 1.0, rtol=0.0, atol=1e-12):
+            raise ValueError("each row of treatment_probabilities must sum to one")
+        return Propensity(values, data.arm_codes)
 
     def _reduction(self, data: CausalData, nuisance: NuisanceEstimates) -> ReductionSpec | None:
         """The closure the alternation refits with, and the guards it solves.
@@ -619,15 +686,50 @@ class DRTMLE(TMLE):
             )
         if data.is_continuous_treatment:
             refuse_unsupported("continuous")
-        if data.has_missing_outcome or data.has_intermediate:
-            missing = "delta=" if data.has_missing_outcome else "intermediate="
+        if data.has_intermediate:
             raise NotImplementedError(
-                f"DRTMLE and {missing} are not combined. Equations (9) and (10) are stated "
-                "for a fully observed outcome and no intermediate; a further mechanism "
-                "factor would sit inside the reduced regressions' own definitions, not "
-                "merely in the clever covariate, and no theorem read here says what it is. "
+                "DRTMLE and intermediate= are not combined. Equations (9) and (10) are stated "
+                "without a controlled intermediate; its mechanism factor would sit inside "
+                "the reduced regressions' own definitions, not merely in the clever "
+                "covariate, and no theorem read here says what it is. "
                 "Fit a plain TMLE, which is derived there."
             )
+        if data.has_missing_outcome and self.guard:
+            if data.n_arms != 2:
+                raise NotImplementedError(
+                    "missing-outcome DRTMLE currently supports a binary randomized treatment; "
+                    "the per-arm multi-level assembly has not been certified against the "
+                    "published missing-data theorem"
+                )
+            if not self.randomized and self._treatment_probabilities is None:
+                raise NotImplementedError(
+                    "DRTMLE with delta= is supported only for a randomized trial. Pass "
+                    "randomized=True to estimate the treatment mechanism for chance-imbalance "
+                    "adjustment, or pass treatment_probabilities= to fit(). Observational "
+                    "treatment remains unsupported by the published theorem."
+                )
+            if self.cross_fit:
+                raise NotImplementedError(
+                    "the published missing-outcome DR-TMLE theorem uses Donsker conditions and "
+                    "does not establish its cross-validated extension; pass cross_fit=False"
+                )
+            if data.is_weighted:
+                raise NotImplementedError(
+                    "missing-outcome DRTMLE is not certified for a weight-tilted target law; "
+                    "drop weights= or fit a plain TMLE"
+                )
+            if self.repeats != 1:
+                raise NotImplementedError(
+                    "repeats= is a cross-fitting construction and is not supported by the "
+                    "published missing-outcome theorem"
+                )
+            if self.evaluation is not None or self.reduced_crossfit != "pooled":
+                raise NotImplementedError(
+                    "missing-outcome DRTMLE supports the published pooled construction only; "
+                    "evaluation= and nested reduced cross-fitting are not certified"
+                )
+        elif self._treatment_probabilities is not None:
+            raise ValueError("treatment_probabilities= is currently only used with delta=")
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         outside = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if outside:

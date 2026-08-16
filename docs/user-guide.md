@@ -1405,6 +1405,17 @@ Both by default; `guard=()` fits no reduced regressions at all and is bit-for-bi
 TMLE. `reduced_outcome_learner=` and `reduced_treatment_learner=` take the reduced
 regressions' learners, defaulting to the primary ones.
 
+Missing outcomes are supported for the theorem-backed randomized-trial case. With binary
+treatment, an observation indicator `Delta`, no cross-fitting, and no weights, fit with
+`DRTMLE(randomized=True, cross_fit=False, estimands=("ate",))` and pass `delta="Delta"`.
+This estimates the randomization probabilities, as Díaz & van der Laan (2017) recommend for
+finite-sample balance. If the design probabilities are known, instead pass a row-aligned vector
+of `P(A=1|W)` as `treatment_probabilities=` to `fit`; that bypasses the treatment learner. The
+reduced mechanism is the joint product `P(A=a|W) P(Delta=1|A=a,W)`, and the correction uses
+`1(A=a, Delta=1)`. Observational treatment, cross-fitting, and missing treatment remain refused;
+the exact restrictions and derivation are in the
+[DR-TMLE contract](drtmle.md#randomized-trials-with-missing-outcomes).
+
 `update_order=` is a **diagnostic** keyword rather than a tuning one, and it is here because a
 question about this estimator is open rather than because there is a choice to make. The source's
 own algorithm states six steps in a particular order; this package's alternation is not a
@@ -1482,8 +1493,9 @@ stops being arithmetic on cached arrays, so a truncation curve on a `DRTMLE` fit
 a fit per point rather than a fraction of one, and a result read back from disk cannot
 retarget at all.
 
-Scope is a discrete treatment and the `mean` group. `att`/`atc`, the other
-parameter axes, `delta=`, `intermediate=`, fold-wise targeting,
+Scope is a discrete treatment and the `mean` group, plus the restricted randomized
+missing-outcome case above. `att`/`atc`, the other parameter axes, observational missing
+outcomes, missing treatment, `intermediate=`, fold-wise targeting,
 `reduction="bivariate"` and composition with `CTMLE` are all refused by name.
 
 **What is not visible from the output**, and is why this section opens with a warning. The

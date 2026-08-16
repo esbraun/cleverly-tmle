@@ -1075,6 +1075,7 @@ def _solve_reduced_mechanism(
     weights: FloatArray,
     arms: tuple[float, ...],
     *,
+    armwise: bool = False,
     bounds: tuple[float, float],
     tol: float,
     carry: Sequence[MechanismCarry] = (),
@@ -1086,7 +1087,7 @@ def _solve_reduced_mechanism(
     same test this branches on.
     """
     covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
-    if len(arms) == 2:
+    if len(arms) == 2 and not armwise:
         return solve_bounded_mechanism(
             response, propensity, covariate, weights, bounds=bounds, tol=tol, carry=carry
         )
@@ -1109,11 +1110,12 @@ def _reduced_mechanism_score(
     weights: FloatArray,
     arms: tuple[float, ...],
     *,
+    armwise: bool = False,
     bounds: tuple[float, float],
 ) -> tuple[FloatArray, FloatArray]:
     """Re-evaluate equation (9) at the current mechanism, ``response`` as above."""
     covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
-    if len(arms) == 2:
+    if len(arms) == 2 and not armwise:
         return mechanism_score(response, propensity, covariate, weights)
     return armwise_mechanism_score(response, propensity, covariate, weights, arms)
 
@@ -1285,6 +1287,7 @@ def solve_with_reduction(
             "carry no reduced regressions at all rather than reach this alternation"
         )
     arms = nuisance.arms
+    joint_observation = nuisance.reduction_mechanism is not None
     upper = arms[1]
     # Equation (9)'s **response**, and it is a different array on the two branches, which
     # is why it is not called an indicator: the two-arm tilt moves one margin and so
@@ -1294,19 +1297,28 @@ def solve_with_reduction(
     # does -- a consumer that treated this as an indicator at K arms would be silently
     # regressing the codes themselves.
     response = (
-        (np.asarray(data.treatment, dtype=float) == float(upper)).astype(float)
-        if len(arms) == 2
-        else np.asarray(data.treatment, dtype=float)
+        np.where(data.observed, np.asarray(data.treatment, dtype=float), np.nan)
+        if joint_observation
+        else (
+            (np.asarray(data.treatment, dtype=float) == float(upper)).astype(float)
+            if len(arms) == 2
+            else np.asarray(data.treatment, dtype=float)
+        )
     )
     mask = np.asarray(observed, dtype=bool)
 
     reduced = nuisance.reduced
+    mechanism_fit = nuisance.reduction_mechanism or nuisance.propensity
     targeted_g = (
-        nuisance.propensity.arm(upper)
-        if len(arms) == 2
-        else np.asarray(nuisance.propensity.values, dtype=float)
+        mechanism_fit.arm(upper)
+        if len(arms) == 2 and not joint_observation
+        else np.asarray(mechanism_fit.values, dtype=float)
     )
-    current = nuisance
+    current = (
+        _retargeted_mechanism(nuisance, targeted_g, arms, joint=True)
+        if joint_observation
+        else nuisance
+    )
     # The nested construction's fold-free primary arrays, moved by every fluctuation the
     # production ones take -- `carry` in, `carried` out. `None` on a pooled fit, where every
     # `carry` below is empty and every `carried` comes back empty, so the loop is bit for
@@ -1442,6 +1454,7 @@ def solve_with_reduction(
                     reduced,
                     weights,
                     arms,
+                    armwise=joint_observation,
                     bounds=bounds,
                     tol=spec.tol,
                     carry=_combine(
@@ -1452,7 +1465,9 @@ def solve_with_reduction(
                 inner_g, tail = _split_carried(mechanism.carried, inner_g)
                 if companion is not None:
                     companion.take_mechanism(tail)
-                current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
+                current = _retargeted_mechanism(
+                    nuisance, targeted_g, arms, inner_g, joint=joint_observation
+                )
         else:
             if "Q" in guard:
                 mechanism = _solve_reduced_mechanism(
@@ -1461,6 +1476,7 @@ def solve_with_reduction(
                     reduced,
                     weights,
                     arms,
+                    armwise=joint_observation,
                     bounds=bounds,
                     tol=spec.tol,
                     carry=_combine(
@@ -1475,7 +1491,9 @@ def solve_with_reduction(
                 inner_g, tail = _split_carried(mechanism.carried, inner_g)
                 if companion is not None:
                     companion.take_mechanism(tail)
-                current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
+                current = _retargeted_mechanism(
+                    nuisance, targeted_g, arms, inner_g, joint=joint_observation
+                )
                 reduced, reduced_companion = reduction.refit(
                     _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
                 )
@@ -1590,6 +1608,7 @@ def solve_with_reduction(
                 reduced,
                 weights,
                 arms,
+                armwise=joint_observation,
                 bounds=bounds,
             )
             mechanism = replace(mechanism, score=settled_g, score_scale=scale_g)
@@ -1658,6 +1677,7 @@ def solve_with_reduction(
         mask=mask,
         response=response,
         arms=arms,
+        joint_observation=joint_observation,
         targeted_g=targeted_g,
         fluctuation=fluctuation,
         mechanism=mechanism,
@@ -1795,6 +1815,7 @@ def _close_at_frozen_reductions(
     mask: BoolArray,
     response: FloatArray,
     arms: tuple[float, ...],
+    joint_observation: bool,
     targeted_g: FloatArray,
     fluctuation: Fluctuation,
     mechanism: MechanismFluctuation | None,
@@ -1881,6 +1902,7 @@ def _close_at_frozen_reductions(
                 reduced,
                 weights,
                 arms,
+                armwise=joint_observation,
                 bounds=bounds,
                 tol=spec.tol,
                 carry=() if companion is None else companion.mechanism_carry(bounds),
@@ -1894,6 +1916,7 @@ def _close_at_frozen_reductions(
                 reduced,
                 weights,
                 arms,
+                armwise=joint_observation,
                 bounds=bounds,
             )
             mechanism = replace(solved, score=settled, score_scale=scale)
@@ -1905,7 +1928,11 @@ def _close_at_frozen_reductions(
     # what happened rather than two that could drift apart.
     capped = "Q" in guard and mechanism is not None and mechanism.relative_score > spec.tol
 
-    current = _retargeted_mechanism(nuisance, targeted_g, arms) if "Q" in guard else nuisance
+    current = (
+        _retargeted_mechanism(nuisance, targeted_g, arms, joint=joint_observation)
+        if "Q" in guard or joint_observation
+        else nuisance
+    )
     submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
     extra_submodel: Submodel | None = None
     reduced_score = 0.0
@@ -2015,6 +2042,8 @@ def _retargeted_mechanism(
     targeted: FloatArray,
     arms: tuple[float, ...],
     inner: tuple[FloatArray, ...] | None = None,
+    *,
+    joint: bool = False,
 ) -> NuisanceEstimates:
     """``nuisance`` with the mechanism replaced by the tilted one, for the covariate only.
 
@@ -2030,7 +2059,16 @@ def _retargeted_mechanism(
     :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner` is ``None`` and this
     replaces nothing.
     """
-    updated = replace(nuisance, propensity=_propensity_from(targeted, arms))
+    if joint:
+        mechanism = Propensity(np.asarray(targeted, dtype=float).reshape(-1, len(arms)), arms)
+        updated = replace(
+            nuisance,
+            propensity=mechanism,
+            missingness=None,
+            reduction_mechanism=mechanism,
+        )
+    else:
+        updated = replace(nuisance, propensity=_propensity_from(targeted, arms))
     if inner is None or nuisance.inner is None:
         return updated
     return replace(
