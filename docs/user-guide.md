@@ -1499,8 +1499,8 @@ influence function row for row, and a flipped sign misses by half a unit or more
 `1e-12` window.
 There is no cross-check against `drtmle`'s own *numbers* and there will not be: both
 implementations descend from one source, so agreement would be evidence about the transcription
-and blind to exactly the sign above — the roadmap's
-[eligibility rules](roadmap.md#eligibility) give that reasoning. A coverage study
+and blind to exactly the sign above — the
+[standing decisions](decisions.md#standing-decisions) give that reasoning. A coverage study
 on the off-diagonal of the misspecification grid found *no gap for this variant to close* at the
 sizes it could reach: the regime it is for needs an adaptive good nuisance converging more slowly than
 `n^(-1/4)`, which is beyond what a routine validation budget can simulate. And the alternation does not

@@ -15,8 +15,8 @@ instead came from reusing `threadpoolctl`'s controller.
 This verdict is deliberately revisable. A production compiled path should be reconsidered when a
 competent implementation wins materially in a full supported workload, including compilation,
 memory, data movement, packaging, and maintenance cost. HAL is the clearest known workload likely
-to meet that condition. The [architecture invariants](../architecture-invariants.md#parallelism-and-performance)
-state the full reopening criteria.
+to meet that condition. The [standing decisions](../decisions.md#standing-decisions) state the full
+reopening criteria.
 
 ## Durable findings
 
