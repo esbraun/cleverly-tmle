@@ -88,6 +88,14 @@ nonzero instrument:
 | arm alignment of the exit state | `test_multi_arm_exit_state_solves_each_arms_equation` — equation (9) recomputed from the reported arrays, and the same expression under a column permutation asserted **not** solved | a per-arm quantity read at the wrong arm, which is invisible to any symmetric check |
 | `reduced_mechanism_covariate` at `K` arms | `test_multi_arm_reduced_mechanism_covariate_has_the_r_formula` on a nonzero `Qr` | the binary sign convention carried over, which the exact law cannot see |
 | the `oat` design | `test_oat_fits_the_treatment_model_on_the_arm_specific_qbar_matrix` and `test_oat_recovers_a_mechanism_generated_by_qbar` — a saturated learner on a law where `Qbar(·, W)` is a bijection of `W`, so the fitted `g` must equal `g_0` exactly | zeroing, permuting or substituting the design, none of which any exact-law or field-name assertion detects |
+| selector joint target | `tests/unit/test_ctmle_multi_arm_selector.py` — categorical paths for every selector, explicit component names, and the trace-plus-vector-bias identity | scoring only the first contrast: the nonzero mutation changes the penalty by more than 100 |
+
+The selector uses one shared categorical path. `ey` contributes all `K` arm curves; `ate`,
+`rr`, and `or` contribute all `K - 1` reference contrasts. Its pooled cross-validation array
+therefore has shape `(candidate, row, component)`, and the penalty sums every component's
+variance and squared mean. The finite-support armwise product identities in
+`test_remainder_multi.py` cover the underlying mean vector and its reference-contrast map;
+the ratio targets use the same independently tested delta-method curves as the final report.
 
 The nonzero scientific instruments are now completed by
 `tests/unit/test_remainder_multi.py` and
@@ -111,8 +119,9 @@ exact law where its generated design identifies `W`.
 `tests/e2e/test_coverage_slow.py::TestMultiArmCollaborativeCoverage` is the repeated-
 sampling regression guard: it requires finite, non-dropped replicates, controlled bias and
 non-collapsed coverage relative to TMLE. It is deliberately not a nuisance-rate experiment
-and therefore does not establish the union-model theorem or OAT asymptotics at a tied,
-nonregular generated-regressor design.
+and therefore does not establish the stronger collaborative-double-robust theorem, price an
+adaptive multinomial `g` correction, or establish OAT asymptotics at a tied, nonregular
+generated-regressor design.
 
 ## Longitudinal estimands outside the target registry
 

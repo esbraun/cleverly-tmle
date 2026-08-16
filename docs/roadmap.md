@@ -34,8 +34,8 @@ they change.
   structural models, missing outcomes, controlled direct effects, weights, cross-fitting, and
   repeated cross-fitting.
 - **Collaborative TMLE (`cleverly.CTMLE`)** provides greedy, ordered, and discrete propensity
-  selection for binary treatment, plus ctmle3-style outcome-adaptive treatment modelling for
-  arbitrary discrete treatment through `strategy="oat"`.
+  selection with one shared categorical path for any discrete treatment, plus ctmle3-style
+  outcome-adaptive treatment modelling through `strategy="oat"`.
 - **Doubly-robust inference (`cleverly.DRTMLE`)** is released for its documented point-treatment
   scope. It estimates the reduced regressions and additional corrections needed for an interval
   that remains valid when one primary nuisance is inconsistent, subject to the conditions in its
@@ -76,7 +76,6 @@ These are properties of the current methods or implementation, not live release 
 The following are well-posed gaps, not promises or defects. A contribution should begin with the
 derivation in the technical appendix and the acceptance instruments in `docs/evidence.md`.
 
-- multi-valued extensions of the selector-based C-TMLE strategies;
 - bivariate DR-TMLE reductions and the currently unsupported DR-TMLE compositions;
 - an MNAR tilt whose estimand is derived for continuous-dose shifts;
 - intermediate variables with incremental interventions;

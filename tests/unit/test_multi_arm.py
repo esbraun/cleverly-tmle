@@ -271,16 +271,21 @@ class TestWhatIsRefused:
                 random_state=0,
             ).fit(_three_arm_frame(), outcome="Y", treatment="A")
 
-    def test_ctmle_is_refused(self) -> None:
+    def test_selector_ctmle_uses_one_joint_multinomial_path(self) -> None:
         from cleverly import CTMLE
 
-        with pytest.raises(ValueError, match="binary treatment only"):
-            CTMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
-                random_state=0,
-                estimands=("ate",),
-            ).fit(_three_arm_frame(), outcome="Y", treatment="A")
+        result = CTMLE(
+            outcome_learner="glm",
+            treatment_learner="glm",
+            strategy="discrete",
+            candidates=((), ("W1",)),
+            selection_folds=2,
+            learner_folds=2,
+            random_state=0,
+            estimands=("ate",),
+        ).fit(_three_arm_frame(), outcome="Y", treatment="A").single()
+        assert len(result.extra["ctmle"].target_names) == 2
+        assert result.nuisance.propensity.values.shape[1] == 3
 
     # The omitted-variable bound and the MNAR tilt were refused here too, and are not
     # any more: both are one parameter at a time and so generalise to one per contrast.

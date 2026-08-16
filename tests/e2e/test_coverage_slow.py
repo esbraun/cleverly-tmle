@@ -746,6 +746,14 @@ class TestMultiArmCollaborativeCoverage:
             "tmle": lambda: TMLE(**common),
             "drtmle": lambda: DRTMLE(**common),
             "oat": lambda: CTMLE(strategy="oat", **common),
+            "selector": lambda: CTMLE(
+                strategy="discrete",
+                candidates=((), ("W1",), ("W1", "W2"), ("W1", "W2", "W3")),
+                selection_folds=2,
+                selection_inner_folds=2,
+                ctmle_estimand="ate",
+                **common,
+            ),
         }
         return {
             label: CoverageStudy(
@@ -765,7 +773,7 @@ class TestMultiArmCollaborativeCoverage:
             assert study.n_replicates == self.REPLICATES
             assert study.n_failed == 0
 
-    @pytest.mark.parametrize("variant", ["drtmle", "oat"])
+    @pytest.mark.parametrize("variant", ["drtmle", "oat", "selector"])
     @pytest.mark.parametrize("estimand", ESTIMANDS)
     def test_bias_and_standard_errors_have_not_collapsed(
         self, studies: dict[str, Any], variant: str, estimand: str
@@ -774,7 +782,7 @@ class TestMultiArmCollaborativeCoverage:
         assert abs(summary.bias) < 3.5 * summary.bias_se, (variant, summary)
         assert 0.5 <= summary.se_ratio <= 2.0, (variant, summary)
 
-    @pytest.mark.parametrize("variant", ["drtmle", "oat"])
+    @pytest.mark.parametrize("variant", ["drtmle", "oat", "selector"])
     @pytest.mark.parametrize("estimand", ESTIMANDS)
     def test_coverage_is_not_catastrophically_worse_than_tmle(
         self, studies: dict[str, Any], variant: str, estimand: str
@@ -787,6 +795,80 @@ class TestMultiArmCollaborativeCoverage:
             plain,
             summary,
         )
+
+
+def _make_multi_arm_ratios(
+    n: int, *, seed: int | np.random.Generator | None = None
+) -> tuple[Any, dict[str, float]]:
+    frame, truth = make_multi_arm(n=n, seed=seed, family="binomial")
+    reference = truth["ey[high]"]
+    for label in ("low", "medium"):
+        mean = truth[f"ey[{label}]"]
+        truth[f"rr[{label} vs high]"] = mean / reference
+        truth[f"or[{label} vs high]"] = (mean / (1.0 - mean)) / (
+            reference / (1.0 - reference)
+        )
+    return frame, truth
+
+
+class TestMultiArmSelectorRatioCoverage:
+    """Nightly guard for joint log-risk and log-odds selector targets."""
+
+    N = 500
+    REPLICATES = 40
+    ESTIMANDS = (
+        "rr[low vs high]",
+        "rr[medium vs high]",
+        "or[low vs high]",
+        "or[medium vs high]",
+    )
+
+    @pytest.fixture(scope="class")
+    def studies(self) -> dict[str, Any]:
+        common = {
+            "outcome_learner": "glm",
+            "treatment_learner": "glm",
+            "n_folds": 4,
+            "learner_folds": 3,
+            "estimands": ("rr", "or"),
+            "simultaneous": False,
+            "random_state": 0,
+        }
+        factories = {
+            "tmle": lambda: TMLE(**common),
+            "selector": lambda: CTMLE(
+                strategy="discrete",
+                candidates=((), ("W1",), ("W1", "W2"), ("W1", "W2", "W3")),
+                selection_folds=2,
+                selection_inner_folds=2,
+                ctmle_estimand="rr",
+                **common,
+            ),
+        }
+        return {
+            label: CoverageStudy(
+                dgp=_make_multi_arm_ratios,
+                estimator=factory,
+                n=self.N,
+                n_replicates=self.REPLICATES,
+                estimands=self.ESTIMANDS,
+                seed=8311,
+                n_jobs=2,
+            ).run()
+            for label, factory in factories.items()
+        }
+
+    @pytest.mark.parametrize("estimand", ESTIMANDS)
+    def test_ratio_inference_has_not_collapsed(
+        self, studies: dict[str, Any], estimand: str
+    ) -> None:
+        summary = studies["selector"][estimand]
+        plain = studies["tmle"][estimand]
+        assert studies["selector"].n_failed == 0
+        assert abs(summary.bias) < 3.5 * summary.bias_se, summary
+        assert 0.5 <= summary.se_ratio <= 2.0, summary
+        assert summary.coverage > 0.60, summary
+        assert summary.coverage >= plain.coverage - 3.0 * summary.coverage_se, (plain, summary)
 
 
 class TestClusteredInference:
