@@ -19,6 +19,7 @@ from tests.discrete_law_longitudinal import CellMeans
 
 ARMS = tuple(range(law.K))
 ORACLES = ("ey[0]", "ey[1]", "ey[2]", "ate[1 vs 0]", "ate[2 vs 0]")
+RATIO_ORACLES = ("rr[1 vs 0]", "rr[2 vs 0]", "or[1 vs 0]", "or[2 vs 0]")
 WRONG_G = np.array(
     [
         [0.40, 0.35, 0.25],
@@ -233,3 +234,45 @@ def test_oat_regular_multi_arm_curve_is_the_gateaux_derivative(oat_fit: Any, ora
         [reported[np.flatnonzero(cells == point)[0]] for point in range(len(law.SUPPORT))]
     )
     np.testing.assert_allclose(per_cell, law.eif(oracle), atol=1e-12, rtol=0)
+
+
+@pytest.fixture(scope="module")
+def selector_fits() -> dict[str, Any]:
+    """A fixed categorical candidate keeps the selector away from a selection tie."""
+    return {
+        stem: (
+            CTMLE(
+                strategy="discrete",
+                candidates=(("W",),),
+                ctmle_estimand=stem,
+                outcome_learner=law.OracleMultiOutcome(),
+                treatment_learner=law.OracleMultiTreatment(),
+                estimands=("ey", "ate", "rr", "or"),
+                reference="low",
+                n_folds=2,
+                learner_folds=2,
+                selection_folds=2,
+                selection_inner_folds=2,
+                simultaneous=False,
+                random_state=0,
+            )
+            .fit(law.frame(), outcome="Y", treatment="A")
+            .single()
+        )
+        for stem in ("ey", "ate", "rr", "or")
+    }
+
+
+@pytest.mark.parametrize("stem", ["ey", "ate", "rr", "or"])
+@pytest.mark.parametrize("oracle", (*ORACLES, *RATIO_ORACLES))
+def test_fixed_multinomial_selector_reports_the_finite_law_gateaux_curve(
+    selector_fits: dict[str, Any], stem: str, oracle: str
+) -> None:
+    fit = selector_fits[stem]
+    estimate = fit.estimates[law.reported_name(oracle)]
+    reported = np.asarray(estimate.influence_curve)
+    cells = law.cell_of_row()
+    per_cell = np.array(
+        [reported[np.flatnonzero(cells == point)[0]] for point in range(len(law.SUPPORT))]
+    )
+    np.testing.assert_allclose(per_cell, law.eif(oracle), atol=1e-11, rtol=0)

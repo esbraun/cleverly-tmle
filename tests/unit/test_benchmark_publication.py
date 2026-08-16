@@ -93,10 +93,10 @@ class _Environment:
     """What ``summarise`` reads off an environment record.
 
     A stub rather than :func:`benchmarks.numba.resources.environment_record`, and not for
-    convenience: ``resources.py`` imports the POSIX-only ``resource`` module at the top, so
-    calling the real thing would make this module unimportable on Windows -- where this
-    repository is in fact developed.  The gate under test lives in ``reporting.py``, which
-    imports neither.
+    convenience: the real one shells out to ``git``, interrogates whichever BLAS happens to
+    be loaded and reads the machine's core counts, so a test built on it would assert
+    against the box it ran on.  The gate under test lives in ``reporting.py``, which needs
+    the fields and not their provenance.
     """
 
     git_sha: str = "0" * 40

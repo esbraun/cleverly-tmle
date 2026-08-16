@@ -28,12 +28,25 @@ import contextlib
 import os
 import platform
 import re
-import resource
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from typing import Any
+
+#: The POSIX ``resource`` module, or ``None`` on Windows, which does not have it.
+#:
+#: Imported defensively rather than at the top unconditionally, and the reason is out of
+#: proportion to the two functions that need it: an unconditional import made this whole
+#: module -- :class:`ThreadPlan`, :func:`applied`, :func:`environment_record`, everything
+#: importing them -- unimportable on Windows, which is where this repository is developed.
+#: The cost was paid twice over in workarounds elsewhere, and the two tests that import the
+#: benchmark harness could not be collected there at all.
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows
+    resource = None  # type: ignore[assignment]
 
 __all__ = [
     "ThreadPlan",
@@ -228,9 +241,64 @@ def peak_rss_bytes() -> int:
     It is also monotone over the life of the process, so a *difference* across a timed
     block is what a caller wants; :func:`peak_rss_delta` in :mod:`.timing` takes it.
     """
+    if resource is None:  # pragma: no cover - Windows
+        return _windows_peak_rss_bytes()
     usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     # Linux reports kilobytes, macOS bytes.
     return int(usage) * (1 if sys.platform == "darwin" else 1024)
+
+
+def _windows_peak_rss_bytes() -> int:  # pragma: no cover - Windows
+    """``PeakWorkingSetSize`` from ``psapi``, the Windows spelling of ``ru_maxrss``.
+
+    Already in bytes, so unlike the POSIX branch there is no unit to correct.  Returns
+    ``0`` if the call fails rather than raising: this number annotates a measurement and
+    is not the measurement, and a benchmark that aborted because a memory counter was
+    unavailable would be trading the result for the annotation.
+
+    **The signatures are declared rather than left to ctypes' defaults**, and that is load
+    bearing.  ``GetCurrentProcess`` returns the pseudo-handle ``(HANDLE)-1``; under the
+    default ``restype`` of ``c_int`` it comes back as a 32-bit ``-1`` and is passed into a
+    64-bit ``HANDLE`` parameter with its upper half unset, which the call rejects.  The
+    symptom is a clean ``0`` from a function that looks like it ran.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    class _MemoryCounters(ctypes.Structure):
+        _fields_ = (
+            ("cb", wintypes.DWORD),
+            ("PageFaultCount", wintypes.DWORD),
+            ("PeakWorkingSetSize", ctypes.c_size_t),
+            ("WorkingSetSize", ctypes.c_size_t),
+            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+            ("PagefileUsage", ctypes.c_size_t),
+            ("PeakPagefileUsage", ctypes.c_size_t),
+        )
+
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        psapi = ctypes.windll.psapi  # type: ignore[attr-defined]
+        kernel32.GetCurrentProcess.argtypes = ()
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        psapi.GetProcessMemoryInfo.argtypes = (
+            wintypes.HANDLE,
+            ctypes.POINTER(_MemoryCounters),
+            wintypes.DWORD,
+        )
+        psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+
+        counters = _MemoryCounters()
+        counters.cb = ctypes.sizeof(counters)
+        ok = psapi.GetProcessMemoryInfo(
+            kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb
+        )
+    except (AttributeError, OSError):
+        return 0
+    return int(counters.PeakWorkingSetSize) if ok else 0
 
 
 def cpu_seconds() -> float:
@@ -238,7 +306,17 @@ def cpu_seconds() -> float:
 
     Reported beside wall-clock so a parallel mode that is no faster can be told apart
     from one that is no faster *and* burning four cores to do it.
+
+    **On Windows the children are not counted**, because the platform has no equivalent of
+    ``RUSAGE_CHILDREN`` and :func:`time.process_time` is this process only.  That makes the
+    number an undercount for exactly the task-parallel modes it exists to expose, so read a
+    Windows CPU-time column as a lower bound and take the comparison against wall-clock
+    from a POSIX run.  ``os.times`` would carry the children field, but it is quantised to
+    the ``100 Hz`` clock tick, and the per-batch deltas :mod:`.timing` takes are shorter
+    than that -- an accurate field at a resolution that rounds them to zero is worse.
     """
+    if resource is None:  # pragma: no cover - Windows
+        return time.process_time()
     me = resource.getrusage(resource.RUSAGE_SELF)
     kids = resource.getrusage(resource.RUSAGE_CHILDREN)
     return float(me.ru_utime + me.ru_stime + kids.ru_utime + kids.ru_stime)

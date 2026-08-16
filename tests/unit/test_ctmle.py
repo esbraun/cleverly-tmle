@@ -239,7 +239,7 @@ class TestPenalty:
     def test_treatment_risk_is_weighted_binomial_deviance(self, selector) -> None:
         rows = selector.all_rows
         candidate = selector._candidate(("W1",), selector.base.outcome, rows, None, "g-risk", 1)
-        propensity = np.clip(candidate.propensity, 1e-12, 1.0 - 1e-12)
+        propensity = np.clip(candidate.propensity.values[:, 1], 1e-12, 1.0 - 1e-12)
         treatment = selector.data.treatment
         expected = -np.sum(
             selector.data.weights
@@ -391,8 +391,9 @@ class TestPaths:
     def test_the_intercept_candidate_is_the_marginal_treatment_rate(self, selector) -> None:
         # Cross-fitted, so each row gets the rate computed without it.
         values = selector.propensity((), None, "i")
-        assert values.min() > 0.0 and values.max() < 1.0
-        assert float(np.mean(values)) == pytest.approx(
+        assert values.values.min() > 0.0 and values.values.max() < 1.0
+        np.testing.assert_allclose(values.values.sum(axis=1), 1.0)
+        assert float(np.mean(values.values[:, 1])) == pytest.approx(
             float(np.mean(selector.data.treatment)), abs=0.02
         )
 

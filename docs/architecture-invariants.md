@@ -36,6 +36,12 @@ result behavior. `CTMLE` is the reference pattern. A method with different data 
 recursion, such as `LTMLE`, should use a separate container and result type and must explicitly
 reuse or refuse each shared subsystem.
 
+A selector-based `CTMLE` fit chooses one shared categorical treatment mechanism. At `K` arms its
+selection target is one nonredundant vector: all `K` means for `ey`, or the `K - 1` contrasts
+against the declared reference for `ate`, `rr`, and `or`. Do not fit or select a separate
+mechanism per contrast under one result; that is a collection of estimators with different
+nuisance states, not one joint fit.
+
 `TMLE.retarget` operates on cached point-treatment nuisances. Do not assume this contract for a
 variant whose derived equations require nuisance refits at the targeted state; document and test
 the cost and persistence behavior instead.

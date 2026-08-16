@@ -37,3 +37,8 @@ Cross-module constraints that are not derivable from one implementation live in
   together. Ruff checks Python examples in Markdown, so run it over the whole tree.
 - Run the smallest relevant test while iterating, then use the current validation commands in
   `README.md` or the matching nox session before handing off a change.
+- **GitHub Actions is out of budget, so CI is not a gate and its results are not signal.** Jobs
+  currently fail at startup in seconds with no steps run, which looks identical to a red build. Do
+  not read a PR's checks as a verdict on its code, and do not push expecting CI to catch anything.
+  Every check must be run locally, or on a local runner, before a change is handed off. This holds
+  until the project reaches beta and the repository is public.

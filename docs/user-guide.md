@@ -114,10 +114,15 @@ The bare `"ate"` is not a parameter of such a fit, so asking for it lists the co
 that are. `res.sensitivity.report()` picks the first reported contrast when you do not
 name one.
 
-What is still refused rather than guessed at on a multi-valued treatment, **not written
-yet** rather than unsound: `CTMLE` — both searches order candidates by one propensity
-margin, and with `K` arms there is no canonical single ordering, which makes it the one
-row with no settled answer rather than the one nobody has asked for.
+What is refused rather than guessed at on a multi-valued treatment: one `CTMLE` fit will
+not select a different treatment mechanism for each contrast. Every selector builds one
+shared categorical propensity path and scores one joint, nonredundant vector — all `K` arm
+means, or all `K - 1` contrasts against `reference=`. That is what the fit *is* rather than
+a gap in it, and the alternative is refused because a per-contrast mechanism would make the
+reported covariance the covariance of estimators that no longer share a nuisance state. If
+that is the scientific goal, fit separate estimators and treat their covariance and
+selection states separately. [Collaborative TMLE](#collaborative-tmle) names the components
+and the settings that produce them.
 
 A two-armed fit is unchanged in every respect, including the familiar `ate` / `att` /
 `atc` / `ey1` / `ey0` names — the same numbers to the last bit, and `reference=` selects
@@ -1199,6 +1204,27 @@ treatment. `preorder=` is refused for other searches and when `ordering=` suppli
 explicit order, so an inapplicable setting cannot be silently ignored. `strategy="discrete"`
 cross-validates an explicit list of candidate models.
 
+The same selectors accept a multi-valued treatment. They build one categorical propensity
+model at each path position and optimize one joint, nonredundant vector: all arm means for
+`ctmle_estimand="ey"`, or every arm-versus-`reference=` contrast for `"ate"`, `"rr"`, and
+`"or"`. The components are visible rather than implicit:
+
+<!-- doc-block: id=ctmle-multi-catalogue; tier=fast -->
+```python
+multi = CTMLE(
+    strategy="discrete",
+    candidates=((), ("W1",), ("W1", "W2")),
+    ctmle_estimand="ate",
+    estimands=("ate",),
+    reference="low",
+)
+# After fitting a three-arm frame:
+# result.extra["ctmle"].target_names contains one labelled contrast per nonreference arm.
+```
+
+One fit never selects a different `g` for each contrast. If that is the scientific goal,
+fit separate estimators and treat their covariance and selection states separately.
+
 **Every strategy replaces the treatment mechanism, so the shared nuisance pass is
 outcome-first**: `Qbar` and the missingness model are fitted once, and no ordinary `g(W)`
 is fitted and discarded first. One reporting consequence is worth knowing. For the three
@@ -1213,7 +1239,7 @@ fit and does report the full table.
 `strategy="oat"` is the outcome-adaptive treatment model from `ctmle3`: it first fits
 `Qbar(a, W)` for every treatment level, then fits the categorical treatment mechanism on
 that vector of predictions. Unlike the three selector strategies, it has no candidate path
-or parameter-specific selection loss and supports multi-valued treatment. The record under
+or parameter-specific selection loss. The record under
 `res.extra["ctmle"]` shares the practical diagnostic fields `.strategy`,
 `.treatment_features`, and `.treatment_risk_selected` across both API paths.
 

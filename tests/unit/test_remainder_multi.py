@@ -226,3 +226,53 @@ def test_halving_both_multi_arm_errors_quarters_the_remainder() -> None:
         return max(abs(_expansion(g_hat, q_hat, arm)) for arm in ARMS)
 
     assert at(0.005) / at(0.0025) == pytest.approx(4.0, abs=0.05)
+
+
+def test_reference_contrast_maps_the_complete_arm_remainder_vector() -> None:
+    armwise = np.array([_expansion(WRONG_G, WRONG_Q, arm) for arm in ARMS])
+    contrast = np.array(
+        [_expansion(WRONG_G, WRONG_Q, arm) - _expansion(WRONG_G, WRONG_Q, 0.0) for arm in ARMS[1:]]
+    )
+    matrix = np.array([[-1.0, 1.0, 0.0], [-1.0, 0.0, 1.0]])
+    np.testing.assert_allclose(contrast, matrix @ armwise, atol=1e-14, rtol=0)
+    assert np.min(np.abs(contrast)) > 1e-3
+
+
+@pytest.mark.parametrize("kind", ["rr", "or"])
+@pytest.mark.parametrize("arm", ARMS[1:])
+def test_transformed_contrast_remainder_has_product_and_curvature_blocks(
+    kind: str, arm: float
+) -> None:
+    means = _plain(WRONG_G, WRONG_Q)
+    arm_hat, arm_curve = means[arm]
+    ref_hat, ref_curve = means[0.0]
+    arm_true = float(np.sum(law.P_W * law.Q[:, int(arm)]))
+    ref_true = float(np.sum(law.P_W * law.Q[:, 0]))
+
+    if kind == "rr":
+        transform = np.log
+
+        def derivative(value: float) -> float:
+            return 1.0 / value
+
+    else:
+
+        def transform(value: float) -> float:
+            return float(np.log(value / (1.0 - value)))
+
+        def derivative(value: float) -> float:
+            return 1.0 / (value * (1.0 - value))
+
+    actual = float(transform(arm_hat) - transform(ref_hat))
+    actual -= float(transform(arm_true) - transform(ref_true))
+    actual += derivative(arm_hat) * float(np.mean(arm_curve))
+    actual -= derivative(ref_hat) * float(np.mean(ref_curve))
+
+    product = derivative(arm_hat) * _product(WRONG_G, WRONG_Q, arm)
+    product -= derivative(ref_hat) * _product(WRONG_G, WRONG_Q, 0.0)
+    curvature = float(transform(arm_hat) - transform(arm_true))
+    curvature -= derivative(arm_hat) * (arm_hat - arm_true)
+    curvature -= float(transform(ref_hat) - transform(ref_true))
+    curvature += derivative(ref_hat) * (ref_hat - ref_true)
+    assert actual == pytest.approx(product + curvature, abs=1e-12)
+    assert min(abs(product), abs(curvature)) > 1e-5

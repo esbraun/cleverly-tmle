@@ -1,6 +1,6 @@
 r"""Collaborative TMLE: choosing the treatment model against the *target* parameter.
 
-A plain TMLE fits ``g(W) = P(A = 1 | W)`` to predict treatment as well as possible,
+A plain TMLE fits ``g_a(W) = P(A = a | W)`` to predict treatment as well as possible,
 and that is the wrong objective.  Consider three covariates:
 
 ``W1``
@@ -64,8 +64,9 @@ Three ways of building the sequence are available, mirroring the entry points of
     The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  This is not a
     fourth candidate sequence: it fits categorical treatment on the complete vector
     ``[Qbar(a, W): a in arms]`` and then uses the ordinary all-arm mean fluctuation.
-    Consequently it supports multi-valued treatment and has no selector loss or stopping
-    index.
+    Consequently it has no candidate path, no parameter-specific selector loss and no
+    stopping index.  Multi-valued treatment is not what distinguishes it: the selector
+    strategies fit one shared categorical propensity path of their own.
 
     **It also trades away one leg of double robustness, and that is the reason to reach
     for it deliberately rather than as a default.**  The three selector strategies choose
@@ -120,11 +121,11 @@ borderline identifiable:
 .. math::
 
     L_{\text{pen}} = L(\bar Q^*)
-                   + \widehat{\operatorname{Var}}(D^*)
-                   + n\,\bar D^{*2},
+                   + \operatorname{tr}\{\widehat{\operatorname{Cov}}(D^*)\}
+                   + n\,\|\bar D^*\|_2^2,
 
-where :math:`D^*` is the candidate's estimated efficient influence curve on the rows
-being scored and :math:`\bar D^*` its mean -- the part of the score the targeting
+where :math:`D^*` is the candidate's estimated vector efficient influence curve on the
+rows being scored and :math:`\bar D^*` its mean -- the part of the score the targeting
 step has *not* solved away out of sample.  The two terms are :math:`O(1)` against a
 loss that is :math:`O(n)`, so the penalty is negligible except when the influence
 curve's variance blows up, which is precisely the near-positivity case it exists to
@@ -154,14 +155,12 @@ only -- its epsilon is approximately zero -- but keeping it on the ordinary reta
 path makes the estimate, influence curve, score check and sensitivity analyses agree.
 The initial Qbar is retained separately for nuisance diagnostics.
 
-The influence-curve standard error conditions on the selected propensity model.  It
-does not include the variability the *selection* contributes, and so runs mildly
-anti-conservative -- in simulation on the instrument process below, a reported
-standard error about 12% under the true spread of the estimates.  That is a smaller
-error than the variance C-TMLE saves, so the interval is still narrower and its
-coverage no worse than a plain TMLE's; but where the selection matters and honest
-inference is the point, pass ``n_bootstrap=``.  Each replicate re-runs the search, so
-the bootstrap standard error does see it.
+The reported covariance is the ordinary cross-fitted EIF covariance. Its inferential
+contract is therefore the ordinary TMLE one: positivity, nuisance convergence and an
+``o_p(n^-1/2)`` product remainder. It does not add the adaptive-``g`` influence term from
+the stronger collaborative-double-robust theorem, and no interval is claimed valid when
+both nuisance limits are wrong. ``n_bootstrap=`` reruns selection and can diagnose its
+finite-sample contribution, but does not create that missing theorem.
 
 State of the evidence
 ---------------------
@@ -238,10 +237,12 @@ from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
-from ..inference.influence import counterfactual_means, ratio_estimates
-from ..learners._fitting import Task, predict_mean
+from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
+from ..inference.influence import counterfactual_means
+from ..learners._fitting import Task, predict_probabilities
 from ..learners.crossfit import Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
+from ..targets.base import parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.text import format_table
 from ._nuisance import NuisanceEstimates, Propensity, cross_fit_predictions, fit_on_rows
@@ -264,20 +265,6 @@ CTMLEPreorder = Literal["logistic", "partial_correlation"]
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
-
-
-def _binary_propensity(values: FloatArray) -> Propensity:
-    """Wrap a candidate ``P(A = 1 | W)`` as the two-arm treatment mechanism.
-
-    The selection works with the single propensity margin from end to end -- both
-    searches order candidate covariates by how much each moves *that* margin -- so the
-    per-arm matrix form is built here, at the boundary where a
-    :class:`~cleverly.estimators._nuisance.NuisanceEstimates` is assembled, rather than
-    threaded through the search.  :meth:`CTMLE._check_estimands` has already refused a
-    treatment with more than two arms, which is what makes the complement well defined.
-    """
-    one = np.asarray(values, dtype=float).reshape(-1)
-    return Propensity(np.column_stack([1.0 - one, one]), (0.0, 1.0))
 
 
 @dataclass(frozen=True)
@@ -310,6 +297,7 @@ class CTMLESelection:
     strategy: CTMLEStrategy
     preorder: str | None
     estimand: str
+    target_names: tuple[str, ...]
     loss: str
     penalized: bool
     path: tuple[tuple[str, ...], ...]
@@ -375,7 +363,7 @@ class CTMLESelection:
             "Collaborative TMLE selection",
             "=" * 28,
             f"strategy = {self.strategy}; preorder = {self.preorder or 'n/a'}; "
-            f"target = {self.estimand}; "
+            f"target = {self.estimand} ({', '.join(self.target_names)}); "
             f"criterion = cross-validated {criterion}{loss_name} loss",
             "",
         ]
@@ -435,7 +423,7 @@ class _Candidate:
     """One element of the candidate sequence: a propensity model and its targeted fit."""
 
     covariates: tuple[str, ...]
-    propensity: FloatArray
+    propensity: Propensity
     submodel: Submodel
     targeted: InitialFit
     epsilon: FloatArray
@@ -462,8 +450,9 @@ class CTMLE(TMLE):
     ----------
     strategy:
         ``"greedy"`` (default), ``"ordered"``, ``"discrete"`` or ``"oat"``.  The
-        selector strategies are binary; ``"oat"`` fits treatment on the vector of all
-        arm-specific outcome predictions and supports any number of discrete arms.
+        selector strategies fit one shared categorical propensity path and jointly score
+        all components of ``ctmle_estimand``; ``"oat"`` fits treatment on the vector of all
+        arm-specific outcome predictions without a candidate path.
         ``"oat"`` excludes ``W`` from ``g`` entirely and so gives up
         consistency-when-only-``g``-is-right; see the module docstring.
     ordering:
@@ -490,8 +479,9 @@ class CTMLE(TMLE):
     ctmle_estimand:
         Which estimand the selection is *for*.  A collaborative selection is
         parameter-specific -- the loss involves that estimand's influence curve --
-        so unlike a plain TMLE, one fit cannot serve every estimand equally.  Must be
-        one of the requested estimands.
+        so unlike a plain TMLE, one fit cannot serve every estimand equally. At ``K``
+        arms, ``ate``, ``rr`` and ``or`` jointly optimize the ``K - 1`` contrasts against
+        ``reference=`` and ``ey`` jointly optimizes all ``K`` means. Must be requested.
 
     Notes
     -----
@@ -679,7 +669,7 @@ class CTMLE(TMLE):
         # discrimination, which it computes from the array below.
         nuisance = replace(
             base,
-            propensity=_binary_propensity(chosen.propensity),
+            propensity=chosen.propensity,
             targeting_outcome=chosen.targeted,
             treatment_covariates=chosen.covariates,
         )
@@ -689,6 +679,7 @@ class CTMLE(TMLE):
             if self.strategy == "ordered"
             else None,
             estimand=self.ctmle_estimand,
+            target_names=selector.target_names,
             loss=selector.loss_kind,
             penalized=self.penalty,
             path=tuple(candidate.covariates for candidate in path),
@@ -779,17 +770,6 @@ class CTMLE(TMLE):
                 "outcome. "
                 "Fit each controlled direct effect with TMLE instead."
             )
-        if not data.is_binary_treatment and self.strategy != "oat":
-            raise ValueError(
-                f"CTMLE strategy={self.strategy!r} supports a binary treatment only; "
-                f"{data.treatment_name} has "
-                f"{data.n_arms} levels {list(data.treatment_levels)}. All three selector "
-                "strategies order candidates by how much a covariate moves a single "
-                "propensity margin, and "
-                "with more than two arms there is no one margin to order them by -- the "
-                "selection would have to choose a model for each arm and score them jointly, "
-                "which is a different algorithm rather than a wider loop. Use a plain TMLE."
-            )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         conditional = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if conditional:
@@ -804,6 +784,15 @@ class CTMLE(TMLE):
                 f"ctmle_estimand={self.ctmle_estimand!r} is not among the requested estimands "
                 f"{list(estimands)}; the selection has to be made for an estimand you are "
                 "actually reporting."
+            )
+        supported = {"ate", "ey", "rr", "or"}
+        if data.is_binary_treatment:
+            supported.update(("ey1", "ey0"))
+        if self.strategy != "oat" and self.ctmle_estimand not in supported:
+            raise ValueError(
+                f"ctmle_estimand={self.ctmle_estimand!r} has no selector criterion; choose "
+                f"from {sorted(supported)}. ey_obs, par and paf involve the observed law "
+                "and require a separate collaborative derivation."
             )
 
 
@@ -854,27 +843,29 @@ class _Selector:
         )
         self.spec = estimator.targeting_spec()
         self._cache: dict[tuple[Any, ...], FloatArray] = {}
+        self.reference = estimator._reference_arm(data)
+        self.target_names = self._target_names()
 
     # ------------------------------------------------------------ propensities
 
     def propensity(
         self, covariates: tuple[str, ...], train: IntArray | None, tag: str
-    ) -> FloatArray:
+    ) -> Propensity:
         """``g(W_S)`` for one candidate covariate set, cached per search branch."""
         key = (tag, covariates)
         cached = self._cache.get(key)
         if cached is not None:
-            return cached
+            return Propensity(cached, self.data.arm_codes)
         values = self._fit_propensity(covariates, train)
-        self._cache[key] = values
+        self._cache[key] = values.values
         return values
 
-    def _fit_propensity(self, covariates: tuple[str, ...], train: IntArray | None) -> FloatArray:
+    def _fit_propensity(self, covariates: tuple[str, ...], train: IntArray | None) -> Propensity:
         return self._fit_propensity_with(self.learner, covariates, train)
 
     def _fit_propensity_with(
         self, learner: Learner, covariates: tuple[str, ...], train: IntArray | None
-    ) -> FloatArray:
+    ) -> Propensity:
         data = self.data
         if not covariates:
             return self._intercept_propensity(train)
@@ -894,9 +885,10 @@ class _Selector:
                 fit_mask=self.train_mask,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
+                classes=data.arm_codes,
                 n_jobs=self.est.n_jobs,
             )
-            return predictions["g1"]
+            return Propensity(predictions["g1"], data.arm_codes)
         if train is None:
             predictions, _ = cross_fit_predictions(
                 learner,
@@ -908,9 +900,10 @@ class _Selector:
                 predict_designs={"g1": design},
                 groups=data.cluster,
                 clip=(0.0, 1.0),
+                classes=data.arm_codes,
                 n_jobs=self.est.n_jobs,
             )
-            return predictions["g1"]
+            return Propensity(predictions["g1"], data.arm_codes)
 
         model = fit_on_rows(
             learner,
@@ -921,38 +914,50 @@ class _Selector:
             "classification",
             data.cluster,
         )
-        return np.clip(predict_mean(model, design, "classification"), 0.0, 1.0)
+        values = predict_probabilities(model, design, data.arm_codes)
+        return Propensity(np.clip(values, 0.0, 1.0), data.arm_codes)
 
-    def _intercept_propensity(self, train: IntArray | None) -> FloatArray:
-        """``P(A = 1)`` with no covariates -- the first candidate on every path.
+    def _intercept_propensity(self, train: IntArray | None) -> Propensity:
+        """Weighted arm probabilities with no covariates -- every path's first candidate.
 
         Fit by hand rather than by handing a zero-column design to a learner, which
         scikit-learn rejects.  Cross-fitted like any other candidate so it is scored
         on the same footing.
         """
         data = self.data
-        values = np.empty(data.n)
+        values = np.empty((data.n, data.n_arms))
+
+        def proportions(rows: IntArray) -> FloatArray:
+            total = float(np.sum(data.weights[rows]))
+            return np.array(
+                [
+                    np.sum(data.weights[rows] * (data.treatment[rows] == arm)) / total
+                    for arm in data.arm_codes
+                ],
+                dtype=float,
+            )
+
         if self.train_folds is not None:
             assert self.train_mask is not None
             for fit_rows, test in self.train_folds:
                 eligible = fit_rows[self.train_mask[fit_rows]]
-                values[test] = np.average(data.treatment[eligible], weights=data.weights[eligible])
-            return values
+                values[test] = proportions(eligible)
+            return Propensity(values, data.arm_codes)
         if train is not None:
-            values[:] = np.average(data.treatment[train], weights=data.weights[train])
-            return values
+            values[:] = proportions(train)
+            return Propensity(values, data.arm_codes)
         if self.base.folds.is_single:
-            values[:] = np.average(data.treatment, weights=data.weights)
-            return values
+            values[:] = proportions(self.all_rows)
+            return Propensity(values, data.arm_codes)
         for fit_rows, test in self.base.folds:
-            values[test] = np.average(data.treatment[fit_rows], weights=data.weights[fit_rows])
-        return values
+            values[test] = proportions(fit_rows)
+        return Propensity(values, data.arm_codes)
 
     # ---------------------------------------------------------------- targeting
 
-    def submodel(self, propensity: FloatArray) -> Submodel:
+    def submodel(self, propensity: Propensity) -> Submodel:
         """The ``mean`` clever covariate at a candidate propensity."""
-        nuisance = replace(self.base, propensity=_binary_propensity(propensity))
+        nuisance = replace(self.base, propensity=propensity)
         return build_submodel(
             self.data,
             nuisance,
@@ -1012,15 +1017,14 @@ class _Selector:
         return float(-np.sum(w * (y * np.log(q) + (1.0 - y) * np.log(1.0 - q))))
 
     def penalty(self, targeted: InitialFit, submodel: Submodel, rows: IntArray) -> float:
-        """The variance/bias term: ``Var(D*) + n * mean(D*)^2`` on ``rows``.
+        """Trace variance plus squared vector bias on ``rows``.
 
         On the scaled outcome, so it is commensurate with :meth:`loss`.
         """
         return _penalty_of(self.influence(targeted, submodel, rows))
 
     def influence(self, targeted: InitialFit, submodel: Submodel, rows: IntArray) -> FloatArray:
-        """The target estimand's efficient influence curve, on the scaled outcome."""
-        # Two arms throughout -- CTMLE._check_estimands has refused anything else.
+        """The joint target's efficient influence curve, on the scaled outcome."""
         means = counterfactual_means(
             self.scaled[rows],
             _restrict_fit(targeted, rows),
@@ -1028,23 +1032,54 @@ class _Selector:
             self.data.weights[rows],
             self.data.observed[rows],
         )
-        one, zero = means[1.0], means[0.0]
         estimand = self.est.ctmle_estimand
-        if estimand == "ate":
-            return np.asarray(one.influence_curve - zero.influence_curve, dtype=float)
         if estimand == "ey1":
-            return np.asarray(one.influence_curve, dtype=float)
+            return np.asarray(means[1.0].influence_curve, dtype=float)
         if estimand == "ey0":
-            return np.asarray(zero.influence_curve, dtype=float)
-        ratios = ratio_estimates(
-            one.psi,
-            one.influence_curve,
-            zero.psi,
-            zero.influence_curve,
-            n=rows.size,
-            which=(estimand,),
+            return np.asarray(means[0.0].influence_curve, dtype=float)
+        if estimand == "ey":
+            return np.column_stack([means[arm].influence_curve for arm in self.data.arm_codes])
+
+        reference = means[self.reference]
+        curves = []
+        for arm in self.data.arm_codes:
+            if arm == self.reference:
+                continue
+            mean = means[arm]
+            if estimand == "ate":
+                curve = mean.influence_curve - reference.influence_curve
+            elif estimand == "rr":
+                _, curve = log_ratio_influence(
+                    mean.psi, mean.influence_curve, reference.psi, reference.influence_curve
+                )
+            else:
+                _, curve = log_odds_ratio_influence(
+                    mean.psi, mean.influence_curve, reference.psi, reference.influence_curve
+                )
+            curves.append(np.asarray(curve, dtype=float))
+        matrix = np.column_stack(curves)
+        return matrix[:, 0] if matrix.shape[1] == 1 else matrix
+
+    def _target_names(self) -> tuple[str, ...]:
+        """Registry-compatible labels for the jointly optimized components."""
+        stem = self.est.ctmle_estimand
+        if stem in {"ey1", "ey0"}:
+            return (stem,)
+        if stem == "ey":
+            return tuple(
+                parameter_name("ey", arm=self.data.arm_label(arm)) for arm in self.data.arm_codes
+            )
+        contrasts = tuple(arm for arm in self.data.arm_codes if arm != self.reference)
+        if self.data.is_binary_treatment:
+            return (stem,)
+        return tuple(
+            parameter_name(
+                stem,
+                arm=self.data.arm_label(arm),
+                versus=self.data.arm_label(self.reference),
+            )
+            for arm in contrasts
         )
-        return ratios[estimand].influence_curve
 
     def score(self, candidate: _Candidate, rows: IntArray) -> float:
         """The selection criterion for a candidate, evaluated on a set of rows.
@@ -1131,10 +1166,12 @@ class _Selector:
         targeted, epsilon = self.target(initial, submodel, rows)
         loss = self.loss(targeted, rows)
         penalty = self.penalty(targeted, submodel, rows) if self.est.penalty else 0.0
-        g = np.clip(propensity[rows], _LOSS_EPS, 1.0 - _LOSS_EPS)
-        a = self.data.treatment[rows]
+        g = np.clip(propensity.values[rows], _LOSS_EPS, 1.0 - _LOSS_EPS)
+        columns = np.array(
+            [propensity.column_for(float(arm)) for arm in self.data.treatment[rows]], dtype=int
+        )
         w = self.data.weights[rows]
-        treatment_risk = float(-np.sum(w * (a * np.log(g) + (1.0 - a) * np.log(1.0 - g))))
+        treatment_risk = float(-np.sum(w * np.log(g[np.arange(rows.size), columns])))
         return _Candidate(
             covariates=covariates,
             propensity=propensity,
@@ -1189,6 +1226,9 @@ class _Selector:
             usable = rows[self.data.observed[rows]]
             residual = self.scaled[usable] - self.base.outcome.observed[usable]
             treatment = self.data.treatment[usable]
+            conditional = np.column_stack(
+                [(treatment == arm).astype(float) for arm in self.data.arm_codes[1:]]
+            )
             weights = self.data.weights[usable]
             scores = np.array(
                 [
@@ -1196,7 +1236,7 @@ class _Selector:
                         _weighted_partial_correlation(
                             residual,
                             self.data.covariates[usable, column],
-                            treatment,
+                            conditional,
                             weights,
                         )
                     )
@@ -1238,7 +1278,8 @@ class _Selector:
             random_state=self.seed,
         )
         loss = np.zeros(len(path))
-        influence = np.zeros((len(path), data.n))
+        dimension = len(self.target_names)
+        influence = np.zeros((len(path), data.n, dimension))
         for fold, (train, test) in enumerate(folds):
             train_folds, train_mask = self._nested_folds(train)
             fold_base = self._selection_base(train_folds, train_mask)
@@ -1266,9 +1307,11 @@ class _Selector:
             for index in range(len(path)):
                 candidate = fold_path[index]
                 loss[index] += fold_selector.loss(candidate.targeted, test)
-                influence[index, test] = fold_selector.influence(
-                    candidate.targeted, candidate.submodel, test
+                curve = np.asarray(
+                    fold_selector.influence(candidate.targeted, candidate.submodel, test),
+                    dtype=float,
                 )
+                influence[index, test] = curve.reshape(test.size, dimension)
         if not self.est.penalty:
             return loss
         return loss + np.array([_penalty_of(row) for row in influence])
@@ -1359,19 +1402,25 @@ class _Selector:
 
 
 def _penalty_of(influence_curve: FloatArray) -> float:
-    """``Var(D*) + n * mean(D*)^2`` -- the variance/bias penalty of a candidate."""
-    if influence_curve.size < 2:
+    """``tr(Cov(D*)) + n ||mean(D*)||^2`` for a scalar or vector target."""
+    curve = np.asarray(influence_curve, dtype=float)
+    if curve.ndim == 1:
+        curve = curve[:, None]
+    if curve.shape[0] < 2:
         return 0.0
-    return float(
-        np.var(influence_curve, ddof=1) + influence_curve.size * np.mean(influence_curve) ** 2
-    )
+    variance = np.sum(np.var(curve, axis=0, ddof=1))
+    squared_bias = curve.shape[0] * np.sum(np.mean(curve, axis=0) ** 2)
+    return float(variance + squared_bias)
 
 
 def _weighted_partial_correlation(
     left: FloatArray, right: FloatArray, conditional: FloatArray, weights: FloatArray
 ) -> float:
     """Weighted correlation of residuals after projecting both variables on ``A``."""
-    design = np.column_stack([np.ones(left.size), conditional])
+    condition = np.asarray(conditional, dtype=float)
+    if condition.ndim == 1:
+        condition = condition[:, None]
+    design = np.column_stack([np.ones(left.size), condition])
     root = np.sqrt(weights)
     weighted_design = design * root[:, None]
 

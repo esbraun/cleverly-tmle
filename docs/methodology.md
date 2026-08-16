@@ -478,6 +478,24 @@ The implementation follows the published pooled construction step by step:
 | Select the candidate estimator | the final fit persists both selected `g_k` and selected `Qbar*_k` | mutation test that discarding `Qbar*_k` fails |
 | Report and retarget | pooled targeting continues from the selected state; the continuation score is numerical zero | score, sensitivity and serialization round trips |
 
+With `K` treatment arms every candidate is one `n x K` categorical mechanism and the mean
+fluctuation solves all `K` arm equations. Selection is joint: `ey` supplies the `K` arm curves;
+`ate`, `rr`, and `or` supply the `K - 1` curves against `reference=`. For curve matrix `D`,
+the penalty is
+
+`trace(cov(D)) + n * ||mean(D)||²`,
+
+so no contrast is privileged by its position. The partial-correlation preorder conditions on
+one-hot treatment indicators rather than numeric arm codes. `CTMLESelection.target_names`
+records the exact vector that was optimized.
+
+Inference remains the ordinary cross-fitted TMLE contract: positivity and an
+`o_p(n^-1/2)` nuisance-product remainder. The original C-TMLE theorem describes an additional
+adaptive-`g` influence contribution for stronger inference when both nuisance limits can be
+wrong, and R `ctmle` implements a binary parametric delta-method version. There is no validated
+selected-multinomial counterpart here, so cleverly does not claim collaborative-double-robust
+coverage for these intervals.
+
 `strategy="ordered"` implements both scalable preorders from Ju et al. (2019): logistic
 one-variable targeting loss and partial correlation of `Y-Qbar0(A,W)` with each covariate
 conditional on treatment. The former is the default. Marginal correlation with `Y` is not
@@ -884,7 +902,6 @@ so rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| selector-based `CTMLE` on a multi-valued treatment; use `strategy="oat"` for the ctmle3 outcome-adaptive construction | [multi-valued treatment](user-guide.md#multi-valued-treatment) |
 | `DRTMLE` with `delta=`/`intermediate=`, fold-wise, or composed with `CTMLE`; and `reduction="bivariate"` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
 | the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](user-guide.md#tilting-the-odds-of-treatment) |
@@ -892,21 +909,16 @@ so rather than implying the request was ill-posed.
 | blocked-temporal and rolling-origin splits | [cross-fitting](user-guide.md#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](user-guide.md#observation-weights-and-which-population-they-define) |
 
-Several former gaps have landed: multi-valued outcome-adaptive C-TMLE and DR-TMLE,
+Several former gaps have landed: multi-valued selector and outcome-adaptive C-TMLE and DR-TMLE,
 `ATT` / `ATC` on a multi-valued treatment, observation weights
 and a working model over regimens for `LTMLE`, shift fits with `delta=`, `intermediate=` and
 weights, and multi-arm omitted-variable and MNAR sensitivity analyses. The remaining shift gap is
 narrower: the tilt itself is written, while the missing derivation must establish whether the
 tilted parameter is still the shift parameter.
-The rest are there because nobody
-has asked, not because anything stands in the way — with one exception worth naming:
-the three selector-based C-TMLE strategies remain binary because they order candidates by
-one propensity margin and with `K` arms there is no canonical single ordering. The separate
-`strategy="oat"` path does not pretend to generalise that selector: it copies ctmle3's
-outcome-adaptive categorical mechanism. That is now the whole of its row, where it used to share one with
-two refusals that turned out to be transcription: an omitted-variable bound is one linear
-functional at a time and an MNAR tilt is one arm's regression at a time, so both are a wider
-loop over the contrasts rather than a derivation that stops at two arms.
+The selector generalisation is joint rather than a loop over contrasts: one categorical
+candidate path is scored against all arm means or all non-reference contrasts together. The
+separate `strategy="oat"` path remains ctmle3's outcome-adaptive categorical mechanism and has
+no candidate path or parameter-specific selector.
 
 ### A different question
 

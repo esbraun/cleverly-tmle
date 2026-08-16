@@ -126,7 +126,11 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #:
 #: ``12`` records the finite baseline partition used by stratified targets.  Without
 #: the row codes and labels a loaded result cannot reproduce the conditional targets.
-FORMAT_VERSION = 12
+#:
+#: ``13`` records C-TMLE selection diagnostics, including the exact component names of
+#: a jointly selected multi-arm target.  Without them a loaded result loses which vector
+#: was optimized even though it retains the selected propensity and targeted outcome.
+FORMAT_VERSION = 13
 
 _ARRAY_MARK = "__array__"
 
@@ -806,9 +810,82 @@ def _config_from(payload: dict[str, Any]) -> TMLEConfig:
     )
 
 
+def _ctmle_extra_to(arrays: _Arrays, extra: dict[str, Any]) -> dict[str, Any] | None:
+    value = extra.get("ctmle")
+    if value is None:
+        return None
+    from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+
+    if isinstance(value, CTMLEOutcomeAdaptiveFit):
+        return {
+            "kind": "oat",
+            "strategy": value.strategy,
+            "treatment_features": list(value.treatment_features),
+            "treatment_risk": value.treatment_risk,
+        }
+    if not isinstance(value, CTMLESelection):
+        return None
+    return {
+        "kind": "selection",
+        "strategy": value.strategy,
+        "preorder": value.preorder,
+        "estimand": value.estimand,
+        "target_names": list(value.target_names),
+        "loss": value.loss,
+        "penalized": value.penalized,
+        "path": [list(names) for names in value.path],
+        "n_steps": list(value.n_steps),
+        "train_risk": arrays.put("extra.ctmle.train_risk", value.train_risk),
+        "train_loss": arrays.put("extra.ctmle.train_loss", value.train_loss),
+        "penalty": arrays.put("extra.ctmle.penalty", value.penalty),
+        "treatment_risk": arrays.put("extra.ctmle.treatment_risk", value.treatment_risk),
+        "cv_risk": arrays.put("extra.ctmle.cv_risk", value.cv_risk),
+        "selected": value.selected,
+        "covariates": list(value.covariates),
+    }
+
+
+def _ctmle_extra_from(arrays: _Arrays, payload: dict[str, Any] | None) -> dict[str, Any]:
+    if payload is None:
+        return {}
+    from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+
+    if payload["kind"] == "oat":
+        return {
+            "ctmle": CTMLEOutcomeAdaptiveFit(
+                strategy=payload["strategy"],
+                treatment_features=tuple(payload["treatment_features"]),
+                treatment_risk=float(payload["treatment_risk"]),
+            )
+        }
+    return {
+        "ctmle": CTMLESelection(
+            strategy=payload["strategy"],
+            preorder=payload["preorder"],
+            estimand=payload["estimand"],
+            target_names=tuple(payload["target_names"]),
+            loss=payload["loss"],
+            penalized=payload["penalized"],
+            path=tuple(tuple(names) for names in payload["path"]),
+            n_steps=tuple(payload["n_steps"]),
+            train_risk=arrays.get(payload["train_risk"]),
+            train_loss=arrays.get(payload["train_loss"]),
+            penalty=arrays.get(payload["penalty"]),
+            treatment_risk=arrays.get(payload["treatment_risk"]),
+            cv_risk=arrays.get(payload["cv_risk"]),
+            selected=int(payload["selected"]),
+            covariates=tuple(payload["covariates"]),
+        )
+    }
+
+
 def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatArray]]:
     """Split a result into a JSON-safe manifest and a dictionary of arrays."""
     arrays = _Arrays()
+    ctmle_extra = _ctmle_extra_to(arrays, result.extra)
+    unsupported_extra = bool(set(result.extra) - {"ctmle"}) or bool(
+        result.extra and ctmle_extra is None
+    )
     manifest: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
         "estimates": {
@@ -834,6 +911,7 @@ def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatA
         "data": _data_to(arrays, result.data),
         "config": _config_to(result.config),
         "intermediate_value": result.intermediate_value,
+        "ctmle_extra": ctmle_extra,
         "provenance": None if result.provenance is None else result.provenance.to_dict(),
         "recipe": (
             None
@@ -841,14 +919,17 @@ def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatA
             else TMLERecipe.from_estimator(result.estimator).to_dict()
         ),
         # Dropped deliberately, and named so the omission is visible rather than
-        # discovered: both are reporting objects rebuilt on demand from the arrays
-        # that *are* stored.
+        # discovered: the first two are reporting objects rebuilt on demand from the
+        # arrays that *are* stored, and the third is whatever `extra` this format has
+        # no persisted form for.  `unsupported_extra` is a bool, so it is mapped to
+        # `None` rather than left to the filter below -- `False is not None` is true,
+        # and letting it through named `extra` dropped in every file ever written.
         "dropped": sorted(
             key
             for key, value in (
                 ("simultaneous", result.simultaneous),
                 ("bootstrap", result.bootstrap),
-                ("extra", result.extra or None),
+                ("extra", unsupported_extra or None),
             )
             if value is not None
         ),
@@ -892,6 +973,7 @@ def result_from_dict(manifest: dict[str, Any], store: dict[str, FloatArray]) -> 
         estimator=_LazyEstimator(recipe) if recipe is not None else None,
         provenance=None if provenance is None else Provenance.from_dict(provenance),
         intermediate_value=manifest["intermediate_value"],
+        extra=_ctmle_extra_from(arrays, manifest.get("ctmle_extra")),
     )
 
 
