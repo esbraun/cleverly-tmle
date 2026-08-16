@@ -416,7 +416,10 @@ def mean_submodel(
         already truncated away from zero.  Rows need **not** sum to one: with more than
         two arms the truncation is applied arm by arm and deliberately not renormalised,
         for the reasons :meth:`~cleverly.estimators._nuisance.Propensity.bounded` sets
-        out.  Only ``g_a`` enters arm ``a``'s column, so the sum never appears.
+        out, and the missing-outcome construction passes the joint
+        :math:`g_a(W) \pi_a(W)`, which is not a distribution over the arms at all.  Only
+        ``g_a`` enters arm ``a``'s column, so the sum never appears, and each column
+        lying strictly inside ``(0, 1)`` is the only constraint.
     arms:
         The arm codes ``propensity``'s columns are keyed by, ascending.  Defaults to the
         two-arm case so that the many places constructing a binary submodel directly need

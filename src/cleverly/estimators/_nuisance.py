@@ -51,7 +51,7 @@ from ..utils.parallel import map_parallel
 from .direct_effect import check_level
 
 if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes one way
-    from .reduced import ReducedSet
+    from .reduced import MissingOutcomeReducedSet, ReducedSet
 
 __all__ = [
     "CompanionEstimates",
@@ -73,6 +73,12 @@ __all__ = [
 #: see :func:`~cleverly.estimators.reduced.fit_reduced`.
 CompanionDesign: TypeAlias = "FloatArray | Sequence[FloatArray]"
 
+#: How far a two-arm mechanism's rows may depart from summing to one before
+#: :class:`Propensity` refuses to call it a distribution over the arms.  Loose enough for
+#: the float error in a classifier's ``[1 - p, p]`` and in a weighted arm proportion, tight
+#: enough that no real second mechanism slips through.
+_SIMPLEX_TOLERANCE = 1e-9
+
 
 @dataclass(frozen=True)
 class Propensity:
@@ -85,13 +91,22 @@ class Propensity:
     without refitting.
 
     A matrix rather than the single :math:`g_1(W)` vector this used to be, even for two
-    arms -- where column 0 is exactly ``1 - g1`` and the arithmetic is unchanged.  With
-    more than two arms there is no margin to be the propensity: the mechanism is a
-    distribution over the arms, and every arm needs its own denominator.
+    arms -- where column 0 is exactly ``1 - g1`` and the arithmetic is unchanged, *because*
+    the two columns are a distribution over the arms.  With more than two arms there is no
+    margin to be the propensity: the mechanism is a distribution over the arms, and every
+    arm needs its own denominator.
+
+    ``simplex`` says whether the rows are that distribution. The flag also supports
+    deliberately armwise collaborative mechanisms: :meth:`bounded`'s two-arm shortcut is
+    valid only on the simplex, while a non-simplex mechanism is clipped column by column.
     """
 
     values: FloatArray
     arms: tuple[float, ...]
+    #: Whether the rows sum to one.  ``False`` marks a mechanism that is not a
+    #: distribution over the arms, which is what :meth:`bounded` keys its two-arm
+    #: shortcut off.
+    simplex: bool = True
 
     def __post_init__(self) -> None:
         values = np.asarray(self.values, dtype=float)
@@ -100,6 +115,22 @@ class Propensity:
                 f"propensity must be (n, {len(self.arms)}) for arms {list(self.arms)}; "
                 f"got shape {values.shape}"
             )
+        # Checked rather than trusted, because `bounded` derives arm 0 from arm 1 whenever
+        # this holds: a mechanism that is off the simplex and does not say so gets the
+        # complement of the wrong column as its other denominator, which is a wrong
+        # estimate rather than an error. Only two arms, since more are deliberately allowed
+        # off the simplex, and only when every value is finite, which excludes
+        # `UnfittedPropensity`'s NaN staging array.
+        if len(self.arms) == 2 and self.simplex and bool(np.all(np.isfinite(values))):
+            deviation = float(np.max(np.abs(values.sum(axis=1) - 1.0)))
+            if deviation > _SIMPLEX_TOLERANCE:
+                raise ValueError(
+                    f"a two-arm propensity's rows must sum to one, and these depart by "
+                    f"{deviation:.3g}. Pass simplex=False if this is deliberately not a "
+                    "distribution over the arms -- a joint mechanism g_a(W) pi_a(W), say -- "
+                    "so that bounded() clips both columns instead of taking one as the "
+                    "complement of the other."
+                )
 
     @property
     def n(self) -> int:
@@ -123,10 +154,13 @@ class Propensity:
     def bounded(self, bounds: tuple[float, float]) -> FloatArray:
         r"""The ``(n, K)`` mechanism truncated into ``bounds``.
 
-        **Two arms keep the complement form.**  ``g1`` is clipped and arm 0 is taken as
-        ``1 - g1``, which is exactly what the estimator has always done -- and it is not
-        the same as clipping both columns when ``bounds`` is asymmetric, so this is what
-        keeps every binary regression fixture valid.
+        **Two arms on the simplex keep the complement form.**  ``g1`` is clipped and arm 0
+        is taken as ``1 - g1``, which is exactly what the estimator has always done -- and
+        it is not the same as clipping both columns when ``bounds`` is asymmetric, so this
+        is what keeps every binary regression fixture valid.  It is valid only because the
+        two columns sum to one; a ``simplex=False`` mechanism takes the column-by-column
+        branch below, and :meth:`__post_init__` refuses the combination that would silently
+        get this one.
 
         **More than two arms are clipped column by column, and are not renormalised.**
         Flooring a row of a multinomial breaks :math:`\sum_a g_a = 1`, and the obvious
@@ -141,7 +175,7 @@ class Propensity:
         """
         lower, upper = float(bounds[0]), float(bounds[1])
         values = np.asarray(self.values, dtype=float)
-        if self.n_arms == 2:
+        if self.n_arms == 2 and self.simplex:
             one = bound(values[:, self.column_for(1.0)], lower, upper)
             columns = {self.column_for(1.0): one, self.column_for(0.0): 1.0 - one}
             return np.column_stack([columns[j] for j in range(2)])
@@ -425,7 +459,7 @@ class NuisanceEstimates:
     #: :func:`~cleverly.estimators.reduced.fit_reduced` takes a whole
     #: :class:`NuisanceEstimates` and reads ``folds`` off it, so it cannot be handed a
     #: mechanism and a split that did not come from one construction.
-    reduced: ReducedSet | None = None
+    reduced: ReducedSet | MissingOutcomeReducedSet | None = None
     #: Fold-free copies of the primary nuisances, or ``None`` for every fit that did not
     #: ask for them -- which is every fit but a :class:`~cleverly.DRTMLE` with
     #: ``reduced_crossfit="nested"``.  Carried here rather than in that estimator for the
@@ -1213,8 +1247,9 @@ def fit_inner_designs(
     Only the treatment mechanism and the outcome regression are refitted, because those are
     the two arrays a reduced regression conditions on and takes residuals of.  There is no
     missingness or intermediate model here and no shift or incremental set: a
-    :class:`~cleverly.DRTMLE` refuses ``delta=``, ``intermediate=`` and all four of the other
-    parameter axes by name, so this reproduces the whole of what such a fit's nuisances are.
+    :class:`~cleverly.DRTMLE` refuses ``intermediate=`` and the other parameter axes by
+    name, while its supported ``delta=`` surface requires ``cross_fit=False`` and therefore
+    cannot enter this nested construction.
 
     **Cost is ``K`` times the primary nuisance fitting**, paid once at the initial fit --
     ``K²`` models of each nuisance against ``K``.  Every refit inside the alternation reuses

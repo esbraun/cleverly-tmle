@@ -114,6 +114,7 @@ from ..inference.influence import (
     ParameterEstimate,
     average_estimates,
     make_estimate,
+    missing_outcome_correction_parts,
     reduced_correction_parts,
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
@@ -2525,6 +2526,29 @@ class TMLE:
         return {name: estimate.psi for name, estimate in averaged.items()}
 
 
+def reported_mechanism(
+    nuisance: NuisanceEstimates,
+    fluctuation: Fluctuation,
+    arms: tuple[float, ...],
+) -> FloatArray:
+    """The mechanism the reduced corrections were formed at, in the shape they read it in.
+
+    A tilted mechanism is whatever the alternation solved for. Missing-outcome targeting
+    keeps treatment and observation mechanisms separate; this function returns the former,
+    while the latter is stored on the reduction fluctuation.
+
+    Shared by :func:`correction_parts` and
+    :func:`~cleverly.validation.drtmle.correction_check` for the same reason
+    ``correction_parts`` is module level: the reported curve and the diagnostic that
+    checks it must not be able to describe different mechanisms.
+    """
+    if fluctuation.mechanism is not None:
+        return np.asarray(fluctuation.mechanism.propensity, dtype=float)
+    if len(arms) == 2:
+        return nuisance.propensity.arm(arms[1])
+    return np.asarray(nuisance.propensity.values, dtype=float)
+
+
 def correction_parts(
     data: CausalData,
     nuisance: NuisanceEstimates,
@@ -2539,7 +2563,9 @@ def correction_parts(
     covariates divided by.  A curve built from ``result.nuisance`` instead would be the
     curve of a fit nobody ran -- those arrays are deliberately the *initial* ones.  Without
     the ``"Q"`` guard no mechanism was tilted and the initial one is what equation (10) was
-    solved beside, so that is what the curve reads.
+    solved beside, so that is what the curve reads -- the initial mechanism the covariates
+    actually divided by, which on a missing-outcome fit is the joint one rather than the
+    separately reported propensity.  :func:`reported_mechanism` makes that choice.
 
     Module level rather than a method of :class:`TMLE`, and that is the whole point: the
     reported curve and :func:`~cleverly.validation.drtmle.correction_check`'s identity both
@@ -2555,15 +2581,22 @@ def correction_parts(
     reduction = fluctuation.reduction
     if reduction is None:
         return None
-    mechanism = (
-        fluctuation.mechanism.propensity
-        if fluctuation.mechanism is not None
-        else (
-            nuisance.propensity.arm(reduction.reduced.arms[1])
-            if len(reduction.reduced.arms) == 2
-            else nuisance.propensity.values
+    mechanism = reported_mechanism(nuisance, fluctuation, reduction.reduced.arms)
+    if reduction.observation is not None:
+        if reduction.missingness_bound is None:
+            raise ValueError("a missing-outcome reduction record has no observation bound")
+        return missing_outcome_correction_parts(
+            scaled,
+            targeted,
+            data.treatment,
+            data.observed,
+            reduction.reduced,
+            mechanism,
+            np.asarray(reduction.observation.propensity, dtype=float),
+            g_bounds=reduction.bounds,
+            missingness_bound=reduction.missingness_bound,
+            guard=tuple(reduction.guard),
         )
-    )
     return reduced_correction_parts(
         scaled,
         targeted,

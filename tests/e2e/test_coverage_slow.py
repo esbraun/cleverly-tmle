@@ -877,8 +877,10 @@ class TestClusteredInference:
         columns = {"outcome": "Y", "treatment": "A", "covariates": ["W1", "W2"]}
         ignoring = _study(dgp, n=1000, reps=200, fit_kwargs=columns)["ate"]
         clustered = _study(dgp, n=1000, reps=200, fit_kwargs={**columns, "id": "cluster"})["ate"]
-        # The DGP shares an unobserved latent within clusters. Ignoring it understates
-        # the variance and coverage collapses; accounting for it restores calibration.
+        # The DGP shares an unobserved latent within clusters, as an effect modifier rather
+        # than a confounder, so the ATE stays identified from W1 and W2 while the influence
+        # curves stay correlated. Ignoring that correlation understates the variance and
+        # coverage collapses; accounting for it restores calibration.
         assert ignoring.coverage < 0.90
         assert clustered.coverage > ignoring.coverage + 0.03
         assert clustered.se_ratio > ignoring.se_ratio

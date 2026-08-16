@@ -15,7 +15,7 @@ import pytest
 
 from cleverly import TMLE
 from cleverly.data import CausalData
-from cleverly.estimators._nuisance import Propensity
+from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
 from cleverly.exceptions import DataError
 from cleverly.fluctuation.submodel import atc_submodel, att_submodel, mean_submodel
 from cleverly.learners.crossfit import make_folds
@@ -224,6 +224,39 @@ class TestTruncation:
         np.testing.assert_allclose(bounded[:, 0], 1.0 - np.clip(g1, 0.01, 0.95))
         # The simplex survives exactly, which is why a binary fit reports no deviation.
         np.testing.assert_array_equal(bounded.sum(axis=1), np.ones(5))
+
+    def test_two_arms_off_the_simplex_are_clipped_column_by_column(self) -> None:
+        """``simplex=False`` gets the multi-arm rule, because the complement is not one.
+
+        The joint arm-and-observation mechanism a missing-outcome DR-TMLE divides by is
+        ``g_a(W) pi_a(W)``: two columns that are each a probability and are *not* each
+        other's complement.  Taking arm 0 as ``1 - g_1 pi_1`` would hand it the probability
+        of *not* being treated-and-observed, which is a different and much larger number.
+        """
+        joint = np.array([[0.005, 0.30], [0.35, 0.30], [0.02, 0.97]])
+        mechanism = Propensity(joint, (0.0, 1.0), simplex=False)
+        bounded = mechanism.bounded((0.01, 0.95))
+        np.testing.assert_array_equal(bounded, np.clip(joint, 0.01, 0.95))
+        # The mutation control: on the same array the complement rule is a materially
+        # different denominator, so the assertion above is not one the old code passed too.
+        complement = 1.0 - np.clip(joint[:, 1], 0.01, 0.95)
+        assert np.max(np.abs(bounded[:, 0] - complement)) > 0.6
+
+    def test_a_two_arm_mechanism_off_the_simplex_must_say_so(self) -> None:
+        """The flag is checked, not trusted, because forgetting it is silent otherwise.
+
+        Without this the joint would take the complement branch and the fit would return a
+        finite, plausible, wrong number rather than an error.
+        """
+        joint = np.column_stack([np.array([0.30, 0.35]), np.array([0.28, 0.31])])
+        with pytest.raises(ValueError, match="must sum to one"):
+            Propensity(joint, (0.0, 1.0))
+        Propensity(joint, (0.0, 1.0), simplex=False)  # named, and so allowed
+
+    def test_the_simplex_check_spares_the_cases_that_cannot_meet_it(self) -> None:
+        """Three arms are deliberately off the simplex, and an unfitted one is all NaN."""
+        Propensity(np.full((4, 3), 0.2), (0.0, 1.0, 2.0))
+        UnfittedPropensity(np.full((4, 2), np.nan), (0.0, 1.0))
 
     def test_more_arms_are_clipped_per_arm_and_not_renormalised(self) -> None:
         """Every arm is floored, and the row is left off the simplex deliberately.

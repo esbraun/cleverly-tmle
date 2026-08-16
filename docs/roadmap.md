@@ -68,22 +68,13 @@ Work these in order. The canonical implementation reference is the MIT-licensed
 provenance; van der Laan (2014), Benkeser et al. (2017), and Benkeser & Hejazi (2023) supply the
 statistical claims.
 
-1. **Missing outcomes, then missing treatment — source audit.** The canonical package has a
-   documented missing-data construction and executable [missing-`A`/`Y`
-   tests](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/tests/testthat/test-drtmle-missingAY.R),
-   so this has a real implementation to follow. Díaz & van der Laan (2017) give a published
-   doubly-robust-inference construction for randomized trials with missing outcomes. Before
-   porting, reconcile the package's use of the observation mask in `eval_Dstar_g` with its
-   omission from the separately computed reduced correction, and state exactly which published
-   theorem covers the observational-treatment composition. Do not choose a convention from
-   whichever code path is easiest to copy.
-2. **Cross-validated DR-TMLE — source audit.** Benkeser & Hejazi (2023, §4.7) and the canonical
+1. **Cross-validated DR-TMLE — source audit.** Benkeser & Hejazi (2023, §4.7) and the canonical
    package's `cvFolds` path provide published and executable guidance. First map that construction
    to this package's distinct nuisance cross-fitting, `targeting_scheme="fold"`, and
    `cv_evaluation=True` semantics. Implement only the modes for which the published parameter,
    corrected influence curve, and fold aggregation coincide; a shared name such as “CV-TMLE” is
    not proof that they do.
-3. **Bivariate reduction — published support, pending source read.** van der Laan (2014),
+2. **Bivariate reduction — published support, pending source read.** van der Laan (2014),
    Theorem 3, supplies the regularity conditions; Benkeser et al. (2017) supplies the bivariate
    expansion; and the canonical package implements and tests
    `reduction="bivariate"`. Read Theorem 3 into the
@@ -96,6 +87,8 @@ composition. Public implementations of ordinary TMLE for `att`/`atc`, stochastic
 continuous shifts, incremental interventions, marginal structural models, mediation, and C-TMLE
 do not establish an interval that remains valid when one primary nuisance is inconsistent.
 Estimated weights likewise need a published influence contribution for estimating the weights.
+Missing treatment also remains refused: canonical smoke tests do not supply this package's
+required identification, corrected curve, remainder, and rate conditions.
 Keep these refusals until a paper supplies the missing reduced regressions, corrected influence
 curve, remainder, and rate conditions; do not generalize the mean construction by analogy.
 

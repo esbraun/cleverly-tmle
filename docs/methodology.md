@@ -600,6 +600,17 @@ single-guard fit reports one of the two and a shorter curve. All three empirical
 zero after targeting, so the subtraction **cannot move the point estimate**; it moves only
 the variance.
 
+For the binary randomized-trial missing-outcome surface, Díaz & van der Laan (2017) instead
+defines five reductions (`gamma_A`, `gamma_Delta`, `r_A`, `r_Delta`, and `e`) and three
+separate corrections. The targeter updates the treatment and observation mechanisms in their
+own logistic submodels and updates the outcome along both its ordinary and drift-correction
+covariates. `tests/unit/test_drtmle_missing.py` checks the three score blocks separately and
+keeps a nonzero mutation witness: merely zeroing their algebraic sum is insufficient evidence.
+Treatment and observation are bounded separately and their product is derived only for the
+ordinary missing-outcome clever covariate. The paper does not pursue a cross-validated extension,
+so this surface requires `cross_fit=False`, both guards, and the other restrictions stated in the
+[contract](drtmle.md#randomized-trials-with-missing-outcomes).
+
 Four things about this are easy to get wrong, and each has an instrument.
 
 **`guard=` is crossed.** `guard="Q"` guards against a misspecified *outcome regression* and
@@ -906,7 +917,7 @@ so rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| `DRTMLE` with `delta=`/`intermediate=`, fold-wise, or composed with `CTMLE`; and `reduction="bivariate"` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
+| `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, or composition with `CTMLE`; and `reduction="bivariate"` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
 | the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](user-guide.md#tilting-the-odds-of-treatment) |
 | a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |

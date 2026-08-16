@@ -830,14 +830,29 @@ def make_cde(
 
 
 def clustered_dgp(cluster_size: int = 10) -> DGP:
-    """Within-cluster dependence through a shared latent variable."""
+    """Within-cluster dependence through a shared latent *effect modifier*.
+
+    The third latent is shared within a cluster and is not among the covariates, and it is
+    kept out of the propensity **on purpose**: a hidden variable that moved treatment as
+    well would confound, and the declared ATE would not be the parameter an adjusted fit
+    estimates.  It is independent of ``A`` here, so ``E[w2 | A, W1, W2] = 0`` and the
+    contrast stays ``1.0`` at every covariate value.
+
+    It enters the outcome **interacted with the arm**, which is what makes the influence
+    curves correlated within a cluster.  A shared *additive* residual would not: conditional
+    on the covariates the units in a cluster are independent, so the covariance runs through
+    ``E[H | W]`` for the clever covariate ``H``, and that is ``g/g - (1-g)/(1-g) = 0``
+    exactly once ``g`` is well specified.  Interacting with the arm leaves the ``A``-selected
+    half of the residual, which the weight does not annihilate.  Measured design effect at
+    ``cluster_size=10``: ``1.96``, against ``1.00`` for the additive form.
+    """
 
     def propensity(w: FloatArray) -> FloatArray:
-        return expit(0.3 * w[:, 0] + 0.6 * w[:, 2])
+        return expit(0.3 * w[:, 0] + 0.6 * w[:, 1])
 
     def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
         del z
-        return 1.0 + 1.0 * a + 0.8 * w[:, 0] + 0.5 * w[:, 1] + 1.5 * w[:, 2]
+        return 1.0 + 1.0 * a + 0.8 * w[:, 0] + 0.5 * w[:, 1] + 1.5 * w[:, 2] + 2.0 * a * w[:, 2]
 
     return DGP(
         name=f"clustered(size={cluster_size})",
@@ -857,12 +872,16 @@ def make_clustered(
     cluster_size: int = 10,
     backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
-    """Clustered data with an *unobserved* shared effect driving both ``A`` and ``Y``.
+    """Clustered data with an *unobserved* shared effect modifying the treatment effect.
 
-    The third latent variable is shared within a cluster and is deliberately not
-    included among the covariates, so the influence curves are correlated within
-    clusters.  Ignoring ``id=`` here understates the standard error -- which is exactly
-    what the cluster-variance test checks.
+    The third latent variable is shared within a cluster and is deliberately not included
+    among the covariates, so the influence curves are correlated within clusters.  Ignoring
+    ``id=`` here understates the standard error -- which is exactly what the cluster-variance
+    test checks.
+
+    It moves ``Y`` and, being independent of ``A``, leaves the ATE identified from the
+    covariates that are emitted; see :func:`clustered_dgp` for why both of those are
+    necessary and why an additive shared effect would give neither.
     """
     return _make(clustered_dgp(cluster_size), n, seed, backend)
 

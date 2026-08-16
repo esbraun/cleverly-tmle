@@ -39,6 +39,8 @@ from cleverly.datasets import (
     nonlinear_dgp,
     weak_overlap_dgp,
 )
+from cleverly.estimators import TMLE
+from tests.conftest import FAST_KWARGS
 
 
 class TestTruth:
@@ -380,6 +382,49 @@ class TestSampling:
         y = frame["Y"].to_numpy()
         means = np.array([y[cluster == k].mean() for k in np.unique(cluster)])
         assert float(np.var(means)) > float(np.var(y)) / 10.0
+
+    def test_the_declared_ate_is_the_one_the_covariates_identify(self) -> None:
+        """The shared latent must not move ``A``, or ``truth`` is not what a fit estimates.
+
+        It used to: the latent drove the propensity as well as the outcome, so the
+        parameter identified from ``W1`` and ``W2`` was **1.83** against a declared truth of
+        ``1.0``, and the coverage study reported exactly that bias. The gap is five orders
+        of magnitude wider than the tolerance here, which is set by the Sobol rule rather
+        than by anything statistical -- the ATE is now ``1 + 2.0 * E[w2]`` and the rule
+        integrates ``E[w2]`` to about ``1.7e-7``.
+        """
+        dgp = clustered_dgp(cluster_size=10)
+        assert dgp.truth()["ate"] == pytest.approx(1.0, abs=1e-5)
+
+        frame, _ = make_clustered(n=200_000, seed=5, cluster_size=10)
+        y = frame["Y"].to_numpy()
+        a = frame["A"].to_numpy()
+        design = np.column_stack(
+            [np.ones_like(a), a, frame["W1"].to_numpy(), frame["W2"].to_numpy()]
+        )
+        # A working model with no A-by-latent term, which is what an analyst has: the
+        # latent is not emitted, so the coefficient on A is the identified contrast.
+        coefficients, *_ = np.linalg.lstsq(design, y, rcond=None)
+        assert float(coefficients[1]) == pytest.approx(1.0, abs=0.03)
+
+    def test_the_shared_effect_actually_correlates_the_influence_curve(self) -> None:
+        """The other half, and the one an identification fix can silently destroy.
+
+        Taking the latent out of the propensity restores identification and -- on its own --
+        leaves the influence curve i.i.d., because a shared *additive* residual reaches the
+        curve only through ``E[H | W]``, which is zero for a correctly specified ``g``.
+        The latent is an effect modifier for that reason, and this is the witness: without
+        the ``a * w2`` term the design effect measured 1.00 rather than the 1.96 here.
+        """
+        frame, _ = make_clustered(n=20_000, seed=11, cluster_size=10)
+        result = TMLE(**FAST_KWARGS, estimands=("ate",)).fit(
+            frame, outcome="Y", treatment="A", covariates=["W1", "W2"]
+        )
+        curve = np.asarray(result.single()["ate"].influence_curve)
+        groups = curve.reshape(-1, 10)
+        variance = float(np.var(curve, ddof=1))
+        icc = (float(np.var(groups.mean(axis=1), ddof=1)) * 10 - variance) / (9 * variance)
+        assert icc > 0.03
 
     def test_binary_outcomes_are_zero_one(self) -> None:
         frame, _ = make_binary_outcome(n=500, seed=0)

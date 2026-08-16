@@ -135,9 +135,12 @@ implementation for the influence curve. What each supplies, and where in it, is
   regression is §4.7, p. 69.
 - Díaz & van der Laan (2017), *Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*, Statistics in Medicine 36:3807–3819, DOI
-  [10.1002/sim.7389](https://doi.org/10.1002/sim.7389). This establishes the missing-outcome
-  construction for randomized treatment; it does not by itself establish the observational-
-  treatment composition exposed by the canonical package.
+  [10.1002/sim.7389](https://doi.org/10.1002/sim.7389). Read first-hand. §2.1 states the observed-
+  data model and EIF; equation (6) defines the reductions; Theorems 1–2 and equations (11)–(13)
+  give the corrections and targeting algorithm. This establishes the missing-outcome construction
+  for randomized treatment; it does not establish the observational-treatment or missing-treatment
+  compositions exposed by the canonical package, and it explicitly leaves cross-validation to
+  future work.
 
 The `benkeser/drtmle` R package's source and reference documentation are cited in a few places as
 **provenance** — where a formula was transcribed from, and what it is named there. Running it is

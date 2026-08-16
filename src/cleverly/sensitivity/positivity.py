@@ -516,6 +516,29 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
             "clipped": float(clipped.sum()),
             "clipped_fraction": float(clipped.mean()),
         }
+
+    # The product is a derived denominator, not a third fitted or targeted mechanism.
+    # Report it without storing it on the nuisance state so the treatment and observation
+    # probabilities cannot become stale relative to a cached product.
+    missing_reduction = getattr(nuisance.reduced, "reduction", None) == "missing_outcome"
+    if missing_reduction and nuisance.missingness is not None:
+        lower = result.config.g_bounds[0] * result.config.missingness_bound
+        array = np.asarray(nuisance.propensity.values, dtype=float) * np.asarray(
+            nuisance.missingness, dtype=float
+        )
+        flat = array.reshape(-1)
+        clipped = flat < lower
+        at_arm = np.where(treated, array[:, 1], array[:, 0])
+        used = np.maximum(at_arm[contributing], lower)
+        out["P(A=a,Delta=1|W)"] = {
+            "min": float(flat.min()),
+            "q01": float(np.quantile(flat, 0.01)),
+            "q05": float(np.quantile(flat, 0.05)),
+            "median": float(np.median(flat)),
+            "ess_ratio": (_kish_ess(1.0 / used) / float(used.size) if used.size else float("nan")),
+            "clipped": float(clipped.sum()),
+            "clipped_fraction": float(clipped.mean()),
+        }
     return out
 
 
@@ -688,11 +711,8 @@ def truncation_curve(
 def _clipped_fraction(result: TMLEResult, lower: float, mechanism: bool) -> float:
     """Share of nuisance values the bound would clip, for whichever bound is swept."""
     if not mechanism:
-        # Over the whole (n, K) mechanism.  With two arms the columns are ``g1`` and its
-        # complement, so a cell is clipped exactly when its mirror is and the fraction is
-        # the same one the single-vector form reported.
-        propensity = np.asarray(result.nuisance.propensity.values, dtype=float)
-        return float(np.mean((propensity < lower) | (propensity > 1.0 - lower)))
+        divisor = np.asarray(result.nuisance.propensity.values, dtype=float)
+        return float(np.mean((divisor < lower) | (divisor > 1.0 - lower)))
     # The intermediate entry must be the density for the level being targeted, not the
     # raw P(Z = 1 | A, W): at z = 0 the covariate divides by the complement, so reading
     # the array directly counts the wrong tail and reports a mirror-inverted fraction.

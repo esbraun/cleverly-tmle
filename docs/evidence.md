@@ -71,6 +71,22 @@ do not add registry rows. Their multi-arm constructions have separate evidence i
 `tests/unit/test_multi_arm_collaborative.py`. Binary compatibility remains covered by the
 existing C-TMLE and DR-TMLE suites, which continue down their original branches.
 
+The randomized missing-outcome DR-TMLE surface is likewise an estimator variant over those
+registered targets. Its acceptance evidence is Díaz & van der Laan (2017), §2.1, equation (6),
+Theorems 1–2, and equations (11)–(13), plus `tests/unit/test_drtmle_missing.py`. That module keeps
+all five reduced regressions and the separate `D_A`, `D_Delta`, and `D_Y` corrections, with a
+nonzero finite-array witness that fails if the treatment correction is silently absorbed into
+the observation correction. End-to-end fits require all three correction rows to agree with the
+scores actually solved, exercise learned and known-randomization paths, refuse partial guards,
+and round-trip the five reductions plus the targeted observation mechanism. A rowwise clever-
+covariate identity verifies that treatment and observation are bounded separately before their
+product is formed. A `slow` consistency study at `n = 20,000` keeps the deliberately misspecified-
+outcome/correct-mechanism half of the union model as statistical evidence beyond score identities.
+The canonical R package's missing-data path is provenance only; no numeric parity is an
+acceptance gate. Cross-validated, observational, and missing-treatment compositions are not
+covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because
+the array cannot be reindexed to a replicate's resampled rows.
+
 **The exact law alone is not evidence for either construction, and this is worth writing
 down rather than leaving to be rediscovered.** Handed the oracle nuisances,
 `tests/discrete_law_multi.py` makes every new term vanish: `max|Qr| = 1.9e-17`, `gr2 = 0`
@@ -136,6 +152,29 @@ evidence structure explicit.
 | absorbing survival curve | `tests/discrete_law_survival.py`, `tests/unit/test_influence_gateaux_survival.py` | the `t-1` risk-set mutation and end-of-study reduction in `tests/e2e/test_ltmle.py` | the same R fixture at horizon two, with cumulative event nodes and explicit post-event missingness | the R witness does not cover every horizon jointly or competing events |
 | competing-risks cumulative incidence | `tests/discrete_law_competing.py`, `tests/unit/test_influence_gateaux_competing.py` | mutation from all-cause to cause-specific survival in the Gateaux module; one-cause reduction in `tests/e2e/test_ltmle.py` | — | no canonical R comparison: the fixture would not add evidence beyond the exact law unless a distinct finite-sample blind spot is first named |
 | working model over regimen/horizon cells | `tests/discrete_law_longitudinal.py`, `tests/unit/test_influence_gateaux_longitudinal_msm.py` | non-saturated, nonuniform projection law plus exact pooled-design/loss-weight checks in `tests/unit/test_longitudinal_msm_submodel.py` | — | R `ltmleMSM` uses a quasibinomial working-model projection; cleverly declares an outcome-scale weighted least-squares projection, so raw coefficient parity would compare different estimands |
+
+## A simulated law is an instrument too, and it can be wrong the same way
+
+A coverage study is only evidence if the number it calls the truth is the number an adjusted
+fit is estimating. Two of the generators shipped for clustered inference failed that: the
+per-cluster latent drove the treatment mechanism as well as the outcome and was not emitted
+as a covariate, so the declared ATE of `1.0` was not identified — `1.83` was — and every
+interval missed by six to ten standard errors while the docstring claimed the counterfactual
+means were unchanged. The longitudinal generator failed it twice, since its shared effect
+also tilted the outcome on the logit scale, where `E_S[expit(eta + gamma S)] != expit(eta)`
+moves the means whatever the mechanism does.
+
+Both now put the sharing where it does not confound and assert it: `clustered_dgp` makes the
+latent an **effect modifier** independent of treatment, and the longitudinal generators share
+part of `L2`'s own noise, whose conditional law is preserved exactly so a clustered draw's
+`truth` is the *same number* as an unclustered one's (`tests/unit/test_datasets.py`,
+`tests/unit/test_datasets_longitudinal.py`).
+
+The second half is the part that is easy to lose. Removing the confounding *also removes the
+clustering*, because a shared additive residual reaches the influence curve only through
+`E[H | W]`, which is zero for a well-specified `g` — measured design effect fell from 1.87 to
+1.00. So each generator carries a nonzero within-cluster witness beside its identification
+test; without one, a correct-looking fix leaves the study measuring nothing.
 
 ## What this table says is missing
 

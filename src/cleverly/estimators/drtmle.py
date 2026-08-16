@@ -108,24 +108,38 @@ alternation, plus a mechanism fluctuation.  A truncation curve or an MNAR sweep 
 variant breaks and the reason it is a class of its own rather than a keyword.
 
 Scope follows the vetted R implementation for arbitrary discrete treatment levels, the
-``mean`` group, and Benkeser et al.'s univariate reduction.  Continuous treatment and other
-target groups remain refused by name.
+``mean`` group, and Benkeser et al.'s univariate reduction.  It also includes Díaz & van der
+Laan (2017)'s binary randomized-trial construction for MAR outcomes, without cross-fitting;
+there five reductions and separate treatment, observation and outcome tilts replace the
+complete-data pair. Continuous treatment, observational missing outcomes, missing treatment,
+and other target groups remain refused by name.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from copy import copy
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, cast
+
+import numpy as np
 
 from ..data.causal_data import CausalData
 from ..learners.crossfit import Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
-from ._nuisance import NuisanceEstimates, fit_inner_designs
+from ._nuisance import NuisanceEstimates, Propensity, fit_inner_designs
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .ctmle import CTMLE
-from .reduced import REDUCED_CROSSFITS, REDUCTIONS, ReducedSet, fit_reduced, refuse_unsupported
+from .reduced import (
+    REDUCED_CROSSFITS,
+    REDUCTIONS,
+    MissingOutcomeReducedSet,
+    ReducedSet,
+    fit_missing_outcome_reduced,
+    fit_reduced,
+    refuse_unsupported,
+)
 from .targeting import ReductionOrder, ReductionSpec
 from .tmle import TMLE
 
@@ -217,6 +231,9 @@ class DRTMLE(TMLE):
         way that package crosses it -- see :data:`GUARDS`.  Both by default.  An empty guard
         fits no reduced regressions and is a plain TMLE, bit for bit.
 
+        Missing-outcome fits require both guards because Díaz & van der Laan's algorithm
+        targets all three correction blocks together; partial guards are refused there.
+
         It also says which corrections the reported curve subtracts -- one per equation
         solved, so ``guard=("g",)`` reports :math:`D = D^* - D^*_Q` and the score check's
         verdict names that curve.  The other equation's correction is still recomputed and
@@ -227,12 +244,14 @@ class DRTMLE(TMLE):
         ``"bivariate"`` -- van der Laan (2014)'s original single bivariate reduced mechanism
         -- is derived but not written, and is refused by name.
     update_order:
-        Which route a round of the alternation takes, ``"cleverly"`` (default) or
+        On complete-outcome fits, which route a round of the alternation takes,
+        ``"cleverly"`` (default) or
         ``"paper"``.  **A diagnostic keyword rather than a tuning one**, and the reason is
         the update-order question: the 2016 working paper's step 7 states
         its own termination as the three empirical means being approximately zero, so its
         six-step order is one route to a fixed point rather than something Theorem 1
-        assumes about the collection returned.  ``"paper"`` implements that order beside
+        assumes about the collection returned. Missing-outcome fits always use their
+        dedicated published cycle. ``"paper"`` implements the complete-data order beside
         this package's -- equation (8), then :math:`g_{r,1}` and :math:`g_{r,2}` at the
         **once-updated** outcome regression, then equation (10), then :math:`Q_r` at the
         **twice-updated** one, then equation (9) -- so that *whether the two reach the same
@@ -290,6 +309,11 @@ class DRTMLE(TMLE):
         of a signed quantity.  **A learner *instance* built for classification cannot serve**
         :math:`Q_r`, whose target is an outcome residual -- if ``outcome_learner=`` is an
         object rather than a name, name a regression learner here.
+    randomized:
+        Declare that treatment was randomized for a fit with ``delta=``.  The treatment
+        learner is still fitted, following Díaz & van der Laan's finite-sample recommendation.
+        To use known probabilities instead, pass row-aligned ``treatment_probabilities=``
+        to :meth:`fit`; doing so bypasses the treatment learner.
 
     Notes
     -----
@@ -299,8 +323,9 @@ class DRTMLE(TMLE):
     * a continuous treatment and ``reduction="bivariate"``;
     * ``att``/``atc`` and the ``interventions=``, ``shifts=``, ``incremental=`` and ``msm=``
       axes -- each is a different score equation with no reduced-dimension derivation;
-    * ``delta=`` and ``intermediate=`` -- the equations above carry no missingness or
-      intermediate factor;
+    * observational treatment with ``delta=``, missing treatment, and ``intermediate=``.
+      Díaz & van der Laan (2017) covers binary randomized treatment with MAR outcomes;
+      the other compositions need their own corrected curve and remainder;
     * ``targeting_scheme="fold"`` -- each fold would need its own reduced regressions and
       alternation; and ``cv_evaluation=True`` -- the common-update construction would need
       the corrected parameter and curve derived under fold-wise evaluation;
@@ -358,6 +383,7 @@ class DRTMLE(TMLE):
         reduced_crossfit: str = "pooled",
         update_order: ReductionOrder = "cleverly",
         evaluation: Any = None,
+        randomized: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -368,7 +394,37 @@ class DRTMLE(TMLE):
         self.reduced_crossfit = reduced_crossfit
         self.update_order = update_order
         self.evaluation = evaluation
+        self.randomized = bool(randomized)
+        self._treatment_probabilities: Any = None
         self._validate_drtmle_settings()
+
+    def fit(
+        self,
+        data: Any,
+        *,
+        treatment_probabilities: Any = None,
+        **roles: Any,
+    ) -> Any:
+        """Fit, optionally using known randomized-treatment probabilities.
+
+        ``treatment_probabilities`` is accepted at fit time because it is row-aligned data.
+        Three forms:
+
+        - a **mapping keyed by treatment level**, ``{"placebo": p0, "active": p1}``, with
+          one ``(n,)`` column per arm and every arm named.  Prefer this: it says which arm
+          each column belongs to instead of relying on the caller and the encoder agreeing
+          about which level sorts first.
+        - ``(n, 2)`` in encoded arm order, which is the levels sorted ascending.
+        - ``(n,)``, read as the probability of the arm whose code is ``1`` -- the *second*
+          sorted level, so ``"placebo"`` in a trial labelled ``active``/``placebo``.
+
+        Supplying any of them implies ``randomized=True`` for the missing-outcome theorem
+        and bypasses the treatment learner.  A shallow per-fit copy keeps an unfitted
+        estimator reusable.
+        """
+        fitted = copy(self)
+        fitted._treatment_probabilities = treatment_probabilities
+        return TMLE.fit(fitted, data, **roles)
 
     def _validate_drtmle_settings(self) -> None:
         unknown = [name for name in self.guard if name not in GUARDS]
@@ -483,6 +539,7 @@ class DRTMLE(TMLE):
         ``folds`` off it.
         """
         self._check_drtmle(data)
+        known = self._known_treatment_probabilities(data)
         base = self._fit_nuisances(
             data,
             folds,
@@ -490,7 +547,10 @@ class DRTMLE(TMLE):
             intermediate_value,
             seed=seed,
             companion=self._companion(data),
+            fit_treatment=known is None,
         )
+        if known is not None:
+            base = replace(base, propensity=known)
         if self.guard and self.reduced_crossfit == "nested":
             # Before the reductions, because they read it. Once per fit rather than once
             # per round: every refit inside the alternation moves these arrays by the
@@ -518,29 +578,139 @@ class DRTMLE(TMLE):
 
         reduced, diagnostics, at_companion = self._fit_reduced(data, base, config.g_bounds)
         if base.companion is not None:
-            base = replace(base, companion=replace(base.companion, reduced=at_companion))
+            base = replace(
+                base,
+                companion=replace(
+                    base.companion,
+                    reduced=cast(tuple[ReducedSet, ...], at_companion),
+                ),
+            )
         return (
             replace(base, reduced=reduced),
             {"drtmle": ReducedFit(self.guard, self.reduction, config.g_bounds, diagnostics)},
         )
 
+    def _known_treatment_probabilities(self, data: CausalData) -> Propensity | None:
+        """The design probabilities as a mechanism, or ``None`` when none were supplied.
+
+        Three accepted forms, and the mapping is the one to reach for.  A trial's arms are
+        named, and the positional forms bind to the arm *codes* -- which are indices into
+        the sorted levels, so ``1`` is ``"placebo"`` in a trial labelled
+        ``active``/``placebo``.  A caller who reads ``(n,)`` as "the probability of
+        treatment" and passes ``P(A = 'active' | W)`` inverts the design, and with unequal
+        allocation nothing downstream contradicts them: the array is in range, its rows sum
+        to one, and the treatment learner it replaces never runs.  So the mapping form
+        exists to let the caller name the arm, exactly as ``arm_gamma`` does in
+        :func:`~cleverly.sensitivity.missingness_tilt`, and the two positional forms name
+        the level they resolved to in every message they raise.
+        """
+        supplied = self._treatment_probabilities
+        if supplied is None:
+            return None
+        levels = list(data.treatment_levels)
+        if isinstance(supplied, Mapping):
+            values = self._probabilities_from_levels(data, supplied, levels)
+        else:
+            values = np.array(supplied, dtype=float, copy=True)
+            if values.ndim == 1:
+                if values.shape[0] != data.n:
+                    raise ValueError(
+                        f"treatment_probabilities has {values.shape[0]} rows; expected {data.n}"
+                    )
+                values = np.column_stack([1.0 - values, values])
+        if values.shape != (data.n, 2):
+            raise ValueError(
+                f"treatment_probabilities must be (n,) for P({data.treatment_name} = "
+                f"{levels[1]!r} | W), (n, 2) in the level order {levels}, or a mapping "
+                f"keyed by those levels; got {values.shape}"
+            )
+        if not np.all(np.isfinite(values)) or np.any(values <= 0.0) or np.any(values >= 1.0):
+            raise ValueError("treatment_probabilities must be finite and strictly between 0 and 1")
+        if not np.allclose(values.sum(axis=1), 1.0, rtol=0.0, atol=1e-12):
+            raise ValueError("each row of treatment_probabilities must sum to one")
+        return Propensity(values, data.arm_codes)
+
+    @staticmethod
+    def _probabilities_from_levels(
+        data: CausalData, supplied: Mapping[Any, Any], levels: list[Any]
+    ) -> np.ndarray:
+        """One ``(n,)`` column per arm, keyed on the way in by the caller's own level.
+
+        Keyed by level in and by arm code out, which is the convention every reported name
+        follows -- and every arm must be named, because an arm left out would be filled in
+        by a complement the caller never wrote, which is the assumption this form exists to
+        state rather than inherit.
+        """
+        columns: dict[float, np.ndarray] = {}
+        for label, probabilities in supplied.items():
+            matches = [index for index, level in enumerate(levels) if level == label]
+            if not matches:
+                raise ValueError(
+                    f"treatment_probabilities names {label!r}, which is not a level of "
+                    f"{data.treatment_name}; its levels are {levels}"
+                )
+            column = np.asarray(probabilities, dtype=float).reshape(-1)
+            if column.shape[0] != data.n:
+                raise ValueError(
+                    f"treatment_probabilities[{label!r}] has {column.shape[0]} rows; "
+                    f"expected {data.n}"
+                )
+            columns[float(matches[0])] = column
+        missing = [levels[int(code)] for code in data.arm_codes if code not in columns]
+        if missing:
+            raise ValueError(
+                f"treatment_probabilities must name every arm, and {missing} are missing. "
+                "The arms left out would take whatever is left over from the ones named, "
+                "which is the design this form exists to state explicitly; give every arm "
+                "its own column."
+            )
+        return np.column_stack([columns[code] for code in data.arm_codes])
+
     def _reduction(self, data: CausalData, nuisance: NuisanceEstimates) -> ReductionSpec | None:
         """The closure the alternation refits with, and the guards it solves.
 
-        The bound comes off ``nuisance.reduced`` rather than off this estimator's settings,
-        which is what keeps :math:`g_{r,2}`'s "chosen at fit time" true under a sweep: a
-        truncation curve moves the clever covariate's denominator, and it must not silently
-        move the array whose *target* was a quotient by a bound the fit declared.
+        The ordinary reduction keeps the bound declared by its fitted state.  The missing-
+        outcome construction instead receives the active treatment and observation bounds
+        from targeting, because those bounds define two of its five regression targets and
+        therefore must move with a truncation sweep.
         """
         if not self.guard or nuisance.reduced is None:
             return None
         bounds = nuisance.reduced.g_bounds
 
-        def refit(current: NuisanceEstimates) -> tuple[ReducedSet, tuple[ReducedSet, ...]]:
+        def refit(
+            current: NuisanceEstimates,
+        ) -> tuple[
+            ReducedSet | MissingOutcomeReducedSet,
+            tuple[ReducedSet | MissingOutcomeReducedSet, ...],
+        ]:
             production, _, at_companion = self._fit_reduced(data, current, bounds)
             return production, at_companion
 
-        return ReductionSpec(refit=refit, guard=self.guard, order=self.update_order)
+        def missing_refit(
+            current: NuisanceEstimates,
+            current_bounds: tuple[float, float],
+            current_missingness_bound: float,
+        ) -> tuple[
+            ReducedSet | MissingOutcomeReducedSet,
+            tuple[ReducedSet | MissingOutcomeReducedSet, ...],
+        ]:
+            production, _, at_companion = self._fit_reduced(
+                data,
+                current,
+                current_bounds,
+                missingness_bound=current_missingness_bound,
+            )
+            return production, at_companion
+
+        return ReductionSpec(
+            refit=refit,
+            missing_refit=(
+                missing_refit if isinstance(nuisance.reduced, MissingOutcomeReducedSet) else None
+            ),
+            guard=self.guard,
+            order=self.update_order,
+        )
 
     def _companion(self, data: CausalData) -> CausalData | None:
         """The declared evaluation rows, prepared the way the fitting rows were.
@@ -577,7 +747,13 @@ class DRTMLE(TMLE):
         data: CausalData,
         nuisance: NuisanceEstimates,
         g_bounds: tuple[float, float],
-    ) -> tuple[ReducedSet, dict[str, list[SuperLearnerDiagnostics]], tuple[ReducedSet, ...]]:
+        *,
+        missingness_bound: float | None = None,
+    ) -> tuple[
+        ReducedSet | MissingOutcomeReducedSet,
+        dict[str, list[SuperLearnerDiagnostics]],
+        tuple[ReducedSet | MissingOutcomeReducedSet, ...],
+    ]:
         """One place resolves the reduced learners, so a refit matches the initial fit.
 
         Deliberately **not** threaded with a draw's seed, unlike the primary nuisances.  The
@@ -586,17 +762,32 @@ class DRTMLE(TMLE):
         which is the contract the sensitivity analyses rest on.  What ``repeats=`` averages
         over is the primary nuisances' splits, which do redraw.
         """
+        regression = self._resolve_learner(
+            self.reduced_outcome_learner, task="regression", fallback=self.outcome_learner
+        )
+        classification = self._resolve_learner(
+            self.reduced_treatment_learner,
+            task="classification",
+            fallback=self.treatment_learner,
+        )
+        if data.has_missing_outcome:
+            reduced, diagnostics = fit_missing_outcome_reduced(
+                data,
+                nuisance,
+                regression_learner=regression,
+                classification_learner=classification,
+                g_bounds=g_bounds,
+                missingness_bound=(
+                    self.nuisance_bound if missingness_bound is None else missingness_bound
+                ),
+                n_jobs=self.n_jobs,
+            )
+            return reduced, diagnostics, ()
         return fit_reduced(
             data,
             nuisance,
-            regression_learner=self._resolve_learner(
-                self.reduced_outcome_learner, task="regression", fallback=self.outcome_learner
-            ),
-            classification_learner=self._resolve_learner(
-                self.reduced_treatment_learner,
-                task="classification",
-                fallback=self.treatment_learner,
-            ),
+            regression_learner=regression,
+            classification_learner=classification,
             g_bounds=g_bounds,
             reduction=self.reduction,
             crossfit=self.reduced_crossfit,
@@ -621,15 +812,65 @@ class DRTMLE(TMLE):
             )
         if data.is_continuous_treatment:
             refuse_unsupported("continuous")
-        if data.has_missing_outcome or data.has_intermediate:
-            missing = "delta=" if data.has_missing_outcome else "intermediate="
+        if data.has_intermediate:
             raise NotImplementedError(
-                f"DRTMLE and {missing} are not combined. Equations (9) and (10) are stated "
-                "for a fully observed outcome and no intermediate; a further mechanism "
-                "factor would sit inside the reduced regressions' own definitions, not "
-                "merely in the clever covariate, and no theorem read here says what it is. "
+                "DRTMLE and intermediate= are not combined. Equations (9) and (10) are stated "
+                "without a controlled intermediate; its mechanism factor would sit inside "
+                "the reduced regressions' own definitions, not merely in the clever "
+                "covariate, and no theorem read here says what it is. "
                 "Fit a plain TMLE, which is derived there."
             )
+        if data.has_missing_outcome and self.guard:
+            if data.n_arms != 2:
+                raise NotImplementedError(
+                    "missing-outcome DRTMLE currently supports a binary randomized treatment; "
+                    "the per-arm multi-level assembly has not been certified against the "
+                    "published missing-data theorem"
+                )
+            if not self.randomized and self._treatment_probabilities is None:
+                raise NotImplementedError(
+                    "DRTMLE with delta= is supported only for a randomized trial. Pass "
+                    "randomized=True to estimate the treatment mechanism for chance-imbalance "
+                    "adjustment, or pass treatment_probabilities= to fit(). Observational "
+                    "treatment remains unsupported by the published theorem."
+                )
+            if set(self.guard) != {"Q", "g"}:
+                raise NotImplementedError(
+                    "missing-outcome DRTMLE requires guard=('Q', 'g'): Díaz & van der "
+                    "Laan's algorithm jointly targets the treatment, observation and "
+                    "outcome correction blocks, and no partial-guard theorem is claimed"
+                )
+            if self._treatment_probabilities is not None and self.n_bootstrap:
+                raise NotImplementedError(
+                    "treatment_probabilities= and n_bootstrap= are not combined. The array "
+                    "is row-aligned to the data as passed, and a replicate refits on "
+                    "resampled rows it cannot be reindexed to from here -- an n-out-of-n "
+                    "resample even passes the length check, so the misalignment would be "
+                    "silent. Pass randomized=True instead, so each replicate estimates the "
+                    "mechanism from its own rows."
+                )
+            if self.cross_fit:
+                raise NotImplementedError(
+                    "the published missing-outcome DR-TMLE theorem uses Donsker conditions and "
+                    "does not establish its cross-validated extension; pass cross_fit=False"
+                )
+            if data.is_weighted:
+                raise NotImplementedError(
+                    "missing-outcome DRTMLE is not certified for a weight-tilted target law; "
+                    "drop weights= or fit a plain TMLE"
+                )
+            if self.repeats != 1:
+                raise NotImplementedError(
+                    "repeats= is a cross-fitting construction and is not supported by the "
+                    "published missing-outcome theorem"
+                )
+            if self.evaluation is not None or self.reduced_crossfit != "pooled":
+                raise NotImplementedError(
+                    "missing-outcome DRTMLE supports the published pooled construction only; "
+                    "evaluation= and nested reduced cross-fitting are not certified"
+                )
+        elif self._treatment_probabilities is not None:
+            raise ValueError("treatment_probabilities= is currently only used with delta=")
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         outside = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if outside:

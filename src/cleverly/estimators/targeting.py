@@ -32,7 +32,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray, TargetingMethod
 from ..data.causal_data import CausalData
 from ..exceptions import DataError
-from ..fluctuation._score import relative_score, score_columns, score_scale
+from ..fluctuation._score import quasi_loglik, relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
     CarryItem,
     Fluctuation,
@@ -51,16 +51,21 @@ from ..fluctuation.mechanism import (
     solve_mechanism,
 )
 from ..fluctuation.one_step import solve_one_step
-from ..fluctuation.reduced import reduced_mechanism_covariate, reduced_outcome_submodel
+from ..fluctuation.reduced import (
+    missing_outcome_outcome_submodel,
+    reduced_mechanism_covariate,
+    reduced_outcome_submodel,
+)
 from ..fluctuation.submodel import Submodel, TargetGroup, restrict, submodel_for
 from ..learners.crossfit import Folds
 from ..msm import solve_projection
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import CompanionEstimates, NuisanceEstimates, Propensity
 from .direct_effect import clever_covariate_inputs
-from .reduced import ReducedSet
+from .reduced import MissingOutcomeReducedSet, ReducedSet
 
 __all__ = [
+    "ObservationMechanismFluctuation",
     "ProjectionFluctuation",
     "ReductionExit",
     "ReductionFluctuation",
@@ -762,13 +767,39 @@ class ReductionSpec:
         path recovered by a loop that happens to exit early.
     """
 
-    refit: Callable[[NuisanceEstimates], tuple[ReducedSet, tuple[ReducedSet, ...]]]
+    refit: Callable[[NuisanceEstimates], tuple[Any, tuple[Any, ...]]]
+    missing_refit: (
+        Callable[
+            [NuisanceEstimates, tuple[float, float], float],
+            tuple[Any, tuple[Any, ...]],
+        ]
+        | None
+    ) = None
     guard: tuple[str, ...] = ("Q", "g")
     #: Which route through the round the alternation takes -- see :data:`ReductionOrder`.
     #: It rides here rather than being a keyword of :func:`solve_with_reduction` because it
     #: is the *estimator's* declaration, exactly as ``guard`` is, and because that keeps
     #: :meth:`~cleverly.TMLE._solve_reduction` free of a setting only one subclass has.
     order: ReductionOrder = "cleverly"
+
+
+@dataclass(frozen=True)
+class ObservationMechanismFluctuation:
+    """Arm-specific logistic tilts of ``P(Delta=1 | A=a,W)``."""
+
+    propensity: FloatArray
+    epsilon: FloatArray
+    score: FloatArray
+    score_scale: FloatArray
+    score_initial: FloatArray
+    names: tuple[str, ...]
+    converged: bool
+    failure: str | None = None
+    loglik: float = 0.0
+
+    @property
+    def relative_score(self) -> float:
+        return relative_score(self.score, self.score_scale)
 
 
 @dataclass(frozen=True)
@@ -820,7 +851,7 @@ class ReductionFluctuation:
         *direction* of the next submodel, not the value at the point it passes through.
     """
 
-    reduced: ReducedSet
+    reduced: ReducedSet | MissingOutcomeReducedSet
     guard: tuple[str, ...]
     bounds: tuple[float, float]
     epsilon: FloatArray
@@ -870,6 +901,8 @@ class ReductionFluctuation:
     #: curve is built from, and ``result.nuisance`` deliberately keeps describing the models
     #: that were fitted.  See :class:`~cleverly.estimators._nuisance.CompanionEstimates`.
     evaluation: CompanionEstimates | None = None
+    observation: ObservationMechanismFluctuation | None = None
+    missingness_bound: float | None = None
 
     @property
     def relative_score(self) -> float:
@@ -1075,6 +1108,7 @@ def _solve_reduced_mechanism(
     weights: FloatArray,
     arms: tuple[float, ...],
     *,
+    armwise: bool = False,
     bounds: tuple[float, float],
     tol: float,
     carry: Sequence[MechanismCarry] = (),
@@ -1086,7 +1120,7 @@ def _solve_reduced_mechanism(
     same test this branches on.
     """
     covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
-    if len(arms) == 2:
+    if len(arms) == 2 and not armwise:
         return solve_bounded_mechanism(
             response, propensity, covariate, weights, bounds=bounds, tol=tol, carry=carry
         )
@@ -1109,11 +1143,12 @@ def _reduced_mechanism_score(
     weights: FloatArray,
     arms: tuple[float, ...],
     *,
+    armwise: bool = False,
     bounds: tuple[float, float],
 ) -> tuple[FloatArray, FloatArray]:
     """Re-evaluate equation (9) at the current mechanism, ``response`` as above."""
     covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
-    if len(arms) == 2:
+    if len(arms) == 2 and not armwise:
         return mechanism_score(response, propensity, covariate, weights)
     return armwise_mechanism_score(response, propensity, covariate, weights, arms)
 
@@ -1277,6 +1312,21 @@ def solve_with_reduction(
             "carry the reduced-dimension regressions that define them; this "
             "NuisanceEstimates has none"
         )
+    if isinstance(nuisance.reduced, MissingOutcomeReducedSet):
+        return _solve_missing_outcome_reduction(
+            data,
+            nuisance,
+            group,
+            spec,
+            reduction=reduction,
+            bounds=bounds,
+            nuisance_bound=nuisance_bound,
+            scaled=scaled,
+            weights=weights,
+            observed=observed,
+            max_outer=max_outer,
+            warn=warn,
+        )
     guard = tuple(reduction.guard)
     order = reduction.order
     if not guard:
@@ -1285,6 +1335,7 @@ def solve_with_reduction(
             "carry no reduced regressions at all rather than reach this alternation"
         )
     arms = nuisance.arms
+    joint_observation = False
     upper = arms[1]
     # Equation (9)'s **response**, and it is a different array on the two branches, which
     # is why it is not called an indicator: the two-arm tilt moves one margin and so
@@ -1294,17 +1345,22 @@ def solve_with_reduction(
     # does -- a consumer that treated this as an indicator at K arms would be silently
     # regressing the codes themselves.
     response = (
-        (np.asarray(data.treatment, dtype=float) == float(upper)).astype(float)
-        if len(arms) == 2
-        else np.asarray(data.treatment, dtype=float)
+        np.where(data.observed, np.asarray(data.treatment, dtype=float), np.nan)
+        if joint_observation
+        else (
+            (np.asarray(data.treatment, dtype=float) == float(upper)).astype(float)
+            if len(arms) == 2
+            else np.asarray(data.treatment, dtype=float)
+        )
     )
     mask = np.asarray(observed, dtype=bool)
 
     reduced = nuisance.reduced
+    mechanism_fit = nuisance.propensity
     targeted_g = (
-        nuisance.propensity.arm(upper)
-        if len(arms) == 2
-        else np.asarray(nuisance.propensity.values, dtype=float)
+        mechanism_fit.arm(upper)
+        if len(arms) == 2 and not joint_observation
+        else np.asarray(mechanism_fit.values, dtype=float)
     )
     current = nuisance
     # The nested construction's fold-free primary arrays, moved by every fluctuation the
@@ -1442,6 +1498,7 @@ def solve_with_reduction(
                     reduced,
                     weights,
                     arms,
+                    armwise=joint_observation,
                     bounds=bounds,
                     tol=spec.tol,
                     carry=_combine(
@@ -1452,7 +1509,9 @@ def solve_with_reduction(
                 inner_g, tail = _split_carried(mechanism.carried, inner_g)
                 if companion is not None:
                     companion.take_mechanism(tail)
-                current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
+                current = _retargeted_mechanism(
+                    nuisance, targeted_g, arms, inner_g, joint=joint_observation
+                )
         else:
             if "Q" in guard:
                 mechanism = _solve_reduced_mechanism(
@@ -1461,6 +1520,7 @@ def solve_with_reduction(
                     reduced,
                     weights,
                     arms,
+                    armwise=joint_observation,
                     bounds=bounds,
                     tol=spec.tol,
                     carry=_combine(
@@ -1475,7 +1535,9 @@ def solve_with_reduction(
                 inner_g, tail = _split_carried(mechanism.carried, inner_g)
                 if companion is not None:
                     companion.take_mechanism(tail)
-                current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
+                current = _retargeted_mechanism(
+                    nuisance, targeted_g, arms, inner_g, joint=joint_observation
+                )
                 reduced, reduced_companion = reduction.refit(
                     _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
                 )
@@ -1590,6 +1652,7 @@ def solve_with_reduction(
                 reduced,
                 weights,
                 arms,
+                armwise=joint_observation,
                 bounds=bounds,
             )
             mechanism = replace(mechanism, score=settled_g, score_scale=scale_g)
@@ -1658,6 +1721,7 @@ def solve_with_reduction(
         mask=mask,
         response=response,
         arms=arms,
+        joint_observation=joint_observation,
         targeted_g=targeted_g,
         fluctuation=fluctuation,
         mechanism=mechanism,
@@ -1708,6 +1772,308 @@ def solve_with_reduction(
         evaluation=None if companion is None else companion.record(),
     )
     return submodel, replace(fluctuation, mechanism=mechanism, reduction=record)
+
+
+def _solve_missing_outcome_reduction(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    group: TargetGroup,
+    spec: TargetingSpec,
+    *,
+    reduction: ReductionSpec,
+    bounds: tuple[float, float],
+    nuisance_bound: float,
+    scaled: FloatArray,
+    weights: FloatArray,
+    observed: BoolArray,
+    max_outer: int,
+    warn: bool,
+) -> tuple[Submodel, Fluctuation]:
+    r"""Target the three Díaz--van der Laan drift blocks separately."""
+    del warn  # failures are recorded on the returned targeting objects
+    if tuple(reduction.guard) != ("Q", "g") and set(reduction.guard) != {"Q", "g"}:
+        raise ValueError("missing-outcome targeting requires both guards")
+    if not isinstance(nuisance.reduced, MissingOutcomeReducedSet):
+        raise TypeError("missing-outcome targeting needs MissingOutcomeReducedSet")
+    if nuisance.missingness is None:
+        raise ValueError("missing-outcome targeting needs an observation mechanism")
+
+    arms = nuisance.arms
+    if len(arms) != 2:
+        raise ValueError("missing-outcome targeting requires binary treatment")
+    mask = np.asarray(observed, dtype=bool)
+    treatment = np.asarray(data.treatment, dtype=float)
+    targeted_q = nuisance.outcome
+    targeted_g = nuisance.propensity.arm(arms[1])
+    targeted_m = np.asarray(nuisance.missingness, dtype=float).copy()
+    reduced = nuisance.reduced
+    outcome_fit: Fluctuation | None = None
+    treatment_fit: MechanismFluctuation | None = None
+    observation_fit: ObservationMechanismFluctuation | None = None
+    first_extra: FloatArray | None = None
+    trace: list[tuple[int, float, float, float, float]] = []
+    exit_reason: ReductionExit = "cap"
+    for outer in range(1, max_outer + 1):
+        current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
+        standard = build_submodel(
+            data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
+        )
+        extra = missing_outcome_outcome_submodel(
+            data.treatment,
+            reduced,
+            g_bounds=bounds,
+            missingness_bound=nuisance_bound,
+        )
+        joint_outcome = _stacked(standard, extra)
+        outcome_fit = solve_submodel(
+            scaled,
+            targeted_q,
+            joint_outcome,
+            weights,
+            observed,
+            spec,
+            warn=False,
+        )
+        targeted_q = outcome_fit.targeted
+        if first_extra is None:
+            initial = np.asarray(outcome_fit.score_initial, dtype=float)
+            first_extra = np.asarray(initial[len(arms) :], dtype=float)
+
+        current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
+        observation_fit = _solve_missing_observation_mechanism(
+            data,
+            current,
+            reduced,
+            weights,
+            bounds=bounds,
+            missingness_bound=nuisance_bound,
+            tol=spec.tol,
+        )
+        targeted_m = np.asarray(observation_fit.propensity, dtype=float)
+
+        current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
+        z_a = _missing_treatment_covariate(reduced, current, bounds)
+        treatment_fit = solve_bounded_mechanism(
+            treatment,
+            targeted_g,
+            z_a,
+            weights,
+            bounds=bounds,
+            tol=spec.tol,
+        )
+        targeted_g = np.asarray(treatment_fit.propensity, dtype=float)
+
+        current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
+        if reduction.missing_refit is None:
+            raise ValueError("missing-outcome targeting has no five-regression refit callback")
+        refreshed, companion = reduction.missing_refit(current, bounds, nuisance_bound)
+        if companion:
+            raise ValueError("missing-outcome targeting does not support evaluation companions")
+        if not isinstance(refreshed, MissingOutcomeReducedSet):
+            raise TypeError("the missing-outcome reduction refit returned the wrong state type")
+        reduced = refreshed
+
+        standard = build_submodel(
+            data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
+        )
+        extra = missing_outcome_outcome_submodel(
+            data.treatment,
+            reduced,
+            g_bounds=bounds,
+            missingness_bound=nuisance_bound,
+        )
+        standard_score = score_columns(
+            scaled, targeted_q.observed, standard.observed, weights, mask
+        )
+        standard_scale = score_scale(standard.observed, weights, mask)
+        extra_score = score_columns(scaled, targeted_q.observed, extra.observed, weights, mask)
+        extra_scale = score_scale(extra.observed, weights, mask)
+        z_a = _missing_treatment_covariate(reduced, current, bounds)
+        treatment_score, treatment_scale = mechanism_score(treatment, targeted_g, z_a, weights)
+        observation_score, observation_scale = _missing_observation_score(
+            data, current, reduced, weights, bounds, nuisance_bound
+        )
+
+        scores = (
+            (relative_score(standard_score, standard_scale), float(np.max(np.abs(standard_score)))),
+            (relative_score(extra_score, extra_scale), float(np.max(np.abs(extra_score)))),
+            (
+                relative_score(treatment_score, treatment_scale),
+                float(np.max(np.abs(treatment_score))),
+            ),
+            (
+                relative_score(observation_score, observation_scale),
+                float(np.max(np.abs(observation_score))),
+            ),
+        )
+        worst = max(value[0] for value in scores)
+        outcome_loglik = quasi_loglik(
+            np.asarray(scaled, dtype=float)[mask],
+            np.asarray(targeted_q.observed, dtype=float)[mask],
+            np.asarray(weights, dtype=float)[mask],
+        )
+        joint_loglik = outcome_loglik + float(treatment_fit.loglik or 0.0)
+        joint_loglik += float(observation_fit.loglik)
+        trace.append(
+            (
+                outer,
+                scores[0][0],
+                scores[1][0],
+                max(scores[2][0], scores[3][0]),
+                joint_loglik,
+            )
+        )
+
+        treatment_fit = replace(treatment_fit, score=treatment_score, score_scale=treatment_scale)
+        observation_fit = replace(
+            observation_fit, score=observation_score, score_scale=observation_scale
+        )
+        if worst <= spec.tol:
+            exit_reason = "tolerance"
+            break
+
+    assert outcome_fit is not None
+    assert treatment_fit is not None
+    assert observation_fit is not None
+    current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
+    standard = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
+    extra = missing_outcome_outcome_submodel(
+        data.treatment,
+        reduced,
+        g_bounds=bounds,
+        missingness_bound=nuisance_bound,
+    )
+    standard_score = score_columns(scaled, targeted_q.observed, standard.observed, weights, mask)
+    standard_scale = score_scale(standard.observed, weights, mask)
+    extra_score = score_columns(scaled, targeted_q.observed, extra.observed, weights, mask)
+    extra_scale = score_scale(extra.observed, weights, mask)
+    worst = max(
+        relative_score(standard_score, standard_scale),
+        relative_score(extra_score, extra_scale),
+        treatment_fit.relative_score,
+        observation_fit.relative_score,
+    )
+    unsolved: TargetingFailure | None = None if worst <= _UNSOLVED else "max_iter_reached"
+    width = len(arms)
+    record = ReductionFluctuation(
+        reduced=reduced,
+        guard=tuple(reduction.guard),
+        bounds=(float(bounds[0]), float(bounds[1])),
+        epsilon=np.asarray(outcome_fit.epsilon[width:], dtype=float),
+        score=extra_score,
+        score_scale=extra_scale,
+        score_initial=np.zeros(width) if first_extra is None else first_extra,
+        names=extra.names,
+        trace=tuple(trace),
+        rounds=len(trace),
+        converged=bool(worst <= spec.tol),
+        failure=unsolved,
+        exit_reason=exit_reason,
+        observation=replace(observation_fit, failure=observation_fit.failure or unsolved),
+        missingness_bound=float(nuisance_bound),
+    )
+    treatment_fit = replace(treatment_fit, failure=treatment_fit.failure or unsolved)
+    return standard, replace(
+        outcome_fit,
+        epsilon=np.asarray(outcome_fit.epsilon[:width], dtype=float),
+        score=standard_score,
+        score_scale=standard_scale,
+        names=standard.names,
+        score_initial=np.asarray(outcome_fit.score_initial, dtype=float)[:width],
+        targeted=targeted_q,
+        mechanism=treatment_fit,
+        reduction=record,
+        failure=outcome_fit.failure or unsolved,
+    )
+
+
+def _missing_outcome_state(
+    nuisance: NuisanceEstimates,
+    outcome: InitialFit,
+    upper_propensity: FloatArray,
+    missingness: FloatArray,
+) -> NuisanceEstimates:
+    return replace(
+        nuisance,
+        outcome=outcome,
+        propensity=_propensity_from(upper_propensity, nuisance.arms),
+        missingness=np.asarray(missingness, dtype=float),
+    )
+
+
+def _missing_treatment_covariate(
+    reduced: MissingOutcomeReducedSet,
+    nuisance: NuisanceEstimates,
+    bounds: tuple[float, float],
+) -> FloatArray:
+    g_a = nuisance.bounded_propensity(bounds)
+    e = np.asarray(reduced.e, dtype=float)
+    return np.column_stack([-e[:, 0] / g_a[:, 0], e[:, 1] / g_a[:, 1]])
+
+
+def _missing_observation_score(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    reduced: MissingOutcomeReducedSet,
+    weights: FloatArray,
+    bounds: tuple[float, float],
+    missingness_bound: float,
+) -> tuple[FloatArray, FloatArray]:
+    assert nuisance.missingness is not None
+    a = np.asarray(data.treatment, dtype=float)
+    delta = np.asarray(data.observed, dtype=float)
+    g_a = nuisance.bounded_propensity(bounds)
+    g_m = np.asarray(nuisance.bounded_missingness(missingness_bound), dtype=float)
+    z = np.asarray(reduced.e, dtype=float) / (g_a * g_m)
+    contributions = np.column_stack(
+        [weights * (a == arm) * z[:, j] * (delta - g_m[:, j]) for j, arm in enumerate(reduced.arms)]
+    )
+    scales = np.column_stack(
+        [weights * (a == arm) * np.abs(z[:, j]) for j, arm in enumerate(reduced.arms)]
+    )
+    return np.asarray(contributions.mean(axis=0)), np.asarray(scales.mean(axis=0))
+
+
+def _solve_missing_observation_mechanism(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    reduced: MissingOutcomeReducedSet,
+    weights: FloatArray,
+    *,
+    bounds: tuple[float, float],
+    missingness_bound: float,
+    tol: float,
+) -> ObservationMechanismFluctuation:
+    assert nuisance.missingness is not None
+    a = np.asarray(data.treatment, dtype=float)
+    delta = np.asarray(data.observed, dtype=float)
+    g_a = nuisance.bounded_propensity(bounds)
+    g_m = np.asarray(nuisance.bounded_missingness(missingness_bound), dtype=float)
+    z = np.asarray(reduced.e, dtype=float) / (g_a * g_m)
+    fits: list[MechanismFluctuation] = []
+    upper = float(np.nextafter(1.0, 0.0))
+    for j, arm in enumerate(reduced.arms):
+        fits.append(
+            solve_bounded_mechanism(
+                delta,
+                g_m[:, j],
+                z[:, [j]],
+                weights * (a == arm),
+                bounds=(float(missingness_bound), upper),
+                tol=tol,
+            )
+        )
+    return ObservationMechanismFluctuation(
+        propensity=np.column_stack([fit.propensity for fit in fits]),
+        epsilon=np.concatenate([fit.epsilon for fit in fits]),
+        score=np.concatenate([fit.score for fit in fits]),
+        score_scale=np.concatenate([np.asarray(fit.score_scale) for fit in fits]),
+        score_initial=np.concatenate([np.asarray(fit.score_initial) for fit in fits]),
+        names=tuple(f"epsilon_M[{arm:g}]" for arm in reduced.arms),
+        converged=all(fit.converged for fit in fits),
+        failure=next((fit.failure for fit in fits if fit.failure is not None), None),
+        loglik=float(sum(float(fit.loglik or 0.0) for fit in fits)),
+    )
 
 
 def _restated_outcome_score(
@@ -1795,6 +2161,7 @@ def _close_at_frozen_reductions(
     mask: BoolArray,
     response: FloatArray,
     arms: tuple[float, ...],
+    joint_observation: bool,
     targeted_g: FloatArray,
     fluctuation: Fluctuation,
     mechanism: MechanismFluctuation | None,
@@ -1881,6 +2248,7 @@ def _close_at_frozen_reductions(
                 reduced,
                 weights,
                 arms,
+                armwise=joint_observation,
                 bounds=bounds,
                 tol=spec.tol,
                 carry=() if companion is None else companion.mechanism_carry(bounds),
@@ -1894,6 +2262,7 @@ def _close_at_frozen_reductions(
                 reduced,
                 weights,
                 arms,
+                armwise=joint_observation,
                 bounds=bounds,
             )
             mechanism = replace(solved, score=settled, score_scale=scale)
@@ -1905,7 +2274,11 @@ def _close_at_frozen_reductions(
     # what happened rather than two that could drift apart.
     capped = "Q" in guard and mechanism is not None and mechanism.relative_score > spec.tol
 
-    current = _retargeted_mechanism(nuisance, targeted_g, arms) if "Q" in guard else nuisance
+    current = (
+        _retargeted_mechanism(nuisance, targeted_g, arms, joint=joint_observation)
+        if "Q" in guard or joint_observation
+        else nuisance
+    )
     submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
     extra_submodel: Submodel | None = None
     reduced_score = 0.0
@@ -2015,8 +2388,10 @@ def _retargeted_mechanism(
     targeted: FloatArray,
     arms: tuple[float, ...],
     inner: tuple[FloatArray, ...] | None = None,
+    *,
+    joint: bool = False,
 ) -> NuisanceEstimates:
-    """``nuisance`` with the mechanism replaced by the tilted one, for the covariate only.
+    r"""``nuisance`` with the mechanism replaced by the tilted one, for the covariate only.
 
     Built here and thrown away with the alternation: the targeted mechanism belongs on the
     fluctuation, never on ``result.nuisance``, so that the nuisance diagnostics go on
@@ -2029,7 +2404,25 @@ def _retargeted_mechanism(
     MechanismFluctuation.carried`.  ``None`` on every pooled fit, where
     :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner` is ``None`` and this
     replaces nothing.
+
+    ``joint`` is the missing-outcome construction, where the one mechanism standing in for
+    both ``propensity`` and ``missingness`` is :math:`g_a(W) \pi_a(W)` and is **not** a
+    distribution over the arms, so it carries ``simplex=False`` and the complement rule
+    above does not apply to it.
     """
+    # Unreachable from the public surface, because `DRTMLE` refuses `delta=` with nested
+    # reduced cross-fitting -- and stated here rather than left to that refusal because the
+    # two branches disagree in a way that would otherwise surface as a reshape error: the
+    # binary `inner` carries a 1-D marginal `g` and the joint solver needs `(n, K)`.
+    if joint and inner is not None:  # pragma: no cover - the outer refusal reaches it first
+        raise NotImplementedError(
+            "the joint arm-and-observation mechanism has no nested fold-free form: the "
+            "inner designs carry the marginal g, so an inner tilt and the production one "
+            "would be moving different mechanisms. Missing-outcome DRTMLE refuses "
+            "reduced_crossfit='nested' for this reason"
+        )
+    if joint:
+        raise ValueError("joint treatment-observation targeting is no longer supported")
     updated = replace(nuisance, propensity=_propensity_from(targeted, arms))
     if inner is None or nuisance.inner is None:
         return updated

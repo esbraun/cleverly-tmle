@@ -26,7 +26,11 @@ from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.serialize import load
 from cleverly.estimators.targeting import _negligible_bar, _solved, build_submodel
-from cleverly.estimators.tmle import DEFAULT_NUISANCE_BOUND, correction_parts
+from cleverly.estimators.tmle import (
+    DEFAULT_NUISANCE_BOUND,
+    correction_parts,
+    reported_mechanism,
+)
 from cleverly.inference.influence import counterfactual_means, reduced_corrections
 from cleverly.validation.drtmle import MARGIN_ACTIVE, CorrectionRow, correction_check
 from cleverly.validation.score import DEFAULT_TOLERANCE
@@ -860,15 +864,17 @@ def _plain_curve(fit, data, fluctuation):
     """``ey1``'s influence curve without the two extra terms, at the same targeted pair."""
     from dataclasses import replace
 
-    # The same fallback `correction_parts` takes: without the `"Q"` guard no mechanism was
-    # tilted, and the initial one is what the fit's other equation was solved beside. A
-    # bare `.mechanism.propensity` here is an `AttributeError` on a single-guard fit.
-    g1 = np.asarray(
-        fluctuation.mechanism.propensity
-        if fluctuation.mechanism is not None
-        else fit.nuisance.propensity.arm(1.0),
-        dtype=float,
-    )
+    # The same mechanism `correction_parts` reads, through the same function, so this
+    # helper cannot drift from it: without the `"Q"` guard no mechanism was tilted, and the
+    # initial one is what the fit's other equation was solved beside. A bare
+    # `.mechanism.propensity` here is an `AttributeError` on a single-guard fit.
+    #
+    # The complement re-wrap below is what confines this helper to a complete-data binary
+    # fit, which is every caller: a missing-outcome fit's mechanism comes back `(n, 2)` and
+    # off the simplex, and rebuilding it as `[1 - g1, g1]` would be the very error
+    # `Propensity(simplex=)` exists to name.
+    g1 = np.asarray(reported_mechanism(fit.nuisance, fluctuation, fit.nuisance.arms), dtype=float)
+    assert g1.ndim == 1, "this helper is for complete-data binary fits"
     nuisance = replace(
         fit.nuisance, propensity=Propensity(np.column_stack([1.0 - g1, g1]), fit.nuisance.arms)
     )

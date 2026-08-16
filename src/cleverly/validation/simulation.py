@@ -62,10 +62,22 @@ class EstimandSummary:
     std_errors: FloatArray
     covered: FloatArray
     rejected: FloatArray
+    #: The point estimates on the **inference scale** -- the scale ``std_errors`` is on, which
+    #: for a ratio estimand is the log scale and for everything else is ``estimates`` itself.
+    #: ``None`` means the two coincide, which is the case for every difference and level.
+    #: Only :attr:`se_ratio` reads it; see there for why it has to exist.
+    inference_estimates: FloatArray | None = None
 
     @property
     def mean_estimate(self) -> float:
         return float(np.mean(self.estimates))
+
+    @property
+    def inference_scale_estimates(self) -> FloatArray:
+        """:attr:`estimates` on the scale the reported standard error is on."""
+        if self.inference_estimates is None:
+            return self.estimates
+        return self.inference_estimates
 
     @property
     def bias(self) -> float:
@@ -93,10 +105,24 @@ class EstimandSummary:
 
     @property
     def se_ratio(self) -> float:
-        """Reported over actual standard error; 1.0 is honest, below 1 is optimistic."""
-        if self.monte_carlo_se <= 0:
+        """Reported over actual standard error; 1.0 is honest, below 1 is optimistic.
+
+        Both halves are taken on the **inference scale**, which is the scale
+        :attr:`~cleverly.inference.ParameterEstimate.std_error` is defined on -- the log scale
+        for a ratio, and the reporting scale for everything else.  For a ratio the two come
+        apart badly: ``psi`` is the odds ratio while ``std_error`` is ``SE(log OR)``, and by
+        the delta method ``sd(OR) ~ psi * sd(log OR)``, so dividing one by the other returns
+        roughly ``1 / psi`` and says nothing whatever about calibration.  A well-behaved
+        ``or`` of ``0.42`` came back as ``2.82``, which read as an interval three times too
+        wide and was only the reciprocal of the truth.
+
+        :attr:`monte_carlo_se` deliberately stays on the reporting scale, because that is
+        where :attr:`bias` and :attr:`rmse` are meaningful; the two differ only for a ratio.
+        """
+        spread = float(np.std(self.inference_scale_estimates, ddof=1))
+        if spread <= 0:
             return float("nan")
-        return float(self.mean_std_error / self.monte_carlo_se)
+        return float(self.mean_std_error / spread)
 
     @property
     def coverage(self) -> float:
@@ -376,7 +402,7 @@ class CoverageStudy:
 
         seeds = np.random.SeedSequence(self.seed).generate_state(self.n_replicates)
 
-        def replicate(seed: int) -> dict[str, tuple[float, float, float, float]] | None:
+        def replicate(seed: int) -> dict[str, tuple[float, float, float, float, float]] | None:
             try:
                 frame, truth = self._draw(int(seed))
                 with warnings.catch_warnings():
@@ -386,19 +412,28 @@ class CoverageStudy:
                     fitted = self.estimator().fit(frame, **self.fit_kwargs)
                 result = self._select(fitted)
                 names = self.estimands or tuple(result.estimates)
-                out: dict[str, tuple[float, float, float, float]] = {}
+                out: dict[str, tuple[float, float, float, float, float]] = {}
                 for name in names:
                     estimate = result[name]
                     prefix = "" if self.truth_key == "population" else "sample_"
                     reference = truth[f"{prefix}{name}"]
                     low, high = estimate.ci
+                    # The fifth entry is the estimate on the scale `std_error` is on, which is
+                    # the log scale for a ratio -- taken off `log_psi`, the same field `ci`
+                    # builds the interval from, rather than re-derived here. `se_ratio` is the
+                    # only consumer, and it is the only summary that has to compare the two.
                     out[name] = (
                         estimate.psi,
                         estimate.std_error,
                         float(low <= reference <= high),
                         float(estimate.pvalue < result.config.alpha_sig),
+                        float(
+                            estimate.log_psi
+                            if estimate.scale == "ratio" and estimate.log_psi is not None
+                            else estimate.psi
+                        ),
                     )
-                    out[f"__truth__{name}"] = (reference, 0.0, 0.0, 0.0)
+                    out[f"__truth__{name}"] = (reference, 0.0, 0.0, 0.0, 0.0)
                 return out
             except Exception:
                 return None
@@ -417,6 +452,7 @@ class CoverageStudy:
             covered = np.array([row[name][2] for row in successes])
             rejected = np.array([row[name][3] for row in successes])
             truths = np.array([row[f"__truth__{name}"][0] for row in successes])
+            inference = np.array([row[name][4] for row in successes])
             summaries[name] = EstimandSummary(
                 estimand=name,
                 truth=float(np.mean(truths)),
@@ -426,6 +462,9 @@ class CoverageStudy:
                 std_errors=std_errors,
                 covered=covered,
                 rejected=rejected,
+                # `None` when the two scales coincide, so a difference estimand's `se_ratio`
+                # is arithmetically what it always was rather than merely close to it.
+                inference_estimates=None if np.array_equal(inference, estimates) else inference,
             )
 
         return StudyResult(
