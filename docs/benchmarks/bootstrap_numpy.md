@@ -15,8 +15,8 @@ This is the numpy change and what it leaves for a compiler.
 
 ## 1. The profile the previous one pointed the wrong way
 
-The original profile and `docs/roadmap.md` both recorded this path as "92–95%
-multiplier *generation*", which reads as an argument about the random draw. Splitting the
+The original profile recorded this path as "92–95% multiplier *generation*", which reads as an
+argument about the random draw. Splitting the
 generation at `n = 100,000` with a 256-replicate block:
 
 | step | ms | share |
@@ -72,8 +72,8 @@ change to the seeded stream. The compiled kernel's four-core arm (7.4–7.6×) i
 this, by about 2× rather than by 3×, and that is the number a decision about adopting numba
 here has to be worth.
 
-The memory column is the more durable half. `docs/roadmap.md` names the `(chunk, n)`
-multiplier matrix as one of two allocations that break before any arithmetic does — 9.5 GB at
+The memory column is the more durable half. The `(chunk, n)` multiplier matrix is an allocation
+that breaks before any arithmetic does — 9.5 GB at
 `n = 5,000,000`. What is left is a buffer with a **32 MB budget and a four-replicate floor**,
 which is the same capability change `findings.md` attributed to the compiled kernel, obtained
 without it.

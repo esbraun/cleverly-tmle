@@ -548,11 +548,11 @@ own appendices, at a nonzero `Q_r` where a flipped sign would show
 and against a *perturbation of the law*, where in each half of the union model the corrected curve
 is the efficient influence function row for row — from a real fit as well as longhand
 (`tests/unit/test_influence_gateaux_drtmle.py`). Nothing here has been compared against that
-package's *numbers* and nothing will be — a
-[decision](roadmap.md#standing-decisions) rather than a gap, since agreement between
+package's *numbers* and nothing will be — an
+[evidence rule](roadmap.md#eligibility) rather than a gap, since agreement between
 two transcriptions of one source is evidence about the transcription. What remains open is the
-*inference*, not the curve: the roadmap's [What is still
-open](roadmap.md#what-is-still-open) is the full list.
+*inference*, not the curve: the roadmap's
+[DR-TMLE priority](roadmap.md#1-extend-the-published-dr-tmle-surface) lists the proposed extensions.
 
 `TMLE` is **doubly robust for consistency and singly robust for inference**, and the
 distinction is the whole of what `DRTMLE` is for. The second-order remainder is a product,
@@ -869,7 +869,7 @@ implementations such as R's `tmle`, `tmle3`, and `ctmle` may be used to understa
 construction or localise a discrepancy, and the C-TMLE section above names the one convention
 adopted that way. Agreement with them is not an oracle or an acceptance criterion: the evidence
 here checks that each method produces what its derivation predicts. The roadmap's
-[standing decisions](roadmap.md#standing-decisions) carry the reasoning. And `score_check()`
+[eligibility rules](roadmap.md#eligibility) carry the reasoning. And `score_check()`
 passing is not evidence that the equation was the right one — see below.
 
 ## How to read a refusal
@@ -886,7 +886,7 @@ question, or in the method itself.
 
 | section | where the problem is | what to do about it |
 | --- | --- | --- |
-| [Not written yet](#not-written-yet) | in this package | the parameter is well defined and nobody has written it here. Ask for it, compute it elsewhere, or contribute it; current candidates are on the [roadmap](roadmap.md#candidate-features) |
+| [Not written yet](#not-written-yet) | in this package | the parameter is well defined and nobody has written it here. Ask for it, compute it elsewhere, or contribute it; proposed work is on the [roadmap](roadmap.md#ordered-priorities) |
 | [A different question](#a-different-question) | in the question | what was asked for is a different estimand, usually with its own identification assumptions. Decide which one was meant; no flag here produces the other, and one that quietly did would be answering something nobody asked |
 | [Wrong by construction](#wrong-by-construction) | in the method | the naive version *runs* and returns a plausible number that is wrong, usually with a known direction of error. Read these as warnings about the analysis, not about this package's coverage |
 

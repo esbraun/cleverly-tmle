@@ -77,6 +77,11 @@ not a citation; a page number is.
   [10.18637/jss.v081.i01](https://doi.org/10.18637/jss.v081.i01). The package source's
   `FixedTimeTMLE`, `CalcCumG`, and `UpdateQ` are the implementation locators used by the
   bounded canonical fixture.
+- Poulos, Horvitz-Lennon, Zelevinsky et al. (2024), *Targeted learning in observational
+  studies with multi-valued treatments: an evaluation of antipsychotic drug treatment safety*,
+  DOI [10.1002/sim.10003](https://doi.org/10.1002/sim.10003). The accompanying public
+  [`jvpoulos/multi-ltmle`](https://github.com/jvpoulos/multi-ltmle) repository contains the
+  longitudinal multi-valued-treatment simulation and reproduction code.
 - Neugebauer & van der Laan (2007), [*Nonparametric causal effects based on marginal
   structural models*](https://doi.org/10.1016/j.jspi.2005.12.008), DOI
   10.1016/j.jspi.2005.12.008.
@@ -128,10 +133,15 @@ implementation for the influence curve. What each supplies, and where in it, is
 - Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using `drtmle`*, Observational Studies
   9(2):43–78. Read first-hand. Multi-level treatments are §4.6, pp. 66–67; cross-validated nuisance
   regression is §4.7, p. 69.
+- Díaz & van der Laan (2017), *Doubly robust inference for targeted minimum loss-based estimation
+  in randomized trials with missing outcome data*, Statistics in Medicine 36:3807–3819, DOI
+  [10.1002/sim.7389](https://doi.org/10.1002/sim.7389). This establishes the missing-outcome
+  construction for randomized treatment; it does not by itself establish the observational-
+  treatment composition exposed by the canonical package.
 
 The `benkeser/drtmle` R package's source and reference documentation are cited in a few places as
 **provenance** — where a formula was transcribed from, and what it is named there. Running it is
-[retired by decision](roadmap.md#standing-decisions): two checks that cannot fail against the same
+[not acceptance evidence](roadmap.md#eligibility): two checks that cannot fail against the same
 class of error are one check. The inspected source is pinned at
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c):
 `R/estimate.R` loops the reductions over treatment levels and constructs a compatible initial
