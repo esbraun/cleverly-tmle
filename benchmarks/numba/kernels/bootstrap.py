@@ -1,27 +1,44 @@
-r"""The multiplier bootstrap: the one kernel where the array is the problem.
+r"""The multiplier bootstrap: the kernel whose grounds for compiling have moved.
 
 ``multiplier_critical_value`` draws ``B`` Rademacher vectors of length ``n``, forms
 ``xi @ centred / n``, standardises, takes a row-wise maximum, and quantiles the result.
-The package already knows this is generation-bound -- ``docs/roadmap.md`` records that the
-draw is 92-95% of it and the matrix product 2-3% -- and already fixed the cheap part of
-that by packing bits instead of drawing float64 uniforms.  What it did *not* change is the
-shape of the computation:
+
+**Read ``docs/benchmarks/bootstrap_numpy.md`` before citing anything here.**  An earlier
+profile called this path "92-95% multiplier *generation*", which reads as an argument
+about the random draw and is not one.  Split at ``n = 100,000`` with a 256-replicate
+block, the seeded draw is **2%**, ``np.unpackbits`` is **1%**, expanding those bits into a
+float64 sign matrix is **89%**, and the ``dgemm`` is **7%**.  The expensive step was the
+expansion; the generator -- the thing a compiler was going to replace -- did not need to
+change at all.
+
+That report then removed two of the three grounds this module was built on:
 
 .. code-block:: text
 
+    # what this module still transcribes, and what the grounds below assumed
     xi = signs((chunk, n))        # 8 bytes/entry: 200 MB at chunk=256, n=1e6
     draws = (xi @ centred) / n    # a (chunk, n) x (n, m) dgemm for m ~ 5
 
-That is a dense ``n``-by-``chunk`` array materialised to be consumed once, and a BLAS call
-whose left operand is a matrix of plus and minus ones.  Both facts are opportunities a
-compiler can take and numpy cannot: a fused loop never forms ``xi``, and multiplying by a
-sign is an add or a subtract rather than a multiply.
+    # what ships now: expand in place into a reused, byte-budgeted buffer
+    np.copyto(out, bits); out *= 2; out -= 1
 
-So this kernel is here on three separate grounds -- runtime share (it is the largest
-package-owned cost in any fit that requests simultaneous bands), a large temporary
-(the plan's memory criterion), and an obvious independent parallel axis (replicates).  It
-is the strongest a-priori candidate in the package, which is exactly why it is measured
-rather than adopted.
+The large temporary is gone -- the buffer is sized by a **32 MB budget with a
+four-replicate floor**, and the measured allocation at ``n = 10^6`` fell from 1,881 MB to
+92 MB -- so the memory criterion no longer selects this kernel.  The runtime ground moved
+with it: the numpy path is now 3.4-3.9x its old self, which is *faster than the compiled
+kernel's serial arm was* (2.4-2.5x) on the same box, with no dependency and no 2.0 s
+compile.
+
+What is genuinely left for a compiler is narrower, and worth stating exactly: a fused loop
+never forms the sign array at all, which is the 89% step; multiplying by a sign is an add
+or a subtract rather than a multiply; and replicates remain an independent parallel axis.
+The compiled four-core arm (7.4-7.6x) is still ahead of the current numpy path, by about
+2x rather than by 3x, and *that* margin is what adopting numba here would have to be worth.
+
+**The reference below is the pre-report baseline, not the shipped path.**  See
+:func:`numpy_multiplier`.  Until it is brought forward, every ratio this module reports
+against it overstates the compiled advantage by the cost of an expansion the package no
+longer performs.
 
 **Reproducibility across thread counts.**  The parallel implementation gives each
 replicate its own counter-based stream, seeded from ``(seed, replicate_index)``, so the
@@ -121,7 +138,7 @@ def _summarise(statistics: np.ndarray, alpha: float) -> dict[str, float]:
 
 
 def numpy_multiplier(inputs: dict[str, Any]) -> dict[str, float]:
-    """The shipped path: pack bits, unpack to signs, one dgemm per chunk.
+    """Pack bits, unpack to signs, one dgemm per chunk.
 
     Transcribed from :func:`cleverly.inference.multiplier.multiplier_critical_value` and
     :func:`~cleverly.inference.multiplier._multipliers` rather than called, so the timed
@@ -129,6 +146,16 @@ def numpy_multiplier(inputs: dict[str, Any]) -> dict[str, float]:
     the kind and (with a cluster) sums within clusters first, none of which the compiled
     variants do either.  A comparison whose two sides do different amounts of bookkeeping
     is a comparison of the bookkeeping.
+
+    **This transcription has fallen behind the path it names, and the gap is the one the
+    measurement rules warn about.**  ``_SIGNS[np.unpackbits(...)]`` below is the
+    fancy-index expansion that ``docs/benchmarks/bootstrap_numpy.md`` measured at 89% of
+    the kernel and then removed; the shipped ``_multipliers`` now writes into a buffer
+    allocated once and reused, sized by a byte budget rather than by ``inputs["chunk"]``.
+    So this is a comparison against the previous spelling of a function, which
+    ``docs/benchmarks/README.md``'s first measurement rule exists to forbid.  Bringing it
+    forward changes every ratio this module reports and is deliberately left as its own
+    change, with its own rerun, rather than folded into a documentation sweep.
     """
     centred = inputs["centred"]
     se = inputs["std_errors"]

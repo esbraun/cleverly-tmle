@@ -141,8 +141,8 @@ implementation for the influence curve. What each supplies, and where in it, is
 
 The `benkeser/drtmle` R package's source and reference documentation are cited in a few places as
 **provenance** — where a formula was transcribed from, and what it is named there. Running it is
-[not acceptance evidence](decisions.md#standing-decisions): two checks that cannot fail against the same
-class of error are one check. The inspected source is pinned at
+[not acceptance evidence](architecture-invariants.md#validation-and-evidence): two checks that
+cannot fail against the same class of error are one check. The inspected source is pinned at
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c):
 `R/estimate.R` loops the reductions over treatment levels and constructs a compatible initial
 mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuations.

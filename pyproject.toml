@@ -52,8 +52,9 @@ all = ["cleverly[pandas,polars,boost,plot]"]
 # targeting kernel against the numpy one, and `benchmarks/numba/`, which asks the same
 # question of every post-nuisance kernel in the package with the learner fits excluded.
 # Nothing under `src/` imports it. Whether it is worth taking as a runtime dependency is
-# kernel-by-kernel rather than package-wide -- docs/benchmarks/README.md records the
-# evidence and docs/roadmap.md, *Native acceleration*, is the current verdict.
+# kernel-by-kernel rather than package-wide -- docs/benchmarks/README.md, *Current verdict*,
+# records the evidence and the verdict, and docs/architecture-invariants.md carries the
+# condition that would reopen it.
 #
 # `tests/unit/test_numba_benchmark.py` needs this extra, which is why CI has a job that
 # installs it: under `dev` that module skips, and a skipped correctness check reads like a

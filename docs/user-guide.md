@@ -1500,14 +1500,14 @@ influence function row for row, and a flipped sign misses by half a unit or more
 There is no cross-check against `drtmle`'s own *numbers* and there will not be: both
 implementations descend from one source, so agreement would be evidence about the transcription
 and blind to exactly the sign above — the
-[standing decisions](decisions.md#standing-decisions) give that reasoning. A coverage study
+[standing decisions](architecture-invariants.md#validation-and-evidence) give that reasoning. A coverage study
 on the off-diagonal of the misspecification grid found *no gap for this variant to close* at the
 sizes it could reach: the regime it is for needs an adaptive good nuisance converging more slowly than
 `n^(-1/4)`, which is beyond what a routine validation budget can simulate. And the alternation does not
 reliably converge — equation (10)'s covariate is near-singular on exactly the fits anybody
 wants, so some fold draws exit at the outer cap, which is what the score check is for.
-[The roadmap](roadmap.md#1-extend-the-published-dr-tmle-surface) lists proposed extensions. Do not read this as a
-free improvement over a plain TMLE.
+[What the validation programme established](drtmle.md#what-the-validation-programme-established)
+lists these and the rest. Do not read this as a free improvement over a plain TMLE.
 
 Why this is the right number, and how it is checked:
 [what the extra equations remove](methodology.md#doubly-robust-inference-what-the-extra-equations-remove).

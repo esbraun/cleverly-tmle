@@ -14,9 +14,12 @@ vanishes.  Every step of that walk, in Python, does:
 At ``K = 2`` that is roughly twenty full-length array passes and a dozen temporaries per
 step, and the walk takes tens to thousands of steps -- the package caps it at 20,000.  So
 this is the one kernel in the package where the interpreter genuinely is in the inner
-loop, and where the roadmap's own asymptotic table already puts it at **82% of a
-``library="glm"`` fit's per-row cost**, eleven times the Newton solver that answers the
-same question.
+loop.  A retired asymptotic table once put it at **82% of a ``library="glm"`` fit's
+per-row cost**, eleven times the Newton solver that answers the same question.  That
+table is gone and the figure has not been reproduced since, so treat it as the reason
+this kernel is measured rather than as a result: ``bench_tmle.py``'s *Projected to scale*
+section is what computes per-row costs now, and per that file's own rule, run it before
+citing it.
 
 That makes it the strongest *algorithmic* candidate here in the way the multiplier
 bootstrap is the strongest *memory* one, and it is worth being clear about which question

@@ -788,7 +788,8 @@ class CausalData:
         equivalently that ``Delta`` is independent of ``Z`` given ``(A, W)``, which
         holds in particular when the outcome's recording is decided before ``Z`` is
         realised.  Where that is implausible, the estimand belongs to an ``ltmle``-style
-        longitudinal analysis; see ``docs/roadmap.md``.
+        longitudinal analysis; see :class:`cleverly.longitudinal.LTMLE` and its recipes in
+        ``docs/user-guide.md``.
 
         :mod:`cleverly.estimators.direct_effect` states the rest of the assumptions this
         one belongs to, and derives the influence function they identify.

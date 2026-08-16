@@ -902,7 +902,7 @@ class TestEachDrawSolvesItsOwnEquations:
     What the check found is in :class:`TestTheReportedCurveIsNotAlwaysCentred` below, and it
     is not about ``repeats=``.
 
-    Note what the roadmap originally proposed as this row's mutation and why it is not used:
+    Note the obvious mutation for this row, and why it is not used:
     "drop a repeat and watch the averaged curve decentre" cannot fail.  A centred curve
     carries its own :math:`-\psi_r`, so the mean of *any* subset of centred curves is
     centred.  What a dropped draw moves is ``psi`` and the row count of the score check,

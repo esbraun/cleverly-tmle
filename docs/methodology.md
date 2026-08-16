@@ -549,10 +549,13 @@ and against a *perturbation of the law*, where in each half of the union model t
 is the efficient influence function row for row — from a real fit as well as longhand
 (`tests/unit/test_influence_gateaux_drtmle.py`). Nothing here has been compared against that
 package's *numbers* and nothing will be — an
-[active decision](decisions.md#standing-decisions) rather than a gap, since agreement between
+[standing decision](architecture-invariants.md#validation-and-evidence) rather than a gap, since agreement between
 two transcriptions of one source is evidence about the transcription. What remains open is the
-*inference*, not the curve: the roadmap's
-[DR-TMLE priority](roadmap.md#1-extend-the-published-dr-tmle-surface) lists the proposed extensions.
+*inference*, not the curve:
+[what the validation programme established](drtmle.md#what-the-validation-programme-established)
+is the full list, and the roadmap's
+[DR-TMLE priority](roadmap.md#1-extend-the-published-dr-tmle-surface) is the proposed work on top
+of it.
 
 `TMLE` is **doubly robust for consistency and singly robust for inference**, and the
 distinction is the whole of what `DRTMLE` is for. The second-order remainder is a product,
@@ -870,7 +873,7 @@ construction or localise a discrepancy, and the C-TMLE section above names the o
 adopted that way. Agreement with them is not an oracle or an acceptance criterion: the evidence
 here checks that each method produces what its derivation predicts. The roadmap's
 [eligibility rules](roadmap.md#eligibility) and the
-[standing decisions](decisions.md#standing-decisions) carry the reasoning. And `score_check()`
+[standing decisions](architecture-invariants.md#validation-and-evidence) carry the reasoning. And `score_check()`
 passing is not evidence that the equation was the right one — see below.
 
 ## How to read a refusal

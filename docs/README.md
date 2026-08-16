@@ -8,7 +8,7 @@ every file is hand-written and is expected to be read.
 | [User guide](user-guide.md) | one runnable recipe per capability: multi-arm treatments, dynamic and stochastic regimes, continuous doses, incremental interventions, marginal structural models, longitudinal and survival fits, C-TMLE, cross-fitting, weights |
 | [Technical appendix](methodology.md) | per algorithm: the estimand, its efficient influence curve, the second-order remainder, and the test that fails when it is built wrong |
 | [Roadmap](roadmap.md) | proposed methods in priority order, with the publication and canonical-source evidence required before implementation |
-| [Standing decisions](decisions.md) | active project choices, their evidence, and the conditions for reconsidering them |
+| [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Evidence](evidence.md) | per registered estimand: which instruments check its influence curve — oracle law, Gateaux comparison, remainder rate, exact identity — and which mistakes none of them would see |
 | [DR-TMLE](drtmle.md) | the doubly-robust variant's production contract: supported estimands and refusals, what Theorem 1 covers, the targeting and cross-fitting choices, the nuisance conditions the interval is conditional on, and the diagnostics to inspect |
 | [Benchmarks](benchmarks/) | where a fit's time goes, and what compiling or parallelising the package's own arithmetic would buy — which, measured properly, is not enough for a dependency |
@@ -16,10 +16,10 @@ every file is hand-written and is expected to be read.
 
 ## Where engineering constraints live
 
-Active choices and their reopening conditions belong in the
-[standing-decision register](decisions.md). Cross-module constraints belong in
-[architecture invariants](architecture-invariants.md), and detailed performance evidence belongs
-in the [benchmark reports](benchmarks/). The roadmap is reserved for proposed work.
+Cross-module constraints, the standing decisions that go with them, and the conditions that would
+reopen each one all belong in [architecture invariants](architecture-invariants.md). Detailed
+performance evidence belongs in the [benchmark reports](benchmarks/). The roadmap is reserved for
+proposed work.
 
 ## Where the reports do not live
 
