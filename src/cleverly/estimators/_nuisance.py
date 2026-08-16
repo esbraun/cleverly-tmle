@@ -59,6 +59,7 @@ __all__ = [
     "NuisanceEstimates",
     "Propensity",
     "RepeatFit",
+    "UnfittedPropensity",
     "cross_fit_companion",
     "cross_fit_predictions",
     "fit_inner_designs",
@@ -145,6 +146,33 @@ class Propensity:
             columns = {self.column_for(1.0): one, self.column_for(0.0): 1.0 - one}
             return np.column_stack([columns[j] for j in range(2)])
         return bound(values, lower, upper)
+
+
+@dataclass(frozen=True)
+class UnfittedPropensity(Propensity):
+    """The ``fit_treatment=False`` staging value: a mechanism that was never estimated.
+
+    :func:`fit_nuisances` has to return the ordinary container even when it skipped the
+    treatment model, because the outcome and missingness fits travel in it.  What it must
+    *not* return is an array a consumer can quietly use.  Zeros would be usable: they clip
+    to :meth:`Propensity.bounded`'s floor and give a finite, plausible, wrong estimate.  So
+    the values are ``NaN`` and both read accessors raise -- the collaborative caller
+    replaces the whole object before targeting, and any path that does not is a defect
+    rather than a slightly worse fit.
+    """
+
+    def _unfitted(self) -> ValueError:
+        return ValueError(
+            "this treatment mechanism was never fitted: it is the fit_treatment=False "
+            "staging value that a collaborative estimator must replace with its own g "
+            "before any targeting, diagnostic or sensitivity code reads it"
+        )
+
+    def arm(self, arm: float) -> FloatArray:
+        raise self._unfitted()
+
+    def bounded(self, bounds: tuple[float, float]) -> FloatArray:
+        raise self._unfitted()
 
 
 @dataclass(frozen=True)
@@ -870,8 +898,9 @@ def fit_nuisances(
 
     ``fit_treatment=False`` is the outcome-first staging path used by collaborative
     estimators, which replace the ordinary treatment model before any targeting or
-    reporting occurs.  It is intentionally internal: the returned propensity is only a
-    shape-correct placeholder and must not escape the caller without replacement.
+    reporting occurs.  It is intentionally internal: the returned propensity is an
+    :class:`UnfittedPropensity`, whose values are ``NaN`` and whose accessors raise, so a
+    caller that fails to replace it stops rather than reporting a plausible number.
 
     ``companion`` is an independent draw at which every fold's mechanism and outcome
     regression is *also* evaluated, returned on
@@ -952,8 +981,9 @@ def fit_nuisances(
     else:
         # A staging value, not an estimated mechanism.  Keeping the arm metadata and
         # matrix shape valid lets the shared outcome/missingness pipeline return its
-        # ordinary container; CTMLE replaces this before any consumer can read it.
-        propensity = Propensity(np.zeros((data.n, len(arms)), dtype=float), arms)
+        # ordinary container; CTMLE replaces this before any consumer can read it, and
+        # `UnfittedPropensity` is what turns "does not" into "cannot".
+        propensity = UnfittedPropensity(np.full((data.n, len(arms)), np.nan), arms)
 
     retained = data.covariate_names
     if screen_treatment:

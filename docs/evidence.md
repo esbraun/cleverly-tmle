@@ -91,11 +91,24 @@ nonzero instrument:
 
 The nonzero scientific instruments are now completed by
 `tests/unit/test_remainder_multi.py` and
-`tests/unit/test_influence_gateaux_multi_collaborative.py`. The former checks every arm's
-product remainder, both DR-TMLE projections and an OAT design that deliberately coarsens
-`W`; the latter checks both multi-arm DR-TMLE union-model cells against the complex-step
-derivative and exercises OAT on the regular exact law where its generated design identifies
-`W`. `tests/e2e/test_coverage_slow.py::TestMultiArmCollaborativeCoverage` is the repeated-
+`tests/unit/test_influence_gateaux_multi_collaborative.py`.
+
+The former evaluates every arm's product remainder at nuisances that are wrong on purpose,
+and takes both DR-TMLE projections from the shipped `reduced_correction_parts` rather than
+rebuilding them, against an exactly saturated `ReducedSet` this finite law admits. Its
+longhand derivation is kept beside them as an independent oracle, and
+`test_the_library_corrections_are_the_longhand_ones` is the assertion that reaches the
+library: flipping the sign of either `d_g` or `d_q`, or zeroing one of them, fails the
+module. Its OAT entry is a *design-level* boundary — a coarsened `Qbar` whose generated
+mechanism cannot be repaired independently of `W` — and not a check on the shipped OAT
+code, which is pinned by `test_oat_fits_the_treatment_model_on_the_arm_specific_qbar_matrix`
+in the table above and by the OAT curve check named next.
+
+The latter checks both multi-arm DR-TMLE union-model cells against the complex-step
+derivative through real `DRTMLE` fits, and exercises `CTMLE(strategy="oat")` on the regular
+exact law where its generated design identifies `W`.
+
+`tests/e2e/test_coverage_slow.py::TestMultiArmCollaborativeCoverage` is the repeated-
 sampling regression guard: it requires finite, non-dropped replicates, controlled bias and
 non-collapsed coverage relative to TMLE. It is deliberately not a nuisance-rate experiment
 and therefore does not establish the union-model theorem or OAT asymptotics at a tied,

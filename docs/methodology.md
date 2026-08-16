@@ -670,8 +670,9 @@ leaves the simplex, and the column-permutation witness on the exit state — all
 `tests/unit/test_multi_arm_collaborative.py` and tabulated in
 [the evidence register](evidence.md#estimator-variants-over-registered-targets). The
 armwise product and corrected remainders are checked at wrong nuisances in
-`tests/unit/test_remainder_multi.py`; both union-model cells are checked against the
-complex-step Gateaux derivative in
+`tests/unit/test_remainder_multi.py`, with the two corrections taken from the shipped
+reduction code so that a sign or guard mistake in it fails there; both union-model cells
+are checked against the complex-step Gateaux derivative in
 `tests/unit/test_influence_gateaux_multi_collaborative.py`; and the slow coverage tier
 carries a deliberately modest repeated-sampling regression guard.
 

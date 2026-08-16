@@ -1199,11 +1199,20 @@ treatment. `preorder=` is refused for other searches and when `ordering=` suppli
 explicit order, so an inapplicable setting cannot be silently ignored. `strategy="discrete"`
 cross-validates an explicit list of candidate models.
 
+**Every strategy replaces the treatment mechanism, so the shared nuisance pass is
+outcome-first**: `Qbar` and the missingness model are fitted once, and no ordinary `g(W)`
+is fitted and discarded first. One reporting consequence is worth knowing. For the three
+selector strategies the propensity row of `fit.validation.nuisance()` still describes the
+*selected* mechanism — its calibration, AUC and Brier score are computed from the array the
+estimate actually used — but its super-learner weight and risk table is empty, because that
+mechanism came off the candidate path rather than from one shared fit, and the candidate
+C-TMLE most often selects is the intercept-only model with no learner behind it. Read
+`res.extra["ctmle"]` for what the search did instead. `strategy="oat"` does have one shared
+fit and does report the full table.
+
 `strategy="oat"` is the outcome-adaptive treatment model from `ctmle3`: it first fits
 `Qbar(a, W)` for every treatment level, then fits the categorical treatment mechanism on
-that vector of predictions. The shared nuisance pass is outcome-first, so it does not also
-fit and discard an ordinary `g(W)` before this model. Unlike the three selector strategies,
-it has no candidate path
+that vector of predictions. Unlike the three selector strategies, it has no candidate path
 or parameter-specific selection loss and supports multi-valued treatment. The record under
 `res.extra["ctmle"]` shares the practical diagnostic fields `.strategy`,
 `.treatment_features`, and `.treatment_risk_selected` across both API paths.

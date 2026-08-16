@@ -3,6 +3,12 @@ r"""Finite-support remainder identities for multi-arm TMLE, OAT and DR-TMLE.
 The exact multi-arm fit makes every collaborative correction vanish.  This module instead
 evaluates the estimating equations at nuisance functions that are wrong on purpose, where
 the armwise product remainder and both DR-TMLE projections are observable.
+
+The corrections are taken from the shipped
+:func:`~cleverly.inference.influence.reduced_correction_parts` rather than rebuilt here, so
+a sign, an indicator or a guard mapping that is wrong in the library moves these numbers.
+The longhand derivation is kept as an independent oracle and compared against it in
+:func:`test_the_library_corrections_are_the_longhand_ones`.
 """
 
 from __future__ import annotations
@@ -10,9 +16,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from cleverly.estimators.reduced import ReducedSet
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.fluctuation.submodel import submodel_for
-from cleverly.inference.influence import counterfactual_means
+from cleverly.inference.influence import counterfactual_means, reduced_correction_parts
 from tests import discrete_law_multi as law
 
 ARMS = tuple(float(arm) for arm in range(law.K))
@@ -30,6 +37,9 @@ WRONG_Q = law.Q + np.array(
         [0.14, -0.12, -0.15],
     ]
 )
+#: Wide enough that neither the mechanism nor ``gr1`` is clipped: every quantity below
+#: divides by the untruncated array the longhand derivation divides by.
+INERT_BOUNDS = (1e-12, 1.0 - 1e-12)
 
 
 def _rows() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -41,15 +51,18 @@ def _rows() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     )
 
 
-def _plain(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[float, tuple[float, np.ndarray]]:
-    covariate, treatment, outcome = _rows()
-    treatment_index = treatment.astype(int)
-    initial = InitialFit(
-        observed=q_hat[covariate, treatment_index],
+def _initial(q_hat: np.ndarray) -> InitialFit:
+    covariate, treatment, _ = _rows()
+    return InitialFit(
+        observed=q_hat[covariate, treatment.astype(int)],
         arms={arm: q_hat[covariate, int(arm)] for arm in ARMS},
     )
+
+
+def _plain(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[float, tuple[float, np.ndarray]]:
+    covariate, treatment, outcome = _rows()
     submodel = submodel_for("mean", treatment, g_hat[covariate], arms=ARMS, reference=0.0)
-    means = counterfactual_means(outcome, initial, submodel, np.ones(law.N))
+    means = counterfactual_means(outcome, _initial(q_hat), submodel, np.ones(law.N))
     return {arm: (mean.psi, np.asarray(mean.influence_curve)) for arm, mean in means.items()}
 
 
@@ -79,6 +92,44 @@ def _extra(g_hat: np.ndarray, q_hat: np.ndarray, arm: float) -> tuple[np.ndarray
     return d_g, d_q
 
 
+def _reduced(g_hat: np.ndarray, q_hat: np.ndarray) -> ReducedSet:
+    """The three reduced regressions this finite law admits *exactly*, row by row.
+
+    ``Qbar`` and ``g`` are functions of ``W`` alone here, so each reduction is its own
+    conditional expectation and no fit stands between the law and these arrays.  That is
+    what lets the library's correction code be evaluated at a known answer.
+    """
+    covariate, _, _ = _rows()
+    return ReducedSet(
+        qr=(law.Q - q_hat)[covariate],
+        gr1=law.G[covariate],
+        gr2=((law.G - g_hat) / g_hat)[covariate],
+        arms=ARMS,
+        g_bounds=INERT_BOUNDS,
+    )
+
+
+def _corrections(
+    g_hat: np.ndarray, q_hat: np.ndarray, guard: tuple[str, ...]
+) -> dict[float, np.ndarray]:
+    """What the shipped DR-TMLE code subtracts under ``guard``, one array per arm.
+
+    Three arms, so this is :func:`~cleverly.inference.influence.reduced_correction_parts`'
+    multi-arm branch and not the binary one the existing remainder module reaches.
+    """
+    covariate, treatment, outcome = _rows()
+    parts = reduced_correction_parts(
+        outcome,
+        _initial(q_hat),
+        treatment,
+        _reduced(g_hat, q_hat),
+        g_hat[covariate],
+        bounds=INERT_BOUNDS,
+        guard=guard,
+    )
+    return dict(parts.total())
+
+
 def _expansion(
     g_hat: np.ndarray,
     q_hat: np.ndarray,
@@ -88,13 +139,31 @@ def _expansion(
     sign: float = -1.0,
 ) -> float:
     psi, curve = _plain(g_hat, q_hat)[arm]
-    d_g, d_q = _extra(g_hat, q_hat, arm)
-    if "Q" in guard:
-        curve = curve + sign * d_g
-    if "g" in guard:
-        curve = curve + sign * d_q
+    if guard:
+        curve = curve + sign * _corrections(g_hat, q_hat, guard)[arm]
     truth = float(np.sum(law.P_W * law.Q[:, int(arm)]))
     return psi - truth + float(np.mean(curve))
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_the_library_corrections_are_the_longhand_ones(arm: float) -> None:
+    """What pins the reduction code itself, rather than only the algebra around it.
+
+    Both terms are nonzero at this pair of wrong nuisances, so a flipped sign, a dropped
+    indicator, a mechanism read at the wrong arm or a swapped guard mapping in
+    :func:`~cleverly.inference.influence.reduced_correction_parts` moves one of these
+    arrays away from the longhand derivation and fails here.  The remainder identities
+    below all run through the same code path, so they inherit the same reach.
+    """
+    d_g, d_q = _extra(WRONG_G, WRONG_Q, arm)
+    assert min(np.max(np.abs(d_g)), np.max(np.abs(d_q))) > 1e-3
+    # `"Q"` is the guard that adds equation (9) and so contributes `d_g`; `"g"` adds (10)
+    # and contributes `d_q`.  Asserting the mapping, not just the two arrays.
+    np.testing.assert_allclose(_corrections(WRONG_G, WRONG_Q, ("Q",))[arm], d_g, atol=1e-14)
+    np.testing.assert_allclose(_corrections(WRONG_G, WRONG_Q, ("g",))[arm], d_q, atol=1e-14)
+    np.testing.assert_allclose(
+        _corrections(WRONG_G, WRONG_Q, ("Q", "g"))[arm], d_g + d_q, atol=1e-14
+    )
 
 
 @pytest.mark.parametrize("arm", ARMS)
