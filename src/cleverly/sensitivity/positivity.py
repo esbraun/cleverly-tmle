@@ -516,6 +516,31 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
             "clipped": float(clipped.sum()),
             "clipped_fraction": float(clipped.mean()),
         }
+
+    # The joint arm-and-observation mechanism, when a missing-outcome DR-TMLE built one.
+    # Reported here rather than folded into the propensity above, because it is neither of
+    # the two mechanisms already tabulated: `g` and `pi` remain the models that were fitted
+    # and are what the nuisance diagnostics describe, while their *product* is what the
+    # clever covariate actually divides by, and nothing else in this report shows it. Its
+    # bound is `g_bounds`, not the missingness bound the loop above uses, because that is
+    # the bound the reductions apply to it.
+    joint = nuisance.reduction_mechanism
+    if joint is not None:
+        lower = result.config.g_bounds[0]
+        array = np.asarray(joint.values, dtype=float)
+        flat = array.reshape(-1)
+        clipped = flat < lower
+        at_arm = np.where(treated, array[:, 1], array[:, 0])
+        used = np.maximum(at_arm[contributing], lower)
+        out["P(A=a,Delta=1|W)"] = {
+            "min": float(flat.min()),
+            "q01": float(np.quantile(flat, 0.01)),
+            "q05": float(np.quantile(flat, 0.05)),
+            "median": float(np.median(flat)),
+            "ess_ratio": (_kish_ess(1.0 / used) / float(used.size) if used.size else float("nan")),
+            "clipped": float(clipped.sum()),
+            "clipped_fraction": float(clipped.mean()),
+        }
     return out
 
 
@@ -688,11 +713,16 @@ def truncation_curve(
 def _clipped_fraction(result: TMLEResult, lower: float, mechanism: bool) -> float:
     """Share of nuisance values the bound would clip, for whichever bound is swept."""
     if not mechanism:
-        # Over the whole (n, K) mechanism.  With two arms the columns are ``g1`` and its
+        # Over the whole (n, K) mechanism *the covariates divide by*, which on a
+        # missing-outcome fit is the joint `g_a pi_a` rather than the reported propensity --
+        # this sweep moves ``g_bounds``, and ``g_bounds`` is what gets applied to the joint.
+        # With two arms and an ordinary propensity the columns are ``g1`` and its
         # complement, so a cell is clipped exactly when its mirror is and the fraction is
-        # the same one the single-vector form reported.
-        propensity = np.asarray(result.nuisance.propensity.values, dtype=float)
-        return float(np.mean((propensity < lower) | (propensity > 1.0 - lower)))
+        # the same one the single-vector form reported.  The joint has no such mirror, which
+        # is why both tails are tested rather than one and its reflection.
+        mechanism_fit = result.nuisance.reduction_mechanism or result.nuisance.propensity
+        divisor = np.asarray(mechanism_fit.values, dtype=float)
+        return float(np.mean((divisor < lower) | (divisor > 1.0 - lower)))
     # The intermediate entry must be the density for the level being targeted, not the
     # raw P(Z = 1 | A, W): at z = 0 the covariate divides by the complement, so reading
     # the array directly counts the wrong tail and reports a mirror-inverted fraction.

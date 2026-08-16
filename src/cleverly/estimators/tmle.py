@@ -1393,6 +1393,29 @@ class TMLE:
                 stacklevel=3,
             )
 
+        # The joint arm-and-observation mechanism, when a missing-outcome DR-TMLE built one.
+        # Checked separately and against `g_bounds` because it is a third quantity: `g` and
+        # `pi` are each within their own bound above and below, and their *product* -- the
+        # one the clever covariate actually divides by -- can still sit under `g_bounds`
+        # with neither factor doing so. That is the case a reader has no other way to see,
+        # since both models look immaculate in the nuisance diagnostics.
+        joint = nuisance.reduction_mechanism
+        if joint is not None:
+            product = np.asarray(joint.values, dtype=float)
+            under = float(np.mean(np.any((product < lower) | (product > upper), axis=1)))
+            if under > _TRUNCATION_WARN_FRACTION:
+                warnings.warn(
+                    f"{under:.1%} of units have a joint treatment-and-observation "
+                    f"probability P(A = a, Delta = 1 | W) outside the truncation bounds "
+                    f"[{lower:.4g}, {upper:.4g}] for at least one arm. That product is what "
+                    "the missing-outcome clever covariate divides by, and it can bind when "
+                    "neither the treatment nor the missingness model does on its own. "
+                    "Inspect res.sensitivity.positivity() and "
+                    "res.sensitivity.truncation_curve() before trusting the estimate.",
+                    PositivityWarning,
+                    stacklevel=3,
+                )
+
         # The propensity is not the only denominator in the clever covariate. A
         # missingness or intermediate probability near zero gives a row exactly the same
         # unbounded leverage, and it is the one a reader is least likely to be watching
@@ -2525,6 +2548,37 @@ class TMLE:
         return {name: estimate.psi for name, estimate in averaged.items()}
 
 
+def reported_mechanism(
+    nuisance: NuisanceEstimates,
+    fluctuation: Fluctuation,
+    arms: tuple[float, ...],
+) -> FloatArray:
+    """The mechanism the reduced corrections were formed at, in the shape they read it in.
+
+    Three cases, and the shape is part of the answer rather than incidental to it.  A
+    tilted mechanism is whatever the alternation solved for.  A **joint** one --
+    :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.reduction_mechanism`, the
+    missing-outcome construction's ``g_a(W) pi_a(W)`` -- goes back as ``(n, K)`` so that
+    :func:`~cleverly.inference.influence.reduced_correction_parts` truncates it column by
+    column, because its columns are not complements of each other.  Anything else keeps
+    the single upper-arm vector the binary path has always passed, which is what leaves
+    every complete-data fit bit for bit what it was.
+
+    Shared by :func:`correction_parts` and
+    :func:`~cleverly.validation.drtmle.correction_check` for the same reason
+    ``correction_parts`` is module level: the reported curve and the diagnostic that
+    checks it must not be able to describe different mechanisms.
+    """
+    if fluctuation.mechanism is not None:
+        return np.asarray(fluctuation.mechanism.propensity, dtype=float)
+    joint = nuisance.reduction_mechanism
+    if joint is not None:
+        return np.asarray(joint.values, dtype=float)
+    if len(arms) == 2:
+        return nuisance.propensity.arm(arms[1])
+    return np.asarray(nuisance.propensity.values, dtype=float)
+
+
 def correction_parts(
     data: CausalData,
     nuisance: NuisanceEstimates,
@@ -2539,7 +2593,9 @@ def correction_parts(
     covariates divided by.  A curve built from ``result.nuisance`` instead would be the
     curve of a fit nobody ran -- those arrays are deliberately the *initial* ones.  Without
     the ``"Q"`` guard no mechanism was tilted and the initial one is what equation (10) was
-    solved beside, so that is what the curve reads.
+    solved beside, so that is what the curve reads -- the initial mechanism the covariates
+    actually divided by, which on a missing-outcome fit is the joint one rather than the
+    separately reported propensity.  :func:`reported_mechanism` makes that choice.
 
     Module level rather than a method of :class:`TMLE`, and that is the whole point: the
     reported curve and :func:`~cleverly.validation.drtmle.correction_check`'s identity both
@@ -2555,15 +2611,7 @@ def correction_parts(
     reduction = fluctuation.reduction
     if reduction is None:
         return None
-    mechanism = (
-        fluctuation.mechanism.propensity
-        if fluctuation.mechanism is not None
-        else (
-            nuisance.propensity.arm(reduction.reduced.arms[1])
-            if len(reduction.reduced.arms) == 2
-            else nuisance.propensity.values
-        )
-    )
+    mechanism = reported_mechanism(nuisance, fluctuation, reduction.reduced.arms)
     return reduced_correction_parts(
         scaled,
         targeted,

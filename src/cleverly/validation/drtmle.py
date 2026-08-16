@@ -126,7 +126,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..estimators.tmle import correction_parts
+from ..estimators.tmle import correction_parts, reported_mechanism
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
 from ..utils.text import format_table
@@ -565,23 +565,20 @@ def correction_check(
             clipped = int(np.count_nonzero(parts.clipped))
             mechanism = fluctuation.mechanism
             margin = _margin(
-                mechanism.propensity
-                if mechanism is not None
-                else (
-                    repeat.nuisance.propensity.arm(reduction.reduced.arms[1])
-                    if len(reduction.reduced.arms) == 2
-                    else repeat.nuisance.propensity.values
-                ),
+                reported_mechanism(repeat.nuisance, fluctuation, reduction.reduced.arms),
                 reduction.bounds,
             )
             # Item 25's other two witnesses. Both are properties of this draw rather than of
             # a single arm's equation, so they ride on every row of it exactly as `clipped`
             # and `margin` do -- and both come off the arrays the covariates divide by: the
             # untruncated initial mechanism `Propensity.bounded` was applied to, and the
-            # untruncated `gr1` `bounded_gr1` was applied to.
-            initial = np.column_stack(
-                [repeat.nuisance.propensity.arm(arm) for arm in reduction.reduced.arms]
-            )
+            # untruncated `gr1` `bounded_gr1` was applied to. On a missing-outcome fit the
+            # first of those is the joint `g_a pi_a` rather than the separately reported
+            # propensity -- and since the joint is uniformly the smaller of the two, reading
+            # the propensity here could only ever *under*-report the clipping, which is the
+            # one direction a witness for `contract` must not err in.
+            initial_fit = repeat.nuisance.reduction_mechanism or repeat.nuisance.propensity
+            initial = np.column_stack([initial_fit.arm(arm) for arm in reduction.reduced.arms])
             lower, upper = reduction.bounds
             initial_clipped = int(np.count_nonzero((initial < lower) | (initial > upper)))
             gr1_margin = _margin(reduction.reduced.gr1, reduction.bounds)

@@ -442,7 +442,9 @@ def reduced_corrections(
 
     Under Díaz & van der Laan (2017)'s randomized missing-outcome construction,
     :math:`g^*` is the joint treatment-observation mechanism and
-    :math:`1_a` in both rows is :math:`1\{A=a,\Delta=1\}`.
+    :math:`1_a` in both rows is :math:`1\{A=a,\Delta=1\}`.  It arrives here as ``(n, K)``
+    rather than as the binary path's single upper-arm vector, which is what routes it to
+    the column-by-column truncation below: its columns are not each other's complements.
 
     In either setting the reported curve is :math:`D^* - D^*_Q - D^*_g`.  **Minus**, both
     of them: that is

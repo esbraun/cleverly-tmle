@@ -117,7 +117,7 @@ outcomes, missing treatment, and other target groups remain refused by name.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -392,10 +392,20 @@ class DRTMLE(TMLE):
     ) -> Any:
         """Fit, optionally using known randomized-treatment probabilities.
 
-        ``treatment_probabilities`` is accepted at fit time because it is row-aligned data:
-        either ``(n,)`` with ``P(A=1|W)`` or ``(n, 2)`` in encoded arm order.  Supplying it
-        implies ``randomized=True`` for the missing-outcome theorem and bypasses the
-        treatment learner.  A shallow per-fit copy keeps an unfitted estimator reusable.
+        ``treatment_probabilities`` is accepted at fit time because it is row-aligned data.
+        Three forms:
+
+        - a **mapping keyed by treatment level**, ``{"placebo": p0, "active": p1}``, with
+          one ``(n,)`` column per arm and every arm named.  Prefer this: it says which arm
+          each column belongs to instead of relying on the caller and the encoder agreeing
+          about which level sorts first.
+        - ``(n, 2)`` in encoded arm order, which is the levels sorted ascending.
+        - ``(n,)``, read as the probability of the arm whose code is ``1`` -- the *second*
+          sorted level, so ``"placebo"`` in a trial labelled ``active``/``placebo``.
+
+        Supplying any of them implies ``randomized=True`` for the missing-outcome theorem
+        and bypasses the treatment learner.  A shallow per-fit copy keeps an unfitted
+        estimator reusable.
         """
         fitted = copy(self)
         fitted._treatment_probabilities = treatment_probabilities
@@ -532,6 +542,11 @@ class DRTMLE(TMLE):
                 np.asarray(base.propensity.values, dtype=float)
                 * np.asarray(base.missingness, dtype=float),
                 base.arms,
+                # Not a distribution over the arms: `g_0 pi_0 + g_1 pi_1` is the
+                # probability of being observed at all, not one. Saying so is what stops
+                # `bounded` deriving arm 0 as `1 - g_1 pi_1`, which is a different and
+                # larger denominator than the theorem's `g_0 pi_0`.
+                simplex=False,
             )
             base = replace(base, reduction_mechanism=joint)
         if self.guard and self.reduced_crossfit == "nested":
@@ -568,26 +583,80 @@ class DRTMLE(TMLE):
         )
 
     def _known_treatment_probabilities(self, data: CausalData) -> Propensity | None:
+        """The design probabilities as a mechanism, or ``None`` when none were supplied.
+
+        Three accepted forms, and the mapping is the one to reach for.  A trial's arms are
+        named, and the positional forms bind to the arm *codes* -- which are indices into
+        the sorted levels, so ``1`` is ``"placebo"`` in a trial labelled
+        ``active``/``placebo``.  A caller who reads ``(n,)`` as "the probability of
+        treatment" and passes ``P(A = 'active' | W)`` inverts the design, and with unequal
+        allocation nothing downstream contradicts them: the array is in range, its rows sum
+        to one, and the treatment learner it replaces never runs.  So the mapping form
+        exists to let the caller name the arm, exactly as ``arm_gamma`` does in
+        :func:`~cleverly.sensitivity.missingness_tilt`, and the two positional forms name
+        the level they resolved to in every message they raise.
+        """
         supplied = self._treatment_probabilities
         if supplied is None:
             return None
-        values = np.asarray(supplied, dtype=float)
-        if values.ndim == 1:
-            if values.shape[0] != data.n:
-                raise ValueError(
-                    f"treatment_probabilities has {values.shape[0]} rows; expected {data.n}"
-                )
-            values = np.column_stack([1.0 - values, values])
+        levels = list(data.treatment_levels)
+        if isinstance(supplied, Mapping):
+            values = self._probabilities_from_levels(data, supplied, levels)
+        else:
+            values = np.asarray(supplied, dtype=float)
+            if values.ndim == 1:
+                if values.shape[0] != data.n:
+                    raise ValueError(
+                        f"treatment_probabilities has {values.shape[0]} rows; expected {data.n}"
+                    )
+                values = np.column_stack([1.0 - values, values])
         if values.shape != (data.n, 2):
             raise ValueError(
-                "treatment_probabilities must be (n,) for P(A=1|W) or (n, 2) "
-                f"in treatment-level order; got {values.shape}"
+                f"treatment_probabilities must be (n,) for P({data.treatment_name} = "
+                f"{levels[1]!r} | W), (n, 2) in the level order {levels}, or a mapping "
+                f"keyed by those levels; got {values.shape}"
             )
         if not np.all(np.isfinite(values)) or np.any(values <= 0.0) or np.any(values >= 1.0):
             raise ValueError("treatment_probabilities must be finite and strictly between 0 and 1")
         if not np.allclose(values.sum(axis=1), 1.0, rtol=0.0, atol=1e-12):
             raise ValueError("each row of treatment_probabilities must sum to one")
         return Propensity(values, data.arm_codes)
+
+    @staticmethod
+    def _probabilities_from_levels(
+        data: CausalData, supplied: Mapping[Any, Any], levels: list[Any]
+    ) -> np.ndarray:
+        """One ``(n,)`` column per arm, keyed on the way in by the caller's own level.
+
+        Keyed by level in and by arm code out, which is the convention every reported name
+        follows -- and every arm must be named, because an arm left out would be filled in
+        by a complement the caller never wrote, which is the assumption this form exists to
+        state rather than inherit.
+        """
+        columns: dict[float, np.ndarray] = {}
+        for label, probabilities in supplied.items():
+            matches = [index for index, level in enumerate(levels) if level == label]
+            if not matches:
+                raise ValueError(
+                    f"treatment_probabilities names {label!r}, which is not a level of "
+                    f"{data.treatment_name}; its levels are {levels}"
+                )
+            column = np.asarray(probabilities, dtype=float).reshape(-1)
+            if column.shape[0] != data.n:
+                raise ValueError(
+                    f"treatment_probabilities[{label!r}] has {column.shape[0]} rows; "
+                    f"expected {data.n}"
+                )
+            columns[float(matches[0])] = column
+        missing = [levels[int(code)] for code in data.arm_codes if code not in columns]
+        if missing:
+            raise ValueError(
+                f"treatment_probabilities must name every arm, and {missing} are missing. "
+                "The arms left out would take whatever is left over from the ones named, "
+                "which is the design this form exists to state explicitly; give every arm "
+                "its own column."
+            )
+        return np.column_stack([columns[code] for code in data.arm_codes])
 
     def _reduction(self, data: CausalData, nuisance: NuisanceEstimates) -> ReductionSpec | None:
         """The closure the alternation refits with, and the guards it solves.
@@ -707,6 +776,15 @@ class DRTMLE(TMLE):
                     "randomized=True to estimate the treatment mechanism for chance-imbalance "
                     "adjustment, or pass treatment_probabilities= to fit(). Observational "
                     "treatment remains unsupported by the published theorem."
+                )
+            if self._treatment_probabilities is not None and self.n_bootstrap:
+                raise NotImplementedError(
+                    "treatment_probabilities= and n_bootstrap= are not combined. The array "
+                    "is row-aligned to the data as passed, and a replicate refits on "
+                    "resampled rows it cannot be reindexed to from here -- an n-out-of-n "
+                    "resample even passes the length check, so the misalignment would be "
+                    "silent. Pass randomized=True instead, so each replicate estimates the "
+                    "mechanism from its own rows."
                 )
             if self.cross_fit:
                 raise NotImplementedError(

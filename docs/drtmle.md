@@ -102,7 +102,7 @@ bit for bit.
 
 | keyword | status |
 | --- | --- |
-| `delta=` | **randomized binary trials only**, using Díaz & van der Laan (2017)'s missing-outcome construction. Set `randomized=True` to estimate the treatment probabilities (the paper's finite-sample recommendation), or pass row-aligned known probabilities as `treatment_probabilities=` to `fit`. This surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no analysis weights or evaluation companion. |
+| `delta=` | **randomized binary trials only**, using Díaz & van der Laan (2017)'s missing-outcome construction. Set `randomized=True` to estimate the treatment probabilities (the paper's finite-sample recommendation), or pass row-aligned known probabilities as `treatment_probabilities=` to `fit` — as a mapping keyed by treatment level, `{"placebo": p0, "active": p1}`, or as `(n, 2)` in encoded arm order, or as `(n,)` read as the probability of the arm whose code is `1`. This surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no analysis weights or evaluation companion. |
 | `weights=` | **fixed analysis weights only.** The estimand is the parameter of the tilted law `dP_w = w dP / E[w]`. The derivation was read at an unweighted law; transporting it needs the reduced regressions to be `P_w`-conditional expectations, which weighted loss gives, *and* the mechanism they condition on and divide by to be the `P_w` mechanism, which holds because they are built from `nuisance.propensity`. `tests/unit/test_remainder_drtmle.py` runs the whole expansion at two tilted laws and keeps the wrong transport as a control that fails. |
 | `repeats=` | supported; varies exactly one thing, the **primary split**. Each draw fits its own reductions and runs its own alternation; the report is the mean of the draws with the curves averaged elementwise. `result.extra["drtmle"]` describes **draw 0 only**. |
 | `library="rich"` | computes, but steps **outside** the cross-fitting argument of [section 3](#reduced-regression-cross-fitting) via `forest`, whose fitted class grows with `n`. Not refused; scoped. |
@@ -121,6 +121,7 @@ raise at construction or at `fit`, with a message naming what a derivation would
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |
 | observational treatment with `delta=` | Díaz & van der Laan (2017) derives the construction for randomized trials; the canonical package accepting observational treatment is implementation provenance, not a theorem for that composition |
 | missing treatment (`treatment_delta=`) | reserved for a future published construction. Canonical missing-`A` smoke tests do not supply this package's required identification, corrected curve, remainder, and rate conditions |
+| `treatment_probabilities=` with `n_bootstrap=` | the array is row-aligned to the data as passed, and a replicate refits on resampled rows it cannot be reindexed to. An n-out-of-n resample passes the length check, so the misalignment would be silent; `randomized=True` estimates the mechanism inside each replicate instead |
 | `intermediate=` | the reduced equations carry no controlled-intermediate factor |
 | `targeting_scheme="fold"` | each fold would need its own reduced regressions and alternation |
 | `cv_evaluation=True` | the common-update construction would need the corrected parameter and influence curve derived under fold-wise evaluation |
@@ -253,11 +254,30 @@ the displayed decomposition as independent witnesses. The ordinary treatment and
 nuisances remain separate on the fitted result; only the reduction and correction use their
 joint product.
 
+**`g` is truncated arm by arm**, and that is a consequence of the display above rather than a
+detail of the implementation. `g_0 + g_1` is the probability of being observed at all, not one, so
+the joint mechanism is *not* a distribution over the arms and arm 0's denominator cannot be
+recovered as `1 − g_1`. `Propensity` carries `simplex=False` for exactly this array, which routes
+it to the same column-by-column truncation a multi-arm mechanism gets, and refuses a two-arm
+mechanism that is off the simplex without saying so — because the complement rule applied here
+returns a finite, plausible, wrong estimate rather than an error. The witness is a rowwise identity
+on the fitted clever covariate, `h_a = 1/clip(g_a)`, with the complement form kept beside it as the
+control (`tests/unit/test_drtmle_missing.py`).
+
+Everything downstream reads the same array. `correction_check`'s `margin` and `initial_clipped`,
+the positivity report's `P(A=a,Delta=1|W)` row, the truncation curve's `truncated_fraction`, and
+the fit-time positivity warning are all computed on `g` rather than on the separately reported
+`g_A` — the two come apart on a randomized trial, where `g_A` is flat and only their product
+approaches a bound.
+
 The shipped scope follows the paper rather than the broader canonical package: binary randomized
 treatment, MAR and positivity, no cross-fitting, and no weights, repeats, fold targeting, or
 evaluation companion. `randomized=True` estimates `g_A`; `treatment_probabilities=` supplies known
-row-aligned probabilities and bypasses the treatment learner. Observational treatment and missing
-treatment remain refused because this paper does not derive those compositions.
+row-aligned probabilities and bypasses the treatment learner. Prefer the mapping form
+`{"placebo": p0, "active": p1}`: the positional forms bind to arm *codes*, which are indices into
+the sorted levels, so a `(n,)` vector is the probability of the second sorted level and not of
+"the treated arm". Observational treatment and missing treatment remain refused because this paper
+does not derive those compositions.
 
 ### The sign of the mechanism correction
 

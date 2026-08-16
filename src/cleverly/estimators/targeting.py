@@ -2045,7 +2045,7 @@ def _retargeted_mechanism(
     *,
     joint: bool = False,
 ) -> NuisanceEstimates:
-    """``nuisance`` with the mechanism replaced by the tilted one, for the covariate only.
+    r"""``nuisance`` with the mechanism replaced by the tilted one, for the covariate only.
 
     Built here and thrown away with the alternation: the targeted mechanism belongs on the
     fluctuation, never on ``result.nuisance``, so that the nuisance diagnostics go on
@@ -2058,9 +2058,27 @@ def _retargeted_mechanism(
     MechanismFluctuation.carried`.  ``None`` on every pooled fit, where
     :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner` is ``None`` and this
     replaces nothing.
+
+    ``joint`` is the missing-outcome construction, where the one mechanism standing in for
+    both ``propensity`` and ``missingness`` is :math:`g_a(W) \pi_a(W)` and is **not** a
+    distribution over the arms, so it carries ``simplex=False`` and the complement rule
+    above does not apply to it.
     """
+    # Unreachable from the public surface, because `DRTMLE` refuses `delta=` with nested
+    # reduced cross-fitting -- and stated here rather than left to that refusal because the
+    # two branches disagree in a way that would otherwise surface as a reshape error: the
+    # binary `inner` carries a 1-D marginal `g` and the joint solver needs `(n, K)`.
+    if joint and inner is not None:  # pragma: no cover - the outer refusal reaches it first
+        raise NotImplementedError(
+            "the joint arm-and-observation mechanism has no nested fold-free form: the "
+            "inner designs carry the marginal g, so an inner tilt and the production one "
+            "would be moving different mechanisms. Missing-outcome DRTMLE refuses "
+            "reduced_crossfit='nested' for this reason"
+        )
     if joint:
-        mechanism = Propensity(np.asarray(targeted, dtype=float).reshape(-1, len(arms)), arms)
+        mechanism = Propensity(
+            np.asarray(targeted, dtype=float).reshape(-1, len(arms)), arms, simplex=False
+        )
         updated = replace(
             nuisance,
             propensity=mechanism,

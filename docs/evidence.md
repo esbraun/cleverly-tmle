@@ -78,9 +78,20 @@ the theorem's exact identity
 `D_A + D_Delta = e/(g_A g_Delta){1(A=a,Delta=1)-g_A g_Delta}` at nonzero values, mutates the
 observation mask so the wrong complete-data correction fails, fits the public learned and known-
 probability paths end to end, checks refusal boundaries, and round-trips the joint mechanism.
+It also pins the *denominator*: an exact rowwise identity on the fitted equation-(8) covariate,
+`h_a = 1/clip(g_A g_Delta at arm a)`, rebuilt through `build_submodel` from the state the fit
+returned, with the two-arm complement form kept beside it as a nonzero mutation control that
+differs by more than one. `g_A g_Delta` does not sum to one over the arms, so the complement rule
+is wrong there, and a `slow`-marked consistency study at `n = 20,000` — misspecified outcome
+regression, correct treatment and missingness mechanisms — is what shows the wrong denominator as
+bias rather than as a failed identity. That study is the evidence a self-consistent check cannot
+supply: `score_check` and `correction_check` compare a fit against itself, the alternation drives
+whatever covariate it is handed to zero, and `gr2`'s target and the correction's ratio are
+truncated by the same array, so both pass under either truncation rule.
 The canonical R package's missing-data path is provenance only; no numeric parity is an
 acceptance gate. Cross-validated, observational, and missing-treatment compositions are not
-covered.
+covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because
+the array cannot be reindexed to a replicate's resampled rows.
 
 **The exact law alone is not evidence for either construction, and this is worth writing
 down rather than leaving to be rediscovered.** Handed the oracle nuisances,

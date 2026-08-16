@@ -134,6 +134,9 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: ``14`` records the joint arm-and-observation mechanism used by missing-outcome
 #: DR-TMLE.  Reconstructing it from the two primary mechanisms after targeting would
 #: recover the initial product, not the mechanism the reduction was defined against.
+#: Only the array is written: it is restored with ``simplex=False`` unconditionally,
+#: because whatever occupies this slot is the joint product and is never a distribution
+#: over the arms.
 FORMAT_VERSION = 14
 
 _ARRAY_MARK = "__array__"
@@ -514,9 +517,7 @@ def _nuisance_to(arrays: _Arrays, prefix: str, nuisance: NuisanceEstimates) -> d
         "reduction_mechanism": (
             None
             if nuisance.reduction_mechanism is None
-            else arrays.put(
-                f"{prefix}.reduction_mechanism", nuisance.reduction_mechanism.values
-            )
+            else arrays.put(f"{prefix}.reduction_mechanism", nuisance.reduction_mechanism.values)
         ),
         "intermediate": arrays.put(f"{prefix}.intermediate", nuisance.intermediate),
         "treatment_covariates": list(nuisance.treatment_covariates),
@@ -665,6 +666,12 @@ def _nuisance_from(arrays: _Arrays, payload: dict[str, Any]) -> NuisanceEstimate
             else Propensity(
                 arrays.get(payload["reduction_mechanism"]),
                 tuple(float(arm) for arm in payload["propensity_arms"]),
+                # Not written to the payload because it is a property of the slot rather
+                # than of the draw: whatever is in `reduction_mechanism` is the joint
+                # `g_a pi_a`, which is never a distribution over the arms. A file written
+                # before this flag existed therefore loads with the truncation rule its
+                # writer should have used.
+                simplex=False,
             )
         ),
         intermediate=arrays.get(payload["intermediate"]),

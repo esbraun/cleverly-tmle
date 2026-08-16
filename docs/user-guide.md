@@ -1409,11 +1409,22 @@ Missing outcomes are supported for the theorem-backed randomized-trial case. Wit
 treatment, an observation indicator `Delta`, no cross-fitting, and no weights, fit with
 `DRTMLE(randomized=True, cross_fit=False, estimands=("ate",))` and pass `delta="Delta"`.
 This estimates the randomization probabilities, as Díaz & van der Laan (2017) recommend for
-finite-sample balance. If the design probabilities are known, instead pass a row-aligned vector
-of `P(A=1|W)` as `treatment_probabilities=` to `fit`; that bypasses the treatment learner. The
-reduced mechanism is the joint product `P(A=a|W) P(Delta=1|A=a,W)`, and the correction uses
-`1(A=a, Delta=1)`. Observational treatment, cross-fitting, and missing treatment remain refused;
-the exact restrictions and derivation are in the
+finite-sample balance. If the design probabilities are known, instead pass them as
+`treatment_probabilities=` to `fit`; that bypasses the treatment learner. Prefer the mapping
+form, `{"placebo": p0, "active": p1}` — one row-aligned column per arm, keyed by the treatment
+level as you wrote it. A bare `(n,)` vector is also accepted, but it binds to the arm whose code
+is `1`, which is the *second sorted level*, so in a trial labelled `active`/`placebo` it is
+`P(A='placebo'|W)` and not "the probability of treatment".
+
+The reduced mechanism is the joint product `P(A=a|W) P(Delta=1|A=a,W)`, and the correction uses
+`1(A=a, Delta=1)`. That product is what the clever covariate divides by, so it is also what the
+truncation bound applies to, what `res.sensitivity.positivity()` reports as
+`P(A=a,Delta=1|W)`, and what `res.sensitivity.truncation_curve()` sweeps. Watch it rather than
+the propensity: randomization makes `P(A=a|W)` flat and immaculate while the product can still
+approach the bound, and neither model looks wrong on its own.
+
+Observational treatment, cross-fitting, missing treatment, and `treatment_probabilities=` with
+`n_bootstrap=` all remain refused; the exact restrictions and derivation are in the
 [DR-TMLE contract](drtmle.md#randomized-trials-with-missing-outcomes).
 
 `update_order=` is a **diagnostic** keyword rather than a tuning one, and it is here because a
@@ -1496,7 +1507,8 @@ retarget at all.
 Scope is a discrete treatment and the `mean` group, plus the restricted randomized
 missing-outcome case above. `att`/`atc`, the other parameter axes, observational missing
 outcomes, missing treatment, `intermediate=`, fold-wise targeting,
-`reduction="bivariate"` and composition with `CTMLE` are all refused by name.
+`reduction="bivariate"`, `treatment_probabilities=` under `n_bootstrap=`, and composition with
+`CTMLE` are all refused by name.
 
 **What is not visible from the output**, and is why this section opens with a warning. The
 influence curve's form is read off `drtmle`'s implementation rather than derived. It has since

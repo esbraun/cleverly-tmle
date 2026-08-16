@@ -40,7 +40,10 @@ For Díaz & van der Laan (2017)'s randomized missing-outcome construction, the s
 fed the joint mechanism :math:`g_A(a|W)g_\Delta(a,W)` and
 :math:`1_a` is replaced by :math:`1\{A=a,\Delta=1\}`.  This is deliberately explicit in
 :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.reduction_mechanism`: the ordinary
-treatment and observation nuisances remain separate everywhere else.
+treatment and observation nuisances remain separate everywhere else.  That product is not a
+distribution over the arms -- it sums to the probability of being observed at all -- so it
+carries ``simplex=False`` and :math:`g_{r,2}`'s target below is truncated arm by arm rather
+than by :meth:`~cleverly.estimators._nuisance.Propensity.bounded`'s two-arm complement rule.
 
 **Why a residual regression is not degenerate here.**  :math:`Q_r` and :math:`g_{r,2}` are
 identically zero when the nuisance they are residuals of is right -- row by row, not merely
