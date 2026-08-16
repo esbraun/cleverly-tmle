@@ -371,8 +371,9 @@ class TestValidation:
         assert "mean" in summary.split("score check: FAIL")[1]
         assert "do not describe this estimate" in summary
         # The interval is still printed -- the line says it is not licensed, it does not
-        # withhold it. Predeclaring which regimes are refused outright needs piece B's
-        # evidence; see docs/roadmap.md.
+        # withhold it. Predeclaring which regimes are refused outright needs the
+        # targeting-and-exit study's evidence; see docs/drtmle.md, *What the validation
+        # programme established*.
         assert "95% CI" in summary
 
     def test_nuisance_diagnostics_cover_every_model(self, good_overlap) -> None:

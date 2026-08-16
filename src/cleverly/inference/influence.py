@@ -511,9 +511,9 @@ def reduced_corrections(
     about a formula read out of its source -- **provenance** -- and not about agreement with
     anything it returns.  That is a decision and not a gap: both implementations descend from
     one source, so agreement would be evidence about the transcription and blind to exactly
-    the error above, which is why the sign was settled by the appendices instead. The roadmap's
-    standing decisions carry the reasoning for using independent validation, and
-    ``docs/architecture-invariants.md`` records the corresponding development rule.
+    the error above, which is why the sign was settled by the appendices instead.
+    ``docs/architecture-invariants.md``, *Validation and evidence*, carries the reasoning for
+    using independent validation and the condition that would reopen it.
 
     **The two terms are built by** :func:`reduced_correction_parts` **and added here**, so
     that :func:`~cleverly.validation.drtmle.correction_check` takes each one's empirical

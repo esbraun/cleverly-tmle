@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import functools
 import re
 import subprocess
 from dataclasses import dataclass
@@ -10,6 +11,35 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCUMENTS = sorted({*ROOT.glob("*.md"), *ROOT.glob("docs/**/*.md")})
+
+#: Where a ``paths=`` pattern may point.  Bounded rather than a walk of the whole tree, so
+#: that a virtualenv or a build directory cannot make a dead pattern look live.
+_SOURCE_ROOTS = ("src", "tests", "benchmarks", "docs")
+
+
+@functools.cache
+def _source_files() -> tuple[str, ...]:
+    """Every file a ``paths=`` pattern could name, ROOT-relative with forward slashes.
+
+    **Matched with :mod:`fnmatch`, which is what :func:`select_sections` matches with.**
+    Using :meth:`Path.glob` here instead was a silent hole: ``fnmatch`` reads ``**`` as
+    "anything, separators included", so ``src/cleverly/datasets/**`` selects that
+    directory's files, while ``Path.glob`` reads a trailing ``**`` as *directories only*
+    before Python 3.13 and yields no file at all.  Every such pattern therefore failed
+    :func:`validate` on 3.11 and 3.12 while selecting correctly, so the two halves of this
+    module disagreed about what a pattern meant.  One matcher, used by both, cannot.
+    """
+    return tuple(
+        sorted(
+            path.relative_to(ROOT).as_posix()
+            for root in _SOURCE_ROOTS
+            for path in (ROOT / root).rglob("*")
+            # Build output is excluded deliberately: a stale ``__pycache__`` would keep a
+            # pattern alive after the last source file it named had been deleted.
+            if path.is_file() and "__pycache__" not in path.parts
+        )
+    )
+
 
 SECTION = re.compile(r"^<!-- doc-section: (?P<meta>.*?) -->[ \t]*$", re.MULTILINE)
 BLOCK = re.compile(
@@ -152,7 +182,7 @@ def validate(sections: tuple[DocSection, ...]) -> list[str]:
         if not section.paths:
             errors.append(f"section {section.section_id!r} declares no affected paths")
         for pattern in section.paths:
-            if not any(path.is_file() for path in ROOT.glob(pattern)):
+            if not any(fnmatch.fnmatch(candidate, pattern) for candidate in _source_files()):
                 errors.append(
                     f"section {section.section_id!r} affected path matches no file: {pattern!r}"
                 )

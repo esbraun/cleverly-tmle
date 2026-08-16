@@ -663,7 +663,10 @@ second.
 A closed programme of six pieces — a theoretical audit against the sources, a targeting-and-exit
 study, a controlled coverage demonstration, a reference study for the reduced regressions, a
 construction ablation, and a terminal experiment — is what this page's claims rest on. The
-[roadmap's standing decisions](roadmap.md#standing-decisions) carry what it decided. In summary:
+[evidence index](evidence.md) records the acceptance instruments, and the programme itself — its
+study harnesses, replicate records, differential diagnostics, dispatch workflows, and working
+notes — is archived at the `drtmle-validation-archive-2026-08` tag rather than on `main`. In
+summary:
 
 **Established.** The implementation is faithful to Theorem 1: the corrected curve is the Gateaux
 derivative of the parameter, the sign of the mechanism correction is the appendices' orientation,

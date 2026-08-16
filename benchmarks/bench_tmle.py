@@ -15,8 +15,8 @@ rewriting it in Rust buys 2% at best, and the honest conclusion is to leave it a
 The kernels most likely to justify native code are the ones that scale in
 ``n_replicates x n``: the multiplier bootstrap and the targeted bootstrap.
 
-What running this actually established (see ``docs/roadmap.md``, *On native
-acceleration*):  every one of those kernels
+What running this actually established (see ``docs/benchmarks/README.md``, *Current
+verdict*):  every one of those kernels
 turned out to be cheaper to *fix* than to rewrite.  The multiplier bootstrap spent
 over 90% of its time generating multipliers rather than multiplying, and for Gaussian
 multipliers the whole resampling loop has a closed form.  The cluster bootstrap was
@@ -45,9 +45,9 @@ The sections, and what each is here to answer:
   that is faster only after a multi-second compile, or faster but different, is not
   faster.  Needs ``pip install -e '.[bench]'``; skipped with a note otherwise.
 * **End to end**, and **End to end (longitudinal)** -- the denominators every share above
-  is taken against.  The ``LTMLE`` case exists because ``docs/roadmap.md`` filed the claim
-  that longitudinal fits stay scikit-learn-bound as *"a prediction rather than a
-  measurement"*, for want of one here.
+  is taken against.  The ``LTMLE`` case exists because the claim that longitudinal fits
+  stay scikit-learn-bound was for a long time a prediction rather than a measurement, for
+  want of one here.  This section is the measurement.
 * **Projected to scale** -- every kernel's cost split into a fixed part and a per-row part,
   read off at ``--project`` sizes (a million rows and five million by default) that are
   *not* run.  Nothing here is measurable at that size in a reasonable time, and nothing
@@ -142,9 +142,9 @@ def _flat_initial(n: int, value: float = 0.45, arms: tuple[float, ...] = (0.0, 1
     has taken two fields since arms were keyed, so ``bench_targeting`` -- the first
     section ``main`` evaluates -- raised ``TypeError`` before it timed anything, and with
     it ``python benchmarks/bench_tmle.py`` and ``nox -s bench``.  Which is worth stating
-    plainly: the "a native extension is not worth building" conclusion in
-    ``docs/roadmap.md`` rested on a benchmark that had stopped running, so it was folklore
-    rather than a measurement until this was fixed and rerun.
+    plainly: the "a native extension is not worth building" conclusion now recorded in
+    ``docs/benchmarks/README.md`` rested on a benchmark that had stopped running, so it was
+    folklore rather than a measurement until this was fixed and rerun.
     """
     return InitialFit(np.full(n, value), {arm: np.full(n, value) for arm in arms})
 
@@ -438,9 +438,9 @@ def bench_end_to_end(sizes: tuple[int, ...], library: str) -> list[Timing]:
 def bench_longitudinal(sizes: tuple[int, ...], library: str) -> list[Timing]:
     """A longitudinal fit, split into its mechanism and its backward pass.
 
-    ``docs/roadmap.md`` names this gap itself: the claim that longitudinal TMLE stays
+    This section exists to close a named gap: the claim that longitudinal TMLE stays
     scikit-learn-bound -- the node loop is Python, but each body is a nuisance fit -- was
-    filed there as *"a prediction rather than a measurement"*, because this file had no
+    for a long time a prediction rather than a measurement, because this file had no
     ``LTMLE`` case to profile.  Now it does.
 
     The recursion's own arithmetic is what the ``(n, 1)`` fluctuation per node costs; the
@@ -1081,8 +1081,8 @@ def main() -> None:
     if ltmle > 0:
         print(
             f"A longitudinal fit spends {100.0 * 4 * node / ltmle:.2f}% of itself in its four "
-            "node fluctuations, so it is scikit-learn-bound like the rest -- which the roadmap "
-            "predicted without having measured it."
+            "node fluctuations, so it is scikit-learn-bound like the rest -- which was "
+            "predicted for a long time before anything measured it."
         )
 
     warm = total("Compiled kernels (numba)", "Newton loop (numba, warm)")

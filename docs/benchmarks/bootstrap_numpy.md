@@ -15,8 +15,8 @@ This is the numpy change and what it leaves for a compiler.
 
 ## 1. The profile the previous one pointed the wrong way
 
-The original profile and `docs/roadmap.md` both recorded this path as "92–95%
-multiplier *generation*", which reads as an argument about the random draw. Splitting the
+The original profile recorded this path as "92–95% multiplier *generation*", which reads as an
+argument about the random draw. Splitting the
 generation at `n = 100,000` with a 256-replicate block:
 
 | step | ms | share |
@@ -72,8 +72,8 @@ change to the seeded stream. The compiled kernel's four-core arm (7.4–7.6×) i
 this, by about 2× rather than by 3×, and that is the number a decision about adopting numba
 here has to be worth.
 
-The memory column is the more durable half. `docs/roadmap.md` names the `(chunk, n)`
-multiplier matrix as one of two allocations that break before any arithmetic does — 9.5 GB at
+The memory column is the more durable half. The `(chunk, n)` multiplier matrix is an allocation
+that breaks before any arithmetic does — 9.5 GB at
 `n = 5,000,000`. What is left is a buffer with a **32 MB budget and a four-replicate floor**,
 which is the same capability change `findings.md` attributed to the compiled kernel, obtained
 without it.
@@ -160,3 +160,31 @@ So the remaining question is narrow and worth stating precisely: **is there a co
 that consumes numpy's packed bytes, unpacks eight signs at a time into registers, and beats
 0.203 s at `n = 100,000`?** Until one is written and measured, the honest classification for
 this kernel is *unresolved*, not *strong production candidate*.
+
+## 7. The comparison, rerun against this baseline
+
+Section 6's figures were the compiled kernel against the *old* numpy path. The harness in
+`benchmarks/numba/kernels/bootstrap.py` was still transcribing that old path — the fancy-index
+expansion §1 measured at 89% and §2 removed — so it kept charging the compiled arms for work
+the package had stopped doing. It now transcribes the shipped construction: one buffer
+allocated per call and written over per block, with the block derived from the byte budget
+rather than fixed at 256.
+
+> Rerun on the same four-core Intel Xeon @ 2.80 GHz container, OpenBLAS (pthreads), numpy
+> 2.4.6, numba 0.66.0, `n = 100,000`, `--repeats 3 --validate --memory`. Three runs, because
+> a single ratio on a shared box is not a measurement.
+
+| arm | against the old reference | against this one |
+| --- | ---: | ---: |
+| serial | 2.4–2.5× | **1.05–1.16×** |
+| four cores | 7.4–7.6× | **3.35–4.02×** |
+| allocation | 264× less | **0.17×** |
+
+The correctness gate passes at every measured configuration, so this is the same statistic
+either way. What changed is only what it is measured against — and the verdict it supports.
+The serial case is now within noise of the numpy path: on this box the compiled kernel's
+advantage is **parallelism, not compilation**, which is a different argument for adoption than
+the one §6 inherited and a weaker one, since `numba_parallel` is also the arm that gives up the
+seeded stream. **Any bootstrap ratio recorded before this change is against the old spelling.**
+The fixture dimensions did not change, so two such rows are indistinguishable except by their
+commit; a mixed series must not be read as one.

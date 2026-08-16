@@ -689,7 +689,9 @@ class TestAWeightedFitTransportsToTheTiltedLaw:
     identity about which conditional expectations the reductions are; a fitted weighted
     comparison would measure the noise in three extra learners and could not distinguish a
     wrong conditioning law from a bad draw.  What is *not* closed here is the applied stress
-    test of a fitted weighted fit; ``docs/roadmap.md`` keeps that separate.
+    test of a fitted weighted fit, which nothing has run and no document schedules; see
+    :class:`~cleverly.DRTMLE`'s ``weights_estimated=`` discussion for what that would and
+    would not settle.
     """
 
     @pytest.mark.parametrize("name", ESTIMANDS)
