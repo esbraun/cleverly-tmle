@@ -919,14 +919,17 @@ def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatA
             else TMLERecipe.from_estimator(result.estimator).to_dict()
         ),
         # Dropped deliberately, and named so the omission is visible rather than
-        # discovered: both are reporting objects rebuilt on demand from the arrays
-        # that *are* stored.
+        # discovered: the first two are reporting objects rebuilt on demand from the
+        # arrays that *are* stored, and the third is whatever `extra` this format has
+        # no persisted form for.  `unsupported_extra` is a bool, so it is mapped to
+        # `None` rather than left to the filter below -- `False is not None` is true,
+        # and letting it through named `extra` dropped in every file ever written.
         "dropped": sorted(
             key
             for key, value in (
                 ("simultaneous", result.simultaneous),
                 ("bootstrap", result.bootstrap),
-                ("extra", unsupported_extra),
+                ("extra", unsupported_extra or None),
             )
             if value is not None
         ),

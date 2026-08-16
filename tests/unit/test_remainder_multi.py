@@ -231,10 +231,7 @@ def test_halving_both_multi_arm_errors_quarters_the_remainder() -> None:
 def test_reference_contrast_maps_the_complete_arm_remainder_vector() -> None:
     armwise = np.array([_expansion(WRONG_G, WRONG_Q, arm) for arm in ARMS])
     contrast = np.array(
-        [
-            _expansion(WRONG_G, WRONG_Q, arm) - _expansion(WRONG_G, WRONG_Q, 0.0)
-            for arm in ARMS[1:]
-        ]
+        [_expansion(WRONG_G, WRONG_Q, arm) - _expansion(WRONG_G, WRONG_Q, 0.0) for arm in ARMS[1:]]
     )
     matrix = np.array([[-1.0, 1.0, 0.0], [-1.0, 0.0, 1.0]])
     np.testing.assert_allclose(contrast, matrix @ armwise, atol=1e-14, rtol=0)
@@ -259,6 +256,7 @@ def test_transformed_contrast_remainder_has_product_and_curvature_blocks(
             return 1.0 / value
 
     else:
+
         def transform(value: float) -> float:
             return float(np.log(value / (1.0 - value)))
 

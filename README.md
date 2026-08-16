@@ -356,7 +356,14 @@ records the evidence, measurement rules, and conditions that would reopen that d
 `pyproject.toml`'s `dev` extra, `.github/workflows/ci.yml`, and `noxfile.py`. `ruff` formats
 the Python blocks inside Markdown as well as the source — so run it over the whole tree, not
 just `src` and `tests`. `noxfile.py` wraps the same steps (`nox -s lint typecheck tests`) at
-the same pins, and the fast tier runs on Python 3.11–3.13 in CI.
+the same pins, and the fast tier is written to run on Python 3.11–3.13.
+
+**Hosted CI is paused while the project is pre-beta and the repository is private**, because the
+GitHub Actions budget is spent. The workflow in `.github/workflows/ci.yml` is still the
+specification of what has to pass, but it does not currently run — jobs fail at startup with no
+steps executed, which is indistinguishable from a genuine failure at a glance. Until the project
+reaches beta and the repository is public, the commands above and the matching `nox` sessions are
+the authoritative gate, run locally or on a local runner.
 
 ## Citing
 

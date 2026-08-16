@@ -274,16 +274,20 @@ class TestWhatIsRefused:
     def test_selector_ctmle_uses_one_joint_multinomial_path(self) -> None:
         from cleverly import CTMLE
 
-        result = CTMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
-            strategy="discrete",
-            candidates=((), ("W1",)),
-            selection_folds=2,
-            learner_folds=2,
-            random_state=0,
-            estimands=("ate",),
-        ).fit(_three_arm_frame(), outcome="Y", treatment="A").single()
+        result = (
+            CTMLE(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                strategy="discrete",
+                candidates=((), ("W1",)),
+                selection_folds=2,
+                learner_folds=2,
+                random_state=0,
+                estimands=("ate",),
+            )
+            .fit(_three_arm_frame(), outcome="Y", treatment="A")
+            .single()
+        )
         assert len(result.extra["ctmle"].target_names) == 2
         assert result.nuisance.propensity.values.shape[1] == 3
 

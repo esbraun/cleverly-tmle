@@ -805,9 +805,7 @@ def _make_multi_arm_ratios(
     for label in ("low", "medium"):
         mean = truth[f"ey[{label}]"]
         truth[f"rr[{label} vs high]"] = mean / reference
-        truth[f"or[{label} vs high]"] = (mean / (1.0 - mean)) / (
-            reference / (1.0 - reference)
-        )
+        truth[f"or[{label} vs high]"] = (mean / (1.0 - mean)) / (reference / (1.0 - reference))
     return frame, truth
 
 

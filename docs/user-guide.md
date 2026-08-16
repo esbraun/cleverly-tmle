@@ -114,10 +114,15 @@ The bare `"ate"` is not a parameter of such a fit, so asking for it lists the co
 that are. `res.sensitivity.report()` picks the first reported contrast when you do not
 name one.
 
-What is still refused rather than guessed at on a multi-valued treatment, **not written
-yet** rather than unsound: `CTMLE` — both searches order candidates by one propensity
-margin, and with `K` arms there is no canonical single ordering, which makes it the one
-row with no settled answer rather than the one nobody has asked for.
+What is refused rather than guessed at on a multi-valued treatment: one `CTMLE` fit will
+not select a different treatment mechanism for each contrast. Every selector builds one
+shared categorical propensity path and scores one joint, nonredundant vector — all `K` arm
+means, or all `K - 1` contrasts against `reference=`. That is what the fit *is* rather than
+a gap in it, and the alternative is refused because a per-contrast mechanism would make the
+reported covariance the covariance of estimators that no longer share a nuisance state. If
+that is the scientific goal, fit separate estimators and treat their covariance and
+selection states separately. [Collaborative TMLE](#collaborative-tmle) names the components
+and the settings that produce them.
 
 A two-armed fit is unchanged in every respect, including the familiar `ate` / `att` /
 `atc` / `ey1` / `ey0` names — the same numbers to the last bit, and `reference=` selects

@@ -64,8 +64,9 @@ Three ways of building the sequence are available, mirroring the entry points of
     The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  This is not a
     fourth candidate sequence: it fits categorical treatment on the complete vector
     ``[Qbar(a, W): a in arms]`` and then uses the ordinary all-arm mean fluctuation.
-    Consequently it supports multi-valued treatment and has no selector loss or stopping
-    index.
+    Consequently it has no candidate path, no parameter-specific selector loss and no
+    stopping index.  Multi-valued treatment is not what distinguishes it: the selector
+    strategies fit one shared categorical propensity path of their own.
 
     **It also trades away one leg of double robustness, and that is the reason to reach
     for it deliberately rather than as a default.**  The three selector strategies choose
@@ -1066,8 +1067,7 @@ class _Selector:
             return (stem,)
         if stem == "ey":
             return tuple(
-                parameter_name("ey", arm=self.data.arm_label(arm))
-                for arm in self.data.arm_codes
+                parameter_name("ey", arm=self.data.arm_label(arm)) for arm in self.data.arm_codes
             )
         contrasts = tuple(arm for arm in self.data.arm_codes if arm != self.reference)
         if self.data.is_binary_treatment:

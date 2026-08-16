@@ -23,9 +23,10 @@ to round in the direction that does not oversubscribe.
 
 ``benchmarks/numba/resources.logical_cores()`` is the older answer to the same question and
 it is *narrower* than its docstring claimed -- ``os.sched_getaffinity`` is the affinity mask
-and not the quota.  Its docstring now says so.  It is not shared with this module because
-``resources.py`` imports the POSIX-only ``resource`` at the top and cannot be imported on
-Windows, which is where this repository is developed.
+and not the quota.  Its docstring now says so.  The two are kept separate because they
+answer different questions rather than because one cannot be imported: the benchmark wants
+the mask, since it pins its own thread plan and records what it asked for, and a test run
+wants the quota, since it is the quota that decides how many workers actually fit.
 """
 
 from __future__ import annotations

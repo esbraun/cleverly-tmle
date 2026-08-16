@@ -13,15 +13,18 @@ is asserted rather than described.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 from sklearn.linear_model import LogisticRegression
 
-from cleverly import TMLE, load
-from cleverly.datasets import GENERATORS, make_shift_dose
+from cleverly import CTMLE, TMLE, load
+from cleverly.datasets import GENERATORS, make_instrument, make_shift_dose
 from cleverly.estimators.recipe import TMLERecipe
 from cleverly.estimators.serialize import FORMAT_VERSION, dumps, loads, result_to_dict
 from cleverly.interventions import Shift
+from tests.conftest import FAST_KWARGS
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -304,6 +307,31 @@ class TestFormat:
         # simultaneous bands are computed by default and are not persisted; the
         # manifest must say so rather than leaving the reader to discover it.
         assert "simultaneous" in manifest["dropped"]
+        # And the other direction, which is the half that can rot silently: this fit
+        # carries no `extra` at all, so naming it dropped would describe a loss that
+        # never happened. A field that is always present says nothing.
+        assert "extra" not in manifest["dropped"]
+
+    def test_an_extra_this_format_cannot_store_is_named(self, result) -> None:  # type: ignore[no-untyped-def]
+        # The witness for the assertion above: `dropped` has to still fire. Only
+        # `extra["ctmle"]` has a persisted form, so any other key is a real loss.
+        carrying = replace(result, extra={"something_unpersistable": object()})
+        manifest, _ = result_to_dict(carrying)
+        assert "extra" in manifest["dropped"]
+
+    def test_a_stored_ctmle_extra_is_not_reported_as_dropped(self) -> None:
+        # `extra["ctmle"]` *is* written, as `ctmle_extra`. Listing it as dropped would
+        # send a reader looking for a selection state the file actually contains.
+        frame, _ = make_instrument(n=300, seed=0)
+        fit = (
+            CTMLE(**FAST_KWARGS, estimands=("ate",), selection_folds=3)
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
+        manifest, _ = result_to_dict(fit)
+        assert "ctmle" in fit.extra
+        assert manifest["ctmle_extra"] is not None
+        assert "extra" not in manifest["dropped"]
 
     def test_the_declared_fold_policy_survives_the_round_trip(self, result) -> None:  # type: ignore[no-untyped-def]
         # The plan is what says a fit *asked* for 10 folds; losing it would leave only

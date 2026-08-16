@@ -57,9 +57,7 @@ def test_vector_penalty_is_trace_plus_squared_mean_norm() -> None:
 
 
 def test_scoring_only_one_contrast_is_a_load_bearing_mutation() -> None:
-    curve = np.column_stack(
-        [np.linspace(-1.0, 1.0, 31), 8.0 + np.linspace(-3.0, 3.0, 31)]
-    )
+    curve = np.column_stack([np.linspace(-1.0, 1.0, 31), 8.0 + np.linspace(-3.0, 3.0, 31)])
     assert abs(_penalty_of(curve) - _penalty_of(curve[:, 0])) > 100.0
 
 
