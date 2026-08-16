@@ -648,7 +648,18 @@ class CTMLE(TMLE):
                 "it minimises would have no fixed target. Use a plain TMLE."
             )
         self._check_estimands(data)
-        base = self._fit_nuisances(data, folds, scaler, intermediate_value, seed=seed)
+        # Every collaborative strategy replaces the ordinary treatment mechanism: the
+        # selectors fit their candidate path and OAT fits A on the Qbar vector.  Fit only
+        # the shared outcome/missingness nuisances here so g(W) is not paid for and thrown
+        # away first.
+        base = self._fit_nuisances(
+            data,
+            folds,
+            scaler,
+            intermediate_value,
+            seed=seed,
+            fit_treatment=False,
+        )
         if self.strategy == "oat":
             return self._outcome_adaptive_nuisances(data, base, seed=seed)
         selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)
@@ -658,6 +669,14 @@ class CTMLE(TMLE):
         selected = int(np.argmin(cv_risk))
         chosen = path[selected]
 
+        # `base.diagnostics` carries no "propensity" entry, and deliberately so -- unlike
+        # the `oat` branch below, which has one shared fit to report.  A selector's
+        # mechanism comes off the candidate path, where `_Selector._fit_propensity_with`
+        # returns predictions only and the intercept-only candidate C-TMLE often selects
+        # involves no learner at all.  What used to sit under that key was the ordinary
+        # g(W) super-learner table, describing a model the estimate does not use.
+        # `nuisance_diagnostics` still reports the selected mechanism's calibration and
+        # discrimination, which it computes from the array below.
         nuisance = replace(
             base,
             propensity=_binary_propensity(chosen.propensity),

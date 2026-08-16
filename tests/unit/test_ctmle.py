@@ -9,6 +9,7 @@ nothing to select the estimator collapses onto a plain TMLE bit for bit.
 
 from __future__ import annotations
 
+import importlib
 from itertools import pairwise
 from typing import ClassVar
 
@@ -19,6 +20,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from cleverly import CTMLE, TMLE
 from cleverly.datasets import make_cde, make_instrument, make_linear_ate
 from cleverly.estimators import ctmle as ctmle_module
+from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
 from cleverly.estimators.ctmle import _Selector, _weighted_partial_correlation
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.learners.crossfit import make_folds
@@ -29,6 +31,59 @@ TMLE_KWARGS = {**FAST_KWARGS, "estimands": ("ate",)}
 #: Three selection folds rather than the default five: the searches below are the
 #: dominant cost in this file and the claims resolve identically either way.
 CTMLE_KWARGS = {**TMLE_KWARGS, "selection_folds": 3}
+tmle_module = importlib.import_module("cleverly.estimators.tmle")
+
+
+@pytest.mark.parametrize(
+    ("strategy", "extra"),
+    [
+        ("greedy", {}),
+        ("ordered", {"ordering": ["W1", "W2", "W3", "W4"]}),
+        ("discrete", {"candidates": [(), ("W1",), ("W1", "W2")]}),
+        ("oat", {"selection_folds": 5}),
+    ],
+)
+def test_every_ctmle_strategy_skips_the_unused_shared_propensity_fit(
+    monkeypatch: pytest.MonkeyPatch, strategy: str, extra: dict[str, object]
+) -> None:
+    """And what stands in for the skipped fit cannot be mistaken for a fitted mechanism.
+
+    A zero-filled placeholder would clip to :meth:`Propensity.bounded`'s floor and give a
+    finite, plausible, wrong estimate if a strategy ever failed to substitute its own
+    ``g``.  This asserts the staging value refuses to be read at all, and then that every
+    strategy did in fact replace it.
+    """
+    seen: list[bool] = []
+    staged: list[Propensity] = []
+    original = tmle_module.fit_nuisances
+
+    def recording(*args: object, **kwargs: object) -> object:
+        seen.append(bool(kwargs["fit_treatment"]))
+        estimates = original(*args, **kwargs)
+        staged.append(estimates.propensity)
+        return estimates
+
+    monkeypatch.setattr(tmle_module, "fit_nuisances", recording)
+    frame, _ = make_linear_ate(n=180, seed=91)
+    fit = (
+        CTMLE(**{**CTMLE_KWARGS, "strategy": strategy, **extra})
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
+    assert seen == [False]
+
+    placeholder = staged[0]
+    assert isinstance(placeholder, UnfittedPropensity)
+    assert placeholder.values.shape == (len(frame), 2)
+    assert np.isnan(placeholder.values).all()
+    with pytest.raises(ValueError, match="never fitted"):
+        placeholder.arm(1.0)
+    with pytest.raises(ValueError, match="never fitted"):
+        placeholder.bounded((0.01, 0.99))
+
+    selected = fit.nuisance.propensity
+    assert not isinstance(selected, UnfittedPropensity)
+    assert np.isfinite(selected.arm(1.0)).all()
 
 
 class _RecordingRegressor(RegressorMixin, BaseEstimator):

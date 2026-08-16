@@ -57,7 +57,9 @@ from cleverly.datasets import (
     make_longitudinal_competing,
     make_longitudinal_survival,
     make_longitudinal_weighted,
+    make_multi_arm,
     missing_outcome_dgp,
+    multi_arm_dgp,
     nonlinear_dgp,
     rule_arm_at_node_two,
     weak_overlap_dgp,
@@ -713,6 +715,78 @@ class TestDoublyRobustInference:
         drtmle, tmle = studies["drtmle"]["ate"], studies["tmle"]["ate"]
         assert drtmle.coverage > 0.6, studies
         assert drtmle.coverage >= tmle.coverage - 3.0 * drtmle.coverage_se, studies
+
+
+class TestMultiArmCollaborativeCoverage:
+    """Nightly regression guard for the multi-arm DRTMLE and OAT branches.
+
+    This is deliberately the same modest claim as ``TestDoublyRobustInference``: finite
+    estimates, no swallowed replicates, bias compatible with Monte Carlo error, an SE of
+    the right order, and coverage that has not collapsed relative to ordinary TMLE.  It is
+    not a nuisance-rate experiment and therefore does not establish the union-model
+    theorem or generated-regressor asymptotics.
+    """
+
+    N = 500
+    REPLICATES = 40
+    ESTIMANDS = tuple(multi_arm_dgp().truth())
+
+    @pytest.fixture(scope="class")
+    def studies(self) -> dict[str, Any]:
+        common = {
+            "outcome_learner": "glm",
+            "treatment_learner": "glm",
+            "n_folds": 4,
+            "learner_folds": 3,
+            "estimands": ("ey", "ate"),
+            "simultaneous": False,
+            "random_state": 0,
+        }
+        factories = {
+            "tmle": lambda: TMLE(**common),
+            "drtmle": lambda: DRTMLE(**common),
+            "oat": lambda: CTMLE(strategy="oat", **common),
+        }
+        return {
+            label: CoverageStudy(
+                dgp=make_multi_arm,
+                estimator=factory,
+                n=self.N,
+                n_replicates=self.REPLICATES,
+                estimands=self.ESTIMANDS,
+                seed=31,
+                n_jobs=2,
+            ).run()
+            for label, factory in factories.items()
+        }
+
+    def test_no_replicate_was_silently_dropped(self, studies: dict[str, Any]) -> None:
+        for study in studies.values():
+            assert study.n_replicates == self.REPLICATES
+            assert study.n_failed == 0
+
+    @pytest.mark.parametrize("variant", ["drtmle", "oat"])
+    @pytest.mark.parametrize("estimand", ESTIMANDS)
+    def test_bias_and_standard_errors_have_not_collapsed(
+        self, studies: dict[str, Any], variant: str, estimand: str
+    ) -> None:
+        summary = studies[variant][estimand]
+        assert abs(summary.bias) < 3.5 * summary.bias_se, (variant, summary)
+        assert 0.5 <= summary.se_ratio <= 2.0, (variant, summary)
+
+    @pytest.mark.parametrize("variant", ["drtmle", "oat"])
+    @pytest.mark.parametrize("estimand", ESTIMANDS)
+    def test_coverage_is_not_catastrophically_worse_than_tmle(
+        self, studies: dict[str, Any], variant: str, estimand: str
+    ) -> None:
+        summary = studies[variant][estimand]
+        plain = studies["tmle"][estimand]
+        assert summary.coverage > 0.60, (variant, summary)
+        assert summary.coverage >= plain.coverage - 3.0 * summary.coverage_se, (
+            variant,
+            plain,
+            summary,
+        )
 
 
 class TestClusteredInference:

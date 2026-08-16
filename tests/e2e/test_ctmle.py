@@ -91,6 +91,30 @@ class TestDownstreamMachineryStillWorks:
         diagnostics = fit.validation.nuisance()
         assert "propensity" in {model.name for model in diagnostics.models}
         assert diagnostics.summary()
+        # Computed from the selected mechanism itself, not from a shared g(W) fit.
+        report = diagnostics["propensity"]
+        assert report.metrics["mean_predicted"] == pytest.approx(
+            float(np.mean(fit.nuisance.propensity.arm(1.0)))
+        )
+
+    def test_and_report_no_learner_table_for_a_selected_mechanism(self, fit) -> None:
+        """Empty on purpose, and the one thing an accepted regression would look like.
+
+        A selector's ``g`` comes off the candidate path -- often the intercept-only
+        candidate, which has no learner behind it at all -- so there is no super-learner
+        weighting to report.  Before the shared pass went outcome-first this key held the
+        ordinary ``g(W)`` table, describing a model the estimate never used.  ``oat`` does
+        have one shared fit, and the assertion below keeps the two paths distinguishable.
+        """
+        report = fit.validation.nuisance()["propensity"]
+        assert report.learner_weights == {}
+        assert report.learner_risks == {}
+
+    def test_but_oat_reports_the_table_from_its_one_shared_fit(self, frame_and_truth) -> None:
+        frame, _ = frame_and_truth
+        oat = CTMLE(**TMLE_SETTINGS, strategy="oat").fit(frame, outcome="Y", treatment="A").single()
+        report = oat.validation.nuisance()["propensity"]
+        assert report.learner_weights and report.learner_risks
 
     def test_refutation_runs(self, fit) -> None:
         # A placebo refit goes back through CTMLE._nuisances, so the selection is

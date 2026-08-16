@@ -19,7 +19,9 @@ extra equations remove is in
 
 **Conditional validity.** The algorithm computes what Benkeser, Carone, van der Laan & Gilbert's
 Theorem 1 derives — checked against the theorem's own appendices, against the Gateaux derivative
-of the parameter, against exact finite-support laws, and against the remainder identities — and
+of the parameter, against exact finite-support laws, and against the remainder identities —
+the last two at three arms as well as two, in the union-model cells where exactly one
+correction survives — and
 the interval it reports is valid **conditional on** the practitioner obtaining adequate primary
 and reduced-regression fits. Those are rate conditions on estimated functions. They are not
 verifiable from a fit's own output, and in particular **numerical score convergence does not

@@ -396,20 +396,16 @@ def test_oat_fits_the_treatment_model_on_the_arm_specific_qbar_matrix() -> None:
     seen = list(_SaturatedCategorical.designs)
     _SaturatedCategorical.designs.clear()
 
-    # Two fits, not one: the shared nuisance step fits the ordinary ``g(W)`` first and
-    # ``_outcome_adaptive_nuisances`` then replaces it, so the covariate design is on the
-    # record here too.  Pinned rather than tidied away, because the discarded fit is the
-    # cost of the strategy and a reader measuring an ``oat`` fit should know it is paid.
-    assert len(seen) == 2
-    np.testing.assert_array_equal(seen[0], fit.data.covariates)
-
     expected = np.column_stack([fit.nuisance.outcome.arms[arm] for arm in fit.nuisance.arms])
-    np.testing.assert_array_equal(seen[1], expected)
+    # The shared nuisance pass is outcome-first for every CTMLE strategy, so this is the
+    # only treatment-model fit: no ordinary g(W) is fitted and discarded beforehand.
+    assert len(seen) == 1
+    np.testing.assert_array_equal(seen[0], expected)
     assert expected.shape == (law.N, law.K)
     # Not the observed-arm prediction repeated, and not the covariates: both are the
     # plausible slips, and both would leave `treatment_features` reading the same.
-    assert not np.array_equal(seen[1][:, 0], fit.nuisance.outcome.observed)
-    assert np.unique(seen[1], axis=0).shape[0] == 3
+    assert not np.array_equal(seen[0][:, 0], fit.nuisance.outcome.observed)
+    assert np.unique(seen[0], axis=0).shape[0] == 3
 
 
 def test_oat_recovers_a_mechanism_generated_by_qbar() -> None:
