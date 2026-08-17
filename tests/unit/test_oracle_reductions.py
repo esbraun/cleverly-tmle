@@ -115,7 +115,9 @@ def _per_cell(values: np.ndarray, covariate: np.ndarray) -> np.ndarray:
     return out
 
 
-def _oracle_set(nuisance: Any, g_bounds: tuple[float, float]) -> ReducedSet:
+def _oracle_set(
+    nuisance: Any, g_bounds: tuple[float, float], reduction: str = "univariate"
+) -> ReducedSet:
     r"""The law's own reductions at ``nuisance``'s current targeted pair.
 
     A function of the *current* pair rather than a constant, which is what makes this an
@@ -133,7 +135,17 @@ def _oracle_set(nuisance: Any, g_bounds: tuple[float, float]) -> ReducedSet:
     )
     columns: dict[str, list[np.ndarray]] = {"qr": [], "gr1": [], "gr2": []}
     for index, _ in enumerate(arms):
-        for name, values in zip(("qr", "gr1", "gr2"), _reduced(g_hat, q_hat, index), strict=True):
+        qr, gr1, gr2 = _reduced(g_hat, q_hat, index)
+        if reduction == "bivariate":
+            g_arm = g_hat if index == 1 else 1.0 - g_hat
+            true_arm = law.G if index == 1 else 1.0 - law.G
+            design = np.column_stack([q_hat[:, index], g_arm])
+            gr1 = np.empty(3)
+            for cell in range(3):
+                group = np.all(design == design[cell], axis=1)
+                gr1[cell] = np.sum(law.P_W[group] * true_arm[group]) / np.sum(law.P_W[group])
+            gr2 = np.full(3, np.nan)
+        for name, values in (("qr", qr), ("gr1", gr1), ("gr2", gr2)):
             columns[name].append(values[covariate])
     return ReducedSet(
         qr=np.column_stack(columns["qr"]),
@@ -141,6 +153,7 @@ def _oracle_set(nuisance: Any, g_bounds: tuple[float, float]) -> ReducedSet:
         gr2=np.column_stack(columns["gr2"]),
         arms=arms,
         g_bounds=(float(g_bounds[0]), float(g_bounds[1])),
+        reduction=reduction,
     )
 
 
@@ -157,14 +170,16 @@ class OracleReductionDRTMLE(DRTMLE):
         base, extra = super()._nuisances(data, folds, scaler, config, intermediate_value, seed)
         if base.reduced is None:
             return base, extra
-        return replace(base, reduced=_oracle_set(base, config.g_bounds)), extra
+        return replace(base, reduced=_oracle_set(base, config.g_bounds, self.reduction)), extra
 
     def _reduction(self, data, nuisance):  # type: ignore[no-untyped-def]
         spec = super()._reduction(data, nuisance)
         if spec is None:
             return None
         bounds = nuisance.reduced.g_bounds
-        return replace(spec, refit=lambda current: (_oracle_set(current, bounds), ()))
+        return replace(
+            spec, refit=lambda current: (_oracle_set(current, bounds, self.reduction), ())
+        )
 
 
 def _fit(estimator: type[DRTMLE], **overrides: Any) -> Any:
@@ -200,6 +215,12 @@ def fits() -> dict[str, Any]:
         "saturated": _fit(DRTMLE),
         "glm": _fit(DRTMLE, reduced_outcome_learner="glm", reduced_treatment_learner="glm"),
     }
+
+
+@pytest.fixture(scope="module")
+def bivariate_oracle() -> Any:
+    """The older reduction at exact finite-support conditional expectations."""
+    return _fit(OracleReductionDRTMLE, reduction="bivariate")
 
 
 def _reduced_of(fit: Any) -> ReducedSet:
@@ -334,3 +355,27 @@ class TestAWrongReductionMovesPsiAndNotTheScores:
         }
 
         assert max(shifts.values()) > 0.1, shifts
+
+
+class TestTheBivariateOracleReduction:
+    """The bivariate path reaches the same identified truth through its distinct correction."""
+
+    @pytest.mark.parametrize("name", ESTIMANDS)
+    def test_it_recovers_the_truth_with_both_primary_nuisances_wrong(
+        self, bivariate_oracle: Any, name: str
+    ) -> None:
+        assert bivariate_oracle.estimates[name].psi == pytest.approx(law.TRUTH[name], abs=1e-6)
+
+    def test_its_nonzero_scores_and_curve_are_internally_identical(
+        self, bivariate_oracle: Any
+    ) -> None:
+        reduced = _reduced_of(bivariate_oracle)
+        correction = bivariate_oracle.validation.correction_check()
+
+        assert reduced.reduction == "bivariate"
+        assert np.isnan(reduced.gr2).all()
+        assert np.max(np.abs(reduced.gr1 - 0.5)) > 1e-3
+        assert correction.passed, correction.summary()
+        assert bivariate_oracle.validation.score_check().passed
+        for row in correction.rows:
+            assert abs(row.residual) < 1e-12, row.name

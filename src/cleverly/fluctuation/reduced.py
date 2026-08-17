@@ -15,10 +15,14 @@ software paper uses (Benkeser & Hejazi 2023, Observational Studies 9(2):43-78):
     (10) \quad & P_n\Bigl[1_a \frac{g_{r,2}(a|W)}{g_{r,1}(a|W)}
                           \{Y - \bar Q^*(a, W)\}\Bigr] = 0
 
-with :math:`1_a = 1\{A = a\}` and the three reduced-dimension regressions of
+with :math:`1_a = 1\{A = a\}` and the default three reduced-dimension regressions of
 :mod:`cleverly.estimators.reduced`.  This module builds the covariates; the alternation
 that solves the pair beside equation (8) is
 :func:`~cleverly.estimators.targeting.solve_with_reduction`.
+
+The bivariate alternative replaces equation (10)'s ratio by
+:math:`\{g_r(a|W)-g(a|W)\}/[g(a|W)g_r(a|W)]`, where
+:math:`g_r=P(A=a\mid\hat{\bar Q}_a,\hat g_a)`.
 
 **Neither of these can go in a registry, and the reason is the same for both: the group
 stays** ``"mean"``.  The estimand is still :math:`E[Y^a]` and the report is still ``ey1``,
@@ -92,8 +96,16 @@ def reduced_outcome_submodel(
     reduced: ReducedSet,
     *,
     bounds: tuple[float, float],
+    propensity: FloatArray | None = None,
 ) -> Submodel:
-    r"""Equation (10)'s covariate: :math:`1_a\,g_{r,2}(a|W)/g_{r,1}(a|W)`, one column per arm.
+    r"""The outcome-drift covariate, one column per arm.
+
+    For the univariate reduction this is
+    :math:`1_a g_{r,2}(a|W)/g_{r,1}(a|W)`.  For the bivariate reduction it is
+    :math:`1_a\{g_r(a|W)-g(a|W)\}/[g(a|W)g_r(a|W)]`, the ``H2`` in the pinned R
+    ``drtmle`` implementation and van der Laan (2014).  The latter therefore requires the
+    current targeted ``propensity``; using the initial one would solve a different score
+    after the mechanism fluctuation.
 
     Shaped exactly like :func:`~cleverly.fluctuation.submodel.mean_submodel`, and
     deliberately: the observed column carries the indicator and the counterfactual columns
@@ -140,7 +152,14 @@ def reduced_outcome_submodel(
         raise ValueError(
             f"the treatment has {a.shape[0]} rows and the reduced regressions {reduced.n}"
         )
-    ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)
+    if reduced.reduction == "univariate":
+        ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)
+    else:
+        if propensity is None:
+            raise ValueError("the bivariate outcome reduction needs the current propensity")
+        mechanism = _bounded_armwise_propensity(reduced, propensity, bounds=bounds)
+        gr = reduced.bounded_gr1(bounds)
+        ratio = (gr - mechanism) / (mechanism * gr)
     zeros = np.zeros(a.shape[0])
     return Submodel(
         np.column_stack([(a == arm) * ratio[:, j] for j, arm in enumerate(arms)]),
@@ -225,3 +244,29 @@ def reduced_mechanism_covariate(
         raise ValueError(f"the mechanism must be ({reduced.n}, {len(arms)}); got {values.shape}")
     mechanism = bound(values, float(bounds[0]), float(bounds[1]))
     return np.asarray(reduced.qr, dtype=float) / mechanism
+
+
+def _bounded_armwise_propensity(
+    reduced: ReducedSet,
+    propensity: FloatArray,
+    *,
+    bounds: tuple[float, float],
+) -> FloatArray:
+    """The current bounded mechanism as ``(n, K)``, preserving binary complementation."""
+    values = np.asarray(propensity, dtype=float)
+    if values.ndim == 1:
+        if len(reduced.arms) != 2:
+            raise ValueError(
+                f"a one-column reduced mechanism requires two arms; got {list(reduced.arms)}"
+            )
+        g1 = bound(values.reshape(-1), float(bounds[0]), float(bounds[1]))
+        if g1.shape[0] != reduced.n:
+            raise ValueError(
+                f"the mechanism has {g1.shape[0]} rows and the reduced regressions {reduced.n}"
+            )
+        return np.column_stack([1.0 - g1, g1])
+    if values.shape != (reduced.n, len(reduced.arms)):
+        raise ValueError(
+            f"the mechanism must be ({reduced.n}, {len(reduced.arms)}); got {values.shape}"
+        )
+    return np.asarray(bound(values, float(bounds[0]), float(bounds[1])), dtype=float)

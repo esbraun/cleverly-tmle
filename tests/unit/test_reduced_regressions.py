@@ -106,6 +106,7 @@ def fitted(
     g_bounds: tuple[float, float] = INERT_BOUNDS,
     data: CausalData | None = None,
     folds: Folds | None = None,
+    reduction: str = "univariate",
 ) -> ReducedSet:
     reduced, _, _ = fit_reduced(
         causal_data() if data is None else data,
@@ -113,6 +114,7 @@ def fitted(
         regression_learner=CellMeans(),
         classification_learner=CellMeans(),
         g_bounds=g_bounds,
+        reduction=reduction,
     )
     return reduced
 
@@ -429,16 +431,24 @@ class TestTheSplitIsTheOneTheNuisancesUsed:
 class TestTheRefusals:
     """Each says what the derivation would need, rather than what has not been typed."""
 
-    def test_the_bivariate_reduction_is_refused_by_name(self) -> None:
-        with pytest.raises(NotImplementedError, match="bivariate"):
-            fit_reduced(
-                causal_data(),
-                nuisances(WRONG_G, WRONG_Q),
-                regression_learner=CellMeans(),
-                classification_learner=CellMeans(),
-                g_bounds=INERT_BOUNDS,
-                reduction="bivariate",
-            )
+    def test_the_bivariate_reduction_conditions_jointly_on_q_and_g(self) -> None:
+        r"""The single probability is :math:`P(A=a\mid\hat Q_a,\hat g_a)`.
+
+        Cells 0 and 1 tie on both design columns, so this is a genuine conditional mean,
+        not learner parity.  The true arm-one probability in their pooled stratum is
+        ``(.5*.4 + .3*.6)/.8 = .475``; replacing either design column with ``W`` would
+        return ``.4`` and ``.6`` and fail.
+        """
+        tied_g = np.array([0.55, 0.55, 0.45])
+        reduced = fitted(tied_g, TIED_Q, reduction="bivariate")
+        cell = law.frame()["W"].to_numpy().astype(int)
+
+        expected_one = np.array([0.475, 0.475, 0.25])[cell]
+        expected_zero = 1.0 - expected_one
+        np.testing.assert_allclose(reduced.gr1[:, 0], expected_zero, atol=1e-12, rtol=0)
+        np.testing.assert_allclose(reduced.gr1[:, 1], expected_one, atol=1e-12, rtol=0)
+        assert np.isnan(reduced.gr2).all()
+        assert reduced.reduction == "bivariate"
 
     def test_an_unknown_reduction_is_refused_too(self) -> None:
         with pytest.raises((NotImplementedError, ValueError)):
@@ -489,6 +499,19 @@ class TestTheRefusals:
                 data.n_arms,
             )
         )
+        bivariate, diagnostics, _ = fit_reduced(
+            data,
+            wider,
+            regression_learner=CellMeans(),
+            classification_learner=CellMeans(),
+            g_bounds=INERT_BOUNDS,
+            reduction="bivariate",
+        )
+        assert bivariate.arms == data.arm_codes
+        assert bivariate.reduction == "bivariate"
+        np.testing.assert_allclose(bivariate.gr1, mechanism, atol=1e-12, rtol=0.0)
+        assert np.isnan(bivariate.gr2).all()
+        assert set(diagnostics) == {"qr", "gr1"}
 
 
 class TestTheSetItself:
@@ -511,6 +534,17 @@ class TestTheSetItself:
                 arms=ARMS,
                 g_bounds=INERT_BOUNDS,
                 reduction="bivariate ",
+            )
+
+    def test_bivariate_marks_the_absent_signed_regression(self) -> None:
+        with pytest.raises(ValueError, match="absent"):
+            ReducedSet(
+                qr=np.zeros((4, 2)),
+                gr1=np.full((4, 2), 0.5),
+                gr2=np.zeros((4, 2)),
+                arms=ARMS,
+                g_bounds=INERT_BOUNDS,
+                reduction="bivariate",
             )
 
     def test_gr1_is_not_complemented_across_the_arms(self) -> None:

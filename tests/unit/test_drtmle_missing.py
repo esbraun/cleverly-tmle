@@ -373,6 +373,16 @@ def test_cross_fitted_missing_outcomes_are_refused() -> None:
         )
 
 
+def test_bivariate_missing_outcomes_are_refused_as_a_different_construction() -> None:
+    with pytest.raises(NotImplementedError, match="complete-outcome construction"):
+        DRTMLE(
+            randomized=True,
+            cross_fit=False,
+            reduction="bivariate",
+            estimands=("ate",),
+        ).fit(_trial(100), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta")
+
+
 @pytest.mark.parametrize(
     "probabilities, message",
     [

@@ -1398,6 +1398,23 @@ row by row, the curves coincide, and this is the ordinary efficient estimator; t
 the case the variant is not for. Do not read the smaller standard error above as the general
 case: it is one draw, and 0.06828 against 0.06850 is well inside what a different seed moves.
 
+With the default `cross_fit=True`, this is the canonical R package's `cvFolds` construction:
+primary and reduced regressions predict out of fold, then one pooled alternation targets the
+assembled rows and the result reports the whole-sample plug-in with covariance from its corrected
+rowwise curve. In the ordinary `TMLE` vocabulary described below, that means
+`targeting_scheme="pooled"` and `cv_evaluation=False`. The shared word “cross-validated” does not
+license `targeting_scheme="fold"` or `cv_evaluation=True` here; neither has a derived DR-TMLE
+parameter and corrected influence curve, so both are refused by name. The complete mapping and
+the distinction between source provenance and theorem support are in
+[the DR-TMLE contract](drtmle.md#the-canonical-cvfolds-mapping).
+
+Set `reduction="bivariate"` to use van der Laan (2014)'s earlier construction. It fits
+`P(A=a|Qbar-hat(a,W),g-hat(a|W))` on a two-column design and uses its corresponding outcome-drift
+score; it is a supported alternative, not an improvement claim. For a multi-valued treatment the
+pinned R implementation runs the same one-versus-rest construction separately for every arm, and
+cleverly does likewise. The underlying theorem is binary; this larger surface is the canonical
+implementation's armwise extension. The univariate reduction remains the default.
+
 `guard=` says which extra equations to solve, in `drtmle`'s vocabulary, and it is **crossed**:
 `"Q"` guards against a misspecified *outcome regression* and adds the equation that fluctuates
 `g`; `"g"` guards against a misspecified *mechanism* and adds the one that fluctuates `Qbar`.
@@ -1439,7 +1456,11 @@ row-aligned known probabilities retain their estimates and retargeting operation
 reconstruct an estimator for refit-based analyses because later row identity and order cannot be
 verified.
 
-For missing-outcome fits the dedicated Díaz--van der Laan cycle is always used; `update_order=`
+For missing-outcome fits the dedicated Díaz--van der Laan cycle is always used, and
+`reduction="bivariate"` is refused: the supported univariate setting is replaced by five
+missing-data reductions rather than choosing a one- or two-column complete-outcome regression.
+No bivariate analogue of those five functions and three correction blocks is claimed here.
+`update_order=`
 controls only the complete-outcome construction. There it is a **diagnostic** keyword rather than a tuning one, and it is here because a
 question about this estimator is open rather than because there is a choice to make. The source's
 own algorithm states six steps in a particular order; this package's alternation is not a
@@ -1448,8 +1469,7 @@ than the route — so the two orders are the same estimator if they land in the 
 `update_order="paper"` exists so that "if" can be measured instead of assumed. Leave it at
 `"cleverly"` unless you are running that comparison. What is measured so far is two draws, on
 which the estimates agree to within a fifth of a standard error and the *standard errors* differ
-by up to 2.3%; a systematic comparison remains proposed under the
-[DR-TMLE roadmap priority](roadmap.md#1-extend-the-published-dr-tmle-surface).
+by up to 2.3%. This remains a diagnostic for investigating a fit, not a roadmap feature.
 
 `reduced_crossfit=` is the **second** diagnostic keyword and is here for the same kind of reason.
 The reduced regressions are fitted on the primary cross-fitting split, so fold `k`'s regression
@@ -1511,7 +1531,8 @@ against the one nuisance it names and nothing else. And two guards are not stric
 — on a law where both conditioning sets are saturated they over-correct, which is arithmetic
 rather than a defect and is what `tests/unit/test_remainder_drtmle.py` shows.
 
-It costs real time — two further learner fits per arm on every round of an alternation,
+It costs real time — two further learner fits per arm on every univariate round, or one on a
+bivariate round,
 refitted *inside* the loop as the source does. One consequence is worth knowing: `retarget`
 stops being arithmetic on cached arrays, so a truncation curve on a `DRTMLE` fit costs about
 a fit per point rather than a fraction of one, and a result read back from disk cannot
@@ -1520,8 +1541,8 @@ retarget at all.
 Scope is a discrete treatment and the `mean` group, plus the restricted randomized
 missing-outcome case above. `att`/`atc`, the other parameter axes, observational missing
 outcomes, missing treatment, `intermediate=`, fold-wise targeting,
-`reduction="bivariate"`, `treatment_probabilities=` under `n_bootstrap=`, and composition with
-`CTMLE` are all refused by name.
+`treatment_probabilities=` under `n_bootstrap=`, bivariate composition with `delta=`, and
+composition with `CTMLE` are all refused by name.
 
 **What is not visible from the output**, and is why this section opens with a warning. The
 influence curve's form is read off `drtmle`'s implementation rather than derived. It has since

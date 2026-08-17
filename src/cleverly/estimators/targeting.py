@@ -1022,7 +1022,12 @@ class _Companion:
         return tuple(
             (
                 self.outcome[fold],
-                reduced_outcome_submodel(self.data.treatment, self.reduced[fold], bounds=bounds),
+                reduced_outcome_submodel(
+                    self.data.treatment,
+                    self.reduced[fold],
+                    bounds=bounds,
+                    propensity=self.mechanism[fold],
+                ),
             )
             for fold in range(self.n_folds)
         )
@@ -1176,6 +1181,10 @@ def solve_with_reduction(
         (9)  \quad & P_n[\, Q_r(a, W)/g^*(a|W)\,\{1_a - g^*(a|W)\}\,] = 0 \\
         (10) \quad & P_n[\, 1_a\,g_{r,2}(a|W)/g_{r,1}(a|W)\,\{Y - \bar Q^*(a, W)\}\,] = 0
 
+    Equation (10) is the default univariate form.  With ``reduction="bivariate"``, its
+    covariate is :math:`1_a(g_r-g^*)/(g^*g_r)`, where
+    :math:`g_r=P(A=a\mid\hat{\bar Q}_a,\hat g_a)`.
+
     and none of the three can be solved once and left: (9) fluctuates :math:`g` along a
     covariate reading the very :math:`g^*` it moves, (8) and (10) fluctuate :math:`\bar Q`
     along covariates reading :math:`g^*` and the reductions, and the reductions are
@@ -1186,8 +1195,8 @@ def solve_with_reduction(
         prime:  Qbar* <- fluctuation of Qbar^0 along 1_a/g          (equation 8)
         repeat:
             if "Q" in guard:  g* <- logistic tilt along Qr/g*       (equation 9)
-                              refit Qr, gr1, gr2 at (Qbar*, g*)
-            if "g" in guard:  Qbar* <- fluctuate along gr2/gr1      (equation 10)
+                              refit the selected reductions at (Qbar*, g*)
+            if "g" in guard:  Qbar* <- fluctuate along H2           (equation 10)
             Qbar* <- fluctuate along 1_a/g*                         (equation 8)
             re-evaluate all three scores at the pair the round exits at
 
@@ -1266,8 +1275,9 @@ def solve_with_reduction(
     standard error by nothing.
 
     **Equation (10)'s solve is near-singular on exactly the fits anybody wants, and that is
-    structural.**  Its covariate is :math:`g_{r,2}/g_{r,1}` and :math:`g_{r,2}` vanishes
-    exactly where the mechanism is right -- so on a fit whose :math:`\hat g` is nearly right
+    structural.**  Its covariate is :math:`g_{r,2}/g_{r,1}` in the univariate construction
+    and :math:`(g_r-g)/(g g_r)` in the bivariate one.  Either numerator vanishes exactly
+    where the mechanism is right -- so on a fit whose :math:`\hat g` is nearly right
     that covariate is nearly zero: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching 280
     and a singular Hessian in a third of the rounds on one unseeded draw.  A fit that never
     gets past it exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.
@@ -1457,7 +1467,9 @@ def solve_with_reduction(
                 reduced = replace(reduced, gr1=once.gr1, gr2=once.gr2)
                 if companion is not None:
                     companion.take_partial(once_companion, ("gr1", "gr2"))
-                extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
+                extra_submodel = reduced_outcome_submodel(
+                    data.treatment, reduced, bounds=bounds, propensity=targeted_g
+                )
                 extra = solve_submodel(  # step 4: equation (10), along H_2
                     scaled,
                     targeted_q,
@@ -1532,7 +1544,9 @@ def solve_with_reduction(
                     companion.take_reduced(reduced_companion)
 
             if "g" in guard:
-                extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
+                extra_submodel = reduced_outcome_submodel(
+                    data.treatment, reduced, bounds=bounds, propensity=targeted_g
+                )
                 extra = solve_submodel(
                     scaled,
                     targeted_q,
@@ -1620,7 +1634,9 @@ def solve_with_reduction(
             # would report an equation the reported curve does not contain -- which is how
             # the per-estimand row of `score_check` came to disagree with the per-equation
             # rows by two orders of magnitude before this was written down.
-            extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
+            extra_submodel = reduced_outcome_submodel(
+                data.treatment, reduced, bounds=bounds, propensity=targeted_g
+            )
             settled = score_columns(
                 scaled, targeted_q.observed, extra_submodel.observed, weights, mask
             )
@@ -2171,12 +2187,12 @@ def _close_at_frozen_reductions(
     .. code-block:: text
 
         (9)   Qr(a,W)/g*(a|W) (1_a - g*(a|W))       reads g* only -- no Qbar anywhere
-        (10)  1_a gr2(a|W)/gr1(a|W) (Y - Qbar*)     reads Qbar* only -- no g
+        (10)  1_a H2(a|W; g*) (Y - Qbar*)           reads Qbar* and, if bivariate, fixed g*
         (8)   1_a/g*(a|W),  residual (Y - Qbar*)    reads both
 
     So equation (9) is solved first and nothing downstream can disturb it -- moving
     :math:`\bar Q^*` cannot change a term :math:`\bar Q` does not appear in -- and then (8)
-    and (10) are solved for :math:`\bar Q^*` at that fixed :math:`g^*`, **jointly**, in one
+    and (10) are solved for :math:`\bar Q^*` at that now-fixed :math:`g^*`, **jointly**, in one
     Newton solve over all four columns rather than by backfitting them.  Backfitting them
     converges at a rate set by how collinear the two covariates are, and that rate is not
     always usable: measured on the exact law, twenty backfitting steps left equation (10)
@@ -2291,7 +2307,9 @@ def _close_at_frozen_reductions(
             capped=capped,
         )
 
-    extra_submodel = reduced_outcome_submodel(data.treatment, reduced, bounds=bounds)
+    extra_submodel = reduced_outcome_submodel(
+        data.treatment, reduced, bounds=bounds, propensity=targeted_g
+    )
     # **Jointly**, not by backfitting them. Equations (8) and (10) fluctuate the same
     # `Qbar` along two covariates, so one Newton solve over all four columns drives all
     # four scores to machine precision at once, where alternating them converges at a rate

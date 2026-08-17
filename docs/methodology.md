@@ -553,9 +553,10 @@ package's *numbers* and nothing will be — an
 two transcriptions of one source is evidence about the transcription. What remains open is the
 *inference*, not the curve:
 [what the validation programme established](drtmle.md#what-the-validation-programme-established)
-is the full list, and the roadmap's
-[DR-TMLE priority](roadmap.md#1-extend-the-published-dr-tmle-surface) is the proposed work on top
-of it.
+is the full list. The older bivariate reduction is also implemented from van der Laan (2014),
+Theorem 3 and the pinned canonical R branches; for multiple treatment levels those R branches
+apply the binary-margin construction once per arm. Benkeser et al.'s later univariate construction
+remains the default because its reduced regressions can achieve faster rates.
 
 `TMLE` is **doubly robust for consistency and singly robust for inference**, and the
 distinction is the whole of what `DRTMLE` is for. The second-order remainder is a product,
@@ -584,7 +585,12 @@ gr1(a | w)  = P( A = a | Qbar-hat(a, W) = Qbar-hat(a, w) )
 gr2(a | w)  = E[ {1_a - g-hat(a|W)} / g-hat(a|W) | Qbar-hat(a, W) = Qbar-hat(a, w) ]
 ```
 
-Each is **univariate however many covariates the fit adjusted for**, which is the point:
+On the default construction each is **univariate however many covariates the fit adjusted for**.
+The alternative `reduction="bivariate"` replaces `gr1` and `gr2` by
+`gr(a|W)=P(A=a|Qbar-hat(a,W),g-hat(a|W))` and replaces equation (10)'s covariate by
+`1_a (gr-g)/(g gr)`. The pinned R implementation does this separately for every requested
+discrete arm. It is still fixed-dimensional, but the two-column regression is why the univariate
+replacement can have better rates.
 they can be estimated fast enough whether or not the primary nuisances can. The equations,
 in the software paper's numbering, are
 
@@ -688,8 +694,8 @@ read. The two **agree**, and the reason that took an argument is that the paper'
 prints the mechanism correction with a leading minus its own appendices contradict — see
 [the sign of the mechanism correction](drtmle.md#the-sign-of-the-mechanism-correction),
 which is where a reader who wants the derivation rather than the verdict should go. The
-*published* 2017 article is still unread and no longer gates this. Multi-valued treatment
-follows the published R `drtmle` workflow: each reduction and correction is indexed by a
+published 2017 article confirms both corrected TMLE constructions. Multi-valued treatment
+with the univariate reduction follows the published R `drtmle` workflow: each reduction and correction is indexed by a
 free treatment level, and equation (9) is solved by independent one-vs-rest fluctuations.
 Those targeted margins deliberately do not renormalise, because a simplex projection would
 reopen the armwise equations — and they are not inert either: equation (8) divides by them,
@@ -755,12 +761,20 @@ design and target came from models that saw fold `k` — the conditional indepen
 above turns on, broken by a generated regressor rather than by a shared row. The argument that the
 dependence is higher order is [the cross-fitting
 argument](drtmle.md#reduced-regression-cross-fitting),
-and it turns on the reductions being **univariate**: the entropy condition then falls on a class of
-functions of one scalar and not on the primary nuisances' complexity, so the Donsker condition
+and it turns on the reductions having **fixed dimension**: the entropy condition then falls on a
+class of functions of one scalar for the default construction or two for the bivariate probability,
+not on the primary nuisances' complexity, so the Donsker condition
 cross-fitting exists to avoid is available for these regressions even where it is not for the
 regressions they are reductions *of*. It holds for every learner library this package ships except
 `"rich"`, and its remaining condition — that the reduction fit moves continuously with its design —
 is what `DRTMLE(reduced_crossfit="nested")` measures rather than assumes.
+
+The canonical R `drtmle` package's `cvFolds` path makes the same engineering choices as the
+supported route here: out-of-fold primary and reduced predictions, one pooled alternation, one
+whole-sample plug-in, and covariance from the assembled corrected curve. That source audit is
+implementation provenance for this argument, not a replacement for it. In particular it does not
+map to ordinary TMLE's `targeting_scheme="fold"` or `cv_evaluation=True`, which remain distinct
+estimators and remain refused for `DRTMLE`.
 
 ## What the score check proves, and what it does not
 
@@ -917,7 +931,7 @@ so rather than implying the request was ill-posed.
 
 | refused | where |
 | --- | --- |
-| `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, or composition with `CTMLE`; and `reduction="bivariate"` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
+| `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
 | the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](user-guide.md#tilting-the-odds-of-treatment) |
 | a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |

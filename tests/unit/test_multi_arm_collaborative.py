@@ -78,6 +78,16 @@ def learned_dr_fit():
     )
 
 
+@pytest.fixture(scope="module")
+def learned_bivariate_dr_fit():
+    """The same nonzero three-arm witness through the bivariate R branch."""
+    return (
+        DRTMLE(reduction="bivariate", **REDUCED_LEARNERS, **LEARNED)
+        .fit(law.frame(), outcome="Y", treatment="A")
+        .single()
+    )
+
+
 # --------------------------------------------------------- what the exact law does prove
 
 
@@ -249,6 +259,37 @@ def test_drtmle_corrections_are_nonzero_and_solved_under_misspecification(
     assert parts is not None
     for arm in learned_dr_fit.nuisance.arms:
         assert np.abs(parts.total()[arm]).max() > 1e-3
+        assert abs(float(np.mean(parts.total()[arm]))) < 1e-8
+
+
+def test_multi_arm_bivariate_corrections_are_nonzero_and_solved(
+    learned_bivariate_dr_fit,
+) -> None:
+    """Pinned R's bivariate branch is one joint reduction and correction per arm.
+
+    This is deliberately the misspecified fit: at the exact law ``Qr`` and every
+    correction vanish, so merely recovering the three means cannot distinguish an
+    implemented armwise correction from a no-op.
+    """
+    fit = learned_bivariate_dr_fit
+    fluctuation = fit.fluctuations["mean"]
+    reduced = fluctuation.reduction.reduced
+    assert reduced.reduction == "bivariate"
+    assert reduced.gr1.shape == (law.N, law.K)
+    assert np.isnan(reduced.gr2).all()
+    assert np.abs(reduced.qr).max() > 1e-3
+
+    mechanism = fluctuation.mechanism
+    assert mechanism is not None
+    assert mechanism.propensity.shape == (law.N, law.K)
+    assert fit.validation.score_check().passed
+    assert fit.validation.correction_check().passed
+
+    scaled = fit.nuisance.scaler.scale(fit.data.outcome)
+    parts = correction_parts(fit.data, fit.nuisance, fluctuation, fluctuation.targeted, scaled)
+    assert parts is not None
+    for arm in fit.nuisance.arms:
+        assert np.abs(parts.d_q[arm]).max() > 1e-3
         assert abs(float(np.mean(parts.total()[arm]))) < 1e-8
 
 
