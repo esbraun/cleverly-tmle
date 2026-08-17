@@ -10,13 +10,11 @@ claim in place live in [the technical appendix](methodology.md). The
 
 ## Multi-valued treatment
 
-<!-- doc-section: id=multi-valued-treatment; requires=; paths=src/cleverly/datasets/synthetic.py,src/cleverly/targets/** -->
 
 A treatment with more than two levels is estimated the same way as the binary fit in the
 [quickstart](../README.md#quickstart), and reports one counterfactual mean per arm plus a
 contrast against a reference arm you choose:
 
-<!-- doc-block: id=multi-arm-fit; tier=fast -->
 ```python
 from cleverly import TMLE
 from cleverly.datasets import make_multi_arm
@@ -44,7 +42,6 @@ ey[medium]          0.67204   0.0467   [0.58052, 0.76356]     <1e-4
 Parameters are named with your own labels, not the internal codes. Any contrast the
 reference did not produce comes from the joint influence curve with no refit:
 
-<!-- doc-block: id=multi-arm-contrast; tier=fast -->
 ```python
 res.contrast(lambda psi: psi[0] - psi[1], ["ey[high]", "ey[medium]"])
 ```
@@ -73,7 +70,6 @@ effect conditions on `A = a` and so is not a function of the marginal means at a
 **The sensitivity analyses are one per contrast.** Name the parameter and they answer for
 the two arms it names:
 
-<!-- doc-block: id=multi-arm-att; tier=fast -->
 ```python
 # `att[...]` is one of the opt-in conditional effects, so the fit has to be asked for it.
 res = (
@@ -89,7 +85,6 @@ res.sensitivity.robustness_value("att[medium vs low]")
 The E-value is defined on the ratio scale, so it wants a binary outcome — the same three
 arms, with `family="binomial"`:
 
-<!-- doc-block: id=multi-arm-risk; tier=fast -->
 ```python
 binary, _ = make_multi_arm(n=2000, seed=0, family="binomial")
 risk = (
@@ -136,7 +131,6 @@ does.
 
 ## Dynamic and stochastic regimes
 
-<!-- doc-section: id=dynamic-stochastic-regimes; requires=; paths=src/cleverly/interventions/base.py,src/cleverly/interventions/support.py,src/cleverly/datasets/synthetic.py -->
 
 "Set `A` to 1 for everybody" is one intervention among many, and until you say otherwise
 it is the one every estimand above assumes. `interventions=` says otherwise. A **regime**
@@ -145,7 +139,6 @@ supported: a constant arm, a deterministic rule `d(W)`, and a stochastic assignm
 supply. The clever covariate generalises from `1{A = a} / g(a | W)` to the density ratio
 `g*(A | W) / g(A | W)`, and the parameter from a mean per arm to a mean per regime.
 
-<!-- doc-block: id=dynamic-regimes-fit; tier=fast -->
 ```python
 import numpy as np
 
@@ -200,7 +193,6 @@ ordinary fit, which is what `tests/unit/test_regimes.py` asserts.
 
 Positivity means something different here, and has its own report:
 
-<!-- doc-block: id=dynamic-regimes-support; tier=fast -->
 ```python
 print(res.sensitivity.support().summary())
 ```
@@ -234,7 +226,6 @@ Why this is the right number, and how it is checked:
 
 ## Shifting a continuous dose
 
-<!-- doc-section: id=continuous-dose-shift; requires=; paths=src/cleverly/interventions/shift.py,src/cleverly/datasets/synthetic.py -->
 
 Every estimand above names an arm, and a dose has none. A **modified treatment policy**
 names a change instead: `d(a, w) = a + δ`, held back at a cap `u`. `shifts=` declares one,
@@ -246,7 +237,6 @@ clever covariate becomes a density *ratio* rather than an inverse probability:
 h(a, W) = g(a - δ | W) / g(a | W) · 1{a ≤ u}  +  1{a > u - δ}
 ```
 
-<!-- doc-block: id=continuous-dose-fit; tier=fast -->
 ```python
 from cleverly import TMLE
 from cleverly.datasets import make_shift_dose
@@ -302,7 +292,6 @@ Positivity is a different question here, so it has a different report. `sensitiv
 refuses a continuous fit — there is no per-arm propensity to tabulate — and what matters
 instead is whether the *ratio* stays bounded:
 
-<!-- doc-block: id=continuous-dose-support; tier=fast -->
 ```python
 for report in res.sensitivity.shift_support().values():
     print(report.summary())
@@ -320,7 +309,6 @@ Why this is the right number, and how it is checked:
 
 ### Missing outcomes, an intermediate, and weights on a dose
 
-<!-- doc-section: id=continuous-dose-missing; requires=continuous-dose-fit; paths=src/cleverly/data/**,src/cleverly/interventions/shift.py -->
 
 `delta=`, `intermediate=` and `weights=` all work here, and mean what they mean on an arm.
 They share the same missingness construction as the arm path; the technical appendix derives the
@@ -339,7 +327,6 @@ the arm path evaluates `π` at each counterfactual arm, where the `1{A = a}` ind
 it. `intermediate=` adds `P(Z = z | A, W)` on the same footing, and the report is then the
 controlled direct effect *under the policy*, `E[Y^{d(A,W), z}]`.
 
-<!-- doc-block: id=continuous-dose-missing-fit; tier=fast -->
 ```python
 import numpy as np
 
@@ -405,7 +392,6 @@ the same limitation the outcome regression has here, now applying to a second nu
 
 ## Tilting the odds of treatment
 
-<!-- doc-section: id=incremental-intervention; requires=; paths=src/cleverly/interventions/incremental.py,src/cleverly/datasets/synthetic.py -->
 
 Every intervention above replaces the treatment decision. An **incremental
 propensity-score intervention** leaves it where it was and multiplies its *odds* by `δ`
@@ -419,7 +405,6 @@ q_δ(1 | W) = δ g(W) / (δ g(W) + 1 - g(W)),     D_δ = δ g + 1 - g
 nothing — `q₁ = g` identically — so it is the natural course and the usual reference, the
 way `Shift(0.0, cap=None)` is on the dose axis.
 
-<!-- doc-block: id=incremental-fit; tier=fast -->
 ```python
 from cleverly import TMLE
 from cleverly.datasets import make_nonlinear_ate
@@ -478,7 +463,6 @@ and calling it the answer. Everything else on this page works at any number of a
 [where a multi-valued treatment is supported](methodology.md#where-a-multi-valued-treatment-is-supported)
 for the whole picture.
 
-<!-- doc-block: id=incremental-support; tier=fast -->
 ```python
 for report in res.sensitivity.incremental_support().values():
     print(report.summary())
@@ -524,13 +508,11 @@ score.
 
 ## Summarising the arms: a marginal structural model
 
-<!-- doc-section: id=arm-msm; requires=; paths=src/cleverly/msm.py,src/cleverly/datasets/synthetic.py -->
 
 Five dose levels and two effect modifiers report ten counterfactual means, which is a
 table rather than an answer. `msm=` declares a **working model** `m(a, V; β)` that
 summarises them, and makes the fit's parameters its coefficients:
 
-<!-- doc-block: id=arm-msm-fit; tier=fast -->
 ```python
 import numpy as np
 
@@ -590,14 +572,12 @@ the example above passes `design=` and says what the doses are.
 
 ### A link, and what it makes the coefficients mean
 
-<!-- doc-section: id=arm-msm-link; requires=; paths=src/cleverly/msm.py,src/cleverly/datasets/synthetic.py -->
 
 For a binary outcome the identity link above is a *linear-risk* model, and its coefficients
 are risk differences — frequently out of range, and not what the applied literature
 reports. `link="log"` and `link="logit"` put the linear predictor inside a mean function,
 so a coefficient becomes a log risk ratio or a log odds ratio:
 
-<!-- doc-block: id=arm-msm-link-fit; tier=fast -->
 ```python
 from cleverly import TMLE
 from cleverly.datasets import make_binary_outcome
@@ -665,7 +645,6 @@ doses.
 
 ## Treatment given over time
 
-<!-- doc-section: id=longitudinal-treatment; requires=; paths=src/cleverly/longitudinal/** -->
 
 Everything above gives the treatment once. `LTMLE` gives it repeatedly, and estimates the
 mean outcome under a **regimen** `ā = (a₁, …, a_T)` — a plan for every node, not a decision
@@ -696,7 +675,6 @@ its values, but one with ten or more distinct values warns: it becomes that many
 arms and its spacing is discarded. If the spacing is what matters, collapse the column into the
 arms you want to contrast.
 
-<!-- doc-block: id=longitudinal-fit; tier=fast -->
 ```python
 from cleverly import LTMLE
 from cleverly.datasets import make_longitudinal
@@ -828,13 +806,11 @@ Why this is the right number, and how it is checked:
 
 ### A regimen that reads the history
 
-<!-- doc-section: id=longitudinal-rule; requires=longitudinal-fit; paths=src/cleverly/longitudinal/** -->
 
 A plan may decide a node rather than declare it. Any entry of a plan may be a **rule**
 `d_t(H_t)` instead of an arm, so "start everyone, then keep treating only the responders"
 is one regimen rather than a special case:
 
-<!-- doc-block: id=longitudinal-rule-fit; tier=fast -->
 ```python
 res = LTMLE(
     {
@@ -928,7 +904,6 @@ Why this is the right number, and how it is checked:
 
 ### Summarising the regimens: a marginal structural model
 
-<!-- doc-section: id=longitudinal-msm; requires=; paths=src/cleverly/longitudinal/**,src/cleverly/msm.py -->
 
 Four plans over two nodes is a table; `2^T` plans over `T` nodes is not a report at all.
 `msm=` declares a **working model** `m(ā, V; β)` summarising the regimens and makes the
@@ -937,7 +912,6 @@ node](#summarising-the-arms-a-marginal-structural-model), and the standard way t
 literature reports a grid of dynamic rules: a coefficient on the rule's threshold rather
 than a mean per plan.
 
-<!-- doc-block: id=longitudinal-msm-fit; tier=fast -->
 ```python
 import numpy as np
 
@@ -1027,7 +1001,6 @@ Why this is the right number, and how it is checked:
 
 ### A survival outcome
 
-<!-- doc-section: id=longitudinal-survival; requires=; paths=src/cleverly/longitudinal/**,src/cleverly/datasets/longitudinal.py -->
 
 Everything above has one outcome, at the end. Pass **one cumulative event indicator per
 node** instead — `Y_t = 1` means the event has happened by `t`, so it stays one thereafter —
@@ -1035,7 +1008,6 @@ and the outcome joins the time ordering `W → A₁ → C₁ → Y₁ → L₂ �
 parameter becomes a **curve**: the cumulative risk
 `F_ā(t) = P(event by t under ā)` at every horizon.
 
-<!-- doc-block: id=longitudinal-survival-fit; tier=fast -->
 ```python
 from cleverly import LTMLE
 from cleverly.datasets import make_longitudinal_survival
@@ -1098,7 +1070,6 @@ One consequence worth stating plainly:
 Survival is a derived view rather than a second set of rows. `res.curve()` gives the tidy
 frame with a `time` column, on either scale:
 
-<!-- doc-block: id=longitudinal-survival-curve; tier=fast -->
 ```python
 res.curve(scale="survival")  # S(t) = 1 - F(t), and -(F_a - F_b) for a contrast
 ```
@@ -1119,13 +1090,11 @@ Why this is the right number, and how it is checked:
 
 ### Competing risks
 
-<!-- doc-section: id=competing-risks; requires=; paths=src/cleverly/longitudinal/**,src/cleverly/datasets/longitudinal.py -->
 
 An event that ends follow-up need not be the only one that can. Pass a **mapping of cause
 to its indicator column per node** and each absorbing state gets its own curve — the
 cause-specific cumulative incidence `F_j(t) = P(leave through cause j by t)`:
 
-<!-- doc-block: id=competing-risks-fit; tier=fast -->
 ```python
 from cleverly import LTMLE
 from cleverly.datasets import make_longitudinal_competing
@@ -1197,7 +1166,6 @@ Why this is the right number, and how it is checked:
 
 ## Collaborative TMLE
 
-<!-- doc-section: id=collaborative-tmle; requires=; paths=src/cleverly/estimators/ctmle.py,src/cleverly/datasets/synthetic.py -->
 
 A propensity model fitted to predict treatment as well as possible is fitted to the wrong
 objective. A covariate that predicts treatment but *not* the outcome — an instrument —
@@ -1206,7 +1174,6 @@ inflating the variance of `1/g` and so of the estimate. `CTMLE` chooses the cova
 entering `g` by cross-validating the loss of the *targeted outcome model* instead, so the
 two nuisance fits only have to be right between them (van der Laan & Gruber 2010).
 
-<!-- doc-block: id=ctmle-fit; tier=fast -->
 ```python
 from cleverly import CTMLE
 from cleverly.datasets import make_instrument
@@ -1257,7 +1224,6 @@ model at each path position and optimize one joint, nonredundant vector: all arm
 `ctmle_estimand="ey"`, or every arm-versus-`reference=` contrast for `"ate"`, `"rr"`, and
 `"or"`. The components are visible rather than implicit:
 
-<!-- doc-block: id=ctmle-multi-catalogue; tier=fast -->
 ```python
 multi = CTMLE(
     strategy="discrete",
@@ -1330,7 +1296,6 @@ Why this is the right number, and how it is checked:
 
 ## Doubly-robust inference
 
-<!-- doc-section: id=doubly-robust-inference; requires=; paths=src/cleverly/estimators/drtmle.py,src/cleverly/validation/drtmle.py,src/cleverly/datasets/synthetic.py -->
 
 > **Conditionally valid, and the condition is on you.** `DRTMLE` computes what Benkeser et
 > al.'s Theorem 1 derives — its curve was transcribed from R's `drtmle` rather than derived,
@@ -1376,7 +1341,6 @@ residual on the *other* nuisance (van der Laan 2014; Benkeser, Carone, van der L
 Gilbert 2017). Those regressions are univariate however many covariates the fit adjusted
 for, so they can be estimated fast enough whether or not the primary nuisances can.
 
-<!-- doc-block: id=drtmle-fit; tier=fast -->
 ```python
 from cleverly import DRTMLE
 from cleverly.datasets import make_nonlinear_ate
@@ -1539,7 +1503,6 @@ one is the quantity targeting drove to zero. Passing an independent draw here ev
 fold's nuisances at it and moves them by the same targeting steps the fitted arrays take, so the
 curve is available as a *function*:
 
-<!-- doc-block: id=drtmle-companion; tier=fast -->
 ```python
 holdout, _ = make_nonlinear_ate(n=20_000, seed=99)
 res = (
@@ -1620,7 +1583,6 @@ Why this is the right number, and how it is checked:
 
 ## Cross-fitting and CV-TMLE
 
-<!-- doc-section: id=cross-fitting; requires=; paths=src/cleverly/estimators/recipe.py,src/cleverly/estimators/targeting.py,src/cleverly/datasets/synthetic.py -->
 
 Both literature routes use one common targeting coefficient. The original CV-TMLE usually
 minimises the equal average validation-fold loss and evaluates the plug-in inside each
@@ -1636,7 +1598,6 @@ implementation cross-check. The package also keeps a separate-per-fold epsilon e
 | `targeting_scheme="pooled", cv_evaluation=True` | original fold-evaluated CV-TMLE: common epsilon, fold-wise evaluation and variance |
 | `targeting_scheme="fold"` | extension with one epsilon per fold |
 
-<!-- doc-block: id=crossfit-fit; tier=fast -->
 ```python
 from cleverly import TMLE
 from cleverly.datasets import make_nonlinear_ate
@@ -1661,7 +1622,6 @@ Why this is the right number, and how it is checked:
 
 ### What the folds guarantee
 
-<!-- doc-section: id=cross-fitting-guarantees; requires=crossfit-fit; paths=src/cleverly/estimators/recipe.py,src/cleverly/estimators/targeting.py -->
 
 Two things a cross-fitted estimate assumes, and neither is left to trust. A fold index
 outside the declared range, or a fold holding no rows at all, is refused by `Folds` when it
@@ -1674,7 +1634,6 @@ representation.
 
 The fold *policy* is recorded too, and separately from the split it produced:
 
-<!-- doc-block: id=crossfit-cluster-plan; tier=fast -->
 ```python
 res.config.crossfit  # CrossFitPlan(n_folds=10, learner_folds=5, scheme=...)
 res.config.crossfit.n_folds  # 10 -- what was asked for
@@ -1690,7 +1649,6 @@ With a rare outcome, balancing the arms is not enough: eight events across ten
 arm-stratified folds leaves at least one with none, and an outcome regression fitted there
 is degenerate.
 
-<!-- doc-block: id=crossfit-stratification; tier=fast -->
 ```python
 TMLE(n_folds=10, stratify_folds="treatment+outcome")  # caps at the rarest cell, not arm
 ```
@@ -1707,7 +1665,6 @@ A single split is one draw from a randomised procedure, and two seeds can move `
 appreciable fraction of its standard error. `repeats=` draws the split several times and
 averages:
 
-<!-- doc-block: id=crossfit-repeats; tier=fast -->
 ```python
 TMLE(n_folds=10, repeats=5)  # psi_bar = mean_r psi_r, at five times the cost
 ```
@@ -1748,7 +1705,6 @@ cross-validated variance is defined by a fold partition, and the across-draw ave
 belongs to none of the `R`, so what is reported is the mean of the `R` cross-validated
 variances, each computed on its own draw's partition:
 
-<!-- doc-block: id=crossfit-cv-repeats; tier=fast -->
 ```python
 TMLE(cv_evaluation=True, repeats=5)
 ```
@@ -1777,7 +1733,6 @@ gradient by fold, and reusing the ordinary fluctuation leaves a nonzero influenc
 score. Their valid stacked-validation estimates remain available with the default pooled
 evaluation.
 
-<!-- doc-block: id=crossfit-fold-targeting; tier=fast -->
 ```python
 res = (
     TMLE(cv_evaluation=True, estimands=("ate", "att"))
@@ -1791,7 +1746,6 @@ res.cv_targeting.pooled["att"], res.cv_targeting.fold_evaluated["att"]  # both, 
 
 ## Observation weights, and which population they define
 
-<!-- doc-section: id=observation-weights; requires=; paths=src/cleverly/data/**,src/cleverly/inference/**,src/cleverly/datasets/synthetic.py -->
 
 Passing `weights=` changes the *estimand*, not just its weighting. The nuisances are fitted
 by weighted loss, the targeting step solves the weighted score equation, and the plug-in is
@@ -1800,7 +1754,6 @@ back is the requested causal parameter evaluated in the tilted population
 `dP_w = w dP / E[w]`, and its efficient influence function is `(w / E[w]) * D*(P_w)`, which
 is what the reported standard errors are built from.
 
-<!-- doc-block: id=observation-weights-fit; tier=fast -->
 ```python
 import numpy as np
 
@@ -1866,14 +1819,8 @@ the outcome, where the tilt changes `Qbar` itself. The short version:
 
 ## Sensitivity
 
-<!-- doc-section: id=sensitivity; requires=; paths=src/cleverly/sensitivity/**,src/cleverly/datasets/synthetic.py -->
 
-<!-- catalogue: what the suite offers, listed together. No single fit supports all of it —
-     `truncation_curve(mechanism=True)` needs a missingness mechanism, `evalue()` a binary
-     outcome, `missingness_tilt()` a `delta=` — so this enumerates rather than demonstrates,
-     and the sections below run each one against the fit it needs. -->
 
-<!-- doc-block: id=sensitivity-catalogue; tier=fast -->
 ```python
 res.sensitivity.positivity()  # overlap, effective sample size, weight mass
 res.sensitivity.truncation_curve()  # estimate vs propensity-truncation bound
@@ -1899,7 +1846,6 @@ treatment the unit received. Where that is doubtful — dropout after an ineffec
 not mean what dropout after an effective one does — `arm_gamma=` declares a *direction*
 instead, and the grid sweeps its magnitude:
 
-<!-- doc-block: id=sensitivity-missingness; tier=fast -->
 ```python
 import numpy as np
 
@@ -1936,11 +1882,7 @@ departure the conclusion survives.
 
 ## Validation
 
-<!-- doc-section: id=validation; requires=; paths=src/cleverly/validation/**,src/cleverly/datasets/synthetic.py -->
 
-<!-- catalogue: the three reports are the validation surface, shown without repeating a fit;
-     the repeated-sampling example below constructs the estimator state it needs. -->
-<!-- doc-block: id=validation-catalogue; tier=fast -->
 ```python
 res.validation.nuisance()  # CV AUC/Brier/calibration for g, CV R^2/MSE for Q, SL weights
 res.validation.score_check()  # did targeting solve mean(EIF) = 0?
@@ -1950,7 +1892,6 @@ res.validation.refute()  # placebo treatment, random common cause, subset stabil
 And a harness that measures the *estimator* rather than a fit, by repeated sampling from a
 process whose truth is known:
 
-<!-- doc-block: id=validation-coverage-study; tier=slow -->
 ```python
 from cleverly import TMLE
 from cleverly.datasets import nonlinear_dgp
@@ -1993,7 +1934,6 @@ left to be discovered in a signature.
 
 ## Adding an estimand
 
-<!-- doc-section: id=adding-estimand; requires=; paths=src/cleverly/targets/** -->
 
 Estimands live in a registry rather than in a `Literal`. A `Target` declares which
 fluctuation solves its score equation, what scale its inference lives on, what it needs of
@@ -2001,7 +1941,6 @@ the outcome, how to build the estimate — and, as a required field, an `Identif
 record stating its assumptions, the nuisances it consumes and what double robustness buys
 for *that* estimand specifically:
 
-<!-- doc-block: id=custom-estimand-registration; tier=fast -->
 ```python
 from cleverly import Identification, Target, register
 
@@ -2040,7 +1979,6 @@ out of five. A target that works for any arm count instead loops `ctx.contrast_a
 names each parameter with `ctx.name_for`, which collapses to the bare stem when there are
 exactly two arms so the familiar names survive:
 
-<!-- doc-block: id=custom-estimand-multi-arm; tier=fast -->
 ```python
 def risk_difference(ctx):
     reference = ctx.means[ctx.reference]
@@ -2080,7 +2018,6 @@ directions.
 
 ## Adding a fluctuation
 
-<!-- doc-section: id=adding-fluctuation; requires=; paths=src/cleverly/fluctuation/** -->
 
 `group=` above names a *score equation*, not an estimand — six of the eight built-in
 targets share the `mean` fluctuation because they are different functionals of one targeted
@@ -2088,7 +2025,6 @@ distribution. That fluctuation has one column per treatment arm: two for a binar
 `K` for a `K`-armed one. Groups live in their own registry, so a target that needs a score
 equation nobody has written yet can supply one:
 
-<!-- doc-block: id=custom-fluctuation-registration; tier=fast -->
 ```python
 import numpy as np
 

@@ -55,9 +55,7 @@ lost — but the promise is about the dataframe library, not about the dtype bac
 
 ## Quickstart
 
-<!-- doc-section: id=readme-quickstart; requires=; paths=src/cleverly/datasets/** -->
 
-<!-- doc-block: id=readme-quickstart-fit; tier=fast -->
 ```python
 from cleverly import TMLE
 from cleverly.datasets import make_nonlinear_ate
@@ -97,13 +95,11 @@ without a seed two runs of the same code give slightly different answers.
 
 ## An end-to-end fit
 
-<!-- doc-section: id=readme-end-to-end; requires=; paths=src/cleverly/sensitivity/**,src/cleverly/validation/**,src/cleverly/inference/** -->
 
 The quickstart returns an estimate. What follows is the rest of the surface — the diagnostics
 that say whether to believe it — on one fit, with no refitting anywhere. Every analysis below
 reads the cached nuisance fits and influence curves the fit already carries.
 
-<!-- doc-block: id=readme-end-to-end-fit; tier=fast -->
 ```python
 import cleverly
 from cleverly import TMLE
@@ -135,7 +131,6 @@ simultaneous 95% bands (multiplier bootstrap, critical value 2.329 vs 1.960 poin
 **Is the identification plausible?** Positivity is the assumption an estimate degrades under
 first, so it gets a report of its own, and confounding you did not measure gets a bound.
 
-<!-- doc-block: id=readme-end-to-end-sensitivity; tier=fast -->
 ```python
 print(res.sensitivity.positivity().summary())  # overlap, effective n, weight mass, verdict
 res.sensitivity.robustness_value()  # confounding strength that would null the effect
@@ -152,7 +147,6 @@ VERDICT: overlap looks adequate; no truncation-driven fragility detected.
 **Did the estimator do what it claims?** `score_check()` verifies that targeting actually
 solved the efficient score equation, and `nuisance()` reports how the learners did out of fold.
 
-<!-- doc-block: id=readme-end-to-end-validation; tier=fast -->
 ```python
 print(res.validation.score_check().summary())
 print(res.validation.nuisance().summary())
@@ -178,7 +172,6 @@ outcome: super learner weights gam=0.230, boost=0.770
 **Anything the report did not name** comes from the joint influence curve by the delta method,
 with no refit — here the risk ratio, which was not among the requested estimands:
 
-<!-- doc-block: id=readme-end-to-end-contrast; tier=fast -->
 ```python
 res.contrast(lambda psi: psi[0] / psi[1], ["ey1", "ey0"])
 # contrast(ey1, ey0): 1.9491 (se 0.04092, 95% CI [1.8689, 2.0293])
@@ -337,10 +330,9 @@ sets out the taxonomy and lists every one.
 uv venv && uv pip install -e ".[dev]"
 ruff check . && ruff format --check .
 mypy src/cleverly
-pytest -m "not slow and not docs and not docs_full" -q  # ordinary fast tier
-pytest -m docs --doc-section collaborative-tmle     # one executable guide section
+pytest -m "not slow" -q                         # ordinary fast tier
 pytest -m slow -q                              # manual statistical validation
-nox -s docs-transcript                         # manual complete reader workflow
+# Dispatch manual-validation / documentation when rendered docs need review.
 python benchmarks/bench_tmle.py                         # where a whole fit's time goes
 python -m benchmarks.numba.cli --config benchmarks/configs/sandbox.json
 ```

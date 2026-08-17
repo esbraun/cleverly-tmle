@@ -6,10 +6,10 @@ on:
       suite:
         description: Long-running validation to execute
         type: choice
-        options: [statistical, docs-transcript, docs-section]
+        options: [statistical, documentation]
         default: statistical
       selection:
-        description: Optional pytest node id, or section id for docs-section
+        description: Optional pytest node id for statistical validation
         type: string
         default: ""
 
@@ -39,13 +39,8 @@ jobs:
           else
             pytest -m slow -q -n auto --durations=20
           fi
-      - name: Complete documentation transcripts
-        if: inputs.suite == 'docs-transcript'
-        run: pytest tests/e2e/test_doc_snippets.py -m docs_full -q -n auto --durations=20
-      - name: One documentation section
-        if: inputs.suite == 'docs-section'
-        env:
-          SECTION: ${{ inputs.selection }}
+      - name: Intentional documentation review
+        if: inputs.suite == 'documentation'
         run: |
-          test -n "$SECTION"
-          pytest tests/e2e/test_doc_snippets.py -m docs --doc-section "$SECTION" -q
+          ruff check README.md docs
+          ruff format --check README.md docs

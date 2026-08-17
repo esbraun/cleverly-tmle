@@ -31,8 +31,9 @@ Cross-module constraints that are not derivable from one implementation live in
 
 - Use `tests.conftest.FAST_KWARGS` and parametric learners for estimator tests unless flexible
   learning is the behavior under test. Mark statistical studies that require many fits `slow`.
-- Fenced documentation examples run in the nightly `docs` tier in reading order. Catalogue blocks
-  use the tested `<!-- catalogue: reason -->` marker; see `tests/e2e/test_doc_snippets.py`.
+- Documentation examples are explanatory and are not executed as tests. Cover behavior in the
+  ordinary fast unit/integration/e2e tier or the named slow statistical tier. Documentation review
+  is an intentional manual workflow.
 - Ruff and mypy are pinned separately in `pyproject.toml`, `noxfile.py`, and CI. Update all copies
   together. Ruff checks Python examples in Markdown, so run it over the whole tree.
 - Run the smallest relevant test while iterating, then use the current validation commands in

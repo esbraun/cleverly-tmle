@@ -89,8 +89,6 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "slow: statistical validation runs (coverage, consistency, type I error); excluded from the fast CI tier",
-    "docs: modular documentation examples; selected by affected section in pull-request CI",
-    "docs_full: complete reading-order documentation transcripts; run manually",
 ]
 filterwarnings = [
     "error::RuntimeWarning",

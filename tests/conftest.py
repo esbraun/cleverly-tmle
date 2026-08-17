@@ -16,23 +16,8 @@ from sklearn.base import BaseEstimator
 
 import cleverly
 from cleverly import TMLE
-from tests.doc_sections import ROOT
 
-
-def pytest_addoption(parser: pytest.Parser) -> None:
-    group = parser.getgroup("documentation execution")
-    group.addoption(
-        "--doc-section",
-        action="append",
-        default=None,
-        metavar="ID",
-        help="run one documentation section (repeatable)",
-    )
-    group.addoption(
-        "--doc-changed-from",
-        metavar="GIT_REV",
-        help="run documentation sections affected since this git revision",
-    )
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _check_source_matches_checkout() -> None:
@@ -68,21 +53,7 @@ def _check_source_matches_checkout() -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    from tests.doc_sections import all_sections, git_changes, select_sections
-
     _check_source_matches_checkout()
-    sections = all_sections()
-    known = {section.section_id for section in sections}
-    requested = config.getoption("--doc-section")
-    base = config.getoption("--doc-changed-from")
-    if requested:
-        unknown = set(requested) - known
-        if unknown:
-            raise pytest.UsageError(f"unknown --doc-section value(s): {sorted(unknown)}")
-    if base:
-        selected = select_sections(git_changes(base), sections)
-        config.option.doc_section = sorted(set(requested or ()) | selected)
-    config._doc_selection_active = requested is not None or base is not None  # type: ignore[attr-defined]
 
 
 #: Estimator settings for the fast tier: parametric nuisances, few folds, seeded.

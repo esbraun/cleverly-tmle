@@ -43,7 +43,6 @@ estimator — which is exactly the case the variant is not for.
 
 ## 1. Supported estimands
 
-<!-- doc-section: id=drtmle-contract; requires=; paths=src/cleverly/estimators/drtmle.py,src/cleverly/datasets/synthetic.py -->
 
 A **discrete point treatment** and the `mean` group: every treatment-specific mean and the
 reference-arm contrasts requested through `ey` and `ate`. For multiple levels, the
@@ -72,7 +71,6 @@ second order. So the estimator is not continuous in `K`, and a reader comparing 
 cleverly fit against a two-arm `drtmle` fit should expect agreement in the equations solved
 rather than in the iterates.
 
-<!-- doc-block: id=drtmle-contract-fit; tier=fast -->
 ```python
 from cleverly import DRTMLE
 from cleverly.datasets import make_nonlinear_ate

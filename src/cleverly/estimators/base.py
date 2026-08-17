@@ -419,6 +419,13 @@ class TMLEResult:
     bootstrap: BootstrapResult | None = None
     intermediate_value: float | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    #: Present for fits made through ``CausalStudy``. Legacy estimator calls leave it
+    #: absent while the clean-break migration is in progress.
+    identified_effect: Any = None
+    #: The normalized typed method configuration used by ``IdentifiedEffect.estimate``.
+    method: Any = None
+    #: Alias-to-structured-key mapping. Routing must read this rather than parse aliases.
+    parameter_keys: dict[str, Any] = field(default_factory=dict)
 
     # --------------------------------------------------------------- repeats
 
@@ -502,9 +509,19 @@ class TMLEResult:
     def __iter__(self) -> Iterator[str]:
         return iter(self.estimates)
 
-    def psi(self, name: str) -> float:
-        """Point estimate for one estimand."""
-        return self[name].psi
+    @property
+    def estimate(self) -> ParameterEstimate:
+        """The sole parameter estimate, with an explicit refusal for multi-parameter fits."""
+        if len(self.estimates) != 1:
+            raise ValueError(
+                "this result contains multiple parameters; index the one you want from "
+                f"{list(self.estimates)}"
+            )
+        return next(iter(self.estimates.values()))
+
+    def psi(self, name: str | None = None) -> float:
+        """Point estimate for ``name``, or for the sole parameter when omitted."""
+        return self.estimate.psi if name is None else self[name].psi
 
     @property
     def ate(self) -> ParameterEstimate:
@@ -643,6 +660,14 @@ class TMLEResult:
         the two analyses that genuinely refit need the learners to have been library
         specifications rather than fitted objects.
         """
+        if self.identified_effect is not None:
+            from ..exceptions import CapabilityError
+
+            raise CapabilityError(
+                "causal-workflow persistence is deferred to the complete foundational API PR: "
+                "the current format cannot store structured identification and parameter keys, "
+                "and saving a file that silently loses them is refused"
+            )
         from .serialize import save as _save
 
         return _save(self, path)
@@ -760,6 +785,8 @@ class TMLEResult:
             )
             + f"; covariates = {data.n_covariates}; {_arm_shares(data)}",
         ]
+        if self.identified_effect is not None:
+            facts.extend(self.identified_effect.summary_lines())
         if data.cluster is not None:
             facts.append(f"clusters = {data.n_clusters} (cluster-robust variance)")
         if data.is_weighted:
