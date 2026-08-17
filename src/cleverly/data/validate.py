@@ -19,6 +19,7 @@ from ..exceptions import DataError, DataWarning
 __all__ = [
     "MAX_TREATMENT_LEVELS",
     "MIN_CONTINUOUS_LEVELS",
+    "arm_indicators",
     "check_binary",
     "check_covariates",
     "check_delta",
@@ -89,7 +90,7 @@ def encode_binary(values: np.ndarray, name: str) -> tuple[FloatArray, tuple[obje
 
 
 def encode_treatment(
-    values: np.ndarray, name: str, *, min_per_arm: int = 1
+    values: np.ndarray, name: str, *, min_per_arm: int = 1, remedy: str | None = None
 ) -> tuple[FloatArray, tuple[object, ...]]:
     """Map a ``K``-level treatment onto codes ``0 .. K-1``, returning the level order.
 
@@ -111,6 +112,12 @@ def encode_treatment(
         Reject a level with fewer rows than this.  A near-empty arm is not a positivity
         problem to be reported later; its counterfactual mean is not estimable at all,
         and a cross-fit would hand some fold no rows in that arm.
+    remedy:
+        What to tell the caller to do when the column has more levels than the estimator
+        accepts.  The default names ``treatment_kind='continuous'``, which is the answer
+        for a :class:`~cleverly.data.CausalData`; a caller that does not offer that
+        keyword must pass its own, since an error naming a keyword the entry point does
+        not take is worse than no suggestion at all.
     """
     arr = np.asarray(values).reshape(-1)
 
@@ -123,13 +130,13 @@ def encode_treatment(
         if unique.size == 2 and np.all(np.isin(unique, (0.0, 1.0))):
             return _check_arms(numeric, (0, 1), name, min_per_arm), (0, 1)
         levels_num: tuple[object, ...] = tuple(float(v) for v in unique)
-        _reject_arm_count(len(levels_num), name)
+        _reject_arm_count(len(levels_num), name, remedy)
         codes = np.searchsorted(unique, numeric).astype(float)
         return _check_arms(codes, levels_num, name, min_per_arm), levels_num
 
     unique_obj = np.unique(arr)
     levels_obj: tuple[object, ...] = tuple(unique_obj.tolist())
-    _reject_arm_count(len(levels_obj), name)
+    _reject_arm_count(len(levels_obj), name, remedy)
     codes = np.searchsorted(unique_obj, arr).astype(float)
     return _check_arms(codes, levels_obj, name, min_per_arm), levels_obj
 
@@ -185,7 +192,58 @@ def encode_continuous_treatment(values: np.ndarray, name: str) -> FloatArray:
     return numeric
 
 
-def _reject_arm_count(k: int, name: str) -> None:
+def arm_indicators(codes: np.ndarray, n_levels: int) -> FloatArray:
+    r"""Drop-first indicators for arm codes ``0 .. n_levels-1``: ``(n, n_levels-1)``.
+
+    **The one place a treatment enters a design matrix.**  Every design that conditions
+    on an arm goes through here -- :meth:`~cleverly.data.CausalData.treatment_block` for
+    a point treatment, and
+    :meth:`~cleverly.longitudinal.data.LongitudinalData.history_design` for each earlier
+    node of a longitudinal mechanism -- so the encoding is one decision with one
+    implementation rather than a convention two modules happen to share.  The invariant
+    is recorded in ``docs/architecture-invariants.md``.
+
+    **Two arms return the single 0/1 code column itself**, which is exactly the design
+    the binary estimators have always been handed.  That is not a shortcut: it is what
+    keeps a binary fit bit for bit what it was, and ``K - 1`` is one column at ``K = 2``
+    anyway, so the general rule and the compatibility guarantee are the same statement.
+
+    With more than two arms a *single numeric column* would be wrong, not merely crude:
+    it would impose a linear dose-response, forcing
+    :math:`\bar Q(2, W) - \bar Q(1, W) = \bar Q(1, W) - \bar Q(0, W)` for any learner
+    linear in its design, and so shrink the very contrasts the fit exists to estimate.
+    On a longitudinal mechanism the same column would force
+    :math:`g_2(\cdot \mid H_2, A_1)` to move monotonically in :math:`A_1`.  Indicators
+    leave the arms unconstrained.
+
+    The first arm is dropped rather than one-hot encoding all ``K``, so an unregularised
+    model with an intercept has a full-rank design.  Which arm is dropped is a property
+    of the design only and does not privilege any arm in the estimand: counterfactual
+    means are all evaluated by prediction, and the reference used for *contrasts* is a
+    separate, caller-chosen thing.
+    """
+    c = np.asarray(codes, dtype=float).reshape(-1)
+    if n_levels < 2:
+        raise DataError(
+            f"an arm-coded design needs at least two levels; got {n_levels}. A treatment "
+            "with one arm has no counterfactual contrast to encode."
+        )
+    if n_levels == 2:
+        return c.reshape(-1, 1)
+    return np.column_stack([(c == float(level)).astype(float) for level in range(1, n_levels)])
+
+
+#: What to suggest when an arm-coded column has more levels than the estimator accepts and
+#: the caller offers ``treatment_kind=``.  Kept beside :func:`_reject_arm_count` rather than
+#: inlined into it, because a caller without that keyword has to supply its own.
+CONTINUOUS_REMEDY = (
+    "Collapse the levels into the contrast you actually want to report, or -- if the "
+    "treatment is really continuous -- pass treatment_kind='continuous', which models it "
+    "with a conditional density and reports shift interventions rather than a mean per arm."
+)
+
+
+def _reject_arm_count(k: int, name: str, remedy: str | None = None) -> None:
     if k < 2:
         raise DataError(
             f"{name} takes only one value; a treatment needs at least two levels for a "
@@ -194,10 +252,7 @@ def _reject_arm_count(k: int, name: str) -> None:
     if k > MAX_TREATMENT_LEVELS:
         raise DataError(
             f"{name} has {k} distinct levels, above the limit of {MAX_TREATMENT_LEVELS}. "
-            "Collapse the levels into the contrast you actually want to report, or -- if "
-            "the treatment is really continuous -- pass treatment_kind='continuous', "
-            "which models it with a conditional density and reports shift interventions "
-            "rather than a mean per arm."
+            + (CONTINUOUS_REMEDY if remedy is None else remedy)
         )
 
 

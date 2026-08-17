@@ -64,7 +64,14 @@ not a citation; a page number is.
 
 - Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*.
 - van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
-  multiple time point interventions*.
+  multiple time point interventions*, DOI
+  [10.1515/1557-4679.1370](https://doi.org/10.1515/1557-4679.1370). The intervention-specific
+  mean and its sequential conditional-expectation representation are stated for general
+  longitudinal data structures.
+- Chaffee & van der Laan (2012), *Targeted Maximum Likelihood Estimation for Dynamic Treatment
+  Regimes in Sequentially Randomized Controlled Trials*, DOI
+  [10.1515/1557-4679.1406](https://doi.org/10.1515/1557-4679.1406). Treatment rules map histories
+  into the treatment node's support; the worked examples do not limit the definition to two arms.
 - Stitelman, De Gruttola & van der Laan (2012), *A General Implementation of TMLE for
   Longitudinal Data Applied to Causal Inference in Survival Analysis*, DOI
   [10.1515/1557-4679.1334](https://doi.org/10.1515/1557-4679.1334).
@@ -80,8 +87,17 @@ not a citation; a page number is.
 - Poulos, Horvitz-Lennon, Zelevinsky et al. (2024), *Targeted learning in observational
   studies with multi-valued treatments: an evaluation of antipsychotic drug treatment safety*,
   DOI [10.1002/sim.10003](https://doi.org/10.1002/sim.10003). The accompanying public
-  [`jvpoulos/multi-ltmle`](https://github.com/jvpoulos/multi-ltmle) repository contains the
-  longitudinal multi-valued-treatment simulation and reproduction code.
+  [`jvpoulos/multi-ltmle`](https://github.com/jvpoulos/multi-ltmle) repository contains
+  longitudinal simulation code, but the paper's identified parameter and estimator are for one
+  multi-valued treatment assignment. It is point-treatment evidence, not the derivation used for
+  categorical treatment over time.
+- Source audit snapshots (2026-08-16): R `ltmle` at
+  [`338c029`](https://github.com/joshuaschwab/ltmle/tree/338c029dae9692ef20714125773da7037688993b)
+  (`FixedTimeTMLE`, `CalcCumG`, `UpdateQ`) remains binary implementation provenance; `tmle3` at
+  [`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27)
+  (`LF_static`, `Param_TSM`, `Param_MSM`) confirms equality-density/static-intervention indexing
+  but is not a longitudinal categorical oracle. The companion Poulos repository was inspected at
+  [`0e8dc6e`](https://github.com/jvpoulos/multi-ltmle/tree/0e8dc6eca1012e5a3eab7aa80b772cf432b8f032).
 - Neugebauer & van der Laan (2007), [*Nonparametric causal effects based on marginal
   structural models*](https://doi.org/10.1016/j.jspi.2005.12.008), DOI
   10.1016/j.jspi.2005.12.008.

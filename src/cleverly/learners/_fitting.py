@@ -198,6 +198,14 @@ def predict_probabilities(
     that arm and ``0`` for the others, so the row still sums to one and the missing
     arm's clever covariate is the one that blows up, which is the honest signal.  It is
     not silently rescaled into something plausible.
+
+    One caller refuses *before* reaching that signal rather than after.
+    :func:`~cleverly.longitudinal.sequential._check_categorical_fold_support` rejects a
+    longitudinal mechanism whose training fold is missing a level, at three arms or more,
+    because there the blow-up surfaces as a reciprocal of zero inside a cumulative product
+    several nodes away from the node that caused it, and the node's own label is the
+    useful thing to say.  At two arms it does not, so a binary fit still gets the fallback
+    described above.
     """
     wanted = np.asarray(classes, dtype=float).reshape(-1)
     if wanted.size < 2:

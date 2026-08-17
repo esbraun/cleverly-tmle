@@ -470,6 +470,14 @@ ratio and never divides by a small propensity. `g_bounds=` is refused rather tha
 because `g` is *inside* the estimand here and truncating it would move `Ψ(δ)` rather than
 regularise a denominator; `truncation_curve()` is refused for the same reason.
 
+**A treatment with more than two arms is refused**, and `intermediate=` with it. An odds
+multiplier names two arms; a multinomial mechanism has no single odds for `δ` to multiply. One
+odds per contrast is a perfectly well-posed intervention, but a *different* one, with its own
+influence function — so it is refused by name rather than approximated by tilting one contrast
+and calling it the answer. Everything else on this page works at any number of arms; see
+[where a multi-valued treatment is supported](methodology.md#where-a-multi-valued-treatment-is-supported)
+for the whole picture.
+
 <!-- doc-block: id=incremental-support; tier=fast -->
 ```python
 for report in res.sensitivity.incremental_support().values():
@@ -666,6 +674,27 @@ measured *between* the decisions: `L₂` is caused by `A₁` and confounds `A₂
 mediator and a confounder at once. Adjust for it and you block the part of `A₁`'s effect
 that runs through it; leave it out and the second decision stays confounded. No single
 adjustment set is right, which is the whole reason for the module.
+
+Treatment nodes may be categorical and need not share labels or level counts. A static plan such
+as `{"step down": ("intensive", "standard")}` uses the original dataframe labels; a dynamic
+node may return one such label per row, for example
+`lambda h: np.where(h["L2"] > 0, "intensive", "none")`. The mechanism is multinomial at each
+node and the clever covariate selects the probability of the assigned label—not a binary
+complement. An earlier node enters a later mechanism's conditioning set as one indicator per
+non-reference level rather than as its numeric code, so a three-armed `A₁` does not constrain
+`g₂` to move monotonically in it.
+
+At three levels or more, every observed level must appear in each mechanism training fold; when
+a rare arm is absent, reduce `n_folds`, provide support-preserving folds, or obtain more
+observations at that level. A two-level node keeps the behaviour it always had, and a regimen
+nobody followed is reported as such rather than as a missing level.
+
+This surface is for deterministic categorical plans. It does not reinterpret a stochastic policy
+or a continuous dose as a set of labels — both change the intervention *density* rather than
+which label is assigned, so both are different estimands. A numeric node is accepted whatever
+its values, but one with ten or more distinct values warns: it becomes that many *unordered*
+arms and its spacing is discarded. If the spacing is what matters, collapse the column into the
+arms you want to contrast.
 
 <!-- doc-block: id=longitudinal-fit; tier=fast -->
 ```python
@@ -874,6 +903,25 @@ says what the rule did to *this* sample:
              never     2         822          0.000000       34.55       630.06
 continue if L2 > 0     2        1205          0.810355       14.52       970.26
 ```
+
+**On a fit with any categorical node the column is `assigned_shares` instead**, giving every
+level's share under its own label. One number cannot answer the question at three arms, because
+"the fraction assigned arm 1" is the fraction assigned whichever label sorts second. A wholly
+two-level fit keeps `share_assigned_1` and its values exactly as above.
+
+```
+ regimen  time  n_followed            assigned_shares  max_weight  effective_n
+inactive     2         117 active=0, medium=0, none=1       29.62        77.76
+  active     2         153 active=1, medium=0, none=0       16.22       121.94
+ step_up     1          88 active=0, medium=1, none=0       18.43        83.42
+ step_up     2          43 active=1, medium=0, none=0       52.91        35.86
+```
+
+With levels sorted `active, medium, none`, arm `1` is `medium` — so `share_assigned_1` would
+report `0` for both `inactive` and `active`, two different plans made indistinguishable, while
+reporting `1` for the one node where `step_up` assigns `medium`. The labelled shares say which
+arm each plan actually took, and `step_up`'s two rows differ because it steps from `medium` to
+`active`.
 
 Why this is the right number, and how it is checked:
 [what the oracle law checks](methodology.md#dynamic-rules-what-the-oracle-law-checks).

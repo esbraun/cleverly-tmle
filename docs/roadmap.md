@@ -66,6 +66,19 @@ and `eval_Dstar_Q` branches; those branches apply the construction armwise to a 
 multi-level treatment, while univariate remains the default. The multi-arm surface is therefore
 an implementation-backed extension of the binary theorem and is labelled as such.
 
+One DR-TMLE refusal is narrower than the rest and is stated separately because a single source
+would close it. **Multi-arm missing-outcome DR-TMLE — waiting on published theory.** `delta=`
+under `guard=("Q", "g")` refuses a treatment with more than two arms: Díaz and van der Laan's
+missing-outcome theorem is stated for a binary randomized treatment, and the per-arm multi-level
+assembly of its observation, treatment and outcome correction blocks is not in it. This is not
+the armwise situation of the complete-outcome reductions above — there, a pinned canonical
+implementation applies the construction arm by arm and the extension is implementation-backed.
+Here nothing states what the arm-indexed blocks are, so an analogy would be inventing the
+construction rather than matching one. Implementation begins when a source gives the multi-arm
+corrected influence curve, its remainder, and the rate conditions for the interval; the existing
+binary evidence in [`docs/evidence.md`](evidence.md) is then the regression surface it must not
+disturb.
+
 The remaining DR-TMLE refusals are **waiting on published theory** for this package's requested
 composition. Public implementations of ordinary TMLE for `att`/`atc`, stochastic interventions,
 continuous shifts, incremental interventions, marginal structural models, mediation, and C-TMLE
@@ -78,14 +91,26 @@ curve, remainder, and rate conditions; do not generalize the mean construction b
 
 ### 1. Complete the LTMLE implementation surface
 
+Deterministic multi-valued treatment nodes are no longer listed here: they are implemented, so
+by this document's own scope rule they belong in the [user guide](user-guide.md#treatment-given-over-time),
+[the technical appendix](methodology.md#treatment-given-over-time-the-sequential-regression),
+and [`docs/evidence.md`](evidence.md), with the source audit that preceded them recorded in
+[`docs/references.md`](references.md). What the audit narrowed is worth keeping in one line,
+because it governs what a future item may cite: Poulos et al. (2024) is a **point-treatment**
+multinomial TMLE paper and R `ltmle` 1.3-0 is binary implementation provenance, so neither is
+acceptance evidence for a longitudinal categorical extension.
+
 Work these in order, retaining the same oracle and evidence gates as the implemented longitudinal
 estimands.
 
-1. **Multi-valued treatment nodes — published support, pending source audit.** Poulos et al.
-   (2024) study longitudinal TMLE with multi-valued treatments and provide public MIT-licensed
-   [`multi-ltmle`](https://github.com/jvpoulos/multi-ltmle) reproduction code. Confirm the
-   cumulative treatment mechanism, regimen indexing, influence curve, and working-MSM map against
-   the paper and code before extending the binary-node implementation.
+1. **Stochastic categorical policies at a node — waiting on published theory.** The implemented
+   surface is deterministic: a static or dynamic rule assigns one label per unit, and the clever
+   covariate selects that label's conditional probability. A policy assigning a *distribution*
+   over the labels replaces the intervention density, so the cumulative product carries a ratio
+   rather than a selected column and the parameter is the mean under that density. Implementation
+   begins when a source supplies that parameter's identification, its longitudinal influence
+   function, and the remainder and rate conditions for the interval — not by analogy with the
+   point-treatment regime path, which is a single node.
 2. **Targeted bootstrap — waiting on a citable construction.** Keep this second in the LTMLE
    queue, but do not infer a procedure from the name. Implementation begins when a published
    source states what is held fixed, what is resampled, which nuisance and targeting steps are

@@ -619,6 +619,30 @@ class TestEvidenceManifest:
         ]
         assert missing == [], f"docs/evidence.md names modules that do not exist: {missing}"
 
+    def test_every_module_named_anywhere_in_the_document_exists(self) -> None:
+        """The same check over the whole file rather than over the registry table alone.
+
+        The registry table is not the only place the manifest names evidence: the
+        estimator-variant table and the longitudinal table below it name modules too, and
+        neither is keyed by a ``Target``, so no bidirectional gate reaches them.  A renamed
+        or deleted module would leave those rows describing evidence that is not there --
+        invisibly, since the rows read exactly as well either way.
+
+        Deliberately weaker than the gates above.  It checks that a named module *exists*,
+        not that it covers what the row claims; which parameters those variants report is
+        pinned by their own Gateaux modules rather than from here.  Verified by mutation:
+        misspelling the stem of any module named in the longitudinal table turns this red
+        and leaves every other test in this module green.  Note the mutation has to keep
+        the reference *shaped* like a path -- ``a.py.py`` matches no backticked
+        ``tests/...py`` at all and so is skipped rather than caught, here and in the
+        registry-table gate above, which is the one drift neither of them sees.
+        """
+        root = Path(__file__).resolve().parents[2]
+        named = set(re.findall(r"`(tests/[\w/]+\.py)`", EVIDENCE.read_text(encoding="utf-8")))
+        assert named, "docs/evidence.md names no test modules at all, which cannot be right"
+        missing = sorted(path for path in named if not (root / path).exists())
+        assert missing == [], f"docs/evidence.md names modules that do not exist: {missing}"
+
     def test_the_oracle_column_is_the_law_that_really_covers_it(self) -> None:
         """The column against the laws, not against care.
 

@@ -52,8 +52,9 @@ __all__ = [
     "resolve_regimens",
 ]
 
-#: One node of a plan: a constant arm, or a rule reading that node's history.
-RuleNode: TypeAlias = "float | Callable[[Any], Any]"
+#: One node of a plan: a categorical label, or a rule reading that node's history.
+TreatmentLabel: TypeAlias = "str | np.str_ | bool | int | float | np.number"
+RuleNode: TypeAlias = "TreatmentLabel | Callable[[Any], Any]"
 
 
 @dataclass(frozen=True)
@@ -67,41 +68,39 @@ class Regimen:
         the estimand rather than decoration: two regimens are two different
         parameters, and the report has to be able to say which is which.
     values:
-        The arm assigned at each time point, ``0.0`` or ``1.0``, one per node.
+        The treatment label assigned at each time point, one per node.
     """
 
     label: str
-    values: tuple[float, ...]
+    values: tuple[object, ...]
 
     def __post_init__(self) -> None:
         if not self.values:
             raise DataError(f"regimen {self.label!r} assigns no treatment at any time point")
-        for time, value in enumerate(self.values, start=1):
-            if value not in (0.0, 1.0):
-                raise DataError(
-                    f"regimen {self.label!r} assigns {value!r} at time {time}; a longitudinal "
-                    "fit takes a binary treatment at every node, so each entry must be 0 or 1"
-                )
 
     @property
     def n_times(self) -> int:
         return len(self.values)
 
-    def at(self, time: int) -> float:
+    def at(self, time: int) -> object:
         """The arm assigned at ``time``, counted from one."""
         return self.values[time - 1]
 
-    def assignment(self, data: LongitudinalData) -> FloatArray:
-        """The ``(n, T)`` arm matrix, as a broadcast view of the plan.
+    def assignment(self, data: LongitudinalData) -> Any:
+        """The ``(n, T)`` matrix of assigned *labels*, as a broadcast view of the plan.
 
         A view rather than a copy, so reading a static regimen through the same matrix
-        interface a rule needs allocates nothing -- and produces the same float64 the
-        old scalar path produced, which is why a static fit is unchanged bit for bit.
+        interface a rule needs allocates nothing.  ``object`` rather than ``float64``
+        because a label is whatever the analyst's treatment column held -- a string as
+        readily as a number -- and the dense codes a fit runs on are produced from this
+        by :meth:`~cleverly.longitudinal.data.LongitudinalData.encode_assignment`, which
+        reproduces the old float path exactly for a 0/1 node.  That is where "a static
+        binary fit is unchanged bit for bit" is now delivered.
         """
-        return np.broadcast_to(np.asarray(self.values, dtype=float), (data.n, self.n_times))
+        return np.broadcast_to(np.asarray(self.values, dtype=object), (data.n, self.n_times))
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        plan = "".join(str(int(value)) for value in self.values)
+        plan = "/".join(str(value) for value in self.values)
         return f"Regimen({self.label!r}, {plan})"
 
 
@@ -114,8 +113,8 @@ class DynamicRegimen:
     label:
         What the reported parameter is named by, exactly as for :class:`Regimen`.
     plan:
-        One entry per time point.  An entry is either an arm -- ``0.0`` or ``1.0``,
-        meaning that arm for everybody at that node -- or a callable :math:`d_t(H_t)`
+        One entry per time point.  An entry is either a categorical treatment label,
+        meaning that label for everybody at that node, or a callable :math:`d_t(H_t)`
         handed that node's history frame and returning one arm per row.  Mixing the two
         is the ordinary case: "treat at the first node, then keep treating only while
         the biomarker stays high" is a constant followed by a rule.
@@ -127,15 +126,6 @@ class DynamicRegimen:
     def __post_init__(self) -> None:
         if not self.plan:
             raise DataError(f"regimen {self.label!r} assigns no treatment at any time point")
-        for time, node in enumerate(self.plan, start=1):
-            if callable(node):
-                continue
-            if node not in (0.0, 1.0):
-                raise DataError(
-                    f"regimen {self.label!r} assigns {node!r} at time {time}; a longitudinal "
-                    "fit takes a binary treatment at every node, so each entry must be 0, 1 "
-                    "or a rule returning one of them per row"
-                )
 
     @property
     def n_times(self) -> int:
@@ -145,7 +135,7 @@ class DynamicRegimen:
         """Whether ``time``'s arm is decided by a rule rather than declared."""
         return callable(self.plan[time - 1])
 
-    def assignment(self, data: LongitudinalData) -> FloatArray:
+    def assignment(self, data: LongitudinalData) -> Any:
         """Evaluate every node's rule and return the ``(n, T)`` arm matrix.
 
         Called **once** per fit, in :meth:`cleverly.longitudinal.LTMLE.fit`, and the
@@ -160,7 +150,7 @@ class DynamicRegimen:
         ``t - 1`` as well, since a unit that has had the event has no treatment decision
         at ``t`` for a rule to make.  Off that set the history is the zero fill
         :meth:`~cleverly.longitudinal.data.LongitudinalData.covariate_history` puts there,
-        so whatever the rule returns is meaningless; it is replaced by zero rather than
+        so whatever the rule returns is meaningless; it is replaced by a sentinel rather than
         validated, because such a row is masked out of every regression and every
         influence curve, and the only way it could still matter is by putting a ``nan``
         into a design matrix that a learner is called on.
@@ -171,13 +161,13 @@ class DynamicRegimen:
             if callable(node):
                 arms = self._evaluate(node, data, time, reachable)
             else:
-                arms = np.full(data.n, float(node))
-            columns.append(np.where(reachable, arms, 0.0))
+                arms = np.full(data.n, node, dtype=object)
+            columns.append(np.where(reachable, arms, None))
         return np.column_stack(columns)
 
     def _evaluate(
         self, rule: Callable[[Any], Any], data: LongitudinalData, time: int, reachable: Any
-    ) -> FloatArray:
+    ) -> Any:
         """One rule, called on its node's history frame and checked before it is used."""
         names = data.history_names(time)
         try:
@@ -190,20 +180,11 @@ class DynamicRegimen:
                 "later can only be used from that node on, so pass a plan with one entry "
                 "per node rather than a single rule for all of them"
             ) from error
-        arms = np.asarray(_as_array(returned), dtype=float)
+        arms = np.asarray(_as_array(returned), dtype=object)
         if arms.ndim != 1 or arms.shape[0] != data.n:
             raise DataError(
                 f"the rule at time {time} of regimen {self.label!r} returned "
                 f"{arms.shape} assignments for {data.n} rows; it must return one arm per row"
-            )
-        unreadable = np.asarray(reachable) & ~np.isin(arms, (0.0, 1.0))
-        if unreadable.any():
-            offending = arms[unreadable]
-            raise DataError(
-                f"the rule at time {time} of regimen {self.label!r} returned "
-                f"{offending[0]!r} for {int(unreadable.sum())} of the {data.n} rows; a "
-                "longitudinal fit takes a binary treatment at every node, so a rule must "
-                "return 0 or 1 for every unit whose history is recorded"
             )
         return arms
 
@@ -220,7 +201,7 @@ RegimenSpec: TypeAlias = "Regimen | DynamicRegimen"
 def describe_plan(regimen: RegimenSpec) -> str:
     """A plan as ``1/0`` for constants and ``d`` for a rule, for the settings report."""
     if isinstance(regimen, Regimen):
-        return "/".join(str(int(value)) for value in regimen.values)
+        return "/".join(str(value) for value in regimen.values)
     return "/".join(_describe_node(node) for node in regimen.plan)
 
 
@@ -233,7 +214,7 @@ def _describe_node(node: RuleNode) -> str:
     back to ``d`` and the plan fingerprint on the config is what tells two of them apart.
     """
     if not callable(node):
-        return str(int(node))
+        return str(node)
     name = getattr(node, "__name__", "<lambda>")
     return "d" if name == "<lambda>" else f"d:{name}"
 
@@ -245,6 +226,12 @@ class Plan:
     The pair travels as one object so that nothing downstream can reach a rule and call
     it a second time: :func:`~cleverly.longitudinal.sequential.fit_mechanism` and
     :func:`~cleverly.longitudinal.sequential.fit_regimen` see arms, never callables.
+
+    ``values`` holds the *dense codes* the container assigned, not the analyst's labels.
+    The labels are recoverable from
+    :attr:`~cleverly.longitudinal.data.LongitudinalData.treatment_levels`, which every
+    reader of this plan already holds, and carrying a second ``(n, T)`` object array
+    beside the codes would be a copy that only some of them kept in step.
     """
 
     regimen: RegimenSpec
@@ -261,7 +248,10 @@ class Plan:
 
 def resolve_plans(regimens: Sequence[RegimenSpec], data: LongitudinalData) -> tuple[Plan, ...]:
     """Evaluate every regimen against ``data``, once, before any nuisance is fitted."""
-    return tuple(Plan(regimen, regimen.assignment(data)) for regimen in regimens)
+    return tuple(
+        Plan(regimen, data.encode_assignment(regimen.assignment(data), regimen.label))
+        for regimen in regimens
+    )
 
 
 def resolve_regimens(spec: Any, n_times: int) -> tuple[RegimenSpec, ...]:
@@ -326,30 +316,28 @@ def _resolve_one(label: str, plan: Any, n_times: int) -> RegimenSpec:
         # ``lambda h: h["L2"] > 0`` is usable at node 1 is a question about the data.
         return DynamicRegimen(label, (plan,) * n_times)
     nodes = _nodes(label, plan, n_times)
-    arms: list[float] = []
+    arms: list[object] = []
     for node in nodes:
         if callable(node):
             return DynamicRegimen(label, nodes)
-        arms.append(float(node))
+        arms.append(node)
     return Regimen(label, tuple(arms))
 
 
 def _nodes(label: str, plan: Any, n_times: int) -> tuple[RuleNode, ...]:
     """Read one plan into one entry per node, broadcasting a scalar arm across them."""
-    if isinstance(plan, (bool, int, float)):
-        return (float(plan),) * n_times
+    if isinstance(plan, (bool, int, float, str, np.str_, np.number)):
+        return (plan,) * n_times
     # A numpy array and a pandas Series are plans by every reading except
     # ``isinstance(..., Sequence)``, which neither registers for.  Testing for the
     # iteration protocol instead keeps the message about rules where it belongs, rather
     # than aiming it at an array whose diagnosis it gets wrong.
-    if isinstance(plan, str) or not hasattr(plan, "__iter__"):
+    if not hasattr(plan, "__iter__"):
         raise DataError(
-            f"regimen {label!r} must be an arm (0 or 1), a rule d_t(H_t), or a sequence "
+            f"regimen {label!r} must be a treatment label, a rule d_t(H_t), or a sequence "
             f"of {n_times} of either; got {plan!r}"
         )
-    nodes: tuple[RuleNode, ...] = tuple(
-        entry if callable(entry) else float(entry) for entry in plan
-    )
+    nodes: tuple[RuleNode, ...] = tuple(plan)
     if len(nodes) != n_times:
         raise DataError(
             f"regimen {label!r} assigns {len(nodes)} arm(s) but the data has {n_times} "
