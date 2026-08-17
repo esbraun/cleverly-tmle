@@ -667,6 +667,16 @@ mediator and a confounder at once. Adjust for it and you block the part of `A₁
 that runs through it; leave it out and the second decision stays confounded. No single
 adjustment set is right, which is the whole reason for the module.
 
+Treatment nodes may be categorical and need not share labels or level counts. A static plan such
+as `{"step down": ("intensive", "standard")}` uses the original dataframe labels; a dynamic
+node may return one such label per row, for example
+`lambda h: np.where(h["L2"] > 0, "intensive", "none")`. The mechanism is multinomial at each
+node and the clever covariate selects the probability of the assigned label—not a binary
+complement. Every observed level must appear in each mechanism training fold; when a rare arm is
+absent, reduce `n_folds`, provide support-preserving folds, or obtain more observations at that
+level. This surface is for deterministic categorical plans. It does not reinterpret a stochastic
+policy or continuous dose as a set of labels.
+
 <!-- doc-block: id=longitudinal-fit; tier=fast -->
 ```python
 from cleverly import LTMLE

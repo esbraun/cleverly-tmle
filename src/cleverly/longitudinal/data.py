@@ -70,7 +70,13 @@ from typing import Any, TypeAlias
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..data.validate import check_covariates, check_weights, encode_clusters, infer_family
+from ..data.validate import (
+    check_covariates,
+    check_weights,
+    encode_clusters,
+    encode_treatment,
+    infer_family,
+)
 from ..data.weighting import (
     WeightReport,
     WeightSpec,
@@ -145,6 +151,9 @@ class LongitudinalData:
     #: ``(n, T)`` treatment, ``nan`` where the unit had already been censored.
     treatment: FloatArray
     treatment_names: tuple[str, ...]
+    #: Original treatment labels at each node, in the order used by :attr:`treatment`'s
+    #: dense codes.  Nodes need not share either their labels or their number of levels.
+    treatment_levels: tuple[tuple[object, ...], ...]
     #: ``(n, T)`` "still under observation after time ``t``".  All-true when the fit
     #: declares no censoring nodes, in which case it never enters the clever covariate.
     uncensored: BoolArray
@@ -341,7 +350,9 @@ class LongitudinalData:
             cause_labels=cause_labels,
             baseline=matrix_from_columns(frame, baseline_names) if baseline_names else None,
             baseline_names=baseline_names,
-            treatment=np.column_stack([column_array(frame, name) for name in treatment_names]),
+            treatment=np.column_stack(
+                [column_array(frame, name, dtype=object) for name in treatment_names]
+            ),
             treatment_names=treatment_names,
             censoring=(
                 None
@@ -372,7 +383,7 @@ class LongitudinalData:
         cause_labels: Sequence[str] = (),
         baseline: FloatArray | None,
         baseline_names: Sequence[str],
-        treatment: FloatArray,
+        treatment: Any,
         treatment_names: Sequence[str],
         censoring: FloatArray | None,
         censoring_names: Sequence[str],
@@ -462,24 +473,24 @@ class LongitudinalData:
             blocks.append(values)
             names.append(tuple(block))
 
-        a = np.asarray(treatment, dtype=float)
-        if a.shape[0] != n:
-            raise DataError(f"treatment has {a.shape[0]} rows, expected {n}")
+        raw_treatment = np.asarray(treatment)
+        if raw_treatment.shape != (n, n_times):
+            raise DataError(
+                f"treatment must be ({n}, {n_times}) -- rows by treatment nodes -- "
+                f"but got {raw_treatment.shape}"
+            )
+        a = np.full((n, n_times), np.nan)
+        level_sets: list[tuple[object, ...]] = []
         for time, name in enumerate(treatment_names, start=1):
             # Named apart from the ``column`` index and ``values`` matrix of the block
             # loop above: mypy unifies a name's type across the whole function body, so
             # reusing either here is an error rather than a shadow.
-            arms = a[:, time - 1]
+            arms = raw_treatment[:, time - 1]
             at_this_node = at_risk[:, time - 1]
             _check_presence(arms, at_this_node, str(name))
-            seen_arms = np.unique(arms[at_this_node])
-            if not np.all(np.isin(seen_arms, (0.0, 1.0))):
-                raise DataError(
-                    f"treatment column {name!r} takes values {seen_arms[:6].tolist()}; a "
-                    "longitudinal fit takes a binary treatment at every node. A "
-                    "multi-valued treatment over time is refused rather than coded, "
-                    "since the clever covariate needs one factor per arm per node"
-                )
+            codes_at_node, levels = _encode_node_treatment(arms[at_this_node], str(name))
+            a[at_this_node, time - 1] = codes_at_node
+            level_sets.append(levels)
 
         if survival:
             # ``_read_event`` has already checked every event column on the rows that
@@ -548,6 +559,7 @@ class LongitudinalData:
             baseline_names=tuple(w_names),
             treatment=a,
             treatment_names=tuple(str(name) for name in treatment_names),
+            treatment_levels=tuple(level_sets),
             uncensored=uncensored,
             time_varying=tuple(blocks),
             time_varying_names=tuple(names),
@@ -905,6 +917,44 @@ class LongitudinalData:
                 columns.append(plan[:, t - 1].reshape(-1, 1))
         return np.hstack(columns)
 
+    def encode_assignment(self, assignment: Any, label: str) -> FloatArray:
+        """Encode one regimen's raw labels against each treatment node's level set.
+
+        A rule is evaluated before this method is called.  Only rows that still have a
+        treatment decision at the node are validated; assignments after censoring or an
+        absorbing event are outside the regimen's observed-data support and are filled.
+        """
+        raw = np.asarray(assignment, dtype=object)
+        if raw.ndim == 1:
+            if raw.shape[0] != self.n_times:
+                raise DataError(
+                    f"regimen {label!r} assigns {raw.shape[0]} arm(s) but the data has "
+                    f"{self.n_times} treatment node(s)"
+                )
+            raw = np.broadcast_to(raw, (self.n, self.n_times))
+        if raw.shape != (self.n, self.n_times):
+            raise DataError(
+                f"regimen {label!r} produced assignments with shape {raw.shape}; expected "
+                f"({self.n}, {self.n_times})"
+            )
+
+        encoded = np.zeros((self.n, self.n_times), dtype=float)
+        for time, levels in enumerate(self.treatment_levels, start=1):
+            reachable = self.uncensored_through(time - 1) & self.event_free_through(time - 1)
+            lookup = {level: code for code, level in enumerate(levels)}
+            for row in np.flatnonzero(reachable):
+                value = raw[row, time - 1]
+                try:
+                    code = lookup[value]
+                except (KeyError, TypeError):
+                    raise DataError(
+                        f"regimen {label!r} assigns {value!r} at time {time}; treatment "
+                        f"column {self.treatment_names[time - 1]!r} has levels "
+                        f"{list(levels)!r}"
+                    ) from None
+                encoded[row, time - 1] = float(code)
+        return encoded
+
     # ------------------------------------------------------------------ output
 
     def frame_like(self, payload: dict[str, Any]) -> Any:
@@ -930,6 +980,29 @@ class LongitudinalData:
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
         return f"LongitudinalData({', '.join(parts)})"
+
+
+def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[object, ...]]:
+    """Encode a node while preserving the historical one-observed-binary-arm case.
+
+    A binary treatment's support is declared by its 0/1 convention even when this
+    particular sample contains only one arm.  That case used to reach the estimator's
+    explicit positivity refusal and remains useful because its error names the missing
+    mechanism support.  An arbitrary one-label categorical column has no analogous way
+    to infer which unobserved labels belong to its support, so the shared categorical
+    encoder correctly refuses it.
+    """
+    raw = np.asarray(values).reshape(-1)
+    unique = np.unique(raw)
+    if unique.size == 1:
+        try:
+            numeric = float(unique[0])
+        except (TypeError, ValueError):
+            pass
+        else:
+            if numeric in (0.0, 1.0):
+                return np.asarray(raw, dtype=float), (0, 1)
+    return encode_treatment(raw, name)
 
 
 def _prefix_all(indicator: BoolArray) -> BoolArray:
@@ -1168,11 +1241,14 @@ def _read_followup(
 
 
 def _check_presence(
-    column: FloatArray, required: BoolArray, name: str, *, absent: str | None = None
+    column: Any, required: BoolArray, name: str, *, absent: str | None = None
 ) -> None:
     """Every node must be recorded while the unit is under observation, and only then."""
-    values = np.asarray(column, dtype=float)
-    finite = np.isfinite(values)
+    values = np.asarray(column)
+    if values.dtype.kind in "biufc":
+        finite = np.isfinite(np.asarray(values, dtype=float))
+    else:
+        finite = np.asarray([_categorical_value_is_present(value) for value in values], dtype=bool)
     missing = required & ~finite
     if np.any(missing):
         if absent is not None:
@@ -1191,6 +1267,18 @@ def _check_presence(
             "refused rather than silently dropped: set the nodes after a unit leaves to "
             "missing."
         )
+
+
+def _categorical_value_is_present(value: Any) -> bool:
+    """Whether an object-valued categorical cell is a recorded finite label."""
+    if value is None:
+        return False
+    value_type = type(value)
+    if value_type.__name__ == "NAType" and value_type.__module__.startswith("pandas"):
+        return False
+    if isinstance(value, (float, np.floating)):
+        return bool(np.isfinite(value))
+    return True
 
 
 def _refuse_duplicates(names: Sequence[str]) -> None:

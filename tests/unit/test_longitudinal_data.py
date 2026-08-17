@@ -14,6 +14,7 @@ from cleverly.longitudinal import (
     DynamicRegimen,
     LongitudinalData,
     Regimen,
+    resolve_plans,
     resolve_regimens,
 )
 
@@ -149,11 +150,11 @@ class TestWhatARuleIsHandedAndWhatItMayReturn:
         with pytest.raises(DataError, match="one arm per row"):
             regimen.assignment(data)
 
-    def test_refuses_a_rule_that_returns_something_other_than_an_arm(self) -> None:
+    def test_refuses_a_rule_that_returns_an_unknown_label(self) -> None:
         data = build(panel())
         regimen = DynamicRegimen("dose", (lambda history: np.full(data.n, 0.5), 0.0))
-        with pytest.raises(DataError, match="must return 0 or 1"):
-            regimen.assignment(data)
+        with pytest.raises(DataError, match=r"assigns 0.5 at time 1.*levels"):
+            resolve_plans((regimen,), data)
 
     def test_a_rule_that_raises_says_which_columns_it_had(self) -> None:
         """The commonest trap: one rule broadcast to every node, reading a late covariate.
@@ -182,10 +183,11 @@ class TestWhatARuleIsHandedAndWhatItMayReturn:
         data = build(panel())
         regimen = DynamicRegimen("reciprocal", (0.0, lambda history: history["L2"] / history["L2"]))
         assigned = regimen.assignment(data)
+        (plan,) = resolve_plans((regimen,), data)
         censored = ~data.uncensored_through(1)
         assert censored.any()
-        assert np.all(np.isfinite(assigned))
-        np.testing.assert_array_equal(assigned[censored, 1], 0.0)
+        np.testing.assert_array_equal(assigned[censored, 1], None)
+        np.testing.assert_array_equal(plan.values[censored, 1], 0.0)
 
 
 def test_the_fill_for_censored_rows_carries_no_information() -> None:
@@ -287,11 +289,51 @@ def test_refuses_an_outcome_missing_for_any_other_reason() -> None:
         build(frame)
 
 
-def test_refuses_a_non_binary_treatment() -> None:
+def test_encodes_a_three_level_treatment_at_one_node() -> None:
     frame = panel()
     frame.loc[frame.index[0], "A1"] = 2.0
-    with pytest.raises(DataError, match="binary treatment at every node"):
-        build(frame)
+    data = build(frame)
+    assert data.treatment_levels[0] == (0.0, 1.0, 2.0)
+    assert set(data.treatment[:, 0]) == {0.0, 1.0, 2.0}
+    assert data.treatment_levels[1] == (0.0, 1.0)
+
+
+def test_each_node_keeps_its_own_string_labels() -> None:
+    frame = panel()
+    frame["A1"] = frame["A1"].map({0.0: "none", 1.0: "standard"})
+    frame.loc[frame.index[0], "A1"] = "intensive"
+    frame["A2"] = frame["A2"].map({0.0: "stop", 1.0: "continue"})
+    data = build(frame)
+    assert data.treatment_levels == (
+        ("intensive", "none", "standard"),
+        ("continue", "stop"),
+    )
+    (plan,) = resolve_plans(resolve_regimens({"step down": ("standard", "stop")}, 2), data)
+    np.testing.assert_array_equal(plan.values[:, 0], 2.0)
+    reachable = data.uncensored_through(1)
+    np.testing.assert_array_equal(plan.values[reachable, 1], 1.0)
+    np.testing.assert_array_equal(plan.values[~reachable, 1], 0.0)
+
+
+def test_a_crossfit_refuses_a_training_fold_without_every_level() -> None:
+    from cleverly.longitudinal import LTMLE, LongitudinalError
+
+    frame = panel(n=80)
+    present = frame.index[frame["A2"].notna()][0]
+    frame.loc[present, "A2"] = 2.0
+    with pytest.raises(
+        LongitudinalError,
+        match=r"treatment node 'A2'.*level.*2.0.*training fold",
+    ):
+        LTMLE(
+            {"observed third arm": (0, 2)},
+            outcome_learner="glm",
+            pseudo_learner="glm",
+            treatment_learner="glm",
+            n_folds=2,
+            learner_folds=2,
+            random_state=0,
+        ).fit(frame, **COLUMNS)
 
 
 def test_refuses_a_column_used_twice() -> None:
@@ -325,9 +367,8 @@ class TestRegimens:
         with pytest.raises(DataError, match="assigns 3 arm"):
             resolve_regimens({"odd": (1, 0, 1)}, 2)
 
-    def test_refuses_a_non_binary_arm(self) -> None:
-        with pytest.raises(DataError, match="must be 0 or 1"):
-            Regimen("dose", (0.5, 1.0))
+    def test_accepts_categorical_labels(self) -> None:
+        assert Regimen("dose", ("high", "low")).values == ("high", "low")
 
     def test_a_rule_that_reads_the_history_is_a_dynamic_regimen(self) -> None:
         """This used to be a refusal, and the shape of the replacement is the point.
@@ -367,7 +408,7 @@ class TestRegimens:
         assert resolved[0].values == (1.0, 0.0)
 
     def test_refuses_a_plan_that_is_neither_arm_nor_sequence(self) -> None:
-        with pytest.raises(DataError, match="must be an arm"):
+        with pytest.raises(DataError, match="must be a treatment label"):
             resolve_regimens({"odd": object()}, 2)
 
     def test_refuses_no_regimens_at_all(self) -> None:

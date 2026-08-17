@@ -1171,7 +1171,16 @@ class LTMLE:
             random_state=self.random_state,
             # From the matrix ``resolve_plans`` already built, so this is the assignment
             # the fit ran on rather than a second evaluation of the rules.
-            plan_fingerprints=tuple((plan.label, fingerprint_array(plan.values)) for plan in plans),
+            plan_fingerprints=tuple(
+                (
+                    plan.label,
+                    fingerprint_array(
+                        plan.values,
+                        np.asarray([repr(value) for value in plan.labels.reshape(-1)], dtype=str),
+                    ),
+                )
+                for plan in plans
+            ),
             msm_terms=None if model is None else model.terms,
             msm_link=None if model is None else str(model.link),
             # The evaluated arrays rather than the design, for the reason the plans are
@@ -1403,6 +1412,10 @@ class LTMLE:
                 data.baseline,
                 data.weights,
                 *data.time_varying,
+                np.asarray(
+                    [repr(level) for levels in data.treatment_levels for level in levels],
+                    dtype=str,
+                ),
             ),
             fold_fingerprint=fingerprint_array(folds.assignment),
             random_state=self.random_state,

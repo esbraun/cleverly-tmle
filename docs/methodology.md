@@ -219,7 +219,7 @@ is `T` ordinary regressions run backwards, each one's prediction the next one's 
 
 ```
 Q̄_{T+1} = Y
-Q̄_t(H_t) = E[ Q̄_{t+1} | H_t, A_t = a_t, C_t = 1 ]        for t = T, …, 1
+Q̄_t(H_t) = E[ Q̄_{t+1} | H_t, A_t = d_t(H_t), C_t = 1 ]   for t = T, …, 1
 Ψ        = E[ Q̄_1(H_1) ]
 ```
 
@@ -233,7 +233,7 @@ That substitution estimator is not efficient and has no influence curve. Each no
 therefore gets its own loss-weighted logistic intercept submodel. Write
 
 ```
-H_t = 1 / ∏_{s ≤ t} g_s(a_s | H_s) c_s(H_s, a_s)
+H_t = 1 / ∏_{s ≤ t} g_s(d_s(H_s) | H_s) c_s(H_s, d_s(H_s))
 ```
 
 on the regimen-consistent, uncensored rows. The raw treatment and censoring factors are
@@ -254,6 +254,16 @@ D*(O) = Σ_t h_t ( Q̄*_{t+1} − Q̄*_t ) + Q̄*_1(H_1) − Ψ
 so solving all `T` of them makes the fit solve `P_n D* = 0`. The recursion carries the
 **targeted** prediction forward, not the initial one, so a residual left by one node is
 regressed away by the next instead of accumulating.
+
+Nothing in that parameter or EIF uses a binary complement. At a categorical node,
+`g_t(d_t(H_t) | H_t)` is the column of the multinomial mechanism corresponding to the raw
+label assigned on that row. Each node owns its own level set and dense encoding, so labels and
+the number of levels may differ over time; history designs contain only the dense codes, while
+plans, settings, and errors retain the analyst's labels. Every mechanism training fold must contain
+every observed level. A missing level is refused before fitting because probability-column
+alignment cannot identify an arm absent from that training law. This covers deterministic static
+and dynamic regimens only: stochastic categorical policies and continuous longitudinal doses
+would change the intervention density and remain separate estimands.
 
 The location of `H_t` is part of the algorithm, not notation. This is the loss-weighted
 `ltmle::UpdateQ` implementation in the R package described by Lendle et al. (2017).
@@ -307,6 +317,15 @@ control in `tests/unit/test_influence_gateaux_longitudinal.py` fails if the cens
 probabilities are dropped from the cumulative product, and a gate in the same file fails
 if the estimator reports a parameter the law has no longhand functional for.
 
+The categorical extension has a separate exactly realised three-arm law
+(`tests/discrete_law_longitudinal_multivalue.py`). Its point estimate is compared with a
+longhand finite-support g-formula, its curve with a complex-step Gateaux derivative, and its
+von Mises remainder is deliberately nonzero and quadratic. A mutation witness compares the
+selected third-arm probability with the tempting binary expression `1 - P(A_t = 1 | H_t)`;
+they differ by at least 0.25 on the law. End outcomes with censoring, longitudinal MSMs, survival,
+and competing risks are then exercised with string labels in
+`tests/e2e/test_ltmle_multivalue.py`.
+
 What is **refused rather than approximated**, and why. Each is refused *by name*: the
 keyword is accepted and rejected with the row below, rather than arriving as an
 `unexpected keyword argument` that names no reason. The `kind` column says which sort of
@@ -318,7 +337,6 @@ analysis rather than about this package's coverage.
 | --- | --- | --- |
 | eliminating the competing events | a different question | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions. **Competing risks themselves are supported** — see [Competing risks](user-guide.md#competing-risks) |
 | `intermediate=` | a different question | a controlled direct effect fixes a mediator at one time point; over a sequence of nodes, with mediators that are themselves time-varying, that is a different identification rather than a further column |
-| a multi-valued treatment at a node | not written yet | the cumulative product needs one factor per arm per node, and the report one parameter per *sequence* of arms — which is readable through [a working model over the regimens](user-guide.md#summarising-the-regimens-a-marginal-structural-model), so that is the machinery it would report through |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | the targeted bootstrap, and `res.sensitivity` | not written yet | both refit against resampled or re-truncated nuisances. `g_bounds` enters the *pseudo-outcome* of every earlier node through the recursion, so changing it changes what the earlier regressions were fitted to: there is no `retarget` here that re-solves the fluctuation alone, and the whole backward pass has to run again. For positivity — the assumption that bites hardest here — `res.diagnostics()` already answers the question |
 
@@ -934,11 +952,11 @@ so rather than implying the request was ill-posed.
 | `DRTMLE` with observational missing outcomes, missing treatment, `intermediate=`, fold-wise targeting, `treatment_probabilities=` under `n_bootstrap=`, composition with `CTMLE`, or `reduction="bivariate"` composed with `delta=` | [doubly-robust inference](user-guide.md#doubly-robust-inference) |
 | the MNAR tilt on a `shifts=` fit | [shifting a continuous dose](user-guide.md#missing-outcomes-an-intermediate-and-weights-on-a-dose) |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [tilting the odds of treatment](user-guide.md#tilting-the-odds-of-treatment) |
-| a multi-valued treatment at a node, the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |
+| the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |
 | blocked-temporal and rolling-origin splits | [cross-fitting](user-guide.md#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](user-guide.md#observation-weights-and-which-population-they-define) |
 
-Several former gaps have landed: multi-valued selector and outcome-adaptive C-TMLE and DR-TMLE,
+Several former gaps have landed: multi-valued longitudinal treatment nodes, multi-valued selector and outcome-adaptive C-TMLE and DR-TMLE,
 `ATT` / `ATC` on a multi-valued treatment, observation weights
 and a working model over regimens for `LTMLE`, shift fits with `delta=`, `intermediate=` and
 weights, and multi-arm omitted-variable and MNAR sensitivity analyses. The remaining shift gap is

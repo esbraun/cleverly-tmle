@@ -94,7 +94,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .._typing import BoolArray, FloatArray, Learner
+from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.weighting import effective_sample_size
 from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import LongitudinalError
@@ -139,7 +139,8 @@ _REGIMEN_ARM = 0.0
 class Mechanism:
     """Out-of-fold treatment and censoring probabilities, evaluated at each regimen.
 
-    ``treatment[t][label]`` is :math:`P(A_t = 1 \\mid H_t, \\bar A_{t-1} = \\bar a_{t-1})`
+    ``treatment[t][label]`` is
+    :math:`P(A_t = d_t(H_t) \\mid H_t, \\bar A_{t-1} = \\bar d_{t-1})`
     with the earlier treatments set to what the regimen would have assigned, and
     ``censoring[t][label]`` is :math:`P(C_t = 1 \\mid H_t, \\bar A_t = \\bar a_t)`.  One
     model per node serves every regimen: the *fit* is shared, and only where it is
@@ -186,9 +187,7 @@ class Mechanism:
         raw_columns = []
         bounded_columns = []
         for time in range(1, data.n_times + 1):
-            arm = plan.arm(time)
-            g1 = self.treatment[time - 1][plan.label]
-            running = running * np.where(arm == 1.0, g1, 1.0 - g1)
+            running = running * self.treatment[time - 1][plan.label]
             if data.censoring_names:
                 running = running * self.censoring[time - 1][plan.label]
             raw_columns.append(running)
@@ -326,6 +325,42 @@ class RegimenFit:
         return all(step.fluctuation.converged for step in self.steps)
 
 
+def _check_categorical_fold_support(
+    target: FloatArray,
+    fit_mask: BoolArray,
+    folds: Folds,
+    classes: Sequence[float],
+    levels: Sequence[object],
+    node_name: str,
+) -> None:
+    """Refuse a mechanism fit whose training law omits an observed treatment level.
+
+    A missing class cannot be repaired by aligning a learner's probability columns: the
+    requested assigned-arm probability is unidentified in that training fold.  Checking
+    here also gives the analyst the original label, rather than a downstream matrix-shape
+    error involving its internal dense code.
+    """
+    eligible = np.asarray(fit_mask, dtype=bool)
+    training_sets: list[tuple[int, IntArray]]
+    if folds.is_single:
+        training_sets = [(0, np.flatnonzero(eligible))]
+    else:
+        training_sets = [
+            (fold, train[eligible[train]]) for fold, (train, _) in enumerate(folds, start=1)
+        ]
+    for fold, training in training_sets:
+        present = set(np.asarray(target[training], dtype=float).tolist())
+        missing = [levels[index] for index, code in enumerate(classes) if code not in present]
+        if missing:
+            where = "the eligible sample" if folds.is_single else f"training fold {fold}"
+            raise LongitudinalError(
+                f"treatment node {node_name!r} is missing level(s) {missing!r} in {where}; "
+                "every treatment-mechanism training set must contain every observed level. "
+                "Use fewer folds, supply folds that preserve treatment support, or collect "
+                "more observations at the rare level"
+            )
+
+
 def fit_mechanism(
     data: LongitudinalData,
     plans: Sequence[Plan],
@@ -364,7 +399,16 @@ def fit_mechanism(
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
         designs = {plan.label: data.history_design(time, treatment=plan.values) for plan in plans}
         with phase("mechanism_fit"):
-            predictions, _ = cross_fit_predictions(
+            classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
+            _check_categorical_fold_support(
+                arm,
+                at_risk,
+                folds,
+                classes,
+                data.treatment_levels[time - 1],
+                data.treatment_names[time - 1],
+            )
+            probabilities, _ = cross_fit_predictions(
                 treatment_learner,
                 data.history_design(time),
                 arm,
@@ -375,9 +419,16 @@ def fit_mechanism(
                 fit_mask=at_risk,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
+                classes=classes,
                 n_jobs=n_jobs,
             )
-        treatment.append(predictions)
+        rows = np.arange(data.n)
+        treatment.append(
+            {
+                plan.label: probabilities[plan.label][rows, plan.arm(time).astype(np.int64)]
+                for plan in plans
+            }
+        )
 
         if not data.censoring_names:
             censoring.append({plan.label: np.ones(data.n) for plan in plans})

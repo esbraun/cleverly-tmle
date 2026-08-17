@@ -81,11 +81,16 @@ curve, remainder, and rate conditions; do not generalize the mean construction b
 Work these in order, retaining the same oracle and evidence gates as the implemented longitudinal
 estimands.
 
-1. **Multi-valued treatment nodes — published support, pending source audit.** Poulos et al.
-   (2024) study longitudinal TMLE with multi-valued treatments and provide public MIT-licensed
-   [`multi-ltmle`](https://github.com/jvpoulos/multi-ltmle) reproduction code. Confirm the
-   cumulative treatment mechanism, regimen indexing, influence curve, and working-MSM map against
-   the paper and code before extending the binary-node implementation.
+1. **Multi-valued treatment nodes — implemented after source audit.** The general intervention-
+   specific mean and longitudinal EIF in van der Laan & Gruber (2012), together with Chaffee &
+   van der Laan's treatment-rule formulation, require the probability of the categorical label
+   assigned by the rule at each node; they do not require a binary complement. The implementation
+   supports deterministic static and dynamic categorical regimens across end outcomes, censoring,
+   survival, competing risks, and longitudinal MSMs. The audit also narrowed two citations:
+   Poulos et al. (2024) is a **point-treatment** multinomial TMLE paper, while R `ltmle` 1.3-0 is
+   binary implementation provenance. Neither is acceptance evidence for the extension.
+   `tests/discrete_law_longitudinal_multivalue.py` and its Gateaux, remainder, and mutation tests
+   provide that evidence independently.
 2. **Targeted bootstrap — waiting on a citable construction.** Keep this second in the LTMLE
    queue, but do not infer a procedure from the name. Implementation begins when a published
    source states what is held fixed, what is resampled, which nuisance and targeting steps are

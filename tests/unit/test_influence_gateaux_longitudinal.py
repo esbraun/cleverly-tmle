@@ -243,7 +243,7 @@ def test_refuses_a_regimen_no_unit_followed() -> None:
     """A plan nobody followed has no sample to fit on, and says so."""
     frame = law.frame()
     frame.loc[frame["A1"] == 1, "A1"] = 0.0
-    with pytest.raises(LongitudinalError, match="no unit followed regimen"):
+    with pytest.raises(LongitudinalError, match=r"A1.*missing level.*1"):
         LTMLE(
             {"always": 1},
             outcome_learner=law.CellMeans(),
