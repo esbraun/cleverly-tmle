@@ -353,6 +353,12 @@ from caching `threadpoolctl`'s controller. `numba` remains benchmark-only. The
 [benchmark guide](https://github.com/esbraun/cleverly-tmle/blob/main/docs/benchmarks/README.md)
 records the evidence, measurement rules, and conditions that would reopen that decision.
 
+One editable install is shared by every `git worktree` of this repository, and it points at the
+tree it was installed from. Running `pytest` inside a worktree therefore collects that worktree's
+tests and imports a different branch's `src/`, which reads as a set of ordinary test failures
+rather than as a misconfiguration. `tests/conftest.py` refuses that pairing before collection and
+names the fix: reinstall from the worktree, or pin `PYTHONPATH` to its `src/` for one run.
+
 `ruff` and `mypy` are both pinned exactly, and in three places that have to move together:
 `pyproject.toml`'s `dev` extra, `.github/workflows/ci.yml`, and `noxfile.py`. `ruff` formats
 the Python blocks inside Markdown as well as the source — so run it over the whole tree, not
