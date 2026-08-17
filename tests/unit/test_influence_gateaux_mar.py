@@ -37,7 +37,7 @@ from typing import ClassVar
 import numpy as np
 import pytest
 
-from cleverly import TMLE
+from cleverly.estimators import TMLE
 from tests import discrete_law_mar as law
 from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 

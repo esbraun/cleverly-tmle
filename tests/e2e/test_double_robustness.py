@@ -35,8 +35,8 @@ from typing import Any
 
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import DGP, nonlinear_dgp
+from cleverly.estimators import TMLE
 from cleverly.utils.bounds import expit
 from cleverly.validation import CoverageStudy
 from tests.conftest import OracleOutcomeContinuous, OracleTreatment

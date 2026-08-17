@@ -61,6 +61,35 @@ supported learners consume NumPy arrays, and the public dataframe contract is al
 through narwhals, so a columnar engine has no share here to win. *Reconsider when* a supported
 workload becomes dominated by joins, grouping, IO, or conversion rather than estimation.
 
+## Public causal workflow
+
+The beginner-facing computational path is `CausalStudy -> identify -> estimate`. A design owns
+column roles, a typed estimand owns the causal question, an `IdentifiedEffect` owns the observed-data
+functional and assumptions, and a typed method owns learning and runtime configuration. Do not
+reintroduce root engine constructors or a parallel string-driven convenience path: one public
+question must normalize to one evidenced engine request. *Reconsider when* a distinct audience has
+a workflow that cannot be expressed through these contracts without losing information, and the
+alternative still converges to the same structured identification and result records.
+
+Identification is complete before nuisance fitting. Unsupported estimand/design/provider/method
+combinations fail at that boundary with a capability reason; a placeholder may not produce an
+estimate for graph, Riesz, EP, front-door, IV, mediation, or transport behavior that has not been
+implemented and evidenced. *Reconsider when* the corresponding work package supplies its
+functional, method artifacts, persistence, and independent evidence.
+
+Configuration groups are immutable and normalized before engine construction. Convenience
+keywords may map into `ModelSpec`, `CrossFitting`, `Targeting`, `Inference`, and `Runtime`, but may
+not bypass them or reassign design roles. A shortcut whose name is a configuration field sets that
+field; in particular `alpha` is the interval significance level and `submodel_alpha` is the
+logistic-submodel bound.
+
+Every causal result carries its `IdentifiedEffect`, normalized method, and structured
+`ParameterKey` mapping. Persistence round-trips those records with arrays and allow-listed
+structured values, never arbitrary pickle execution. Restored identification metadata does not
+retain analysis data and therefore cannot be used to refit silently. *Reconsider when* a separate,
+explicit reconstructible-analysis artifact is designed with input provenance and callable
+serialization rules.
+
 ## Targets, interventions, and variants
 
 A new point-treatment estimand is a `Target` registered through `targets.register`. If it needs a

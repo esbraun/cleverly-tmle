@@ -16,9 +16,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from cleverly import TMLE, load
+from cleverly import load
 from cleverly._typing import FloatArray
 from cleverly.datasets import MultiArmDGP, make_multi_arm, multi_arm_dgp
+from cleverly.estimators import TMLE
 
 #: Every parameter a default three-armed fit reports, and its population value.
 TRUTH = multi_arm_dgp().truth()

@@ -95,7 +95,7 @@ class TestTheBudget:
         the shipped default rather than a copy of it, so raising ``TMLE.n_jobs``'s default
         in ``src`` fails here and has to be argued for.
         """
-        from cleverly import TMLE
+        from cleverly.estimators import TMLE
 
         assert TMLE.__init__.__kwdefaults__["n_jobs"] == 1
 

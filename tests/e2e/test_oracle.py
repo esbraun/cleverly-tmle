@@ -34,13 +34,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import (
     DGP,
     binary_outcome_dgp,
     heterogeneous_dgp,
     missing_outcome_binary_dgp,
 )
+from cleverly.estimators import TMLE
 from cleverly.utils.bounds import expit
 from tests.conftest import (
     OracleMissingness,

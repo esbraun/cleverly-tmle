@@ -37,7 +37,7 @@ import numpy as np
 import pytest
 from sklearn.base import BaseEstimator
 
-from cleverly import TMLE
+from cleverly.estimators import TMLE
 from cleverly.estimators.direct_effect import (
     check_level,
     clever_covariate_inputs,

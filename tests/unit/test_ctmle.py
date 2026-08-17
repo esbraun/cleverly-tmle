@@ -17,8 +17,8 @@ import numpy as np
 import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
-from cleverly import CTMLE, TMLE
 from cleverly.datasets import make_cde, make_instrument, make_linear_ate
+from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
 from cleverly.estimators.ctmle import _Selector, _weighted_partial_correlation

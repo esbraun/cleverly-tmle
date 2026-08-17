@@ -45,7 +45,6 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 
-from cleverly import CTMLE, DRTMLE, TMLE
 from cleverly.datasets import (
     DGP,
     RULE_LABEL,
@@ -64,6 +63,7 @@ from cleverly.datasets import (
     rule_arm_at_node_two,
     weak_overlap_dgp,
 )
+from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.interventions import Incremental
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.bounds import expit

@@ -212,7 +212,7 @@ class TestFoldFailuresAreNotSilent:
 
         import pandas as pd
 
-        from cleverly import TMLE
+        from cleverly.estimators import TMLE
 
         rng = np.random.default_rng(0)
         n = 300

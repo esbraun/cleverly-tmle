@@ -12,8 +12,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import TMLE, load
+from cleverly import load
 from cleverly.datasets import make_linear_ate
+from cleverly.estimators import TMLE
 from cleverly.exceptions import DataError
 from cleverly.interventions import Rule, Static, Stochastic
 from tests.conftest import FAST_KWARGS

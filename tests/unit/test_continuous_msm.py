@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly import TMLE
+from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.msm import MSM
 

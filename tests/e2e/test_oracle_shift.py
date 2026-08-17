@@ -34,8 +34,9 @@ import pytest
 from sklearn.base import BaseEstimator
 
 import tests.conftest as conftest
-from cleverly import TMLE, load
+from cleverly import load
 from cleverly.datasets import shift_dgp
+from cleverly.estimators import TMLE
 from cleverly.interventions import Shift
 
 #: The cap sits just above the bulk of the dose, so it holds back about one row in a

@@ -18,9 +18,10 @@ import numpy as np
 import pytest
 from scipy.special import expit
 
-from cleverly import TMLE, load
+from cleverly import load
 from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.datasets.synthetic import MultiArmDGP
+from cleverly.estimators import TMLE
 from cleverly.interventions import Shift, Static
 from cleverly.msm import MSM
 from tests.conftest import FAST_KWARGS

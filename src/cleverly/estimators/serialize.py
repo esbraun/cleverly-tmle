@@ -33,8 +33,11 @@ rather than misread.
 
 from __future__ import annotations
 
+import dataclasses
+import importlib
 import io
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -141,7 +144,11 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: ``15`` records the five separate missing-outcome reductions and the targeted
 #: observation mechanism.  It intentionally refuses draft version-14 artifacts rather
 #: than reading their joint score as the paper's separate treatment and observation scores.
-FORMAT_VERSION = 15
+#:
+#: ``16`` records causal-workflow identification, normalized method, and structured parameter
+#: keys, and adds the longitudinal result graph. The structured values use an allow-listed
+#: dataclass/array encoding; no arbitrary objects are unpickled.
+FORMAT_VERSION = 16
 
 _ARRAY_MARK = "__array__"
 
@@ -162,6 +169,152 @@ class _Arrays:
         if ref is None:
             return None
         return self.store[ref[_ARRAY_MARK]]
+
+
+_TYPE_MARK = "__cleverly_type__"
+
+
+class _UnavailableCallable:
+    """A persisted callable's identity without pretending its code was serialized."""
+
+    def __init__(self, description: str) -> None:
+        self.description = description
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        from ..exceptions import CapabilityError
+
+        raise CapabilityError(
+            f"the saved result recorded custom callable {self.description}, but array-plus-JSON "
+            "persistence cannot reconstruct executable Python; refit from the original code"
+        )
+
+    def __repr__(self) -> str:
+        return f"<unavailable saved callable {self.description}>"
+
+
+def _structured_types() -> dict[str, type[Any]]:
+    """Allowlisted dataclasses that may occur in fitted and causal metadata."""
+    modules = (
+        "cleverly.study",
+        "cleverly.methods",
+        "cleverly.targets.base",
+        "cleverly.data.weighting",
+        "cleverly.fluctuation.iterative",
+        "cleverly.fluctuation.mechanism",
+        "cleverly.fluctuation.reduced",
+        "cleverly.inference.influence",
+        "cleverly.inference.multiplier",
+        "cleverly.interventions.base",
+        "cleverly.interventions.incremental",
+        "cleverly.interventions.shift",
+        "cleverly.learners.crossfit",
+        "cleverly.longitudinal.data",
+        "cleverly.longitudinal.estimator",
+        "cleverly.longitudinal.msm",
+        "cleverly.longitudinal.regimen",
+        "cleverly.longitudinal.sequential",
+        "cleverly.msm",
+        "cleverly.provenance",
+        "cleverly.utils.bounds",
+    )
+    result: dict[str, type[Any]] = {}
+    for module_name in modules:
+        module = importlib.import_module(module_name)
+        for value in vars(module).values():
+            if isinstance(value, type) and dataclasses.is_dataclass(value):
+                result[f"{value.__module__}.{value.__qualname__}"] = value
+    return result
+
+
+def _structured_to(arrays: _Arrays, prefix: str, value: Any) -> Any:
+    """Encode an allowlisted immutable object graph without pickle."""
+    if isinstance(value, np.ndarray):
+        return arrays.put(prefix, value)
+    if isinstance(value, np.generic):
+        return value.item()
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if callable(value) and not dataclasses.is_dataclass(value):
+        return {_TYPE_MARK: "callable", "description": repr(value)}
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        kind = f"{type(value).__module__}.{type(value).__qualname__}"
+        if kind not in _structured_types():
+            raise TypeError(f"persistence has no allowlisted representation for {kind}")
+        return {
+            _TYPE_MARK: "dataclass",
+            "class": kind,
+            "fields": {
+                item.name: _structured_to(
+                    arrays, f"{prefix}.{item.name}", getattr(value, item.name)
+                )
+                for item in dataclasses.fields(value)
+                if item.init and item.name != "_study"
+            },
+        }
+    if isinstance(value, tuple):
+        return {
+            _TYPE_MARK: "tuple",
+            "items": [
+                _structured_to(arrays, f"{prefix}.{i}", item) for i, item in enumerate(value)
+            ],
+        }
+    if isinstance(value, list):
+        return {
+            _TYPE_MARK: "list",
+            "items": [
+                _structured_to(arrays, f"{prefix}.{i}", item) for i, item in enumerate(value)
+            ],
+        }
+    if isinstance(value, (set, frozenset)):
+        return {
+            _TYPE_MARK: "frozenset" if isinstance(value, frozenset) else "set",
+            "items": [
+                _structured_to(arrays, f"{prefix}.{i}", item) for i, item in enumerate(value)
+            ],
+        }
+    if isinstance(value, Mapping):
+        return {
+            _TYPE_MARK: "mapping",
+            "items": [
+                [
+                    _structured_to(arrays, f"{prefix}.key{i}", key),
+                    _structured_to(arrays, f"{prefix}.value{i}", item),
+                ]
+                for i, (key, item) in enumerate(value.items())
+            ],
+        }
+    raise TypeError(f"persistence cannot represent {type(value).__name__} at {prefix}")
+
+
+def _structured_from(arrays: _Arrays, payload: Any) -> Any:
+    if isinstance(payload, dict) and _ARRAY_MARK in payload:
+        return arrays.get(payload)
+    if not isinstance(payload, dict) or _TYPE_MARK not in payload:
+        return payload
+    kind = payload[_TYPE_MARK]
+    if kind == "callable":
+        return _UnavailableCallable(payload["description"])
+    if kind == "dataclass":
+        classes = _structured_types()
+        cls = classes.get(payload["class"])
+        if cls is None:
+            raise ValueError(f"saved result names unsupported structured type {payload['class']!r}")
+        fields = {name: _structured_from(arrays, item) for name, item in payload["fields"].items()}
+        return cls(**fields)
+    if kind in {"tuple", "list", "set", "frozenset"}:
+        items = [_structured_from(arrays, item) for item in payload["items"]]
+        return {
+            "tuple": tuple,
+            "list": list,
+            "set": set,
+            "frozenset": frozenset,
+        }[kind](items)
+    if kind == "mapping":
+        return {
+            _structured_from(arrays, key): _structured_from(arrays, value)
+            for key, value in payload["items"]
+        }
+    raise ValueError(f"unknown structured persistence marker {kind!r}")
 
 
 def _estimate_to(payload_arrays: _Arrays, prefix: str, est: ParameterEstimate) -> dict[str, Any]:
@@ -959,36 +1112,26 @@ def _ctmle_extra_from(arrays: _Arrays, payload: dict[str, Any] | None) -> dict[s
     }
 
 
-def _refuse_causal_metadata(result: TMLEResult) -> None:
-    """Refuse a result carrying structured identification this format cannot hold.
-
-    All three fields are checked rather than ``identified_effect`` alone: they are set
-    together today, and a guard narrower than what it protects is one refactor away from
-    letting the others through silently.
-    """
-    if result.identified_effect is None and result.method is None and not result.parameter_keys:
-        return
-    from ..exceptions import CapabilityError
-
-    raise CapabilityError(
-        "causal-workflow persistence is deferred to the complete foundational API PR: "
-        "the current format cannot store structured identification and parameter keys, "
-        "and saving a file that silently loses them is refused"
-    )
-
-
-def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatArray]]:
+def result_to_dict(result: Any) -> tuple[dict[str, Any], dict[str, FloatArray]]:
     """Split a result into a JSON-safe manifest and a dictionary of arrays.
 
-    **The causal-workflow refusal lives here rather than on the caller.**  This is the one
-    chokepoint every write goes through -- :func:`save`, :func:`dumps`, and a caller holding
-    the manifest itself -- so a guard on ``TMLEResult.save`` alone left
-    ``serialize.save(result, path)`` writing a file that reloads with ``identified_effect``
-    ``None`` and ``parameter_keys`` empty.  That is worse than the arrays being absent: the
-    ``dropped`` list below is how this format states an omission, and these fields were not
-    in it, so nothing on either side of the round trip said the causal context was gone.
+    This is the one chokepoint every write goes through -- :func:`save`, :func:`dumps`, and
+    callers holding the manifest itself -- so causal metadata and longitudinal graphs are
+    encoded here rather than only in result methods. No write path can silently omit
+    ``identified_effect``, ``method``, or ``parameter_keys``.
     """
-    _refuse_causal_metadata(result)
+    from ..longitudinal import LongitudinalResult
+
+    if isinstance(result, LongitudinalResult):
+        arrays = _Arrays()
+        longitudinal_manifest = {
+            "format_version": FORMAT_VERSION,
+            "kind": "longitudinal",
+            "result": _structured_to(arrays, "longitudinal", result),
+        }
+        return longitudinal_manifest, arrays.store
+    if not isinstance(result, TMLEResult):
+        raise TypeError(f"save expects a fitted causal result; got {type(result).__name__}")
     arrays = _Arrays()
     ctmle_extra = _ctmle_extra_to(arrays, result.extra)
     unsupported_extra = bool(set(result.extra) - {"ctmle"}) or bool(
@@ -996,6 +1139,7 @@ def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatA
     )
     manifest: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
+        "kind": "point",
         "estimates": {
             name: _estimate_to(arrays, f"est.{name}", est) for name, est in result.estimates.items()
         },
@@ -1026,6 +1170,11 @@ def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatA
             if result.estimator is None
             else TMLERecipe.from_estimator(result.estimator).to_dict()
         ),
+        "identified_effect": _structured_to(
+            arrays, "causal.identified_effect", result.identified_effect
+        ),
+        "method": _structured_to(arrays, "causal.method", result.method),
+        "parameter_keys": _structured_to(arrays, "causal.parameter_keys", result.parameter_keys),
         # Dropped deliberately, and named so the omission is visible rather than
         # discovered: the first two are reporting objects rebuilt on demand from the
         # arrays that *are* stored, and the third is whatever `extra` this format has
@@ -1045,7 +1194,7 @@ def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatA
     return manifest, arrays.store
 
 
-def result_from_dict(manifest: dict[str, Any], store: dict[str, FloatArray]) -> TMLEResult:
+def result_from_dict(manifest: dict[str, Any], store: dict[str, FloatArray]) -> Any:
     """Rebuild a result from what :func:`result_to_dict` produced."""
     version = manifest.get("format_version")
     if version != FORMAT_VERSION:
@@ -1055,6 +1204,14 @@ def result_from_dict(manifest: dict[str, Any], store: dict[str, FloatArray]) -> 
         )
     arrays = _Arrays()
     arrays.store = store
+
+    if manifest.get("kind", "point") == "longitudinal":
+        from ..longitudinal import LongitudinalResult
+
+        restored = _structured_from(arrays, manifest["result"])
+        if not isinstance(restored, LongitudinalResult):
+            raise ValueError("longitudinal manifest did not contain a LongitudinalResult")
+        return restored
 
     recipe_payload = manifest.get("recipe")
     recipe = None if recipe_payload is None else TMLERecipe.from_dict(recipe_payload)
@@ -1082,6 +1239,9 @@ def result_from_dict(manifest: dict[str, Any], store: dict[str, FloatArray]) -> 
         provenance=None if provenance is None else Provenance.from_dict(provenance),
         intermediate_value=manifest["intermediate_value"],
         extra=_ctmle_extra_from(arrays, manifest.get("ctmle_extra")),
+        identified_effect=_structured_from(arrays, manifest.get("identified_effect")),
+        method=_structured_from(arrays, manifest.get("method")),
+        parameter_keys=_structured_from(arrays, manifest.get("parameter_keys", {})),
     )
 
 
@@ -1112,7 +1272,7 @@ class _LazyEstimator:
         return f"<estimator rebuilt from recipe ({state})>"
 
 
-def save(result: TMLEResult, path: str | Path) -> Path:
+def save(result: Any, path: str | Path) -> Path:
     """Write a result to a single ``.npz`` file.
 
     >>> from cleverly.estimators.serialize import save, load    # doctest: +SKIP
@@ -1151,7 +1311,7 @@ def _write_npz(handle: Any, payload: dict[str, FloatArray]) -> None:
     savez(handle, **payload)
 
 
-def load(path: str | Path) -> TMLEResult:
+def load(path: str | Path) -> Any:
     """Read back a result written by :func:`save`."""
     with np.load(Path(path), allow_pickle=False) as archive:
         manifest = json.loads(bytes(archive["__manifest__"]).decode("utf-8"))
@@ -1159,7 +1319,7 @@ def load(path: str | Path) -> TMLEResult:
     return result_from_dict(manifest, store)
 
 
-def dumps(result: TMLEResult) -> bytes:
+def dumps(result: Any) -> bytes:
     """The same payload as :func:`save`, in memory."""
     buffer = io.BytesIO()
     manifest, store = result_to_dict(result)
@@ -1169,7 +1329,7 @@ def dumps(result: TMLEResult) -> bytes:
     return buffer.getvalue()
 
 
-def loads(blob: bytes) -> TMLEResult:
+def loads(blob: bytes) -> Any:
     """Read back what :func:`dumps` produced."""
     with np.load(io.BytesIO(blob), allow_pickle=False) as archive:
         manifest = json.loads(bytes(archive["__manifest__"]).decode("utf-8"))

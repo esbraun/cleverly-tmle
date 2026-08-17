@@ -30,7 +30,7 @@ from scipy.optimize import brentq
 from scipy.special import expit, logit
 from sklearn.base import BaseEstimator
 
-from cleverly import CTMLE, DRTMLE
+from cleverly.estimators import CTMLE, DRTMLE
 from cleverly.estimators.reduced import ReducedSet
 from cleverly.estimators.tmle import correction_parts
 from cleverly.exceptions import PositivityWarning

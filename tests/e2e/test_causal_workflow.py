@@ -5,19 +5,20 @@ import pytest
 
 from cleverly import (
     ATE,
-    TMLE,
-    CapabilityError,
     CausalStudy,
+    LongitudinalTreatment,
     PointTreatment,
+    RegimeMean,
     TMLEMethod,
-    TMLEResult,
+    load,
 )
-from cleverly.datasets import make_linear_ate, make_multi_arm
+from cleverly.datasets import make_linear_ate, make_longitudinal, make_multi_arm
+from cleverly.estimators import TMLE, TMLEResult
 from tests.conftest import FAST_KWARGS
 
 
 @pytest.mark.parametrize("backend", ["pandas", "polars"])
-def test_the_new_binary_ate_path_is_bit_for_bit_the_existing_fit(backend: str) -> None:
+def test_the_new_binary_ate_path_is_bit_for_bit_the_existing_fit(backend: str, tmp_path) -> None:
     frame, _ = make_linear_ate(n=500, seed=31, backend=backend)
     adjustment = ["W1", "W2", "W3", "W4"]
     legacy = (
@@ -46,8 +47,11 @@ def test_the_new_binary_ate_path_is_bit_for_bit_the_existing_fit(backend: str) -
     assert result.parameter_keys["ate"].treatment == 1
     assert result.parameter_keys["ate"].reference == 0
     assert "identification assumptions" in result.summary()
-    with pytest.raises(CapabilityError, match="cannot store structured identification"):
-        result.save("not-written.npz")
+    saved = result.save(tmp_path / "causal-result.npz")
+    restored = load(saved)
+    assert restored.parameter_keys == result.parameter_keys
+    assert restored.method == result.method
+    assert restored.identified_effect.summary() == effect.summary()
 
 
 def test_structured_keys_are_composed_from_multi_arm_labels() -> None:
@@ -69,3 +73,40 @@ def test_structured_keys_are_composed_from_multi_arm_labels() -> None:
     high = result.parameter_keys["ate[high vs medium]"]
     assert high.treatment == "high"
     assert high.reference == "medium"
+
+
+def test_longitudinal_causal_metadata_and_inference_survive_persistence(tmp_path) -> None:
+    frame, _ = make_longitudinal(n=240, seed=33)
+    effect = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=("A1", "A2"),
+            baseline=("W1", "W2"),
+            time_varying=((), ("L2",)),
+            censoring=("C1", "C2"),
+        ),
+    ).identify(RegimeMean({"always": 1, "never": 0}, reference="always"))
+    result = effect.estimate(
+        outcome_learner="glm",
+        pseudo_learner="glm",
+        treatment_learner="glm",
+        n_folds=3,
+        learner_folds=3,
+        random_state=0,
+        simultaneous=False,
+    )
+
+    restored = load(result.save(tmp_path / "longitudinal-causal.npz"))
+
+    assert restored.parameter_keys == result.parameter_keys
+    assert restored.method == result.method
+    assert restored.identified_effect.summary() == effect.summary()
+    assert list(restored.estimates) == list(result.estimates)
+    for name in result.estimates:
+        assert restored[name].psi == result[name].psi
+        assert restored[name].ci == result[name].ci
+        np.testing.assert_array_equal(
+            restored[name].influence_curve,
+            result[name].influence_curve,
+        )

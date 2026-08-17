@@ -12,8 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import GENERATORS
+from cleverly.estimators import TMLE
 from cleverly.estimators.targeting import build_submodel
 from tests.conftest import binary_mean_parts, binary_means
 

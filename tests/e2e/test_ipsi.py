@@ -26,9 +26,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import make_missing_outcome, make_nonlinear_ate, make_weak_overlap
 from cleverly.datasets.synthetic import missing_outcome_dgp, nonlinear_dgp
+from cleverly.estimators import TMLE
 from cleverly.interventions import Incremental
 from tests.conftest import FAST_KWARGS
 

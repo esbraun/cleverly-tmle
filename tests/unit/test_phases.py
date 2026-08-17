@@ -15,8 +15,8 @@ import time
 import numpy as np
 import pytest
 
-from cleverly import LTMLE, LongitudinalData
 from cleverly.datasets import make_longitudinal
+from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.utils.phases import phase, profile_phases
 
 

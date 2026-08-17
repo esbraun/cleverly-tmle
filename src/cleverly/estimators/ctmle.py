@@ -208,7 +208,7 @@ References
 
 Example
 -------
->>> from cleverly import CTMLE
+>>> from cleverly.estimators import CTMLE
 >>> from cleverly.datasets import make_instrument
 >>> frame, truth = make_instrument(n=1000, seed=0)
 >>> res = CTMLE(outcome_learner="glm", treatment_learner="glm").fit(

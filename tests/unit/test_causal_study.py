@@ -17,6 +17,7 @@ from cleverly import (
 )
 from cleverly.datasets import make_linear_ate
 from cleverly.methods import SHORTCUTS
+from tests.conftest import FAST_KWARGS
 
 
 def _study() -> CausalStudy:
@@ -72,7 +73,7 @@ def test_an_unknown_reference_is_refused_during_identification() -> None:
         _study().identify(ATE(reference="not-an-arm"))
 
 
-def test_stratified_parameter_keys_are_refused_before_estimation() -> None:
+def test_stratified_parameter_keys_are_structured_before_the_alias_is_displayed() -> None:
     frame, _ = make_linear_ate(n=120, seed=20)
     frame = frame.assign(S=(frame["W1"] > 0).astype(int))
     study = CausalStudy(
@@ -84,8 +85,9 @@ def test_stratified_parameter_keys_are_refused_before_estimation() -> None:
             strata=("S",),
         ),
     )
-    with pytest.raises(CapabilityError, match="stratified ATE parameters"):
-        study.identify(ATE())
+    result = study.identify(ATE()).estimate(**FAST_KWARGS)
+    assert result.parameter_keys["ate[S=0]"].stratum == (0,)
+    assert result.parameter_keys["ate[S=1]"].stratum == (1,)
 
 
 def test_method_availability_is_structured_and_refuses_before_fitting(monkeypatch) -> None:

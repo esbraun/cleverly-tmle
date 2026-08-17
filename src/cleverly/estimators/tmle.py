@@ -60,7 +60,7 @@ The alternative -- returning a bare result when there is one and a set when ther
 
 Example
 -------
->>> from cleverly import TMLE
+>>> from cleverly.estimators import TMLE
 >>> from cleverly.datasets import make_nonlinear_ate
 >>> frame, truth = make_nonlinear_ate(n=1000, seed=0)
 >>> res = TMLE(random_state=0).fit(frame, outcome="Y", treatment="A").single()
@@ -2784,7 +2784,7 @@ def tmle(
     :class:`TMLE` may be passed through.
 
     >>> import numpy as np
-    >>> from cleverly import tmle
+    >>> from cleverly.estimators.tmle import tmle
     >>> rng = np.random.default_rng(0)
     >>> W = rng.normal(size=(500, 3))
     >>> A = rng.binomial(1, 0.5, 500).astype(float)

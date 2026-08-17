@@ -1,5 +1,11 @@
 # Public API and extensibility redesign
 
+**Implementation status.** Logical PRs 1 and 2 are implemented: work package 1 now provides the
+typed point and longitudinal study/identification/result contracts, routes all currently evidenced
+analytic estimands through the existing engines, persists structured causal metadata, and removes
+the former beginner-facing root constructors. The assessment, Riesz, DoWhy, EP, and catalog
+expansion work packages below remain design contracts rather than implemented behavior.
+
 Status: accepted; logical PR 1 implemented
 
 Decision date: 2026-08-17
@@ -936,7 +942,7 @@ not an executable test suite.
    examples with real fast-tier e2e tests.
    Persistence explicitly refuses this new result until PR 2 can preserve its structured
    identification and parameter keys; it must not write a file that silently loses causal context.
-2. **Complete the foundational API and make the clean break.** Add the remaining evidenced typed
+2. **Complete the foundational API and make the clean break.** **Implemented.** Add the remaining evidenced typed
    point and longitudinal designs/estimands, complete immutable configuration groups and shared
    result/capability contracts, persist their structured metadata, adapt point and longitudinal
    engines, add migration tooling, and then remove the old beginner-facing top-level constructors.
@@ -1328,7 +1334,7 @@ complete before their respective implementation PR begins.
 - [ ] EP paper read first-hand and first supported contrasts confirmed.
 - [ ] Initial Riesz catalog enumerated with evidence status for every entry.
 - [ ] DoWhy supported version and public adapter boundary confirmed.
-- [ ] Old-to-new migration examples agreed.
+- [x] Old-to-new migration examples agreed and published in `docs/migration.md`.
 - [x] Logical PR 1 acceptance tests enumerated at test-case level in section 12.1.
 - [x] Architecture-invariant changes for logical PR 1 drafted with its implementation.
 - [x] Planning was merged separately before implementation changes.

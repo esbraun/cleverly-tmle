@@ -54,8 +54,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import make_nonlinear_ate
+from cleverly.estimators import TMLE
 from cleverly.utils.parallel import map_parallel, resolve_n_jobs
 
 #: Two is enough and four is not better.  What is being checked is that the parallel branch

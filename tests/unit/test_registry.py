@@ -486,8 +486,8 @@ class TestTheScalingContract:
         )
 
     def test_a_binary_only_target_is_exact(self) -> None:
-        from cleverly import TMLE
         from cleverly.datasets import GENERATORS
+        from cleverly.estimators import TMLE
 
         self._register(requires_family="binomial")
         try:
@@ -511,8 +511,8 @@ class TestTheScalingContract:
 
     def test_the_same_target_on_a_scaled_outcome_would_be_wrong(self) -> None:
         """The failure the ``requires_family`` guard exists to prevent."""
-        from cleverly import TMLE
         from cleverly.datasets import GENERATORS
+        from cleverly.estimators import TMLE
 
         self._register()  # no requires_family: allowed onto a continuous outcome
         try:

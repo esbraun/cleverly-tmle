@@ -63,7 +63,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -392,6 +392,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     msm: RegimenMSM | None = None
     #: One per cause, in the order the causes are reported.
     msm_fits: tuple[MSMRegimenFit, ...] = ()
+    #: Causal-workflow metadata, present on every result created through CausalStudy.
+    identified_effect: Any = None
+    method: Any = None
+    parameter_keys: dict[str, Any] = field(default_factory=dict)
 
     @property
     def has_msm(self) -> bool:
@@ -416,11 +420,21 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     # -------------------------------------------------------------- inference
 
     @property
+    def estimate(self) -> ParameterEstimate:
+        """The sole estimate, refusing ambiguity on a multi-parameter result."""
+        if len(self.estimates) != 1:
+            raise ValueError(
+                "this result contains multiple parameters; index the one you want from "
+                f"{list(self.estimates)}"
+            )
+        return next(iter(self.estimates.values()))
+
+    @property
     def n(self) -> int:
         return self.data.n
 
-    def psi(self, name: str) -> float:
-        return self[name].psi
+    def psi(self, name: str | None = None) -> float:
+        return self.estimate.psi if name is None else self[name].psi
 
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
@@ -646,13 +660,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "result.fits[label].steps[i].fluctuation carries the score norms themselves"
         )
 
-    def save(self, path: Any) -> None:
-        raise NotImplementedError(
-            "a longitudinal result cannot be serialised yet: cleverly.load rebuilds a "
-            "TMLEResult from a CausalData, and the longitudinal container holds a node "
-            "ordering that format has no place for. result.to_frame() and "
-            "result.diagnostics() are the reportable pieces"
-        )
+    def save(self, path: Any) -> Any:
+        """Persist the fitted result, including its sequential and causal metadata."""
+        from ..estimators.serialize import save as _save
+
+        return _save(self, path)
 
     # ---------------------------------------------------------------- reports
 
@@ -814,6 +826,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             ["parameter", "estimate", "std. error", f"{level} CI", "p-value"], rows
         )
         facts = list(self.config.describe())
+        if self.identified_effect is not None:
+            facts.extend(self.identified_effect.summary_lines())
         if self.data.cluster is not None:
             facts.append(
                 f"clusters = {self.data.n_clusters} ({self.data.cluster_name}, "

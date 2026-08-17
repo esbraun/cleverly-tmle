@@ -10,7 +10,8 @@ import pytest
 from sklearn.base import BaseEstimator
 from sklearn.dummy import DummyRegressor
 
-from cleverly import DRTMLE, PositivityWarning, load
+from cleverly import PositivityWarning, load
+from cleverly.estimators import DRTMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.reduced import MissingOutcomeReducedSet
 from cleverly.estimators.tmle import build_submodel, correction_parts

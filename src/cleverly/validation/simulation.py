@@ -295,7 +295,7 @@ class CoverageStudy:
 
     Example
     -------
-    >>> from cleverly import TMLE
+    >>> from cleverly.estimators import TMLE
     >>> from cleverly.datasets import nonlinear_dgp
     >>> from cleverly.validation import CoverageStudy
     >>> study = CoverageStudy(

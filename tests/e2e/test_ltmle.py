@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly import load
 from cleverly.datasets import (
     make_longitudinal,
     make_longitudinal_competing,
@@ -970,12 +971,18 @@ class TestTheSuitesItCannotServe:
         with pytest.raises(NotImplementedError, match=re.escape("result.diagnostics")):
             _ = result.validation
 
-    def test_save_says_what_the_format_has_no_place_for(
+    def test_save_round_trips_the_longitudinal_graph(
         self, fitted: tuple[LongitudinalResult, dict[str, float]], tmp_path: Any
     ) -> None:
         result, _ = fitted
-        with pytest.raises(NotImplementedError, match="node ordering"):
-            result.save(tmp_path / "fit.json")
+        restored = load(result.save(tmp_path / "fit.npz"))
+        assert list(restored.estimates) == list(result.estimates)
+        for name in result.estimates:
+            assert restored[name].psi == result[name].psi
+            np.testing.assert_array_equal(
+                restored[name].influence_curve,
+                result[name].influence_curve,
+            )
 
     def test_the_bootstrap_blames_the_missing_method_not_positivity(
         self, fitted: tuple[LongitudinalResult, dict[str, float]]

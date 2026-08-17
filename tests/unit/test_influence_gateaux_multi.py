@@ -20,7 +20,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import TMLE
+from cleverly.estimators import TMLE
 from tests import discrete_law_multi as law
 
 #: Oracle names, on the law's own arm indices.  ``law.reported_name`` maps each to the

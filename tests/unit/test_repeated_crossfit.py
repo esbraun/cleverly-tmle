@@ -465,7 +465,7 @@ class TestEveryStageOfTheSplitIsRedrawn:
         assert set(seen) == {FAST_KWARGS["random_state"]}
 
     def test_the_ctmle_selection_folds_follow_the_draw(self, frame: Any, monkeypatch: Any) -> None:
-        from cleverly import CTMLE
+        from cleverly.estimators import CTMLE
 
         seen = self._seeds_seen(
             "cleverly.estimators.ctmle", "make_folds", monkeypatch, "random_state"
@@ -653,7 +653,7 @@ class TestVariantsInheritRepeats:
     def test_ctmle_repeats_its_selection_per_draw(self, frame: Any) -> None:
         # CTMLE overrides _nuisances alone, and the repeat loop sits around that method,
         # so this works without estimators/ctmle.py knowing repeats exist.
-        from cleverly import CTMLE
+        from cleverly.estimators import CTMLE
 
         kwargs = {**FAST_KWARGS, "repeats": 2, "estimands": ["ate"]}
         result = CTMLE(**kwargs).fit(frame, **COLUMNS).single()

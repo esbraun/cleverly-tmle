@@ -394,7 +394,12 @@ def check_covariates(
     keep = np.ones(matrix.shape[1], dtype=bool)
     dropped: list[str] = []
 
-    if drop_constant:
+    # ``PointTreatment(randomized=True, adjustment=())`` supplies one reserved zero
+    # column so ordinary learners can fit their own intercept.  It is not an adjustment
+    # variable and must remain constant: replacing it by row position would silently
+    # introduce a data-order-dependent nuisance model for an unadjusted randomized effect.
+    intercept_only = list(names) == ["__cleverly_randomized_intercept__"]
+    if drop_constant and not intercept_only:
         for j in range(matrix.shape[1]):
             if np.ptp(matrix[:, j]) == 0.0:
                 keep[j] = False
