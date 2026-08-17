@@ -1,7 +1,7 @@
 """Task automation for cleverly.
 
-The sessions mirror CI: ordinary checks and selected documentation run on pull requests;
-statistical validation and complete documentation transcripts are manual.
+The sessions mirror CI. Statistical validation is manual; documentation examples are
+explanatory material and are not executed as tests.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def typecheck(session: nox.Session) -> None:
 
 @nox.session(python=PYTHONS)
 def tests(session: nox.Session) -> None:
-    """Fast tier: everything except the statistical validation runs."""
+    """Fast tier: unit, integration, and end-to-end tests except statistical studies."""
     session.install("-e", ".[dev]")
     # ``-n auto`` as CI runs it, with the worker count sized from the cores this process may
     # actually use. The inner ``n_jobs=2`` on simulation studies balances the long-test tail
@@ -69,7 +69,7 @@ def tests(session: nox.Session) -> None:
     session.run(
         "pytest",
         "-m",
-        "not slow and not docs and not docs_full",
+        "not slow",
         "-q",
         "-n",
         "auto",
@@ -86,38 +86,6 @@ def slow(session: nox.Session) -> None:
         "pytest",
         "-m",
         "slow",
-        "-q",
-        "-n",
-        "auto",
-        *session.posargs,
-        env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
-    )
-
-
-@nox.session
-def docs(session: nox.Session) -> None:
-    """The ordinary modular guide sections, optionally selected with session arguments."""
-    session.install("-e", ".[dev]")
-    session.run(
-        "pytest",
-        "-m",
-        "docs",
-        "-q",
-        "-n",
-        "auto",
-        *session.posargs,
-        env={"PYTEST_XDIST_AUTO_NUM_WORKERS": _workers()},
-    )
-
-
-@nox.session(name="docs-transcript")
-def docs_transcript(session: nox.Session) -> None:
-    """Manual gate: every guide runs as one complete reading-order transcript."""
-    session.install("-e", ".[dev]")
-    session.run(
-        "pytest",
-        "-m",
-        "docs_full",
         "-q",
         "-n",
         "auto",

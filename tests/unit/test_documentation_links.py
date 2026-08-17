@@ -37,17 +37,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-
-#: Every markdown file the documentation set is made of.  ``docs/`` is the bulk; the root-level
-#: files are linked from it and link back into it, so leaving them out would check one direction
-#: of a two-way relationship.
-DOCUMENTS = sorted(
-    {
-        *ROOT.glob("*.md"),
-        *ROOT.glob("docs/**/*.md"),
-    }
-)
+from tests.documents import DOCUMENTS, ROOT
 
 #: Every Python file that may carry a cross-reference in a docstring or comment.  These are not
 #: link *destinations* -- nothing anchors into a module -- but they are link *sources*, and a

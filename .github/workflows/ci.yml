@@ -66,35 +66,10 @@ jobs:
         run: |
           echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
           python -m tests.parallel
-      # Executable guide sections, their full transcripts, and statistical studies each
-      # have a separate validation path. This matrix keeps the ordinary fast suite bounded.
-      - run: pytest -m "not slow and not docs and not docs_full" -q -n auto
-
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # The section selector compares the pull request to its merge base.
-          fetch-depth: 0
-      - uses: ./.github/actions/setup-env
-        with:
-          python-version: "3.12"
-      - name: Size the worker pool from the cores this job may actually use
-        run: |
-          echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
-          python -m tests.parallel
-      - name: Run affected documentation sections and all static documentation checks
-        env:
-          EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          if [ -z "$EVENT_BASE" ] || [ "$EVENT_BASE" = "0000000000000000000000000000000000000000" ]; then
-            EVENT_BASE="$(git rev-parse HEAD^)"
-          fi
-          pytest tests/e2e/test_doc_snippets.py \
-            -m "not slow and not docs_full" \
-            --doc-changed-from "$EVENT_BASE" \
-            -q -n auto
+      # Behavioral examples belong in this fast unit/integration/e2e tier, and so do the
+      # static documentation checks -- links resolve, every `python` fence parses. Neither
+      # executes an example, and both are cheap, so there is no documentation dispatch.
+      - run: pytest -m "not slow" -q -n auto
 
   # The numba benchmark's *correctness* tier. It lives in `tests/unit/` and would
   # therefore run in the `tests` job above -- except that `tests` installs `.[dev]`, which

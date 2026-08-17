@@ -959,8 +959,36 @@ def _ctmle_extra_from(arrays: _Arrays, payload: dict[str, Any] | None) -> dict[s
     }
 
 
+def _refuse_causal_metadata(result: TMLEResult) -> None:
+    """Refuse a result carrying structured identification this format cannot hold.
+
+    All three fields are checked rather than ``identified_effect`` alone: they are set
+    together today, and a guard narrower than what it protects is one refactor away from
+    letting the others through silently.
+    """
+    if result.identified_effect is None and result.method is None and not result.parameter_keys:
+        return
+    from ..exceptions import CapabilityError
+
+    raise CapabilityError(
+        "causal-workflow persistence is deferred to the complete foundational API PR: "
+        "the current format cannot store structured identification and parameter keys, "
+        "and saving a file that silently loses them is refused"
+    )
+
+
 def result_to_dict(result: TMLEResult) -> tuple[dict[str, Any], dict[str, FloatArray]]:
-    """Split a result into a JSON-safe manifest and a dictionary of arrays."""
+    """Split a result into a JSON-safe manifest and a dictionary of arrays.
+
+    **The causal-workflow refusal lives here rather than on the caller.**  This is the one
+    chokepoint every write goes through -- :func:`save`, :func:`dumps`, and a caller holding
+    the manifest itself -- so a guard on ``TMLEResult.save`` alone left
+    ``serialize.save(result, path)`` writing a file that reloads with ``identified_effect``
+    ``None`` and ``parameter_keys`` empty.  That is worse than the arrays being absent: the
+    ``dropped`` list below is how this format states an omission, and these fields were not
+    in it, so nothing on either side of the round trip said the causal context was gone.
+    """
+    _refuse_causal_metadata(result)
     arrays = _Arrays()
     ctmle_extra = _ctmle_extra_to(arrays, result.extra)
     unsupported_extra = bool(set(result.extra) - {"ctmle"}) or bool(

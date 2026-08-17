@@ -133,20 +133,22 @@ already opt out with `set_thread_limit(None)`.
 
 Concurrency is `outer × inner × threads-per-fit`; the third factor is pinned to one, and the split
 of the first two belongs to the test tier. The fast tier consists of thousands of short tests, so
-xdist balances it and inner `n_jobs` remains one. Pull-request documentation execution selects
-only affected H2/H3 modules, each in a fresh namespace with its declared setup closure. The manual
-full transcript remains one sequential namespace per document. Both documentation modes put the
-budget inward, which is sound only because `n_jobs` invariance is pinned bit for bit.
+xdist balances it and inner `n_jobs` remains one.
 
-Every executable documentation section and block has a stable ID. Section metadata names its
-setup blocks and directly affected source paths; common or unclassified implementation changes
-fail closed by selecting all ordinary sections. Statistical blocks never enter pull-request
-execution. Syntax, links, catalogue members, and the metadata graph are checked over the complete
-documentation set in the ordinary fast tier.
+Documentation examples are explanatory material, not executable tests or statistical evidence.
+Behavior shown in a guide must be covered by a unit, integration, or end-to-end test in the fast
+tier, or by a named statistical study in the slow tier. Evidence manifests such as
+`docs/evidence.md` remain test-enforced source registries; this rule concerns executing prose and
+examples as the test suite.
 
-Put `doc-section: id=...; requires=...; paths=...` metadata immediately below each executable H2
-or H3, and `doc-block: id=...; tier=fast|slow` immediately above each Python fence. Dependencies
-name blocks, not whole sections, and may only name an earlier setup block in the same document.
+What is checked about the documentation itself is static, and therefore belongs in the ordinary
+fast tier rather than behind a dispatch: links resolve, and every `python` fence parses. There is
+deliberately no manual documentation job. The two properties above are cheap enough to run on every
+change, and a dispatch that re-ran them would read as a gate while adding no coverage — the failure
+mode the removed job had, whose `ruff check README.md docs` validated nothing at all because the
+linter does not read Markdown. Note the division: the ruff *formatter* does reach inside `python`
+fences and is covered by the whole-tree `ruff format --check .`, but it skips any block it cannot
+parse, so syntax is a test's job and not the formatter's.
 
 Size every layer from `tests/parallel.available_cores()`, which reads a container's CPU quota and
 affinity mask through joblib. Neither `os.cpu_count()` nor xdist's `-n auto` does. Nesting pools is

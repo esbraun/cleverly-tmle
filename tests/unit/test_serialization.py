@@ -19,10 +19,10 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LogisticRegression
 
-from cleverly import CTMLE, TMLE, load
+from cleverly import CTMLE, TMLE, CapabilityError, ParameterKey, load
 from cleverly.datasets import GENERATORS, make_instrument, make_shift_dose
 from cleverly.estimators.recipe import TMLERecipe
-from cleverly.estimators.serialize import FORMAT_VERSION, dumps, loads, result_to_dict
+from cleverly.estimators.serialize import FORMAT_VERSION, dumps, loads, result_to_dict, save
 from cleverly.interventions import Shift
 from tests.conftest import FAST_KWARGS
 
@@ -337,6 +337,59 @@ class TestFormat:
         # The plan is what says a fit *asked* for 10 folds; losing it would leave only
         # the count it got, which is the question the field exists to answer.
         assert loads(dumps(result)).config.crossfit == result.config.crossfit
+
+
+class TestCausalMetadataIsRefusedRatherThanDropped:
+    """A result from ``CausalStudy`` carries what this format has no field for.
+
+    ``identified_effect``, ``method`` and ``parameter_keys`` are not in the manifest and are
+    not in ``dropped`` either, so a file written from one reloads looking like an ordinary
+    fit -- ``identified_effect`` ``None``, ``parameter_keys`` empty -- with nothing on either
+    side of the round trip recording that the causal context existed.  Until the format can
+    hold them, every write path refuses.
+
+    **Every path, which is the point of the class.**  The guard began on ``TMLEResult.save``,
+    and ``serialize.save`` -- the spelling that function's own docstring advertises -- went
+    straight past it.
+    """
+
+    @staticmethod
+    def _causal(result):  # type: ignore[no-untyped-def]
+        keys = {"ate": ParameterKey("ate", "ate", 1, 0)}
+        return replace(result, identified_effect=object(), method=object(), parameter_keys=keys)
+
+    def test_every_write_path_refuses(self, result, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        carrying = self._causal(result)
+        path = tmp_path / "not-written.npz"
+        for write in (lambda: save(carrying, path), lambda: dumps(carrying)):
+            with pytest.raises(CapabilityError, match="cannot store structured identification"):
+                write()
+        with pytest.raises(CapabilityError, match="cannot store structured identification"):
+            result_to_dict(carrying)
+        # The refusal happens before the file is opened, so a failed save does not leave a
+        # truncated archive behind for the next reader to load.
+        assert not path.exists()
+
+    @pytest.mark.parametrize(
+        "carried",
+        [
+            {"identified_effect": object()},
+            {"method": object()},
+            {"parameter_keys": {"ate": ParameterKey("ate", "ate", 1, 0)}},
+        ],
+        ids=["identified_effect", "method", "parameter_keys"],
+    )
+    def test_any_one_of_the_three_fields_is_enough(self, result, carried) -> None:  # type: ignore[no-untyped-def]
+        """They are set together today; a guard on one of them is a refactor from silence."""
+        with pytest.raises(CapabilityError, match="cannot store structured identification"):
+            result_to_dict(replace(result, **carried))
+
+    def test_an_ordinary_fit_still_writes(self, result, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        """The control: the refusal must not have closed the path it guards."""
+        path = tmp_path / "ordinary.npz"
+        result.save(path)
+        assert path.exists()
+        assert load(path).psi("ate") == result.psi("ate")
 
 
 class TestTheReducedRegressionsSurvive:

@@ -2,10 +2,18 @@
 
 Quickstart
 ----------
->>> from cleverly import TMLE
+>>> from cleverly import ATE, CausalStudy, PointTreatment
 >>> from cleverly.datasets import make_nonlinear_ate
 >>> frame, truth = make_nonlinear_ate(n=1000, seed=0)
->>> result = TMLE(random_state=0).fit(frame, outcome="Y", treatment="A").single()
+>>> study = CausalStudy(
+...     frame,
+...     design=PointTreatment(
+...         outcome="Y",
+...         treatment="A",
+...         adjustment=["W1", "W2", "W3", "W4"],
+...     ),
+... )
+>>> result = study.identify(ATE()).estimate(random_state=0)
 >>> print(result.summary())                                        # doctest: +SKIP
 
 The estimator takes pandas or polars dataframes interchangeably and returns results
@@ -35,6 +43,7 @@ from .estimators import (
 )
 from .estimators.serialize import load
 from .exceptions import (
+    CapabilityError,
     CleverlyError,
     ConvergenceWarning,
     DataError,
@@ -52,7 +61,25 @@ from .longitudinal import (
     Regimen,
     ltmle,
 )
+from .methods import (
+    CrossFitting,
+    Inference,
+    MethodAvailability,
+    ModelSpec,
+    Runtime,
+    Targeting,
+    TMLEMethod,
+)
 from .provenance import Provenance
+from .study import (
+    ATE,
+    BackdoorMeanContrast,
+    CausalStudy,
+    ExplicitAdjustmentProvider,
+    IdentifiedEffect,
+    ParameterKey,
+    PointTreatment,
+)
 from .targets import TARGETS, Identification, Target, register
 from .variable_importance import (
     VariableImportanceEntry,
@@ -62,34 +89,49 @@ from .variable_importance import (
 
 __all__ = [
     "ALL_ESTIMANDS",
+    "ATE",
     "CTMLE",
     "DEFAULT_ESTIMANDS",
     "DRTMLE",
     "LTMLE",
     "TARGETS",
     "TMLE",
+    "BackdoorMeanContrast",
     "CTMLEOutcomeAdaptiveFit",
     "CTMLEPreorder",
     "CTMLESelection",
     "CTMLEStrategy",
     "CVTargeting",
+    "CapabilityError",
     "CausalData",
+    "CausalStudy",
     "CleverlyError",
     "ConvergenceWarning",
+    "CrossFitting",
     "DataError",
+    "ExplicitAdjustmentProvider",
     "Identification",
+    "IdentifiedEffect",
+    "Inference",
     "LongitudinalData",
     "LongitudinalError",
     "LongitudinalResult",
+    "MethodAvailability",
+    "ModelSpec",
     "NotFittedError",
     "ParameterEstimate",
+    "ParameterKey",
+    "PointTreatment",
     "PositivityWarning",
     "Provenance",
     "Regimen",
+    "Runtime",
     "SuperLearner",
+    "TMLEMethod",
     "TMLEResult",
     "TMLEResultSet",
     "Target",
+    "Targeting",
     "VariableImportanceEntry",
     "VariableImportanceResult",
     "WeightingWarning",

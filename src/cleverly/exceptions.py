@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 __all__ = [
+    "CapabilityError",
     "CleverlyError",
     "ConvergenceWarning",
     "DataError",
@@ -16,6 +17,10 @@ __all__ = [
 
 class CleverlyError(Exception):
     """Base class for every error raised by cleverly."""
+
+
+class CapabilityError(CleverlyError, ValueError):
+    """A well-posed estimand/design/method composition is not implemented."""
 
 
 class LongitudinalError(CleverlyError):

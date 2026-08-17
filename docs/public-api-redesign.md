@@ -1,14 +1,13 @@
 # Public API and extensibility redesign
 
-Status: pre-implementation design plan
+Status: accepted; logical PR 1 implemented
 
 Decision date: 2026-08-17
 
-Implementation status: not started
+Implementation status: logical PR 1 complete; logical PR 2 not started
 
-This document is the required planning gate for the public API redesign. No implementation of the
-redesign should begin until this document has been reviewed and accepted. Once accepted, changes
-should follow the ordered work packages and evidence gates below rather than treating the example
+This document is the implementation contract for the public API redesign. Changes should follow
+the logical PRs, ordered work packages, and evidence gates below rather than treating the example
 syntax as permission to bypass the scientific contracts in
 [`architecture-invariants.md`](architecture-invariants.md) or
 [`evidence.md`](evidence.md).
@@ -16,20 +15,6 @@ syntax as permission to bypass the scientific contracts in
 The redesign is intentionally allowed to break the current alpha API. It should preserve validated
 statistical behavior where the estimand and method are unchanged, but it need not preserve the
 constructor layout, return containers, string-based target declarations, or top-level exports.
-
-Every fenced example below is tagged `text` rather than `python`, and must stay that way until the
-work packages land. A `python`-tagged fence anywhere in the tree has to be registered as an
-executable `doc-section`/`doc-block`:
-`tests/e2e/test_doc_snippets.py::test_every_python_block_has_execution_metadata` counts the raw
-fence markers against the registered blocks, and it is in the **fast** tier. Registering these would
-mean executing `from cleverly import ATE, CausalStudy, PointTreatment` against a package that has
-none of them, and a `catalogue:` marker cannot exempt them either, because they name no receiver in
-that module's `RECEIVERS`. The syntax here is a proposal, so it is quoted rather than run;
-`docs/user-guide.md` is where a fence is a promise the suite keeps.
-
-Note that the count is a plain substring search and cannot tell quotation from code, so writing the
-fence marker inline in a sentence fails the test just as an unregistered example would. That is why
-the paragraph above names the tag instead of showing it.
 
 ## 1. Goals
 
@@ -280,7 +265,7 @@ single scalar estimate.
 
 Recommended basic workflow:
 
-```text
+```python
 from cleverly import ATE, CausalStudy, PointTreatment
 
 study = CausalStudy(
@@ -431,7 +416,7 @@ Mitigation:
 
 Ordinary selection:
 
-```text
+```python
 effect.estimate(method="tmle")
 effect.estimate(method="riesz_tmle")
 effect.estimate(method="ep")
@@ -439,7 +424,7 @@ effect.estimate(method="ep")
 
 Advanced selection:
 
-```text
+```python
 from cleverly.methods import DirectRiesz, RieszTMLEMethod
 
 method = RieszTMLEMethod(
@@ -932,6 +917,49 @@ Required migration aids:
 
 ## 12. Ordered implementation work packages
 
+### 12.1 Logical PRs
+
+The work packages below describe dependency and evidence order, but they are too broad to be safe
+review units. Implementation is divided into the following logical PRs. A PR is complete only when
+its behavior is covered by ordinary unit, integration, and end-to-end tests in the fast tier, plus
+the relevant statistical studies in the slow tier. Documentation examples are explanatory material,
+not an executable test suite.
+
+1. **Point-treatment ATE vertical slice and validation policy.** Add immutable
+   `PointTreatment`, `ATE`, `CausalStudy`, explicit-adjustment identification,
+   `IdentifiedEffect`, method capability records, and normalized analytic-TMLE configuration.
+   Route estimation through the current `TMLE` engine and return the ordinary result directly,
+   with structured identification and parameter metadata attached. Prove bit-for-bit parity with
+   the existing binary ATE path and refuse unsupported methods before fitting. In the same PR,
+   remove documentation *execution* from pull-request and pytest gates, while keeping the static
+   documentation checks — link resolution and fence syntax — in the fast tier, and covering API
+   examples with real fast-tier e2e tests.
+   Persistence explicitly refuses this new result until PR 2 can preserve its structured
+   identification and parameter keys; it must not write a file that silently loses causal context.
+2. **Complete the foundational API and make the clean break.** Add the remaining evidenced typed
+   point and longitudinal designs/estimands, complete immutable configuration groups and shared
+   result/capability contracts, persist their structured metadata, adapt point and longitudinal
+   engines, add migration tooling, and then remove the old beginner-facing top-level constructors.
+   This completes work package 1 rather than leaving two public computational paths.
+3. **Assessment contract.** Implement work package 2 across every result family, including
+   capability-aware diagnostics, validation, sensitivity, caching, persistence, and explicit
+   refusals.
+4. **Nested Riesz engine and initial evidenced catalog.** Complete the paper audit and implement
+   work package 3 as one scientific review unit, including analytic/direct representers,
+   `alpha_star`, nested composition, persistence, diagnostics, and all independent evidence gates.
+5. **Optional integrations and heterogeneous effects.** Implement DoWhy and EP as two separately
+   reviewable commits in one integration PR only if their dependency and release schedules remain
+   compatible; otherwise split the PR without changing their work-package order. Neither is a
+   prerequisite for the core package.
+6. **Catalog expansion.** Add each new parameter family in a target-specific PR with its own
+   derivation, registry/evidence rows, mutation witnesses, refusals, documentation, and statistical
+   study. Unrelated estimands must not be bundled merely to reduce PR count.
+
+This is intentionally a small number of architectural PRs. The exception is catalog expansion,
+where scientific reviewability is more important than minimizing count.
+
+### 12.2 Work-package details
+
 ### Work package 0: approve the design and scientific reading list
 
 Deliverables:
@@ -1072,7 +1100,7 @@ refusals, documentation, and simulation studies.
 - pin the intentionally small top-level export list;
 - test named presets and typed strategies normalize to the same configuration;
 - test error messages at identification and pre-fit capability boundaries;
-- run complete beginner workflows as documentation tests;
+- run complete beginner workflows as ordinary end-to-end tests;
 - preserve pandas, polars, Arrow-backed pandas, and array ingestion behavior.
 
 ### 13.2 Identification tests
@@ -1169,14 +1197,28 @@ For every registered functional:
   environment that installs `cleverly[dowhy]` (section 10.3), not checks whose skip is accepted;
 - missing optional dependency behavior;
 - persistence round trips for every built-in method/result family;
-- migration-guide transcripts;
-- Ruff across the entire tree, including Markdown examples;
+- migration-guide workflows covered by ordinary end-to-end tests;
+- Ruff across the entire tree, which formats but does not lint the Markdown examples;
 - mypy over `src/cleverly`;
 - smallest relevant tests while iterating, then complete local fast and relevant slow tiers;
+- documentation examples are not executed as tests and are not a correctness gate, but their links
+  and their syntax are checked in the fast tier, because neither check needs to run them;
 - no reliance on GitHub Actions as a correctness signal while the repository's stated budget
   condition remains in force.
 
 ## 14. Documentation plan
+
+Reading the rendered prose is an intentional act, not work performed for every pull request. No
+example is executed as a substitute for a test: every behavioral claim needed for correctness
+belongs in the existing fast or slow pytest tiers as a unit, integration, or end-to-end test.
+
+What can be checked statically is checked on every change instead, in the ordinary fast tier —
+links resolve (`tests/unit/test_documentation_links.py`) and every `python` fence parses
+(`tests/unit/test_documentation_examples.py`). There is deliberately no documentation dispatch
+workflow: both checks are cheap enough to run unconditionally, so a separate suite would re-run
+them while reading like an additional gate. Should the project later grow a documentation *site*,
+building or publishing it is the case that would justify reopening this and adding a dispatch;
+linting what is already linted is not.
 
 The eventual implementation must update:
 
@@ -1275,17 +1317,18 @@ mediation entries until their separate source audits pass.
 
 ## 17. Pre-implementation checklist
 
-Implementation may begin only after all boxes below are checked in a reviewed revision of this
-document:
+Each logical PR may begin when the decisions and scientific sources it depends on are checked.
+Riesz, DoWhy, and EP research gates do not block the point-treatment API slice, but they must be
+complete before their respective implementation PR begins.
 
-- [ ] Product/API design accepted.
-- [ ] Clean-break release target selected.
+- [x] Product/API design accepted.
+- [x] Clean-break release target selected: the foundational API PR.
 - [ ] Riesz TMLE paper read first-hand and precise results recorded.
 - [ ] RieszCML revision pinned and paper/code discrepancies recorded.
 - [ ] EP paper read first-hand and first supported contrasts confirmed.
 - [ ] Initial Riesz catalog enumerated with evidence status for every entry.
 - [ ] DoWhy supported version and public adapter boundary confirmed.
 - [ ] Old-to-new migration examples agreed.
-- [ ] Work package 1 acceptance tests written or enumerated at test-case level.
-- [ ] Architecture-invariant changes drafted.
-- [ ] No implementation change has been mixed into the planning commit.
+- [x] Logical PR 1 acceptance tests enumerated at test-case level in section 12.1.
+- [x] Architecture-invariant changes for logical PR 1 drafted with its implementation.
+- [x] Planning was merged separately before implementation changes.
