@@ -931,8 +931,9 @@ not an executable test suite.
    Route estimation through the current `TMLE` engine and return the ordinary result directly,
    with structured identification and parameter metadata attached. Prove bit-for-bit parity with
    the existing binary ATE path and refuse unsupported methods before fitting. In the same PR,
-   remove documentation execution from pull-request and pytest gates; documentation work runs only
-   from an intentional manual workflow, while API examples are covered by real fast-tier e2e tests.
+   remove documentation *execution* from pull-request and pytest gates, while keeping the static
+   documentation checks — link resolution and fence syntax — in the fast tier, and covering API
+   examples with real fast-tier e2e tests.
    Persistence explicitly refuses this new result until PR 2 can preserve its structured
    identification and parameter keys; it must not write a file that silently loses causal context.
 2. **Complete the foundational API and make the clean break.** Add the remaining evidenced typed
@@ -1197,22 +1198,27 @@ For every registered functional:
 - missing optional dependency behavior;
 - persistence round trips for every built-in method/result family;
 - migration-guide workflows covered by ordinary end-to-end tests;
-- Ruff across the entire tree, including Markdown examples;
+- Ruff across the entire tree, which formats but does not lint the Markdown examples;
 - mypy over `src/cleverly`;
 - smallest relevant tests while iterating, then complete local fast and relevant slow tiers;
-- documentation examples are not executed as tests and are not a correctness gate;
+- documentation examples are not executed as tests and are not a correctness gate, but their links
+  and their syntax are checked in the fast tier, because neither check needs to run them;
 - no reliance on GitHub Actions as a correctness signal while the repository's stated budget
   condition remains in force.
 
 ## 14. Documentation plan
 
-Documentation generation and review are intentional actions, not work performed for every pull
-request. A manually dispatched documentation workflow may lint links, build or publish the docs,
-and report rendering failures, but it must not execute examples as a substitute for tests. Every
-behavioral claim needed for correctness belongs in the existing fast or slow pytest tiers as a
-unit, integration, or end-to-end test. A code PR may update affected prose without rebuilding the
-documentation site; the maintainer triggers the documentation workflow when a rendered review or
-publication is wanted.
+Reading the rendered prose is an intentional act, not work performed for every pull request. No
+example is executed as a substitute for a test: every behavioral claim needed for correctness
+belongs in the existing fast or slow pytest tiers as a unit, integration, or end-to-end test.
+
+What can be checked statically is checked on every change instead, in the ordinary fast tier —
+links resolve (`tests/unit/test_documentation_links.py`) and every `python` fence parses
+(`tests/unit/test_documentation_examples.py`). There is deliberately no documentation dispatch
+workflow: both checks are cheap enough to run unconditionally, so a separate suite would re-run
+them while reading like an additional gate. Should the project later grow a documentation *site*,
+building or publishing it is the case that would justify reopening this and adding a dispatch;
+linting what is already linted is not.
 
 The eventual implementation must update:
 

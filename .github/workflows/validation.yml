@@ -1,15 +1,14 @@
 name: manual-validation
 
+# Statistical validation only. Documentation has no dispatch of its own on purpose: the
+# links and example-syntax checks are ordinary fast-tier tests and the markdown formatter
+# runs in `ci.yml`'s lint job, so a documentation suite here would re-run checks that
+# already run unconditionally -- which reads as a separate gate while adding no coverage.
 on:
   workflow_dispatch:
     inputs:
-      suite:
-        description: Long-running validation to execute
-        type: choice
-        options: [statistical, documentation]
-        default: statistical
       selection:
-        description: Optional pytest node id for statistical validation
+        description: Optional pytest node id; the whole slow tier when empty
         type: string
         default: ""
 
@@ -30,7 +29,6 @@ jobs:
           echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
           python -m tests.parallel
       - name: Statistical validation
-        if: inputs.suite == 'statistical'
         env:
           SELECTION: ${{ inputs.selection }}
         run: |
@@ -39,17 +37,3 @@ jobs:
           else
             pytest -m slow -q -n auto --durations=20
           fi
-      # A convenience entry point for a maintainer reviewing the prose, not a gate: every
-      # check below also runs unconditionally, the tests in the fast tier and the formatter
-      # in `ci.yml`'s lint job. Enforcement lives there.
-      #
-      # `ruff check` is deliberately absent. The linter does not read markdown -- pointed at
-      # `README.md` it reports "No Python files found" and exits zero -- so naming it here
-      # would read as a documentation check while validating nothing. The formatter does
-      # reach inside `python` fences, but skips any block it cannot parse, which is why the
-      # example syntax check is a test rather than a ruff invocation.
-      - name: Intentional documentation review
-        if: inputs.suite == 'documentation'
-        run: |
-          pytest tests/unit/test_documentation_links.py tests/unit/test_documentation_examples.py -q
-          ruff format --check .

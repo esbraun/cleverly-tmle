@@ -137,10 +137,18 @@ xdist balances it and inner `n_jobs` remains one.
 
 Documentation examples are explanatory material, not executable tests or statistical evidence.
 Behavior shown in a guide must be covered by a unit, integration, or end-to-end test in the fast
-tier, or by a named statistical study in the slow tier. Documentation review/building is an
-intentional manual workflow and never a pull-request job. Evidence manifests such as
+tier, or by a named statistical study in the slow tier. Evidence manifests such as
 `docs/evidence.md` remain test-enforced source registries; this rule concerns executing prose and
 examples as the test suite.
+
+What is checked about the documentation itself is static, and therefore belongs in the ordinary
+fast tier rather than behind a dispatch: links resolve, and every `python` fence parses. There is
+deliberately no manual documentation job. The two properties above are cheap enough to run on every
+change, and a dispatch that re-ran them would read as a gate while adding no coverage — the failure
+mode the removed job had, whose `ruff check README.md docs` validated nothing at all because the
+linter does not read Markdown. Note the division: the ruff *formatter* does reach inside `python`
+fences and is covered by the whole-tree `ruff format --check .`, but it skips any block it cannot
+parse, so syntax is a test's job and not the formatter's.
 
 Size every layer from `tests/parallel.available_cores()`, which reads a container's CPU quota and
 affinity mask through joblib. Neither `os.cpu_count()` nor xdist's `-n auto` does. Nesting pools is

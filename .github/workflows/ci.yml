@@ -66,8 +66,9 @@ jobs:
         run: |
           echo "PYTEST_XDIST_AUTO_NUM_WORKERS=$(python -m tests.parallel --workers)" >> "$GITHUB_ENV"
           python -m tests.parallel
-      # Behavioral examples belong in this fast unit/integration/e2e tier. Documentation
-      # is reviewed only through the manually dispatched documentation workflow.
+      # Behavioral examples belong in this fast unit/integration/e2e tier, and so do the
+      # static documentation checks -- links resolve, every `python` fence parses. Neither
+      # executes an example, and both are cheap, so there is no documentation dispatch.
       - run: pytest -m "not slow" -q -n auto
 
   # The numba benchmark's *correctness* tier. It lives in `tests/unit/` and would
