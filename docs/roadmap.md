@@ -60,27 +60,11 @@ number:
 
 ## Ordered priorities
 
-### 1. Extend the published DR-TMLE surface
-
-Work these in order. The canonical implementation reference is the MIT-licensed
-[`benkeser/drtmle`](https://github.com/benkeser/drtmle) R package, read at the commit
-[the references](references.md#doubly-robust-inference-drtmle) pin. Its source is implementation
-provenance; van der Laan (2014), Benkeser et al. (2017), and Benkeser & Hejazi (2023) supply the
-statistical claims.
-
-1. **Cross-validated DR-TMLE — source audit.** Benkeser & Hejazi (2023, §4.7) and the canonical
-   package's `cvFolds` path provide published and executable guidance. First map that construction
-   to this package's distinct nuisance cross-fitting, `targeting_scheme="fold"`, and
-   `cv_evaluation=True` semantics. Implement only the modes for which the published parameter,
-   corrected influence curve, and fold aggregation coincide; a shared name such as “CV-TMLE” is
-   not proof that they do.
-2. **Bivariate reduction — published support, pending source read.** van der Laan (2014),
-   Theorem 3, supplies the regularity conditions; Benkeser et al. (2017) supplies the bivariate
-   expansion; and the canonical package implements and tests
-   `reduction="bivariate"`. Read Theorem 3 into the
-   contract before transcribing the single two-column reduced mechanism and its different extra
-   score equation. This is an alternative to the implemented univariate reduction, not an assumed
-   improvement over it.
+DR-TMLE has no active item. Its cross-validated source audit and bivariate reduction are complete.
+The latter follows van der Laan (2014), Theorem 3 and the pinned R `estimategrn`, `fluctuateQ2`,
+and `eval_Dstar_Q` branches; those branches apply the construction armwise to a discrete
+multi-level treatment, while univariate remains the default. The multi-arm surface is therefore
+an implementation-backed extension of the binary theorem and is labelled as such.
 
 The remaining DR-TMLE refusals are **waiting on published theory** for this package's requested
 composition. Public implementations of ordinary TMLE for `att`/`atc`, stochastic interventions,
@@ -92,7 +76,7 @@ required identification, corrected curve, remainder, and rate conditions.
 Keep these refusals until a paper supplies the missing reduced regressions, corrected influence
 curve, remainder, and rate conditions; do not generalize the mean construction by analogy.
 
-### 2. Complete the LTMLE implementation surface
+### 1. Complete the LTMLE implementation surface
 
 Work these in order, retaining the same oracle and evidence gates as the implemented longitudinal
 estimands.
@@ -117,7 +101,7 @@ estimands.
    needs its own published identification and influence-function result. In every case the full
    backward recursion must rerun when the bound changes an earlier pseudo-outcome.
 
-### 3. Add published longitudinal estimands
+### 2. Add published longitudinal estimands
 
 Additional longitudinal estimands, including interventions on competing events, are **waiting on
 published theory** until their separate identification assumptions, influence functions, targeting
@@ -125,7 +109,7 @@ construction, and inference conditions are available. Once a source supplies tho
 the estimand in both directions to the oracle registry and evidence gates rather than treating it
 as another option on the existing cause-specific estimand.
 
-### 4. Add time-respecting cross-fitting
+### 3. Add time-respecting cross-fitting
 
 Blocked-temporal and rolling-origin cross-fitting are next after the longitudinal estimands. Treat
 each as a **source audit**: select a published sample-splitting result whose dependence assumptions

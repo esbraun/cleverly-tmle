@@ -2,12 +2,14 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
 
 .. warning::
 
-   **What this variant ships under is *conditional validity*.**  The algorithm computes what
-   Theorem 1 derives -- checked against the theorem's own appendices, against the Gateaux
-   derivative of the parameter, against exact finite-support laws, and against the remainder
-   identities -- and the interval it reports is valid **conditional on** the caller obtaining
-   adequate primary *and reduced-regression* fits.  Those are rate conditions on five
-   estimated functions, they are not verifiable from a fit's own output, and in particular
+   **What this variant ships under is *conditional validity*.**  The default algorithm computes
+   what Benkeser et al.'s Theorem 1 derives, and the bivariate option computes van der
+   Laan's Theorem 3 construction armwise -- checked against the theorem's appendices, against
+   the Gateaux derivative of the parameter, against exact finite-support laws, and against
+   the remainder identities -- and the interval it reports is valid **conditional on** the
+   caller obtaining
+   adequate primary *and reduced-regression* fits.  Those are method-specific rate conditions on
+   estimated functions; they are not verifiable from a fit's own output, and in particular
    **numerical score convergence does not verify them**.  ``docs/drtmle.md`` is the contract
    in full; three things a caller's numbers depend on are here.
 
@@ -19,8 +21,8 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       primary nuisances, and with **wrong** ones the estimate moves while every score
       equation still passes.  Inspect the reduced fits themselves --
       ``result.extra["drtmle"].diagnostics``, keyed ``"qr"``, ``"gr1"``, ``"gr2"`` on the
-      univariate reduction and ``"gamma_a"``, ``"gamma_m"``, ``"r_a"``, ``"r_m"``, ``"e"``
-      on the missing-outcome one.
+      univariate reduction, ``"qr"``, ``"gr1"`` on the bivariate reduction, and
+      ``"gamma_a"``, ``"gamma_m"``, ``"r_a"``, ``"r_m"``, ``"e"`` on the missing-outcome one.
    2. **The interval is demonstrably better than a plain TMLE's, and it is not nominal.**
       Over 6,000 fits in two independent seed batches, the plain interval covers
       ``0.532``/``0.472`` against this estimator's ``0.844``/``0.848`` at ``n = 2,400`` in the
@@ -78,8 +80,9 @@ regressions of each nuisance's residual on the other:
     (9)  \quad & P_n[\, Q_r(a, W)/g^*(a|W)\,\{1_a - g^*(a|W)\}\,] = 0 \\
     (10) \quad & P_n[\, 1_a\,g_{r,2}(a|W)/g_{r,1}(a|W)\,\{Y - \bar Q^*(a, W)\}\,] = 0
 
-The reductions are univariate however many covariates the fit adjusted for, so they can be
-estimated fast enough whether or not the primary nuisances can.
+Those are the default univariate equations.  The bivariate alternative replaces the
+two reduced mechanisms by :math:`g_r=P(A=a\mid\hat{\bar Q}_a,\hat g_a)` and equation (10)'s
+covariate by :math:`1_a(g_r-g)/(g g_r)`, separately for every discrete arm.
 :mod:`cleverly.estimators.reduced` fits them and
 :func:`~cleverly.estimators.targeting.solve_with_reduction` solves the three equations
 together.
@@ -103,14 +106,17 @@ against 0.06850, which is a fact about one draw and not a general narrowing.  A 
 fit's ``score_check`` says so in its own verdict rather than signing the fit off as having
 solved the efficient score equation.
 
-**What it costs.**  Two further learner fits per arm per round, refitted *inside* the
-alternation, plus a mechanism fluctuation.  A truncation curve or an MNAR sweep on a
+**What it costs.**  Two further learner fits per arm per round for the univariate reduction,
+or one for the bivariate reduction, refitted *inside* the alternation, plus a mechanism
+fluctuation.  A truncation curve or an MNAR sweep on a
 ``DRTMLE`` result therefore costs about a fit per point rather than a fraction of one:
 ``retarget`` here is no longer arithmetic on cached arrays, which is the one contract this
 variant breaks and the reason it is a class of its own rather than a keyword.
 
-Scope follows the vetted R implementation for arbitrary discrete treatment levels, the
-``mean`` group, and Benkeser et al.'s univariate reduction.  It also includes Díaz & van der
+Scope follows the vetted R implementation for arbitrary discrete treatment levels with either
+complete-outcome reduction, on the ``mean`` group.  The multi-arm bivariate construction is the
+pinned implementation's armwise extension of van der Laan's binary theorem, not a claim that the
+theorem itself was stated for multiple arms.  It also includes Díaz & van der
 Laan (2017)'s binary randomized-trial construction for MAR outcomes, without cross-fitting;
 there five reductions and separate treatment, observation and outcome tilts replace the
 complete-data pair. Continuous treatment, observational missing outcomes, missing treatment,
@@ -176,9 +182,10 @@ class ReducedFit:
     reduction:
         The construction that was actually fitted, read off the reduced set rather than off
         the constructor argument so the two cannot drift: ``"univariate"`` for Benkeser et
-        al.'s three regressions, ``drtmle``'s own default, and ``"missing_outcome"`` for
-        Díaz & van der Laan's five.  ``guard=()`` fits none and reports the setting asked
-        for, there being no fit to report instead.
+        al.'s three regressions and ``drtmle``'s own default, ``"bivariate"`` for van der
+        Laan's joint reduced probability, and ``"missing_outcome"`` for Díaz & van der
+        Laan's five.  ``guard=()`` fits none and reports the setting asked for, there being
+        no fit to report instead.
     g_bounds:
         The truncation :math:`g_{r,2}`'s target was formed at, which is fixed at fit time --
         see :func:`~cleverly.estimators.reduced.fit_reduced`.  On record because a reader of
@@ -191,9 +198,10 @@ class ReducedFit:
         was formed at it.
     diagnostics:
         Super Learner diagnostics per regression.  Keyed ``"qr"``, ``"gr1"`` and ``"gr2"``
-        on the univariate reduction, and ``"gamma_a"``, ``"gamma_m"``, ``"r_a"``, ``"r_m"``
-        and ``"e"`` on the missing-outcome one -- the two constructions do not fit the same
-        regressions, so they cannot report under the same names.
+        on the univariate reduction, ``"qr"`` and ``"gr1"`` on the bivariate one, and
+        ``"gamma_a"``, ``"gamma_m"``, ``"r_a"``, ``"r_m"`` and ``"e"`` on the missing-outcome
+        one -- the constructions do not fit the same regressions, so they cannot report under
+        the same names.
     """
 
     guard: tuple[str, ...]
@@ -258,7 +266,9 @@ class DRTMLE(TMLE):
     reduction:
         ``"univariate"`` (default) is Benkeser et al. (2017)'s three univariate regressions.
         ``"bivariate"`` -- van der Laan (2014)'s original single bivariate reduced mechanism
-        -- is derived but not written, and is refused by name.
+        -- fits :math:`P(A=a\mid\hat{\bar Q}(a,W),\hat g(a\mid W))` and uses its distinct
+        outcome-drift score, as in the pinned canonical R package.  It is available for discrete
+        complete-outcome fits; univariate remains the default.
     update_order:
         On complete-outcome fits, which route a round of the alternation takes,
         ``"cleverly"`` (default) or
@@ -333,10 +343,19 @@ class DRTMLE(TMLE):
 
     Notes
     -----
-    Refused by name, each because the derivation read here does not cover it rather than
-    because the loop would not run:
+    With ``cross_fit=True``, the supported complete-outcome construction is the pinned R
+    ``drtmle`` package's ``cvFolds`` path: the primary and reduced regressions predict out
+    of fold, their row-aligned predictions enter one pooled alternation, and the report is
+    the whole-sample plug-in with covariance from the rowwise corrected curve.  In this
+    package's more explicit vocabulary that is ``targeting_scheme="pooled"`` and
+    ``cv_evaluation=False``.  This source mapping is implementation provenance for the
+    package's separate cross-fitting argument; the published theorem itself is not
+    cross-fitted.
 
-    * a continuous treatment and ``reduction="bivariate"``;
+    Refused by name where the derivation read here does not cover it rather than because the
+    loop would not run:
+
+    * a continuous treatment, whose density-based equations are not derived here;
     * ``att``/``atc`` and the ``interventions=``, ``shifts=``, ``incremental=`` and ``msm=``
       axes -- each is a different score equation with no reduced-dimension derivation;
     * observational treatment with ``delta=``, missing treatment, and ``intermediate=``.
@@ -463,8 +482,6 @@ class DRTMLE(TMLE):
             )
         if self.reduction not in REDUCTIONS:
             raise ValueError(f"reduction must be one of {list(REDUCTIONS)}; got {self.reduction!r}")
-        if self.reduction != "univariate":
-            refuse_unsupported(self.reduction)
         if self.reduced_crossfit not in REDUCED_CROSSFITS:
             raise ValueError(
                 f"reduced_crossfit must be one of {list(REDUCED_CROSSFITS)}; got "
@@ -517,7 +534,9 @@ class DRTMLE(TMLE):
                 )
         if self.targeting_scheme == "fold" or self.cv_evaluation:
             raise NotImplementedError(
-                "DRTMLE supports only its pooled report. targeting_scheme='fold' would "
+                "DRTMLE supports the canonical cvFolds mapping only: cross-fitted primary "
+                "and reduced regressions followed by one pooled alternation and report. "
+                "targeting_scheme='fold' would "
                 "need each fold's reduced regressions and alternation; cv_evaluation=True "
                 "would need the corrected parameter and influence curve derived under "
                 "fold-wise evaluation. Neither follows by looping over the pooled "
@@ -857,6 +876,12 @@ class DRTMLE(TMLE):
                 "the reduced regressions' own definitions, not merely in the clever "
                 "covariate, and no theorem read here says what it is. "
                 "Fit a plain TMLE, which is derived there."
+            )
+        if self.guard and self.reduction == "bivariate" and data.has_missing_outcome:
+            raise NotImplementedError(
+                "reduction='bivariate' is the complete-outcome construction. The "
+                "randomized missing-outcome theorem uses its own five reductions; use "
+                "reduction='univariate' (the setting is replaced by that construction)."
             )
         # Both of these are about the *array*, not about the extra score equations, so
         # they are asked outside the guarded block: with `guard=()` the fit is bit for bit

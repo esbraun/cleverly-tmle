@@ -70,6 +70,14 @@ def ordinary():
 
 
 @pytest.fixture(scope="module")
+def bivariate_fit():
+    """The canonical two-column reduction on the same cross-fitted draw as ``fit``."""
+    return (
+        DRTMLE(reduction="bivariate", **SETTINGS).fit(frame(), outcome="Y", treatment="A").single()
+    )
+
+
+@pytest.fixture(scope="module")
 def repeated():
     """Two draws, enough to verify that repeated cross-fitting changes the reductions.
 
@@ -158,6 +166,29 @@ class TestWhatItReports:
         assert report.reduction == "univariate"
         assert set(report.diagnostics) == {"qr", "gr1", "gr2"}
         assert report.missingness_bound is None, "no reduction was formed at that bound"
+
+
+class TestTheBivariateFit:
+    """The pinned R construction runs through the production cross-fitted alternation."""
+
+    def test_it_solves_and_reports_the_bivariate_correction(self, bivariate_fit) -> None:
+        reduction = bivariate_fit.repeats[0].fluctuations["mean"].reduction
+
+        assert reduction.reduced.reduction == "bivariate"
+        assert np.isnan(reduction.reduced.gr2).all()
+        assert set(bivariate_fit.extra["drtmle"].diagnostics) == {"qr", "gr1"}
+        assert bivariate_fit.validation.score_check().passed
+        assert bivariate_fit.validation.correction_check().passed
+
+    def test_it_round_trips_without_becoming_univariate(self, bivariate_fit, tmp_path) -> None:
+        back = load(bivariate_fit.save(tmp_path / "bivariate.npz"))
+        before = bivariate_fit.repeats[0].fluctuations["mean"].reduction.reduced
+        after = back.repeats[0].fluctuations["mean"].reduction.reduced
+
+        assert after.reduction == "bivariate"
+        np.testing.assert_allclose(after.qr, before.qr, rtol=0, atol=0)
+        np.testing.assert_allclose(after.gr1, before.gr1, rtol=0, atol=0)
+        assert np.isnan(after.gr2).all()
 
 
 class TestThePointEstimateIsAPlainTMLEs:
@@ -786,8 +817,9 @@ class TestTheRefusals:
             )
 
     def test_the_bivariate_reduction(self) -> None:
-        with pytest.raises(NotImplementedError, match="bivariate"):
-            DRTMLE(reduction="bivariate", **SETTINGS)
+        estimator = DRTMLE(reduction="bivariate", **SETTINGS)
+
+        assert estimator.reduction == "bivariate"
 
     def test_an_unknown_guard(self) -> None:
         with pytest.raises(ValueError, match="guard entries"):
@@ -805,8 +837,12 @@ class TestTheRefusals:
             DRTMLE(**{**SETTINGS, keyword: value})
 
     def test_fold_wise_targeting(self) -> None:
-        with pytest.raises(NotImplementedError, match="supports only its pooled report"):
+        with pytest.raises(NotImplementedError, match="canonical cvFolds mapping only"):
             DRTMLE(targeting_scheme="fold", **SETTINGS)
+
+    def test_fold_wise_evaluation(self) -> None:
+        with pytest.raises(NotImplementedError, match="corrected parameter and influence curve"):
+            DRTMLE(cv_evaluation=True, **SETTINGS)
 
     def test_a_missing_outcome(self) -> None:
         sample = frame().copy()

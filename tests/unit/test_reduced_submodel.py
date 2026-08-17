@@ -20,6 +20,8 @@ it is a real property, and it is why no ``test_influence_gateaux*`` module can s
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -132,6 +134,41 @@ class TestTheOutcomeCovariate:
         assert np.max(np.abs(binding.observed - loose.observed)) > 1e-3
         # The stored array is untouched: the bound is applied on the way out.
         assert np.min(reduced.gr1) < 0.45 or np.max(reduced.gr1) > 0.55
+
+
+class TestTheBivariateOutcomeCovariate:
+    """van der Laan's joint ``(Q, g)`` reduction has a different score direction."""
+
+    def test_it_is_the_pinned_drtmle_h2_at_nonzero_drift(self) -> None:
+        cell, treatment, _ = realised()
+        mechanism = WRONG_G[cell]
+        base = reduced_at(WRONG_G, WRONG_Q)
+        gr = np.column_stack([0.72 - 0.08 * cell, 0.31 + 0.09 * cell])
+        reduced = replace(base, gr1=gr, gr2=np.full_like(gr, np.nan), reduction="bivariate")
+
+        submodel = reduced_outcome_submodel(treatment, reduced, bounds=INERT, propensity=mechanism)
+        armwise_g = np.column_stack([1.0 - mechanism, mechanism])
+        ratio = (gr - armwise_g) / (armwise_g * gr)
+        expected = np.column_stack([(treatment == arm) * ratio[:, j] for j, arm in enumerate(ARMS)])
+
+        np.testing.assert_allclose(submodel.observed, expected, atol=1e-14, rtol=0)
+        assert np.max(np.abs(expected)) > 1e-2, "the formula witness must not vanish"
+        # Deliberate mutation: omitting the outer 1/g factor is not algebraically equivalent.
+        mutated = np.column_stack(
+            [
+                (treatment == arm) * (gr[:, j] - armwise_g[:, j]) / gr[:, j]
+                for j, arm in enumerate(ARMS)
+            ]
+        )
+        assert np.max(np.abs(submodel.observed - mutated)) > 1e-2
+
+    def test_it_requires_the_current_mechanism(self) -> None:
+        _, treatment, _ = realised()
+        base = reduced_at(WRONG_G, WRONG_Q)
+        reduced = replace(base, gr2=np.full_like(base.gr2, np.nan), reduction="bivariate")
+
+        with pytest.raises(ValueError, match="current propensity"):
+            reduced_outcome_submodel(treatment, reduced, bounds=INERT)
 
 
 class TestTheMechanismCovariate:

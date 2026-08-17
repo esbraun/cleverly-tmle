@@ -64,6 +64,7 @@ import pytest
 
 from cleverly import DRTMLE
 from cleverly.data import CausalData
+from cleverly.datasets import make_linear_ate
 from cleverly.estimators import _nuisance as nuisance_module
 from cleverly.estimators import drtmle as drtmle_module
 from cleverly.estimators import reduced as reduced_module
@@ -74,6 +75,7 @@ from cleverly.estimators._nuisance import (
     fit_inner_designs,
 )
 from cleverly.estimators.reduced import ReducedSet, fit_reduced
+from cleverly.inference import cross_validated_variance
 from cleverly.learners import Folds, make_folds
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
@@ -90,6 +92,34 @@ from tests.unit.test_remainder_drtmle import WRONG_G, WRONG_Q
 #: Three folds, which is the fewest the construction accepts: it leaves two out at a time,
 #: so a fold's reduced regression trains on ``K - 2`` folds and there must be one left.
 FOLDS = 3
+
+
+@pytest.fixture(scope="module")
+def source_cv_fit() -> Any:
+    """A cheap unequal-fold fit that distinguishes the source's three CV choices.
+
+    The pinned R ``cvFolds`` path uses held-out predictions for both primary and reduced
+    regressions, then runs one alternation over the assembled rows, averages ``QnStar`` over
+    those rows, and takes ``cov(IC) / n``.  At 101 rows and three folds, an equal ``1/V``
+    average and the cross-validated variance are different numbers, so the alternatives are
+    nonzero mutations rather than descriptions that happen to coincide on balanced folds.
+    """
+    frame, _ = make_linear_ate(n=101, seed=17)
+    return (
+        DRTMLE(
+            estimands=("ey1", "ey0"),
+            outcome_learner="glm",
+            treatment_learner="glm",
+            reduced_outcome_learner="glm",
+            reduced_treatment_learner="glm",
+            n_folds=FOLDS,
+            learner_folds=2,
+            random_state=0,
+            simultaneous=False,
+        )
+        .fit(frame, outcome="Y", treatment="A")
+        .single()
+    )
 
 
 def _folds() -> Any:
@@ -297,6 +327,56 @@ class TestThePooledConstructionTrainsOnOneFoldsComplement:
         assert counts, "the split yielded no folds"
         # Leave-one-out training sets are strictly larger than leave-two-out ones.
         assert min(counts) > law.N - 2 * (law.N // FOLDS)
+
+
+class TestTheCanonicalSourceCVContract:
+    """What the pinned R ``cvFolds`` path maps to in cleverly's separate CV API.
+
+    This is structural implementation provenance, not numerical parity with R and not a
+    theorem for a new estimator.  The training-row tests above pin the out-of-fold primary
+    and reduced regressions; these checks pin the three choices made after those predictions
+    have been assembled.  Each has a neighbouring alternative that is nonzero on this fit.
+    """
+
+    def test_it_runs_one_pooled_alternation_and_no_fold_report(self, source_cv_fit: Any) -> None:
+        fluctuation = source_cv_fit.fluctuations["mean"]
+
+        assert source_cv_fit.config.cross_fit
+        assert source_cv_fit.config.targeting_scheme == "pooled"
+        assert not source_cv_fit.config.cv_evaluation
+        assert not fluctuation.folds
+        assert source_cv_fit.cv_targeting is None
+
+    @pytest.mark.parametrize(("arm", "name"), [(1.0, "ey1"), (0.0, "ey0")])
+    def test_the_plugin_is_the_whole_sample_mean_not_an_equal_fold_average(
+        self, source_cv_fit: Any, arm: float, name: str
+    ) -> None:
+        targeted = np.asarray(source_cv_fit.fluctuations["mean"].targeted.arms[arm])
+        whole_sample = float(np.average(targeted, weights=source_cv_fit.data.weights))
+        equal_fold = float(
+            np.mean(
+                [
+                    np.average(targeted[test], weights=source_cv_fit.data.weights[test])
+                    for _, test in source_cv_fit.nuisance.folds
+                ]
+            )
+        )
+
+        assert [len(test) for _, test in source_cv_fit.nuisance.folds] == [34, 34, 33]
+        assert abs(whole_sample - equal_fold) > 1e-5, "the fold-aggregation mutation vanished"
+        assert source_cv_fit[name].psi == source_cv_fit.nuisance.scaler.unscale_level(whole_sample)
+
+    @pytest.mark.parametrize("name", ["ey1", "ey0"])
+    def test_the_variance_is_from_the_whole_corrected_curve(
+        self, source_cv_fit: Any, name: str
+    ) -> None:
+        estimate = source_cv_fit[name]
+        indices = [test for _, test in source_cv_fit.nuisance.folds]
+        ordinary = float(np.var(estimate.influence_curve, ddof=1) / source_cv_fit.n)
+        fold_evaluated = cross_validated_variance(estimate.influence_curve, indices, None)
+
+        assert abs(ordinary - fold_evaluated) > 1e-5, "the variance mutation vanished"
+        assert estimate.variance == ordinary
 
 
 class TestTheSuppliedFoldMappingIsHonoured:

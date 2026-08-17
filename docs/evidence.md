@@ -71,6 +71,37 @@ do not add registry rows. Their multi-arm constructions have separate evidence i
 `tests/unit/test_multi_arm_collaborative.py`. Binary compatibility remains covered by the
 existing C-TMLE and DR-TMLE suites, which continue down their original branches.
 
+Complete-outcome cross-validated DR-TMLE is a construction over the same targets, not a registry
+addition. Its source audit maps the pinned R `cvFolds` path to
+`cross_fit=True, reduced_crossfit="pooled", targeting_scheme="pooled",
+cv_evaluation=False`: primary and reduced predictions are out of fold, followed by one global
+alternation, a whole-sample plug-in mean, and `cov(IC) / n` from the rowwise corrected curve.
+`tests/unit/test_drtmle_crossfit.py::TestTheCanonicalSourceCVContract` pins the last three choices
+on 101 rows over folds of sizes 34, 34, and 33; both the equal-fold plug-in and cross-validated
+variance are nonzero mutations there. The same module's training-row and longhand cell-mean tests
+pin the first choice for both pooled and nested reduced fits. This is structural implementation
+provenance rather than R numerical parity. It does not establish a published cross-fitted theorem,
+and it supplies no corrected fold-aggregation result for `targeting_scheme="fold"` or
+`cv_evaluation=True`; both refusals remain pinned in `tests/unit/test_drtmle_fit.py`.
+
+The bivariate alternative is also a construction over these targets. Its acceptance chain
+starts at van der Laan (2014), Theorem 3 and the bivariate remainder, then separately pins the
+pinned R source's two-column reduced probability and `(gr-g)/(g*gr)` outcome direction.
+`tests/unit/test_reduced_regressions.py` uses a finite-support joint-conditioning tie that fails if
+either generated design column is replaced by `W`; `tests/unit/test_reduced_submodel.py` keeps a
+nonzero deliberate mutation omitting `1/g`; and `tests/unit/test_oracle_reductions.py` injects the
+exact bivariate conditional expectations with both primary nuisances wrong, recovers `ey1`, `ey0`,
+and `ate`, and requires every score/correction identity to pass. The production cross-fitted fit
+and serialization round trip are pinned in `tests/unit/test_drtmle_fit.py`. `gr2` is `NaN` on this
+path by design, so accidental use of the absent univariate-only regression cannot silently return
+zero. For multiple treatment levels, the pinned R source applies those same branches once per
+requested arm. `tests/unit/test_reduced_regressions.py` checks the three arm-specific joint
+conditional probabilities against an exact finite-support law, and
+`tests/unit/test_multi_arm_collaborative.py` carries a misspecified, nonzero end-to-end witness:
+all armwise corrections are present and the score and correction gates pass. This is evidence for
+the source's armwise extension; it does not rewrite van der Laan's binary theorem as a multi-arm
+one.
+
 The randomized missing-outcome DR-TMLE surface is likewise an estimator variant over those
 registered targets. Its acceptance evidence is Díaz & van der Laan (2017), §2.1, equation (6),
 Theorems 1–2, and equations (11)–(13), plus `tests/unit/test_drtmle_missing.py`. That module keeps

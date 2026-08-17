@@ -17,8 +17,9 @@ extra equations remove is in
 
 ## The release claim, in one paragraph
 
-**Conditional validity.** The algorithm computes what Benkeser, Carone, van der Laan & Gilbert's
-Theorem 1 derives — checked against the theorem's own appendices, against the Gateaux derivative
+**Conditional validity.** The default univariate algorithm computes what Benkeser, Carone, van der
+Laan & Gilbert's Theorem 1 derives; `reduction="bivariate"` computes van der Laan (2014), Theorem
+3's earlier binary construction. Both are checked against their remainder derivations, the Gateaux derivative
 of the parameter, against exact finite-support laws, and against the remainder identities —
 the last two at three arms as well as two, in the union-model cells where exactly one
 correction survives — and
@@ -46,7 +47,7 @@ estimator — which is exactly the case the variant is not for.
 
 A **discrete point treatment** and the `mean` group: every treatment-specific mean and the
 reference-arm contrasts requested through `ey` and `ate`. For multiple levels, the
-implementation follows R `drtmle`'s armwise construction (`R/fluctuate.R`, `fluctuateG`):
+univariate implementation follows R `drtmle`'s armwise construction (`R/fluctuate.R`, `fluctuateG`):
 reduced regressions and the two extra equations are fitted once per arm, and equation (9)
 independently fluctuates each one-vs-rest mechanism margin — response `1(A = a)`, offset
 `logit(g_a)`, covariate `Qr_a / g_a`, one scalar per arm.
@@ -105,6 +106,7 @@ bit for bit.
 | `delta=` | **randomized binary trials only**, using Díaz & van der Laan (2017)'s missing-outcome construction. Set `randomized=True` to estimate the treatment probabilities (the paper's finite-sample recommendation), or pass row-aligned known probabilities as `treatment_probabilities=` to `fit` — as a mapping keyed by treatment level, `{"placebo": p0, "active": p1}`, or as `(n, 2)` in encoded arm order, or as `(n,)` read as the probability of the arm whose code is `1`. This surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no analysis weights or evaluation companion. With `guard=()` the same array instead configures a **plain TMLE** at the design mechanism — bit for bit the ordinary estimator, which is what a pure randomization-probability analysis wants — and none of those conditions applies, because no extra equation is being solved and no theorem claimed. |
 | `weights=` | **fixed analysis weights only.** The estimand is the parameter of the tilted law `dP_w = w dP / E[w]`. The derivation was read at an unweighted law; transporting it needs the reduced regressions to be `P_w`-conditional expectations, which weighted loss gives, *and* the mechanism they condition on and divide by to be the `P_w` mechanism, which holds because they are built from `nuisance.propensity`. `tests/unit/test_remainder_drtmle.py` runs the whole expansion at two tilted laws and keeps the wrong transport as a control that fails. |
 | `repeats=` | supported; varies exactly one thing, the **primary split**. Each draw fits its own reductions and runs its own alternation; the report is the mean of the draws with the curves averaged elementwise. `result.extra["drtmle"]` describes **draw 0 only**. |
+| `reduction="bivariate"` | supported for complete outcomes and discrete treatment. It fits one reduced probability on the two-column `(Qbar-hat(a,W), g-hat(a|W))` design and uses van der Laan's distinct `D_Y`, once per arm as the pinned R implementation does; univariate remains the default because its reduced regressions can converge faster. The cited theorem is binary, so the multi-arm case is an implementation-backed armwise extension rather than a claim about that theorem's literal scope. |
 | `library="rich"` | computes, but steps **outside** the cross-fitting argument of [section 3](#reduced-regression-cross-fitting) via `forest`, whose fitted class grows with `n`. Not refused; scoped. |
 | `g_bounds=` a fixed value | permitted, and it puts the fit outside the asymptotic half of the [bound-inactive scope](#the-bound-inactive-scope): the argument needs a bound *sequence* going to zero, which `"auto"` supplies and a fixed bound above `ess inf g_0` does not. |
 
@@ -116,7 +118,7 @@ raise at construction or at `fit`, with a message naming what a derivation would
 | refused | why |
 | --- | --- |
 | continuous treatment | the reductions and corrections are indexed by treatment mass at a discrete arm; a continuous dose requires density-based equations |
-| `reduction="bivariate"` | van der Laan (2014)'s single bivariate reduced mechanism. The equations are reproduced in Benkeser & Hejazi (2023); the **theorem** requires van der Laan (2014) Theorem 3, which is not in hand. Missing with it: the formal statement, its assumptions, the asymptotic expansion, its influence function, its remainder decomposition, and any cross-fitted version. |
+| `reduction="bivariate"` with `delta=` | the supported missing-outcome estimator is Díaz & van der Laan's distinct five-reduction construction, not the complete-outcome one- versus two-dimensional choice. `reduction="univariate"` selects that published missing-data cycle; a bivariate analogue of its five reductions and three correction blocks has not been derived here. |
 | `att` / `atc` | a different score equation with no reduced-dimension derivation |
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |
 | observational treatment with `delta=` | Díaz & van der Laan (2017) derives the construction for randomized trials; the canonical package accepting observational treatment is implementation provenance, not a theorem for that composition |
@@ -145,8 +147,8 @@ locators that resolve independently of a local copy.
 | Díaz & van der Laan (2017), *Doubly robust inference for targeted minimum loss-based estimation in randomized trials with missing outcome data*, Statistics in Medicine 36:3807–3819 | §2.1's observed-data model and EIF; equation (6)'s reduced regressions; Theorems 1–2 and equations (11)–(13)'s correction terms and recursive targeting algorithm. The article explicitly leaves a cross-validated extension to future work. |
 | Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using `drtmle`*, Observational Studies 9(2):43–78 | equations (5)–(10) and both reduced-regression constructions; the package workflow; multi-level treatments (§4.6, pp. 66–67); cross-validation (§4.7, p. 69) |
 | Benkeser, Carone, van der Laan & Gilbert (2016), U.C. Berkeley Division of Biostatistics Working Paper Series, paper 356 | §3.1's bivariate construction and its `D_A`/`D_Y` displays (p. 9); equation (2) (p. 9); §3.2's univariate `D_Y`, **Theorem 1**, `D^{*,#}`, the variance and the recursive algorithm (pp. 10–11); appendix A's bivariate remainder and rate conditions (pp. 19–20); appendix B's univariate remainder (p. 21); appendix C on unnecessary correction terms (pp. 21–22) |
-| Benkeser, Carone, van der Laan & Gilbert (2017), Biometrika 104(4):863–880 | the *published* Theorem 1, authoritative wherever the working paper and it differ. **Unread**, and it gates nothing — see [the sign section](#the-sign-of-the-mechanism-correction). |
-| van der Laan (2014), IJB 10(1):29–57, Theorem 3 | the bivariate construction's regularity conditions. **Not in hand**, which is why `reduction="bivariate"` is refused. |
+| Benkeser, Carone, van der Laan & Gilbert (2017), Biometrika 104(4):863–880 | the *published* Theorem 1, authoritative wherever the working paper and it differ; §3.1 also states the earlier bivariate construction and the simulations compare both corrected TMLEs. |
+| van der Laan (2014), IJB 10(1):29–57, Theorem 3 and its proof | the bivariate construction's binary parameter, targeted recursion, corrected influence function `D* - D_A - D_Y`, Donsker/mean-square assumptions, product remainders, and union-model limits. |
 
 `benkeser/drtmle` 1.1.2's source is where several formulae here were transcribed from. That is
 **provenance, not a target**: comparing against that package's numbers is refused by decision, and
@@ -160,8 +162,8 @@ For treatment level `a`, with `Q̄_0(a, w) = E_0(Y | A = a, W = w)`, the target 
 `ψ_0(a) = E_0{Q̄_0(a, W)}` and `ATE = ψ_0(1) − ψ_0(0)`. The ordinary efficient influence function
 is `D*(Q, g)(O) = A/g(W)·{Y − Q̄(W)} + Q̄(W) − Ψ(Q)`.
 
-The three reduced regressions — univariate however many covariates the fit adjusted for, which is
-what lets them be estimated fast enough whether or not the primary nuisances can:
+The default construction uses three univariate reduced regressions however many covariates the fit
+adjusted for:
 
 ```text
 Q_r    := Q̄_{0,r}(Q̄, g)(w)      = E_0[ Y − Q̄(W) | A = 1, g(W) = g(w) ]
@@ -175,6 +177,20 @@ The two corrections, in the orientation this package computes and the appendices
 D_A = D*_g = (Q_r/g)·{A − g}
 D_Y = D*_Q = 1_a·(g_{r,2}/g_{r,1})·{Y − Q̄}
 ```
+
+The bivariate alternative retains `Q_r` and replaces both reduced mechanisms by one probability:
+
+```text
+g_r(a|w) = P_0{A=a | Qbar(a,W)=Qbar(a,w), g(a|W)=g(a|w)}
+D_Y      = 1_a·{g_r(a|W)-g(a|W)}/[g(a|W)g_r(a|W)]·{Y-Qbar(a,W)}
+```
+
+This is exactly the pinned R source's two-column `estimategrn` branch, `fluctuateQ2` clever
+covariate, and `eval_Dstar_Q` correction. Those branches loop over every requested level of a
+discrete treatment, so cleverly uses the same one-versus-rest probability and correction for each
+arm. In the stored state `gr1` is that probability and
+`gr2` is `NaN`, because the latter regression does not exist on this path; using zero would make
+an accidental univariate formula look valid.
 
 and the limiting influence function
 
@@ -297,7 +313,7 @@ Theorem 1 reports `D^{*,#} = D* − D_A − D_Y`. Read off those two, the theore
 contribution is `+u` where the code's is `−u`.
 
 *What settles it.* First, the same paper prints the object twice with two signs: §3.2 redefines
-`D_Y` for the univariate construction — the one implemented here — with **no** leading minus,
+`D_Y` for the univariate construction — the default here — with **no** leading minus,
 twelve lines after printing the bivariate one with one. Two displays of one object with opposite
 signs is already a reason not to settle the question from a display.
 
@@ -320,9 +336,9 @@ one of them the flipped sign in the library itself.
 
 So the leading minus in the §3.1 display is not a rival convention to be matched. It is
 inconsistent with the derivation in the same document, with Theorem 1's own variance formula, and
-with the exact-law arithmetic here. The published 2017 article is unread and gates nothing: if it
-prints the same display, the display is wrong there too; if it prints the positive form, the
-working paper's display was a typo. Either way the code does not move.
+with the exact-law arithmetic here. The published 2017 article confirms the corrected
+constructions but does not replace that algebraic sign witness. The code follows the identity,
+not a display in either edition.
 
 Two further sign slips in the same document, recorded so a later reader does not re-derive them.
 Equation (2) is printed with `+(P_n − P_0)D − B_n` while its appendices derive
@@ -490,6 +506,33 @@ does not say: the exit condition constrains the three empirical *means*, while t
 variance is the second moment of a curve built from the reductions, which the two routes leave at
 different vintages by construction.
 
+### The canonical `cvFolds` mapping
+
+The 2023 article calls `cvFolds` cross-validated DR-TMLE, but the name does not select either of
+the additional CV estimators exposed by this package. Reading the pinned R source settles the
+implementation map:
+
+1. `estimateQ_loop`, `estimateG_loop`, `estimateQrn_loop`, and `estimategrn_loop` fit on each
+   training-fold complement and reorder their validation predictions into row order;
+2. `fluctuateG`, `fluctuateQ1`, and `fluctuateQ2` then receive those assembled arrays once and fit
+   one global alternation, not one alternation per validation fold;
+3. the reported arm mean is `mean(QnStar[[a]])`, and covariance is `cov(DnoStarMat) / n` from the
+   rowwise corrected curve.
+
+In cleverly's vocabulary that is `cross_fit=True`, `reduced_crossfit="pooled"`,
+`targeting_scheme="pooled"`, and `cv_evaluation=False`. The first two settings produce the
+out-of-fold arrays; the last two keep the single alternation, whole-sample plug-in, and ordinary
+corrected-curve covariance. `tests/unit/test_drtmle_crossfit.py` pins all four pieces, including an
+unequal-fold witness on which replacing the plug-in or variance by an equal-fold construction is
+nonzero.
+
+This is **implementation provenance, not the missing theorem**. Benkeser & Hejazi §4.7 states
+that cross-validated nuisance estimates weaken entropy conditions and the canonical source shows
+the intended computation, but the published Theorem 1 does not derive a cross-fitted expansion.
+The package's argument for the generated reduced regressions is the next section. Nothing in the
+source derives a corrected parameter or influence curve for `targeting_scheme="fold"` or
+`cv_evaluation=True`, so both remain refused rather than inheriting ordinary TMLE's modes by name.
+
 ### Reduced-regression cross-fitting
 
 `reduced_crossfit="pooled"` (default) reuses the primary split as it stands; `"nested"` takes
@@ -498,9 +541,10 @@ well. **A diagnostic keyword rather than a tuning one**, for a specific reason: 
 the cheap construction needs one quantity to vanish, and that quantity *is* the difference between
 these two.
 
-**Cross-fitting is not in the sources.** The theorem presents no cross-fitted version. The 2023
-article's statement that cross-validated nuisance estimates weaken the entropy conditions is
-supporting evidence that cross-validated DR-TMLE is intended, and it is not the missing proof.
+**Cross-fitting is not in the theorem.** The canonical mapping above is source evidence for the
+implemented computation, and the 2023 article's statement that cross-validated nuisance estimates
+weaken the entropy conditions is supporting evidence that cross-validated DR-TMLE is intended;
+neither is the missing proof.
 What is specifically unaddressed is the **pooled** construction, in which an observation influences
 other rows' generated regressors and then returns to its own reduced-regression prediction through
 those rows — generic cross-fitting results do not cover that, because the conditional independence
@@ -520,13 +564,14 @@ Theorem 1 already assumes. **[B]** is the whole of the open question, because `�
 the object that depends on fold `k`; no cross-fitting lemma reaches it. What does is asymptotic
 equicontinuity, needing two conditions:
 
-> **(E)** the reduction learner's fitted functions of one scalar lie, with probability tending to
+> **(E)** the reduction learner's fitted functions of one or two scalars lie, with probability tending to
 > one, in a class whose bracketing entropy is bounded **uniformly in the underlying measure**.
 
-The structural fact that makes (E) available is that **the reductions are univariate**: the
-regression is on one scalar however many covariates the fit adjusted for, and composition with a
-fixed map transports brackets exactly, so the entropy requirement falls entirely on a class of
-functions of one variable and not at all on the primary nuisances' complexity. The measure-free
+The structural fact that makes (E) available is that **the reductions have fixed dimension**:
+one scalar for the default construction and two for the bivariate reduced probability, however
+many covariates the fit adjusted for. Composition with a fixed map transports brackets exactly,
+so the entropy requirement falls entirely on a class of functions of at most two variables and
+not at all on the primary nuisances' complexity. The measure-free
 phrasing is not pedantry — the pushforward is a *random* measure, so a bound holding at `P_0` says
 nothing. `mean`, `glm`, `glmnet` and `gam` are bounded fixed-dimension sieves; `boost` is a fixed
 bounded-variation ball, because `max_iter=200`, `learning_rate=0.05`, `max_leaf_nodes=15` and
@@ -553,7 +598,8 @@ takes more rounds. And **neither construction makes the targeted collection fold
 
 ### Where the truncations are
 
-`g_{r,2}`'s bound is fixed at **fit** time — the only bound in the package chosen at fit time
+On the univariate construction, `g_{r,2}`'s bound is fixed at **fit** time — the only bound in
+the package chosen at fit time
 rather than at targeting time — because the array *is* a regression of a quotient by the mechanism.
 Two consequences a reader will otherwise trip on. `SensitivityAnalysis.truncation_curve` moves the
 clever covariate's denominator and does **not** move these arrays, so that part of the curve is
@@ -575,13 +621,16 @@ is what makes the truncation asymptotically inactive. Both are open.
 The union condition — `Q̄ = Q̄_0` **or** `g = g_0` — is assumed, not checked. Beyond it, the
 release claim rests on the rate conditions of
 [the remainder section](#the-remainder-terms-and-the-rate-conditions), which fall on **five**
-estimated functions rather than two:
+estimated functions rather than two for the univariate construction:
 
 1. the primary outcome regression `Q̄_n`;
 2. the primary propensity `g_n`;
 3. the reduced outcome regression `Q_r`;
 4. the reduced propensity `g_{r,1}`;
 5. the reduced propensity `g_{r,2}`.
+
+The bivariate construction instead has four: the same two primary nuisances, `Q_r`, and its
+single two-column reduced probability `g_r`.
 
 The reduced regressions are the part it is easy to forget, and they are where the guarantee is
 bought. Their consistency is **estimated, unmeasured**: a saturated learner recovers them exactly
@@ -595,12 +644,12 @@ Practical consequences:
 
 - **Choose the reduction learners deliberately.** They default to the primary specification.
   `reduced_outcome_learner=` and `reduced_treatment_learner=` are two keywords rather than one
-  because the tasks differ: `g_{r,1}` is a conditional probability and the other two are
-  conditional means of a signed quantity. A learner *instance* built for classification cannot
-  serve `Q_r`, whose target is an outcome residual.
+  because the tasks differ: `g_{r,1}` (or bivariate `g_r`) is a conditional probability and
+  `Q_r` plus univariate `g_{r,2}` are conditional means of signed quantities. A learner
+  *instance* built for classification cannot serve `Q_r`, whose target is an outcome residual.
 - **A flexible primary nuisance does not buy a flexible reduction.** The reductions are on one
-  scalar, so their bias is a one-dimensional smoothing question and independent of how well the
-  primary fit adjusted for `W`.
+  scalar by default and two for bivariate `g_r`, so their bias is a low-dimensional smoothing
+  question independent of how well the primary fit adjusted for `W`.
 - **`library="rich"` is outside the entropy condition** of
   [section 3](#reduced-regression-cross-fitting) via `forest`, and is not warned about at runtime.
 
@@ -652,7 +701,7 @@ about*.
 This is the one thing to take away from the page.
 
 The score equations being solved is a statement about **numerical targeting**. It is not a
-statement about whether the five functions of [section 4](#4-what-the-nuisances-must-satisfy) are
+statement about whether the method-specific functions of [section 4](#4-what-the-nuisances-must-satisfy) are
 adequately estimated, and the two are independent in a way that is easy to get backwards, because
 a fit with badly wrong reductions returns a `psi`, an `se` and a confidence interval formatted
 exactly like a good one, with every score green.
@@ -669,9 +718,10 @@ Three consequences for practice:
    disqualifying and a passing one as saying nothing about the nuisances.
 2. **Inspect the reduced-regression fits themselves**, not just the equations built from them.
    Their diagnostics are on `result.extra["drtmle"].diagnostics`, keyed `"qr"`, `"gr1"`, `"gr2"`
-   on the univariate reduction and `"gamma_a"`, `"gamma_m"`, `"r_a"`, `"r_m"`, `"e"` on the
-   missing-outcome one — the two constructions do not fit the same regressions, so they cannot
-   report under the same names. `result.extra["drtmle"].reduction` says which ran, read off the
+   on the univariate reduction, `"qr"`, `"gr1"` on the bivariate reduction, and `"gamma_a"`,
+   `"gamma_m"`, `"r_a"`, `"r_m"`, `"e"` on the missing-outcome one — the constructions do not
+   fit the same regressions, so they cannot report under the same names.
+   `result.extra["drtmle"].reduction` says which ran, read off the
    set that was fitted rather than off the `reduction=` setting, and `.missingness_bound` records
    the bound the two observation reductions were formed at.
 3. **Where you cannot argue the rate conditions, do not treat the interval as settled.** Use this

@@ -440,6 +440,10 @@ def reduced_corrections(
         D^*_g &= \frac{Q_r(a, W)}{g^*(a|W)}\,\{1_a - g^*(a|W)\} \\
         D^*_Q &= 1_a\,\frac{g_{r,2}(a|W)}{g_{r,1}(a|W)}\,\{Y - \bar Q^*(a, W)\}
 
+    The second display is the default univariate form.  The bivariate construction uses
+    :math:`D^*_Q=1_a(g_r-g^*)/(g^*g_r)\{Y-\bar Q^*\}` instead; the mechanism correction is
+    unchanged.
+
     Randomized missing-outcome fits do not enter this two-correction function. They use
     :func:`missing_outcome_correction_parts`, which keeps the paper's treatment,
     observation and outcome blocks separate.
@@ -452,16 +456,17 @@ def reduced_corrections(
     estimate however the signs go -- it moves only the variance, so nothing that reports
     :math:`\hat\Psi` can catch getting this wrong.  ``tests/unit/test_influence_drtmle.py``
     carries the sign as a negative control at deliberately wrong nuisances, which is the
-    only place it is visible: at the truth :math:`Q_r` and :math:`g_{r,2}` vanish row by row
-    and the reported curve *equals* :math:`D^*` array for array.
+    only place it is visible: at the truth :math:`Q_r` and the outcome-correction numerator
+    vanish row by row and the reported curve *equals* :math:`D^*` array for array.
 
     **Validity is not efficiency.**  Under misspecification the canonical gradient at
     :math:`P_0` is still :math:`D^*`; what this subtraction leaves is the **estimator's**
     asymptotic influence function at the nuisance limits, and the estimator is generally not
     efficient there.  So a doubly-robust interval is one entitled to be believed under weaker
     conditions -- not a narrower one, and not an efficient one.  When both nuisances are
-    consistent :math:`Q_r` and :math:`g_{r,2}` vanish row by row, the two curves coincide, and
-    the fit is the ordinary efficient estimator; that is the case the variant is *not* for.
+    consistent :math:`Q_r` and the outcome-correction numerator vanish row by row, the two
+    curves coincide, and the fit is the ordinary efficient estimator; that is the case the
+    variant is *not* for.
     Worth saying explicitly because the numbers invite the opposite reading -- in the guide's
     own worked example the corrected standard error is the smaller of the two.
 
@@ -481,8 +486,9 @@ def reduced_corrections(
     orientation, and pins these arrays against the theorem's terms;
     ``docs/drtmle.md``'s *The sign of the mechanism correction* carries the argument.
 
-    The *published* 2017 article remains unread and no longer gates this: the adjudication is
-    internal consistency plus exact-law arithmetic, and neither depends on the edition.
+    The published 2017 article confirms both corrected TMLE constructions; the sign adjudication
+    still rests on the explicit appendix identity plus exact-law arithmetic rather than on a
+    second transcription of the same formula.
 
     **And the decomposition is now pinned against a perturbation of the law**, which is the
     check every other estimand in this package gets and the one this variant could not have
@@ -707,7 +713,7 @@ def reduced_correction_parts(
         # column here, and counting the cells would report "3800 row(s) of 2000" on a
         # three-armed fit whose bound binds on two arms at most rows.
         clipped = np.asarray((raw != bounded).any(axis=1), dtype=bool)
-    ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)
+    gr = reduced.bounded_gr1(bounds)
 
     d_g: dict[float, FloatArray] = {}
     d_q: dict[float, FloatArray] = {}
@@ -722,7 +728,14 @@ def reduced_correction_parts(
         d_g[arm] = qr / mechanism[arm] * (indicator - mechanism[arm])
         # The outcome residual is at the arm this row took, so the indicator already puts
         # it at `arm` and nothing further selects rows.
-        d_q[arm] = indicator * ratio[:, j] * (y - targeted.observed)
+        if reduced.reduction == "univariate":
+            ratio = np.asarray(reduced.gr2, dtype=float)[:, j] / gr[:, j]
+        else:
+            # van der Laan's bivariate correction and pinned R `eval_Dstar_Q`:
+            # I(A=a) / gr * (gr-g) / g * (Y-Q).  `mechanism` is the same bounded
+            # targeted margin used by the ordinary and Qr corrections.
+            ratio = (gr[:, j] - mechanism[arm]) / (mechanism[arm] * gr[:, j])
+        d_q[arm] = indicator * ratio * (y - targeted.observed)
         clip_bias[arm] = qr / mechanism[arm] * (untruncated[arm] - mechanism[arm])
     return CorrectionParts(d_g, d_q, clip_bias, clipped, tuple(guard))
 

@@ -119,8 +119,9 @@ implementation for the influence curve. What each supplies, and where in it, is
 
 - van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical
   inference*, International Journal of Biostatistics 10(1):29–57. **Theorem 3** is the bivariate
-  construction's regularity conditions, and is the one thing in this section that has *not* been
-  read here.
+  construction's binary targeted recursion and asymptotic-linearity result; its proof supplies the
+  corrected influence function and product-remainder conditions. Read first-hand for the bivariate
+  implementation; the later univariate result remains the default.
 - Benkeser, Carone, van der Laan & Gilbert (2016), *Doubly-robust Nonparametric Inference on the
   Average Treatment Effect*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper
   356. Read first-hand. §3.1 and equation (2) are p. 9; §3.2, Theorem 1 and the recursive algorithm
@@ -132,7 +133,10 @@ implementation for the influence curve. What each supplies, and where in it, is
   that without it.
 - Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using `drtmle`*, Observational Studies
   9(2):43–78. Read first-hand. Multi-level treatments are §4.6, pp. 66–67; cross-validated nuisance
-  regression is §4.7, p. 69.
+  regression is §4.7, p. 69. The package vignette describes both reduced-regression choices for
+  user-specified levels of a discrete treatment, and the pinned source implements the bivariate
+  branch inside the same per-level loop; that is the provenance for the multi-arm extension, not
+  an expansion of van der Laan's binary theorem.
 - Díaz & van der Laan (2017), *Doubly robust inference for targeted minimum loss-based estimation
   in randomized trials with missing outcome data*, Statistics in Medicine 36:3807–3819, DOI
   [10.1002/sim.7389](https://doi.org/10.1002/sim.7389). Read first-hand. §2.1 states the observed-

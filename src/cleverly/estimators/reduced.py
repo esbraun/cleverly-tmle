@@ -88,9 +88,9 @@ __all__ = [
 ]
 
 #: The reductions the sources derive.  ``"univariate"`` is Benkeser et al.'s three
-#: univariate regressions and ``drtmle``'s own default; ``"bivariate"`` is van der Laan
-#: (2014)'s original single :math:`g_r(a|w) = P(A = a \mid \hat{\bar Q}, \hat g)` in place
-#: of the pair.  Both are in scope for the variant; only the first is written.
+#: univariate regressions and ``drtmle``'s default; ``"bivariate"`` is van der Laan
+#: (2014)'s original :math:`g_r(a|w) = P(A = a \mid \hat{\bar Q}, \hat g)` in place of
+#: the pair of reduced mechanisms.
 REDUCTIONS = ("univariate", "bivariate")
 
 #: How fold ``k``'s reduced regression gets its **training** rows' design and target.
@@ -106,20 +106,8 @@ REDUCED_CROSSFITS = ("pooled", "nested")
 def refuse_unsupported(kind: str, detail: str = "") -> None:
     """Raise for a reduction or a fit this module will not fake.
 
-    Kept here rather than at the caller, and worded to say what the estimator would
-    *need*: "not implemented" invites the reader to assume the gap is effort, and for one
-    of these two it is not.
+    Kept here rather than at the caller for reductions whose derivation does not exist.
     """
-    if kind == "bivariate":
-        raise NotImplementedError(
-            "reduction='bivariate' is not written yet. It replaces the two univariate "
-            "reduced mechanisms with van der Laan (2014)'s single bivariate "
-            "gr(a|w) = P(A = a | Qbar-hat(a, W), g-hat(a|W)), which is a two-column design "
-            "and a different extra score equation rather than a wider loop over the one "
-            "here. The derivation is settled and the work is transcription. Use "
-            "reduction='univariate', which is Benkeser et al.'s replacement for it and "
-            "drtmle's own default."
-        )
     if kind == "continuous":
         raise NotImplementedError(
             "the reduced-dimension regressions read a per-arm mechanism g(a | W), and a "
@@ -132,7 +120,7 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
 
 @dataclass(frozen=True)
 class ReducedSet:
-    r"""The three reduced-dimension regressions, evaluated at every row and every arm.
+    r"""The reduced-dimension regressions, evaluated at every row and every arm.
 
     Holds arrays and no callables, for the reason
     :class:`~cleverly.interventions.IPSISet` does: everything reached through
@@ -154,8 +142,9 @@ class ReducedSet:
         without refitting.
     gr2:
         ``(n, K)``, :math:`g_{r,2}(a | W_i)`.  Signed, and not a probability -- clipping
-        it into ``[0, 1]`` would floor every negative value at zero and return a
-        perfectly plausible array.
+        it into ``[0, 1]`` would floor every negative value at zero and return a perfectly
+        plausible array.  This regression exists only for ``reduction="univariate"``;
+        the bivariate construction stores ``NaN`` here so accidental use fails loudly.
     arms:
         The arm codes every column above is keyed by, in column order.  The same tuple
         :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.arms` reports.
@@ -190,6 +179,13 @@ class ReducedSet:
                 )
         if len({shape[0] for shape in shapes.values()}) != 1:
             raise ValueError(f"the three reduced regressions disagree about n: {shapes}")
+        if not np.all(np.isfinite(self.qr)) or not np.all(np.isfinite(self.gr1)):
+            raise ValueError("qr and gr1 must contain only finite values")
+        gr2 = np.asarray(self.gr2, dtype=float)
+        if self.reduction == "univariate" and not np.all(np.isfinite(gr2)):
+            raise ValueError("gr2 must be finite for reduction='univariate'")
+        if self.reduction == "bivariate" and not np.all(np.isnan(gr2)):
+            raise ValueError("gr2 is absent for reduction='bivariate' and must be stored as NaN")
 
     @property
     def n(self) -> int:
@@ -426,8 +422,9 @@ def fit_reduced(
 
     Returns
     -------
-    The evaluated set, the Super Learner diagnostics keyed ``"qr"``, ``"gr1"`` and
-    ``"gr2"``, and one companion set per outer fold -- empty without a companion.
+    The evaluated set, the Super Learner diagnostics keyed ``"qr"`` and ``"gr1"`` plus
+    ``"gr2"`` for the univariate reduction, and one companion set per outer fold -- empty
+    without a companion.
 
     Notes
     -----
@@ -468,13 +465,14 @@ def fit_reduced(
     :math:`\Delta_k` is the difference between the two.  The first is conditionally mean
     zero by the ordinary cross-fitting argument.  The second needs asymptotic
     equicontinuity, and the structural fact that supplies it is the one
-    :func:`_reduced_column` opens with: **the reduction is univariate**.  Composing with a
-    conditionally fixed :math:`\hat g^{(-k)}` transports brackets exactly, so the entropy
-    requirement falls on a class of functions of one scalar and not on the primary
-    nuisances' complexity at all -- and a fixed-dimension sieve, a monotone class or a
-    bounded-variation ball satisfies it under *every* measure, which is what the random
-    pushforward needs.  ``mean``, ``glm``, ``glmnet``, ``gam`` and ``boost`` are inside it;
-    ``forest`` is not, because its one-dimensional fits have :math:`O(n)` pieces.
+    :func:`_reduced_column` opens with: **the reduction has fixed dimension** -- one for the
+    univariate construction and at most two for the bivariate one.  Composing with a
+    conditionally fixed primary fit transports brackets exactly, so the entropy requirement
+    falls on a class of functions of one or two scalars and not on the primary nuisances'
+    complexity at all -- and a fixed-dimension sieve or a bounded-variation ball satisfies it
+    under *every* measure, which is what the random pushforward needs.  ``mean``, ``glm``,
+    ``glmnet``, ``gam`` and ``boost`` are inside it; ``forest`` is not, because its fits have
+    :math:`O(n)` pieces.
 
     What the argument does **not** settle is that :math:`\|\Delta_k\| \to 0`, which needs
     the fit to move continuously with its design column -- free for a fixed-basis smoother
@@ -484,7 +482,8 @@ def fit_reduced(
     ``docs/drtmle.md``'s *Reduced-regression cross-fitting* is the argument in full, with
     both of its conditions and which learners meet them.
 
-    **One bound is chosen here rather than at targeting time**, and it is the only one in
+    **On the univariate construction, one bound is chosen here rather than at targeting
+    time**, and it is the only one in
     this package that is.  :math:`g_{r,2}`'s *target* is a quotient by the mechanism, so
     it cannot be left raw and re-truncated later the way
     :meth:`~cleverly.estimators._nuisance.NuisanceEstimates.bounded_propensity` and
@@ -504,8 +503,8 @@ def fit_reduced(
     projects onto, which is the one thing that decides how much of the remainder the
     score equation removes.
     """
-    if reduction != "univariate":
-        refuse_unsupported(reduction)
+    if reduction not in REDUCTIONS:
+        raise ValueError(f"reduction must be one of {list(REDUCTIONS)}; got {reduction!r}")
     if data.is_continuous_treatment:
         refuse_unsupported("continuous")
     if crossfit not in REDUCED_CROSSFITS:
@@ -540,14 +539,22 @@ def fit_reduced(
             "companion design, so a mismatch would pair a model with another fold's arrays"
         )
     scaled = nuisance.scaler.scale(data.outcome)
-    diagnostics: dict[str, list[SuperLearnerDiagnostics]] = {"qr": [], "gr1": [], "gr2": []}
-    columns: dict[str, list[FloatArray]] = {"qr": [], "gr1": [], "gr2": []}
+    names = ("qr", "gr1", "gr2") if reduction == "univariate" else ("qr", "gr1")
+    diagnostics: dict[str, list[SuperLearnerDiagnostics]] = {name: [] for name in names}
+    columns: dict[str, list[FloatArray]] = {name: [] for name in names}
     # ``(K, m)`` per role per arm, assembled into one ``ReducedSet`` per fold at the end.
-    companion_columns: dict[str, list[FloatArray]] = {"qr": [], "gr1": [], "gr2": []}
+    companion_columns: dict[str, list[FloatArray]] = {name: [] for name in names}
 
     for arm in arms:
         indicator = (np.asarray(data.treatment, dtype=float) == float(arm)).astype(float)
-        production = _roles(nuisance, arm, scaled=scaled, indicator=indicator, g_bounds=g_bounds)
+        production = _roles(
+            nuisance,
+            arm,
+            scaled=scaled,
+            indicator=indicator,
+            g_bounds=g_bounds,
+            reduction=reduction,
+        )
         training = (
             None
             if inner is None
@@ -558,6 +565,7 @@ def fit_reduced(
                     scaled=scaled,
                     indicator=indicator,
                     g_bounds=g_bounds,
+                    reduction=reduction,
                     inner=inner,
                     fold=fold,
                 )
@@ -581,13 +589,14 @@ def fit_reduced(
         roles: tuple[tuple[str, Learner, Task, tuple[float, float] | None], ...] = (
             ("qr", regression_learner, "regression", None),
             ("gr1", classification_learner, "classification", (0.0, 1.0)),
-            ("gr2", regression_learner, "regression", None),
-        )
+        ) + (() if reduction == "bivariate" else (("gr2", regression_learner, "regression", None),))
         elsewhere = (
             None
             if companion is None
             else [
-                reduced_designs(companion.propensity[fold], companion.outcome[fold], arm)
+                reduced_designs(
+                    companion.propensity[fold], companion.outcome[fold], arm, reduction=reduction
+                )
                 for fold in range(companion.n_folds)
             ]
         )
@@ -620,7 +629,14 @@ def fit_reduced(
             ReducedSet(
                 qr=np.column_stack([column[fold] for column in companion_columns["qr"]]),
                 gr1=np.column_stack([column[fold] for column in companion_columns["gr1"]]),
-                gr2=np.column_stack([column[fold] for column in companion_columns["gr2"]]),
+                gr2=(
+                    np.column_stack([column[fold] for column in companion_columns["gr2"]])
+                    if reduction == "univariate"
+                    else np.full_like(
+                        np.column_stack([column[fold] for column in companion_columns["gr1"]]),
+                        np.nan,
+                    )
+                ),
                 arms=arms,
                 g_bounds=(float(g_bounds[0]), float(g_bounds[1])),
                 reduction=reduction,
@@ -632,7 +648,11 @@ def fit_reduced(
         ReducedSet(
             qr=np.column_stack(columns["qr"]),
             gr1=np.column_stack(columns["gr1"]),
-            gr2=np.column_stack(columns["gr2"]),
+            gr2=(
+                np.column_stack(columns["gr2"])
+                if reduction == "univariate"
+                else np.full_like(np.column_stack(columns["gr1"]), np.nan)
+            ),
             arms=arms,
             g_bounds=(float(g_bounds[0]), float(g_bounds[1])),
             reduction=reduction,
@@ -649,6 +669,7 @@ def _roles(
     scaled: FloatArray,
     indicator: FloatArray,
     g_bounds: tuple[float, float],
+    reduction: str,
     inner: InnerDesigns | None = None,
     fold: int = 0,
 ) -> dict[str, tuple[FloatArray, FloatArray]]:
@@ -668,18 +689,24 @@ def _roles(
         regression_fit = nuisance.outcome
     else:
         mechanism_fit, regression_fit = inner.propensity[fold], inner.outcome[fold]
-    designs = reduced_designs(mechanism_fit, regression_fit, arm)
+    designs = reduced_designs(mechanism_fit, regression_fit, arm, reduction=reduction)
     regression = regression_fit.arms[arm]
     truncated = mechanism_fit.bounded(g_bounds)[:, mechanism_fit.column_for(arm)]
-    return {
+    roles = {
         "qr": (designs["qr"], scaled - regression),
         "gr1": (designs["gr1"], indicator),
-        "gr2": (designs["gr2"], (indicator - truncated) / truncated),
     }
+    if reduction == "univariate":
+        roles["gr2"] = (designs["gr2"], (indicator - truncated) / truncated)
+    return roles
 
 
 def reduced_designs(
-    propensity: Propensity, outcome: InitialFit, arm: float
+    propensity: Propensity,
+    outcome: InitialFit,
+    arm: float,
+    *,
+    reduction: str = "univariate",
 ) -> dict[str, FloatArray]:
     r"""Which primary array each reduced regression is a regression **on**, at one arm.
 
@@ -691,11 +718,19 @@ def reduced_designs(
     A second statement of it is how a companion comes to answer for a different regression
     from the one it accompanies.
     """
-    return {
+    if reduction not in REDUCTIONS:
+        raise ValueError(f"reduction must be one of {list(REDUCTIONS)}; got {reduction!r}")
+    designs = {
         "qr": propensity.arm(arm),
-        "gr1": outcome.arms[arm],
-        "gr2": outcome.arms[arm],
+        "gr1": (
+            outcome.arms[arm]
+            if reduction == "univariate"
+            else np.column_stack([outcome.arms[arm], propensity.arm(arm)])
+        ),
     }
+    if reduction == "univariate":
+        designs["gr2"] = outcome.arms[arm]
+    return designs
 
 
 def _reduced_column(
@@ -713,11 +748,11 @@ def _reduced_column(
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
 ) -> tuple[FloatArray, FloatArray | None]:
-    """One reduced regression, out of fold, on a one-column design.
+    """One reduced regression, out of fold, on a one- or two-column design.
 
     The design is a nuisance prediction rather than a covariate, which is the whole of
-    what makes these *reduced*: the regression is univariate however many covariates the
-    fit adjusted for.
+    what makes these *reduced*: the regression uses one column for the univariate reduction
+    and two for the bivariate reduction, however many covariates the fit adjusted for.
 
     ``training`` is the nested construction: one ``(design, target)`` per outer fold, taken
     from primary models that left that fold out as well, used for the rows a fold **trains**
@@ -728,12 +763,8 @@ def _reduced_column(
     ``companion`` is one design per outer fold at the evaluation rows, predicted at by that
     fold's model and returned as a ``(K, m)`` slab beside the ``(n,)`` production column.
     """
-    matrix = np.asarray(design, dtype=float).reshape(-1, 1)
-    elsewhere = (
-        None
-        if companion is None
-        else [np.asarray(each, dtype=float).reshape(-1, 1) for each in companion]
-    )
+    matrix = _as_reduced_design(design)
+    elsewhere = None if companion is None else [_as_reduced_design(each) for each in companion]
     if training is not None:
         return _nested_column(
             learner,
@@ -815,7 +846,7 @@ def _nested_column(
         design, target = training[index]
         model = fit_on_rows(
             learner,
-            np.asarray(design, dtype=float).reshape(-1, 1),
+            _as_reduced_design(design),
             np.asarray(target, dtype=float),
             weights,
             rows,
@@ -842,3 +873,13 @@ def _nested_column(
     if companion is None:
         return out, None
     return out, np.stack([slabs[index] for index in range(folds.n_folds)])
+
+
+def _as_reduced_design(values: FloatArray) -> FloatArray:
+    """Normalise a reduced design without flattening the bivariate construction."""
+    array = np.asarray(values, dtype=float)
+    if array.ndim == 1:
+        return array.reshape(-1, 1)
+    if array.ndim == 2 and array.shape[1] in (1, 2):
+        return array
+    raise ValueError(f"a reduced design must have one or two columns; got {array.shape}")
