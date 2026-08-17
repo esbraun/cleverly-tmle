@@ -102,7 +102,7 @@ bit for bit.
 
 | keyword | status |
 | --- | --- |
-| `delta=` | **randomized binary trials only**, using Díaz & van der Laan (2017)'s missing-outcome construction. Set `randomized=True` to estimate the treatment probabilities (the paper's finite-sample recommendation), or pass row-aligned known probabilities as `treatment_probabilities=` to `fit` — as a mapping keyed by treatment level, `{"placebo": p0, "active": p1}`, or as `(n, 2)` in encoded arm order, or as `(n,)` read as the probability of the arm whose code is `1`. This surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no analysis weights or evaluation companion. |
+| `delta=` | **randomized binary trials only**, using Díaz & van der Laan (2017)'s missing-outcome construction. Set `randomized=True` to estimate the treatment probabilities (the paper's finite-sample recommendation), or pass row-aligned known probabilities as `treatment_probabilities=` to `fit` — as a mapping keyed by treatment level, `{"placebo": p0, "active": p1}`, or as `(n, 2)` in encoded arm order, or as `(n,)` read as the probability of the arm whose code is `1`. This surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no analysis weights or evaluation companion. With `guard=()` the same array instead configures a **plain TMLE** at the design mechanism — bit for bit the ordinary estimator, which is what a pure randomization-probability analysis wants — and none of those conditions applies, because no extra equation is being solved and no theorem claimed. |
 | `weights=` | **fixed analysis weights only.** The estimand is the parameter of the tilted law `dP_w = w dP / E[w]`. The derivation was read at an unweighted law; transporting it needs the reduced regressions to be `P_w`-conditional expectations, which weighted loss gives, *and* the mechanism they condition on and divide by to be the `P_w` mechanism, which holds because they are built from `nuisance.propensity`. `tests/unit/test_remainder_drtmle.py` runs the whole expansion at two tilted laws and keeps the wrong transport as a control that fails. |
 | `repeats=` | supported; varies exactly one thing, the **primary split**. Each draw fits its own reductions and runs its own alternation; the report is the mean of the draws with the curves averaged elementwise. `result.extra["drtmle"]` describes **draw 0 only**. |
 | `library="rich"` | computes, but steps **outside** the cross-fitting argument of [section 3](#reduced-regression-cross-fitting) via `forest`, whose fitted class grows with `n`. Not refused; scoped. |
@@ -121,7 +121,8 @@ raise at construction or at `fit`, with a message naming what a derivation would
 | `interventions=`, `shifts=`, `incremental=`, `msm=` | as above |
 | observational treatment with `delta=` | Díaz & van der Laan (2017) derives the construction for randomized trials; the canonical package accepting observational treatment is implementation provenance, not a theorem for that composition |
 | missing treatment (`treatment_delta=`) | reserved for a future published construction. Canonical missing-`A` smoke tests do not supply this package's required identification, corrected curve, remainder, and rate conditions |
-| `treatment_probabilities=` with `n_bootstrap=` | the array is row-aligned to the data as passed, and a replicate refits on resampled rows it cannot be reindexed to. An n-out-of-n resample passes the length check, so the misalignment would be silent; `randomized=True` estimates the mechanism inside each replicate instead |
+| `treatment_probabilities=` with `n_bootstrap=`, **whatever `guard=` is** | the array is row-aligned to the data as passed, and a replicate refits on resampled rows it cannot be reindexed to. An n-out-of-n resample passes the length check, so the misalignment would be silent; `randomized=True` estimates the mechanism inside each replicate instead. Unconditional on the guard, because the array is row-aligned however few equations are being solved |
+| `treatment_probabilities=` without `delta=` | it replaces the treatment learner outright, and nothing read here states a complete-data construction that reads a known design mechanism differently from a fitted one |
 | `intermediate=` | the reduced equations carry no controlled-intermediate factor |
 | `targeting_scheme="fold"` | each fold would need its own reduced regressions and alternation |
 | `cv_evaluation=True` | the common-update construction would need the corrected parameter and influence curve derived under fold-wise evaluation |
@@ -265,6 +266,15 @@ applies to `g_A` and `gamma_A`, while `nuisance_bound` applies to `g_Delta` and
 positivity report, never stored as a third nuisance. The treatment truncation curve moves only
 the treatment bound; `mechanism=True` moves only the observation bound.
 
+Because it is derived, the positivity report's `P(A=a,Delta=1|W)` row **has no bound of its
+own**, and reading it as though it did is a mistake worth naming: each factor is truncated and
+the two are then multiplied, so the product is never compared against `g_bounds[0] ×
+nuisance_bound`. That row's `clipped` therefore counts the cells where either factor's
+truncation moved the product, and its `ess_ratio` weights by `clip(g)·clip(π)` — the denominator
+the equation forms. Counting against the product of the floors instead reports a strict subset,
+since a small factor beside a large one leaves the product above it: measured at **1.1%** against
+a true **20.1%** on the pinched fixture in `tests/unit/test_drtmle_missing.py`.
+
 The shipped scope follows the paper rather than the broader canonical package: binary randomized
 treatment, MAR and positivity, no cross-fitting, and no weights, repeats, fold targeting, or
 evaluation companion. `randomized=True` estimates `g_A`; `treatment_probabilities=` supplies known
@@ -405,14 +415,26 @@ The guarantee is therefore scoped rather than assumed through:
   fit: on `weak_overlap_dgp` every identity holds at `1e-17` and every score is negligible while a
   third of the `(row, arm)` pairs clip at the initial mechanism.
 
-**Three truncations have to be inactive, not one**, and the third has no assumption in the theorem
-to lean on:
+**Three truncations have to be inactive, not one** — and **five** on a randomized
+missing-outcome fit, which divides by two mechanisms truncated separately at two different
+bounds. The last has no assumption in the theorem to lean on:
 
 | truncation | witness on the fit | in Theorem 1's assumptions |
 | --- | --- | --- |
 | `ĝ` at the fit | `CorrectionRow.initial_clipped` | an assumption on `g_0`, not an operation on `ĝ` |
+| `π̂` at the fit — missing-outcome fits | `CorrectionRow.observation_clipped` | an assumption on `π_0`, on the same footing |
 | `g*` at the exit | `CorrectionRow.margin` | the same one |
-| `g_{r,1}` in equation (10)'s covariate | `CorrectionRow.gr1_margin` | **none** — it is a regression of an arm indicator on `Q̄̂`, and `g_0 > δ` does not imply it is bounded away from zero |
+| `π*` at the exit — missing-outcome fits | `CorrectionRow.observation_margin` | the same one |
+| `g_{r,1}` in equation (10)'s covariate, or `γ_a`/`γ_Δ` on a missing-outcome fit | `CorrectionRow.gr1_margin` | **none** — it is a regression of an arm indicator on `Q̄̂`, and `g_0 > δ` does not imply it is bounded away from zero |
+
+**The two observation rows are not implied by the treatment ones**, which is why they are
+separate columns rather than a wider reading of the existing ones. A randomized trial's
+treatment mechanism is flat by design and cannot clip, while its observation mechanism is a
+fitted probability that can sit at its floor on a large share of rows — so a check reading only
+the treatment witnesses reports `contract = "theorem"` on a fit that is squarely bound-active.
+`tests/unit/test_drtmle_missing.py::TestTheContractSeesTheObservationTruncations` is the pair of
+fits that says so: a well-behaved trial reading `"theorem"`, and one whose `π̂` is pinned on a
+fifth of its rows reading `"bound-active"` with **only** the two `π` entries named.
 
 The **asymptotic** half of the inactive-bound claim needs three conditions and two are not
 Theorem 1's: `g_0 ∈ [δ, 1−δ]`, which is the theorem's; a bound sequence eventually below `δ`,
@@ -646,7 +668,12 @@ Three consequences for practice:
 1. **The score check is necessary, not sufficient.** Treat a failing score check as
    disqualifying and a passing one as saying nothing about the nuisances.
 2. **Inspect the reduced-regression fits themselves**, not just the equations built from them.
-   Their diagnostics are on `result.extra["drtmle"].diagnostics`, keyed `"qr"`, `"gr1"`, `"gr2"`.
+   Their diagnostics are on `result.extra["drtmle"].diagnostics`, keyed `"qr"`, `"gr1"`, `"gr2"`
+   on the univariate reduction and `"gamma_a"`, `"gamma_m"`, `"r_a"`, `"r_m"`, `"e"` on the
+   missing-outcome one — the two constructions do not fit the same regressions, so they cannot
+   report under the same names. `result.extra["drtmle"].reduction` says which ran, read off the
+   set that was fitted rather than off the `reduction=` setting, and `.missingness_bound` records
+   the bound the two observation reductions were formed at.
 3. **Where you cannot argue the rate conditions, do not treat the interval as settled.** Use this
    estimator where you have a reason to think one primary nuisance is badly estimated; that is the
    regime it was derived for and the regime the evidence covers.

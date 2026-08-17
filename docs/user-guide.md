@@ -1425,8 +1425,15 @@ The ordinary outcome clever covariate still divides by
 but it is not a third stored mechanism. `g_bounds` and the ordinary truncation curve apply to
 treatment; `nuisance_bound` and `truncation_curve(mechanism=True)` apply to observation.
 
+Every restriction in this paragraph is a condition on the *guarded* fit, which is the one
+claiming the theorem. With `guard=()` there is no extra equation and no claim: `delta=` and
+`treatment_probabilities=` together then configure a plain TMLE at the design mechanism, bit for
+bit the ordinary estimator, which is what a pure randomization-probability analysis wants.
+
 Observational treatment, cross-fitting, missing treatment, and `treatment_probabilities=` with
-`n_bootstrap=` all remain refused; the exact restrictions and derivation are in the
+`n_bootstrap=` all remain refused — the last of those whatever `guard=` is, because the array is
+row-aligned to the data as passed however few equations are being solved; the exact restrictions
+and derivation are in the
 [DR-TMLE contract](drtmle.md#randomized-trials-with-missing-outcomes). Saved fits that used
 row-aligned known probabilities retain their estimates and retargeting operations, but cannot
 reconstruct an estimator for refit-based analyses because later row identity and order cannot be

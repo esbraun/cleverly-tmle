@@ -10,12 +10,13 @@ import pytest
 from sklearn.base import BaseEstimator
 from sklearn.dummy import DummyRegressor
 
-from cleverly import DRTMLE, load
+from cleverly import DRTMLE, PositivityWarning, load
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.reduced import MissingOutcomeReducedSet
 from cleverly.estimators.tmle import build_submodel, correction_parts
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.inference.influence import missing_outcome_correction_parts
+from cleverly.validation.drtmle import MARGIN_ACTIVE
 
 
 def _trial(n: int = 320, seed: int = 13) -> pd.DataFrame:
@@ -26,6 +27,36 @@ def _trial(n: int = 320, seed: int = 13) -> pd.DataFrame:
     pi = 1.0 / (1.0 + np.exp(-(-0.1 + 0.4 * a + 0.3 * w1)))
     observed = rng.binomial(1, pi, size=n).astype(float)
     y = 0.8 + 1.1 * a + 0.4 * w1 - 0.2 * w2 + rng.normal(scale=0.6, size=n)
+    y[observed == 0.0] = np.nan
+    return pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Delta": observed, "Y": y})
+
+
+def _pinched_trial(n: int = 400, seed: int = 5) -> pd.DataFrame:
+    """A trial whose *observation* mechanism is pinched and whose randomization is not.
+
+    Three things are arranged, and each is asserted rather than assumed, because a fixture
+    where the *wrong* truncation is doing the work would pass while measuring nothing.
+
+    ``A`` is a fair coin independent of ``W``, so ``g-hat`` sits near a half and the
+    treatment bounds have nothing to do on either arm.  ``pi`` is driven hard by ``W1``,
+    so a fifth of ``P(Delta=1|A,W)`` falls below ``nuisance_bound`` and the observation
+    tilt exits against its floor.
+
+    **``Y`` deliberately does not depend on ``W1``.**  ``gamma_Delta`` is a regression of
+    the observation indicator on ``Qbar-hat``, so an outcome that tracked ``W1`` would
+    carry the pinch straight into the reduction and make ``gr1_margin`` active too -- and
+    that column existed before this fixture did, so a bound-active verdict would no longer
+    be evidence about the observation mechanism.  With ``W1`` out of the outcome the
+    reduction stays well inside its bounds and the only active truncations are the two
+    this fixture is for.
+    """
+    rng = np.random.default_rng(seed)
+    w1 = rng.normal(size=n)
+    w2 = rng.normal(size=n)
+    a = rng.binomial(1, 0.5, size=n).astype(float)
+    pi = 1.0 / (1.0 + np.exp(-(-0.2 + 1.8 * w1)))
+    observed = rng.binomial(1, pi, size=n).astype(float)
+    y = 0.8 + 1.1 * a - 0.2 * w2 + rng.normal(scale=0.6, size=n)
     y[observed == 0.0] = np.nan
     return pd.DataFrame({"W1": w1, "W2": w2, "A": a, "Delta": observed, "Y": y})
 
@@ -61,12 +92,46 @@ def randomized_fit():
     )
 
 
+@pytest.fixture(scope="module")
+def pinched_observation_fit():
+    """A fit whose observation mechanism is bound-active and whose treatment one is not."""
+    with pytest.warns(PositivityWarning):
+        return (
+            _estimator(nuisance_bound=0.15)
+            .fit(
+                _pinched_trial(),
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2"],
+                delta="Delta",
+            )
+            .single()
+        )
+
+
 def test_randomized_missing_outcomes_solve_the_reported_equations(randomized_fit) -> None:
     assert randomized_fit.validation.score_check().passed
     check = randomized_fit.validation.correction_check()
     assert check.passed
     assert {row.equation for row in check.rows} == {"D*_A", "D*_M", "D*_Y"}
     assert len(check.rows) == 6
+
+
+def test_the_reduced_fit_record_names_the_construction_that_ran(randomized_fit) -> None:
+    """The other half of ``test_drtmle_fit.py::test_it_records_what_it_fitted``.
+
+    ``result.extra["drtmle"]`` reported ``reduction="univariate"`` for a fit that ran the
+    five-regression construction, because it recorded the constructor argument rather than
+    the object.  It also recorded only ``g_bounds``, though ``gamma_m`` and the observation
+    mechanism are both formed at ``nuisance_bound`` and neither is reachable from the one
+    bound it did carry.
+    """
+    report = randomized_fit.extra["drtmle"]
+
+    assert report.guard == ("Q", "g")
+    assert report.reduction == "missing_outcome"
+    assert set(report.diagnostics) == {"gamma_a", "gamma_m", "r_a", "r_m", "e"}
+    assert report.missingness_bound == randomized_fit.config.missingness_bound
 
 
 def test_each_arms_covariate_divides_by_separately_targeted_mechanisms(randomized_fit) -> None:
@@ -113,6 +178,12 @@ def test_the_five_reductions_and_observation_tilt_survive_serialization(
         np.testing.assert_array_equal(getattr(after.reduced, name), getattr(before.reduced, name))
     np.testing.assert_array_equal(after.observation.propensity, before.observation.propensity)
     assert restored.validation.score_check() == randomized_fit.validation.score_check()
+    # The truncation columns read `nuisance.missingness` and `reduction.missingness_bound`,
+    # both of which are persisted -- so a reloaded fit must report the same contract as the
+    # fit it came from, rather than one measured on whatever survived the round trip.
+    assert restored.validation.correction_check().rows == (
+        randomized_fit.validation.correction_check().rows
+    )
 
 
 def test_the_report_shows_the_product_the_covariate_divides_by(randomized_fit) -> None:
@@ -344,6 +415,74 @@ def test_bootstrapping_known_probabilities_is_refused() -> None:
         )
 
 
+def test_bootstrapping_known_probabilities_is_refused_without_a_guard() -> None:
+    """The control for lifting the unguarded refusal, and the reason it is a pair.
+
+    This refusal used to live *inside* the ``guard``-gated block, so accepting
+    ``guard=()`` with ``delta=`` and known probabilities -- which the plumbing already
+    supported -- would have walked straight past it. The misalignment it prevents is
+    silent, so a fit that merely runs is not evidence that it is right.
+    """
+    with pytest.raises(NotImplementedError, match="n_bootstrap"):
+        _estimator(guard=(), n_bootstrap=5).fit(
+            _trial(100),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
+            treatment_probabilities=np.full(100, 0.5),
+        )
+
+
+def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:
+    """``guard=()`` with ``delta=`` was refused, and the message named ``delta=``.
+
+    It is bit for bit a plain TMLE, and a trial's design probabilities are exactly what
+    such a fit should divide by -- so the refusal was both unnecessary and, on a fit that
+    *had* passed ``delta=``, false. ``_FailIfFit`` is the witness that the supplied array
+    reached the fit rather than the refusal merely being gone: the treatment learner must
+    never run, and ``contract == "none"`` is what says the unguarded path was taken.
+    """
+    frame = _trial(n=260, seed=17)
+    estimator = DRTMLE(
+        guard=(),
+        randomized=False,
+        cross_fit=False,
+        outcome_learner="glm",
+        treatment_learner=_FailIfFit(),
+        missingness_learner="glm",
+        estimands=("ate",),
+        simultaneous=False,
+        random_state=0,
+    )
+    result = estimator.fit(
+        frame,
+        outcome="Y",
+        treatment="A",
+        covariates=["W1", "W2"],
+        delta="Delta",
+        treatment_probabilities=np.full(len(frame), 0.5),
+    ).single()
+
+    np.testing.assert_array_equal(result.nuisance.propensity.values, np.full((len(frame), 2), 0.5))
+    assert result.extra["drtmle"].guard == ()
+    assert result.validation.correction_check().contract == "none"
+    assert result.validation.score_check().passed
+
+
+def test_known_probabilities_without_delta_are_still_refused() -> None:
+    """The half of the old refusal that was true, which had no test of its own."""
+    frame = _trial(n=120, seed=3).assign(Y=lambda f: f["Y"].fillna(0.0)).drop(columns=["Delta"])
+    with pytest.raises(ValueError, match="only used with delta="):
+        _estimator(guard=()).fit(
+            frame,
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            treatment_probabilities=np.full(len(frame), 0.5),
+        )
+
+
 def _labelled_trial(n: int = 300, seed: int = 21) -> tuple[pd.DataFrame, np.ndarray]:
     """A stratified trial whose arms are named, so the positional binding is asymmetric.
 
@@ -444,3 +583,152 @@ def test_the_estimator_is_consistent_when_only_the_outcome_model_is_wrong() -> N
     )
     for name, value in truth.items():
         assert abs(fit.estimates[name].psi - value) < 0.15, name
+
+
+class TestTheContractSeesTheObservationTruncations:
+    """Which estimator a missing-outcome fit's numbers are evidence about.
+
+    ``correction_check`` measured the contract on the **treatment** mechanism alone --
+    ``reported_mechanism`` returns the targeted treatment propensity by its own docstring,
+    and ``initial_clipped`` counted ``propensity.values`` -- while
+    ``nuisance.missingness`` and ``reduction.observation`` were both in scope. That is
+    blind in exactly the regime this construction is for: a randomized trial's treatment
+    mechanism is flat by design and *cannot* clip, so the three columns that existed all
+    read "inactive" however much of ``P(Delta=1|A,W)`` was pinned at ``nuisance_bound``,
+    and the fit was certified ``"theorem"``.
+
+    **The pair of fits is the test**, as it is for the complete-data label in
+    ``test_drtmle_fit.py``: a column that could not disagree is not a witness.
+    """
+
+    def test_a_well_behaved_trial_is_still_the_theorems_estimator(self, randomized_fit) -> None:
+        check = randomized_fit.validation.correction_check()
+
+        assert check.contract == "theorem"
+        assert check.truncations_active == ()
+        assert check.observation_clip_share == 0.0
+        assert check.observation_margin > MARGIN_ACTIVE
+
+    def test_a_pinched_observation_mechanism_is_bound_active(self, pinched_observation_fit) -> None:
+        """The nonzero witness. Both observation truncations bite, and the label says so."""
+        check = pinched_observation_fit.validation.correction_check()
+
+        assert check.observation_clip_share > 0.05
+        assert check.observation_margin <= MARGIN_ACTIVE
+        assert check.contract == "bound-active"
+        assert check.truncations_active == (
+            "pi-hat at the initial fit",
+            "pi* at the exit",
+        )
+
+    def test_every_column_that_existed_before_calls_this_fit_the_theorems(
+        self, pinched_observation_fit
+    ) -> None:
+        """The deliberate-mutation control, written down rather than promised.
+
+        Every truncation column ``correction_check`` carried before this pair is inactive
+        on this fixture -- the treatment mechanism at both ends, and the gamma reductions
+        the ``gr1_margin`` column reuses. So a check reading only them returns
+        ``"theorem"`` here, which is what it did. Reverting the fix therefore *must* turn
+        the assertions above red, and this test is also what forbids the fixture from
+        drifting into a state where some other truncation is doing the work.
+        """
+        check = pinched_observation_fit.validation.correction_check()
+
+        assert check.initial_clip_share == 0.0
+        assert check.margin > MARGIN_ACTIVE
+        assert check.gr1_margin > MARGIN_ACTIVE
+
+    def test_bound_active_is_a_scope_label_here_too(self, pinched_observation_fit) -> None:
+        """A pinched fit is outside Theorem 1, not broken -- as on the complete-data path."""
+        check = pinched_observation_fit.validation.correction_check()
+
+        assert check.passed
+        assert check.identity_failures() == ()
+        assert check.correction_failures() == ()
+        assert pinched_observation_fit.validation.score_check().passed
+
+    def test_the_two_new_columns_are_on_the_face_of_the_check(
+        self, pinched_observation_fit
+    ) -> None:
+        check = pinched_observation_fit.validation.correction_check()
+        frame = check.to_frame()
+        summary = check.summary()
+
+        assert {"observation_clipped", "observation_margin"} <= set(frame.columns)
+        assert all(row.observation_clipped > 0 for row in check.rows)
+        assert "pi* at the exit" in summary
+        assert "none of the three truncations" not in summary
+
+
+class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
+    """``P(A=a,Delta=1|W)`` is a derived denominator, and it has no bound of its own.
+
+    The row counted its ``clipped`` cells against ``g_bounds[0] * nuisance_bound`` -- a
+    floor that appears nowhere else in the package, because the estimator truncates the
+    two factors **separately** and multiplies them. A raw product only falls below the
+    product of the floors when *both* factors are small, so the count was a strict subset
+    of the cells truncation altered, and at the shipped defaults the floor is small enough
+    that the row reported essentially zero however hard the observation bound was working.
+    """
+
+    def test_it_counts_the_cells_either_factors_truncation_altered(
+        self, pinched_observation_fit
+    ) -> None:
+        treatment = pinched_observation_fit.nuisance.propensity.values
+        observation = pinched_observation_fit.nuisance.missingness
+        g_lower, g_upper = pinched_observation_fit.config.g_bounds
+        m_lower = pinched_observation_fit.config.missingness_bound
+        altered = (treatment < g_lower) | (treatment > g_upper) | (observation < m_lower)
+        stats = pinched_observation_fit.sensitivity.positivity().mechanisms["P(A=a,Delta=1|W)"]
+
+        assert altered.sum() > 0, "the fixture's precondition: the truncation must bite"
+        assert stats["clipped"] == pytest.approx(float(altered.sum()))
+        assert stats["clipped_fraction"] == pytest.approx(float(altered.mean()))
+
+        # The control. The product floor this row used to count against is applied by no
+        # code, and counts strictly fewer cells -- so the assertions above are red the
+        # moment it comes back.
+        product_floor = float(((treatment * observation) < g_lower * m_lower).sum())
+        assert product_floor < stats["clipped"]
+
+    def test_its_effective_sample_size_uses_the_denominator_the_equation_forms(
+        self, pinched_observation_fit
+    ) -> None:
+        """``clip(g) * clip(pi)``, not ``max(g * pi, g_lo * m_lo)``, which nothing forms."""
+        data = pinched_observation_fit.data
+        treatment = pinched_observation_fit.nuisance.propensity.values
+        observation = pinched_observation_fit.nuisance.missingness
+        g_lower, g_upper = pinched_observation_fit.config.g_bounds
+        m_lower = pinched_observation_fit.config.missingness_bound
+        bounded = np.clip(treatment, g_lower, g_upper) * np.clip(observation, m_lower, 1.0)
+        treated = data.treatment == 1.0
+        # Rows with no recorded outcome contribute an exact zero to the residual term, so
+        # the mechanism never weights them and they do not belong in its ESS.
+        contributing = np.asarray(data.observed, dtype=bool)
+        used = np.where(treated, bounded[:, 1], bounded[:, 0])[contributing]
+
+        weights = 1.0 / used
+        expected = (weights.sum() ** 2 / np.square(weights).sum()) / float(used.size)
+        stats = pinched_observation_fit.sensitivity.positivity().mechanisms["P(A=a,Delta=1|W)"]
+
+        assert stats["ess_ratio"] == pytest.approx(expected)
+
+        # The control, as above: the floored raw product is a third array, neither the one
+        # that was fitted nor the one that was divided by.
+        raw = treatment * observation
+        floored = np.maximum(
+            np.where(treated, raw[:, 1], raw[:, 0])[contributing], g_lower * m_lower
+        )
+        old_weights = 1.0 / floored
+        old = (old_weights.sum() ** 2 / np.square(old_weights).sum()) / float(floored.size)
+        assert stats["ess_ratio"] != pytest.approx(old)
+
+    def test_it_names_both_bounds_it_was_truncated_at(self, pinched_observation_fit) -> None:
+        """Every other row has one bound; quoting it here named one the row never met."""
+        report = pinched_observation_fit.sensitivity.positivity()
+        text = report.summary() + report.verdict()
+
+        assert "P(A=a,Delta=1|W) truncated to" in text
+        assert f"[{report.bounds[0]:.4g}, {report.bounds[1]:.4g}] x " in text
+        assert f"[{report.nuisance_bound:.4g}, 1], factor by factor" in text

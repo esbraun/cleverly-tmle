@@ -91,25 +91,40 @@ asks something no other column here answers: **which estimator the numbers are e
 about.** Truncation is not in
 Theorem 1's algorithm, so the theorem-backed guarantee is claimed for a fit whose truncations
 are *inactive*, and a fit where one binds is reported as empirically supported and outside the
-theorem.  Three truncations have to be inactive for that, not one, and until this module grew
-the two columns below only :attr:`~CorrectionRow.margin` was on a fit at all:
+theorem.  **Three** truncations have to be inactive for that on a complete-data fit, not one,
+and **five** on a randomized missing-outcome one -- which divides by two mechanisms, truncated
+separately at two different bounds:
 
-============================  ===================================  ==========================
-truncation                    witness                              in Theorem 1's assumptions
-============================  ===================================  ==========================
-:math:`\hat g` at the fit     :attr:`CorrectionRow.initial_clipped` an assumption on
-                                                                   :math:`g_0`, not an
-                                                                   operation on
-                                                                   :math:`\hat g`
-:math:`g^*` at the exit       :attr:`CorrectionRow.margin`          the same one
-:math:`g_{r,1}`               :attr:`CorrectionRow.gr1_margin`      **none**: it is a
-                                                                   regression of an arm
-                                                                   indicator on
-                                                                   :math:`\hat{\bar Q}`, and
-                                                                   :math:`g_0 > \delta` does
-                                                                   not imply it is bounded
-                                                                   away from zero
-============================  ===================================  ==========================
+=========================  ========================================  ===================
+truncation                 witness                                   in the assumptions
+=========================  ========================================  ===================
+:math:`\hat g` at the fit  :attr:`CorrectionRow.initial_clipped`      an assumption on
+                                                                     :math:`g_0`, not an
+                                                                     operation on
+                                                                     :math:`\hat g`
+:math:`\hat\pi` at the     :attr:`CorrectionRow.observation_clipped`  an assumption on
+fit                                                                  :math:`\pi_0`, on
+                                                                     the same footing
+:math:`g^*` at the exit    :attr:`CorrectionRow.margin`               the same one
+:math:`\pi^*` at the exit  :attr:`CorrectionRow.observation_margin`   the same one
+:math:`g_{r,1}`, or        :attr:`CorrectionRow.gr1_margin`           **none**: it is a
+:math:`\gamma_a` and                                                 regression of an arm
+:math:`\gamma_\Delta` on                                             indicator on
+a missing-outcome fit                                                :math:`\hat{\bar Q}`,
+                                                                     and :math:`g_0 >
+                                                                     \delta` does not
+                                                                     imply it is bounded
+                                                                     away from zero
+=========================  ========================================  ===================
+
+The two :math:`\pi` rows are on missing-outcome fits only; on a complete-data fit their
+columns hold their sentinels and :attr:`CorrectionCheck.truncations_active` does not name
+them.
+
+**The two observation rows are not implied by the treatment ones.**  A randomized trial's
+treatment mechanism is flat by design and cannot clip, while its observation mechanism is a
+fitted probability that can sit at its floor on a large share of rows -- so a check reading
+only the first three reports ``"theorem"`` on a fit that is squarely bound-active.
 
 **A bound-active fit is not a failing fit, and :attr:`CorrectionCheck.passed` does not read
 this.**  On ``weak_overlap_dgp`` every identity holds at ``1e-17`` and every score is
@@ -203,7 +218,8 @@ class CorrectionRow:
         and truncated tilts coincide.  What it says now is that the fix took.  Use
         :attr:`margin` to ask whether the draw was a hard one.
     margin:
-        The closest the targeted mechanism comes to either bound, as a fraction of the
+        The closest the targeted **treatment** mechanism comes to either bound, as a
+        fraction of the
         interval between them: ``min_i min(g*_i - lo, hi - g*_i) / (hi - lo)``.  This is the
         witness that replaces :attr:`clipped`, and it says what that column used to say --
         **whether the truncation had anything to do on this draw** -- in the only form that
@@ -219,7 +235,8 @@ class CorrectionRow:
         is a property that separates the two draws by five orders and cannot be manufactured
         by the fix, which is what a fixture's precondition has to be.
     initial_clipped:
-        How many ``(row, arm)`` pairs of the **initial** mechanism -- the cross-fitted
+        How many ``(row, arm)`` pairs of the **initial treatment** mechanism -- the
+        cross-fitted
         :meth:`~cleverly.estimators._nuisance.Propensity.arm`, untruncated -- lie outside the
         truncation.  A property of the *draw* rather than of the alternation, and so the one
         truncation witness here that is not about what the loop did: it counts what
@@ -239,6 +256,36 @@ class CorrectionRow:
         :math:`g_{r,1}` is a regression of an arm indicator on :math:`\\hat{\\bar Q}`, and
         :math:`g_0 > \\delta` does not imply it is bounded away from zero.
         ``weak-overlap``'s ``min gr1`` of ``0.000`` is this bound binding.
+
+        **On a missing-outcome fit this column carries something else**, because
+        :math:`g_{r,1}` does not exist in that construction: it is the smaller of
+        :math:`\\gamma_a`'s margin against ``g_bounds`` and :math:`\\gamma_\\Delta`'s
+        against ``[nuisance_bound, 1]``.  The column is reused rather than renamed because
+        it plays the same role -- the truncation with no assumption behind it -- and
+        :attr:`CorrectionCheck.truncations_active` names it for what it is on each path.
+    observation_clipped:
+        How many ``(row, arm)`` cells of the **initial observation** mechanism
+        :math:`\\hat\\pi(a, W)` lie outside ``[nuisance_bound, 1]``.  The counterpart of
+        :attr:`initial_clipped` for the second mechanism a missing-outcome fit divides by,
+        and ``0`` on a fit that has no such mechanism.
+
+        It exists because the two are truncated **separately** and neither implies the
+        other: a randomized trial's treatment mechanism is flat by design and cannot clip,
+        while :math:`\\hat\\pi` is a fitted probability that can sit at its floor on a
+        large share of rows.  Reading only :attr:`initial_clipped` there reports
+        :attr:`CorrectionCheck.contract` as ``"theorem"`` on a fit whose observation
+        mechanism is pinned, which is the one direction a scope label must not err in.
+    observation_margin:
+        The closest the targeted observation mechanism :math:`\\pi^*` comes to either end of
+        ``[nuisance_bound, 1]``, as a fraction of that interval -- :attr:`margin`'s
+        counterpart, two-sided for the same reason.  ``nan`` on a fit with no observation
+        mechanism, which is a sentinel and not a zero: there is nothing to be close to.
+
+        Two-sided rather than a floor alone because
+        :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` is asked for a root
+        in the whole interval, so a tilt driven to the upper cap is equally a solve the
+        constraint changed -- and that, not "is the covariate large", is what
+        :attr:`CorrectionCheck.contract` asks.
     solved:
         Whether this fit solved the equation the correction comes from. The flag is also the
         question of whether the term is in the reported curve, because
@@ -266,6 +313,8 @@ class CorrectionRow:
     margin: float = float("nan")
     initial_clipped: int = 0
     gr1_margin: float = float("nan")
+    observation_clipped: int = 0
+    observation_margin: float = float("nan")
 
     @property
     def residual(self) -> float:
@@ -386,28 +435,74 @@ class CorrectionCheck:
         return min((row.gr1_margin for row in self.rows), default=float("nan"))
 
     @property
+    def has_observation_mechanism(self) -> bool:
+        """Whether this fit targets an observation mechanism separately from ``g``.
+
+        True exactly on a missing-outcome fit, which is the only construction here that
+        divides by two mechanisms and truncates them at two different bounds.
+        """
+        return any(np.isfinite(row.observation_margin) for row in self.rows)
+
+    @property
+    def observation_clip_share(self) -> float:
+        """The worst draw's share of cells clipped at the *initial* observation mechanism.
+
+        ``nan`` -- not ``0.0`` -- on a fit with no such mechanism, because a zero would
+        read as "nothing clipped" where the truth is "nothing to clip", and
+        :attr:`truncations_active` must not name a truncation that does not exist.
+        """
+        arms = len({row.arm for row in self.rows})
+        pairs = self.n * arms
+        if not self.rows or pairs == 0 or not self.has_observation_mechanism:
+            return float("nan")
+        return max(row.observation_clipped for row in self.rows) / pairs
+
+    @property
+    def observation_margin(self) -> float:
+        """The closest any draw's :math:`\\pi^*` comes to ``[nuisance_bound, 1]``."""
+        return min((row.observation_margin for row in self.rows), default=float("nan"))
+
+    @property
+    def _truncation_count(self) -> int:
+        """How many truncations this fit's contract is a statement about."""
+        return 5 if self.has_observation_mechanism else 3
+
+    @property
     def truncations_active(self) -> tuple[str, ...]:
-        """Which of the three relevant truncations bite on this fit, named.
+        """Which of the relevant truncations bite on this fit, named.
 
         Empty on a fit inside the theorem-backed contract.  Named rather than counted
-        because the three are different objects with different standing: two are operations
-        on a mechanism the theorem assumes bounded, and the third has no assumption in the
-        theorem at all.
+        because they are different objects with different standing: the mechanism ones are
+        operations on something the theorem assumes bounded, and the last has no assumption
+        in the theorem at all.
+
+        **Three on a complete-data fit and five on a missing-outcome one.**  That fit
+        divides by two mechanisms, truncated separately at two different bounds, and
+        neither implies the other -- a randomized trial's treatment mechanism is flat by
+        design while its observation mechanism is fitted and can sit at its floor.  The two
+        extra names are ``nan``-guarded rather than zero-guarded, so a complete-data fit
+        reports exactly the three it always did.
         """
         active = []
         if np.isfinite(self.initial_clip_share) and self.initial_clip_share > 0.0:
             active.append("g-hat at the initial fit")
+        if np.isfinite(self.observation_clip_share) and self.observation_clip_share > 0.0:
+            active.append("pi-hat at the initial fit")
         if np.isfinite(self.margin) and self.margin <= MARGIN_ACTIVE:
             active.append("g* at the exit")
+        if np.isfinite(self.observation_margin) and self.observation_margin <= MARGIN_ACTIVE:
+            active.append("pi* at the exit")
         if np.isfinite(self.gr1_margin) and self.gr1_margin <= MARGIN_ACTIVE:
-            active.append("g_r1")
+            # `g_r1` does not exist in the missing-outcome construction; the column carries
+            # the gamma reductions there, so the label says which object it is about.
+            active.append("gamma_a / gamma_m" if self.has_observation_mechanism else "g_r1")
         return tuple(active)
 
     @property
     def contract(self) -> str:
         """Which estimator this fit's numbers are evidence about.
 
-        ``"theorem"`` where none of the three truncations is active, in which case
+        ``"theorem"`` where none of the relevant truncations is active, in which case
         :func:`~cleverly.fluctuation.mechanism.solve_bounded_mechanism` returned the
         unconstrained solve bit for bit and the fit **is** Theorem 1's estimator;
         ``"bound-active"`` otherwise, which is *empirically supported and outside the
@@ -434,6 +529,8 @@ class CorrectionCheck:
             "margin": [row.margin for row in self.rows],
             "initial_clipped": [row.initial_clipped for row in self.rows],
             "gr1_margin": [row.gr1_margin for row in self.rows],
+            "observation_clipped": [row.observation_clipped for row in self.rows],
+            "observation_margin": [row.observation_margin for row in self.rows],
             # Which rows `reported` is being judged on. Without it a partial-guard frame
             # carries a large number in a column of small ones and says nothing about why.
             "solved": [row.solved for row in self.rows],
@@ -473,8 +570,14 @@ class CorrectionCheck:
             f"  scores on the outcome scale (x{self.scale:.4g} from the fitting scale); "
             f"tolerance {self.threshold:.2e}, identity {self.identity_threshold:.2e}",
             f"  the truncation binds on up to {self.clipped} row(s) of {self.n} at the exit "
-            f"of any one draw, and the targeted mechanism comes within {self.margin:.2g} of "
-            "a bound; the per-draw figures are in to_frame()",
+            f"of any one draw, and the targeted treatment mechanism comes within "
+            f"{self.margin:.2g} of a bound"
+            + (
+                f", the targeted observation mechanism within {self.observation_margin:.2g}"
+                if self.has_observation_mechanism
+                else ""
+            )
+            + "; the per-draw figures are in to_frame()",
             # Item 25's scope label, on the face of the fit rather than recomputable from it.
             # Deliberately not in `_verdict`: which estimator a number is evidence about is a
             # different question from whether the fit solved what it reports, and reading it
@@ -485,9 +588,15 @@ class CorrectionCheck:
                 "supported and outside Theorem 1 rather than "
                 "wrong; it is not a failure and the verdict below does not read it"
                 if self.truncations_active
-                else " -- none of the three truncations is active, so this fit is Theorem 1's "
-                "estimator: clip share 0 at the initial mechanism, and margins "
-                f"{self.margin:.2g} (g*) and {self.gr1_margin:.2g} (g_r1)"
+                else f" -- none of the {self._truncation_count} truncations is active, so "
+                "this fit is Theorem 1's estimator: clip share 0 at the initial "
+                f"mechanism{'s' if self.has_observation_mechanism else ''}, and margins "
+                + (
+                    f"{self.margin:.2g} (g*), {self.observation_margin:.2g} (pi*) and "
+                    f"{self.gr1_margin:.2g} (gamma_a/gamma_m)"
+                    if self.has_observation_mechanism
+                    else f"{self.margin:.2g} (g*) and {self.gr1_margin:.2g} (g_r1)"
+                )
             ),
         ]
         unsolved = {row.equation for row in self.rows if not row.solved}
@@ -570,20 +679,37 @@ def correction_check(
             )
             if parts.d_a is not None and parts.d_m is not None and parts.d_y is not None:
                 observation = reduction.observation
-                if mechanism is None or observation is None:
+                missingness = repeat.nuisance.missingness
+                if (
+                    mechanism is None
+                    or observation is None
+                    or missingness is None
+                    or reduction.missingness_bound is None
+                ):
                     raise ValueError(
-                        "a missing-outcome correction has no targeted treatment or "
-                        "observation mechanism"
+                        "a missing-outcome correction needs a targeted treatment mechanism, "
+                        "a targeted observation mechanism, the initial observation "
+                        "mechanism, and the bound both of the latter were formed at"
                     )
+                missingness_bound = float(reduction.missingness_bound)
+                observation_bounds = (missingness_bound, 1.0)
                 initial = np.asarray(repeat.nuisance.propensity.values, dtype=float)
                 lower, upper = reduction.bounds
                 initial_clipped = int(np.count_nonzero((initial < lower) | (initial > upper)))
+                # The second mechanism this fit divides by, at the second bound.  It is
+                # counted separately from `initial_clipped` and not folded into it because
+                # the two are truncated separately and neither implies the other: on a
+                # randomized trial `g-hat` is flat by design and cannot clip, so a fit
+                # reading only the propensity reports `contract == "theorem"` however much
+                # of `pi-hat` is pinned at its floor.
+                initial_pi = np.asarray(missingness, dtype=float)
+                observation_clipped = int(
+                    np.count_nonzero((initial_pi < missingness_bound) | (initial_pi > 1.0))
+                )
+                observation_margin = _margin(observation.propensity, observation_bounds)
                 gamma_margin = min(
                     _margin(reduction.reduced.gamma_a, reduction.bounds),
-                    _margin(
-                        reduction.reduced.gamma_m,
-                        (float(reduction.missingness_bound), 1.0),
-                    ),
+                    _margin(reduction.reduced.gamma_m, observation_bounds),
                 )
                 stored = {
                     "D*_A": np.asarray(mechanism.score),
@@ -606,6 +732,8 @@ def correction_check(
                                 margin=margin,
                                 initial_clipped=initial_clipped,
                                 gr1_margin=gamma_margin,
+                                observation_clipped=observation_clipped,
+                                observation_margin=observation_margin,
                                 solved=True,
                             )
                         )
@@ -614,11 +742,11 @@ def correction_check(
             # a single arm's equation, so they ride on every row of it exactly as `clipped`
             # and `margin` do -- and both come off the arrays the covariates divide by: the
             # untruncated initial mechanism `Propensity.bounded` was applied to, and the
-            # untruncated `gr1` `bounded_gr1` was applied to. On a missing-outcome fit the
-            # first of those is the joint `g_a pi_a` rather than the separately reported
-            # propensity -- and since the joint is uniformly the smaller of the two, reading
-            # the propensity here could only ever *under*-report the clipping, which is the
-            # one direction a witness for `contract` must not err in.
+            # untruncated `gr1` `bounded_gr1` was applied to. This branch is complete-data
+            # only -- a missing-outcome fit returns above -- so the propensity is the whole
+            # of what equation (8)'s covariate divides by and reading it here is exact. The
+            # second mechanism, and the second bound, exist only on the branch that has
+            # `observation_clipped` and `observation_margin` to report them.
             initial_fit = repeat.nuisance.propensity
             initial = np.column_stack([initial_fit.arm(arm) for arm in reduction.reduced.arms])
             lower, upper = reduction.bounds

@@ -144,10 +144,20 @@ class TestWhatItReports:
         assert all(later >= earlier - 1e-9 for earlier, later in pairwise(joint))
 
     def test_it_records_what_it_fitted(self, fit) -> None:
+        """Half of a pair -- the other half is in ``tests/unit/test_drtmle_missing.py``.
+
+        ``reduction`` used to be the *constructor argument* rather than the construction,
+        so it read ``"univariate"`` on a fit that ran the five missing-outcome
+        regressions.  Reading it off the fitted set makes the two halves disagree unless
+        the label is right, and the ``diagnostics`` keys are what stop the label from
+        being a word nothing depends on: the two constructions do not fit the same
+        regressions, so a wrong label and the right keys cannot both hold.
+        """
         report = fit.extra["drtmle"]
         assert report.guard == ("Q", "g")
         assert report.reduction == "univariate"
         assert set(report.diagnostics) == {"qr", "gr1", "gr2"}
+        assert report.missingness_bound is None, "no reduction was formed at that bound"
 
 
 class TestThePointEstimateIsAPlainTMLEs:
@@ -248,7 +258,6 @@ class TestTheCurveReadsWhatTheAlternationLeft:
             fluctuation.mechanism.propensity,
             bounds=reduction.bounds,
             guard=reduction.guard,
-            observed=data.observed,
         )
         at_initial = reduced_corrections(
             scaled,
@@ -258,7 +267,6 @@ class TestTheCurveReadsWhatTheAlternationLeft:
             fit.nuisance.propensity.arm(1.0),
             bounds=reduction.bounds,
             guard=reduction.guard,
-            observed=data.observed,
         )
         assert np.max(np.abs(at_targeted[1.0] - at_initial[1.0])) > 1e-6
 
@@ -1248,6 +1256,21 @@ class TestTheContractSaysWhichEstimator:
     def test_a_plain_tmle_has_no_contract_to_report(self, ordinary) -> None:
         """No corrections, no mechanism tilt, nothing for the label to be about."""
         assert ordinary.validation.correction_check().contract == "none"
+
+    def test_a_complete_data_fit_has_no_observation_witness_to_report(self, pinched) -> None:
+        """``nan``, not zero, and the difference is the whole point of the sentinel.
+
+        The missing-outcome construction divides by a second mechanism and reports two
+        further truncation columns.  A complete-data fit has no such mechanism, so a zero
+        share would read as "nothing clipped" where the truth is "nothing to clip" -- and
+        :attr:`truncations_active` would then name a truncation that does not exist on
+        this fit.  The exact tuple above is what says it does not.
+        """
+        check = pinched.validation.correction_check()
+
+        assert np.isnan(check.observation_margin)
+        assert np.isnan(check.observation_clip_share)
+        assert not check.has_observation_mechanism
 
 
 @pytest.fixture(scope="module")

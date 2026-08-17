@@ -108,7 +108,6 @@ def library_parts() -> Any:
         WRONG_G[covariate],
         bounds=(1e-6, 1.0 - 1e-6),
         guard=("Q", "g"),
-        observed=None,
     )
 
 
