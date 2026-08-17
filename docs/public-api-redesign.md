@@ -17,6 +17,20 @@ The redesign is intentionally allowed to break the current alpha API. It should 
 statistical behavior where the estimand and method are unchanged, but it need not preserve the
 constructor layout, return containers, string-based target declarations, or top-level exports.
 
+Every fenced example below is tagged `text` rather than `python`, and must stay that way until the
+work packages land. A `python`-tagged fence anywhere in the tree has to be registered as an
+executable `doc-section`/`doc-block`:
+`tests/e2e/test_doc_snippets.py::test_every_python_block_has_execution_metadata` counts the raw
+fence markers against the registered blocks, and it is in the **fast** tier. Registering these would
+mean executing `from cleverly import ATE, CausalStudy, PointTreatment` against a package that has
+none of them, and a `catalogue:` marker cannot exempt them either, because they name no receiver in
+that module's `RECEIVERS`. The syntax here is a proposal, so it is quoted rather than run;
+`docs/user-guide.md` is where a fence is a promise the suite keeps.
+
+Note that the count is a plain substring search and cannot tell quotation from code, so writing the
+fence marker inline in a sentence fails the test just as an unregistered example would. That is why
+the paragraph above names the tag instead of showing it.
+
 ## 1. Goals
 
 The new API should be understandable to an analyst who knows causal inference but does not yet know
@@ -266,7 +280,7 @@ single scalar estimate.
 
 Recommended basic workflow:
 
-```python
+```text
 from cleverly import ATE, CausalStudy, PointTreatment
 
 study = CausalStudy(
@@ -417,7 +431,7 @@ Mitigation:
 
 Ordinary selection:
 
-```python
+```text
 effect.estimate(method="tmle")
 effect.estimate(method="riesz_tmle")
 effect.estimate(method="ep")
@@ -425,7 +439,7 @@ effect.estimate(method="ep")
 
 Advanced selection:
 
-```python
+```text
 from cleverly.methods import DirectRiesz, RieszTMLEMethod
 
 method = RieszTMLEMethod(
@@ -445,7 +459,9 @@ Preset definitions:
 - `"riesz_tmle"`: directly learned or explicitly provided representers plus outcome regressions and
   targeting;
 - `"ep"`: efficient plug-in learning for a compatible `ConditionalContrast`;
-- collaborative and guarded variants become typed strategies rather than new study types.
+- the collaborative and doubly-robust-inference variants become typed strategies rather than new
+  study types, keeping the names -- `CollaborativeTMLEMethod`, `DRTMLEMethod` -- that already say
+  which estimator they are.
 
 No automatic method selection will be added. A method may recommend alternatives after capability
 validation, but it may not silently substitute another estimator.
@@ -722,7 +738,7 @@ aggregate's influence contribution is implemented and tested.
 
 ### 9.1 Public workflow
 
-```python
+```text
 validation = result.validate()
 full_diagnostics = result.diagnostics.run_all(include_refits=True)
 
@@ -866,9 +882,17 @@ documentation remains primary.
 
 - add a separate `dowhy` optional dependency group;
 - do not add DoWhy to `all` until installation size and compatibility have been assessed;
+- **but add `cleverly[dowhy]` to the `dev` extra**, so section 13.8's version matrix and
+  translation-equivalence checks actually execute in the ordinary local tiers. `dev` resolves to
+  `cleverly[all]` plus tooling, so an extra kept out of `all` and out of `dev` is installed by no
+  session and its tests can only skip. That is exactly the `numba`/`bench` trap already recorded in
+  `pyproject.toml`, whose only mitigation was a dedicated CI job -- and this repository's stated
+  budget condition rules CI out as a gate, so the mitigation is not available a second time. A
+  skipped correctness check reads like a passing one;
 - pin a tested compatible range rather than importing unbounded private APIs;
 - isolate all imports under the integration package;
-- test missing-dependency errors;
+- test missing-dependency errors, which requires a way to run the suite *without* the extra --
+  either a separate uninstalled session or a marker, decided when the group is added;
 - document the supported DoWhy version range and translation limitations.
 
 ## 11. Breaking migration
@@ -883,13 +907,19 @@ Migration mapping:
 | `TMLE(...).fit(data, ...).single()` | `CausalStudy(...).identify(...).estimate("tmle")` |
 | `LTMLE(...).fit(...)` | `CausalStudy(design=LongitudinalTreatment(...)).identify(...).estimate("tmle")` |
 | `CTMLE(...)` | `estimate(method=CollaborativeTMLEMethod(...))` |
-| `DRTMLE(...)` | `estimate(method=GuardedTMLEMethod(...))` |
+| `DRTMLE(...)` | `estimate(method=DRTMLEMethod(...))` |
 | `estimands=("ate", ...)` | typed estimand objects passed to `identify()` |
 | `interventions=`, `shifts=`, `incremental=` | typed estimand/intervention declarations |
-| `TMLEResultSet.single()` | `CausalResult.estimate` for a singleton result |
+| `TMLEResultSet.single()` | removed; the fit already returns the `CausalResult` that `.single()` used to unwrap |
 | `result.validation` | `result.diagnostics` plus `result.validate()` |
 | `result.sensitivity` | retained as a capability-aware facade |
 | `tmle(Y, A, W, ...)` | `CausalStudy` construction or an explicit migration helper |
+
+One row is easy to misread and the migration guide should spell it out. `CausalResult.estimate` is
+the singleton **point value** of section 6.4, not the object `.single()` returned; a mechanical
+rewrite of `res = fit.single()` to `res = fit.estimate` turns every subsequent `res.summary()` into
+an attribute error on a float. `.single()` has no replacement call because it has nothing left to
+unwrap.
 
 Required migration aids:
 
@@ -938,8 +968,12 @@ Exit gate:
 
 - new quickstart works through existing analytic TMLE;
 - ordinary fit returns no `ResultSet.single()` wrapper;
-- current supported point estimates are bit-for-bit unchanged where the normalized configuration
-  is the same;
+- **every** currently registered estimand is bit-for-bit unchanged where the normalized
+  configuration is the same -- longitudinal and survival included, since this package adapts those
+  engines too, and a shifted regimen mean is the failure this gate exists to catch;
+- that invariance covers the reported *inference*, not only the point estimate: influence curve,
+  standard error, and confidence interval. An engine can be re-plumbed into a new contract without
+  moving `psi` and still report a different interval, and an interval is what a reader acts on;
 - longitudinal results satisfy or explicitly refuse every shared result operation;
 - no graph, Riesz, or EP behavior is faked by placeholders that return estimates.
 
@@ -958,6 +992,9 @@ Deliverables:
 Exit gate:
 
 - every result/method/assessment cell is deliberately supported or refused;
+- every migrated diagnostic returns the number it returns today, longitudinal stagewise adapters
+  included -- the deliverables above claim the arithmetic is unchanged, so the gate has to be able
+  to fail when it is not;
 - saved results reproduce all cache-only assessments;
 - no expensive refit runs from summary or default validation.
 
@@ -1128,7 +1165,8 @@ For every registered functional:
 ### 13.8 Integration and release checks
 
 - DoWhy supported-version matrix;
-- native and DoWhy translation equivalence;
+- native and DoWhy translation equivalence -- both of these are local gates under a `dev`
+  environment that installs `cleverly[dowhy]` (section 10.3), not checks whose skip is accepted;
 - missing optional dependency behavior;
 - persistence round trips for every built-in method/result family;
 - migration-guide transcripts;

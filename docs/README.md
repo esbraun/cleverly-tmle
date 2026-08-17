@@ -1,6 +1,6 @@
 # The documentation set
 
-Eight things a reader might want, and where each of them is. Nothing here is generated —
+Nine things a reader might want, and where each of them is. Nothing here is generated —
 every file is hand-written and is expected to be read.
 
 | document | what is in it |
@@ -8,6 +8,7 @@ every file is hand-written and is expected to be read.
 | [User guide](user-guide.md) | one runnable recipe per capability: multi-arm treatments, dynamic and stochastic regimes, continuous doses, incremental interventions, marginal structural models, longitudinal and survival fits, C-TMLE, cross-fitting, weights |
 | [Technical appendix](methodology.md) | per algorithm: the estimand, its efficient influence curve, the second-order remainder, and the test that fails when it is built wrong |
 | [Roadmap](roadmap.md) | proposed methods in priority order, with the publication and canonical-source evidence required before implementation |
+| [Public API redesign](public-api-redesign.md) | the accepted-before-implementation design gate for the next public API: the study/identify/estimate object model, Riesz and EP integration, the ordered work packages, and the evidence each one exits on — **a proposal, not the API that exists**, and every code fence in it is quoted rather than run |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Evidence](evidence.md) | per registered estimand: which instruments check its influence curve — oracle law, Gateaux comparison, remainder rate, exact identity — and which mistakes none of them would see |
 | [DR-TMLE](drtmle.md) | the doubly-robust variant's production contract: supported estimands and refusals, what Theorem 1 covers, the targeting and cross-fitting choices, the nuisance conditions the interval is conditional on, and the diagnostics to inspect |
