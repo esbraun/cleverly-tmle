@@ -119,6 +119,7 @@ from ..inference.influence import (
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
+from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task
 from ..learners.crossfit import CrossFitPlan, Folds, make_folds
 from ..learners.super_learner import resolve_learner
@@ -1019,15 +1020,7 @@ class TMLE:
         """
         if not self.incremental:
             return
-        if data.n_arms != 2:
-            raise DataError(
-                f"an incremental propensity-score intervention tilts the *odds* of "
-                f"treatment, which names two arms; {data.treatment_name} has "
-                f"{data.n_arms} ({list(data.treatment_levels)}). Kennedy's tilt has no "
-                "single-parameter generalisation to a multinomial mechanism -- one odds "
-                "per contrast would be a different intervention with a different "
-                "influence function."
-            )
+        refuse_multi_arm_tilt(data)
         if data.has_intermediate:
             raise ValueError(
                 "incremental= and intermediate= are not combined. A controlled direct "

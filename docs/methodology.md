@@ -337,6 +337,8 @@ analysis rather than about this package's coverage.
 | --- | --- | --- |
 | eliminating the competing events | a different question | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions. **Competing risks themselves are supported** — see [Competing risks](user-guide.md#competing-risks) |
 | `intermediate=` | a different question | a controlled direct effect fixes a mediator at one time point; over a sequence of nodes, with mediators that are themselves time-varying, that is a different identification rather than a further column |
+| a **stochastic** categorical policy at a node | a different question | a deterministic rule assigns one label per unit and the clever covariate selects that label's probability. A policy that assigns a *distribution* over the labels replaces the intervention density itself, so the cumulative product carries a ratio rather than a selected column, and the parameter is the mean under that density. **Deterministic static and dynamic categorical regimens are supported** — see [treatment over time](user-guide.md#treatment-given-over-time) |
+| a **continuous dose** at a node | a different question | there is no label to assign, so the intervention is a shift along a conditional density at every node — the longitudinal counterpart of `shifts=` rather than a node with many arms. A numeric node with a coarse support is accepted, and warns that its values became unordered arms and its spacing was discarded |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | the targeted bootstrap, and `res.sensitivity` | not written yet | both refit against resampled or re-truncated nuisances. `g_bounds` enters the *pseudo-outcome* of every earlier node through the recursion, so changing it changes what the earlier regressions were fitted to: there is no `retarget` here that re-solves the fluctuation alone, and the whole backward pass has to run again. For positivity — the assumption that bites hardest here — `res.diagnostics()` already answers the question |
 
@@ -919,6 +921,37 @@ here checks that each method produces what its derivation predicts. The roadmap'
 [standing decisions](architecture-invariants.md#validation-and-evidence) carry the reasoning. And `score_check()`
 passing is not evidence that the equation was the right one — see below.
 
+## Where a multi-valued treatment is supported
+
+A multinomial treatment mechanism is the default construction here rather than a variant of a
+binary one: `CausalData` carries `treatment_levels` and arm codes, `Propensity` holds an
+`(n, K)` simplex, and `learners._fitting.predict_probabilities` produces it. Two arms are the
+`K = 2` case of that construction and not a separate path, which is what the
+[bit-for-bit invariant](architecture-invariants.md#dataframes-and-labels) is about. So "does
+this estimator take more than two arms" usually has the answer "yes, through the same code as
+two", and the informative entries are the four that do not.
+
+The `status` column uses the vocabulary of [How to read a refusal](#how-to-read-a-refusal)
+below, plus `waiting on published theory` from the
+[roadmap's eligibility rules](roadmap.md#eligibility). Each row points at the section that
+carries the derivation; none of it is restated here.
+
+| surface | status | why |
+| --- | --- | --- |
+| `TMLE`: `ey` per arm, `ate` / `att` / `atc` per non-reference arm, regimes, MSMs over arms | supported | one counterfactual mean per arm and one contrast per non-reference arm; the [oracle-law gate](#the-oracle-law-gate) states that a target meant for more than two arms needs a branch on the three-armed law |
+| `DRTMLE`: univariate and bivariate reductions | supported | [armwise one-vs-rest](#doubly-robust-inference-what-the-extra-equations-remove), each reduction and correction indexed by a free level. The cited theorem is binary, so this is an implementation-backed armwise extension rather than a claim about that theorem's literal scope |
+| `CTMLE`: selectors and `strategy="oat"` | supported | one shared `n x K` categorical mechanism selected against one nonredundant vector — see the [standing decision](architecture-invariants.md#targets-interventions-and-variants) — rather than a mechanism per contrast |
+| `LTMLE`: categorical nodes, static and dynamic regimens | supported | [treatment over time](#treatment-given-over-time-the-sequential-regression); each node owns its level set and the clever covariate selects the assigned label's probability |
+| positivity, omitted-variable, E-value and MNAR sensitivity | supported | each is one parameter per contrast and reads its arms from the parameter's structured index rather than assuming two |
+| `ey1` / `ey0` and the incremental estimands, on a multi-arm fit | wrong by construction | they *name* one of exactly two arms, so on five arms they would report a contrast of arms `0` and `1` under the name of a parameter about all of them. Declared by `requires_binary_treatment`; the multi-arm path reports per-arm `ey` instead |
+| `incremental=` itself, above two arms | a different question | an odds multiplier names two arms. One odds per contrast is well posed, but it is a *different intervention* with a different influence function rather than a generalisation of this one |
+| stochastic categorical policies and continuous doses at a longitudinal node | a different question | both change the intervention *density* rather than which label is assigned, so neither is the parameter the sequential regression identifies |
+| `DRTMLE` with `delta=` at more than two arms | waiting on published theory | Díaz and van der Laan's missing-outcome theorem is stated for a binary randomized treatment, and the per-arm multi-level assembly of its observation, treatment and outcome correction blocks is not in it. See the [roadmap](roadmap.md#ordered-priorities) |
+
+The last row is the only one a source could close as it stands. Neither `a different question`
+row would be closed by a source; each would be answered by a different estimand, with its own
+derivation, oracle law and evidence.
+
 ## How to read a refusal
 
 The table below, every section above it, and the [user guide](user-guide.md) throughout, say
@@ -955,6 +988,9 @@ so rather than implying the request was ill-posed.
 | the targeted bootstrap and `res.sensitivity` for `LTMLE` | [treatment over time](user-guide.md#treatment-given-over-time) |
 | blocked-temporal and rolling-origin splits | [cross-fitting](user-guide.md#cross-fitting-and-cv-tmle) |
 | replicate weights (BRR, jackknife) — a set of designs rather than one weight vector, so the shape it wants is a refit per replicate outside the estimator | [observation weights](user-guide.md#observation-weights-and-which-population-they-define) |
+
+Which multi-arm surfaces are covered, and which four are not, is tabulated in one place:
+[where a multi-valued treatment is supported](#where-a-multi-valued-treatment-is-supported).
 
 Several former gaps have landed: multi-valued longitudinal treatment nodes, multi-valued selector and outcome-adaptive C-TMLE and DR-TMLE,
 `ATT` / `ATC` on a multi-valued treatment, observation weights

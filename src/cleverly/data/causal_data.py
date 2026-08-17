@@ -53,6 +53,7 @@ from ..utils.frames import (
     matrix_from_columns,
 )
 from .validate import (
+    arm_indicators,
     check_covariates,
     check_delta,
     check_outcome,
@@ -671,35 +672,27 @@ class CausalData:
     def treatment_block(self, codes: FloatArray) -> FloatArray:
         r"""Drop-first indicators for the treatment: ``(n, K-1)``.
 
-        With two arms this is a single column holding the 0/1 code itself, which is
-        exactly the design the binary estimator has always used -- so a two-arm fit
-        is unchanged, bit for bit.  ``tests/unit/test_causal_data.py`` asserts that
+        The point-treatment half of the shared arm-encoding rule; the encoding itself and
+        the argument for it live in :func:`~cleverly.data.validate.arm_indicators`, which
+        :meth:`~cleverly.longitudinal.data.LongitudinalData.history_design` also calls, so
+        a design that conditions on an arm is coded the same way wherever it is built.
+        With two arms that is a single column holding the 0/1 code itself, so a two-arm
+        fit is unchanged bit for bit -- ``tests/unit/test_causal_data.py`` asserts that
         equality rather than leaving it to be read off this docstring.
 
-        With more than two arms a *single numeric column* would be wrong, not merely
-        crude: it would impose a linear dose-response on the outcome regression,
-        forcing :math:`\bar Q(2, W) - \bar Q(1, W) = \bar Q(1, W) - \bar Q(0, W)` for
-        any learner linear in its design, and so shrink the very contrasts the fit
-        exists to estimate.  Indicators leave the arms unconstrained.
-
-        The first arm is dropped rather than one-hot encoding all ``K``, so an
-        unregularised model with an intercept has a full-rank design.  Which arm is
-        dropped is a property of the design only and does not privilege any arm in the
-        estimand: the counterfactual means are all evaluated by prediction, and the
-        reference used for *contrasts* is a separate, caller-chosen thing.
-
-        For a **continuous** treatment this is the single numeric column itself.  The
-        objection above -- that one column imposes a linear dose-response -- is not
-        answerable by indicators here, because there are no arms to indicate; it is
-        answered by the learner instead.  That is why the default library's splines and
-        boosting matter more for a continuous treatment than for an arm-coded one, and
-        why ``library="glm"`` on a continuous dose really does fit a straight line in the
+        For a **continuous** treatment this is the single numeric column itself, which is
+        why the branch is here rather than in the shared helper: there are no arms to
+        indicate.  The objection to one numeric column -- that it imposes a linear
+        dose-response -- is not answerable by indicators here; it is answered by the
+        learner instead.  That is why the default library's splines and boosting matter
+        more for a continuous treatment than for an arm-coded one, and why
+        ``library="glm"`` on a continuous dose really does fit a straight line in the
         exposure.
         """
         c = np.asarray(codes, dtype=float).reshape(-1)
         if self.is_continuous_treatment:
             return c.reshape(-1, 1)
-        return np.column_stack([(c == level).astype(float) for level in self.arm_codes[1:]])
+        return arm_indicators(c, self.n_arms)
 
     def treatment_design(self, *, include_intermediate: bool = False) -> FloatArray:
         """Design matrix for a model of the outcome: ``[A, W]``.

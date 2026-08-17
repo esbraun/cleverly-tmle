@@ -77,6 +77,43 @@ def test_end_outcome_with_censoring_and_categorical_labels() -> None:
     assert result.converged
 
 
+def test_the_diagnostics_report_shares_per_label_not_a_binary_share() -> None:
+    """``share_assigned_1`` cannot answer this question, so the frame asks a different one.
+
+    On three arms "the fraction assigned arm 1" is the fraction assigned whichever label
+    sorts second -- here ``medium`` -- so a static plan on ``none`` and a static plan on
+    ``active`` would both report ``0.0`` and be indistinguishable, which is the opposite
+    of what the column exists for. Every level appears, including the ones a plan never
+    assigns, so the shares in a row sum to one.
+    """
+    frame, _ = make_longitudinal(n=700, seed=30)
+    result = LTMLE(SPEC, reference="inactive", **SETTINGS).fit(
+        categorical_treatments(frame), outcome="Y", **COLUMNS
+    )
+    diagnostics = result.diagnostics()
+    assert "assigned_shares" in diagnostics.columns
+    assert "share_assigned_1" not in diagnostics.columns
+
+    keys = zip(diagnostics["regimen"], diagnostics["time"], strict=True)
+    shares = dict(zip(keys, diagnostics["assigned_shares"], strict=True))
+    assert shares[("inactive", 1)] == "active=0, medium=0, none=1"
+    assert shares[("active", 1)] == "active=1, medium=0, none=0"
+    assert shares[("step_up", 1)] == "active=0, medium=1, none=0"
+    assert shares[("step_up", 2)] == "active=1, medium=0, none=0"
+
+
+def test_a_binary_panel_keeps_the_share_it_always_reported() -> None:
+    """The other side of the switch: nothing changes for a wholly two-level fit."""
+    frame, _ = make_longitudinal(n=700, seed=30)
+    result = LTMLE({"never": 0, "always": 1}, reference="never", **SETTINGS).fit(
+        frame, outcome="Y", **COLUMNS
+    )
+    diagnostics = result.diagnostics()
+    assert "share_assigned_1" in diagnostics.columns
+    assert "assigned_shares" not in diagnostics.columns
+    assert set(diagnostics["share_assigned_1"]) == {0.0, 1.0}
+
+
 def test_a_saturated_msm_accepts_the_same_categorical_plans() -> None:
     frame, _ = make_longitudinal(n=700, seed=32)
     labels = tuple(SPEC)

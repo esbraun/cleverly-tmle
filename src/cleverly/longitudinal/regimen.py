@@ -87,11 +87,15 @@ class Regimen:
         return self.values[time - 1]
 
     def assignment(self, data: LongitudinalData) -> Any:
-        """The ``(n, T)`` arm matrix, as a broadcast view of the plan.
+        """The ``(n, T)`` matrix of assigned *labels*, as a broadcast view of the plan.
 
         A view rather than a copy, so reading a static regimen through the same matrix
-        interface a rule needs allocates nothing -- and produces the same float64 the
-        old scalar path produced, which is why a static fit is unchanged bit for bit.
+        interface a rule needs allocates nothing.  ``object`` rather than ``float64``
+        because a label is whatever the analyst's treatment column held -- a string as
+        readily as a number -- and the dense codes a fit runs on are produced from this
+        by :meth:`~cleverly.longitudinal.data.LongitudinalData.encode_assignment`, which
+        reproduces the old float path exactly for a 0/1 node.  That is where "a static
+        binary fit is unchanged bit for bit" is now delivered.
         """
         return np.broadcast_to(np.asarray(self.values, dtype=object), (data.n, self.n_times))
 
@@ -222,11 +226,16 @@ class Plan:
     The pair travels as one object so that nothing downstream can reach a rule and call
     it a second time: :func:`~cleverly.longitudinal.sequential.fit_mechanism` and
     :func:`~cleverly.longitudinal.sequential.fit_regimen` see arms, never callables.
+
+    ``values`` holds the *dense codes* the container assigned, not the analyst's labels.
+    The labels are recoverable from
+    :attr:`~cleverly.longitudinal.data.LongitudinalData.treatment_levels`, which every
+    reader of this plan already holds, and carrying a second ``(n, T)`` object array
+    beside the codes would be a copy that only some of them kept in step.
     """
 
     regimen: RegimenSpec
     values: FloatArray
-    labels: Any
 
     @property
     def label(self) -> str:
@@ -239,11 +248,10 @@ class Plan:
 
 def resolve_plans(regimens: Sequence[RegimenSpec], data: LongitudinalData) -> tuple[Plan, ...]:
     """Evaluate every regimen against ``data``, once, before any nuisance is fitted."""
-    plans = []
-    for regimen in regimens:
-        labels = regimen.assignment(data)
-        plans.append(Plan(regimen, data.encode_assignment(labels, regimen.label), labels))
-    return tuple(plans)
+    return tuple(
+        Plan(regimen, data.encode_assignment(regimen.assignment(data), regimen.label))
+        for regimen in regimens
+    )
 
 
 def resolve_regimens(spec: Any, n_times: int) -> tuple[RegimenSpec, ...]:

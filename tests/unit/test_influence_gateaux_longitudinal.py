@@ -240,10 +240,17 @@ def test_dropping_the_censoring_factor_would_be_wrong() -> None:
 
 
 def test_refuses_a_regimen_no_unit_followed() -> None:
-    """A plan nobody followed has no sample to fit on, and says so."""
+    """A plan nobody followed has no sample to fit on, and says so.
+
+    A *binary* node reaches this refusal rather than the categorical fold-support one:
+    ``_check_categorical_fold_support`` returns early below three levels, so which of the
+    two diagnoses a two-armed panel gets is unchanged by categorical treatment support.
+    Mutating that early return to run at every arm count turns this test red, which is
+    the point of asserting the message rather than merely that something was raised.
+    """
     frame = law.frame()
     frame.loc[frame["A1"] == 1, "A1"] = 0.0
-    with pytest.raises(LongitudinalError, match=r"A1.*missing level.*1"):
+    with pytest.raises(LongitudinalError, match="no unit followed regimen"):
         LTMLE(
             {"always": 1},
             outcome_learner=law.CellMeans(),

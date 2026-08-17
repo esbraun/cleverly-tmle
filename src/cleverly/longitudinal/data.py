@@ -63,6 +63,7 @@ results are returned in it.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypeAlias
@@ -71,6 +72,8 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.validate import (
+    MIN_CONTINUOUS_LEVELS,
+    arm_indicators,
     check_covariates,
     check_weights,
     encode_clusters,
@@ -86,7 +89,7 @@ from ..data.weighting import (
     warn_if_concentrated,
     warn_if_counts,
 )
-from ..exceptions import DataError
+from ..exceptions import DataError, DataWarning
 from ..utils.frames import (
     as_frame,
     backend_of,
@@ -873,12 +876,31 @@ class LongitudinalData:
     ) -> FloatArray:
         """The conditioning set of a mechanism model at ``time``.
 
-        ``[W, L_1, ..., L_t]`` plus a column per earlier treatment, and -- with
+        ``[W, L_1, ..., L_t]`` plus a block per earlier treatment, and -- with
         ``include_current``, for the censoring model, which sits *after* the treatment
-        decision -- a column for the current one.  ``treatment=None`` uses what each
+        decision -- a block for the current one.  ``treatment=None`` uses what each
         unit actually received, which is how the model is fitted; an assignment sets the
         arms a regimen would have assigned, which is where it is evaluated.  A dynamic
-        rule assigns a different arm to different units, so that column is per row.
+        rule assigns a different arm to different units, so that block is per row.
+
+        Each node's block is :func:`~cleverly.data.validate.arm_indicators` of that
+        node's codes against *that node's own* level count, which nodes do not have to
+        share.  So a two-level node contributes the single 0/1 column it always did --
+        a wholly binary panel's design is unchanged, bit for bit -- and a ``K``-level
+        node contributes ``K - 1`` drop-first indicators.  One ordinal column would
+        force :math:`g_t(\\cdot \\mid H_t, A_{t-1})` to move monotonically in the earlier
+        arm for any learner linear in its design, which is a restriction on the
+        mechanism nobody asked for; the shared helper's docstring carries the argument
+        and ``docs/architecture-invariants.md`` carries the rule.  Note the exact-law
+        tests cannot see this choice -- a saturated learner partitions by distinct design
+        row, and ordinal codes and indicator tuples are a bijection -- so the witness for
+        it is a ``glm`` mechanism on a law whose truth is non-monotone in the earlier
+        arm, in ``tests/unit/test_sequential_design.py``.
+
+        A row whose arm is missing -- censored, or past an absorbing event -- fills with
+        code zero and so with the all-zero reference block.  Such a row is masked out of
+        every fit and every influence curve; the fill exists to keep ``nan`` out of a
+        design matrix a learner is called on.
 
         The *outcome* sequence uses :meth:`covariate_history` instead, with no treatment
         columns at all, and that holds under a rule as well as under a constant plan.
@@ -911,10 +933,10 @@ class LongitudinalData:
         plan = None if treatment is None else assignment_matrix(treatment, self.n, self.n_times)
         for t in range(1, last + 1):
             if plan is None:
-                observed = np.nan_to_num(self.treatment[:, t - 1], nan=0.0)
-                columns.append(observed.reshape(-1, 1))
+                codes = np.nan_to_num(self.treatment[:, t - 1], nan=0.0)
             else:
-                columns.append(plan[:, t - 1].reshape(-1, 1))
+                codes = plan[:, t - 1]
+            columns.append(arm_indicators(codes, len(self.treatment_levels[t - 1])))
         return np.hstack(columns)
 
     def encode_assignment(self, assignment: Any, label: str) -> FloatArray:
@@ -923,6 +945,13 @@ class LongitudinalData:
         A rule is evaluated before this method is called.  Only rows that still have a
         treatment decision at the node are validated; assignments after censoring or an
         absorbing event are outside the regimen's observed-data support and are filled.
+
+        One comparison per *level* rather than one lookup per *row*: a node has at most
+        :data:`~cleverly.data.validate.MAX_TREATMENT_LEVELS` of them and the data has
+        ``n``, so this is the difference between a fixed number of vectorised passes and
+        a Python loop that runs once per unit per node per regimen.  Equality is still
+        ``==`` on the caller's own objects, which is what makes an ``int`` assignment find
+        a ``float`` level and a ``numpy.str_`` find a ``str``.
         """
         raw = np.asarray(assignment, dtype=object)
         if raw.ndim == 1:
@@ -941,18 +970,33 @@ class LongitudinalData:
         encoded = np.zeros((self.n, self.n_times), dtype=float)
         for time, levels in enumerate(self.treatment_levels, start=1):
             reachable = self.uncensored_through(time - 1) & self.event_free_through(time - 1)
-            lookup = {level: code for code, level in enumerate(levels)}
-            for row in np.flatnonzero(reachable):
-                value = raw[row, time - 1]
-                try:
-                    code = lookup[value]
-                except (KeyError, TypeError):
+            column = raw[:, time - 1]
+            matched = np.zeros(self.n, dtype=bool)
+            for code, level in enumerate(levels):
+                # Elementwise ``==`` on the object array: numpy runs the comparison loop
+                # in C and calls each object's own ``__eq__``, so the level-vs-row
+                # semantics are the dict's and only the loop overhead is gone.
+                here = np.asarray(column == level, dtype=bool)
+                if here.shape != (self.n,):
+                    # Every level comes from ``np.unique`` of one column and so is a
+                    # scalar.  One that was not would *broadcast* rather than compare
+                    # elementwise, and a wrongly shaped mask marks the wrong rows
+                    # silently -- checked rather than assumed, as everywhere here.
                     raise DataError(
-                        f"regimen {label!r} assigns {value!r} at time {time}; treatment "
-                        f"column {self.treatment_names[time - 1]!r} has levels "
-                        f"{list(levels)!r}"
-                    ) from None
-                encoded[row, time - 1] = float(code)
+                        f"treatment column {self.treatment_names[time - 1]!r} has a "
+                        f"non-scalar level {level!r}; a treatment arm must be a single "
+                        "label per unit"
+                    )
+                encoded[here & reachable, time - 1] = float(code)
+                matched |= here
+            unknown = np.flatnonzero(reachable & ~matched)
+            if unknown.size:
+                value = column[unknown[0]]
+                raise DataError(
+                    f"regimen {label!r} assigns {value!r} at time {time}; treatment "
+                    f"column {self.treatment_names[time - 1]!r} has levels "
+                    f"{list(levels)!r}"
+                )
         return encoded
 
     # ------------------------------------------------------------------ output
@@ -982,15 +1026,36 @@ class LongitudinalData:
         return f"LongitudinalData({', '.join(parts)})"
 
 
+#: What to tell a caller whose node has more levels than the estimator accepts.  Not
+#: :data:`~cleverly.data.validate.CONTINUOUS_REMEDY`, which names ``treatment_kind=``: that
+#: is a :class:`~cleverly.data.CausalData` keyword and ``LTMLE`` does not take it, so the
+#: default suggestion would send the reader to an argument that does not exist here.
+_TOO_MANY_LEVELS_REMEDY = (
+    "Collapse the levels into the arms you actually want to report. A continuous "
+    "longitudinal dose is a different estimand -- the intervention is a shift of a "
+    "conditional density at every node rather than an assigned label -- and LTMLE does "
+    "not estimate it."
+)
+
+
 def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[object, ...]]:
     """Encode a node while preserving the historical one-observed-binary-arm case.
 
     A binary treatment's support is declared by its 0/1 convention even when this
-    particular sample contains only one arm.  That case used to reach the estimator's
-    explicit positivity refusal and remains useful because its error names the missing
-    mechanism support.  An arbitrary one-label categorical column has no analogous way
-    to infer which unobserved labels belong to its support, so the shared categorical
-    encoder correctly refuses it.
+    particular sample contains only one arm.  That case reaches
+    :func:`~cleverly.longitudinal.sequential.prepare_node`'s "no unit followed regimen"
+    refusal, which names the regimen and the node the sample cannot answer for; keeping
+    the ``(0, 1)`` support here is what lets it get that far rather than being refused as
+    a one-level column.  An arbitrary one-label categorical column has no analogous way to
+    infer which unobserved labels belong to its support, so the shared categorical encoder
+    correctly refuses it.
+
+    A numeric node with *many* distinct values warns rather than being refused, on the
+    reasoning :data:`~cleverly.data.validate.MIN_CONTINUOUS_LEVELS` already records for a
+    point treatment: a coarse ordered dose is a perfectly well-defined set of arms, and
+    which reading is wanted is the analyst's to declare.  What is worth saying is that
+    ``LTMLE`` will treat them as *unordered* labels, since that is the reading a reader who
+    typed a dose column is least likely to expect.
     """
     raw = np.asarray(values).reshape(-1)
     unique = np.unique(raw)
@@ -1002,7 +1067,25 @@ def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[ob
         else:
             if numeric in (0.0, 1.0):
                 return np.asarray(raw, dtype=float), (0, 1)
-    return encode_treatment(raw, name)
+    # Recognised from the *values* rather than from ``raw.dtype``: the container reads
+    # treatment columns with ``dtype=object`` so that a string label survives to here, so
+    # the array's own kind is ``O`` however numeric its contents are.
+    numeric_levels = unique.dtype.kind in "fiu" or all(
+        isinstance(value, (int, float, np.number)) and not isinstance(value, bool)
+        for value in unique
+    )
+    if numeric_levels and unique.size >= MIN_CONTINUOUS_LEVELS:
+        warnings.warn(
+            f"treatment node {name!r} is numeric and takes {unique.size} distinct values; "
+            "it will be modelled as that many unordered arms, with one multinomial "
+            "mechanism per node and one counterfactual mean per assigned sequence. If it "
+            "is a dose whose spacing matters, collapse it into the arms you want to "
+            "contrast -- a continuous longitudinal dose is a different estimand and LTMLE "
+            "does not estimate it.",
+            DataWarning,
+            stacklevel=4,
+        )
+    return encode_treatment(raw, name, remedy=_TOO_MANY_LEVELS_REMEDY)
 
 
 def _prefix_all(indicator: BoolArray) -> BoolArray:

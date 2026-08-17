@@ -41,6 +41,21 @@ The binary path is a bit-for-bit regression surface for generalized treatment su
 multi-arm change must leave binary results unchanged unless a documented compatibility change is
 intended.
 
+A `K`-level arm enters a design matrix as `K - 1` drop-first indicators, through the shared
+`data.validate.arm_indicators`. At `K = 2` that rule is the single 0/1 code column itself, which is
+what delivers the bit-for-bit guarantee above rather than a separate compatibility branch. Both
+`CausalData.treatment_block` and `LongitudinalData.history_design` call it, so a design that
+conditions on an arm is coded the same way wherever it is built, and a longitudinal node's block is
+sized by *that node's* level count rather than by a panel-wide one. One ordinal column is not an
+acceptable simplification: it constrains any learner linear in its design to an ordered response in
+the arm, which is a restriction on `Q` or on `g` that the estimand does not ask for. *Reconsider
+when* an estimand is added whose treatment is genuinely ordered and whose derivation uses that
+ordering — an ordinal coding would then be a modelling choice to declare, not a default to inherit.
+Note that no exact-law test can see this choice, since a saturated learner partitions by distinct
+design row and the two encodings are a bijection; the witness is
+`tests/unit/test_sequential_design.py::TestAThreeLevelArmEntersAsIndicators`, a `glm` mechanism on a
+non-monotone truth.
+
 Internal tabular arithmetic stays in NumPy. The dataframe boundary is a negligible share of a fit,
 supported learners consume NumPy arrays, and the public dataframe contract is already isolated
 through narwhals, so a columnar engine has no share here to win. *Reconsider when* a supported

@@ -221,6 +221,29 @@ def _fit_key(label: str, cause: str | None, horizon: int, survival: bool) -> str
     return _index(label, cause, horizon, survival)
 
 
+def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
+    """What a regimen assigns at one node, as ``"active=0.62, none=0.38"``.
+
+    The categorical counterpart of ``share_assigned_1``, and written in the *labels*
+    rather than the dense codes for the reason every user-facing string in this package
+    is: a reader asked to translate ``2.0`` back to ``"none"`` has been handed the
+    encoding rather than the answer.  Every level appears, including one the regimen
+    never assigns, so the shares in a row sum to one and a zero is legible as "not this
+    arm" rather than as a level the fit forgot about.
+
+    Deliberately a string and not a column per level: the level sets are per node, so
+    numeric columns would be ragged across a frame whose rows are ``(regimen, time)``
+    pairs, and most of them empty.
+    """
+    if not assigned.size:
+        return ""
+    shares = (
+        f"{level}={float(np.mean(assigned == float(code))):.3g}"
+        for code, level in enumerate(levels)
+    )
+    return ", ".join(shares)
+
+
 def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> None:
     """Refuse a point-treatment keyword by name, saying what it would take to support it."""
     for name in passed:
@@ -472,6 +495,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         is the number a reader needs, since what a rule assigns is a property of the data
         rather than of the declaration and appears nowhere in the settings report.
 
+        **When any treatment node is categorical the column is** ``assigned_shares``
+        **instead**, holding ``"active=0.62, none=0.38"`` in that node's label order -- the
+        presentation :func:`~cleverly.estimators.base._arm_shares` uses for the same
+        question about a point treatment.  A single share cannot answer it at three arms:
+        "the fraction assigned arm 1" is the fraction assigned whichever label happens to
+        sort second, which is not a quantity anybody asked for, and a static plan on a
+        third arm would report ``0`` exactly as a plan on the first arm does.  A wholly
+        two-level panel keeps ``share_assigned_1`` and its values unchanged, so the switch
+        is visible in the columns rather than hidden in them.
+
         ``share_truncated`` compares the raw and bounded cumulative probabilities on the
         same ``trained_on`` rows as the node's score.  Unlike ``max_weight``, it reveals
         when the configured cap replaced every contributing row.
@@ -486,13 +519,18 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # regimens at a given time by construction.
         terms = () if self.msm is None else self.msm.terms
         epsilon_columns = ["epsilon"] if self.msm is None else [f"epsilon[{t}]" for t in terms]
+        # One column shape for the whole frame rather than one per row: the level sets are
+        # a property of the data, so whether a share is answerable by a single number is
+        # settled before any node is read.
+        categorical = any(len(levels) > 2 for levels in self.data.treatment_levels)
+        assigned_column = "assigned_shares" if categorical else "share_assigned_1"
         rows: dict[str, list[Any]] = {
             "regimen": [],
             **({"cause": []} if competing else {}),
             **({"horizon": []} if survival else {}),
             "time": [],
             "n_followed": [],
-            "share_assigned_1": [],
+            assigned_column: [],
             "max_weight": [],
             "effective_n": [],
             "share_truncated": [],
@@ -513,8 +551,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                     rows["horizon"].append(fit.horizon)
                 rows["time"].append(step.time)
                 rows["n_followed"].append(step.n_trained)
-                rows["share_assigned_1"].append(
-                    float(np.mean(assigned == 1.0)) if assigned.size else float("nan")
+                rows[assigned_column].append(
+                    _assigned_shares(assigned, self.data.treatment_levels[step.time - 1])
+                    if categorical
+                    else (float(np.mean(assigned == 1.0)) if assigned.size else float("nan"))
                 )
                 rows["max_weight"].append(float(np.max(weights)) if weights.size else float("nan"))
                 rows["effective_n"].append(effective_sample_size(weights, on_degenerate=0.0))
@@ -1170,17 +1210,15 @@ class LTMLE:
             alpha_sig=self.alpha_sig,
             random_state=self.random_state,
             # From the matrix ``resolve_plans`` already built, so this is the assignment
-            # the fit ran on rather than a second evaluation of the rules.
-            plan_fingerprints=tuple(
-                (
-                    plan.label,
-                    fingerprint_array(
-                        plan.values,
-                        np.asarray([repr(value) for value in plan.labels.reshape(-1)], dtype=str),
-                    ),
-                )
-                for plan in plans
-            ),
+            # the fit ran on rather than a second evaluation of the rules.  The dense
+            # codes and not the raw labels: the codes are what every fit actually divides
+            # and regresses on, and the levels they index are folded into
+            # ``data_fingerprint`` -- so two plans that differ in the arm they assign
+            # differ here, and two datasets whose labels differ differ there, without
+            # ``repr()``-ing one string per unit per node per regimen to say so.  That
+            # also keeps the digest stable across numpy versions, which disagree on
+            # ``repr(numpy.str_(...))``.
+            plan_fingerprints=tuple((plan.label, fingerprint_array(plan.values)) for plan in plans),
             msm_terms=None if model is None else model.terms,
             msm_link=None if model is None else str(model.link),
             # The evaluated arrays rather than the design, for the reason the plans are

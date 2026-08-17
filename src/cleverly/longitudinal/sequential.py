@@ -166,9 +166,12 @@ class Mechanism:
         the number of treatment and censoring nodes.
 
         The arm is read per *unit*, since a dynamic rule assigns different units
-        different arms at the same node.  Under a static plan the column is constant and
-        the ``where`` picks the same branch for every row, which is why this is the old
-        expression rather than a generalisation of it.
+        different arms at the same node.  That selection has already happened by the time
+        this runs: :func:`fit_mechanism` picks each row's assigned column out of the
+        node's multinomial, so what is multiplied here is
+        :math:`g_t(d_t(H_t) \mid H_t)` itself.  There is no branch on the arm left to
+        take, which is what makes the categorical case the same expression as the binary
+        one rather than a generalisation of it.
         """
         return self.cumulative_with_unbounded(data, plan, bounds)[1]
 
@@ -333,13 +336,28 @@ def _check_categorical_fold_support(
     levels: Sequence[object],
     node_name: str,
 ) -> None:
-    """Refuse a mechanism fit whose training law omits an observed treatment level.
+    """Refuse a **categorical** mechanism fit whose training law omits an observed level.
 
     A missing class cannot be repaired by aligning a learner's probability columns: the
     requested assigned-arm probability is unidentified in that training fold.  Checking
     here also gives the analyst the original label, rather than a downstream matrix-shape
     error involving its internal dense code.
+
+    **A two-level node is left alone**, and that is a compatibility decision rather than
+    an oversight.  At two classes
+    :func:`~cleverly.learners._fitting.predict_probabilities` delegates to ``predict_mean``
+    and a degenerate training fold yields that fold's constant, which is the behaviour
+    every binary fit has had; the diagnosis a binary panel reaches instead is
+    :func:`prepare_node`'s "no unit followed regimen" refusal, which names the regimen
+    rather than the fold.  Refusing here at ``K = 2`` as well would change an error a
+    binary fit already had, for a case the existing path already reports.
+
+    At three or more levels the fallback is not benign: the missing arm's column comes
+    back zero, so its clever covariate is a division by zero and the cumulative product's
+    reciprocal is infinite.  That is why the check exists at all, and why it starts here.
     """
+    if len(classes) < 3:
+        return
     eligible = np.asarray(fit_mask, dtype=bool)
     training_sets: list[tuple[int, IntArray]]
     if folds.is_single:
@@ -510,7 +528,7 @@ def prepare_node(
             "remaining in the study, so the sequential regression there has nothing "
             "to fit. The regimen is not supported by this sample."
             + _risk_set_hint(data, plan, time)
-            + _rule_hint(plan, at_risk, time)
+            + _rule_hint(plan, data, at_risk, time)
         )
     with phase("pseudo_outcome"):
         next_outcome = _pseudo_outcome(data, carried, time, cause)
@@ -764,21 +782,29 @@ def _risk_set_hint(data: LongitudinalData, plan: Plan, time: int) -> str:
     )
 
 
-def _rule_hint(plan: Plan, at_risk: BoolArray, time: int) -> str:
+def _rule_hint(plan: Plan, data: LongitudinalData, at_risk: BoolArray, time: int) -> str:
     """For an unsupported regimen, what the rule asked for where nobody was left.
 
     A static plan is unsupported because the sample happens not to contain the sequence.
     A rule can be unsupported because it asks for an arm nobody at risk received, and
-    that is a different diagnosis -- so say which arm it wanted and how many units were
-    there to give it to.
+    that is a different diagnosis -- so say which arms it wanted and how many units were
+    there to give them to.
+
+    Written in the node's *labels* rather than its dense codes.  Counting the rows whose
+    code is ``1`` and calling them "arm 1" answers about whichever label sorts second,
+    which on a three-armed node is a different arm from the one the reader is asking
+    about and on a two-armed node reads as though only one arm existed.
     """
     if isinstance(plan.regimen, Regimen):
         return ""
     if not plan.regimen.is_rule(time):
         return ""
     assigned = plan.arm(time)[at_risk]
-    treated = int(np.sum(assigned == 1.0))
+    levels = data.treatment_levels[time - 1]
+    counts = ", ".join(
+        f"{level!r} to {int(np.sum(assigned == float(code)))}" for code, level in enumerate(levels)
+    )
     return (
-        f" The rule at time {time} assigned arm 1 to {treated} of the "
+        f" The rule at time {time} assigned {counts} of the "
         f"{int(at_risk.sum())} unit(s) at risk there."
     )

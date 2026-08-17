@@ -93,6 +93,35 @@ from ..exceptions import DataError
 __all__ = ["IPSISet", "Incremental", "IncrementalSupport", "check_incremental_support"]
 
 
+def refuse_multi_arm_tilt(data: CausalData) -> None:
+    """Refuse an odds tilt on a treatment with more than two arms.
+
+    Shared rather than exported: :class:`~cleverly.estimators.TMLE` imports it directly
+    and it is deliberately absent from ``__all__``, since it is a guard two modules agree
+    on rather than a capability a user reaches for.
+
+    Asked in two places -- once by the estimator while validating the request, and once
+    here while evaluating the tilts -- because the two guard different things: the
+    estimator refuses before any nuisance is fitted, and this refuses anything reaching
+    the evaluator by another route.  The *message* is one string in one place so the two
+    cannot drift into saying different things about the same refusal.
+
+    The reason is a property of the parameter and not of this package's coverage: an odds
+    multiplier names two arms, and a multinomial mechanism has no single odds to multiply.
+    One odds per contrast is a well-posed intervention, but a different one, with its own
+    influence function.
+    """
+    if data.n_arms == 2:
+        return
+    raise DataError(
+        f"an incremental propensity-score intervention tilts the *odds* of treatment, "
+        f"which names two arms; {data.treatment_name} has {data.n_arms} "
+        f"({list(data.treatment_levels)}). Kennedy's tilt has no single-parameter "
+        "generalisation to a multinomial mechanism -- one odds per contrast would be a "
+        "different intervention with a different influence function."
+    )
+
+
 @dataclass(frozen=True)
 class Incremental:
     """Multiply everyone's odds of treatment by ``delta``.
@@ -226,15 +255,7 @@ class IPSISet:
         """
         if not incrementals:
             raise DataError("at least one incremental intervention is required")
-        if data.n_arms != 2:
-            raise DataError(
-                f"an incremental propensity-score intervention tilts the *odds* of "
-                f"treatment, which names two arms; {data.treatment_name} has "
-                f"{data.n_arms} ({list(data.treatment_levels)}). Kennedy's tilt has no "
-                "single-parameter generalisation to a multinomial mechanism -- one odds "
-                "per contrast would be a different intervention with a different "
-                "influence function."
-            )
+        refuse_multi_arm_tilt(data)
         names = tuple(str(item.name) for item in incrementals)
         if len(set(names)) != len(names):
             raise DataError(f"incremental intervention names must be distinct; got {list(names)}")
