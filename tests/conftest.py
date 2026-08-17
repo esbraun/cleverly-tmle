@@ -7,13 +7,16 @@ about the Super Learner.  Tests that specifically exercise flexible learning say
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 from sklearn.base import BaseEstimator
 
+import cleverly
 from cleverly import TMLE
+from tests.doc_sections import ROOT
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -32,9 +35,42 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def _check_source_matches_checkout() -> None:
+    """Refuse to run these tests against a *different* checkout's ``src/cleverly``.
+
+    One editable install is shared by every ``git worktree`` of this repository, and it
+    points at whichever tree it was installed from.  So ``pytest`` run inside a worktree
+    collects that worktree's tests and imports the *other* tree's source, and the run is
+    a verdict on neither branch.  It does not look like a configuration error: it looks
+    like twenty ordinary failures, because tests that arrived with a branch are asserting
+    against a package that does not have it yet.  That is what happened -- a docs-only
+    change appeared to break ``LongitudinalData.from_frame``, and the traceback's
+    ``..\\..\\..\\..\\Documents\\Projects`` prefix was the only tell.
+
+    Failing here rather than in a test is deliberate.  The mismatch invalidates the whole
+    run, so there is nothing a ``-k`` or ``-m`` selection should be able to leave behind.
+
+    An installed (non-source) copy is left alone.  Only a sibling checkout is refused,
+    which is the mistake with no other symptom.
+    """
+    imported = Path(cleverly.__file__).resolve().parent
+    if imported == (ROOT / "src" / "cleverly").resolve():
+        return
+    if imported.parent.name != "src":
+        return  # a wheel or a plain install, deliberately not a checkout
+    raise pytest.UsageError(
+        f"tests here belong to {ROOT}, but `import cleverly` resolves to {imported}. "
+        f"The editable install points at another checkout of this repository, so this "
+        f"run would report that tree's behaviour under this tree's tests. Either "
+        f'reinstall from here (`uv pip install -e ".[dev]"`) or pin the import for '
+        f'one run (`PYTHONPATH="{ROOT / "src"}"`).'
+    )
+
+
 def pytest_configure(config: pytest.Config) -> None:
     from tests.doc_sections import all_sections, git_changes, select_sections
 
+    _check_source_matches_checkout()
     sections = all_sections()
     known = {section.section_id for section in sections}
     requested = config.getoption("--doc-section")
