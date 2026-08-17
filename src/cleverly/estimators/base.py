@@ -659,15 +659,11 @@ class TMLEResult:
         round trip everything reached through :meth:`~cleverly.TMLE.retarget` works;
         the two analyses that genuinely refit need the learners to have been library
         specifications rather than fitted objects.
-        """
-        if self.identified_effect is not None:
-            from ..exceptions import CapabilityError
 
-            raise CapabilityError(
-                "causal-workflow persistence is deferred to the complete foundational API PR: "
-                "the current format cannot store structured identification and parameter keys, "
-                "and saving a file that silently loses them is refused"
-            )
+        A result carrying structured identification is refused rather than written; the
+        refusal is in :func:`~cleverly.estimators.serialize.result_to_dict`, so that every
+        write path shares it rather than only this one.
+        """
         from .serialize import save as _save
 
         return _save(self, path)

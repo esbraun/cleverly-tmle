@@ -71,7 +71,15 @@ from .methods import (
     TMLEMethod,
 )
 from .provenance import Provenance
-from .study import ATE, CausalStudy, IdentifiedEffect, ParameterKey, PointTreatment
+from .study import (
+    ATE,
+    BackdoorMeanContrast,
+    CausalStudy,
+    ExplicitAdjustmentProvider,
+    IdentifiedEffect,
+    ParameterKey,
+    PointTreatment,
+)
 from .targets import TARGETS, Identification, Target, register
 from .variable_importance import (
     VariableImportanceEntry,
@@ -88,6 +96,7 @@ __all__ = [
     "LTMLE",
     "TARGETS",
     "TMLE",
+    "BackdoorMeanContrast",
     "CTMLEOutcomeAdaptiveFit",
     "CTMLEPreorder",
     "CTMLESelection",
@@ -100,6 +109,7 @@ __all__ = [
     "ConvergenceWarning",
     "CrossFitting",
     "DataError",
+    "ExplicitAdjustmentProvider",
     "Identification",
     "IdentifiedEffect",
     "Inference",

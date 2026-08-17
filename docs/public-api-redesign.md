@@ -582,7 +582,7 @@ Direct Riesz learning replaces the analytic construction of a representer from p
 density components. It does not generally replace the outcome regression. The core single-stage
 form still contains:
 
-```python
+```text
 plug-in term h + representer alpha * residual (Y - f)
 ```
 

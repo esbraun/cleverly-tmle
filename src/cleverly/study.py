@@ -6,9 +6,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
+from ._typing import Family
 from .data import CausalData
 from .estimators import TMLE, TMLEResult
-from .exceptions import CapabilityError, DataError
+from .exceptions import CapabilityError, CleverlyError, DataError
 from .methods import MethodAvailability, TMLEMethod
 from .targets import TARGETS
 from .targets.base import Identification, parameter_name
@@ -33,12 +34,15 @@ class PointTreatment:
     adjustment: Sequence[str] = field(default_factory=tuple)
     missingness: str | None = None
     weights: str | None = None
-    weights_type: str = "probability"
+    # The single supported reading, which ``data.weighting.resolve_weight_kind`` already
+    # refuses to widen at runtime; spelling it as a one-value ``Literal`` moves that refusal
+    # to the type checker rather than restating it.
+    weights_type: Literal["probability"] = "probability"
     weights_estimated: bool = False
     cluster: str | None = None
     strata: Sequence[str] = field(default_factory=tuple)
     treatment_kind: Literal["discrete", "continuous"] = "discrete"
-    outcome_family: Literal["auto", "gaussian", "binomial"] = "auto"
+    outcome_family: Family = "auto"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
@@ -152,8 +156,19 @@ class CausalStudy:
     """Validated study data and design, before an estimand or method is chosen."""
 
     def __init__(self, data: Any, *, design: PointTreatment) -> None:
-        self.design = design
+        self._design = design
         self._data = design.prepare(data)
+
+    @property
+    def design(self) -> PointTreatment:
+        """The declared roles, read-only because the data was already prepared from them.
+
+        ``PointTreatment`` is frozen, so its fields cannot move; what this closes is the
+        *rebinding*.  A study whose ``design`` had been replaced would identify against one
+        outcome column and adjustment set while holding data prepared from another, and
+        :meth:`identify` is the only reader -- so nothing downstream would notice.
+        """
+        return self._design
 
     @property
     def data(self) -> CausalData:
@@ -273,7 +288,7 @@ class IdentifiedEffect:
             )
             keys[alias] = ParameterKey(alias, "ate", treatment, reference)
         if set(keys) != set(result.estimates):
-            raise RuntimeError(
+            raise CleverlyError(
                 "structured ATE keys disagree with the estimator output: "
                 f"{list(keys)} != {list(result.estimates)}"
             )

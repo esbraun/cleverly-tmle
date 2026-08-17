@@ -330,10 +330,10 @@ sets out the taxonomy and lists every one.
 uv venv && uv pip install -e ".[dev]"
 ruff check . && ruff format --check .
 mypy src/cleverly
-pytest -m "not slow" -q                         # ordinary fast tier
+pytest -m "not slow" -q                        # ordinary fast tier
 pytest -m slow -q                              # manual statistical validation
-# Dispatch manual-validation / documentation when rendered docs need review.
-python benchmarks/bench_tmle.py                         # where a whole fit's time goes
+pytest tests/unit/test_documentation_*.py -q   # links resolve, examples parse (also in the fast tier)
+python benchmarks/bench_tmle.py                # where a whole fit's time goes
 python -m benchmarks.numba.cli --config benchmarks/configs/sandbox.json
 ```
 
