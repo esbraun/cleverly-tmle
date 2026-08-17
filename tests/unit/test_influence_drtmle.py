@@ -22,6 +22,7 @@ exact finite sum -- and the sign is carried as an explicit negative control.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import replace
 
 import numpy as np
@@ -58,7 +59,6 @@ def solved(g_hat: np.ndarray = WRONG_G, q_hat: np.ndarray = WRONG_Q, *, max_oute
         # Off the record the alternation left rather than written in, so this helper
         # follows whatever guard its caller ran under -- which is what the fit does.
         guard=fluctuation.reduction.guard,
-        observed=data.observed,
     )
     return fluctuation, corrections
 
@@ -138,7 +138,6 @@ class TestOnlyTheGuardedEquationsCorrectionIsInTheCurve:
             WRONG_G[cell],
             bounds=INERT_BOUNDS,
             guard=guard,
-            observed=data.observed,
         )
 
     def test_the_fixture_is_not_degenerate(self) -> None:
@@ -486,7 +485,6 @@ def parts_at(bounds=TIGHT_BOUNDS, qr_scale=(1.0, 1.0)):
             RAW_G1,
             bounds=bounds,
             guard=BOTH,
-            observed=None,
         ),
         reduced,
         targeted,
@@ -537,7 +535,6 @@ class TestTheCorrectionsSplitIntoTheTermsTheEquationsSolve:
             RAW_G1,
             bounds=TIGHT_BOUNDS,
             guard=BOTH,
-            observed=None,
         )
 
         for j, arm in enumerate(ARMS):
@@ -659,7 +656,6 @@ def test_the_longhand_module_and_this_one_agree_about_the_terms() -> None:
         WRONG_G[cell],
         bounds=INERT_BOUNDS,
         guard=BOTH,
-        observed=data.observed,
     )
     for arm in ARMS:
         d_g, d_q = _extra_curves(WRONG_G, WRONG_Q, int(arm))
@@ -691,7 +687,6 @@ def test_the_mechanism_is_read_at_the_arm_it_belongs_to(arm: float) -> None:
         WRONG_G[cell],
         bounds=INERT_BOUNDS,
         guard=BOTH,
-        observed=data.observed,
     )
     j = ARMS.index(arm)
     expected_mechanism = WRONG_G[cell] if arm == 1.0 else 1.0 - WRONG_G[cell]
@@ -703,3 +698,47 @@ def test_the_mechanism_is_read_at_the_arm_it_belongs_to(arm: float) -> None:
         * (data.outcome - nuisance.outcome.observed)
     )
     np.testing.assert_allclose(corrections[arm], d_g + d_q, rtol=0, atol=1e-14)
+
+
+class TestTheMechanismResidualAndItsDenominatorAreOneEvent:
+    """``D*_g`` is mean zero at the solved mechanism only because ``1_a`` and ``g`` are the
+    indicator and the probability of the **same** event.
+
+    A reverted joint-mechanism draft left an ``observed=`` mask on ``1_a`` alone, while the
+    mechanism handed in went back to being the plain treatment propensity -- so the residual
+    was ``1(A=a, Delta=1) - g_a`` against a ``g_a`` that is not the probability of that
+    event. No production path passed the mask, so nothing on a fit could have shown it, and
+    that is exactly why it is pinned here rather than end to end.
+    """
+
+    def test_the_parameter_that_carried_the_mask_is_gone(self) -> None:
+        """Structural, because the numeric defect is unreachable and cannot be witnessed.
+
+        A fit with missing outcomes and a non-empty guard builds the five reductions and
+        goes to ``missing_outcome_correction_parts``; with an empty guard it fits no
+        reductions and forms no corrections. So the mask was only ever the all-ones
+        default, and there is no fixture that would turn red. What can be asserted is that
+        the parameter is not there to be passed again.
+        """
+        for function in (reduced_correction_parts, reduced_corrections):
+            assert "observed" not in inspect.signature(function).parameters, function.__name__
+
+    def test_the_residual_is_the_arm_indicator_and_nothing_else(self) -> None:
+        """The identity longhand, at a ``Qr`` that is nowhere near zero.
+
+        Without the nonzero check this would be ``0 == 0`` at the truth, where ``Qr``
+        vanishes row by row and any mask at all would agree.
+        """
+        parts, reduced, _, _ = parts_at(qr_scale=(3.0, 2.0))
+        raw = np.asarray(RAW_G1, dtype=float)
+        lower, upper = TIGHT_BOUNDS
+        g1 = np.clip(raw, lower, upper)
+
+        for column, arm in enumerate(reduced.arms):
+            mechanism = g1 if arm == reduced.arms[1] else 1.0 - g1
+            indicator = (np.asarray(TREATMENT, dtype=float) == float(arm)).astype(float)
+            qr = np.asarray(reduced.qr, dtype=float)[:, column]
+            expected = qr / mechanism * (indicator - mechanism)
+
+            np.testing.assert_array_equal(parts.d_g[arm], expected)
+            assert np.max(np.abs(expected)) > 1e-3, "the witness must not be zero at the truth"

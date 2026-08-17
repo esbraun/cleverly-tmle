@@ -2563,9 +2563,10 @@ def correction_parts(
     covariates divided by.  A curve built from ``result.nuisance`` instead would be the
     curve of a fit nobody ran -- those arrays are deliberately the *initial* ones.  Without
     the ``"Q"`` guard no mechanism was tilted and the initial one is what equation (10) was
-    solved beside, so that is what the curve reads -- the initial mechanism the covariates
-    actually divided by, which on a missing-outcome fit is the joint one rather than the
-    separately reported propensity.  :func:`reported_mechanism` makes that choice.
+    solved beside, so that is what the curve reads.  :func:`reported_mechanism` makes that
+    choice, and it returns the **treatment** mechanism throughout: missing-outcome targeting
+    keeps the observation mechanism separate, and it arrives here on
+    :attr:`~cleverly.estimators.targeting.ReductionFluctuation.observation` instead.
 
     Module level rather than a method of :class:`TMLE`, and that is the whole point: the
     reported curve and :func:`~cleverly.validation.drtmle.correction_check`'s identity both
@@ -2604,7 +2605,6 @@ def correction_parts(
         reduction.reduced,
         mechanism,
         bounds=reduction.bounds,
-        observed=data.observed,
         guard=tuple(reduction.guard),
     )
 

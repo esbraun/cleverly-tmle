@@ -48,7 +48,7 @@ from ..estimators.targeting import build_submodel
 from ..exceptions import DataError
 from ..inference.influence import average_estimates
 from ..targets import parameter_stem
-from ..utils.bounds import g_bounds_for
+from ..utils.bounds import bound, g_bounds_for
 from ..utils.frames import emit_frame
 from ..utils.text import format_table
 
@@ -62,6 +62,12 @@ _QUANTILES = (0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0)
 
 #: Thresholds at which the mass of extreme propensity scores is reported.
 _THRESHOLDS = (0.01, 0.025, 0.05, 0.1)
+
+#: The derived missing-outcome denominator ``g_a(W) pi_a(W)``.  It is a *product of two
+#: separately truncated factors* rather than a fitted or targeted mechanism of its own,
+#: which is why it is named once here: the report has to treat it differently from the
+#: rows that were held to a single bound.
+JOINT_MECHANISM = "P(A=a,Delta=1|W)"
 
 
 @dataclass(frozen=True)
@@ -100,8 +106,18 @@ class PositivityReport:
         matters -- and they are easy to overlook, because a fit can have perfectly
         healthy propensity overlap and still be resting on a handful of rows that were
         very unlikely to be observed at all.
+
+        **A randomized missing-outcome fit adds a derived row**, ``P(A=a,Delta=1|W)``,
+        which is the product ``g_a(W) pi_a(W)`` that equation (8)'s covariate divides by.
+        It is not a third fitted mechanism and it was never held to a bound of its own:
+        the estimator truncates each factor separately and multiplies. So its ``clipped``
+        counts the cells where the bounded product differs from the raw one -- that is,
+        where either factor's truncation bit -- and its ``ess_ratio`` weights by
+        ``clip(g) * clip(pi)``, the denominator actually formed. Its ``min`` and quantiles
+        stay on the untruncated product, as the fitted rows' do.
     nuisance_bound:
-        The lower bound applied to those mechanisms.
+        The lower bound applied to the *fitted* mechanisms above.  The derived joint row
+        has no single such bound -- see :meth:`_bound_label`.
     simplex_deviation:
         Largest ``|sum_a g(a | W) - 1|`` across rows *after* truncation, and ``0`` for a
         two-armed fit, where the complement form preserves the sum exactly.
@@ -154,6 +170,21 @@ class PositivityReport:
             "propensity": [row[2] for row in rows],
         }
         return emit_frame(payload, data, backend=self.backend)
+
+    def _bound_label(self, name: str) -> str:
+        """How a mechanism row was truncated, as text a message can print.
+
+        The derived joint row is the only one with **two** bounds: the estimator clips
+        ``g`` and ``pi`` separately and multiplies them, so naming either alone -- which
+        both call sites used to do, always ``nuisance_bound`` -- quotes a bound that row
+        was never held to.
+        """
+        if name == JOINT_MECHANISM:
+            return (
+                f"[{self.bounds[0]:.4g}, {self.bounds[1]:.4g}] x "
+                f"[{self.nuisance_bound:.4g}, 1], factor by factor"
+            )
+        return f"[{self.nuisance_bound:.4g}, 1]"
 
     def summary(self) -> str:
         """A printable overlap report."""
@@ -232,9 +263,10 @@ class PositivityReport:
                     ],
                 )
             )
-            lines.append(
-                f"(truncated to [{self.nuisance_bound:.4g}, 1]; each row counts both arms)"
+            truncations = "; ".join(
+                f"{name} truncated to {self._bound_label(name)}" for name in self.mechanisms
             )
+            lines.append(f"({truncations}; each row counts both arms)")
         lines.append("")
         lines.append(self.verdict())
         return "\n".join(lines)
@@ -250,13 +282,21 @@ class PositivityReport:
             # Judged on the same scale as the propensity -- the effective sample size the
             # 1/mechanism weights leave behind -- so the two are directly comparable.
             if stats["clipped_fraction"] > 0.01 or stats["ess_ratio"] < 0.6:
+                # The joint row *is* the whole denominator rather than a factor beside
+                # `g(W)`, so the closing sentence has to say something different about it.
+                leverage = (
+                    "It is the whole denominator of the clever covariate, so those rows "
+                    "carry outsized leverage however each factor looks on its own."
+                    if name == JOINT_MECHANISM
+                    else "It divides the clever covariate exactly as g(W) does, so those "
+                    "rows carry outsized leverage whatever the propensity overlap looks like."
+                )
                 return (
                     f"VERDICT: {name} strains the estimate. It falls to {stats['min']:.4g} at "
                     f"its smallest and leaves an effective {stats['ess_ratio']:.0%} of the "
                     f"rows it weights ({stats['clipped_fraction']:.2%} clipped at "
-                    f"{self.nuisance_bound:.4g}). It divides the clever covariate exactly as "
-                    "g(W) does, so those rows carry outsized leverage whatever the propensity "
-                    "overlap looks like. Check truncation_curve(mechanism=True)."
+                    f"{self._bound_label(name)}). {leverage} "
+                    "Check truncation_curve(mechanism=True)."
                 )
         if fraction > 0.05 or worst_ratio < 0.3:
             return (
@@ -479,7 +519,7 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     """
     data = result.data
     nuisance = result.nuisance
-    bound = result.config.missingness_bound
+    missingness_bound = result.config.missingness_bound
     treated = data.treatment == 1.0
     contributing = targeted_rows(data, result.intermediate_value)
     out: dict[str, dict[str, float]] = {}
@@ -500,13 +540,13 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
             continue
         array = np.asarray(values, dtype=float)
         flat = array.reshape(-1)
-        clipped = flat < bound
+        clipped = flat < missingness_bound
         # The weight the estimating equation forms: the mechanism at the realised arm,
         # on the rows whose residual term it multiplies.  Rows with no outcome contribute
         # a genuine zero to that term, so they are not weighted by it and do not belong
         # in its effective sample size.
         at_arm = np.where(treated, array[:, 1], array[:, 0])
-        used = np.maximum(at_arm[contributing], bound)
+        used = np.maximum(at_arm[contributing], missingness_bound)
         out[name] = {
             "min": float(flat.min()),
             "q01": float(np.quantile(flat, 0.01)),
@@ -522,15 +562,29 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     # probabilities cannot become stale relative to a cached product.
     missing_reduction = getattr(nuisance.reduced, "reduction", None) == "missing_outcome"
     if missing_reduction and nuisance.missingness is not None:
-        lower = result.config.g_bounds[0] * result.config.missingness_bound
-        array = np.asarray(nuisance.propensity.values, dtype=float) * np.asarray(
-            nuisance.missingness, dtype=float
+        g_lower, g_upper = result.config.g_bounds
+        treatment = np.asarray(nuisance.propensity.values, dtype=float)
+        observation = np.asarray(nuisance.missingness, dtype=float)
+        array = treatment * observation
+        # The estimator truncates the two factors **separately** and multiplies -- see
+        # `build_submodel`'s `1 / (g * pi * pz)` and the missing-outcome reductions -- so
+        # `g_bounds[0] * missingness_bound` is a floor no code applies. Counting the cells
+        # beneath it reports a strict subset of the cells truncation altered, because a
+        # small factor beside a large one leaves the product above the product of the
+        # floors: at the shipped defaults that floor is around 5e-4, so the row read zero
+        # on fits where a third of the observation mechanism was pinned. What is reported
+        # instead is the cells where the bounded product differs from the raw one, which
+        # is the truncation this row's denominator actually underwent.
+        bounded = bound(treatment, float(g_lower), float(g_upper)) * bound(
+            observation, float(missingness_bound), 1.0
         )
         flat = array.reshape(-1)
-        clipped = flat < lower
-        at_arm = np.where(treated, array[:, 1], array[:, 0])
-        used = np.maximum(at_arm[contributing], lower)
-        out["P(A=a,Delta=1|W)"] = {
+        clipped = (array != bounded).reshape(-1)
+        # The weight the estimating equation forms is the *bounded* product at the
+        # realised arm; flooring the raw product at `g_lo * m_lo` was a third thing,
+        # neither what was fitted nor what was divided by.
+        used = np.where(treated, bounded[:, 1], bounded[:, 0])[contributing]
+        out[JOINT_MECHANISM] = {
             "min": float(flat.min()),
             "q01": float(np.quantile(flat, 0.01)),
             "q05": float(np.quantile(flat, 0.05)),

@@ -85,7 +85,22 @@ outcome/correct-mechanism half of the union model as statistical evidence beyond
 The canonical R package's missing-data path is provenance only; no numeric parity is an
 acceptance gate. Cross-validated, observational, and missing-treatment compositions are not
 covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because
-the array cannot be reindexed to a replicate's resampled rows.
+the array cannot be reindexed to a replicate's resampled rows — at any `guard=`, since the array
+is row-aligned however few equations are being solved. An unguarded `delta=` fit with known
+probabilities is a plain TMLE and is accepted as one; `_FailIfFit` is the witness that the
+supplied array reaches the fit rather than the refusal merely being gone.
+
+**Bounding the two mechanisms separately is what the scope label had to learn.** `contract`
+measured its truncation witnesses on the treatment mechanism alone, which is blind in exactly
+the regime this construction is for: a randomized trial's `g` is flat by design and cannot clip,
+so a fit whose `P(Delta=1|A,W)` was pinned on a fifth of its rows was certified `"theorem"`.
+`TestTheContractSeesTheObservationTruncations` is a pair of fits — one well-behaved, one whose
+observation mechanism is pinched while its treatment mechanism demonstrably is not — and the
+second is asserted to leave every pre-existing column inactive, so a bound-active verdict there
+cannot come from anything but the two new witnesses. The same fixture carries the positivity
+report's derived `P(A=a,Delta=1|W)` row, which counted its truncation against a product of floors
+the estimator never applies: 1.1% reported against 20.1% actual, with the old rule kept beside it
+as the control.
 
 **The exact law alone is not evidence for either construction, and this is worth writing
 down rather than leaving to be rediscovered.** Handed the oracle nuisances,

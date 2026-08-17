@@ -432,7 +432,6 @@ def reduced_corrections(
     *,
     bounds: tuple[float, float],
     guard: tuple[str, ...],
-    observed: BoolArray | None = None,
 ) -> dict[float, FloatArray]:
     r""":math:`D^*_Q + D^*_g` per arm, the terms doubly-robust inference subtracts.
 
@@ -518,7 +517,9 @@ def reduced_corrections(
     **The two terms are built by** :func:`reduced_correction_parts` **and added here**, so
     that :func:`~cleverly.validation.drtmle.correction_check` takes each one's empirical
     mean from this expression rather than from a second copy of it.  A second copy is how
-    an identity check comes to agree with a curve neither of them is.
+    an identity check comes to agree with a curve neither of them is.  A fit reaches the
+    sum through :meth:`CorrectionParts.total` rather than through this function, which is
+    where the two terms are also reported apart; this is the sum written down once.
 
     **One correction per equation the fit actually solved**, which is what ``guard`` selects
     and is the crossing ``guard=`` has everywhere else: :math:`D^*_g` is equation (9)'s, the
@@ -559,7 +560,6 @@ def reduced_corrections(
         reduced,
         propensity,
         bounds=bounds,
-        observed=observed,
         guard=guard,
     ).total()
 
@@ -670,7 +670,6 @@ def reduced_correction_parts(
     *,
     bounds: tuple[float, float],
     guard: tuple[str, ...],
-    observed: BoolArray | None = None,
 ) -> CorrectionParts:
     """:func:`reduced_corrections`' two terms before they are added, and the clipping bias.
 
@@ -678,11 +677,16 @@ def reduced_correction_parts(
     says; it is :meth:`~cleverly.inference.influence.CorrectionParts.total` that selects,
     in the same association the single expression used, so the reported curve is unchanged
     to the last bit.
+
+    **Complete-data fits only**, and there is no missing-outcome mask to pass: a fit with
+    ``delta=`` and a non-empty guard builds the five reductions and goes to
+    :func:`missing_outcome_correction_parts` instead, while an empty guard fits no
+    reductions and forms no corrections at all.
     """
     y = np.asarray(outcome, dtype=float).reshape(-1)
     a = np.asarray(treatment, dtype=float).reshape(-1)
     raw = np.asarray(propensity, dtype=float)
-    if len(reduced.arms) == 2 and raw.ndim == 1:
+    if len(reduced.arms) == 2:
         raw1 = raw.reshape(-1)
         g1 = bound(raw1, float(bounds[0]), float(bounds[1]))
         mechanism = {reduced.arms[0]: 1.0 - g1, reduced.arms[1]: g1}
@@ -704,23 +708,21 @@ def reduced_correction_parts(
         # three-armed fit whose bound binds on two arms at most rows.
         clipped = np.asarray((raw != bounded).any(axis=1), dtype=bool)
     ratio = np.asarray(reduced.gr2, dtype=float) / reduced.bounded_gr1(bounds)
-    keep = np.ones(y.shape[0]) if observed is None else np.asarray(observed, dtype=float)
 
     d_g: dict[float, FloatArray] = {}
     d_q: dict[float, FloatArray] = {}
     clip_bias: dict[float, FloatArray] = {}
     for j, arm in enumerate(reduced.arms):
-        # With missing outcomes the theorem's mechanism is the joint probability
-        # P(A=a, Delta=1 | W), so its residual is I(A=a, Delta=1) - g_a.  This is
-        # deliberately applied here as well as in the reduced-regression targets: a
-        # missing mask on only one side is the canonical-source discrepancy that gated
-        # this feature.
-        indicator = (a == float(arm)).astype(float) * keep
+        # The residual and the mechanism have to denote the same event -- `mechanism` is
+        # P(A = a | W), so the indicator is 1(A = a) and nothing else multiplies it.  A
+        # mask on only one side is the canonical-source discrepancy that gated this
+        # feature, and it is the reason `observed=` is not a parameter here.
+        indicator = (a == float(arm)).astype(float)
         qr = np.asarray(reduced.qr, dtype=float)[:, j]
         d_g[arm] = qr / mechanism[arm] * (indicator - mechanism[arm])
-        # The outcome residual is at the arm this row took, so the indicator already puts it
-        # at `arm`; `keep` is the missing-outcome mask every residual here carries.
-        d_q[arm] = indicator * keep * ratio[:, j] * (y - targeted.observed)
+        # The outcome residual is at the arm this row took, so the indicator already puts
+        # it at `arm` and nothing further selects rows.
+        d_q[arm] = indicator * ratio[:, j] * (y - targeted.observed)
         clip_bias[arm] = qr / mechanism[arm] * (untruncated[arm] - mechanism[arm])
     return CorrectionParts(d_g, d_q, clip_bias, clipped, tuple(guard))
 

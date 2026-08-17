@@ -18,7 +18,9 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       caveat: with **exact** reductions the estimator recovers the truth despite misspecified
       primary nuisances, and with **wrong** ones the estimate moves while every score
       equation still passes.  Inspect the reduced fits themselves --
-      ``result.extra["drtmle"].diagnostics``, keyed ``"qr"``, ``"gr1"``, ``"gr2"``.
+      ``result.extra["drtmle"].diagnostics``, keyed ``"qr"``, ``"gr1"``, ``"gr2"`` on the
+      univariate reduction and ``"gamma_a"``, ``"gamma_m"``, ``"r_a"``, ``"r_m"``, ``"e"``
+      on the missing-outcome one.
    2. **The interval is demonstrably better than a plain TMLE's, and it is not nominal.**
       Over 6,000 fits in two independent seed batches, the plain interval covers
       ``0.532``/``0.472`` against this estimator's ``0.844``/``0.848`` at ``n = 2,400`` in the
@@ -172,19 +174,33 @@ class ReducedFit:
         TMLE -- it carries no reduced regressions at all rather than carrying them and
         declining to use them, which is what makes it bit-for-bit the ordinary estimator.
     reduction:
-        ``"univariate"``, Benkeser et al.'s three regressions and ``drtmle``'s own default.
+        The construction that was actually fitted, read off the reduced set rather than off
+        the constructor argument so the two cannot drift: ``"univariate"`` for Benkeser et
+        al.'s three regressions, ``drtmle``'s own default, and ``"missing_outcome"`` for
+        Díaz & van der Laan's five.  ``guard=()`` fits none and reports the setting asked
+        for, there being no fit to report instead.
     g_bounds:
         The truncation :math:`g_{r,2}`'s target was formed at, which is fixed at fit time --
         see :func:`~cleverly.estimators.reduced.fit_reduced`.  On record because a reader of
         a truncation curve needs to know which parts of the sweep reached these arrays.
+    missingness_bound:
+        The truncation :math:`\\gamma_\\Delta` and :math:`g_{r,\\Delta}`'s targets were formed
+        at, for the same reason ``g_bounds`` is recorded -- a missing-outcome fit forms two
+        of its five reductions at *this* bound and not at ``g_bounds``, so a reader with
+        only the latter cannot say which sweep reached them.  ``None`` where no reduction
+        was formed at it.
     diagnostics:
-        Super Learner diagnostics per regression, keyed ``"qr"``, ``"gr1"`` and ``"gr2"``.
+        Super Learner diagnostics per regression.  Keyed ``"qr"``, ``"gr1"`` and ``"gr2"``
+        on the univariate reduction, and ``"gamma_a"``, ``"gamma_m"``, ``"r_a"``, ``"r_m"``
+        and ``"e"`` on the missing-outcome one -- the two constructions do not fit the same
+        regressions, so they cannot report under the same names.
     """
 
     guard: tuple[str, ...]
     reduction: str
     g_bounds: tuple[float, float]
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = field(default_factory=dict)
+    missingness_bound: float | None = None
 
     @staticmethod
     def evaluation(result: Any) -> Any:
@@ -574,7 +590,18 @@ class DRTMLE(TMLE):
             # enter: `needs_reduction` is False and the fit goes down the ordinary path.
             # That is what makes `guard=()` the plain estimator rather than the plain
             # estimator recovered by a loop that happens to exit after one round.
-            return base, {"drtmle": ReducedFit((), self.reduction, config.g_bounds)}
+            # Nothing was fitted, so `reduction` is the setting that was asked for rather
+            # than a construction that ran -- there is no reduced set to read it off.
+            return base, {
+                "drtmle": ReducedFit(
+                    (),
+                    self.reduction,
+                    config.g_bounds,
+                    missingness_bound=(
+                        config.missingness_bound if data.has_missing_outcome else None
+                    ),
+                )
+            }
 
         reduced, diagnostics, at_companion = self._fit_reduced(data, base, config.g_bounds)
         if base.companion is not None:
@@ -585,9 +612,20 @@ class DRTMLE(TMLE):
                     reduced=cast(tuple[ReducedSet, ...], at_companion),
                 ),
             )
+        missing_outcome = isinstance(reduced, MissingOutcomeReducedSet)
         return (
             replace(base, reduced=reduced),
-            {"drtmle": ReducedFit(self.guard, self.reduction, config.g_bounds, diagnostics)},
+            {
+                "drtmle": ReducedFit(
+                    self.guard,
+                    # Read off the set that was fitted rather than off `self.reduction`,
+                    # so the label and the construction cannot drift apart.
+                    str(reduced.reduction),
+                    config.g_bounds,
+                    diagnostics,
+                    missingness_bound=config.missingness_bound if missing_outcome else None,
+                )
+            },
         )
 
     def _known_treatment_probabilities(self, data: CausalData) -> Propensity | None:
@@ -820,6 +858,30 @@ class DRTMLE(TMLE):
                 "covariate, and no theorem read here says what it is. "
                 "Fit a plain TMLE, which is derived there."
             )
+        # Both of these are about the *array*, not about the extra score equations, so
+        # they are asked outside the guarded block: with `guard=()` the fit is bit for bit
+        # a plain TMLE, and a trial's known design mechanism is exactly what such a fit
+        # should divide by. The bootstrap refusal in particular has to fire at every guard
+        # -- it used to sit inside the block below, so lifting the outer refusal without
+        # moving it would let an unguarded replicate refit on resampled rows the
+        # row-aligned array cannot be reindexed to, silently.
+        if self._treatment_probabilities is not None:
+            if not data.has_missing_outcome:
+                raise ValueError(
+                    "treatment_probabilities= is currently only used with delta=. It "
+                    "replaces the treatment learner outright, and nothing read here "
+                    "states a complete-data construction that reads a known design "
+                    "mechanism differently from a fitted one."
+                )
+            if self.n_bootstrap:
+                raise NotImplementedError(
+                    "treatment_probabilities= and n_bootstrap= are not combined. The array "
+                    "is row-aligned to the data as passed, and a replicate refits on "
+                    "resampled rows it cannot be reindexed to from here -- an n-out-of-n "
+                    "resample even passes the length check, so the misalignment would be "
+                    "silent. Pass randomized=True instead, so each replicate estimates the "
+                    "mechanism from its own rows."
+                )
         if data.has_missing_outcome and self.guard:
             if data.n_arms != 2:
                 raise NotImplementedError(
@@ -839,15 +901,6 @@ class DRTMLE(TMLE):
                     "missing-outcome DRTMLE requires guard=('Q', 'g'): Díaz & van der "
                     "Laan's algorithm jointly targets the treatment, observation and "
                     "outcome correction blocks, and no partial-guard theorem is claimed"
-                )
-            if self._treatment_probabilities is not None and self.n_bootstrap:
-                raise NotImplementedError(
-                    "treatment_probabilities= and n_bootstrap= are not combined. The array "
-                    "is row-aligned to the data as passed, and a replicate refits on "
-                    "resampled rows it cannot be reindexed to from here -- an n-out-of-n "
-                    "resample even passes the length check, so the misalignment would be "
-                    "silent. Pass randomized=True instead, so each replicate estimates the "
-                    "mechanism from its own rows."
                 )
             if self.cross_fit:
                 raise NotImplementedError(
@@ -869,8 +922,6 @@ class DRTMLE(TMLE):
                     "missing-outcome DRTMLE supports the published pooled construction only; "
                     "evaluation= and nested reduced cross-fitting are not certified"
                 )
-        elif self._treatment_probabilities is not None:
-            raise ValueError("treatment_probabilities= is currently only used with delta=")
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         outside = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
         if outside:
