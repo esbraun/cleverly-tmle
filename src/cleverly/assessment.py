@@ -902,6 +902,17 @@ def validate_result(result: Any) -> ValidationReport:
     return _cached(result, "validate", (), {}, compute)
 
 
+def _sensitivity_operations() -> tuple[str, ...]:
+    """The public operation names, read off the class so the two cannot drift apart.
+
+    Off the *class*, not the instance: a longitudinal result has no legacy analysis object
+    at all, and "does this operation exist" still has to have an answer there.
+    """
+    from .sensitivity.api import SensitivityAnalysis
+
+    return tuple(sorted(name for name in vars(SensitivityAnalysis) if not name.startswith("_")))
+
+
 class SensitivityFacade:
     """Capability-aware sensitivity operations with normalized persistent caching."""
 
@@ -1093,12 +1104,33 @@ class SensitivityFacade:
         )
 
     def __getattr__(self, name: str) -> Any:
-        """Route the established point analyses through the same persistent cache."""
+        """Route the established point analyses through the same persistent cache.
+
+        Two different questions the previous version answered with one error.  *Does this
+        operation exist?* is answered here, and its "no" has to be ``AttributeError`` --
+        ``hasattr`` only swallows that one, so raising ``CapabilityError`` (a ``ValueError``)
+        made ``hasattr`` and ``getattr(..., default)`` raise instead of reporting absence,
+        and gave a typo the sequential-recursion rationale as though it named something.
+
+        *Can this fit serve it?* is answered on call, by a stub, so that a real operation
+        this family cannot run still refuses by name with a reason rather than claiming
+        not to exist.
+        """
 
         if name.startswith("_"):
             raise AttributeError(name)
+        if name not in _sensitivity_operations():
+            raise AttributeError(
+                f"{type(self).__name__!r} object has no attribute {name!r}; the sensitivity "
+                f"operations are {', '.join(_sensitivity_operations())}"
+            )
         if self._legacy is None:
-            raise self._unavailable(name)
+            error = self._unavailable(name)
+
+            def refuse(*args: Any, **kwargs: Any) -> Any:
+                raise error
+
+            return refuse
         attribute = getattr(self._legacy, name)
         if not callable(attribute):
             return attribute

@@ -388,3 +388,41 @@ class TestCapabilityRowsDoNotContradictThemselves:
     ) -> None:  # type: ignore[no-untyped-def]
         rows = {row.operation: row for row in longitudinal_result.sensitivity.capabilities}
         assert "longitudinal" in rows["missingness"].reason
+
+
+class TestAttributeAccessAnswersExistenceNotAvailability:
+    """``__getattr__`` conflated "no such operation" with "not on this fit".
+
+    Both raised ``CapabilityError``, which subclasses ``ValueError``. ``hasattr`` only
+    swallows ``AttributeError``, so on a longitudinal result -- where the legacy analysis
+    object is absent entirely -- probing *any* name raised, and a typo was answered with
+    the sequential-recursion rationale as though it named a real analysis.
+    """
+
+    def test_hasattr_reports_a_real_operation_rather_than_raising(
+        self, longitudinal_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        assert hasattr(longitudinal_result.sensitivity, "evalue")
+
+    def test_getattr_with_a_default_does_not_raise(self, longitudinal_result) -> None:  # type: ignore[no-untyped-def]
+        assert getattr(longitudinal_result.sensitivity, "evalue", None) is not None
+        assert (
+            getattr(longitudinal_result.sensitivity, "no_such_analysis", "fallback") == "fallback"
+        )
+
+    def test_a_typo_is_an_attribute_error_naming_what_does_exist(self, longitudinal_result) -> None:  # type: ignore[no-untyped-def]
+        typo = "evalu"
+        with pytest.raises(AttributeError, match="has no attribute 'evalu'"):
+            getattr(longitudinal_result.sensitivity, typo)
+        assert not hasattr(longitudinal_result.sensitivity, "evalu")
+
+    def test_a_real_operation_still_refuses_by_name_when_called(self, longitudinal_result) -> None:  # type: ignore[no-untyped-def]
+        """Existence is not availability: the refusal moves to the call, it does not go."""
+        with pytest.raises(CapabilityError, match="full evidence-backed recursion/refit adapter"):
+            longitudinal_result.sensitivity.evalue()
+
+    def test_the_point_facade_still_delegates_and_caches(self, point_result) -> None:  # type: ignore[no-untyped-def]
+        """The control: a fit that *can* serve these must be unaffected."""
+        curve = point_result.sensitivity.truncation_curve(bounds=[0.02, 0.05])
+        assert curve is not None
+        assert hasattr(point_result.sensitivity, "evalue")
