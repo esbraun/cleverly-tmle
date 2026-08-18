@@ -3,11 +3,13 @@
 import dataclasses
 import inspect
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
+import cleverly
 from cleverly import (
     ATE,
     CapabilityError,
@@ -15,6 +17,7 @@ from cleverly import (
     ControlledDirectEffect,
     CrossFitting,
     DataError,
+    LongitudinalTreatment,
     ModelSpec,
     MSMProjection,
     PointTreatment,
@@ -23,9 +26,11 @@ from cleverly import (
     Runtime,
     TMLEMethod,
 )
-from cleverly.datasets import make_linear_ate
+from cleverly.data import CausalData, validate
+from cleverly.data.validate import RANDOMIZED_INTERCEPT
+from cleverly.datasets import make_linear_ate, make_longitudinal
 from cleverly.estimators import TMLE
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
 from cleverly.methods import (
     DEFAULT_LONGITUDINAL_G_BOUNDS,
@@ -71,6 +76,143 @@ def test_the_study_cannot_be_pointed_at_a_design_it_did_not_prepare() -> None:
     with pytest.raises(AttributeError):
         study.design = other  # type: ignore[misc]
     assert study.design.outcome == "Y"
+
+
+class TestAPreparedContainerIsReconciledWithTheDesign:
+    """Handing the study a built container used to adopt it without a single check.
+
+    ``prepare`` returned any ``CausalData``/``LongitudinalData`` unchanged, so every role on
+    the design became a claim nothing had verified. The design is what
+    ``IdentifiedEffect.functional`` records and ``summary()`` prints, so a design naming an
+    adjustment set the container never adjusted for reported that set as identification --
+    and this PR then persisted it. It is the data-construction half of the hazard
+    ``test_the_study_cannot_be_pointed_at_a_design_it_did_not_prepare`` argues for rebinding.
+    """
+
+    @staticmethod
+    def _prepared():  # type: ignore[no-untyped-def]
+        frame, _ = make_linear_ate(n=120, seed=19)
+        return frame, CausalData.from_frame(
+            frame, outcome="Y", treatment="A", covariates=("W1", "W2", "W3")
+        )
+
+    def test_a_matching_container_is_accepted_and_reported_truthfully(self) -> None:
+        _, data = self._prepared()
+        design = PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"))
+        effect = CausalStudy(data, design=design).identify(ATE())
+        assert effect.functional.adjustment == ("W1", "W2", "W3")
+        assert "W1" in effect.summary()
+
+    @pytest.mark.parametrize(
+        ("design", "reason"),
+        [
+            (
+                PointTreatment(outcome="Y", treatment="A", adjustment=("Z1",)),
+                "adjusts for",
+            ),
+            (
+                PointTreatment(outcome="W1", treatment="A", adjustment=("W1", "W2", "W3")),
+                "outcome=",
+            ),
+            (
+                PointTreatment(outcome="Y", treatment="W1", adjustment=("W1", "W2", "W3")),
+                "treatment=",
+            ),
+            (
+                PointTreatment(
+                    outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"), cluster="G"
+                ),
+                "cluster=",
+            ),
+            (
+                PointTreatment(
+                    outcome="Y",
+                    treatment="A",
+                    adjustment=("W1", "W2", "W3"),
+                    treatment_kind="continuous",
+                ),
+                "treatment_kind=",
+            ),
+            (
+                PointTreatment(
+                    outcome="Y",
+                    treatment="A",
+                    adjustment=("W1", "W2", "W3"),
+                    outcome_family="binomial",
+                ),
+                "outcome_family=",
+            ),
+        ],
+    )
+    def test_every_role_the_design_states_is_checked(self, design, reason) -> None:  # type: ignore[no-untyped-def]
+        _, data = self._prepared()
+        with pytest.raises(DataError, match=reason):
+            CausalStudy(data, design=design)
+
+    def test_an_adjustment_set_survives_encoding_and_dropping(self) -> None:
+        """``covariate_names`` is post-encoding, so the comparison uses the named columns.
+
+        A categorical adjustment variable becomes several generated columns and a degenerate
+        one is dropped outright, so comparing the stored names to the declaration directly
+        would reject the very containers this check exists to accept.
+        """
+        frame, _ = make_linear_ate(n=120, seed=23)
+        frame = frame.assign(G=pd.Categorical(np.where(frame["W1"] > 0, "high", "low")), C=1.0)
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=("W1", "G", "C"))
+        assert data.dropped_covariates == ("C",)
+        assert set(data.covariate_names) != {"W1", "G", "C"}
+        design = PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "G", "C"))
+        assert CausalStudy(data, design=design).data is data
+
+    def test_a_longitudinal_container_is_reconciled_node_by_node(self) -> None:
+        frame, _ = make_longitudinal(n=100, seed=11)
+        columns = {
+            "outcome": "Y",
+            "treatment": ("A1", "A2"),
+            "baseline": ("W1", "W2"),
+            "time_varying": ((), ("L2",)),
+            "censoring": ("C1", "C2"),
+        }
+        data = LongitudinalData.from_frame(frame, **columns)
+        assert CausalStudy(data, design=LongitudinalTreatment(**columns)).data is data
+        for role, changed in (
+            ("baseline", {"baseline": ("W1",)}),
+            ("outcome event nodes", {"outcome": ("Y1", "Y2")}),
+            ("censoring", {"censoring": None}),
+            ("time_varying", {"time_varying": (("L2",), ())}),
+        ):
+            with pytest.raises(DataError, match=role):
+                CausalStudy(data, design=LongitudinalTreatment(**{**columns, **changed}))
+
+
+def test_the_reserved_intercept_column_survives_the_constant_sweep() -> None:
+    """One name, two packages, and only one thing standing between them and a bug.
+
+    ``PointTreatment(randomized=True, adjustment=())`` is a claim of *no* adjustment, and the
+    reserved constant column is what keeps the design well formed for learners that fit their
+    own intercept. ``check_covariates`` drops constant columns, so the exemption keyed on that
+    name is the only reason the column survives -- and the name was written out as a bare
+    literal at both ends, where renaming one would have left the fit with no covariates.
+    """
+    written_out = [
+        path
+        for path in Path(cleverly.__file__).parent.rglob("*.py")
+        if f'"{RANDOMIZED_INTERCEPT}"' in path.read_text(encoding="utf-8")
+    ]
+    assert written_out == [Path(validate.__file__)], (
+        "the reserved name is spelled out somewhere other than its definition; import "
+        "RANDOMIZED_INTERCEPT instead, so a rename cannot reach one end and not the other"
+    )
+    frame, _ = make_linear_ate(n=120, seed=29)
+    study = CausalStudy(
+        frame[["Y", "A"]], design=PointTreatment(outcome="Y", treatment="A", randomized=True)
+    )
+    assert study.data.covariate_names == (RANDOMIZED_INTERCEPT,)
+    assert study.data.dropped_covariates == ()
+    result = study.estimate(ATE(), outcome_learner="glm", treatment_learner="glm")
+    assert np.isfinite(result.psi("ate"))
+    # The design still says what it claimed: no adjustment variables at all.
+    assert result.identified_effect.functional.adjustment == ()
 
 
 def test_identification_is_inspectable_before_estimation() -> None:

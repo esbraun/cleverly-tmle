@@ -77,6 +77,30 @@ estimate for graph, Riesz, EP, front-door, IV, mediation, or transport behavior 
 implemented and evidenced. *Reconsider when* the corresponding work package supplies its
 functional, method artifacts, persistence, and independent evidence.
 
+A design and a prepared data container must agree on every role before either is used. Both
+`CausalStudy` and the containers accept the same roles, and neither module alone can see a
+disagreement: the container holds arrays that no longer name their source, while the design is
+what `IdentifiedEffect.functional` records, `summary()` prints, and persistence writes. Adopting
+a container without reconciling it therefore reports an adjustment set no estimate came from,
+and saves it. *Reconsider when* a container carries its own identification record, so the design
+has nothing left to contradict.
+
+When the public layer reports a subset of the parameters an engine computed, the inference it
+reports is the inference for that subset. A joint band is a statement about a family, so
+narrowing the family and keeping the critical value asserts a coverage property over parameters
+the result does not contain. Recompute from the retained influence curves under the same
+significance level, draw count, multiplier distribution, seed, and cluster structure, so the
+result is what the engine would have produced had it been asked for that family alone.
+*Reconsider when* an engine can be asked for the narrowed family directly, and the public layer
+stops selecting after the fact.
+
+Where a configuration group serves more than one engine, a default that differs between them is
+a sentinel resolved per engine, never a literal that silently picks one engine's answer for the
+other. `g_bounds="auto"` and `n_multiplier="auto"` are the two current cases. A restated engine
+default is pinned against that engine's signature by a test, because a restatement that nothing
+compares is free to drift. *Reconsider when* the engines agree, at which point the sentinel
+should be deleted rather than kept.
+
 Configuration groups are immutable and normalized before engine construction. Convenience
 keywords may map into `ModelSpec`, `CrossFitting`, `Targeting`, `Inference`, and `Runtime`, but may
 not bypass them or reassign design roles. A shortcut whose name is a configuration field sets that

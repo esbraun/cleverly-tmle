@@ -10,6 +10,7 @@ import narwhals as nw
 
 from ._typing import Family
 from .data import CausalData
+from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
 from .exceptions import CapabilityError, CleverlyError, DataError
 from .inference.multiplier import SimultaneousBands, simultaneous_bands
@@ -143,17 +144,18 @@ class PointTreatment:
 
     def prepare(self, data: Any) -> CausalData:
         if isinstance(data, CausalData):
+            self._check_prepared(data)
             return data
         covariates = self.adjustment
         if self.randomized and not covariates:
             frame = as_frame(data)
-            intercept = "__cleverly_randomized_intercept__"
-            if intercept in frame.columns:
+            if RANDOMIZED_INTERCEPT in frame.columns:
                 raise DataError(
-                    f"reserved internal column {intercept!r} is already present; rename it"
+                    f"reserved internal column {RANDOMIZED_INTERCEPT!r} is already present; "
+                    "rename it"
                 )
-            data = frame.with_columns(nw.lit(0.0).alias(intercept)).to_native()
-            covariates = (intercept,)
+            data = frame.with_columns(nw.lit(0.0).alias(RANDOMIZED_INTERCEPT)).to_native()
+            covariates = (RANDOMIZED_INTERCEPT,)
         return CausalData.from_frame(
             data,
             outcome=self.outcome,
@@ -169,6 +171,53 @@ class PointTreatment:
             family=self.outcome_family,
             treatment_kind=self.treatment_kind,
         )
+
+    def _check_prepared(self, data: CausalData) -> None:
+        """Reconcile an already-built container with the roles this design declares.
+
+        A ``CausalData`` handed straight to ``CausalStudy`` used to be adopted as-is, so
+        every field here was a claim nothing checked. The design is what
+        ``IdentifiedEffect.functional`` records and what ``summary()`` prints, so a design
+        naming ``adjustment=("Z1",)`` over a container fitted on ``W1..W3`` reported an
+        adjustment set no estimate came from -- and, since this PR, persisted it.
+        """
+        expected: tuple[tuple[str, Any, Any], ...] = (
+            ("outcome", self.outcome, data.outcome_name),
+            ("treatment", self.treatment, data.treatment_name),
+            ("missingness", self.missingness, data.delta_name),
+            ("intermediate", self.intermediate, data.intermediate_name),
+            ("cluster", self.cluster, data.cluster_name),
+            ("weights", self.weights, data.weights_name),
+            ("strata", tuple(self.strata), tuple(data.strata_names)),
+            ("treatment_kind", self.treatment_kind, data.treatment_kind),
+        )
+        for role, declared, held in expected:
+            if declared != held:
+                raise DataError(
+                    f"the supplied CausalData was built with {role}={held!r}, but this design "
+                    f"declares {role}={declared!r}; build the data from this design, or "
+                    "correct the design"
+                )
+        # ``outcome_family`` is inferred when the design does not state one, so only a
+        # stated disagreement is a disagreement.
+        if self.outcome_family != "auto" and self.outcome_family != data.family:
+            raise DataError(
+                f"the supplied CausalData has family={data.family!r}, but this design "
+                f"declares outcome_family={self.outcome_family!r}"
+            )
+        # ``covariate_names`` is post-encoding, so compare the columns the caller named:
+        # a categorical adjustment variable arrives as several generated columns, and a
+        # degenerate one may have been dropped entirely.
+        generated = {name: item.column for item in data.encodings for name in item.generated}
+        sources = {generated.get(name, name) for name in data.covariate_names}
+        sources.update(data.dropped_covariates)
+        declared_adjustment = set(self.adjustment) or {RANDOMIZED_INTERCEPT}
+        if sources != declared_adjustment:
+            raise DataError(
+                f"the supplied CausalData adjusts for {sorted(sources)}, but this design "
+                f"declares {sorted(declared_adjustment)}; an identification claim and the "
+                "data it is claimed about have to be the same set"
+            )
 
 
 @dataclass(frozen=True)
@@ -200,6 +249,7 @@ class LongitudinalTreatment:
 
     def prepare(self, data: Any) -> LongitudinalData:
         if isinstance(data, LongitudinalData):
+            self._check_prepared(data)
             return data
         return LongitudinalData.from_frame(
             data,
@@ -214,6 +264,63 @@ class LongitudinalTreatment:
             weights_estimated=self.weights_estimated,
             family=self.outcome_family,
         )
+
+    def _outcome_roles(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """The event nodes and cause labels this outcome declaration implies.
+
+        One field spells three designs: a name is an end-of-study outcome, a sequence is a
+        survival process, and a mapping of cause to sequence is competing risks. The
+        container records them as ``event_names`` plus ``cause_labels``, so composing them
+        forward is what makes the three comparable without inspecting arrays.
+        """
+        if isinstance(self.outcome, str):
+            return (), ()
+        if isinstance(self.outcome, Mapping):
+            causes = tuple(self.outcome)
+            return tuple(node for cause in causes for node in self.outcome[cause]), causes
+        return tuple(self.outcome), ()
+
+    def _check_prepared(self, data: LongitudinalData) -> None:
+        """Reconcile an already-built container with the roles this design declares.
+
+        The point-treatment reasoning applies unchanged, and the node ordering makes it
+        sharper: ``functional.adjustment`` records this design's baseline, and a sequential
+        fit's history is not recoverable from the arrays afterwards.
+        """
+        events, causes = self._outcome_roles()
+        empty: tuple[str, ...] = ()
+        blocks = (
+            tuple(empty for _ in self.treatment)
+            if self.time_varying is None
+            else tuple(tuple(block) for block in self.time_varying)
+        )
+        expected: tuple[tuple[str, Any, Any], ...] = (
+            ("treatment", tuple(self.treatment), tuple(data.treatment_names)),
+            ("baseline", tuple(self.baseline), tuple(data.baseline_names)),
+            ("time_varying", blocks, tuple(data.time_varying_names)),
+            ("censoring", tuple(self.censoring or ()), tuple(data.censoring_names)),
+            ("cluster", self.cluster, data.cluster_name),
+            ("weights", self.weights, data.weights_name),
+            ("outcome event nodes", events, tuple(data.event_names)),
+            ("outcome causes", causes, tuple(data.cause_labels)),
+        )
+        for role, declared, held in expected:
+            if declared != held:
+                raise DataError(
+                    f"the supplied LongitudinalData was built with {role}={held!r}, but this "
+                    f"design declares {role}={declared!r}; build the data from this design, "
+                    "or correct the design"
+                )
+        if not events and isinstance(self.outcome, str) and self.outcome != data.outcome_name:
+            raise DataError(
+                f"the supplied LongitudinalData was built with outcome={data.outcome_name!r}, "
+                f"but this design declares outcome={self.outcome!r}"
+            )
+        if self.outcome_family != "auto" and self.outcome_family != data.family:
+            raise DataError(
+                f"the supplied LongitudinalData has family={data.family!r}, but this design "
+                f"declares outcome_family={self.outcome_family!r}"
+            )
 
 
 @dataclass(frozen=True)
