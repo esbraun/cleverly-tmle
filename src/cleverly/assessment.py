@@ -929,6 +929,7 @@ class SensitivityFacade:
             if longitudinal
             else getattr(self._result.nuisance, "missingness", None) is not None
         )
+        benchmarkable = not longitudinal and replayability(self._result).refit_nuisances
         return (
             _capability(
                 "omitted_confounding",
@@ -947,9 +948,13 @@ class SensitivityFacade:
                 deterministic=False,
                 cost="expensive",
                 interpretation="calibration against named observed covariates",
-                available=not longitudinal and replayability(self._result).refit_nuisances,
-                status=AssessmentStatus.UNAVAILABLE,
-                reason="benchmarking requires a reconstructible point-treatment method recipe",
+                available=benchmarkable,
+                status=AssessmentStatus.PASSED if benchmarkable else AssessmentStatus.UNAVAILABLE,
+                reason=(
+                    None
+                    if benchmarkable
+                    else "benchmarking requires a reconstructible point-treatment method recipe"
+                ),
                 requires_arguments=("covariates",),
             ),
             _capability(
@@ -960,15 +965,22 @@ class SensitivityFacade:
                 cost="moderate",
                 interpretation="departure from missing-at-random identification",
                 available=missing,
+                # Three cases, not two.  A point fit that *has* a missingness mechanism can
+                # run the tilt, and used to publish `unavailable` with the longitudinal
+                # adapter's reason attached to it.
                 status=(
-                    AssessmentStatus.NOT_APPLICABLE
-                    if not missing and not longitudinal
+                    AssessmentStatus.PASSED
+                    if missing
                     else AssessmentStatus.UNAVAILABLE
+                    if longitudinal
+                    else AssessmentStatus.NOT_APPLICABLE
                 ),
                 reason=(
-                    "the identified functional has no observation/missingness mechanism"
-                    if not missing and not longitudinal
+                    None
+                    if missing
                     else "no longitudinal missingness-tilt adapter is implemented"
+                    if longitudinal
+                    else "the identified functional has no observation/missingness mechanism"
                 ),
             ),
         )

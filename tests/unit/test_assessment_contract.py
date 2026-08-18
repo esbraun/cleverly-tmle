@@ -309,3 +309,82 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
         support = result.diagnostics.support()
         assert min(item.ess_ratio for item in support.values()) >= 0.2
         assert result.validate()["support"].status is AssessmentStatus.PASSED
+
+
+class TestCapabilityRowsDoNotContradictThemselves:
+    """``available`` and ``status`` are two statements about one cell; they must agree.
+
+    ``_require`` gates on ``available`` while the report surfaces ``status`` and
+    ``reason``, so a row that disagrees with itself leaks into user-facing text: a point
+    fit with a fitted missingness mechanism published ``available: True | status:
+    unavailable | reason: no longitudinal missingness-tilt adapter is implemented`` for an
+    operation that works.
+    """
+
+    @pytest.fixture(scope="class")
+    def missing_outcome_result(self):  # type: ignore[no-untyped-def]
+        from cleverly.datasets import make_missing_outcome
+
+        frame, _ = make_missing_outcome(n=400, seed=61)
+        return (
+            CausalStudy(
+                frame,
+                design=PointTreatment(
+                    outcome="Y",
+                    treatment="A",
+                    adjustment=["W1", "W2", "W3"],
+                    missingness="Delta",
+                ),
+            )
+            .identify(ATE())
+            .estimate(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=3,
+                learner_folds=2,
+                random_state=4,
+                simultaneous=False,
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "fixture_name", ["point_result", "longitudinal_result", "missing_outcome_result"]
+    )
+    def test_an_available_operation_is_never_reported_unavailable(
+        self, fixture_name, request
+    ) -> None:  # type: ignore[no-untyped-def]
+        result = request.getfixturevalue(fixture_name)
+        for row in result.sensitivity.capabilities:
+            if not row.available:
+                continue
+            assert row.status not in {
+                AssessmentStatus.UNAVAILABLE,
+                AssessmentStatus.NOT_APPLICABLE,
+            }, f"{row.operation} is available but reports {row.status}"
+
+    @pytest.mark.parametrize(
+        "fixture_name", ["point_result", "longitudinal_result", "missing_outcome_result"]
+    )
+    def test_only_an_unrunnable_operation_carries_a_reason(self, fixture_name, request) -> None:  # type: ignore[no-untyped-def]
+        result = request.getfixturevalue(fixture_name)
+        for row in result.sensitivity.capabilities:
+            if row.available:
+                assert row.reason is None, f"{row.operation} is available but explains itself away"
+            else:
+                assert row.reason, f"{row.operation} is unavailable and does not say why"
+
+    def test_a_fitted_missingness_mechanism_makes_the_tilt_available(
+        self, missing_outcome_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        rows = {row.operation: row for row in missing_outcome_result.sensitivity.capabilities}
+        assert rows["missingness"].available
+        assert rows["missingness"].status is AssessmentStatus.PASSED
+        assert rows["missingness"].reason is None
+        # And the operation really does run, which is what made the old row wrong.
+        assert missing_outcome_result.sensitivity.missingness() is not None
+
+    def test_the_longitudinal_reason_stays_on_the_longitudinal_row(
+        self, longitudinal_result
+    ) -> None:  # type: ignore[no-untyped-def]
+        rows = {row.operation: row for row in longitudinal_result.sensitivity.capabilities}
+        assert "longitudinal" in rows["missingness"].reason
