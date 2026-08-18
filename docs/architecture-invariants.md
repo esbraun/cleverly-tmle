@@ -107,6 +107,14 @@ not bypass them or reassign design roles. A shortcut whose name is a configurati
 field; in particular `alpha` is the interval significance level and `submodel_alpha` is the
 logistic-submodel bound.
 
+A normalized method declaration either changes the selected engine request or fails before that
+engine is constructed. Shared configuration groups do not imply shared implementation: every
+non-default point-only setting is refused on a longitudinal design, while supported semantic
+translations such as `cross_fit=False` to `n_folds=1` remain explicit. Method-configuration
+failures derive from `CleverlyError`, so callers never have to catch implementation-language
+`TypeError` or `ValueError` separately. *Reconsider when* an independently evidenced longitudinal
+derivation makes a currently point-only setting operational.
+
 Every causal result carries its `IdentifiedEffect`, normalized method, and structured
 `ParameterKey` mapping. Persistence round-trips those records with arrays and allow-listed
 structured values, never arbitrary pickle execution. Restored identification metadata does not

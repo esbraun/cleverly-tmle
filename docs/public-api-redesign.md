@@ -1,16 +1,14 @@
 # Public API and extensibility redesign
 
-**Implementation status.** Logical PRs 1 and 2 are implemented: work package 1 now provides the
+**Implementation status.** Logical PRs 1 through 3 are implemented: work package 1 now provides the
 typed point and longitudinal study/identification/result contracts, routes all currently evidenced
 analytic estimands through the existing engines, persists structured causal metadata, and removes
-the former beginner-facing root constructors. The assessment, Riesz, DoWhy, EP, and catalog
-expansion work packages below remain design contracts rather than implemented behavior.
-
-Status: accepted; logical PR 1 implemented
+the former beginner-facing root constructors. Its configuration boundary now refuses declarations
+that the selected engine cannot apply, through the library error hierarchy. The assessment, Riesz,
+DoWhy, EP, and catalog expansion work packages below remain design contracts rather than
+implemented behavior.
 
 Decision date: 2026-08-17
-
-Implementation status: logical PR 1 complete; logical PR 2 not started
 
 This document is the implementation contract for the public API redesign. Changes should follow
 the logical PRs, ordered work packages, and evidence gates below rather than treating the example
@@ -947,17 +945,24 @@ not an executable test suite.
    result/capability contracts, persist their structured metadata, adapt point and longitudinal
    engines, add migration tooling, and then remove the old beginner-facing top-level constructors.
    This completes work package 1 rather than leaving two public computational paths.
-3. **Assessment contract.** Implement work package 2 across every result family, including
+3. **Harden the foundational configuration contract.** **Implemented.** Before beginning
+   assessment, close two defects in the work-package-1 boundary: a longitudinal request must
+   refuse all 17 point-only method settings rather than normalize and discard them (for example,
+   `n_bootstrap=500`), and every public method-configuration failure must derive from
+   `CleverlyError`. Preserve the supported translation of `cross_fit=False` to `n_folds=1`, and
+   prove refusals occur before engine construction. This is corrective completion of work package
+   1, not assessment behavior.
+4. **Assessment contract.** Implement work package 2 across every result family, including
    capability-aware diagnostics, validation, sensitivity, caching, persistence, and explicit
    refusals.
-4. **Nested Riesz engine and initial evidenced catalog.** Complete the paper audit and implement
+5. **Nested Riesz engine and initial evidenced catalog.** Complete the paper audit and implement
    work package 3 as one scientific review unit, including analytic/direct representers,
    `alpha_star`, nested composition, persistence, diagnostics, and all independent evidence gates.
-5. **Optional integrations and heterogeneous effects.** Implement DoWhy and EP as two separately
+6. **Optional integrations and heterogeneous effects.** Implement DoWhy and EP as two separately
    reviewable commits in one integration PR only if their dependency and release schedules remain
    compatible; otherwise split the PR without changing their work-package order. Neither is a
    prerequisite for the core package.
-6. **Catalog expansion.** Add each new parameter family in a target-specific PR with its own
+7. **Catalog expansion.** Add each new parameter family in a target-specific PR with its own
    derivation, registry/evidence rows, mutation witnesses, refusals, documentation, and statistical
    study. Unrelated estimands must not be bundled merely to reduce PR count.
 

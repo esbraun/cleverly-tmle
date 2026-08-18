@@ -119,6 +119,9 @@ result = effect.estimate(method=method)
 Common shortcuts such as `n_folds=`, `alpha=`, and `random_state=` normalize into those same
 objects. Collaborative TMLE and DR-TMLE are selected with `CollaborativeTMLEMethod` and
 `DRTMLEMethod`; they are methods for compatible identified effects, not alternative study types.
+If a normalized option cannot apply to the selected design, estimation raises
+`MethodConfigurationError` before constructing an engine. In particular, longitudinal studies
+refuse point-only controls such as `n_bootstrap=` rather than discarding them.
 
 ## Longitudinal treatment
 
