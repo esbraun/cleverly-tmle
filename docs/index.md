@@ -2,11 +2,11 @@
 
 ```{raw} html
 <div class="cleverly-hero">
-  <span class="cleverly-eyebrow">The Python toolbox for TMLE-based causal studies · Alpha</span>
-  <p class="cleverly-hero-title">Start with the causal question.<br>Then choose the estimator.</p>
-  <p class="cleverly-hero-copy">Design, estimate, assess, and report point and longitudinal
-  causal studies with targeted maximum likelihood estimation, typed estimands,
-  influence-curve inference, diagnostics, and sensitivity analysis.</p>
+  <span class="cleverly-eyebrow">Causal studies with TMLE · Alpha</span>
+  <p class="cleverly-hero-title">Estimate. Validate. Stress-test.</p>
+  <p class="cleverly-hero-copy">Build rigorous causal studies on TMLE’s strong theoretical
+  foundations, then probe every result with accessible validation, diagnostics, and sensitivity
+  analyses.</p>
 </div>
 ```
 

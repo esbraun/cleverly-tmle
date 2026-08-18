@@ -38,12 +38,12 @@ html[data-theme="light"] {
 
 .cleverly-hero-title {
   color: var(--pst-color-text-base);
-  font-size: clamp(2rem, 5vw, 3.5rem);
-  font-weight: 750;
-  letter-spacing: -0.04em;
-  line-height: 1.08;
+  font-size: clamp(1.6rem, 3vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
   margin: 0;
-  max-width: 16ch;
+  max-width: 24ch;
 }
 
 .cleverly-hero-copy {

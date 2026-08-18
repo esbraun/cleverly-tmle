@@ -3,7 +3,7 @@
 **[Read the cleverly documentation →](https://esbraun.github.io/cleverly-tmle/)**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1565c0.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-087f8c.svg)](LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-c97a00.svg)](https://pypi.org/classifiers/)
 
 `cleverly` is the Python toolbox for causal studies built on targeted maximum likelihood
@@ -177,4 +177,4 @@ listed in the
 
 ## License
 
-[MIT](LICENSE)
+[GNU General Public License v3.0](LICENSE)
