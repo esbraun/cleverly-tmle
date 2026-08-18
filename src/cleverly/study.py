@@ -568,6 +568,22 @@ def _narrow_bands(
     )
 
 
+def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:
+    """Bootstrap draws for the parameters this effect reports, and no others.
+
+    Unlike a joint band, per-parameter draws stay correct under narrowing -- each estimand's
+    resampling distribution is its own. What they must not do is outlive their parameter: a
+    result narrowed to one arm would still hand out ``bootstrap.draws`` for the arms it
+    dropped, keyed by names it cannot itself index.
+    """
+    if bootstrap is None:
+        return None
+    return replace(
+        bootstrap,
+        draws={name: values for name, values in bootstrap.draws.items() if name in retained},
+    )
+
+
 @dataclass(frozen=True)
 class BackdoorMeanContrast:
     """A fully normalized observed-data functional for an engine adapter."""
@@ -1019,6 +1035,7 @@ class IdentifiedEffect:
             result,
             estimates=estimates,
             simultaneous=_narrow_bands(result, estimates, method),
+            bootstrap=_narrow_bootstrap(result.bootstrap, estimates),
         )
 
     def _point_parameter_keys(self, result: TMLEResult) -> dict[str, ParameterKey]:

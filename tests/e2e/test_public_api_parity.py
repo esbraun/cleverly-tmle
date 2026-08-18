@@ -328,6 +328,31 @@ def test_selecting_one_arm_leaves_no_band_from_the_family_it_left() -> None:
     assert "simultaneous" not in one.summary()
 
 
+def test_bootstrap_draws_do_not_outlive_their_parameter() -> None:
+    """Per-parameter draws stay correct under narrowing, but must not outlive the parameter.
+
+    Unlike a joint band, each estimand's resampling distribution is its own, so nothing here
+    is a wrong number -- the result simply handed out draws keyed by arms it had dropped and
+    could no longer index.
+    """
+    frame, _ = make_binary_outcome(n=200, seed=31)
+    rng = np.random.default_rng(3)
+    arms = np.array(["low", "mid", "high"])[rng.integers(0, 3, size=len(frame))]
+    study = CausalStudy(
+        frame.assign(A=arms),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+    )
+    settings = {**POINT_SETTINGS, "n_bootstrap": 20}
+    every = study.estimate(CounterfactualMean(), **settings)
+    one = study.estimate(CounterfactualMean(treatment="mid"), **settings)
+
+    assert set(every.bootstrap.draws) == set(every.estimates)
+    assert set(one.bootstrap.draws) == set(one.estimates) == {"ey[mid]"}
+    # Still usable, and the same draws it would have had unnarrowed.
+    assert one.bootstrap.summary("ey[mid]").n_replicates == 20
+    np.testing.assert_array_equal(one.bootstrap.draws["ey[mid]"], every.bootstrap.draws["ey[mid]"])
+
+
 def test_a_narrowed_longitudinal_family_gets_its_own_critical_value() -> None:
     """Bands are recomputed for the reported family, not inherited from a wider one.
 
