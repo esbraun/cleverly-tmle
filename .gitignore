@@ -13,6 +13,8 @@ venv/
 .claude/
 htmlcov/
 target/
+docs/_build/
+docs/api/generated/
 # Benchmark *runs* are machine-specific and are not committed: a `results.jsonl`
 # from a four-core sandbox would read as a fact about the package rather than
 # about that box. This directory is now output only -- the write-ups that used to

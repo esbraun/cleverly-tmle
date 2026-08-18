@@ -3,7 +3,8 @@
 This document contains only proposed work and the evidence required to begin it. Implemented
 capabilities belong in the [user guide](user-guide.md), scientific contracts in the
 [technical appendix](methodology.md) and [DR-TMLE contract](drtmle.md), validation results in
-[`docs/evidence.md`](evidence.md), and performance findings in [the benchmark reports](benchmarks/).
+[`docs/evidence.md`](evidence.md), and performance findings in
+[the benchmark reports](benchmarks/README.md).
 
 What is still *open* in a released estimator is a limitation of that estimator rather than a
 roadmap item, so it is not listed here. `DRTMLE`'s are in

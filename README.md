@@ -1,51 +1,47 @@
 # cleverly
 
-Targeted maximum likelihood estimation (TMLE) for Python, organized around the causal question
-before the estimation method.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1565c0.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](LICENSE)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-c97a00.svg)](https://pypi.org/classifiers/)
 
-`cleverly` accepts pandas, polars, Arrow-backed pandas, and `pyarrow.Table` inputs through
-[narwhals](https://narwhals-dev.github.io/narwhals/). It provides influence-curve inference,
-cluster-robust variance, simultaneous intervals, sensitivity analyses, validation diagnostics,
-point-treatment TMLE, and longitudinal TMLE for end-of-study, survival, and competing-risk
-outcomes.
-
-The package is alpha software. The public workflow is intentionally explicit:
+Targeted maximum likelihood estimation for Python, organized around the causal question before
+the estimation method.
 
 ```text
 study design -> typed estimand -> identified effect -> estimation method -> causal result
 ```
 
-That order keeps column roles, identification assumptions, and estimator settings from being
-mixed into one constructor. Unsupported combinations fail before nuisance fitting.
+`cleverly` supports point and longitudinal treatment settings, influence-curve inference,
+cross-fitting, diagnostics, sensitivity analysis, and structured persistence. It accepts pandas,
+polars, Arrow-backed pandas, and `pyarrow.Table` inputs through
+[narwhals](https://narwhals-dev.github.io/narwhals/).
 
-## Documentation
-
-| Document | Purpose |
-| --- | --- |
-| [User guide](docs/user-guide.md) | Point, intervention, longitudinal, and method recipes |
-| [Migration guide](docs/migration.md) | Complete old-to-new argument map and examples |
-| [Technical appendix](docs/methodology.md) | Estimands, influence curves, remainders, and evidence |
-| [Architecture invariants](docs/architecture-invariants.md) | Cross-module scientific and engineering constraints |
-| [Evidence](docs/evidence.md) | Test-enforced evidence for every registered estimand |
-| [Public API redesign](docs/public-api-redesign.md) | Accepted object model and ordered implementation plan |
-
-The complete index is [docs/README.md](docs/README.md).
+> [!WARNING]
+> `cleverly` is alpha software and is not on PyPI. Pin a commit for reproducible work. Unsupported
+> design, estimand, and method combinations fail before nuisance fitting instead of returning an
+> approximation to a different causal question.
 
 ## Install
 
-`cleverly` is not on PyPI yet, so install from source:
+Install the core package from GitHub:
 
 ```bash
-pip install "git+https://github.com/esbraun/cleverly-tmle.git"
-pip install "cleverly[all] @ git+https://github.com/esbraun/cleverly-tmle.git"
+python -m pip install "git+https://github.com/esbraun/cleverly-tmle.git"
 ```
 
-The core depends on NumPy, SciPy, scikit-learn, narwhals, and joblib. The `all` extra adds pandas,
-polars, LightGBM, and matplotlib.
+Add pandas, polars, LightGBM, and plotting support with the `all` extra:
+
+```bash
+python -m pip install "cleverly[all] @ git+https://github.com/esbraun/cleverly-tmle.git"
+```
+
+Python 3.11 or newer is required. See [Installation](docs/getting-started/installation.md) for a
+development environment and reproducible commit-pinned installs.
 
 ## Quickstart
 
-Declare the design and the causal estimand separately, inspect identification if needed, then fit:
+Declare the observed-data design and the causal estimand separately, inspect identification, then
+estimate:
 
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -69,40 +65,50 @@ print(result.summary())
 print(result["ate"].ci)
 ```
 
-An ordinary fit returns the result directly. There is no result-set wrapper to unwrap. The result
-retains its typed `identified_effect`, normalized `method`, and structured `parameter_keys`, and
-those records survive `save()`/`load()`.
+The identified effect states the observed-data functional, assumptions, nuisance requirements,
+and available methods before any learner is fit. The result retains estimates, influence curves,
+joint covariance, structured parameter keys, normalized method configuration, provenance, and
+post-fit assessment.
 
-For a randomized study with no adjustment variables, make that identifying claim explicitly:
+Continue with the [full quickstart](docs/getting-started/quickstart.md) or the
+[analysis workflow](docs/workflow.md).
 
-```python
-study = CausalStudy(
-    frame[["Y", "A"]],
-    design=PointTreatment(outcome="Y", treatment="A", randomized=True),
-)
-result = study.estimate(ATE(), outcome_learner="glm", treatment_learner="glm")
-```
+## Documentation
 
-## Typed causal questions
+The Sphinx/MyST documentation site is version-ready for Read the Docs and builds from `docs/`.
 
-The root package exposes typed estimands instead of string-driven estimator branches:
+| section | use it for |
+| --- | --- |
+| [Getting started](docs/getting-started/index.md) | installation, first fit, and result basics |
+| [Workflow](docs/workflow.md) | moving from a causal question through identification, estimation, assessment, and reporting |
+| [User guide](docs/user-guide/index.md) | data roles, estimands, learners, methods, longitudinal designs, results, and refusals |
+| [Technical reference](docs/technical-reference/index.md) | every implementation family, with theory, citations, local source, external provenance, and evidence |
+| [Examples](docs/examples/index.md) | complete point, intervention, longitudinal, and post-fit workflows |
+| [Python API](docs/api/index.md) | generated signatures, attributes, methods, and return types |
 
-- arm contrasts: `ATE`, `ATT`, `ATC`, `RiskRatio`, and `OddsRatio`;
-- means and population interventions: `CounterfactualMean`, `NaturalCourseMean`,
-  `PopulationAttributableRisk`, and `PopulationAttributableFraction`;
-- point-treatment interventions: `RegimeMean`, `RegimeContrast`, `ModifiedTreatmentPolicy`,
-  `ModifiedTreatmentPolicyEffect`, `IncrementalMean`, and `IncrementalEffect`;
-- projections and specialized effects: `MSMProjection` and `ControlledDirectEffect`;
-- longitudinal regimens: `RegimeMean`, `RegimeContrast`, and `MSMProjection` with a
-  `LongitudinalTreatment` design.
+The [development reference](docs/development/index.md) contains architecture invariants, the
+test-enforced evidence manifest, migration guide, roadmap, benchmarks, and accepted implementation
+plans.
 
-The [user guide](docs/user-guide.md) shows each family. The string target registry remains an
-implementation detail used by the evidenced analytic engines; it is not a second beginner-facing
-computational path.
+## Implemented analysis families
 
-## Methods and configuration
+- Counterfactual means, ATE, ATT, ATC, risk and odds ratios, natural-course means, population-
+  attributable effects, multi-valued treatments, missing outcomes, and controlled direct effects.
+- Static, dynamic, and stochastic regimes; continuous modified treatment policies; incremental
+  propensity-score interventions; and point/longitudinal MSM projections.
+- Longitudinal regimen means and contrasts for end-of-study, survival, and competing-risk outcomes.
+- Observation weights, strata, cluster-robust inference, cross-fitting, repeated cross-fitting,
+  CV-TMLE, simultaneous intervals, and bootstrap inference.
+- Ordinary TMLE, collaborative TMLE, and DR-TMLE for their documented compatible estimands.
+- Positivity, nuisance, and score diagnostics; omitted-variable, E-value, and missingness
+  sensitivity analyses; refutation; variable importance; and safe persistence/replay.
 
-`"tmle"` is the ordinary method preset. Advanced choices use immutable groups:
+Graph identification, front-door, IV, mediation, transport, direct Riesz learning, and EP learning
+are explicitly unimplemented. See [Capabilities and refusals](docs/user-guide/capabilities.md).
+
+## Method configuration
+
+Named shortcuts normalize into immutable configuration groups:
 
 ```python
 from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod
@@ -110,122 +116,39 @@ from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod
 method = TMLEMethod(
     models=ModelSpec(outcome_learner="glm", treatment_learner="glm"),
     cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
-    inference=Inference(alpha=0.10, simultaneous=False),
+    inference=Inference(alpha=0.05, simultaneous=False),
     runtime=Runtime(random_state=7, n_jobs=1),
 )
 result = effect.estimate(method=method)
 ```
 
-Common shortcuts such as `n_folds=`, `alpha=`, and `random_state=` normalize into those same
-objects. Collaborative TMLE and DR-TMLE are selected with `CollaborativeTMLEMethod` and
-`DRTMLEMethod`; they are methods for compatible identified effects, not alternative study types.
-If a normalized option cannot apply to the selected design, estimation raises
-`MethodConfigurationError` before constructing an engine. In particular, longitudinal studies
-refuse point-only controls such as `n_bootstrap=` rather than discarding them.
-
-## Longitudinal treatment
-
-```python
-from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
-from cleverly.datasets import make_longitudinal
-
-frame, truth = make_longitudinal(n=2_000, seed=11)
-study = CausalStudy(
-    frame,
-    design=LongitudinalTreatment(
-        outcome="Y",
-        treatment=("A1", "A2"),
-        baseline=("W1", "W2"),
-        time_varying=((), ("L2",)),
-        censoring=("C1", "C2"),
-    ),
-)
-result = study.estimate(
-    RegimeContrast({"always": 1, "never": 0}, reference="always"),
-    outcome_learner="glm",
-    pseudo_learner="glm",
-    treatment_learner="glm",
-    n_folds=3,
-    learner_folds=3,
-    random_state=0,
-)
-print(result.summary())
-```
-
-An outcome sequence declares survival; a mapping of cause to outcome sequence declares competing
-risks. Parameter keys retain regimen, horizon, and cause as fields rather than recovering them by
-parsing display labels.
-
-## Persistence
-
-```python
-from cleverly import load
-
-result.save("analysis.npz")
-restored = load("analysis.npz")
-assert restored.parameter_keys == result.parameter_keys
-assert restored.method == result.method
-assert restored.validate() == result.validate()
-```
-
-The format stores arrays plus allow-listed structured metadata; it does not pickle arbitrary
-objects. A learner given as a library name round-trips exactly. A learner given as an object — a
-scikit-learn estimator, a `SuperLearner` — is recorded by identity instead, as custom callables
-are: the file is still written and every cached analysis still replays, but the restored slot
-refuses use rather than silently substituting a default and refitting.
-
-## Post-fit assessment
-
-```python
-validation = result.validate()  # cached artifacts only; no refits
-support = result.diagnostics.support()
-scores = result.diagnostics.score_equations()
-print(result.sensitivity.run_all().summary())
-```
-
-The same facade covers point and longitudinal results. Each operation declares the artifacts and
-cost it requires; combined reports distinguish a question that does not apply from one whose
-required derivation or fitted artifact is unavailable. Completed cache-only assessments and their
-replayability metadata survive `save()` / `load()`.
-
-## What is implemented and refused
-
-The analytic engines cover the point and longitudinal estimands listed above, multi-valued
-treatments, dynamic/stochastic regimes, continuous modified treatment policies, incremental
-interventions, marginal structural models, missing outcomes, controlled direct effects,
-observation weights, cross-fitting, C-TMLE, and DR-TMLE.
-
-Graph identification, direct Riesz learning, EP learning, front-door, IV, mediation, and transport
-are not placeholders. Requests for them are refused with a capability reason before fitting. See
-[the public API plan](docs/public-api-redesign.md) and
-[how to read a refusal](docs/methodology.md#how-to-read-a-refusal).
+`CollaborativeTMLEMethod` and `DRTMLEMethod` select estimator variants without changing the
+identified causal question. `effect.available_methods()` reports support and refusal reasons.
 
 ## Development
 
 ```bash
-uv venv && uv pip install -e ".[dev]"
-ruff check . && ruff format --check .
+uv venv
+uv pip install -e ".[dev,docs]"
+ruff check .
+ruff format --check .
 mypy src/cleverly
 pytest -m "not slow" -q
-pytest -m slow -q
-pytest tests/unit/test_documentation_*.py -q
-python benchmarks/bench_tmle.py
-python -m benchmarks.numba.cli --config benchmarks/configs/sandbox.json
+nox -s docs
 ```
 
-Ruff formats Python fences in Markdown, so run it across the whole tree. The documentation tests
-resolve links and compile Python fences; behavioral claims belong in ordinary unit, integration,
-or end-to-end tests.
-
-Hosted GitHub Actions is currently out of budget and is not a correctness signal. Local runs of
-the commands above are the release gate. One editable install is shared between Git worktrees;
-`tests/conftest.py` detects a checkout/import mismatch and explains how to correct it.
+Documentation examples are explanatory and are not executed as tests. The fast tier compiles every
+Python fence, resolves every relative link, and checks that the complete root API is represented in
+the generated API source. Scientific behavior belongs in the ordinary fast tests or named slow
+statistical studies. Hosted GitHub Actions are currently out of budget; local checks are the release
+gate.
 
 ## Citing
 
-There is no DOI yet. Cite the repository and the relevant papers listed in the
-[technical appendix](docs/methodology.md#references).
+There is no DOI yet. Cite the repository commit used in the analysis and the primary method papers
+listed in the [technical reference](docs/technical-reference/index.md) and
+[references](docs/references.md).
 
 ## License
 
-MIT
+[MIT](LICENSE)

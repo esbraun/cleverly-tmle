@@ -47,6 +47,14 @@ polars = ["polars>=0.20"]
 boost = ["lightgbm>=4.0"]
 plot = ["matplotlib>=3.7"]
 all = ["cleverly[pandas,polars,boost,plot]"]
+docs = [
+    "cleverly[all]",
+    "sphinx>=8.1,<9",
+    "myst-parser>=4.0,<5",
+    "pydata-sphinx-theme>=0.16,<0.17",
+    "sphinx-copybutton>=0.5,<0.6",
+    "sphinx-design>=0.6,<1",
+]
 # Benchmarking only, and deliberately not part of `all`. `numba` is here for the two
 # instruments that measure it: `benchmarks/bench_tmle.py`, which times one compiled
 # targeting kernel against the numpy one, and `benchmarks/numba/`, which asks the same
