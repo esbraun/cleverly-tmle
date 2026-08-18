@@ -7,7 +7,7 @@ name = "cleverly"
 version = "0.1.0"
 description = "A Python toolbox for causal studies based on targeted maximum likelihood estimation (TMLE)."
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-only" }
 requires-python = ">=3.11"
 authors = [{ name = "Eric Braun" }]
 keywords = [
@@ -21,7 +21,7 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
