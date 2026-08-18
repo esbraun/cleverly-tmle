@@ -122,6 +122,16 @@ retain analysis data and therefore cannot be used to refit silently. *Reconsider
 explicit reconstructible-analysis artifact is designed with input provenance and callable
 serialization rules.
 
+Assessment is routed by declared fitted artifacts, not result-class names or parsed parameter
+aliases. Every public result family has an explicit supported, `not_applicable`, or `unavailable`
+answer for every public diagnostic; sensitivity selects parameters through `ParameterKey`.
+`validate()` summarizes only stored state and never refits, while refutation and benchmarking are
+explicit expensive operations. Assessment caching is keyed by operation plus normalized arguments,
+is persisted separately from estimates, and may not mutate the headline estimate or its summary.
+*Reconsider when* an assessment needs stochastic state that cannot be normalized or serialized;
+that operation must then declare itself non-deterministic from a saved result rather than entering
+the persistent cache silently.
+
 ## Targets, interventions, and variants
 
 A new point-treatment estimand is a `Target` registered through `targets.register`. If it needs a

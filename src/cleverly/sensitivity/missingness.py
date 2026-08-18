@@ -54,9 +54,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._typing import FloatArray
+from ..exceptions import CapabilityError
 from ..inference.delta import normal_ci
 from ..utils.bounds import expit, logit
-from ._parameters import ArmParameter, arm_parameters
+from ._parameters import ArmParameter, arm_parameters, stratum_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data import CausalData
@@ -152,10 +153,18 @@ def missingness_tilt(
     # map rather than by a second filter here.
     tiltable = {
         name: parameter
-        for name, parameter in arm_parameters(data, result.config.reference_arm).items()
+        for name, parameter in arm_parameters(result).items()
         if name in result.estimates
     }
     requested = tuple(estimands if estimands is not None else result.estimates)
+    if estimands is not None:
+        # Only an explicit request is refused. The default sweep skips whatever it cannot
+        # tilt -- a ratio, a stratum -- exactly as it always has, so asking for the whole
+        # report still returns the tiltable part of it.
+        for name in requested:
+            conditional = stratum_refusal(result, name, "the MNAR tilt")
+            if conditional is not None:
+                raise CapabilityError(conditional)
     parameters = tuple(tiltable[name] for name in requested if name in tiltable)
     if not parameters:
         raise ValueError(

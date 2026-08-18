@@ -38,6 +38,7 @@ import importlib
 import io
 import json
 from collections.abc import Mapping
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -155,7 +156,10 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: instance -- so every result fitted with ``outcome_learner=LogisticRegression()`` raised
 #: rather than writing a file, while the same estimator passed as a bare *class* was callable
 #: and degraded quietly.  Both now degrade, to a placeholder that refuses use and says why.
-FORMAT_VERSION = 17
+#:
+#: ``18`` persists the assessment cache and its immutable report/status records. A restored
+#: result can therefore replay a completed cache-only assessment without recomputing it.
+FORMAT_VERSION = 18
 
 _ARRAY_MARK = "__array__"
 
@@ -244,36 +248,66 @@ class _UnavailableLearner:
         return f"<unavailable saved learner {self.description}>"
 
 
+#: Modules whose dataclasses and enumerations persistence will reconstruct by name.
+_ALLOWLISTED_MODULES = (
+    "cleverly.assessment",
+    "cleverly.study",
+    "cleverly.methods",
+    "cleverly.targets.base",
+    "cleverly.data.weighting",
+    "cleverly.fluctuation.iterative",
+    "cleverly.fluctuation.mechanism",
+    "cleverly.fluctuation.reduced",
+    "cleverly.inference.influence",
+    "cleverly.inference.multiplier",
+    "cleverly.interventions.base",
+    "cleverly.interventions.incremental",
+    "cleverly.interventions.shift",
+    "cleverly.interventions.support",
+    "cleverly.learners.crossfit",
+    "cleverly.longitudinal.data",
+    "cleverly.longitudinal.estimator",
+    "cleverly.longitudinal.msm",
+    "cleverly.longitudinal.regimen",
+    "cleverly.longitudinal.sequential",
+    "cleverly.msm",
+    "cleverly.provenance",
+    "cleverly.sensitivity._parameters",
+    "cleverly.sensitivity.evalue",
+    "cleverly.sensitivity.omitted_variable",
+    "cleverly.sensitivity.positivity",
+    "cleverly.utils.bounds",
+    "cleverly.validation.drtmle",
+    "cleverly.validation.nuisance",
+    "cleverly.validation.refute",
+    "cleverly.validation.score",
+)
+
+
 def _structured_types() -> dict[str, type[Any]]:
     """Allowlisted dataclasses that may occur in fitted and causal metadata."""
-    modules = (
-        "cleverly.study",
-        "cleverly.methods",
-        "cleverly.targets.base",
-        "cleverly.data.weighting",
-        "cleverly.fluctuation.iterative",
-        "cleverly.fluctuation.mechanism",
-        "cleverly.fluctuation.reduced",
-        "cleverly.inference.influence",
-        "cleverly.inference.multiplier",
-        "cleverly.interventions.base",
-        "cleverly.interventions.incremental",
-        "cleverly.interventions.shift",
-        "cleverly.learners.crossfit",
-        "cleverly.longitudinal.data",
-        "cleverly.longitudinal.estimator",
-        "cleverly.longitudinal.msm",
-        "cleverly.longitudinal.regimen",
-        "cleverly.longitudinal.sequential",
-        "cleverly.msm",
-        "cleverly.provenance",
-        "cleverly.utils.bounds",
-    )
     result: dict[str, type[Any]] = {}
-    for module_name in modules:
+    for module_name in _ALLOWLISTED_MODULES:
         module = importlib.import_module(module_name)
         for value in vars(module).values():
             if isinstance(value, type) and dataclasses.is_dataclass(value):
+                result[f"{value.__module__}.{value.__qualname__}"] = value
+    return result
+
+
+def _structured_enums() -> dict[str, type[Enum]]:
+    """Allowlisted enumerations, scanned from the same modules as the dataclasses.
+
+    Kept symmetric with the decoder on purpose.  A generic writer paired with a reader
+    that accepted exactly one class meant an enum outside the allowlist wrote a file that
+    only failed on ``load``, which is the worst place to find out.  Reject it at write
+    time or, for one that used to survive as a scalar, keep it a scalar.
+    """
+    result: dict[str, type[Enum]] = {}
+    for module_name in _ALLOWLISTED_MODULES:
+        module = importlib.import_module(module_name)
+        for value in vars(module).values():
+            if isinstance(value, type) and issubclass(value, Enum):
                 result[f"{value.__module__}.{value.__qualname__}"] = value
     return result
 
@@ -304,6 +338,14 @@ def _structured_to(arrays: _Arrays, prefix: str, value: Any) -> Any:
         return arrays.put(prefix, value)
     if isinstance(value, np.generic):
         return value.item()
+    if isinstance(value, Enum):
+        # Only an allowlisted enum becomes an enum record.  A `StrEnum` or `IntEnum` the
+        # caller defined is also a scalar, and used to round-trip as one; encoding it here
+        # would write a file the reader cannot reconstruct, and nothing would say so until
+        # `load`.  Falling through leaves that case exactly as it was.
+        name = f"{type(value).__module__}.{type(value).__qualname__}"
+        if name in _structured_enums():
+            return {_TYPE_MARK: "enum", "class": name, "value": value.value}
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     # Re-emit a placeholder as itself.  Round-tripping a loaded result otherwise wrapped the
@@ -383,6 +425,11 @@ def _structured_from(arrays: _Arrays, payload: Any) -> Any:
     kind = payload[_TYPE_MARK]
     if kind == "callable":
         return _UnavailableCallable(payload["description"])
+    if kind == "enum":
+        allowed = _structured_enums()
+        if payload["class"] not in allowed:
+            raise ValueError(f"persistence has no allowlisted enum {payload['class']}")
+        return allowed[payload["class"]](payload["value"])
     if kind == "opaque":
         return _UnavailableLearner(payload["description"], payload["kind"])
     if kind == "dataclass":
@@ -1277,6 +1324,7 @@ def result_to_dict(result: Any) -> tuple[dict[str, Any], dict[str, FloatArray]]:
         ),
         "method": _structured_to(arrays, "causal.method", result.method),
         "parameter_keys": _structured_to(arrays, "causal.parameter_keys", result.parameter_keys),
+        "assessment_cache": _structured_to(arrays, "assessment.cache", result.assessment_cache),
         # Dropped deliberately, and named so the omission is visible rather than
         # discovered: the first two are reporting objects rebuilt on demand from the
         # arrays that *are* stored, and the third is whatever `extra` this format has
@@ -1344,6 +1392,7 @@ def result_from_dict(manifest: dict[str, Any], store: dict[str, FloatArray]) -> 
         identified_effect=_structured_from(arrays, manifest.get("identified_effect")),
         method=_structured_from(arrays, manifest.get("method")),
         parameter_keys=_structured_from(arrays, manifest.get("parameter_keys", {})),
+        assessment_cache=_structured_from(arrays, manifest.get("assessment_cache", {})),
     )
 
 

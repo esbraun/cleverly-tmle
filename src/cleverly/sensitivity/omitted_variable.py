@@ -53,11 +53,12 @@ from scipy import optimize, stats
 
 from .._typing import FloatArray
 from ..estimators.targeting import build_submodel
+from ..exceptions import CapabilityError
 from ..inference.cluster import influence_variance
 from ..targets import parameter_stem
 from ..utils.bounds import g_bounds_for
 from ..utils.text import format_table
-from ._parameters import ArmParameter, arm_parameters
+from ._parameters import ArmParameter, arm_parameters, stratum_refusal
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators._nuisance import RepeatFit
@@ -149,10 +150,15 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
             f"the omitted-variable bound applies to {sorted(LINEAR_ESTIMANDS)}, not "
             f"{estimand!r}. For a risk ratio or odds ratio use sensitivity.evalue()."
         )
-    known = arm_parameters(result.data, result.config.reference_arm)
+    known = arm_parameters(result)
     available = {name: parameter for name, parameter in known.items() if name in result.estimates}
     if estimand in available:
         return available[estimand]
+    # Before the coverage message: this one *was* reported, so "not requested" would be
+    # false. It is the derivation that is missing, not the parameter.
+    conditional = stratum_refusal(result, estimand, "the omitted-variable bound")
+    if conditional is not None:
+        raise CapabilityError(conditional)
     if not available:
         raise ValueError(
             "the omitted-variable bound applies to the arm-indexed linear estimands, and "

@@ -1,12 +1,13 @@
 # Public API and extensibility redesign
 
-**Implementation status.** Logical PRs 1 through 3 are implemented: work package 1 now provides the
+**Implementation status.** Logical PRs 1 through 4 are implemented: work package 1 now provides the
 typed point and longitudinal study/identification/result contracts, routes all currently evidenced
 analytic estimands through the existing engines, persists structured causal metadata, and removes
 the former beginner-facing root constructors. Its configuration boundary now refuses declarations
-that the selected engine cannot apply, through the library error hierarchy. The assessment, Riesz,
-DoWhy, EP, and catalog expansion work packages below remain design contracts rather than
-implemented behavior.
+that the selected engine cannot apply, through the library error hierarchy. Work package 2 adds the
+shared diagnostics facade, inexpensive validation, capability-aware sensitivity, immutable status
+reports, cache persistence, and longitudinal stage adapters. Riesz, DoWhy, EP, and catalog
+expansion remain design contracts rather than implemented behavior.
 
 Decision date: 2026-08-17
 
@@ -952,7 +953,7 @@ not an executable test suite.
    `CleverlyError`. Preserve the supported translation of `cross_fit=False` to `n_folds=1`, and
    prove refusals occur before engine construction. This is corrective completion of work package
    1, not assessment behavior.
-4. **Assessment contract.** Implement work package 2 across every result family, including
+4. **Assessment contract.** **Implemented.** Implement work package 2 across every result family, including
    capability-aware diagnostics, validation, sensitivity, caching, persistence, and explicit
    refusals.
 5. **Nested Riesz engine and initial evidenced catalog.** Complete the paper audit and implement
@@ -1017,6 +1018,8 @@ Exit gate:
 - no graph, Riesz, or EP behavior is faked by placeholders that return estimates.
 
 ### Work package 2: assessment contract
+
+**Implemented.**
 
 Deliverables:
 

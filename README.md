@@ -165,6 +165,7 @@ result.save("analysis.npz")
 restored = load("analysis.npz")
 assert restored.parameter_keys == result.parameter_keys
 assert restored.method == result.method
+assert restored.validate() == result.validate()
 ```
 
 The format stores arrays plus allow-listed structured metadata; it does not pickle arbitrary
@@ -172,6 +173,20 @@ objects. A learner given as a library name round-trips exactly. A learner given 
 scikit-learn estimator, a `SuperLearner` — is recorded by identity instead, as custom callables
 are: the file is still written and every cached analysis still replays, but the restored slot
 refuses use rather than silently substituting a default and refitting.
+
+## Post-fit assessment
+
+```python
+validation = result.validate()  # cached artifacts only; no refits
+support = result.diagnostics.support()
+scores = result.diagnostics.score_equations()
+print(result.sensitivity.run_all().summary())
+```
+
+The same facade covers point and longitudinal results. Each operation declares the artifacts and
+cost it requires; combined reports distinguish a question that does not apply from one whose
+required derivation or fitted artifact is unavailable. Completed cache-only assessments and their
+replayability metadata survive `save()` / `load()`.
 
 ## What is implemented and refused
 
