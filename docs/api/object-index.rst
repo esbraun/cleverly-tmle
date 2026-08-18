@@ -16,6 +16,8 @@ categorized API tables.
    cleverly.ExplicitAdjustmentProvider
    cleverly.IdentifiedEffect
    cleverly.CausalResult
+   cleverly.estimators.TMLEResult
+   cleverly.longitudinal.LongitudinalResult
    cleverly.ParameterKey
    cleverly.Provenance
    cleverly.ATE
@@ -131,6 +133,8 @@ categorized API tables.
    cleverly.datasets.make_nonlinear_ate
    cleverly.datasets.make_binary_outcome
    cleverly.datasets.make_multi_arm
+   cleverly.datasets.make_heterogeneous
+   cleverly.datasets.make_instrument
    cleverly.datasets.make_shift_dose
    cleverly.datasets.make_missing_outcome
    cleverly.datasets.make_missing_outcome_binary

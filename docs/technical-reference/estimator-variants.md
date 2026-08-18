@@ -16,8 +16,11 @@ recorded in the [general targeted-learning references](../references.md#targeted
 Implementation: [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py),
 [`estimators/recipe.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/recipe.py),
 and [`learners/crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/crossfit.py).
-Evidence includes out-of-fold leakage controls, externally supplied fold integrity, repeated-split
-aggregation, parallel invariance, and CV-versus-pooled targeting witnesses.
+Evidence: out-of-fold leakage controls and externally supplied fold integrity in
+[`tests/unit/test_crossfit_leakage.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_crossfit_leakage.py), repeated-split
+aggregation in [`tests/unit/test_repeated_crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_repeated_crossfit.py),
+and parallel invariance in
+[`tests/unit/test_parallel_invariance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_parallel_invariance.py).
 
 ## Collaborative TMLE
 
@@ -64,8 +67,11 @@ Implementation: [`estimators/drtmle.py`](https://github.com/esbraun/cleverly-tml
 [`estimators/reduced.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/reduced.py),
 and [`validation/drtmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/drtmle.py).
 
-Acceptance evidence includes an independent theorem identity, Gateaux derivative, second-order
-remainder under each guard, nonzero correction scores, independent root solves of the canonical
-equations, cross-fit split contracts, weighted-law transports, missingness truncation witnesses,
-and explicit refusals for unsupported observational/missing compositions. Agreement with R
-`drtmle` alone is not acceptance evidence.
+Acceptance evidence is indexed from the [DR-TMLE contract](../drtmle.md) and includes an
+independent theorem identity, Gateaux derivative, and second-order remainder under each guard in
+[`tests/unit/test_influence_gateaux_drtmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_influence_gateaux_drtmle.py) and
+[`tests/unit/test_influence_drtmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_influence_drtmle.py), together with the
+cross-fit split contract in
+[`tests/unit/test_drtmle_crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_drtmle_crossfit.py) and the end-to-end
+refusals in [`tests/e2e/test_double_robustness.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/e2e/test_double_robustness.py).
+Agreement with R `drtmle` alone is not acceptance evidence.

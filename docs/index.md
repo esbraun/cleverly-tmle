@@ -2,7 +2,8 @@
 
 ```{raw} html
 <div class="cleverly-hero">
-  <p class="lead">Targeted learning for Python, organized around the causal question.</p>
+  <p class="lead">Targeted maximum likelihood estimation for Python, organized around the
+  causal question before the estimation method.</p>
 </div>
 ```
 
@@ -79,8 +80,10 @@ Look up supported objects, signatures, attributes, methods, and return types.
 - Post-fit validation, positivity and nuisance diagnostics, sensitivity analysis, variable
   importance, and safe result persistence.
 
-Graph discovery, front-door, instrumental-variable, mediation, transport, direct Riesz learning,
-and EP learning are not silently approximated. They are explicit capability refusals.
+Graph discovery, front-door adjustment, instrumental-variable effects, mediation decompositions,
+and transport are outside the current scope: there is no object to construct, so nothing
+approximates them. Direct Riesz learning and EP learning go further and are declared refusals —
+`available_methods()` reports each as unavailable with the reason it is missing.
 
 ```{toctree}
 :hidden:

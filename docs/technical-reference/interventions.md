@@ -15,9 +15,10 @@ regime assigns mass. Because a known rule does not depend on $P$, its influence 
 pathwise-derivative term for estimating the rule.
 
 `Static`, `Rule`, and `Stochastic` implement the intervention protocol;
-`RegimeMean` and `RegimeContrast` define levels and contrasts. See Robins (2004), Díaz & van der
-Laan (2012), and van der Laan (2013). The pinned `tmle3` `LF_static` and `Param_TSM` source confirms
-static-intervention indexing, while local exact-law and Gateaux checks establish the parameter.
+`RegimeMean` and `RegimeContrast` define levels and contrasts. See Robins (2004), Díaz Muñoz &
+van der Laan (2012), and Díaz & van der Laan (2013). The pinned `tmle3` `LF_static` and
+`Param_TSM` source confirms static-intervention indexing, while local exact-law and Gateaux checks
+establish the parameter.
 
 Implementation: [`interventions/base.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/base.py),
 [`interventions/support.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/support.py),
@@ -49,8 +50,8 @@ dose, and evaluates it at $d(A,W)$. Missingness and intermediate mechanisms mult
 ratio when those roles are declared. The estimator is doubly robust in the outcome regression and
 the complete density/mechanism product.
 
-Theory: Díaz & van der Laan (2012), Haneuse & Rotnitzky (2013), and Díaz, Williams, Hoffman &
-Schenck (2023). Implementation:
+Theory: Díaz Muñoz & van der Laan (2012), Haneuse & Rotnitzky (2013), and Díaz, Williams,
+Hoffman & Schenck (2023). Implementation:
 [`interventions/shift.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/shift.py),
 [`learners/density.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/density.py),
 and [`fluctuation/submodel.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/fluctuation/submodel.py).

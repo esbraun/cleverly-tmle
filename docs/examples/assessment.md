@@ -18,7 +18,7 @@ study = CausalStudy(
         adjustment=("W1", "W2"),
     ),
 )
-result = study.estimate(ATE(), random_state=51)
+result = study.estimate(ATE(), outcome_learner="glm", treatment_learner="glm", random_state=51)
 
 for capability in result.diagnostics.capabilities:
     print(capability.operation, capability.cost, capability.execution)

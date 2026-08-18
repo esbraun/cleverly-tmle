@@ -3,8 +3,9 @@
 ## Accepted table backends
 
 `CausalStudy` accepts pandas, polars, Arrow-backed pandas, and `pyarrow.Table` inputs through
-narwhals. The backend is preserved where public table output can preserve it. Column-role and
-dtype validation happens before nuisance fitting.
+narwhals. Table-returning output comes back in the backend the study was built from, so
+`result.to_frame()` on a `pyarrow.Table` study returns a `pyarrow.Table`. Column-role and dtype
+validation happens before nuisance fitting.
 
 The input must have one row per independent observational unit unless `cluster=` declares the unit
 at which inference is independent. Missing values are supported only in roles whose design
@@ -20,7 +21,7 @@ study = CausalStudy(
     design=PointTreatment(
         outcome="Y",
         treatment="A",
-        adjustment=("W1", "W2", "W3"),
+        adjustment=("W1", "W2", "W3", "region"),
         weights="sampling_weight",
         cluster="household",
         strata=("region",),
@@ -33,6 +34,8 @@ study = CausalStudy(
   curves, and covariance.
 - `cluster` selects cluster-robust inference; it is not another adjustment variable.
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
+  A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
+  design that stratified on a variable it did not adjust for is refused rather than fitted.
 - `intermediate` and explicit missingness roles activate supported controlled-direct-effect and
   missing-outcome compositions.
 

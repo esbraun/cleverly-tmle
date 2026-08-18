@@ -51,15 +51,15 @@ for alias, key in result.parameter_keys.items():
 ## Stagewise assessment
 
 ```python
-support = result.diagnostics.support()
-scores = result.diagnostics.score_equations()
-nuisance = result.diagnostics.nuisance_models()
+print(result.diagnostics.run_all().summary())
 
-print(support.summary())
-print(scores.summary())
-print(nuisance.summary())
+print(result.diagnostics.support().to_frame())
+print(result.diagnostics.score_equations().to_frame())
+print(result.diagnostics.nuisance_models().to_frame())
 ```
 
-The reports retain node-level details. See [Longitudinal TMLE](../technical-reference/longitudinal.md)
+The combined report summarizes as text. The three stage reports are tabular rather than
+printed prose: each carries one row per regimen and node, so `to_frame()` returns them in the
+backend the study was built from. The reports retain node-level details. See [Longitudinal TMLE](../technical-reference/longitudinal.md)
 for the sequential regression, cumulative clever covariate, event-process extensions, external
 provenance, and evidence.

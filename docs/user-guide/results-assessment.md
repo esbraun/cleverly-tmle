@@ -10,7 +10,7 @@ table = result.to_frame()
 covariance = result.covariance(names)
 point = result[names[0]]
 
-print(point.psi, point.se, point.ci, point.pvalue)
+print(point.psi, point.std_error, point.ci, point.pvalue)
 ```
 
 `result.parameter_keys` maps each alias to a structured `ParameterKey`. Use those fields for

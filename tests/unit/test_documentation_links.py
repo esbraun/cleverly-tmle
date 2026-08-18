@@ -197,3 +197,56 @@ def test_every_documentation_link_in_source_resolves(path: Path) -> None:
     targets = [target for target in links(path.read_text(encoding="utf-8")) if ".md" in target]
     broken = unresolved(path, targets)
     assert not broken, f"{path.relative_to(ROOT)}: " + "; ".join(broken)
+
+
+#: A link into this repository's own source on GitHub, as the technical reference writes them.
+#: The branch is part of the pattern rather than a capture: a link pinned to a tag or a commit is
+#: a deliberate snapshot and is not claiming to track the tree this test runs against.
+REPOSITORY_SOURCE = re.compile(
+    r"^https://github\.com/esbraun/cleverly-tmle/(?:blob|tree)/main/(?P<path>[^#?]+)"
+)
+
+
+def repository_targets(text: str) -> list[str]:
+    """The repository-relative path of every ``blob/main`` or ``tree/main`` link in ``text``."""
+    return [
+        found.group("path").rstrip("/")
+        for found in (REPOSITORY_SOURCE.match(target) for target in links(text))
+        if found is not None
+    ]
+
+
+def test_the_source_link_sweep_finds_something() -> None:
+    """The negative control, and it is not hypothetical.
+
+    The technical reference is built almost entirely out of these links, so a pattern that stopped
+    matching would report every one of them as fine.
+    """
+    found = sum(len(repository_targets(path.read_text(encoding="utf-8"))) for path in DOCUMENTS)
+    assert found > 20, f"only {found} repository source links matched; check REPOSITORY_SOURCE"
+
+
+@pytest.mark.parametrize("path", DOCUMENTS, ids=lambda p: str(p.relative_to(ROOT)))
+def test_every_repository_source_link_resolves(path: Path) -> None:
+    """A link naming a file in this repository names one that exists.
+
+    **Why this is separate from :func:`test_every_relative_link_resolves`.**  That check skips
+    anything beginning ``https://``, which is right for a DOI and wrong for a link into this tree:
+    the technical reference cites its own modules and tests by absolute URL so the rendered site
+    resolves them, and thirty-odd such links were invisible to the sweep written to catch exactly
+    the failure they are prone to.  A renamed module leaves them pointing at a GitHub 404, which
+    reads to a reader as the implementation having been deleted rather than moved -- the same
+    silent rot the fragment check exists for, one level out.
+
+    Only ``main`` is checked.  A link pinned to a tag or a commit is a snapshot of something that
+    was true then, and asserting it against the working tree would be asserting the wrong thing.
+    """
+    broken = [
+        target
+        for target in repository_targets(path.read_text(encoding="utf-8"))
+        if not (ROOT / target).exists()
+    ]
+    assert not broken, (
+        f"{path.relative_to(ROOT)}: no such path in this repository: {broken}. "
+        f"A blob/main link is a claim about the current tree; update it or pin it to a commit"
+    )

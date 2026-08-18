@@ -39,7 +39,7 @@ result = effect.estimate(random_state=7)
 
 print(result.summary())
 estimate = result["ate"]
-print(estimate.psi, estimate.se, estimate.ci)
+print(estimate.psi, estimate.std_error, estimate.ci)
 ```
 
 An ordinary fit returns a `CausalResult` directly. Each entry is a `ParameterEstimate` containing

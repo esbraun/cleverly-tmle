@@ -52,6 +52,12 @@ not a citation; a page number is.
 - Robins (2004), *Optimal Structural Nested Models for Optimal Sequential Decisions*, in
   *Proceedings of the Second Seattle Symposium on Biostatistics*, pp. 189–326, DOI
   [10.1007/978-1-4419-9076-1_11](https://doi.org/10.1007/978-1-4419-9076-1_11).
+- Díaz & van der Laan (2013), [*Assessing the Causal Effect of Policies: An Example Using
+  Stochastic Interventions*](https://doi.org/10.1515/ijb-2013-0014), *International Journal of
+  Biostatistics* 9(2):161–174, DOI 10.1515/ijb-2013-0014. The companion to the 2012 paper above,
+  cited for the stochastic-regime parameter rather than the population-intervention one. The
+  byline differs between the two — *Díaz Muñoz* in 2012, *Díaz* in 2013 — and the prose follows
+  each as published.
 - Haneuse & Rotnitzky (2013), *Estimation of the effect of interventions that modify the received
   treatment*, *Statistics in Medicine* 32(30):5260–5277, DOI
   [10.1002/sim.5907](https://doi.org/10.1002/sim.5907).

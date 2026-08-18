@@ -206,20 +206,29 @@ Concurrency is `outer × inner × threads-per-fit`; the third factor is pinned t
 of the first two belongs to the test tier. The fast tier consists of thousands of short tests, so
 xdist balances it and inner `n_jobs` remains one.
 
-Documentation examples are explanatory material, not executable tests or statistical evidence.
-Behavior shown in a guide must be covered by a unit, integration, or end-to-end test in the fast
-tier, or by a named statistical study in the slow tier. Evidence manifests such as
-`docs/evidence.md` remain test-enforced source registries; this rule concerns executing prose and
-examples as the test suite.
+Documentation examples are not statistical evidence. Behavior shown in a guide must be covered by
+a unit, integration, or end-to-end test in the fast tier, or by a named statistical study in the
+slow tier, and no assertion about an estimate, an interval or a diagnostic verdict may rest on a
+documented example. Evidence manifests such as `docs/evidence.md` remain test-enforced source
+registries.
 
-What is checked about the documentation itself is static, and therefore belongs in the ordinary
-fast tier rather than behind a dispatch: links resolve, and every `python` fence parses. There is
-deliberately no manual documentation job. The two properties above are cheap enough to run on every
-change, and a dispatch that re-ran them would read as a gate while adding no coverage — the failure
-mode the removed job had, whose `ruff check README.md docs` validated nothing at all because the
-linter does not read Markdown. Note the division: the ruff *formatter* does reach inside `python`
-fences and is covered by the whole-tree `ruff format --check .`, but it skips any block it cannot
-parse, so syntax is a test's job and not the formatter's.
+A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`
+executes the registered documents' fences and asserts only that nothing raises; it asserts nothing
+about any number, which is what keeps the rule above intact. *Reconsider when* the check stops
+paying for its runtime — it exists because compiling a fence cannot see a name the package does not
+have, and five shipped examples were broken that way at once: two on an attribute that had been
+renamed, two calling `.summary()` on reports that expose `to_frame()`, and one passing a float
+where an assignment density is required. Every one of them rendered as ordinary, copyable code.
+
+What is otherwise checked about the documentation is static, and belongs in the ordinary fast tier
+rather than behind a dispatch: links resolve — including links naming a path in this repository —
+and every `python` fence parses. There is deliberately no manual documentation job. These
+properties are cheap enough to run on every change, and a dispatch that re-ran them would read as a
+gate while adding no coverage — the failure mode the removed job had, whose
+`ruff check README.md docs` validated nothing at all because the linter does not read Markdown.
+Note the division: the ruff *formatter* does reach inside `python` fences and is covered by the
+whole-tree `ruff format --check .`, but it skips any block it cannot parse, so syntax is a test's
+job and not the formatter's.
 
 Size every layer from `tests/parallel.available_cores()`, which reads a container's CPU quota and
 affinity mask through joblib. Neither `os.cpu_count()` nor xdist's `-n auto` does. Nesting pools is

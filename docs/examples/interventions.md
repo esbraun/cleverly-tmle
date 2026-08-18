@@ -27,6 +27,8 @@ plans = (
 )
 rule_result = study.estimate(
     RegimeContrast(plans, reference="treat none"),
+    outcome_learner="glm",
+    treatment_learner="glm",
     random_state=31,
 )
 print(rule_result.summary())
@@ -59,15 +61,21 @@ policies = (
 )
 shift_result = dose_study.estimate(
     ModifiedTreatmentPolicyEffect(policies),
+    outcome_learner="glm",
+    treatment_learner="glm",
     density_bins=40,
     random_state=32,
 )
 print(shift_result.summary())
-print(shift_result.diagnostics.support().summary())
+
+for policy, report in shift_result.diagnostics.support().items():
+    print(policy)
+    print(report.summary())
 ```
 
 Here `cap=5.0` is part of the declared intervention and ensures that the shifted dose remains in
-the intended support region.
+the intended support region. Shift support is reported per policy rather than once for the fit,
+because each declared shift moves the dose into a different region of the conditional support.
 
 ## An incremental odds tilt
 
@@ -78,6 +86,8 @@ from cleverly.interventions import Incremental
 tilts = (Incremental(0.5), Incremental(1.0), Incremental(2.0))
 incremental_result = study.estimate(
     IncrementalEffect(tilts),
+    outcome_learner="glm",
+    treatment_learner="glm",
     random_state=31,
 )
 print(incremental_result.summary())
