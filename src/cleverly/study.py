@@ -12,7 +12,7 @@ from ._typing import Family
 from .data import CausalData
 from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
-from .exceptions import CapabilityError, CleverlyError, DataError
+from .exceptions import CapabilityError, CleverlyError, DataError, MethodConfigurationError
 from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
 from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
@@ -955,7 +955,7 @@ class IdentifiedEffect:
             }
             return constructors[method]().with_overrides(**overrides)
         if not isinstance(method, EstimationMethod):
-            raise TypeError("method must be a named preset or an EstimationMethod")
+            raise MethodConfigurationError("method must be a named preset or an EstimationMethod")
         declared = {item.name: item for item in self.available_methods()}.get(method.name)
         if declared is None or not declared.available:
             reason = "the method does not declare support" if declared is None else declared.reason

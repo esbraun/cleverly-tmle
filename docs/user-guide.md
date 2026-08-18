@@ -384,7 +384,11 @@ result = effect.estimate(method=method)
 
 Common keyword shortcuts normalize into these same objects. `alpha=` is the confidence-interval
 significance level; `submodel_alpha=` is the separate logistic-submodel bound. Unknown options
-raise rather than being forwarded to an implementation constructor.
+raise `MethodConfigurationError`, a `CleverlyError`, rather than being forwarded to an
+implementation constructor. A setting that one engine cannot implement is rejected at the same
+boundary: longitudinal estimation refuses point-only controls such as `n_bootstrap=` instead of
+accepting and discarding them. `cross_fit=False` is supported and translates explicitly to
+`n_folds=1`.
 
 ## Results, contrasts, and persistence
 

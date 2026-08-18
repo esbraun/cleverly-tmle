@@ -130,6 +130,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "LongitudinalTreatment",
         "MSMProjection",
         "MethodAvailability",
+        "MethodConfigurationError",
         "ModelSpec",
         "ModifiedTreatmentPolicy",
         "ModifiedTreatmentPolicyEffect",

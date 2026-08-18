@@ -9,6 +9,7 @@ __all__ = [
     "DataError",
     "DataWarning",
     "LongitudinalError",
+    "MethodConfigurationError",
     "NotFittedError",
     "PositivityWarning",
     "WeightingWarning",
@@ -34,6 +35,10 @@ class LongitudinalError(CleverlyError):
 
 class DataError(CleverlyError, ValueError):
     """The supplied data violates an assumption the estimator relies on."""
+
+
+class MethodConfigurationError(CleverlyError, ValueError):
+    """An estimation-method declaration is invalid or cannot take effect."""
 
 
 class NotFittedError(CleverlyError, RuntimeError):

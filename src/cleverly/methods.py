@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, TargetingScheme
+from .exceptions import MethodConfigurationError
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
 
@@ -199,6 +200,39 @@ SHORTCUTS: dict[str, dict[str, str]] = {
 }
 
 
+#: Point-engine settings with no longitudinal implementation. The public names are kept beside
+#: their normalized fields so an error names the declaration the caller wrote. ``cross_fit`` is
+#: deliberately absent: the longitudinal translation supports it by resolving ``False`` to
+#: ``n_folds=1``. All 17 settings below must either acquire a longitudinal derivation or remain
+#: explicit refusals; dropping one from the translation is never a supported interpretation.
+_LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
+    ("models", "missingness_learner", "missingness_learner"),
+    ("models", "intermediate_learner", "intermediate_learner"),
+    ("models", "density_bins", "density_bins"),
+    ("models", "screen_treatment", "screen_treatment"),
+    ("models", "screen_threshold", "screen_threshold"),
+    ("models", "min_retain", "min_retain"),
+    ("cross_fitting", "repeats", "repeats"),
+    ("cross_fitting", "stratify_by", "stratify_folds"),
+    ("cross_fitting", "targeting_scheme", "targeting_scheme"),
+    ("cross_fitting", "fold_evaluation", "cv_evaluation"),
+    ("targeting", "fluctuation", "fluctuation"),
+    ("targeting", "algorithm", "targeting"),
+    ("targeting", "nuisance_bound", "nuisance_bound"),
+    ("targeting", "target_weights", "target_weights"),
+    ("targeting", "step_size", "step_size"),
+    ("inference", "n_bootstrap", "n_bootstrap"),
+    ("inference", "bootstrap_resampling", "bootstrap_resampling"),
+)
+
+
+def _differs_from_default(value: Any, default: Any) -> bool:
+    """Compare normalized settings without asking learner objects to compare to ``None``."""
+    if default is None:
+        return value is not None
+    return bool(value != default)
+
+
 @dataclass(frozen=True)
 class TMLEMethod:
     """Normalized configuration for the built-in analytic TMLE method.
@@ -230,7 +264,7 @@ class TMLEMethod:
         known = {name for fields in groups.values() for name in fields}
         unknown = sorted(set(overrides) - known)
         if unknown:
-            raise TypeError(
+            raise MethodConfigurationError(
                 f"unsupported tmle option(s): {unknown}. Study-design roles belong on "
                 "PointTreatment; advanced method options require a typed method object."
             )
@@ -273,8 +307,20 @@ class TMLEMethod:
             "n_jobs": runtime.n_jobs,
         }
         if longitudinal:
-            if cross.repeats != 1:
-                raise ValueError("longitudinal TMLE does not yet support repeated cross-fitting")
+            defaults = TMLEMethod()
+            refused = [
+                public_name
+                for group_name, field_name, public_name in _LONGITUDINAL_POINT_ONLY
+                if _differs_from_default(
+                    getattr(getattr(self, group_name), field_name),
+                    getattr(getattr(defaults, group_name), field_name),
+                )
+            ]
+            if refused:
+                raise MethodConfigurationError(
+                    "longitudinal TMLE cannot apply point-treatment option(s): "
+                    f"{refused}. Remove them or use a PointTreatment design."
+                )
             if not cross.enabled:
                 common["n_folds"] = 1
             common.update(
@@ -336,7 +382,7 @@ class CollaborativeTMLEMethod(TMLEMethod):
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
         if longitudinal:
-            raise ValueError("collaborative TMLE has no longitudinal derivation")
+            raise MethodConfigurationError("collaborative TMLE has no longitudinal derivation")
         return {
             **super().estimator_kwargs(),
             "strategy": self.strategy,
@@ -368,7 +414,7 @@ class DRTMLEMethod(TMLEMethod):
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
         if longitudinal:
-            raise ValueError("DR-TMLE has no longitudinal derivation")
+            raise MethodConfigurationError("DR-TMLE has no longitudinal derivation")
         return {
             **super().estimator_kwargs(),
             "guard": self.guard,

@@ -43,12 +43,29 @@ Cross-module constraints that are not derivable from one implementation live in
   neither one sees a syntax error in an example.
 - Run the smallest relevant test while iterating, then use the current validation commands in
   `README.md` or the matching nox session before handing off a change.
-- **Never run the fast and slow tiers at the same time.** Both size themselves from
-  `tests.parallel.available_cores()` and each expects the machine, so running them concurrently
-  oversubscribes every core and both get slower than running them in sequence would have been.
-  The slow tier alone takes about an hour; wait for it rather than starting the fast tier beside
-  it. For the same reason, do not re-run the slow tier to re-confirm a change that provably
-  cannot reach it — say which code paths the change touches and which slow tests exercise them.
+- The fast tier is the default handoff gate. Run a slow test only when all three conditions hold:
+  it executes a changed runtime path, its assertion can observe the possible effect, and the
+  evidence depends on repeated sampling, a large sample, or many expensive flexible fits that the
+  fast tier cannot supply. Slow claims currently include coverage, type-I error, root-n and
+  large-sample consistency, comparative variance, and flexible-learner bias. Inspect the relevant
+  slow test before running it; file location or a broad label such as "estimator change" is not
+  enough.
+  Changes to an estimand, influence curve, variance or clustering calculation, targeting or
+  cross-fitting behavior, nuisance predictions, randomization, weights, bounds, statistical DGP,
+  or slow-study machinery normally satisfy this test. Documentation, formatting, type-only work,
+  messages, serialization or presentation that preserves fitted arrays, and validation that exits
+  before engine construction normally do not. For example, changing a configuration declaration
+  from silent omission to a pre-construction refusal cannot affect a slow study's fitted sampling
+  distribution and does not justify running it.
+- When only one statistical family is reachable, run its named slow study rather than unrelated
+  studies. Run the complete `pytest -m slow -q` tier when a shared estimation or inference path can
+  affect several families, or when the applicable acceptance gate explicitly requires the whole
+  tier. If no slow test can execute the changed path or observe its result, do not run slow tests;
+  state that path analysis in the handoff. This is an evidence decision, not a time-budget waiver.
+- **Never run fast and slow tests at the same time.** Both size themselves from
+  `tests.parallel.available_cores()` and each expects the machine, so concurrent tiers oversubscribe
+  every core and take longer than running sequentially. The complete slow tier takes about an hour;
+  finish the fast tier before starting any relevant slow study.
 - **GitHub Actions is out of budget, so CI is not a gate and its results are not signal.** Jobs
   currently fail at startup in seconds with no steps run, which looks identical to a red build. Do
   not read a PR's checks as a verdict on its code, and do not push expecting CI to catch anything.

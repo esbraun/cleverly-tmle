@@ -15,10 +15,14 @@ from cleverly import (
     ATE,
     CapabilityError,
     CausalStudy,
+    CleverlyError,
+    CollaborativeTMLEMethod,
     ControlledDirectEffect,
     CrossFitting,
     DataError,
+    DRTMLEMethod,
     LongitudinalTreatment,
+    MethodConfigurationError,
     ModelSpec,
     MSMProjection,
     PointTreatment,
@@ -497,11 +501,91 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
     kwargs = method.estimator_kwargs()
     assert kwargs["alpha_sig"] == 0.10
     assert kwargs["alpha"] == 0.99
-    with pytest.raises(TypeError, match="alpha_sig"):
+    with pytest.raises(MethodConfigurationError, match="alpha_sig") as raised:
         TMLEMethod().with_overrides(alpha_sig=0.10)
+    assert isinstance(raised.value, CleverlyError)
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        {"missingness_learner": "glm"},
+        {"intermediate_learner": "glm"},
+        {"density_bins": 12},
+        {"screen_treatment": True},
+        {"screen_threshold": 0.2},
+        {"min_retain": 2},
+        {"repeats": 2},
+        {"stratify_folds": "outcome"},
+        {"targeting_scheme": "foldwise"},
+        {"cv_evaluation": True},
+        {"fluctuation": "linear"},
+        {"targeting": "one_step"},
+        {"nuisance_bound": 0.02},
+        {"target_weights": True},
+        {"step_size": 0.002},
+        {"n_bootstrap": 500},
+        {"bootstrap_resampling": "iid"},
+    ],
+    ids=lambda option: next(iter(option)),
+)
+def test_every_point_only_option_is_refused_by_longitudinal_translation(
+    option: dict[str, object],
+) -> None:
+    """A normalized declaration must reach the engine or fail before construction.
+
+    These are the 17 point-only fields in the shared configuration. Sixteen used to be
+    accepted and omitted from the longitudinal kwargs; ``repeats`` alone had a bespoke
+    refusal. Pinning the whole list prevents a future field from disappearing just because
+    the two engine signatures differ.
+    """
+    name = next(iter(option))
+    method = TMLEMethod().with_overrides(**option)
+    with pytest.raises(MethodConfigurationError, match=name) as raised:
+        method.estimator_kwargs(longitudinal=True)
+    assert isinstance(raised.value, CleverlyError)
+
+
+def test_cross_fit_false_keeps_its_supported_longitudinal_meaning() -> None:
+    method = TMLEMethod().with_overrides(cross_fit=False)
+    assert method.estimator_kwargs(longitudinal=True)["n_folds"] == 1
+
+
+@pytest.mark.parametrize("method", [CollaborativeTMLEMethod(), DRTMLEMethod()])
+def test_variant_longitudinal_refusals_use_the_library_error_hierarchy(method) -> None:
+    with pytest.raises(MethodConfigurationError) as raised:
+        method.estimator_kwargs(longitudinal=True)
+    assert isinstance(raised.value, CleverlyError)
+
+
+def test_a_longitudinal_option_refuses_before_engine_construction(monkeypatch) -> None:
+    frame, _ = make_longitudinal(n=100, seed=23)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=("A1", "A2"),
+            baseline=("W1", "W2"),
+            time_varying=((), ("L2",)),
+            censoring=("C1", "C2"),
+        ),
+    )
+    effect = study.identify(RegimeMean({"always": 1}))
+    monkeypatch.setattr("cleverly.study.LTMLE", _MustNotConstruct)
+    with pytest.raises(MethodConfigurationError, match="n_bootstrap"):
+        effect.estimate(n_bootstrap=500)
 
 
 def test_estimation_options_cannot_reassign_study_roles() -> None:
     effect = _study().identify(ATE())
-    with pytest.raises(TypeError, match="Study-design roles belong on PointTreatment"):
+    with pytest.raises(
+        MethodConfigurationError, match="Study-design roles belong on PointTreatment"
+    ):
         effect.estimate(covariates=["W1"])
+
+
+def test_an_invalid_method_declaration_uses_the_library_error_hierarchy() -> None:
+    effect = _study().identify(ATE())
+    with pytest.raises(MethodConfigurationError) as raised:
+        effect.estimate(method=object())  # type: ignore[arg-type]
+    assert isinstance(raised.value, CleverlyError)
