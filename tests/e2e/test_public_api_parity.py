@@ -385,3 +385,45 @@ def test_longitudinal_curves_are_bit_for_bit_unchanged(
     expected = {name: value for name, value in old.estimates.items() if name.startswith(prefix)}
     assert_identical(expected, new)
     assert_identical(new, load(new.save(tmp_path / "longitudinal-curve.npz")))
+
+    # The keys say what the engine's own index says, cell for cell.  Rebuilding the
+    # regimen/cause/horizon grid beside the index and zipping it positionally agreed with it
+    # by construction on the counts, so only a pairing could be wrong -- and a competing-risks
+    # fit over two horizons is the smallest grid where swapping the cause and horizon loops
+    # relabels every parameter while every length still matches.
+    assert set(new.parameter_keys) == set(new.estimates)
+    for alias, key in new.parameter_keys.items():
+        label, cause, horizon = old.parameter_index[alias]
+        assert (key.cause, key.horizon) == (cause, horizon)
+        assert key.regimen == key.value
+        if key.reference is None:
+            assert label == key.regimen
+        else:
+            assert label == f"{key.regimen} vs {key.reference}"
+
+
+def test_a_competing_risks_grid_is_labelled_by_the_index_not_by_position() -> None:
+    """The grid this exists for: two regimens, two causes, two horizons, all distinct.
+
+    ``parameter_index`` is composed where each name is built, so it is the authority. Reading
+    it also removes the reference test that looked for ``"ate_"`` inside the alias -- routing
+    on a display name is what the result contract forbids, and what an unlucky regimen label
+    would have broken.
+    """
+    frame, _ = make_longitudinal_competing(n=600, seed=27)
+    columns = {**LONG_COLUMNS, "outcome": {"relapse": ("R1", "R2"), "death": ("D1", "D2")}}
+    regimens = {"always": 1, "never": 0}
+    study = CausalStudy(frame, design=LongitudinalTreatment(**columns))
+    result = study.estimate(
+        RegimeMean(regimens, reference="never", horizons=(1, 2)), **LONG_SETTINGS
+    )
+
+    seen = {(key.regimen, key.cause, key.horizon) for key in result.parameter_keys.values()}
+    assert seen == {
+        (regimen, cause, horizon)
+        for regimen in ("always", "never")
+        for cause in ("relapse", "death")
+        for horizon in (1, 2)
+    }
+    # A mean is not a contrast, so nothing here carries a reference.
+    assert all(key.reference is None for key in result.parameter_keys.values())

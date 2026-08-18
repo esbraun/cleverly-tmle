@@ -1027,38 +1027,72 @@ class IdentifiedEffect:
         )
 
     def _longitudinal_parameter_keys(self, result: LongitudinalResult) -> dict[str, ParameterKey]:
+        """Structured keys read from the index the engine composed, not rebuilt beside it.
+
+        ``LongitudinalResult.parameter_index`` already holds ``(label, cause, horizon)`` for
+        every reported parameter, recorded where the name was built. This used to rebuild that
+        grid as a cartesian product and zip it against the estimates positionally, so the
+        length guard could catch a missing cell but never a mis-*pairing*: swapping the cause
+        and horizon loops relabels every parameter of a competing-risks fit and raises nothing.
+        The reference was recovered by looking for ``"ate_"`` in the alias, which is the
+        display-name parsing the result contract forbids.
+
+        The index's label is the regimen for a mean and the engine's composed contrast label
+        for a contrast, so both spellings are composed forward from the declared regimens and
+        matched -- never split apart again.
+        """
         keys: dict[str, ParameterKey] = {}
-        if result.parameter_index is not None:
+        if result.parameter_index:
             reference = result.config.reference
-            regimen_labels = [item.label for item in result.config.regimens]
-            if self.functional.target == "ate_regime":
-                regimen_labels = [label for label in regimen_labels if label != reference]
-            causes: tuple[str | None, ...] = result.config.causes or (None,)
-            structured = [
-                (regimen, cause, horizon)
-                for regimen in regimen_labels
-                for cause in causes
-                for horizon in result.config.horizons
-            ]
-            if len(structured) != len(result.estimates):
-                raise CleverlyError(
-                    "the longitudinal parameter index does not match its regimen/cause/horizon grid"
-                )
-            for alias, (regimen, cause, horizon) in zip(result.estimates, structured, strict=True):
+            regimens: dict[str, tuple[str, str | None]] = {}
+            for item in result.config.regimens:
+                regimens[item.label] = (item.label, None)
+                regimens[f"{item.label} vs {reference}"] = (item.label, reference)
+            for alias in result.estimates:
+                if alias not in result.parameter_index:
+                    raise CleverlyError(
+                        f"the longitudinal estimator reported {alias!r} with no entry in its "
+                        "parameter index, so its regimen, cause, and horizon are unknown"
+                    )
+                label, cause, horizon = result.parameter_index[alias]
+                if label not in regimens:
+                    raise CleverlyError(
+                        f"parameter {alias!r} is indexed by {label!r}, which is neither a "
+                        f"declared regimen nor a contrast against {reference!r}"
+                    )
+                regimen, against = regimens[label]
                 keys[alias] = ParameterKey(
                     alias,
                     self.functional.target,
                     "regimen",
                     value=regimen,
-                    reference=(reference if "difference" in alias or "ate_" in alias else None),
+                    reference=against,
                     regimen=regimen,
                     cause=cause,
                     horizon=horizon,
                 )
         elif result.msm is not None:
-            for position, name in enumerate(result.estimates):
-                term = result.msm.terms[position % len(result.msm.terms)]
-                keys[name] = ParameterKey(name, "msm_regimen", "msm", term=term)
+            # A working-model fit has no parameter index -- its parameters are indexed by
+            # term -- so the names are composed forward from the declared terms and causes and
+            # matched. The previous rule took the term at ``position % len(terms)``, which
+            # assumed terms cycle fastest and dropped the cause entirely, so every parameter
+            # of a competing-risks projection claimed to be about no cause in particular.
+            composed = {
+                (f"msm_regimen[{term}]" if cause is None else f"msm_regimen[{term}, {cause}]"): (
+                    term,
+                    cause,
+                )
+                for cause in (result.config.causes or (None,))
+                for term in result.msm.terms
+            }
+            for name in result.estimates:
+                if name not in composed:
+                    raise CleverlyError(
+                        f"working-model parameter {name!r} is not composed from the declared "
+                        f"terms {list(result.msm.terms)}, so its term is unknown"
+                    )
+                term, cause = composed[name]
+                keys[name] = ParameterKey(name, "msm_regimen", "msm", term=term, cause=cause)
         if set(keys) != set(result.estimates):
             raise CleverlyError(
                 "structured parameter keys disagree with the longitudinal estimator output"
