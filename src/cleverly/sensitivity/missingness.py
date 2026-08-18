@@ -152,7 +152,7 @@ def missingness_tilt(
     # map rather than by a second filter here.
     tiltable = {
         name: parameter
-        for name, parameter in arm_parameters(data, result.config.reference_arm).items()
+        for name, parameter in arm_parameters(result).items()
         if name in result.estimates
     }
     requested = tuple(estimands if estimands is not None else result.estimates)

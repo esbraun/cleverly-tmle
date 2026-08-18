@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from ..targets import parameter_name
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..data import CausalData
+    from ..estimators.base import TMLEResult
     from ..fluctuation.submodel import TargetGroup
 
 __all__ = ["ArmParameter", "arm_parameters"]
@@ -69,7 +69,7 @@ class ArmParameter:
         return None
 
 
-def arm_parameters(data: CausalData, reference: float) -> dict[str, ArmParameter]:
+def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
     """Every arm-indexed *linear* parameter this fit could have reported, by name.
 
     Linear in the outcome regression, which is what the omitted-variable bound needs and
@@ -83,8 +83,40 @@ def arm_parameters(data: CausalData, reference: float) -> dict[str, ArmParameter
     arms at all, so a continuous dose is refused by whatever the caller says rather than
     by an index error here.
     """
+    data = result.data
     if data.is_continuous_treatment:
         return {}
+    if result.parameter_keys:
+        from ..targets import TARGETS
+
+        levels = tuple(data.treatment_levels)
+
+        def code(value: object) -> float:
+            try:
+                return float(levels.index(value))
+            except ValueError as error:
+                raise ValueError(
+                    f"structured parameter metadata names treatment level {value!r}, "
+                    f"which is absent from the fitted levels {list(levels)}"
+                ) from error
+
+        structured: dict[str, ArmParameter] = {}
+        for alias, key in result.parameter_keys.items():
+            if key.axis != "arm" or key.estimand not in {"ey", "ey1", "ey0", "ate", "att", "atc"}:
+                continue
+            target = TARGETS[key.estimand]
+            if key.value is None:
+                continue
+            structured[alias] = ArmParameter(
+                alias,
+                key.estimand,
+                target.group,
+                code(key.value),
+                None if key.reference is None else code(key.reference),
+            )
+        return structured
+
+    reference = result.config.reference_arm
     label = data.arm_label
     binary = data.is_binary_treatment
     out: dict[str, ArmParameter] = {}

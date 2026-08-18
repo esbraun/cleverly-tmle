@@ -663,10 +663,10 @@ In cost order. The first two are free.
 | call | what it answers |
 | --- | --- |
 | `res.score_verdict` | the score check's verdict, carried whether it passed or not. `summary()` prints it whenever it **fails**; a passing fit says nothing extra. Derived from the fluctuations rather than stored, so a reloaded fit recomputes it. |
-| `res.validation.score_check()` | the same object, asked for directly |
-| `res.validation.correction_check()` | the doubly-robust rows: per arm, per equation. Empty unless the fit is a guarded `DRTMLE`. |
-| `res.validation.nuisance()` | the primary fits' held-out risk and diagnostics |
-| `res.validation.refute()` | negative controls; costs refits |
+| `res.diagnostics.score_equations()` | the same score object, asked for directly |
+| `res.validation.correction_check()` | the low-level doubly-robust rows: per arm, per equation. Empty unless the fit is a guarded `DRTMLE`. |
+| `res.diagnostics.nuisance_models()` | the primary fits' held-out risk and diagnostics |
+| `res.diagnostics.refute()` | negative controls; costs refits |
 
 `correction_check()` recomputes each arm's `P_n[w D*_g]` and `P_n[w D*_Q]` **from the exact
 returned state** and reports the residual against the score the targeting step recorded. Five

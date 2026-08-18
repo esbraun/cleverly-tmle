@@ -70,7 +70,7 @@ import numpy as np
 
 from .._typing import CumulativeGBounds, FloatArray, Learner
 from ..data.weighting import effective_sample_size
-from ..exceptions import PositivityWarning
+from ..exceptions import CapabilityError, PositivityWarning
 from ..inference.cluster import influence_covariance
 from ..inference.delta import delta_method
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
@@ -396,6 +396,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     identified_effect: Any = None
     method: Any = None
     parameter_keys: dict[str, Any] = field(default_factory=dict)
+    #: Assessment results keyed by operation and normalized arguments. Structured
+    #: persistence writes this alongside the sequential artifacts it was computed from.
+    assessment_cache: dict[str, Any] = field(default_factory=dict)
 
     @property
     def has_msm(self) -> bool:
@@ -489,7 +492,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """Whether every node's targeting step reached its tolerance."""
         return all(fit.converged for fit in self.fits.values())
 
-    def diagnostics(self) -> Any:
+    def _legacy_diagnostics_frame(self) -> Any:
         """A row per regimen and node: how much data it had, and how hard it leaned on it.
 
         ``n_followed`` is the number of units that followed the regimen and stayed under
@@ -582,6 +585,26 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 rows["converged"].append(bool(step.fluctuation.converged))
         return self.data.frame_like(rows)
 
+    @property
+    def diagnostics(self) -> Any:
+        """Unified stagewise, support, nuisance, score, and refutation diagnostics."""
+        from ..assessment import DiagnosticsFacade
+
+        return DiagnosticsFacade(self)
+
+    def validate(self) -> Any:
+        """Run the inexpensive stagewise default battery without refitting."""
+        from ..assessment import validate_result
+
+        return validate_result(self)
+
+    @property
+    def replayability(self) -> Any:
+        """Which assessment operations survive from the stored sequential artifacts."""
+        from ..assessment import replayability
+
+        return replayability(self)
+
     def incidence_total(self) -> Any:
         """Per regimen and horizon, the incidences summed over the causes.
 
@@ -639,25 +662,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def sensitivity(self) -> Any:
-        raise NotImplementedError(
-            "the sensitivity suite is not available on a longitudinal fit. Every analysis "
-            "in it re-targets against cached nuisance fits, and here that is not enough: "
-            "g_bounds enters the pseudo-outcome of every earlier node through the "
-            "recursion, so changing it changes what the earlier regressions were fitted "
-            "to and the whole backward pass has to run again. Use result.diagnostics(), "
-            "which reports the raw-versus-bounded truncation share, cumulative weight, "
-            "and effective n per regimen per node -- the leverage a longitudinal fit's "
-            "positivity assumption actually produces"
-        )
+        from ..assessment import SensitivityFacade
+
+        return SensitivityFacade(self)
 
     @property
     def validation(self) -> Any:
-        raise NotImplementedError(
-            "the validation suite is not available on a longitudinal fit: it reads "
-            "result.repeats and result.estimator, which a longitudinal result does not "
-            "carry. The score equations it would check are already reported per node -- "
-            "result.diagnostics() gives each node's epsilon and whether it converged, and "
-            "result.fits[label].steps[i].fluctuation carries the score norms themselves"
+        raise CapabilityError(
+            "result.validation was replaced by result.diagnostics and result.validate(); "
+            "the latter runs the inexpensive stagewise battery and the former exposes "
+            "score_equations(), nuisance_models(), support(), and explicit capabilities"
         )
 
     def save(self, path: Any) -> Any:

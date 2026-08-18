@@ -58,6 +58,7 @@ import polars as pl
 import pytest
 
 import cleverly
+from cleverly import CapabilityError
 from cleverly.datasets import make_linear_ate, make_longitudinal
 from cleverly.estimators import TMLE
 from cleverly.longitudinal import LTMLE
@@ -107,6 +108,8 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "ATC",
         "ATE",
         "ATT",
+        "AssessmentCapability",
+        "AssessmentStatus",
         "BackdoorMeanContrast",
         "CapabilityError",
         "CausalResult",
@@ -119,6 +122,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "CrossFitting",
         "DRTMLEMethod",
         "DataError",
+        "DiagnosticReport",
         "Estimand",
         "EstimationMethod",
         "ExplicitAdjustmentProvider",
@@ -147,12 +151,14 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "RegimeContrast",
         "RegimeMean",
         "RiskRatio",
+        "Replayability",
         "Runtime",
         "SuperLearner",
         "TMLEMethod",
         "Targeting",
         "VariableImportanceEntry",
         "VariableImportanceResult",
+        "ValidationReport",
         "WeightingWarning",
         "__version__",
         "load",
@@ -263,24 +269,16 @@ SURFACE: dict[str, dict[str, Any]] = {
     "sensitivity": {
         "call": lambda r, tmp: r.sensitivity,
         "TMLEResult": ...,
-        "LongitudinalResult": Refusal(
-            NotImplementedError,
-            "not available on a longitudinal fit",
-            "every analysis in the suite re-targets against cached nuisances, and g_bounds "
-            "enters the pseudo-outcome of every earlier node through the recursion -- so "
-            "there is no retarget that re-solves the fluctuation alone. diagnostics() "
-            "reports the leverage instead",
-        ),
+        "LongitudinalResult": ...,
     },
     "validation": {
         "call": lambda r, tmp: r.validation,
         "TMLEResult": ...,
         "LongitudinalResult": Refusal(
-            NotImplementedError,
-            "not available on a longitudinal fit",
-            "the suite reads result.repeats and result.estimator, which a longitudinal "
-            "result does not carry; the score equations it would check are already "
-            "reported per node by diagnostics()",
+            CapabilityError,
+            "replaced by result.diagnostics and result.validate()",
+            "the unified assessment contract deliberately removes the old suite and "
+            "routes longitudinal score and nuisance checks through stagewise adapters",
         ),
     },
     "save": {
@@ -290,15 +288,17 @@ SURFACE: dict[str, dict[str, Any]] = {
     },
     "diagnostics": {
         "call": lambda r, tmp: r.diagnostics(),
-        "TMLEResult": Refusal(
-            AttributeError,
-            "diagnostics",
-            "the point-treatment fit has no nodes to report per, and what a longitudinal "
-            "diagnostics() gives -- cumulative weight and effective n per node -- is "
-            "reported here by result.sensitivity.positivity(). This is the one cell "
-            "answered by an AttributeError on purpose, because the name was never part of "
-            "the point-treatment surface rather than removed from it",
-        ),
+        "TMLEResult": ...,
+        "LongitudinalResult": ...,
+    },
+    "validate": {
+        "call": lambda r, tmp: r.validate(),
+        "TMLEResult": ...,
+        "LongitudinalResult": ...,
+    },
+    "replayability": {
+        "call": lambda r, tmp: r.replayability,
+        "TMLEResult": ...,
         "LongitudinalResult": ...,
     },
     "coefficients": {
@@ -456,6 +456,10 @@ BACKEND_ROUTES: dict[str, str] = {
     "CausalData": "field",
     "CorrectionCheck": "field",
     "CVTargeting": "field",
+    "DiagnosticReport": "field",
+    "LongitudinalDiagnostics": "field",
+    "LongitudinalNuisanceDiagnostics": "field",
+    "LongitudinalScoreDiagnostics": "field",
     "NuisanceDiagnostics": "field",
     "PositivityReport": "field",
     "RefutationResult": "field",
@@ -467,6 +471,7 @@ BACKEND_ROUTES: dict[str, str] = {
     "LongitudinalResult": "container",
     "CTMLESelection": "argument",
     "StudyResult": "argument",
+    "ValidationReport": "field",
 }
 
 
@@ -513,10 +518,15 @@ POLARS_EMITTERS: dict[str, list[Any]] = {
         lambda r: r.validation.score_check().to_frame(),
         lambda r: r.validation.nuisance().to_frame(),
         lambda r: r.validation.refute().to_frame(),
+        lambda r: r.diagnostics.run_all().to_frame(),
+        lambda r: r.validate().to_frame(),
     ],
     "LongitudinalResult": [
         lambda r: r.to_frame(),
         lambda r: r.diagnostics(),
+        lambda r: r.diagnostics.score_equations().to_frame(),
+        lambda r: r.diagnostics.nuisance_models().to_frame(),
+        lambda r: r.validate().to_frame(),
     ],
 }
 

@@ -79,6 +79,7 @@ class CausalResult(Protocol):
     method: Any
     parameter_keys: Mapping[str, Any]
     provenance: Any
+    assessment_cache: Mapping[str, Any]
 
     @property
     def estimate(self) -> Any: ...
@@ -97,6 +98,17 @@ class CausalResult(Protocol):
     def to_frame(self) -> Any: ...
 
     def save(self, path: Any) -> Any: ...
+
+    @property
+    def diagnostics(self) -> Any: ...
+
+    def validate(self) -> Any: ...
+
+    @property
+    def sensitivity(self) -> Any: ...
+
+    @property
+    def replayability(self) -> Any: ...
 
 
 @runtime_checkable

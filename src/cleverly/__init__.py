@@ -25,6 +25,13 @@ in whichever backend it was given.  Every result carries its influence curves, s
 from __future__ import annotations
 
 from ._version import __version__
+from .assessment import (
+    AssessmentCapability,
+    AssessmentStatus,
+    DiagnosticReport,
+    Replayability,
+    ValidationReport,
+)
 from .estimators.serialize import load
 from .exceptions import (
     CapabilityError,
@@ -90,6 +97,8 @@ __all__ = [
     "ATC",
     "ATE",
     "ATT",
+    "AssessmentCapability",
+    "AssessmentStatus",
     "BackdoorMeanContrast",
     "CapabilityError",
     "CausalResult",
@@ -102,6 +111,7 @@ __all__ = [
     "CrossFitting",
     "DRTMLEMethod",
     "DataError",
+    "DiagnosticReport",
     "Estimand",
     "EstimationMethod",
     "ExplicitAdjustmentProvider",
@@ -129,11 +139,13 @@ __all__ = [
     "Provenance",
     "RegimeContrast",
     "RegimeMean",
+    "Replayability",
     "RiskRatio",
     "Runtime",
     "SuperLearner",
     "TMLEMethod",
     "Targeting",
+    "ValidationReport",
     "VariableImportanceEntry",
     "VariableImportanceResult",
     "WeightingWarning",

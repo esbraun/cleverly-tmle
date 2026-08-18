@@ -33,6 +33,7 @@ from .direct_effect import describe as describe_direct_effect
 from .targeting import TargetingSpec
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..assessment import DiagnosticsFacade, Replayability, SensitivityFacade, ValidationReport
     from ..sensitivity.api import SensitivityAnalysis
     from ..validation.api import ValidationSuite
     from ..validation.score import ScoreCheck
@@ -426,6 +427,9 @@ class TMLEResult:
     method: Any = None
     #: Alias-to-structured-key mapping. Routing must read this rather than parse aliases.
     parameter_keys: dict[str, Any] = field(default_factory=dict)
+    #: Persistent assessment results, keyed by operation plus normalized arguments.
+    #: Filling this mapping never changes the fitted parameter or its summary.
+    assessment_cache: dict[str, Any] = field(default_factory=dict)
 
     # --------------------------------------------------------------- repeats
 
@@ -617,11 +621,38 @@ class TMLEResult:
     # ----------------------------------------------------------- diagnostics
 
     @cached_property
-    def sensitivity(self) -> SensitivityAnalysis:
-        """Sensitivity analyses for this fit -- see :mod:`cleverly.sensitivity`."""
+    def _legacy_sensitivity(self) -> SensitivityAnalysis:
+        """The evidenced point analyses wrapped by the public capability facade."""
         from ..sensitivity.api import SensitivityAnalysis
 
         return SensitivityAnalysis(self)
+
+    @cached_property
+    def sensitivity(self) -> SensitivityFacade:
+        """Capability-aware sensitivity analyses for this fitted method."""
+        from ..assessment import SensitivityFacade
+
+        return SensitivityFacade(self, self._legacy_sensitivity)
+
+    @cached_property
+    def diagnostics(self) -> DiagnosticsFacade:
+        """Unified support, nuisance, score, and refutation diagnostics."""
+        from ..assessment import DiagnosticsFacade
+
+        return DiagnosticsFacade(self)
+
+    def validate(self) -> ValidationReport:
+        """Run the inexpensive method-appropriate checks without refitting."""
+        from ..assessment import validate_result
+
+        return validate_result(self)
+
+    @property
+    def replayability(self) -> Replayability:
+        """Which post-fit operations this in-memory or restored result can replay."""
+        from ..assessment import replayability
+
+        return replayability(self)
 
     @cached_property
     def validation(self) -> ValidationSuite:

@@ -338,7 +338,7 @@ class SensitivityAnalysis:
         """
         if estimand in self._result.estimates:
             return estimand
-        known = arm_parameters(self._result.data, self._result.config.reference_arm)
+        known = arm_parameters(self._result)
         return next((name for name in self._result.estimates if name in known), None)
 
     def report(self, estimand: str = "ate") -> str:

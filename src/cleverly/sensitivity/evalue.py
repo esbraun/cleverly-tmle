@@ -159,7 +159,7 @@ def _baseline_mean(result: TMLEResult, estimand: str) -> str | None:
     :func:`~cleverly.sensitivity._parameters.arm_parameters`, so ``ey0`` and ``ey[low]``
     are both recognised -- whichever of them the fit was asked for.
     """
-    known = arm_parameters(result.data, result.config.reference_arm)
+    known = arm_parameters(result)
     parameter = known.get(estimand)
     if parameter is None or parameter.versus is None:  # pragma: no cover - defensive
         return None

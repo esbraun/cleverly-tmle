@@ -1014,7 +1014,7 @@ setting turns one into the other.
 | `intermediate=` on `LTMLE` | a controlled direct effect fixes a mediator at one time point; over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | `ey1` and `ey_regime` from one fit; `msm=` with `interventions=` or `shifts=` | each keyword declares what "counterfactual" means for the fit, or how the counterfactuals are summarised. One fluctuation solves one set of score equations, so a fit reporting parameters from two axes would be putting two of them under one heading |
 | `sensitivity.positivity()` on a continuous fit; `stratify_folds="treatment+outcome"` on a continuous outcome or dose | a per-arm propensity table has no rows when there are no arms. `sensitivity.shift_support()` asks the question that does apply — whether the density *ratio* stays bounded |
-| `res.sensitivity`, `res.validation` and `res.save()` on an `LTMLE` result | each says what it would need rather than raising `AttributeError`. For positivity — the assumption that bites hardest there — `res.diagnostics()` is the answer, reporting the cumulative weight and effective `n` per regimen per node |
+| `res.sensitivity`, `res.diagnostics`, `res.validate()` and `res.save()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, and nuisance loss are supported; sensitivity operations without a longitudinal derivation report `unavailable`. `res.diagnostics()` remains the compatibility spelling for the cumulative-weight table |
 
 ### Wrong by construction
 

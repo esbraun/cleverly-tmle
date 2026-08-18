@@ -38,6 +38,7 @@ import importlib
 import io
 import json
 from collections.abc import Mapping
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -155,7 +156,10 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: instance -- so every result fitted with ``outcome_learner=LogisticRegression()`` raised
 #: rather than writing a file, while the same estimator passed as a bare *class* was callable
 #: and degraded quietly.  Both now degrade, to a placeholder that refuses use and says why.
-FORMAT_VERSION = 17
+#:
+#: ``18`` persists the assessment cache and its immutable report/status records. A restored
+#: result can therefore replay a completed cache-only assessment without recomputing it.
+FORMAT_VERSION = 18
 
 _ARRAY_MARK = "__array__"
 
@@ -247,6 +251,7 @@ class _UnavailableLearner:
 def _structured_types() -> dict[str, type[Any]]:
     """Allowlisted dataclasses that may occur in fitted and causal metadata."""
     modules = (
+        "cleverly.assessment",
         "cleverly.study",
         "cleverly.methods",
         "cleverly.targets.base",
@@ -259,6 +264,7 @@ def _structured_types() -> dict[str, type[Any]]:
         "cleverly.interventions.base",
         "cleverly.interventions.incremental",
         "cleverly.interventions.shift",
+        "cleverly.interventions.support",
         "cleverly.learners.crossfit",
         "cleverly.longitudinal.data",
         "cleverly.longitudinal.estimator",
@@ -267,7 +273,15 @@ def _structured_types() -> dict[str, type[Any]]:
         "cleverly.longitudinal.sequential",
         "cleverly.msm",
         "cleverly.provenance",
+        "cleverly.sensitivity._parameters",
+        "cleverly.sensitivity.evalue",
+        "cleverly.sensitivity.omitted_variable",
+        "cleverly.sensitivity.positivity",
         "cleverly.utils.bounds",
+        "cleverly.validation.drtmle",
+        "cleverly.validation.nuisance",
+        "cleverly.validation.refute",
+        "cleverly.validation.score",
     )
     result: dict[str, type[Any]] = {}
     for module_name in modules:
@@ -304,6 +318,12 @@ def _structured_to(arrays: _Arrays, prefix: str, value: Any) -> Any:
         return arrays.put(prefix, value)
     if isinstance(value, np.generic):
         return value.item()
+    if isinstance(value, Enum):
+        return {
+            _TYPE_MARK: "enum",
+            "class": f"{type(value).__module__}.{type(value).__qualname__}",
+            "value": value.value,
+        }
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     # Re-emit a placeholder as itself.  Round-tripping a loaded result otherwise wrapped the
@@ -383,6 +403,13 @@ def _structured_from(arrays: _Arrays, payload: Any) -> Any:
     kind = payload[_TYPE_MARK]
     if kind == "callable":
         return _UnavailableCallable(payload["description"])
+    if kind == "enum":
+        from ..assessment import AssessmentStatus
+
+        expected = f"{AssessmentStatus.__module__}.{AssessmentStatus.__qualname__}"
+        if payload["class"] != expected:
+            raise ValueError(f"persistence has no allowlisted enum {payload['class']}")
+        return AssessmentStatus(payload["value"])
     if kind == "opaque":
         return _UnavailableLearner(payload["description"], payload["kind"])
     if kind == "dataclass":
@@ -1277,6 +1304,7 @@ def result_to_dict(result: Any) -> tuple[dict[str, Any], dict[str, FloatArray]]:
         ),
         "method": _structured_to(arrays, "causal.method", result.method),
         "parameter_keys": _structured_to(arrays, "causal.parameter_keys", result.parameter_keys),
+        "assessment_cache": _structured_to(arrays, "assessment.cache", result.assessment_cache),
         # Dropped deliberately, and named so the omission is visible rather than
         # discovered: the first two are reporting objects rebuilt on demand from the
         # arrays that *are* stored, and the third is whatever `extra` this format has
@@ -1344,6 +1372,7 @@ def result_from_dict(manifest: dict[str, Any], store: dict[str, FloatArray]) -> 
         identified_effect=_structured_from(arrays, manifest.get("identified_effect")),
         method=_structured_from(arrays, manifest.get("method")),
         parameter_keys=_structured_from(arrays, manifest.get("parameter_keys", {})),
+        assessment_cache=_structured_from(arrays, manifest.get("assessment_cache", {})),
     )
 
 

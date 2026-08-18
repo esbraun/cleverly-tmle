@@ -413,10 +413,34 @@ The result stores `identified_effect`, normalized `method`, provenance, influenc
 structured parameter keys. A restored effect is fitted metadata, not a hidden copy of the source
 data; construct a new `CausalStudy` to estimate it again.
 
-Assessment (`diagnostics`, `validate`, and capability-aware sensitivity) is the next public API
-work package. Existing evidenced point and longitudinal diagnostic objects remain available on
-their result families, but no adapter invents a common diagnostic where the fitted artifacts do
-not support one.
+Assessment is post-fit and capability-aware:
+
+```python
+validation = result.validate()  # inexpensive and never refits
+support = result.diagnostics.support()
+nuisance = result.diagnostics.nuisance_models()
+scores = result.diagnostics.score_equations()
+all_cached = result.diagnostics.run_all()
+
+print(validation.summary())
+print(result.sensitivity.run_all().summary())
+```
+
+Each combined report labels an item `passed`, `failed`, `warning`, `not_applicable`, or
+`unavailable`; the last two remain distinct after serialization. Every diagnostic capability
+names its required fitted artifacts, cost, execution mode, saved-result determinism, and
+method-specific interpretation. `run_all()` and `validate()` exclude refits by default;
+`result.diagnostics.refute()` and `result.sensitivity.benchmark()` are explicit refit operations.
+
+Point-treatment diagnostics reuse the established score, nuisance, and support report objects and
+their numerical results. Longitudinal results expose immutable stagewise reports for cumulative
+support, targeting scores, and node regression loss. Sensitivity operations without a published
+longitudinal derivation remain present as `unavailable` capabilities rather than disappearing or
+borrowing point-treatment arithmetic.
+
+Completed assessments are cached by operation plus normalized arguments. The cache, along with
+`result.replayability`, is persisted separately from the headline estimates, so restoring a result
+can replay cache-only reports without changing or recomputing its estimate.
 
 ## Migrating old code
 

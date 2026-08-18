@@ -149,7 +149,7 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
             f"the omitted-variable bound applies to {sorted(LINEAR_ESTIMANDS)}, not "
             f"{estimand!r}. For a risk ratio or odds ratio use sensitivity.evalue()."
         )
-    known = arm_parameters(result.data, result.config.reference_arm)
+    known = arm_parameters(result)
     available = {name: parameter for name, parameter in known.items() if name in result.estimates}
     if estimand in available:
         return available[estimand]

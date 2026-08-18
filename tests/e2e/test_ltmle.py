@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import re
 import warnings
 from typing import Any, ClassVar
 
@@ -11,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly import load
+from cleverly import AssessmentStatus, CapabilityError, load
 from cleverly.datasets import (
     make_longitudinal,
     make_longitudinal_competing,
@@ -954,22 +953,28 @@ class TestItRefusesByName:
             LTMLE({"always": 1}, **FAST).fit(frame)
 
 
-class TestTheSuitesItCannotServe:
-    """``AttributeError`` before, on three methods the README advertises unqualified."""
+class TestTheSharedAssessmentContract:
+    """Stagewise assessment works and unsupported sensitivity remains explicit."""
 
     def test_sensitivity_says_why_retargeting_is_not_enough(
         self, fitted: tuple[LongitudinalResult, dict[str, float]]
     ) -> None:
         result, _ = fitted
-        with pytest.raises(NotImplementedError, match="pseudo-outcome of every earlier node"):
-            _ = result.sensitivity
+        assert {item.status for item in result.sensitivity.run_all().items} == {
+            AssessmentStatus.UNAVAILABLE
+        }
+        with pytest.raises(CapabilityError, match="full evidence-backed recursion/refit adapter"):
+            result.sensitivity.omitted_confounding()
 
     def test_validation_points_at_the_per_node_diagnostics(
         self, fitted: tuple[LongitudinalResult, dict[str, float]]
     ) -> None:
         result, _ = fitted
-        with pytest.raises(NotImplementedError, match=re.escape("result.diagnostics")):
-            _ = result.validation
+        validation = result.validate()
+        assert validation["score_equations"].status is AssessmentStatus.PASSED
+        assert len(result.diagnostics.score_equations().rows) == sum(
+            len(fit.steps) for fit in result.fits.values()
+        )
 
     def test_save_round_trips_the_longitudinal_graph(
         self, fitted: tuple[LongitudinalResult, dict[str, float]], tmp_path: Any
