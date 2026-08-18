@@ -20,6 +20,7 @@ from itertools import pairwise
 import numpy as np
 import pytest
 
+from cleverly import AssessmentStatus
 from cleverly.data import CausalData
 from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -47,7 +48,7 @@ SETTINGS = {**FAST_KWARGS, "estimands": ESTIMANDS}
 def frame():
     """600 rows, which is the *cheaper* end here rather than the more generous one.
 
-    The alternation refits three reduced regressions per arm on every round, so this
+    The alternation fits three reduced families per arm on every round, so this
     module's cost is round count times folds and barely depends on ``n``. Fewer rows makes
     the nuisances noisier, the coupling looser and the loop *longer*: 400 rows measured 28s
     against 600's 25s, and 3 folds instead of 5 measured 38s. Do not "optimise" either down.
@@ -166,6 +167,37 @@ class TestWhatItReports:
         assert report.reduction == "univariate"
         assert set(report.diagnostics) == {"qr", "gr1", "gr2"}
         assert report.missingness_bound is None, "no reduction was formed at that bound"
+
+    def test_validation_warns_when_solved_equation_ten_was_ill_conditioned(
+        self, fit, tmp_path
+    ) -> None:
+        draw = fit.repeats[0]
+        fluctuation = draw.fluctuations["mean"]
+        reduction = replace(fluctuation.reduction, ill_conditioned=3, rounds=5)
+        warned = replace(
+            fit,
+            repeats=(
+                replace(
+                    draw,
+                    fluctuations={
+                        **draw.fluctuations,
+                        "mean": replace(fluctuation, reduction=reduction),
+                    },
+                ),
+            ),
+            assessment_cache={},
+        )
+
+        assert warned.validation.score_check().passed
+        item = warned.validate()["score_equations"]
+        assert item.status is AssessmentStatus.WARNING
+        assert "3 of 5 refitting round(s) (60.0%)" in item.detail
+        restored = load(warned.save(tmp_path / "conditioning-warning.npz"))
+        assert restored.validate()["score_equations"].status is AssessmentStatus.WARNING
+
+    def test_validation_passes_cleanly_without_ill_conditioned_rounds(self, fit) -> None:
+        item = replace(fit, assessment_cache={}).validate()["score_equations"]
+        assert item.status is AssessmentStatus.PASSED
 
 
 class TestTheBivariateFit:
@@ -468,12 +500,9 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 def single_guard():
     """``guard=("g",)`` on this module's own draw -- the first partial-guard fit anywhere here.
 
-    **1.8s measured**, against ~25s for the default-guard ``fit``, and the difference is
-    structural rather than luck: ``reduction.refit`` is called only inside the ``"Q"``
-    branches of the alternation, so this fit runs no reduced refits at all. That is why the
-    cheap direction is the one taken end to end and ``guard=("Q",)`` is left to
-    ``tests/unit/test_influence_drtmle.py``, where a solve on the exact law costs
-    milliseconds.
+    This is the cheaper partial direction: it refits only ``gr1`` and ``gr2`` before solving
+    equation (10), while ``guard=("Q",)`` is left to
+    ``tests/unit/test_influence_drtmle.py``, where a solve on the exact law costs milliseconds.
 
     ``frame()`` rather than a fresh draw for three reasons: no second sample to fit, the
     same draw as ``fit`` so the two are comparable, and -- decisively -- this draw is
@@ -505,6 +534,16 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
 
         assert check.clipped == 0
         assert fluctuation.mechanism is None
+
+    def test_the_reduced_mechanisms_are_refitted_at_the_targeted_regression(
+        self, single_guard
+    ) -> None:
+        """The nonzero witness: equation (10) must not keep its initial regressions."""
+        initial = single_guard.nuisance.reduced
+        reduced = single_guard.repeats[0].fluctuations["mean"].reduction.reduced
+
+        assert np.max(np.abs(reduced.gr1 - initial.gr1)) > 1e-2
+        assert np.max(np.abs(reduced.gr2 - initial.gr2)) > 1e-2
 
     def test_the_unsolved_correction_is_large_enough_to_matter(self, single_guard) -> None:
         """The negative control: without it every assertion below could hold vacuously.
@@ -631,11 +670,11 @@ class TestItSurvivesARoundTrip:
 
 
 class TestTheAlternationCanBeIllConditioned:
-    r"""Equation (10) is not always solvable to machine precision, and the reason is structural.
+    r"""Equation (10) is not always solvable to its inner tolerance, for a structural reason.
 
     Its covariate is ``gr2 / gr1``, and ``gr2 = E[(1_a - g-hat)/g-hat | Qbar]`` **vanishes
     exactly where the mechanism is right**.  So the better ``g-hat`` is, the closer that
-    covariate is to zero and the worse conditioned its Newton solve: observed at
+    covariate is to zero and the more numerically delicate its Newton solve: observed at
     ``mean|h| = 1e-3`` with ``|epsilon|`` reaching 280 and a singular Hessian in a third of
     the rounds, on a fit whose fold split was drawn unseeded.
 
@@ -644,11 +683,12 @@ class TestTheAlternationCanBeIllConditioned:
     solve and a worst score of ``1e-9``, which read as a minority behaviour of particular
     draws.  A 96-fit sweep -- four processes by two sizes by twelve seeds, tabulated in
     tabulated at the ``drtmle-validation-archive-2026-08`` tag -- says otherwise:
-    the solve is ill-conditioned on 5 of 12 ``linear`` draws at ``n = 600`` and 9 of 12 at ``n = 1,200``,
+    the solve is numerically difficult on 5 of 12 ``linear`` draws at ``n = 600`` and 9 of 12 at ``n = 1,200``,
     and highest exactly where the mechanism is easiest to get right, which is what the
-    paragraph above predicts and what sweeping only hard processes would have hidden.  A fit
-    that hits it reports ``failure = "max_iter_reached"`` and ``score_check`` says NO, and
-    that is the diagnostic working rather than something to accommodate.
+    paragraph above predicts and what sweeping only hard processes would have hidden.
+    The historical ``ill_conditioned`` field counts either a singular solve or one that
+    stopped at working precision just above its inner tolerance. The final score check can
+    still pass, and ``validate()`` now warns so the numerical event is not hidden by that pass.
 
     What is asserted below is therefore the invariant that holds either way, not either
     outcome: pinning ``ill_conditioned > 0`` would be pinning a seed.
@@ -1310,7 +1350,7 @@ class TestTheContractSaysWhichEstimator:
 
 
 @pytest.fixture(scope="module")
-def paper(fit):
+def benkeser(fit):
     """The same draw and the same nuisances, reached by the working paper's own order.
 
     ``fit``'s settings and ``fit``'s frame, changing exactly one thing, which is what makes
@@ -1322,7 +1362,9 @@ def paper(fit):
     """
     del fit  # the dependency is the point; the object is refit here under the other order
     return (
-        DRTMLE(**SETTINGS, update_order="paper").fit(frame(), outcome="Y", treatment="A").single()
+        DRTMLE(**SETTINGS, update_order="benkeser")
+        .fit(frame(), outcome="Y", treatment="A")
+        .single()
     )
 
 
@@ -1330,7 +1372,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
     r"""Item 22's numerical half, at one draw: two routes, one stated fixed point.
 
     The 2016 working paper states a six-step recursion (pp. 10-11; ``docs/drtmle.md``'s
-    *The update order*) and this package's alternation is not a transcription of it.  Reading the paper
+    *The update order*) and R ``drtmle`` takes a different route to the same fixed point. Reading the paper
     settled the *theoretical* half -- its step 7 states termination as the three empirical
     means being approximately zero, so the order is one way of reaching a fixed point rather
     than something Theorem 1 assumes about the collection returned -- and left the numerical
@@ -1350,7 +1392,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
     ``random_state`` buy.
     """
 
-    def test_the_paper_order_exits_where_step_seven_says_it_should(self, paper) -> None:
+    def test_the_benkeser_order_exits_where_step_seven_says_it_should(self, benkeser) -> None:
         """The three empirical means, at the state this fit returned.
 
         This is the paper's own termination condition read off the returned collection, and
@@ -1358,14 +1400,14 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         makes it a statement about the *reported* state rather than about what a solver
         recorded, which is the distinction items 20 and 23 were both found in.
         """
-        check = paper.validation.correction_check()
+        check = benkeser.validation.correction_check()
 
         assert check.passed, check.summary()
-        assert paper.validation.score_check().passed
+        assert benkeser.validation.score_check().passed
         for row in check.rows:
             assert abs(row.residual) < 1e-15, row.name
 
-    def test_the_two_routes_agree_on_the_estimate(self, fit, paper) -> None:
+    def test_the_two_routes_agree_on_the_estimate(self, fit, benkeser) -> None:
         """The update-order comparison, in the units it has to be read in.
 
         A difference between two fixed points is only meaningful beside the standard error
@@ -1376,11 +1418,11 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         """
         for name in ESTIMANDS:
             reference = fit.estimates[name]
-            difference = abs(paper.estimates[name].psi - reference.psi)
+            difference = abs(benkeser.estimates[name].psi - reference.psi)
             assert difference < 0.05 * reference.std_error, name
 
     def test_but_not_exactly_on_the_reported_variance_and_that_is_the_finding(
-        self, fit, paper
+        self, fit, benkeser
     ) -> None:
         r"""The routes agree on :math:`\hat\Psi` and disagree slightly on :math:`\sigma^2_n`.
 
@@ -1407,11 +1449,11 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         is that the gap is in the variance rather than in the estimate, which is the thing a
         reader would otherwise assume the other way round.
         """
-        ratio = paper.estimates["ate"].std_error / fit.estimates["ate"].std_error
+        ratio = benkeser.estimates["ate"].std_error / fit.estimates["ate"].std_error
 
         assert 0.9 < ratio < 1.1, "a route difference of more than a tenth is a different claim"
 
-    def test_and_they_are_genuinely_two_routes_rather_than_one(self, fit, paper) -> None:
+    def test_and_they_are_genuinely_two_routes_rather_than_one(self, fit, benkeser) -> None:
         """The control, without which the agreement above proves nothing.
 
         Two fits that ran the *same* code would agree exactly, so an agreement test alone
@@ -1425,15 +1467,15 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         the seed.
         """
         ours = fit.repeats[0].fluctuations["mean"].reduction
-        theirs = paper.repeats[0].fluctuations["mean"].reduction
+        theirs = benkeser.repeats[0].fluctuations["mean"].reduction
 
         assert theirs.rounds != ours.rounds or theirs.trace[0][1:] != ours.trace[0][1:]
 
     @pytest.mark.parametrize(
         ("order", "expected"),
         [
-            ("cleverly", ["eq9", "eq10", "eq8"]),
-            ("paper", ["eq8", "eq10", "eq9"]),
+            ("drtmle", ["eq9", "eq10", "eq8"]),
+            ("benkeser", ["eq8", "eq10", "eq9"]),
         ],
     )
     def test_the_round_solves_the_equations_in_the_declared_order(
@@ -1479,7 +1521,7 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         assert seen[0] == "eq8"
         assert seen[1:4] == expected
 
-    @pytest.mark.parametrize("order", ["cleverly", "paper"])
+    @pytest.mark.parametrize("order", ["drtmle", "benkeser"])
     def test_every_round_reads_equation_eight_at_the_state_it_exits_at(
         self, monkeypatch, order
     ) -> None:
@@ -1517,5 +1559,6 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
 
     def test_an_unknown_order_is_refused_by_name(self) -> None:
         """Both names in the message, since the wrong one is the interesting case."""
-        with pytest.raises(ValueError, match="update_order must be one of"):
-            DRTMLE(update_order="benkeser")
+        for former in ("cleverly", "paper"):
+            with pytest.raises(ValueError, match="update_order must be one of"):
+                DRTMLE(update_order=former)

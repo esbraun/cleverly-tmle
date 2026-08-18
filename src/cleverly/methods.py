@@ -406,7 +406,7 @@ class DRTMLEMethod(TMLEMethod):
     reduced_outcome_learner: Any = field(default=None, metadata=OPAQUE)
     reduced_treatment_learner: Any = field(default=None, metadata=OPAQUE)
     reduced_crossfit: str = "pooled"
-    update_order: str = "cleverly"
+    update_order: str = "drtmle"
     evaluation: Any = field(default=None, metadata=OPAQUE)
     randomized: bool = False
     treatment_probabilities: Any = None

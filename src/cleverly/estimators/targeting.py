@@ -62,7 +62,7 @@ from ..msm import solve_projection
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import CompanionEstimates, NuisanceEstimates, Propensity
 from .direct_effect import clever_covariate_inputs
-from .reduced import MissingOutcomeReducedSet, ReducedSet
+from .reduced import MissingOutcomeReducedSet, ReducedFamily, ReducedSet
 
 __all__ = [
     "ObservationMechanismFluctuation",
@@ -193,15 +193,15 @@ ReductionExit = Literal["tolerance", "stall", "cap"]
 #: on reading the paper and whose numerical half -- *do the two routes reach the same fixed
 #: point on real data* -- is a measurement, and needs the second route to exist here.
 #:
-#: ``"cleverly"`` is this package's own and the default, bit for bit what it always was:
-#: equation (9), refit, equation (10), equation (8), refit.  ``"paper"`` is
-#: the working paper's recursion, steps 2 to 6 -- equation (8), refit
+#: ``"drtmle"`` is the canonical R package's loop and the default: equation (9), refit
+#: the reduced mechanisms, equation (10), equation (8), refit :math:`Q_r`. ``"benkeser"``
+#: is the working paper's recursion, steps 2 to 6 -- equation (8), refit
 #: :math:`g_{r,1}` and :math:`g_{r,2}` at the **once-updated** outcome regression, equation
 #: (10), refit :math:`Q_r` at the **twice-updated** one, equation (9).  Neither the exit
 #: test, the stall rule nor the closing pass differs between them, deliberately: what is in
 #: question is the route, and running one arm of the comparison under a different stopping
 #: rule or a different reporting convention would confound the two.
-ReductionOrder = Literal["cleverly", "paper"]
+ReductionOrder = Literal["drtmle", "benkeser"]
 
 
 @dataclass(frozen=True)
@@ -751,8 +751,10 @@ class ReductionSpec:
     refit:
         Takes a :class:`~cleverly.estimators._nuisance.NuisanceEstimates` carrying the
         *current* targeted regression and mechanism, and returns the reductions relative to
-        them -- the production set, and one per outer fold at the evaluation companion's
-        rows (empty without a companion).  It is handed a whole object rather than two
+        them for the requested family names -- the production set, and one per outer fold
+        at the evaluation companion's rows (empty without a companion). Unrequested fields
+        are carried from the current set, so every return remains a complete ``ReducedSet``.
+        It is handed a whole object rather than two
         arrays for the reason :func:`~cleverly.estimators.reduced.fit_reduced` takes one:
         ``folds`` is read off it, so it cannot be given a mechanism and a split that came
         from different constructions -- and the companion rides on the same object for the
@@ -767,7 +769,7 @@ class ReductionSpec:
         path recovered by a loop that happens to exit early.
     """
 
-    refit: Callable[[NuisanceEstimates], tuple[Any, tuple[Any, ...]]]
+    refit: Callable[[NuisanceEstimates, tuple[ReducedFamily, ...]], tuple[Any, tuple[Any, ...]]]
     missing_refit: (
         Callable[
             [NuisanceEstimates, tuple[float, float], float],
@@ -780,7 +782,7 @@ class ReductionSpec:
     #: It rides here rather than being a keyword of :func:`solve_with_reduction` because it
     #: is the *estimator's* declaration, exactly as ``guard`` is, and because that keeps
     #: :meth:`~cleverly.TMLE._solve_reduction` free of a setting only one subclass has.
-    order: ReductionOrder = "cleverly"
+    order: ReductionOrder = "drtmle"
 
 
 @dataclass(frozen=True)
@@ -882,13 +884,13 @@ class ReductionFluctuation:
     #: on the record so that a reader can see the stage stopped counting rather than infer
     #: from :attr:`closing` that it converged.
     closing_capped: bool = False
-    #: How many rounds' equation-(10) solves reported a failure of their own.  Not rare and
-    #: not a defect in the solver: :math:`g_{r,2}` vanishes exactly where the mechanism is
-    #: right, so on any fit whose :math:`\hat g` is nearly right that covariate is nearly
-    #: zero and its Hessian near-singular -- measured at ``mean|h| = 1e-3`` with a singular
-    #: Hessian in a third of the rounds on a 2000-row ``glm`` fit.  It is why this loop
-    #: stops on a statistical tolerance rather than a numerical one, and it is reported so
-    #: that a reader can see the equation was hard rather than infer it from the round count.
+    #: How many rounds' equation-(10) solves reported a failure of their own. The historical
+    #: name is narrower than the count: it includes a singular Hessian *and* a solve that
+    #: stopped at working precision just above its inner relative tolerance. Both occur
+    #: because :math:`g_{r,2}` vanishes where the mechanism is right, making the covariate
+    #: small; the final statistical score check decides whether that numerical difficulty
+    #: matters. It is reported so a reader can see the equation was hard rather than infer
+    #: it from the round count.
     ill_conditioned: int = 0
     #: How many solves the closing pass took.  It re-solves all three equations at the
     #: reductions this record carries, which the alternation itself never does -- it solves
@@ -1066,9 +1068,6 @@ class _Companion:
     def take_mechanism(self, carried: Sequence[FloatArray]) -> None:
         self.mechanism = tuple(carried)
 
-    def take_reduced(self, sets: Sequence[ReducedSet]) -> None:
-        self.reduced = tuple(sets)
-
     def take_partial(self, sets: Sequence[ReducedSet], names: Sequence[str]) -> None:
         """Replace only ``names`` of each fold's set -- the paper order's two-vintage refit."""
         self.reduced = tuple(
@@ -1195,16 +1194,17 @@ def solve_with_reduction(
         prime:  Qbar* <- fluctuation of Qbar^0 along 1_a/g          (equation 8)
         repeat:
             if "Q" in guard:  g* <- logistic tilt along Qr/g*       (equation 9)
-                              refit the selected reductions at (Qbar*, g*)
+            if "g" in guard:  refit gr1/gr2 at (Qbar*, g*)
             if "g" in guard:  Qbar* <- fluctuate along H2           (equation 10)
             Qbar* <- fluctuate along 1_a/g*                         (equation 8)
+            if "Q" in guard:  refit Qr at (Qbar*, g*)
             re-evaluate all three scores at the pair the round exits at
 
     **That is one of two routes to the same stated exit, and the other is the working
     paper's own.**  ``reduction.order`` selects between them -- see :data:`ReductionOrder`.
     The paper's step 7 states its termination as the three empirical means being
     approximately zero, so its six-step order is one way of reaching a fixed point rather
-    than something Theorem 1 assumes about the collection returned; ``"paper"`` implements
+    than something Theorem 1 assumes about the collection returned; ``"benkeser"`` implements
     it beside this one so that *whether the two reach the same fixed point on real data* is
     a run rather than an argument. What the second route
     does **not** get is a second stopping rule, a second stall test or a second closing pass:
@@ -1274,20 +1274,22 @@ def solve_with_reduction(
     carries, which brings that to ``5.8e-7``, and moves a converged fit's ``psi`` and
     standard error by nothing.
 
-    **Equation (10)'s solve is near-singular on exactly the fits anybody wants, and that is
-    structural.**  Its covariate is :math:`g_{r,2}/g_{r,1}` in the univariate construction
+    **Equation (10)'s solve is numerically delicate on exactly the fits anybody wants, and
+    that is structural.** Its covariate is :math:`g_{r,2}/g_{r,1}` in the univariate construction
     and :math:`(g_r-g)/(g g_r)` in the bivariate one.  Either numerator vanishes exactly
     where the mechanism is right -- so on a fit whose :math:`\hat g` is nearly right
     that covariate is nearly zero: observed at ``mean|h| = 1e-3``, ``|epsilon|`` reaching 280
     and a singular Hessian in a third of the rounds on one unseeded draw.  A fit that never
     gets past it exits at ``max_outer`` and reports ``failure = "max_iter_reached"``.
     ``drtmle`` sidesteps the question entirely by capping at three iterations and never
-    claiming to converge.  :attr:`ReductionFluctuation.ill_conditioned` reports the
-    conditioning; :class:`~cleverly.DRTMLE`'s module docstring says what turns on it.
+    claiming to converge. :attr:`ReductionFluctuation.ill_conditioned` retains its historical
+    name but counts any failed equation-(10) inner solve, including a full-rank solve that
+    stops at working precision just above its relative tolerance. The final score check is
+    what says whether that numerical event matters.
 
-    **Swept twice over the same 96 fits** -- four processes by two sizes by twelve seeds,
-    first under the former relative-score criterion and then under the one in force. The first
-    sweep replaced a six-fit claim that had stood here
+    **Swept twice over the same 96 non-cross-fitted fits** -- four processes by two sizes by
+    twelve seeds, first under the former relative-score criterion and then under the one in
+    force. The first sweep replaced a six-fit claim that had stood here
     ("converged in 15 to 45 rounds", one process) and found the loop mostly *stalling*: 2 of
     96 reached the tolerance, 86 stalled, 8 ran out of rounds.  **The second inverts it: 87
     reached the tolerance, 8 stalled and 1 ran out of rounds**, at a median of 4 to 9 rounds
@@ -1297,7 +1299,8 @@ def solve_with_reduction(
     point all along and being told it had not.  The conditioning survives at a third of the
     rate and keeps its shape: worst on ``linear``, 3 of 12 draws at each size against 0 of 12
     for ``nonlinear`` at ``n = 600``, which is what "vanishes where the mechanism is right"
-    predicts, the easy process being the ill-conditioned one.
+    predicts, the easy process being the ill-conditioned one. That evidence did not cover
+    the shipped 10-fold default; ``docs/drtmle.md`` records the separate default-path matrix.
 
     The exit test used to be a *relative* score alone, dividing by a ``mean|h|`` of order
     ``1e-3`` and so reading an absolutely negligible score as a large one;
@@ -1428,13 +1431,13 @@ def solve_with_reduction(
     targeted_q = fluctuation.targeted
 
     for outer in range(1, max_outer + 1):
-        if order == "paper":
+        if order == "benkeser":
             # Steps 2 to 6 of the working paper's recursion, in its order (pp. 10-11;
             # `docs/drtmle.md`'s *The update order*). The two refits are the paper's own
             # steps 3 and 5 and they are what the order is *about*: the reductions are
             # taken at two different vintages of the outcome regression, the mechanism
             # half at the once-updated one and Qr at the twice-updated one, where this
-            # package's order refits all three together twice a round.
+            # R package's order refits only the family the next equation consumes.
             submodel = build_submodel(
                 data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
             )
@@ -1462,7 +1465,8 @@ def solve_with_reduction(
                 # set: Qr is step 5's and must not arrive early, which is the difference
                 # between the two orders rather than an optimisation.
                 once, once_companion = reduction.refit(
-                    _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
+                    _reduction_inputs(current, targeted_q, targeted_g, reduced, inner_q, companion),
+                    (("gr1", "gr2") if reduced.reduction == "univariate" else ("gr1",)),
                 )
                 reduced = replace(reduced, gr1=once.gr1, gr2=once.gr2)
                 if companion is not None:
@@ -1492,7 +1496,8 @@ def solve_with_reduction(
                     ill_conditioned += 1
             if "Q" in guard:
                 twice, twice_companion = reduction.refit(  # step 5, at the twice-updated Qbar
-                    _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
+                    _reduction_inputs(current, targeted_q, targeted_g, reduced, inner_q, companion),
+                    ("qr",),
                 )
                 reduced = replace(reduced, qr=twice.qr)
                 if companion is not None:
@@ -1537,11 +1542,17 @@ def solve_with_reduction(
                 if companion is not None:
                     companion.take_mechanism(tail)
                 current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
+
+            if "g" in guard:
+                mechanism_families: tuple[ReducedFamily, ...] = (
+                    ("gr1", "gr2") if reduced.reduction == "univariate" else ("gr1",)
+                )
                 reduced, reduced_companion = reduction.refit(
-                    _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
+                    _reduction_inputs(current, targeted_q, targeted_g, reduced, inner_q, companion),
+                    mechanism_families,
                 )
                 if companion is not None:
-                    companion.take_reduced(reduced_companion)
+                    companion.take_partial(reduced_companion, mechanism_families)
 
             if "g" in guard:
                 extra_submodel = reduced_outcome_submodel(
@@ -1602,13 +1613,14 @@ def solve_with_reduction(
                 # its target. Refit before the score below is read, or the loop tests
                 # equation (9) at a covariate the exiting pair no longer implies.
                 reduced, reduced_companion = reduction.refit(
-                    _reduction_inputs(current, targeted_q, targeted_g, inner_q, companion)
+                    _reduction_inputs(current, targeted_q, targeted_g, reduced, inner_q, companion),
+                    ("qr",),
                 )
                 if companion is not None:
-                    companion.take_reduced(reduced_companion)
+                    companion.take_partial(reduced_companion, ("qr",))
 
         # Equation (8)'s score, at the pair the round *exits* at rather than the pair it was
-        # solved at. Under this package's order those are the same state and this is a
+        # solved at. Under the R package's order those are the same state and this is a
         # bit-for-bit no-op; under the paper's, equation (8) is solved first and steps 4 and
         # 6 then move both the regression it fluctuated and the mechanism it divides by. One
         # call rather than a branch, so that the docstring's "re-evaluate all three scores at
@@ -1701,7 +1713,7 @@ def solve_with_reduction(
         previous_joint = joint
 
     rounds = len(trace)
-    if order == "paper":
+    if order == "benkeser":
         # The paper's round ends on equation (10)'s update of Qbar, so the state the loop
         # left is `targeted_q` and not the outcome fluctuation's own field. The closing pass
         # starts from `fluctuation.targeted`, so hand it the former. Guarded on the order
@@ -2094,14 +2106,14 @@ def _restated_outcome_score(
     the round exits at"* is a property of the loop rather than of where equation (8) happens
     to sit in it.
 
-    **Called unconditionally, and under the default order that is a bit-for-bit no-op.**
+    **Called unconditionally, and under the default order this is a numerical no-op.**
     :func:`~cleverly.fluctuation.iterative.solve_fluctuation` computes the ``score`` it
     returns *after* its loop, by this very expression at the iterate it returns as
     ``.targeted`` (and :func:`~cleverly.fluctuation.one_step.solve_one_step` and the linear
     branch do the same) -- so re-evaluating it at the same submodel, weights and mask returns
-    the identical float64 array.  Under this package's order equation (8) is solved last and
-    nothing moves after it, so the restatement recovers what was already there; under the
-    paper's it is solved **first** and steps 4 and 6 then move both the regression it
+    the identical float64 array. Under R ``drtmle``'s order equation (8) is solved last and
+    only :math:`Q_r` is refitted after it, so the targeted regression and mechanism do not
+    move; under Benkeser's it is solved **first** and steps 4 and 6 then move both the regression it
     fluctuated and the mechanism its covariate divides by.
 
     That the two cases can share one call is what removes the hazard rather than guarding it.
@@ -2419,6 +2431,7 @@ def _reduction_inputs(
     nuisance: NuisanceEstimates,
     targeted: InitialFit,
     mechanism: FloatArray,
+    reduced: ReducedSet,
     inner: tuple[InitialFit, ...] | None = None,
     companion: _Companion | None = None,
 ) -> NuisanceEstimates:
@@ -2428,6 +2441,10 @@ def _reduction_inputs(
     alternation rather than three equations solved at arrays fixed in advance.  ``folds``,
     the scaler and the weights travel unchanged, so the refit is out of fold on the same
     split the primary fits used.
+
+    ``reduced`` is the current complete set. Family-specific refits carry its unrequested
+    regressions forward, so a mechanism-only refit does not restore a stale ``qr`` and a
+    ``qr``-only refit does not restore stale ``gr1`` or ``gr2`` values.
 
     ``inner`` moves the nested construction's fold-free outcome regressions along with it,
     for the reason the refit reads the targeted pair at all: equations (9) and (10) are
@@ -2442,7 +2459,7 @@ def _reduction_inputs(
     every array would still be in range.
     """
     del mechanism  # already written onto `nuisance` by `_retargeted_mechanism`
-    updated = replace(nuisance, outcome=targeted)
+    updated = replace(nuisance, outcome=targeted, reduced=reduced)
     if companion is not None:
         updated = replace(updated, companion=companion.record())
     if inner is None or nuisance.inner is None:

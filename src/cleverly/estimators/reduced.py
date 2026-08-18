@@ -56,8 +56,9 @@ inverted and still plausible.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
+from typing import Any, Literal
 
 import numpy as np
 
@@ -80,6 +81,7 @@ from ._nuisance import (
 __all__ = [
     "REDUCED_CROSSFITS",
     "MissingOutcomeReducedSet",
+    "ReducedFamily",
     "ReducedSet",
     "fit_missing_outcome_reduced",
     "fit_reduced",
@@ -101,6 +103,22 @@ REDUCTIONS = ("univariate", "bivariate")
 #: is in question is whether the cheap construction's induced dependence is higher order,
 #: and the expensive one exists so that is a run rather than an argument.
 REDUCED_CROSSFITS = ("pooled", "nested")
+
+#: One complete-outcome reduced-regression family.  A refit inside the alternation asks
+#: for only the family its next score equation consumes; an initial fit asks for all of
+#: them.  Kept separate from ``REDUCTIONS`` because that name selects the univariate or
+#: bivariate construction, not one regression within it.
+ReducedFamily = Literal["qr", "gr1", "gr2"]
+
+
+def _replace_families(base: ReducedSet, fresh: dict[ReducedFamily, FloatArray]) -> ReducedSet:
+    """Carry omitted families without hiding their types behind dynamic keywords."""
+    return replace(
+        base,
+        qr=fresh.get("qr", base.qr),
+        gr1=fresh.get("gr1", base.gr1),
+        gr2=fresh.get("gr2", base.gr2),
+    )
 
 
 def refuse_unsupported(kind: str, detail: str = "") -> None:
@@ -383,10 +401,11 @@ def fit_reduced(
     g_bounds: tuple[float, float],
     reduction: str = "univariate",
     crossfit: str = "pooled",
+    families: Sequence[ReducedFamily] | None = None,
     companion: CompanionEstimates | None = None,
     n_jobs: int = 1,
 ) -> tuple[ReducedSet, dict[str, list[SuperLearnerDiagnostics]], tuple[ReducedSet, ...]]:
-    r"""Fit the three reduced-dimension regressions out of fold, one set per arm.
+    r"""Fit selected reduced-dimension regressions out of fold, one set per arm.
 
     Parameters
     ----------
@@ -412,6 +431,12 @@ def fit_reduced(
         targets off :attr:`~cleverly.estimators._nuisance.NuisanceEstimates.inner`, whose
         models left fold ``k`` out as well.  A reference construction rather than a
         production path -- see the last two paragraphs of the notes.
+    families:
+        Which regression families to fit. ``None`` fits every family in the selected
+        construction and is the initial-fit behavior. A proper subset is a refit inside
+        the alternation: omitted arrays are carried from ``nuisance.reduced`` (and from
+        ``companion.reduced`` at evaluation rows), so the returned objects remain complete
+        :class:`ReducedSet` values rather than partial objects with placeholder arrays.
 
     companion:
         The fit's primary nuisances at an independent draw, one copy per outer fold.  When
@@ -422,9 +447,8 @@ def fit_reduced(
 
     Returns
     -------
-    The evaluated set, the Super Learner diagnostics keyed ``"qr"`` and ``"gr1"`` plus
-    ``"gr2"`` for the univariate reduction, and one companion set per outer fold -- empty
-    without a companion.
+    The evaluated set, the Super Learner diagnostics keyed by the families fitted, and one
+    companion set per outer fold -- empty without a companion.
 
     Notes
     -----
@@ -509,6 +533,27 @@ def fit_reduced(
         refuse_unsupported("continuous")
     if crossfit not in REDUCED_CROSSFITS:
         raise ValueError(f"crossfit must be one of {list(REDUCED_CROSSFITS)}; got {crossfit!r}")
+    available: tuple[ReducedFamily, ...] = (
+        ("qr", "gr1", "gr2") if reduction == "univariate" else ("qr", "gr1")
+    )
+    selected = available if families is None else tuple(families)
+    if not selected:
+        raise ValueError("families must name at least one reduced-regression family")
+    unknown = [name for name in selected if name not in available]
+    if unknown:
+        raise ValueError(
+            f"families must be drawn from {list(available)} for reduction={reduction!r}; "
+            f"got {unknown}"
+        )
+    if len(set(selected)) != len(selected):
+        raise ValueError(f"families names a reduced-regression family twice: {list(selected)}")
+    partial = set(selected) != set(available)
+    base = nuisance.reduced if isinstance(nuisance.reduced, ReducedSet) else None
+    if partial and (base is None or base.reduction != reduction):
+        raise ValueError(
+            "a partial reduced-regression refit needs nuisance.reduced from the same "
+            "construction so omitted families can be carried forward"
+        )
     inner = nuisance.inner if crossfit == "nested" else None
     if crossfit == "nested":
         if inner is None:
@@ -538,8 +583,13 @@ def fit_reduced(
             f"{nuisance.folds.n_folds}; fold k's reduced model predicts at fold k's own "
             "companion design, so a mismatch would pair a model with another fold's arrays"
         )
+    if partial and companion is not None and len(companion.reduced) != companion.n_folds:
+        raise ValueError(
+            "a partial reduced-regression refit at evaluation rows needs one current "
+            "companion reduced set per outer fold so omitted families can be carried forward"
+        )
     scaled = nuisance.scaler.scale(data.outcome)
-    names = ("qr", "gr1", "gr2") if reduction == "univariate" else ("qr", "gr1")
+    names = selected
     diagnostics: dict[str, list[SuperLearnerDiagnostics]] = {name: [] for name in names}
     columns: dict[str, list[FloatArray]] = {name: [] for name in names}
     # ``(K, m)`` per role per arm, assembled into one ``ReducedSet`` per fold at the end.
@@ -586,10 +636,11 @@ def fit_reduced(
         #
         # gr2: the mechanism residual in inverse-probability form, on Qbar-hat.  Signed,
         # so no clip; and its target is the one quotient formed at fit time.
-        roles: tuple[tuple[str, Learner, Task, tuple[float, float] | None], ...] = (
+        all_roles: tuple[tuple[str, Learner, Task, tuple[float, float] | None], ...] = (
             ("qr", regression_learner, "regression", None),
             ("gr1", classification_learner, "classification", (0.0, 1.0)),
         ) + (() if reduction == "bivariate" else (("gr2", regression_learner, "regression", None),))
+        roles = tuple(role for role in all_roles if role[0] in names)
         elsewhere = (
             None
             if companion is None
@@ -625,41 +676,46 @@ def fit_reduced(
 
     at_folds: tuple[ReducedSet, ...] = ()
     if companion is not None:
-        at_folds = tuple(
-            ReducedSet(
-                qr=np.column_stack([column[fold] for column in companion_columns["qr"]]),
-                gr1=np.column_stack([column[fold] for column in companion_columns["gr1"]]),
-                gr2=(
-                    np.column_stack([column[fold] for column in companion_columns["gr2"]])
-                    if reduction == "univariate"
-                    else np.full_like(
-                        np.column_stack([column[fold] for column in companion_columns["gr1"]]),
-                        np.nan,
+        companions: list[ReducedSet] = []
+        for fold in range(companion.n_folds):
+            fresh = {
+                name: np.column_stack([column[fold] for column in companion_columns[name]])
+                for name in names
+            }
+            if partial:
+                companions.append(_replace_families(companion.reduced[fold], fresh))
+            else:
+                gr1 = fresh["gr1"]
+                companions.append(
+                    ReducedSet(
+                        qr=fresh["qr"],
+                        gr1=gr1,
+                        gr2=(
+                            fresh["gr2"] if reduction == "univariate" else np.full_like(gr1, np.nan)
+                        ),
+                        arms=arms,
+                        g_bounds=(float(g_bounds[0]), float(g_bounds[1])),
+                        reduction=reduction,
                     )
-                ),
-                arms=arms,
-                g_bounds=(float(g_bounds[0]), float(g_bounds[1])),
-                reduction=reduction,
-            )
-            for fold in range(companion.n_folds)
-        )
+                )
+        at_folds = tuple(companions)
 
-    return (
-        ReducedSet(
-            qr=np.column_stack(columns["qr"]),
-            gr1=np.column_stack(columns["gr1"]),
-            gr2=(
-                np.column_stack(columns["gr2"])
-                if reduction == "univariate"
-                else np.full_like(np.column_stack(columns["gr1"]), np.nan)
-            ),
+    fresh = {name: np.column_stack(columns[name]) for name in names}
+    if partial:
+        assert base is not None  # validated above; narrows the type for static checking
+        evaluated = _replace_families(base, fresh)
+    else:
+        gr1 = fresh["gr1"]
+        evaluated = ReducedSet(
+            qr=fresh["qr"],
+            gr1=gr1,
+            gr2=fresh["gr2"] if reduction == "univariate" else np.full_like(gr1, np.nan),
             arms=arms,
             g_bounds=(float(g_bounds[0]), float(g_bounds[1])),
             reduction=reduction,
-        ),
-        diagnostics,
-        at_folds,
-    )
+        )
+
+    return evaluated, diagnostics, at_folds
 
 
 def _roles(

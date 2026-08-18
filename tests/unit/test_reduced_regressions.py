@@ -514,6 +514,88 @@ class TestTheRefusals:
         assert set(diagnostics) == {"qr", "gr1"}
 
 
+class TestFamilySelection:
+    """A refit fits only what the next score equation consumes."""
+
+    def test_qr_only_carries_the_reduced_mechanisms_forward(self, monkeypatch) -> None:
+        from cleverly.estimators import reduced as reduced_module
+
+        initial = fitted(WRONG_G, WRONG_Q)
+        current = replace(nuisances(TIED_G, TIED_Q), reduced=initial)
+        calls = 0
+        original = reduced_module._reduced_column
+
+        def counted(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(reduced_module, "_reduced_column", counted)
+        refitted, diagnostics, _ = fit_reduced(
+            causal_data(),
+            current,
+            regression_learner=CellMeans(),
+            classification_learner=CellMeans(),
+            g_bounds=INERT_BOUNDS,
+            families=("qr",),
+        )
+
+        assert calls == len(ARMS)
+        assert set(diagnostics) == {"qr"}
+        np.testing.assert_array_equal(refitted.gr1, initial.gr1)
+        np.testing.assert_array_equal(refitted.gr2, initial.gr2)
+
+    def test_reduced_mechanisms_only_carry_qr_forward(self, monkeypatch) -> None:
+        from cleverly.estimators import reduced as reduced_module
+
+        initial = fitted(WRONG_G, WRONG_Q)
+        current = replace(nuisances(TIED_G, TIED_Q), reduced=initial)
+        calls = 0
+        original = reduced_module._reduced_column
+
+        def counted(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(reduced_module, "_reduced_column", counted)
+        refitted, diagnostics, _ = fit_reduced(
+            causal_data(),
+            current,
+            regression_learner=CellMeans(),
+            classification_learner=CellMeans(),
+            g_bounds=INERT_BOUNDS,
+            families=("gr1", "gr2"),
+        )
+
+        assert calls == 2 * len(ARMS)
+        assert set(diagnostics) == {"gr1", "gr2"}
+        np.testing.assert_array_equal(refitted.qr, initial.qr)
+
+    @pytest.mark.parametrize("families", [(), ("gr2", "gr2"), ("unknown",)])
+    def test_invalid_family_selections_are_refused(self, families) -> None:
+        with pytest.raises(ValueError, match="famil"):
+            fit_reduced(
+                causal_data(),
+                replace(nuisances(WRONG_G, WRONG_Q), reduced=fitted(WRONG_G, WRONG_Q)),
+                regression_learner=CellMeans(),
+                classification_learner=CellMeans(),
+                g_bounds=INERT_BOUNDS,
+                families=families,
+            )
+
+    def test_a_partial_initial_fit_is_refused_without_arrays_to_carry(self) -> None:
+        with pytest.raises(ValueError, match="partial reduced-regression refit"):
+            fit_reduced(
+                causal_data(),
+                nuisances(WRONG_G, WRONG_Q),
+                regression_learner=CellMeans(),
+                classification_learner=CellMeans(),
+                g_bounds=INERT_BOUNDS,
+                families=("qr",),
+            )
+
+
 class TestTheSetItself:
     def test_the_shape_is_validated_against_the_arms(self) -> None:
         with pytest.raises(ValueError, match=r"gr1 must be \(n, 2\)"):
