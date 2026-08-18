@@ -128,17 +128,21 @@ Look up supported objects, signatures, attributes, methods, and return types.
 - Post-fit validation, positivity and nuisance diagnostics, sensitivity analysis, variable
   importance, and safe result persistence.
 
-## Know the boundaries
+## Roadmap
 
-Graph discovery, front-door adjustment, instrumental-variable effects, mediation decompositions,
-and transport are outside the current scope: there is no object to construct, so nothing
-approximates them. Direct Riesz learning and EP learning are declared refusals —
-`available_methods()` reports each as unavailable with the reason it is missing. Read the full
-[capability and refusal contract](user-guide/capabilities.md).
+- Build the general nested Riesz engine and its initial evidence-gated catalog, including analytic
+  and direct representers, nested composition, diagnostics, and persistence.
+- Add optional DoWhy integration for graph-based identification and backdoor translation while
+  keeping the core package standalone.
+- Add EP learning for heterogeneous effects, beginning with conditional average treatment effects
+  and conditional relative risks.
+- Expand the estimand catalog target by target, with a separate derivation, evidence record,
+  refusal contract, and statistical study for each family.
 
-Contributors can trace implementation decisions, validation evidence, benchmarks, and accepted
-plans in the [development reference](development/index.md), or inspect the
-[source on GitHub](https://github.com/esbraun/cleverly-tmle).
+These are accepted directions, not implemented release claims. The detailed evidence and source
+requirements are in the [roadmap](roadmap.md),
+[public API redesign](public-api-redesign.md), and
+[nested Riesz implementation plan](riesz-implementation-plan.md).
 
 ```{toctree}
 :hidden:
