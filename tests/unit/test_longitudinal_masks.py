@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.datasets import make_longitudinal, make_longitudinal_survival
 from cleverly.longitudinal import LTMLE, LongitudinalData
@@ -162,9 +163,9 @@ def test_the_fit_is_unchanged(flavour: str, kwargs: dict) -> None:
     data = BUILDERS[flavour]()
     estimator = LTMLE(
         {"always": [1, 1], "never": [0, 0]},
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=2,
         learner_folds=2,
         random_state=0,

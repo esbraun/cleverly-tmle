@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.exceptions import ConvergenceWarning
 from cleverly.fluctuation.iterative import InitialFit, NewtonDetail, _classify, solve_fluctuation
@@ -230,8 +231,8 @@ class TestFoldFailuresAreNotSilent:
             warnings.simplefilter("always")
             result = (
                 TMLE(
-                    outcome_learner="glm",
-                    treatment_learner="glm",
+                    outcome_learner=sklearn.linear_model.LinearRegression(),
+                    treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                     n_folds=5,
                     targeting_scheme="fold",
                     random_state=1,

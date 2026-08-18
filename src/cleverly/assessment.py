@@ -127,7 +127,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "refute",
         "point",
-        artifacts=("reconstructible method recipe", "analysis data"),
+        artifacts=("fitted estimator configuration", "analysis data"),
         execution="refit",
         deterministic=False,
         cost="expensive",
@@ -163,7 +163,7 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
     _capability(
         "refute",
         "longitudinal",
-        artifacts=("reconstructible sequential method recipe",),
+        artifacts=("fitted sequential estimator configuration",),
         execution="refit",
         deterministic=False,
         cost="expensive",
@@ -305,71 +305,16 @@ def replayability(result: Any) -> Replayability:
     """Derive replay capabilities from stored artifacts and the normalized method."""
 
     if _family(result) == "longitudinal":
-        # The sequential result stores every fitted node but not fitted learner objects.
-        # It can summarize those nodes after a round trip; changing a bound requires the
-        # entire recursion and therefore is not a cached retargeting operation.
+        # Whole-result persistence retains the method and its unfitted learner templates.
+        # Changing a bound still requires the entire recursion rather than cached retargeting.
         method = getattr(result, "method", None)
-        opaque = _opaque_method_slots(method)
-        return Replayability(True, False, False, not opaque and method is not None, False, opaque)
+        missing = () if method is not None else ("method configuration",)
+        return Replayability(True, False, False, method is not None, False, missing)
 
     estimator = getattr(result, "estimator", None)
     if estimator is None:
-        return Replayability(True, True, False, False, False, ("method recipe",))
-    # A live estimator can refit with the learner objects it still owns. Persistence may
-    # record some of those slots only by identity; after loading, the lazy recipe branch
-    # below reports the narrower capability instead of pretending the objects survived.
-    if type(estimator).__name__ != "_LazyEstimator":
-        try:
-            from .estimators.recipe import TMLERecipe
-
-            live_recipe = TMLERecipe.from_estimator(estimator)
-            missing = tuple(live_recipe.unreconstructible_slots)
-        except (AttributeError, TypeError, ValueError):
-            missing = ()
-        return Replayability(True, True, False, True, False, missing)
-    try:
-        from .estimators.recipe import TMLERecipe
-
-        stored_recipe = getattr(estimator, "recipe", None)
-        if stored_recipe is None:
-            stored_recipe = TMLERecipe.from_estimator(estimator)
-        reconstructible = bool(stored_recipe.learners_reconstructible)
-        missing = tuple(stored_recipe.unreconstructible_slots)
-    except (AttributeError, TypeError, ValueError):
-        reconstructible = False
-        missing = ("method recipe",)
-    return Replayability(True, True, False, reconstructible, False, missing)
-
-
-def _opaque_method_slots(method: Any) -> tuple[str, ...]:
-    if method is None:
-        return ("method recipe",)
-    models = getattr(method, "models", None)
-    if models is None:
-        return ()
-    missing = []
-    for name in (
-        "outcome_learner",
-        "treatment_learner",
-        "missingness_learner",
-        "intermediate_learner",
-        "pseudo_learner",
-        "censoring_learner",
-    ):
-        value = getattr(models, name, None)
-        if value is not None and not _is_recipe_value(value):
-            missing.append(name)
-    return tuple(missing)
-
-
-def _is_recipe_value(value: Any) -> bool:
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return True
-    if isinstance(value, (tuple, list)):
-        return all(_is_recipe_value(item) for item in value)
-    if isinstance(value, Mapping):
-        return all(isinstance(key, str) and _is_recipe_value(item) for key, item in value.items())
-    return False
+        return Replayability(True, True, False, False, False, ("estimator configuration",))
+    return Replayability(True, True, False, True, False)
 
 
 @dataclass(frozen=True)
@@ -731,7 +676,7 @@ class DiagnosticsFacade:
         if not replayability(self._result).refit_nuisances:
             missing = replayability(self._result).unreconstructible
             raise CapabilityError(
-                "refutation requires nuisance refits, but this method recipe cannot be "
+                "refutation requires nuisance refits, but this estimator cannot be "
                 f"reconstructed; unavailable slots: {list(missing)}"
             )
         return _cached(
@@ -992,7 +937,7 @@ class SensitivityFacade:
             _capability(
                 "benchmark",
                 family,
-                artifacts=("reconstructible method recipe",),
+                artifacts=("fitted estimator configuration",),
                 execution="refit",
                 deterministic=False,
                 cost="expensive",
@@ -1002,7 +947,7 @@ class SensitivityFacade:
                 reason=(
                     None
                     if benchmarkable
-                    else "benchmarking requires a reconstructible point-treatment method recipe"
+                    else "benchmarking requires a fitted point-treatment estimator configuration"
                 ),
                 requires_arguments=("covariates",),
             ),

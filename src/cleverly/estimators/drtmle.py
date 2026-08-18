@@ -137,6 +137,7 @@ import numpy as np
 
 from ..data.causal_data import CausalData
 from ..learners.crossfit import Folds
+from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import NuisanceEstimates, Propensity, fit_inner_designs
@@ -423,6 +424,8 @@ class DRTMLE(TMLE):
         randomized: bool = False,
         **kwargs: Any,
     ) -> None:
+        _validate_learner(reduced_outcome_learner, "reduced_outcome_learner")
+        _validate_learner(reduced_treatment_learner, "reduced_treatment_learner")
         super().__init__(**kwargs)
         self.guard = tuple(guard)
         self.reduction = reduction

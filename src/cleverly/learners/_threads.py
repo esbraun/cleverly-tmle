@@ -36,14 +36,9 @@ loaded: **0.688 ms per entry building a controller each time, 0.013 ms reusing o
 -- 53x, and the gap widens with the number of loaded libraries (1.44 ms per entry was
 measured in a process that had also imported LightGBM).
 
-What that trades away is the ability to see a pool that was loaded *after* the cached
-controller was built, and this package has exactly one such case: LightGBM is imported
-lazily, inside the function that builds the learner, so a controller cached at the first
-fit can predate the OpenMP pool it is meant to limit.  That is handled by invalidating
-explicitly at the one place that imports a backend
-(:func:`cleverly.learners.library.has_lightgbm`) rather than by a heuristic that tries to
-notice.  :func:`refresh_thread_pools` is the same lever for a caller who loads a native
-library itself.
+What that trades away is the ability to see a pool loaded *after* the cached controller was
+built. Cleverly itself no longer imports an optional learner backend lazily; callers who load a
+native third-party estimator after the first fit can call :func:`refresh_thread_pools` explicitly.
 
 Overlapping blocks: every one applies, and only the last one out restores
 -------------------------------------------------------------------------

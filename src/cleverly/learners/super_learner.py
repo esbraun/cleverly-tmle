@@ -27,13 +27,13 @@ from typing import Any, Literal
 
 import numpy as np
 from scipy import optimize
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, clone
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..utils.parallel import map_parallel
 from ._fitting import Task, as_target, fit_learner, infer_task, predict_mean
 from .crossfit import Folds, make_folds
-from .library import resolve_library
+from .library import _resolve_library
 
 __all__ = ["MetaLearner", "SuperLearner", "SuperLearnerDiagnostics", "resolve_learner"]
 
@@ -88,8 +88,9 @@ class SuperLearner(BaseEstimator):
     Parameters
     ----------
     library:
-        A preset name (``"glm"``, ``"fast"``, ``"default"``, ``"rich"``), a list of
-        scikit-learn estimators, or a list of ``(name, estimator)`` pairs.
+        A sequence of scikit-learn estimators or ``(name, estimator)`` pairs. When
+        omitted, the concrete default library is histogram gradient boosting, a
+        random forest, and a task-appropriate lasso model.
     task:
         ``"classification"`` for a 0/1 target, ``"regression"`` otherwise;
         ``None`` infers it from ``y`` at fit time.
@@ -119,7 +120,7 @@ class SuperLearner(BaseEstimator):
 
     def __init__(
         self,
-        library: str | Sequence[Any] | None = "default",
+        library: Sequence[Any] | None = None,
         *,
         task: Task | None = None,
         meta_learner: MetaLearner = "auto",
@@ -135,6 +136,8 @@ class SuperLearner(BaseEstimator):
         self.clip = clip
         self.random_state = random_state
         self.n_jobs = n_jobs
+        if library is not None:
+            _resolve_library(library, task or "regression", random_state=random_state)
 
     # -------------------------------------------------------------------- fit
 
@@ -170,10 +173,9 @@ class SuperLearner(BaseEstimator):
         if resolved_task == "classification" and levels.size > 2:
             return self._fit_one_vs_rest(x, target, weights, levels, groups)
 
-        library = resolve_library(
+        library = _resolve_library(
             self.library,
             resolved_task,
-            n_features=x.shape[1],
             random_state=self.random_state,
         )
         names = [name for name, _ in library]
@@ -514,19 +516,19 @@ def _solve_nnloglik(
 
 
 def resolve_learner(
-    spec: Learner | str | Sequence[Any] | None,
+    spec: Learner | None,
     *,
     task: Task,
     n_folds: int = 5,
     random_state: int | None = None,
-    fallback: Learner | str | Sequence[Any] | None = None,
+    fallback: Learner | None = None,
 ) -> Learner:
     """Turn a learner specification into an estimator ready to be fitted per fold.
 
-    A string or a sequence names a :class:`SuperLearner` library (see
-    :data:`cleverly.learners.LIBRARY_PRESETS`); ``None`` falls back to ``fallback``
-    and then to the ``"default"`` library; anything else is a scikit-learn compatible
-    estimator and is returned untouched.
+    ``None`` falls back to ``fallback`` and then to a concrete default
+    :class:`SuperLearner`. An explicit SuperLearner with no ``random_state`` inherits
+    the enclosing estimator's seed on a clone, so repeated cross-fitting redraws its
+    inner folds without mutating the caller's template.
 
     A free function rather than a method so that the C-TMLE candidate search -- and
     anything else that needs the same learner the estimator would have built -- does
@@ -534,13 +536,19 @@ def resolve_learner(
     """
     if spec is None:
         spec = fallback
-    if spec is None or isinstance(spec, (str, list, tuple)):
+    if spec is None:
         return SuperLearner(
-            library="default" if spec is None else spec,
             task=task,
             n_folds=n_folds,
             clip=(0.0, 1.0),
             random_state=random_state,
             n_jobs=1,
         )
+    if isinstance(spec, SuperLearner) and spec.random_state is None and random_state is not None:
+        inherited = clone(spec)
+        inherited.set_params(random_state=random_state)
+        return inherited
+    from .library import _validate_learner
+
+    _validate_learner(spec, "nuisance learner", optional=False)
     return spec

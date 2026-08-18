@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.fluctuation.submodel import (
     SUBMODEL_BUILDERS,
@@ -495,8 +496,8 @@ class TestTheScalingContract:
             covariates = [c for c in frame.columns if c.startswith("W")]
             result = (
                 TMLE(
-                    outcome_learner="glm",
-                    treatment_learner="glm",
+                    outcome_learner=sklearn.linear_model.LinearRegression(),
+                    treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                     n_folds=4,
                     random_state=7,
                     estimands=["ate", "nnt"],
@@ -520,8 +521,8 @@ class TestTheScalingContract:
             covariates = [c for c in frame.columns if c.startswith("W")]
             result = (
                 TMLE(
-                    outcome_learner="glm",
-                    treatment_learner="glm",
+                    outcome_learner=sklearn.linear_model.LinearRegression(),
+                    treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                     n_folds=4,
                     random_state=7,
                     estimands=["ate", "nnt"],

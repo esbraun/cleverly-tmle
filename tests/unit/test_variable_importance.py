@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import polars as pl
+import sklearn.linear_model
 
 from cleverly import variable_importance
 from cleverly.estimators import TMLE
@@ -30,8 +31,8 @@ def test_each_candidate_gets_its_own_declared_fit() -> None:
         candidates=("X1", "X2"),
         covariates=("W",),
         estimator=TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             simultaneous=False,
             random_state=1,
@@ -62,8 +63,8 @@ def test_the_summary_preserves_a_polars_callers_backend() -> None:
         candidates=("X1", "X2"),
         covariates=("W",),
         estimator=TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             simultaneous=False,
             random_state=4,

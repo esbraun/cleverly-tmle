@@ -27,6 +27,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn.linear_model
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.longitudinal import LTMLE, LongitudinalData
@@ -121,9 +122,9 @@ def test_the_outcome_regression_is_handed_the_covariate_history(
     LTMLE(
         REGIMENS,
         reference="never",
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=2,
         learner_folds=2,
         simultaneous=False,
@@ -152,9 +153,9 @@ def test_the_mechanism_is_handed_the_treatment_columns(
     LTMLE(
         REGIMENS,
         reference="never",
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=2,
         learner_folds=2,
         simultaneous=False,
@@ -189,9 +190,9 @@ class TestAThreeLevelArmEntersAsIndicators:
         LTMLE(
             {"low then off": (0, 0), "mid then on": (1, 1)},
             reference="low then off",
-            outcome_learner="glm",
-            pseudo_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            pseudo_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=2,
             learner_folds=2,
             simultaneous=False,

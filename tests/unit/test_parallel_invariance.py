@@ -53,6 +53,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.datasets import make_nonlinear_ate
 from cleverly.estimators import TMLE
@@ -69,8 +70,8 @@ def _fit(n_jobs: int) -> Any:
     return (
         TMLE(
             estimands=("ate", "att", "ey1", "ey0"),
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=5,
             learner_folds=3,
             random_state=0,

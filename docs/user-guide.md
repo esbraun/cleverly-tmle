@@ -16,6 +16,7 @@ the corresponding behavioral guarantees live in the fast and slow test tiers.
 ## Point treatment
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_nonlinear_ate
 
@@ -108,8 +109,8 @@ randomized = CausalStudy(
 )
 result = randomized.estimate(
     ATE(),
-    outcome_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     n_folds=3,
 )
 ```
@@ -275,9 +276,9 @@ longitudinal = CausalStudy(
 )
 result = longitudinal.estimate(
     RegimeContrast({"always": 1, "never": 0}, reference="always"),
-    outcome_learner="glm",
-    pseudo_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     n_folds=3,
     learner_folds=3,
     random_state=0,
@@ -307,9 +308,9 @@ survival = CausalStudy(
 )
 risks = survival.estimate(
     RegimeMean({"always": 1, "never": 0}, horizons=(1, 2)),
-    outcome_learner="glm",
-    pseudo_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     n_folds=3,
     learner_folds=3,
 )
@@ -335,9 +336,9 @@ competing = CausalStudy(
 )
 incidence = competing.estimate(
     RegimeMean({"always": 1, "never": 0}, horizons=(1, 2)),
-    outcome_learner="glm",
-    pseudo_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     n_folds=3,
     learner_folds=3,
 )
@@ -378,7 +379,9 @@ Cross-fitting policy is a named immutable group rather than a set of constructor
 from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod, Targeting
 
 method = TMLEMethod(
-    models=ModelSpec(outcome_learner="glm", treatment_learner="glm"),
+    models=ModelSpec(
+        outcome_learner=LinearRegression(), treatment_learner=LogisticRegression(max_iter=1000)
+    ),
     cross_fitting=CrossFitting(n_folds=5, learner_folds=3, repeats=1),
     targeting=Targeting(g_bounds="auto", algorithm="iterative"),
     inference=Inference(alpha=0.05, simultaneous=False),
@@ -409,14 +412,14 @@ covariance = result.covariance(names)
 if len(names) >= 2:
     difference = result.contrast(lambda values: values[0] - values[1], names[:2])
 
-result.save("analysis.npz")
-restored = load("analysis.npz")
+result.save("analysis.joblib")
+restored = load("analysis.joblib")
 assert restored.parameter_keys == result.parameter_keys
 ```
 
-The result stores `identified_effect`, normalized `method`, provenance, influence curves, and
-structured parameter keys. A restored effect is fitted metadata, not a hidden copy of the source
-data; construct a new `CausalStudy` to estimate it again.
+The joblib artifact contains the complete result and its nuisance estimator templates. Load only
+trusted files in a compatible Python and dependency environment: joblib uses pickle internally
+and loading can execute arbitrary code.
 
 Assessment is post-fit and capability-aware:
 

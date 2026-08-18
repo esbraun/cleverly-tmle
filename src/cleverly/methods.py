@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, TargetingScheme
 from .exceptions import MethodConfigurationError
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
+from .learners.library import _validate_learner
 
 __all__ = [
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
@@ -47,29 +48,31 @@ class MethodAvailability:
     reason: str | None = None
 
 
-#: Marks a field that may legitimately hold an object persistence cannot describe -- a fitted
-#: scikit-learn estimator, a ``SuperLearner``, a custom evaluation callable.  Such a field is
-#: written as a non-reconstructible placeholder rather than refusing the whole file, which is
-#: the rule ``docs/public-api-redesign.md`` states for custom configurations.  It is declared
-#: per field rather than inferred, so that an unrepresentable object appearing anywhere *else*
-#: still fails loudly instead of being quietly dropped.
-OPAQUE: dict[str, str] = {"persist": "opaque"}
-
-
 @dataclass(frozen=True)
 class ModelSpec:
     """Nuisance-learning choices for analytic point-treatment TMLE."""
 
-    outcome_learner: Any = field(default="default", metadata=OPAQUE)
-    treatment_learner: Any = field(default="default", metadata=OPAQUE)
-    missingness_learner: Any = field(default=None, metadata=OPAQUE)
-    intermediate_learner: Any = field(default=None, metadata=OPAQUE)
-    pseudo_learner: Any = field(default=None, metadata=OPAQUE)
-    censoring_learner: Any = field(default=None, metadata=OPAQUE)
+    outcome_learner: Any = None
+    treatment_learner: Any = None
+    missingness_learner: Any = None
+    intermediate_learner: Any = None
+    pseudo_learner: Any = None
+    censoring_learner: Any = None
     density_bins: int = 20
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "outcome_learner",
+            "treatment_learner",
+            "missingness_learner",
+            "intermediate_learner",
+            "pseudo_learner",
+            "censoring_learner",
+        ):
+            _validate_learner(getattr(self, name), name)
 
 
 @dataclass(frozen=True)
@@ -403,14 +406,18 @@ class DRTMLEMethod(TMLEMethod):
 
     guard: tuple[str, ...] = ("Q", "g")
     reduction: str = "univariate"
-    reduced_outcome_learner: Any = field(default=None, metadata=OPAQUE)
-    reduced_treatment_learner: Any = field(default=None, metadata=OPAQUE)
+    reduced_outcome_learner: Any = None
+    reduced_treatment_learner: Any = None
     reduced_crossfit: str = "pooled"
     update_order: str = "drtmle"
-    evaluation: Any = field(default=None, metadata=OPAQUE)
+    evaluation: Any = None
     randomized: bool = False
     treatment_probabilities: Any = None
     name: str = "drtmle"
+
+    def __post_init__(self) -> None:
+        _validate_learner(self.reduced_outcome_learner, "reduced_outcome_learner")
+        _validate_learner(self.reduced_treatment_learner, "reduced_treatment_learner")
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
         if longitudinal:

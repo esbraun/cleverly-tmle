@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn.linear_model
 
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
@@ -151,8 +152,8 @@ class TestTheScoreEquation:
         """
         result = (
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 random_state=0,
                 simultaneous=False,
@@ -173,8 +174,8 @@ class TestTheScoreEquation:
     def test_the_score_check_reports_one_z_per_arm(self) -> None:
         result = (
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 random_state=0,
                 simultaneous=False,
@@ -275,8 +276,8 @@ class TestTruncation:
     def test_the_deviation_from_the_simplex_is_reported(self) -> None:
         result = (
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 g_bounds=0.35,  # binds hard on three arms averaging a third each
                 random_state=0,
@@ -298,8 +299,8 @@ class TestWhatIsRefused:
     def test_binary_only_estimands_are_refused(self, estimand: str) -> None:
         with pytest.raises(ValueError, match="binary treatment only"):
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 estimands=(estimand,),
                 random_state=0,
             ).fit(_three_arm_frame(), outcome="Y", treatment="A")
@@ -309,8 +310,8 @@ class TestWhatIsRefused:
 
         result = (
             CTMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 strategy="discrete",
                 candidates=((), ("W1",)),
                 selection_folds=2,
@@ -332,8 +333,8 @@ class TestWhatIsRefused:
     def test_an_unknown_reference_names_the_levels_it_could_have_been(self) -> None:
         with pytest.raises(DataError, match="is not a level of A"):
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 reference="nope",
                 random_state=0,
                 estimands=("ate",),
@@ -385,8 +386,8 @@ class TestTheConditionalEffects:
     def _fit(**overrides):  # type: ignore[no-untyped-def]
         return (
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 random_state=0,

@@ -229,7 +229,7 @@ parts.
 :math:`[A, W, Z]` in main effects (see
 :meth:`~cleverly.data.causal_data.CausalData.treatment_design`); a controlled direct effect
 varies with :math:`z` only through an :math:`A \times Z` interaction in :math:`\bar Q`.  A
-learner that cannot represent one -- an additive ``"glm"``, for instance -- produces an
+learner that cannot represent one -- an additive linear regression, for instance -- produces an
 identical *initial* contrast at both levels, leaving the entire :math:`z`-dependence of the
 answer to the targeting step.  That is not wrong, but it puts far more weight on the
 mechanisms than a flexible library would; prefer a learner that can fit the interaction.

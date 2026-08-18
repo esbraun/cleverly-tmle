@@ -670,11 +670,8 @@ class TMLEResult:
         should not have to know which subsystem owns the question.  **Derived, never
         stored**: it is recomputed from the fluctuations a result carries, so a fit
         reloaded from disk answers with its own records rather than with a flag written
-        at fit time that nothing could check afterwards.  That only became true with
-        format version 10 -- see
-        :data:`~cleverly.estimators.serialize.FORMAT_VERSION` -- and the ordering was not
-        incidental: before it, a reloaded doubly-robust fit's records were two equations
-        short and this property would have been confidently wrong.
+        at fit time that nothing could check afterwards. Whole-result persistence retains
+        those records directly instead of rebuilding a partial result graph.
 
         Free: it reads cached arrays and refits nothing.
         """
@@ -683,17 +680,10 @@ class TMLEResult:
     # ---------------------------------------------------------------- output
 
     def save(self, path: Any) -> Any:
-        """Write this result to a single ``.npz`` file; see :func:`cleverly.load`.
+        """Write this result to a trusted joblib artifact; see :func:`cleverly.load`.
 
-        Arrays plus JSON -- no pickle, so the file does not depend on the exact
-        scikit-learn version that wrote it and is not an execution vector.  After a
-        round trip everything reached through :meth:`~cleverly.TMLE.retarget` works;
-        the two analyses that genuinely refit need the learners to have been library
-        specifications rather than fitted objects.
-
-        A result carrying structured identification is refused rather than written; the
-        refusal is in :func:`~cleverly.estimators.serialize.result_to_dict`, so that every
-        write path shares it rather than only this one.
+        Loading joblib data can execute arbitrary Python code. Only load files from a
+        trusted source in a compatible Python and dependency environment.
         """
         from .serialize import save as _save
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.datasets import make_linear_ate, make_nonlinear_ate, make_weak_overlap
 from cleverly.estimators import TMLE
@@ -323,8 +324,8 @@ class TestBootstrapAndBands:
         frame, _ = make_linear_ate(n=800, seed=44)
         result = (
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=4,
                 learner_folds=3,
                 random_state=0,
@@ -420,8 +421,8 @@ class TestArrayEntryPoint:
             frame["Y"].to_numpy(),
             frame["A"].to_numpy(),
             frame[["W1", "W2", "W3", "W4"]].to_numpy(),
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=4,
             estimands=("ate",),
             simultaneous=False,
@@ -441,8 +442,8 @@ class TestArrayEntryPoint:
             frame[["W1", "W2", "W3"]].to_numpy(),
             Delta=frame["Delta"].to_numpy(),
             obsWeights=np.ones(len(frame)),
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=4,
             estimands=("ate",),
             simultaneous=False,

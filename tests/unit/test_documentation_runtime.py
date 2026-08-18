@@ -141,9 +141,13 @@ _RESULT = (
     _STUDY
     + """
 from cleverly import CounterfactualMean
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 result = study.estimate(
-    CounterfactualMean(), outcome_learner="glm", treatment_learner="glm", random_state=3
+    CounterfactualMean(),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=3,
 )
 """
 )

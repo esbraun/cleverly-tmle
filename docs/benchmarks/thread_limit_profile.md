@@ -89,16 +89,13 @@ of scikit-learn calls, not what happens inside them.
 
 ## What the cache trades away, and how that is handled
 
-A controller records the pools that existed **when it was built**. One thing in this package
-loads a pool later: `cleverly.learners.library.has_lightgbm` imports LightGBM lazily, inside
-the function that builds the learner, which brings an OpenMP runtime with it. A controller
-cached at the first fit can therefore predate the pool it is supposed to limit.
+A controller records the pools that existed **when it was built**. A user-provided third-party
+estimator can load a native runtime after the controller is cached, so that controller can
+predate a pool it is supposed to limit.
 
 Nothing detects that automatically, and nothing should try — the detection *is* the walk the
-cache exists to avoid. So the invalidation is explicit and lives at the one place that loads
-a backend: `has_lightgbm` calls `refresh_thread_pools()` on the import, once, and caches its
-own answer so it does not call it again. `refresh_thread_pools` is public for a caller who
-`dlopen`s something itself.
+cache exists to avoid. So invalidation is explicit: a caller that loads a native backend later
+can call the public `refresh_thread_pools()` helper.
 
 Three other cases resolve without a hook, and `tests/unit/test_thread_limit.py` pins the
 behaviour rather than the reasoning:
@@ -139,6 +136,6 @@ limit from the coordinating thread" is not the fix it sounds like.
 
 The sixteen tests cover the limit being applied and restored, restoration after an exception,
 nesting (the inner exit restores the *enclosing* limit, not the original), `set_thread_limit(None)`,
-an explicit override of the configured default, the refresh mechanism, the `has_lightgbm`
-call site, concurrent construction, overlapping blocks across threads, a non-LIFO release, the
+an explicit override of the configured default, the refresh mechanism, concurrent construction,
+overlapping blocks across threads, a non-LIFO release, the
 thread-local OpenMP pool, a forked child's reset, and a build with no threadpoolctl at all.

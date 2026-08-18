@@ -6,10 +6,13 @@ Every fit on this page shares one parametric configuration, so the estimand is t
 changing between them:
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CrossFitting, ModelSpec, TMLEMethod
 
 quick = TMLEMethod(
-    models=ModelSpec(outcome_learner="glm", treatment_learner="glm"),
+    models=ModelSpec(
+        outcome_learner=LinearRegression(), treatment_learner=LogisticRegression(max_iter=1000)
+    ),
     cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
 )
 ```

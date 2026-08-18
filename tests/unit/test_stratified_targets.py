@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn.linear_model
 
 from cleverly import ATE, CapabilityError, CausalStudy, PointTreatment
 from cleverly.data import CausalData
@@ -27,8 +28,8 @@ def _frame(n: int = 240) -> pd.DataFrame:
 def _fit(frame: pd.DataFrame):  # type: ignore[no-untyped-def]
     return (
         TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             estimands=("ate", "att", "ey_obs", "par"),
             simultaneous=False,
@@ -103,8 +104,8 @@ def _study_fit():  # type: ignore[no-untyped-def]
         ),
     )
     return study.identify(ATE()).estimate(
-        outcome_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=3,
         learner_folds=2,
         random_state=2,
@@ -130,8 +131,8 @@ def _study_fit_with_missingness():  # type: ignore[no-untyped-def]
         ),
     )
     return study.identify(ATE()).estimate(
-        outcome_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=3,
         learner_folds=2,
         random_state=2,

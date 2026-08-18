@@ -6,6 +6,7 @@ of time-varying confounding and censoring.
 ## Design and regimens
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 from cleverly.datasets import make_longitudinal
 
@@ -35,9 +36,9 @@ nodes. The regimen contrast is “always treat” minus “never treat.”
 
 ```python
 result = effect.estimate(
-    outcome_learner="glm",
-    pseudo_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     n_folds=3,
     learner_folds=3,
     random_state=41,

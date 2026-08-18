@@ -210,8 +210,12 @@ Example
 -------
 >>> from cleverly.estimators import CTMLE
 >>> from cleverly.datasets import make_instrument
+>>> from sklearn.linear_model import LinearRegression, LogisticRegression
 >>> frame, truth = make_instrument(n=1000, seed=0)
->>> res = CTMLE(outcome_learner="glm", treatment_learner="glm").fit(
+>>> res = CTMLE(
+...     outcome_learner=LinearRegression(),
+...     treatment_learner=LogisticRegression(max_iter=1000),
+... ).fit(
 ...     frame, outcome="Y", treatment="A"
 ... ).single()
 >>> res.extra["ctmle"].selected_covariates            # doctest: +SKIP
@@ -232,6 +236,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import numpy as np
+from sklearn.linear_model import LogisticRegression
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
@@ -599,7 +604,7 @@ class CTMLE(TMLE):
         ``selection_folds``'s default moved.
 
         A value equal to the default passes whether or not it was written out, which is
-        deliberate rather than a gap: :class:`~cleverly.estimators.recipe.TMLERecipe`
+        deliberate rather than a gap: whole-result persistence
         records every constructor setting by name, so a reloaded ``oat`` fit arrives with
         all four of these supplied explicitly and has to rebuild rather than raise.
         """
@@ -1209,12 +1214,7 @@ class _Selector:
 
         if self.est.preorder == "logistic":
             score_values = []
-            logistic = resolve_learner(
-                "glm",
-                task="classification",
-                n_folds=self.est.learner_folds,
-                random_state=self.seed,
-            )
+            logistic = LogisticRegression(C=1e6, max_iter=1000, random_state=self.seed)
             for name in self.data.covariate_names:
                 propensity = self._fit_propensity_with(logistic, (name,), train)
                 submodel = self.submodel(propensity)

@@ -35,6 +35,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 from sklearn.base import BaseEstimator
 
 from cleverly.estimators import TMLE
@@ -112,8 +113,8 @@ def _fit(z: float) -> Any:
     call's messages rather than as "this level warns, that level does not".
     """
     estimator = TMLE(
-        outcome_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         intermediate_learner=_ConstantIntermediate(),
         n_folds=3,
         random_state=0,
@@ -216,8 +217,8 @@ def overlapping_fit() -> Any:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=3,
             random_state=0,
             simultaneous=False,

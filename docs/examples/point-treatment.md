@@ -6,6 +6,7 @@ uses an explicit method configuration, and compares the estimate with the known 
 ## Data and question
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_nonlinear_ate
 
@@ -34,7 +35,9 @@ exchangeability given the four adjustment variables, and treatment positivity.
 from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod
 
 method = TMLEMethod(
-    models=ModelSpec(outcome_learner="glm", treatment_learner="glm"),
+    models=ModelSpec(
+        outcome_learner=LinearRegression(), treatment_learner=LogisticRegression(max_iter=1000)
+    ),
     cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
     inference=Inference(alpha=0.05),
     runtime=Runtime(random_state=21, n_jobs=1),
@@ -58,7 +61,7 @@ print(result.diagnostics.support().summary())
 print(result.diagnostics.nuisance_models().summary())
 print(result.diagnostics.score_equations().summary())
 
-result.save("nonlinear-ate.npz")
+result.save("nonlinear-ate.joblib")
 ```
 
 See [Point-treatment TMLE](../technical-reference/point-treatment.md) for the parameter and

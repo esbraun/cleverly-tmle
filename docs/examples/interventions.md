@@ -7,6 +7,7 @@ parameters even when their result tables look similar.
 ## A dynamic rule
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CausalStudy, PointTreatment, RegimeContrast
 from cleverly.datasets import make_nonlinear_ate
 from cleverly.interventions import Rule, Static
@@ -27,8 +28,8 @@ plans = (
 )
 rule_result = study.estimate(
     RegimeContrast(plans, reference="treat none"),
-    outcome_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     random_state=31,
 )
 print(rule_result.summary())
@@ -61,8 +62,8 @@ policies = (
 )
 shift_result = dose_study.estimate(
     ModifiedTreatmentPolicyEffect(policies),
-    outcome_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     density_bins=40,
     random_state=32,
 )
@@ -86,8 +87,8 @@ from cleverly.interventions import Incremental
 tilts = (Incremental(0.5), Incremental(1.0), Incremental(2.0))
 incremental_result = study.estimate(
     IncrementalEffect(tilts),
-    outcome_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     random_state=31,
 )
 print(incremental_result.summary())

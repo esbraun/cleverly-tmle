@@ -116,11 +116,11 @@ failures derive from `CleverlyError`, so callers never have to catch implementat
 derivation makes a currently point-only setting operational.
 
 Every causal result carries its `IdentifiedEffect`, normalized method, and structured
-`ParameterKey` mapping. Persistence round-trips those records with arrays and allow-listed
-structured values, never arbitrary pickle execution. Restored identification metadata does not
-retain analysis data and therefore cannot be used to refit silently. *Reconsider when* a separate,
-explicit reconstructible-analysis artifact is designed with input provenance and callable
-serialization rules.
+`ParameterKey` mapping. Persistence round-trips the complete result graph with joblib, including
+the fitted arrays, estimator configuration, analysis data, and nuisance-estimator templates.
+Loading therefore has pickle's arbitrary-code-execution risk and is restricted to trusted
+artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
+format can represent arbitrary third-party sklearn-compatible models without weakening replay.
 
 Assessment is routed by declared fitted artifacts, not result-class names or parsed parameter
 aliases. Every public result family has an explicit supported, `not_applicable`, or `unavailable`

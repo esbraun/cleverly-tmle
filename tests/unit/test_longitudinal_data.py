@@ -9,7 +9,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn.linear_model
+from sklearn.dummy import DummyClassifier
 
+from cleverly import SuperLearner
 from cleverly.exceptions import DataError, DataWarning, WeightingWarning
 from cleverly.longitudinal import (
     DynamicRegimen,
@@ -136,9 +139,17 @@ class TestWhatARuleIsHandedAndWhatItMayReturn:
 
         LTMLE(
             {"watched": (watcher, watcher)},
-            outcome_learner="glm",
-            pseudo_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            pseudo_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=SuperLearner(
+                [
+                    DummyClassifier(strategy="prior"),
+                    sklearn.linear_model.LogisticRegression(max_iter=1000),
+                ],
+                task="classification",
+                n_folds=2,
+                random_state=0,
+            ),
             n_folds=2,
             learner_folds=2,
             random_state=0,
@@ -233,9 +244,9 @@ def test_the_fill_cannot_reach_the_estimate() -> None:
     }
     frame = panel(n=400, seed=3)
     settings: dict[str, Any] = {
-        "outcome_learner": "glm",
-        "pseudo_learner": "glm",
-        "treatment_learner": "glm",
+        "outcome_learner": sklearn.linear_model.LinearRegression(),
+        "pseudo_learner": sklearn.linear_model.LinearRegression(),
+        "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "n_folds": 2,
         "learner_folds": 2,
         "random_state": 0,
@@ -328,9 +339,9 @@ def test_a_crossfit_refuses_a_training_fold_without_every_level() -> None:
     ):
         LTMLE(
             {"observed third arm": (0, 2)},
-            outcome_learner="glm",
-            pseudo_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            pseudo_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=2,
             learner_folds=2,
             random_state=0,
@@ -353,9 +364,17 @@ def test_a_binary_node_keeps_the_degenerate_fold_fallback() -> None:
     with pytest.raises(LongitudinalError, match="no unit followed regimen"):
         LTMLE(
             {"treat throughout": (1, 1)},
-            outcome_learner="glm",
-            pseudo_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            pseudo_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=SuperLearner(
+                [
+                    DummyClassifier(strategy="prior"),
+                    sklearn.linear_model.LogisticRegression(max_iter=1000),
+                ],
+                task="classification",
+                n_folds=2,
+                random_state=0,
+            ),
             n_folds=2,
             learner_folds=2,
             random_state=0,
@@ -382,9 +401,9 @@ def test_the_refusal_names_the_arms_a_rule_wanted() -> None:
     with pytest.raises(LongitudinalError, match=r"assigned 'intensive' to \d+, 'none' to 0"):
         LTMLE(
             {"escalate": (0, lambda history: np.full(len(history), "intensive"))},
-            outcome_learner="glm",
-            pseudo_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            pseudo_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=1,
             random_state=0,
         ).fit(frame, **COLUMNS)

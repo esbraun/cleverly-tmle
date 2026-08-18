@@ -49,3 +49,16 @@ def test_old_import_fit_roles_and_single_are_reported(tmp_path: Path) -> None:
     assert "move estimator fit role(s)" in completed.stdout
     assert ".single() was removed" in completed.stdout
     assert "no files were changed" in completed.stdout
+
+
+def test_string_learner_slots_are_reported(tmp_path: Path) -> None:
+    source = tmp_path / "learner.py"
+    source.write_text(
+        "from cleverly import ModelSpec\n"
+        "models = ModelSpec(outcome_learner='glm', treatment_learner='default')\n",
+        encoding="utf-8",
+    )
+    completed = run(source)
+    assert completed.returncode == 1
+    assert "outcome_learner no longer accepts learner name 'glm'" in completed.stdout
+    assert "treatment_learner no longer accepts learner name 'default'" in completed.stdout

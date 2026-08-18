@@ -15,9 +15,14 @@ import pytest
 from cleverly import load
 from cleverly.datasets import make_linear_ate
 from cleverly.estimators import TMLE
+from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import DataError
 from cleverly.interventions import Rule, Static, Stochastic
 from tests.conftest import FAST_KWARGS
+
+
+def _positive_w1(w):
+    return (np.asarray(w["W1"]) > 0).astype(int)
 
 
 @pytest.fixture(scope="module")
@@ -176,7 +181,7 @@ class TestTheRegimesTravelWithTheFit:
             frame,
             interventions=(
                 Static(0, name="never"),
-                Rule(lambda w: (np.asarray(w["W1"]) > 0).astype(int), name="rule"),
+                Rule(_positive_w1, name="rule"),
             ),
         )
 
@@ -196,32 +201,26 @@ class TestTheRegimesTravelWithTheFit:
         assert names == set(result.estimates)
 
     def test_a_round_trip_preserves_every_number(self, result, tmp_path) -> None:
-        path = tmp_path / "regime.npz"
+        path = tmp_path / "regime.joblib"
         result.save(path)
         loaded = load(path)
         for name, estimate in result.estimates.items():
             assert loaded.estimates[name].psi == estimate.psi
             assert np.array_equal(loaded.estimates[name].influence_curve, estimate.influence_curve)
         # The evaluated densities travel, so everything reached through retarget still
-        # targets the regimes the fit declared -- even though the rule is long gone.
+        # targets the regimes the fit declared, with the importable rule retained.
         assert loaded.nuisance.regimes is not None
         np.testing.assert_array_equal(
             loaded.nuisance.regimes.values, result.nuisance.regimes.values
         )
         assert loaded.sensitivity.support().regimes.keys() == {"never", "rule"}
 
-    def test_a_rule_cannot_be_rebuilt_from_the_recipe(self, result) -> None:
-        """Honest rather than convenient: a callable is not describable by a recipe."""
-        from cleverly.estimators.recipe import TMLERecipe
-
-        recipe = TMLERecipe.from_estimator(result.estimator)
-        assert not recipe.learners_reconstructible
-        with pytest.raises(ValueError, match="rule or a stochastic density"):
-            recipe.build()
+    def test_an_importable_rule_survives_whole_result_persistence(self, result) -> None:
+        restored = loads(dumps(result))
+        assert type(restored.estimator.interventions[1]).__name__ == "Rule"
+        assert restored.replayability.refit_nuisances
 
     def test_static_regimes_can_be_rebuilt(self, frame) -> None:
-        from cleverly.estimators.recipe import TMLERecipe
-
         result = fit(frame, interventions=(Static(0), Static(1)))
-        rebuilt = TMLERecipe.from_estimator(result.estimator).build()
-        assert [item.level for item in rebuilt.interventions] == [0, 1]
+        restored = loads(dumps(result))
+        assert [item.level for item in restored.estimator.interventions] == [0, 1]

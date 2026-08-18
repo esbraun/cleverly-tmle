@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn.linear_model
 
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
@@ -22,8 +23,8 @@ def _fit():  # type: ignore[no-untyped-def]
     return (
         TMLE(
             msm=model,
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             density_bins=8,
             simultaneous=False,

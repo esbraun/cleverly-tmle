@@ -6,6 +6,7 @@ import dataclasses
 
 import pandas as pd
 import pytest
+import sklearn.linear_model
 
 from cleverly import (
     ATE,
@@ -37,8 +38,8 @@ def point_result():  # type: ignore[no-untyped-def]
         )
         .identify(ATE())
         .estimate(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=3,
             learner_folds=2,
             random_state=4,
@@ -61,10 +62,10 @@ def longitudinal_result():  # type: ignore[no-untyped-def]
         ),
     )
     return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
-        censoring_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        censoring_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=3,
         learner_folds=2,
         random_state=5,
@@ -167,7 +168,7 @@ def test_cached_assessments_replay_after_persistence(
     validation = result.validate()
     diagnostics = result.diagnostics.run_all()
     cache_keys = set(result.assessment_cache)
-    restored = load(result.save(tmp_path / f"{fixture_name}.npz"))
+    restored = load(result.save(tmp_path / f"{fixture_name}.joblib"))
 
     assert set(restored.assessment_cache) == cache_keys
     assert restored.validate() == validation
@@ -176,7 +177,7 @@ def test_cached_assessments_replay_after_persistence(
 
 def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
     before = point_result.sensitivity.truncation_curve(bounds=[0.02, 0.05])
-    restored = load(point_result.save(tmp_path / "cached-frame.npz"))
+    restored = load(point_result.save(tmp_path / "cached-frame.joblib"))
     after = restored.sensitivity.truncation_curve(bounds=[0.02, 0.05])
     assert isinstance(after, pd.DataFrame)
     pd.testing.assert_frame_equal(after, before, check_exact=True)
@@ -260,8 +261,8 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
         )
         with pytest.warns(PositivityWarning, match="above the largest one observed"):
             return study.identify(ModifiedTreatmentPolicy(shifts=[Shift(3.0, cap=None)])).estimate(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=3,
                 learner_folds=2,
                 random_state=0,
@@ -298,8 +299,8 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
             )
             .identify(IncrementalMean(interventions=[Incremental(2.0)]))
             .estimate(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=3,
                 learner_folds=2,
                 random_state=4,
@@ -338,8 +339,8 @@ class TestCapabilityRowsDoNotContradictThemselves:
             )
             .identify(ATE())
             .estimate(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=3,
                 learner_folds=2,
                 random_state=4,

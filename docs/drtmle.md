@@ -72,6 +72,7 @@ cleverly fit against a two-arm `drtmle` fit should expect agreement in the equat
 rather than in the iterates.
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import ATE, CausalStudy, DRTMLEMethod, PointTreatment
 from cleverly.datasets import make_nonlinear_ate
 
@@ -87,8 +88,8 @@ study = CausalStudy(
 res = study.estimate(
     ATE(),
     method=DRTMLEMethod(guard=("Q", "g")),
-    outcome_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     random_state=0,
 )
 ```
@@ -108,7 +109,7 @@ bit for bit.
 | `weights=` | **fixed analysis weights only.** The estimand is the parameter of the tilted law `dP_w = w dP / E[w]`. The derivation was read at an unweighted law; transporting it needs the reduced regressions to be `P_w`-conditional expectations, which weighted loss gives, *and* the mechanism they condition on and divide by to be the `P_w` mechanism, which holds because they are built from `nuisance.propensity`. `tests/unit/test_remainder_drtmle.py` runs the whole expansion at two tilted laws and keeps the wrong transport as a control that fails. |
 | `repeats=` | supported; varies exactly one thing, the **primary split**. Each draw fits its own reductions and runs its own alternation; the report is the mean of the draws with the curves averaged elementwise. `result.extra["drtmle"]` describes **draw 0 only**. |
 | `reduction="bivariate"` | supported for complete outcomes and discrete treatment. It fits one reduced probability on the two-column `(Qbar-hat(a,W), g-hat(a|W))` design and uses van der Laan's distinct `D_Y`, once per arm as the pinned R implementation does; univariate remains the default because its reduced regressions can converge faster. The cited theorem is binary, so the multi-arm case is an implementation-backed armwise extension rather than a claim about that theorem's literal scope. |
-| `library="rich"` | computes, but steps **outside** the cross-fitting argument of [section 3](#reduced-regression-cross-fitting) via `forest`, whose fitted class grows with `n`. Not refused; scoped. |
+| a random-forest reduction learner | computes, but steps **outside** the cross-fitting argument of [section 3](#reduced-regression-cross-fitting), because its fitted class grows with `n`. Not refused; scoped. |
 | `g_bounds=` a fixed value | permitted, and it puts the fit outside the asymptotic half of the [bound-inactive scope](#the-bound-inactive-scope): the argument needs a bound *sequence* going to zero, which `"auto"` supplies and a fixed bound above `ess inf g_0` does not. |
 
 ### Refused by name
@@ -299,9 +300,9 @@ row-aligned probabilities and bypasses the treatment learner. Prefer the mapping
 `{"placebo": p0, "active": p1}`: the positional forms bind to arm *codes*, which are indices into
 the sorted levels, so a `(n,)` vector is the probability of the second sorted level and not of
 "the treated arm". Observational treatment and missing treatment remain refused because this paper
-does not derive those compositions. Because known probabilities are row-aligned fit data, a saved
-result preserves all fitted arrays and retargeting operations but deliberately cannot reconstruct
-an estimator for later refits whose row identity and order cannot be proved.
+does not derive those compositions. Known probabilities are row-aligned fit data and are retained
+with the complete fitted result in the trusted joblib artifact, together with the estimator needed
+for supported later refits.
 
 ### The sign of the mechanism correction
 
@@ -594,10 +595,9 @@ many covariates the fit adjusted for. Composition with a fixed map transports br
 so the entropy requirement falls entirely on a class of functions of at most two variables and
 not at all on the primary nuisances' complexity. The measure-free
 phrasing is not pedantry — the pushforward is a *random* measure, so a bound holding at `P_0` says
-nothing. `mean`, `glm`, `glmnet` and `gam` are bounded fixed-dimension sieves; `boost` is a fixed
-bounded-variation ball, because `max_iter=200`, `learning_rate=0.05`, `max_leaf_nodes=15` and
-`early_stopping=False` are **hard-coded constants** in `learners/library.py` — a CV-selected round
-count would take boosting out of the class. `forest` is outside, so `library="rich"` is outside.
+nothing. A fixed-basis linear or logistic model is a bounded fixed-dimensional sieve; histogram
+boosting is a fixed bounded-variation ball when its iteration and leaf limits are fixed. A
+CV-selected round count would take boosting out of the class. A random forest is outside.
 
 > **(S)** `‖Δ_k‖_{L_2} = o_p(1)` — the reduction fit is `L_2`-continuous in the design and target
 > columns it is handed.
@@ -605,8 +605,8 @@ count would take boosting out of the class. `forest` is outside, so `library="ri
 **(S) is the open condition.** It is free for a fixed-basis linear smoother and not free for
 anything that *selects* structure from the data — a split point, a bandwidth, a CV-chosen
 candidate — where an arbitrarily small design perturbation can move the selection discretely.
-Boosting is entropy-safe and design-continuity-unsafe, and it is the default reduction learner
-whenever the primary one is boosting. `reduced_crossfit="nested"` is what computes `Δ_k`; a
+Boosting is entropy-safe and design-continuity-unsafe. `reduced_crossfit="nested"` is what
+computes `Δ_k`; a
 measured dispatch put its consequence on `ψ` at or below what a redrawn fold split moves in every
 cell, which is **supported, not shown**, since a consequence can hold by cancellation.
 
@@ -671,8 +671,9 @@ Practical consequences:
 - **A flexible primary nuisance does not buy a flexible reduction.** The reductions are on one
   scalar by default and two for bivariate `g_r`, so their bias is a low-dimensional smoothing
   question independent of how well the primary fit adjusted for `W`.
-- **`library="rich"` is outside the entropy condition** of
-  [section 3](#reduced-regression-cross-fitting) via `forest`, and is not warned about at runtime.
+- **A random-forest reduction is outside the entropy condition** of
+  [section 3](#reduced-regression-cross-fitting), and is not warned about at runtime. The automatic
+  Super Learner includes a forest, so choose explicit reduced learners when claiming that condition.
 
 ---
 

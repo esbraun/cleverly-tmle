@@ -31,6 +31,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn.linear_model
 from sklearn.base import BaseEstimator
 
 from cleverly.estimators import TMLE
@@ -311,8 +312,8 @@ def missing_fit() -> Any:
     """A three-armed fit with missing outcomes, reporting every tiltable parameter."""
     return (
         TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             missingness_learner=ArmMissingness(),
             n_folds=5,
             learner_folds=3,
@@ -510,8 +511,8 @@ class TestTheEValueAtThreeArms:
         frame, _ = make_binary_outcome(n=800, seed=5)
         fit = (
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 estimands=("ate", "ey1", "ey0"),
@@ -561,9 +562,9 @@ class TestTheTiltFollowsTheDeclaredReference:
         frame, _ = make_missing_outcome(n=800, seed=11)
         return (
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
-                missingness_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 estimands=("ate", "att", "atc"),

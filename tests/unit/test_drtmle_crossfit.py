@@ -61,6 +61,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.data import CausalData
 from cleverly.datasets import make_linear_ate
@@ -108,10 +109,10 @@ def source_cv_fit() -> Any:
     return (
         DRTMLE(
             estimands=("ey1", "ey0"),
-            outcome_learner="glm",
-            treatment_learner="glm",
-            reduced_outcome_learner="glm",
-            reduced_treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+            reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=FOLDS,
             learner_folds=2,
             random_state=0,
@@ -609,9 +610,16 @@ class TestADegenerateInnerDesignReproducesThePooledFit:
 def _learning_pair(**settings: Any) -> dict[str, Any]:
     """The same fit under both constructions, at primary learners that *do* learn."""
     return {
-        "pooled": _fit(outcome_learner="glm", treatment_learner="glm", **settings),
+        "pooled": _fit(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            **settings,
+        ),
         "nested": _fit(
-            reduced_crossfit="nested", outcome_learner="glm", treatment_learner="glm", **settings
+            reduced_crossfit="nested",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            **settings,
         ),
     }
 
@@ -626,7 +634,10 @@ class TestWhereTheDesignsDifferTheConstructionsDo:
 
     @pytest.fixture(scope="class")
     def pair(self) -> dict[str, Any]:
-        return _learning_pair(reduced_outcome_learner="glm", reduced_treatment_learner="glm")
+        return _learning_pair(
+            reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+            reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        )
 
     @pytest.mark.parametrize("name", ["qr", "gr1", "gr2"])
     def test_the_reductions_move(self, pair: dict[str, Any], name: str) -> None:
@@ -655,10 +666,10 @@ class TestWhereTheDesignsDifferTheConstructionsDo:
         nested, pooled = pair["nested"], pair["pooled"]
         estimator = DRTMLE(
             reduced_crossfit="nested",
-            outcome_learner="glm",
-            treatment_learner="glm",
-            reduced_outcome_learner="glm",
-            reduced_treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+            reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             estimands=("ate",),
             cross_fit=True,
             n_folds=FOLDS,
@@ -687,8 +698,8 @@ class TestEachRepeatedDrawGetsItsOwnFoldFreeDesigns:
     def repeated(self) -> Any:
         return DRTMLE(
             reduced_crossfit="nested",
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             estimands=("ate",),
             cross_fit=True,
             n_folds=FOLDS,

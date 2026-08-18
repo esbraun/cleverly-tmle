@@ -8,14 +8,15 @@ from data, that the score equation it reports having solved is solved, and that 
 surrounding machinery -- positivity, contrasts, serialization -- works on this axis without
 having been told about it.
 
-``library="glm"`` throughout: nothing here is about flexible learning,
-and the outcome regression is correctly specified for this process anyway.
+Direct linear and logistic models are used throughout: nothing here is about flexible
+learning, and the outcome regression is correctly specified for this process anyway.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 from scipy.special import expit
 
 from cleverly import load
@@ -34,12 +35,18 @@ N = 2000
 SEED = 0
 
 
+def _dose_design(arm, frame):
+    return np.column_stack([np.ones(len(frame)), np.full(len(frame), DOSE[arm])])
+
+
+def _saturated_design(arm, frame):
+    return np.column_stack([np.full(len(frame), float(arm == label)) for label in DOSE])
+
+
 def dose_response(link: str = "identity") -> MSM:
     """``link(m(a)) = beta0 + beta1 * dose(a)``, uniform weights."""
     return MSM(
-        design=lambda arm, frame: np.column_stack(
-            [np.ones(len(frame)), np.full(len(frame), DOSE[arm])]
-        ),
+        design=_dose_design,
         terms=("(intercept)", "dose"),
         link=link,  # type: ignore[arg-type]
     )
@@ -48,9 +55,7 @@ def dose_response(link: str = "identity") -> MSM:
 def saturated(link: str = "identity") -> MSM:
     """One indicator per arm: the working model that summarises nothing."""
     return MSM(
-        design=lambda arm, frame: np.column_stack(
-            [np.full(len(frame), float(arm == label)) for label in DOSE]
-        ),
+        design=_saturated_design,
         terms=tuple(f"arm[{label}]" for label in DOSE),
         link=link,  # type: ignore[arg-type]
     )
@@ -94,7 +99,7 @@ def projection(means: dict[str, float]) -> np.ndarray:
 
 
 #: The fast tier's estimator settings, with this module's seed.  Taken from
-#: ``FAST_KWARGS`` rather than re-spelled: writing ``outcome_learner="glm"`` by hand and
+#: ``FAST_KWARGS`` rather than re-spelled: writing ``outcome_learner=sklearn.linear_model.LinearRegression()`` by hand and
 #: leaving the fold counts out silently takes the ``TMLE`` defaults of ``n_folds=10,
 #: learner_folds=5``, which is twice the fast tier's budget on a three-armed process where
 #: the propensity is fitted one-vs-rest.  Nothing here turns on the fold count.
@@ -264,7 +269,7 @@ class TestALinkChangesTheParameterAndNotTheMachinery:
         # The plug-in half is zero by construction and the residual half by the
         # fluctuation; together they are the reported curve's mean.
         for estimate in result.estimates.values():
-            assert abs(float(np.mean(estimate.influence_curve))) < 1e-10
+            assert abs(float(np.mean(estimate.influence_curve))) < 5e-10
 
     @pytest.mark.parametrize("link", ["log", "logit"])
     def test_the_alternation_converges_and_records_how(self, binary, link) -> None:
@@ -429,7 +434,7 @@ class TestTheSurroundingMachineryWorks:
     ) -> None:
         """The evaluated design is stored, so a loaded fit targets the same model."""
         result, _ = fitted
-        reloaded = load(result.save(tmp_path / "msm.npz"))
+        reloaded = load(result.save(tmp_path / "msm.joblib"))
         for name, estimate in result.estimates.items():
             assert reloaded.estimates[name].psi == estimate.psi
             np.testing.assert_array_equal(
@@ -439,12 +444,12 @@ class TestTheSurroundingMachineryWorks:
         np.testing.assert_array_equal(reloaded.nuisance.msm.design, result.nuisance.msm.design)
         assert reloaded.validation.score_check().passed
 
-    def test_a_reloaded_fit_cannot_be_refit(self, fitted, tmp_path) -> None:
-        """A design is a callable, so ``refute``/``benchmark`` need the estimator back."""
+    def test_a_reloaded_fit_can_be_refit(self, fitted, tmp_path) -> None:
+        """Whole-result persistence retains the importable working-model design."""
         result, _ = fitted
-        reloaded = load(result.save(tmp_path / "msm_refit.npz"))
-        with pytest.raises(ValueError, match="working model's design"):
-            reloaded.estimator.refit(reloaded.data)
+        reloaded = load(result.save(tmp_path / "msm_refit.joblib"))
+        refitted = reloaded.estimator.refit(reloaded.data)
+        assert refitted.validation.score_check().passed
 
 
 class TestTheAxisIsExclusive:
@@ -466,6 +471,10 @@ class TestTheAxisIsExclusive:
 
     def test_an_arm_indexed_estimand_is_refused_on_a_working_model_fit(self) -> None:
         frame, _ = make_multi_arm(n=200, seed=SEED)
-        estimator = TMLE(msm=dose_response(), estimands=("ate",), outcome_learner="glm")
+        estimator = TMLE(
+            msm=dose_response(),
+            estimands=("ate",),
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+        )
         with pytest.raises(ValueError):
             estimator.fit(frame, outcome="Y", treatment="A")

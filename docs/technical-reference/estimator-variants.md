@@ -13,8 +13,7 @@ framework; Levy (2018) identifies the stacked construction. The pinned `tmle3` `
 and its `sl3` fold/full-prediction dependency corroborate the engineering semantics. They are
 recorded in the [general targeted-learning references](../references.md#targeted-learning-in-general).
 
-Implementation: [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py),
-[`estimators/recipe.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/recipe.py),
+Implementation: [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py)
 and [`learners/crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/crossfit.py).
 Evidence: out-of-fold leakage controls and externally supplied fold integrity in
 [`tests/unit/test_crossfit_leakage.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_crossfit_leakage.py), repeated-split

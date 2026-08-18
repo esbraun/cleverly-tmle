@@ -16,6 +16,7 @@ Use `PointTreatment` for one treatment node and `LongitudinalTreatment` for an o
 history. Column roles are part of the design rather than learner arguments.
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CausalStudy, PointTreatment
 
 study = CausalStudy(
@@ -68,7 +69,9 @@ auditable configuration:
 from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod
 
 method = TMLEMethod(
-    models=ModelSpec(outcome_learner="glm", treatment_learner="glm"),
+    models=ModelSpec(
+        outcome_learner=LinearRegression(), treatment_learner=LogisticRegression(max_iter=1000)
+    ),
     cross_fitting=CrossFitting(n_folds=5, learner_folds=3, repeats=1),
     inference=Inference(alpha=0.05, simultaneous=False),
     runtime=Runtime(random_state=17, n_jobs=1),
@@ -99,8 +102,9 @@ configuration, estimate and interval, support diagnostics, sensitivity analysis,
 version or commit. Save structured results when an audit trail matters:
 
 ```python
-result.save("analysis.npz")
+result.save("analysis.joblib")
 ```
 
-The allow-listed format stores arrays and structured metadata without pickling arbitrary objects.
-See [results, inference, and assessment](user-guide/results-assessment.md) for replayability rules.
+The joblib artifact stores the complete fitted result, including estimator configuration and
+nuisance-model objects. Load only trusted artifacts in a compatible Python environment. See
+[results, inference, and assessment](user-guide/results-assessment.md) for replayability rules.

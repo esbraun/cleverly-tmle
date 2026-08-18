@@ -15,6 +15,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly import load
 from cleverly._typing import FloatArray
@@ -29,8 +30,8 @@ def _fit(n: int = 800, seed: int = 0, **overrides):
     frame, _ = make_multi_arm(n=n, seed=seed)
     estimator = TMLE(
         **{
-            "outcome_learner": "glm",
-            "treatment_learner": "glm",
+            "outcome_learner": sklearn.linear_model.LinearRegression(),
+            "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
             "n_folds": 5,
             "learner_folds": 3,
             "random_state": 0,
@@ -127,7 +128,7 @@ class TestTheRestOfTheStackStillWorks:
         assert fit.validation.score_check().passed
 
     def test_a_round_trip_changes_nothing(self, fit, tmp_path) -> None:
-        path = tmp_path / "multi.npz"
+        path = tmp_path / "multi.joblib"
         fit.save(path)
         reloaded = load(path)
         assert set(reloaded.estimates) == set(fit.estimates)
@@ -155,7 +156,7 @@ class TestTheRestOfTheStackStillWorks:
         against the closed form; this checks that persistence does not move it.
         """
         name = "ate[medium vs high]"
-        path = tmp_path / "multi-sensitivity.npz"
+        path = tmp_path / "multi-sensitivity.joblib"
         fit.save(path)
         reloaded = load(path)
         assert reloaded.sensitivity.omitted_variable(name).max_bias == pytest.approx(
@@ -199,8 +200,8 @@ class TestTheConditionalEffects:
         frame, _ = process.sample(2000, seed=3)
         result = (
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 random_state=0,

@@ -6,6 +6,7 @@ fitted artifacts until an operation is explicitly documented as a refit.
 ## Fit and inspect capabilities
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_weak_overlap
 
@@ -18,7 +19,12 @@ study = CausalStudy(
         adjustment=("W1", "W2"),
     ),
 )
-result = study.estimate(ATE(), outcome_learner="glm", treatment_learner="glm", random_state=51)
+result = study.estimate(
+    ATE(),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    random_state=51,
+)
 
 for capability in result.diagnostics.capabilities:
     print(capability.operation, capability.cost, capability.execution)
@@ -45,14 +51,14 @@ truncation behavior, not from one universal propensity threshold.
 ```python
 from cleverly import load
 
-result.save("assessed-result.npz")
-restored = load("assessed-result.npz")
+result.save("assessed-result.joblib")
+restored = load("assessed-result.joblib")
 
 print(restored.replayability)
 print(restored.diagnostics.run_all().summary())
 assert restored.parameter_keys == result.parameter_keys
 ```
 
-Cached reports remain available without source data. A custom learner object may not be
-reconstructible for a new fit; replayability names that limitation rather than substituting a
-default learner. See [Inference, diagnostics, and sensitivity](../technical-reference/inference-assessment.md).
+The whole result, including its nuisance estimator templates, is restored. Load only trusted
+joblib artifacts and use compatible dependency versions. See
+[Inference, diagnostics, and sensitivity](../technical-reference/inference-assessment.md).

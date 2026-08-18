@@ -48,6 +48,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.estimators import DRTMLE
 from cleverly.estimators.reduced import ReducedSet
@@ -214,7 +215,11 @@ def fits() -> dict[str, Any]:
     return {
         "oracle": _fit(OracleReductionDRTMLE),
         "saturated": _fit(DRTMLE),
-        "glm": _fit(DRTMLE, reduced_outcome_learner="glm", reduced_treatment_learner="glm"),
+        "glm": _fit(
+            DRTMLE,
+            reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+            reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        ),
     }
 
 

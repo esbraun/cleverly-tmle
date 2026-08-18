@@ -18,6 +18,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.datasets import GENERATORS
 from cleverly.estimators import CTMLE, TMLE
@@ -33,9 +34,9 @@ def _frame():  # type: ignore[no-untyped-def]
 def _fit(shared: bool):  # type: ignore[no-untyped-def]
     frame, covariates = _frame()
     estimator = TMLE(
-        outcome_learner="glm",
-        treatment_learner="glm",
-        intermediate_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        intermediate_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=4,
         random_state=7,
     )
@@ -125,7 +126,12 @@ class TestAtLevel:
         frame, _ = GENERATORS["linear_ate"](n=200, seed=1)
         covariates = [c for c in frame.columns if c.startswith("W")]
         result = (
-            TMLE(outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7)
+            TMLE(
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                n_folds=4,
+                random_state=7,
+            )
             .fit(frame, outcome="Y", treatment="A", covariates=covariates)
             .single()
         )

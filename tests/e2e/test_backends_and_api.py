@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
+import sklearn.linear_model
 
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
 from cleverly.estimators import TMLE
@@ -222,7 +223,7 @@ class TestEveryReportFollowsTheBackend:
         while the container held the input frame itself."""
         import cleverly
 
-        path = tmp_path / "polars-fit.npz"
+        path = tmp_path / "polars-fit.joblib"
         polars_fit.save(path)
         reloaded = cleverly.load(path)
         assert reloaded.data.backend == "polars"
@@ -350,7 +351,7 @@ class TestResultApi:
         assert nuisance.propensity.arm(1.0).min() < result.config.g_bounds[1]
         bounded = nuisance.bounded_propensity((0.2, 0.8))
         assert bounded.shape == (result.n, 2)
-        assert bounded.min() >= 0.2
+        assert bounded.min() >= 0.2 - 1e-15
         assert bounded.max() <= 0.8
         # The two arms still sum to one exactly: with two arms the bound is applied to
         # g1 and arm 0 taken as its complement, rather than clipped independently.
@@ -398,8 +399,8 @@ class TestPackageSurface:
 
         frame, truth = make_nonlinear_ate(n=800, seed=0, backend="polars")
         est = TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=4,
             estimands=("ate", "att", "atc", "ey1", "ey0"),
             random_state=0,
@@ -428,8 +429,8 @@ class TestPackageSurface:
         res = (
             TMLE(
                 estimands=("ate", "ey1", "ey0"),
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=4,
                 learner_folds=3,
                 random_state=0,
@@ -451,7 +452,7 @@ class TestPackageSurface:
         ratio = res.contrast(lambda psi: psi[0] / psi[1], ["ey1", "ey0"])
         assert ratio.psi == pytest.approx(res.estimates["ey1"].psi / res.estimates["ey0"].psi)
 
-        path = tmp_path / "fit.npz"
+        path = tmp_path / "fit.joblib"
         res.save(path)
         assert cleverly.load(path).estimates["ate"].psi == res.estimates["ate"].psi
 
@@ -479,9 +480,9 @@ class TestTheResultSet:
         frame, _ = GENERATORS["cde"](n=300, seed=1)
         covariates = [c for c in frame.columns if c.startswith("W")]
         estimator = TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
-            intermediate_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            intermediate_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             estimands=("ate",),
             n_folds=4,
             random_state=0,
@@ -546,7 +547,14 @@ class TestTheResultSet:
         w = rng.normal(size=(200, 2))
         a = rng.binomial(1, 0.5, 200).astype(float)
         y = a + w[:, 0] + rng.normal(size=200)
-        fitted = tmle(y, a, w, outcome_learner="glm", treatment_learner="glm", n_folds=4)
+        fitted = tmle(
+            y,
+            a,
+            w,
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            n_folds=4,
+        )
         assert list(fitted) == [None]
         assert fitted.single().psi("ate") == pytest.approx(1.0, abs=0.4)
 

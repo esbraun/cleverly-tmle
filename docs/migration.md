@@ -41,6 +41,8 @@ result = fit.single()
 After:
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
 from cleverly import ATE, CausalStudy, PointTreatment
 
 study = CausalStudy(
@@ -53,8 +55,8 @@ study = CausalStudy(
 )
 result = study.estimate(
     ATE(),
-    outcome_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     n_folds=5,
     random_state=7,
 )
@@ -165,6 +167,8 @@ result = LTMLE(
 After:
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 
 study = CausalStudy(
@@ -179,9 +183,9 @@ study = CausalStudy(
 )
 result = study.estimate(
     RegimeContrast({"always": 1, "never": 0}, reference="always"),
-    outcome_learner="glm",
-    pseudo_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     n_folds=3,
     random_state=0,
 )
@@ -248,6 +252,27 @@ explicit.
 
 `CollaborativeTMLEMethod` replaces root `CTMLE`; `DRTMLEMethod` replaces root `DRTMLE`. Their
 variant-only arguments are fields on those typed method objects.
+
+## Learner objects and persistence
+
+Nuisance slots no longer accept `"glm"`, `"fast"`, `"default"`, or `"rich"`. Pass an
+sklearn-compatible estimator object. Use `LinearRegression()` for mean regressions and
+`LogisticRegression()` for treatment, censoring, missingness, and other probability mechanisms.
+Omitting a learner, or passing `SuperLearner()`, uses the concrete histogram-gradient-boosting,
+random-forest, and lasso ensemble. The former `"fast"` and `"rich"` sets have no exact alias;
+construct the desired `SuperLearner(library=[...])` explicitly.
+
+Saved results now use whole-result joblib artifacts:
+
+```python
+from cleverly import load
+
+result.save("analysis.joblib")
+restored = load("analysis.joblib")
+```
+
+Legacy `.npz` results require the cleverly version that wrote them. Joblib loading can execute
+arbitrary Python code, so load only trusted artifacts under compatible dependency versions.
 
 ## Changed defaults and validations
 

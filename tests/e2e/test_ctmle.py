@@ -20,7 +20,9 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
+from cleverly import SuperLearner
 from cleverly.datasets import instrument_dgp, make_instrument, make_missing_outcome
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.targeting import build_submodel
@@ -112,7 +114,20 @@ class TestDownstreamMachineryStillWorks:
 
     def test_but_oat_reports_the_table_from_its_one_shared_fit(self, frame_and_truth) -> None:
         frame, _ = frame_and_truth
-        oat = CTMLE(**TMLE_SETTINGS, strategy="oat").fit(frame, outcome="Y", treatment="A").single()
+        oat = (
+            CTMLE(
+                **{
+                    **TMLE_SETTINGS,
+                    "treatment_learner": SuperLearner(
+                        [sklearn.linear_model.LogisticRegression(max_iter=1000)],
+                        n_folds=3,
+                    ),
+                },
+                strategy="oat",
+            )
+            .fit(frame, outcome="Y", treatment="A")
+            .single()
+        )
         report = oat.validation.nuisance()["propensity"]
         assert report.learner_weights and report.learner_risks
 
@@ -211,7 +226,7 @@ class TestCombinedWithOtherOptions:
             CTMLE(
                 **{
                     **SETTINGS,
-                    "missingness_learner": "glm",
+                    "missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
                     "selection_folds": 2,
                     "n_folds": 3,
                 }
@@ -266,7 +281,7 @@ class TestSelectionIsForcedWhenTheOutcomeModelCannotHelp:
 
     #: Settings whose only unusual feature is an outcome model that cannot fit anything.
     FORCED: ClassVar[dict[str, object]] = {
-        "treatment_learner": "glm",
+        "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "n_folds": 5,
         "learner_folds": 3,
         "estimands": ("ate",),

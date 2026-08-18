@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn.linear_model
 
 import cleverly
 from cleverly import (
@@ -215,7 +216,11 @@ def test_the_reserved_intercept_column_survives_the_constant_sweep() -> None:
     )
     assert study.data.covariate_names == (RANDOMIZED_INTERCEPT,)
     assert study.data.dropped_covariates == ()
-    result = study.estimate(ATE(), outcome_learner="glm", treatment_learner="glm")
+    result = study.estimate(
+        ATE(),
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+    )
     assert np.isfinite(result.psi("ate"))
     # The design still says what it claimed: no adjustment variables at all.
     assert result.identified_effect.functional.adjustment == ()
@@ -403,8 +408,8 @@ def test_a_continuous_dose_refuses_by_axis_and_admits_a_working_model() -> None:
 
     result = study.estimate(
         MSMProjection(MSM.linear(doses=np.linspace(-1.5, 1.5, 9))),
-        outcome_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         cross_fit=False,
         density_bins=8,
         simultaneous=False,
@@ -422,17 +427,32 @@ def test_a_continuous_dose_refuses_by_axis_and_admits_a_working_model() -> None:
 
 def test_keyword_shortcuts_normalize_to_the_same_typed_method() -> None:
     normalized = TMLEMethod().with_overrides(
-        outcome_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=4,
         random_state=7,
     )
     declared = TMLEMethod(
-        models=ModelSpec(outcome_learner="glm", treatment_learner="glm"),
+        models=ModelSpec(
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        ),
         cross_fitting=CrossFitting(n_folds=4),
         runtime=Runtime(random_state=7),
     )
-    assert normalized == declared
+    assert dataclasses.replace(normalized, models=ModelSpec()) == dataclasses.replace(
+        declared, models=ModelSpec()
+    )
+    assert type(normalized.models.outcome_learner) is type(declared.models.outcome_learner)
+    assert (
+        normalized.models.outcome_learner.get_params()
+        == declared.models.outcome_learner.get_params()
+    )
+    assert type(normalized.models.treatment_learner) is type(declared.models.treatment_learner)
+    assert (
+        normalized.models.treatment_learner.get_params()
+        == declared.models.treatment_learner.get_params()
+    )
 
 
 def test_a_shortcut_named_like_a_field_sets_that_field() -> None:
@@ -509,8 +529,8 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
 @pytest.mark.parametrize(
     "option",
     [
-        {"missingness_learner": "glm"},
-        {"intermediate_learner": "glm"},
+        {"missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
+        {"intermediate_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
         {"density_bins": 12},
         {"screen_treatment": True},
         {"screen_threshold": 0.2},
