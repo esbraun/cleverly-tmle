@@ -12,6 +12,7 @@ from ._typing import Family
 from .data import CausalData
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
 from .exceptions import CapabilityError, CleverlyError, DataError
+from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
 from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
 from .methods import (
@@ -19,6 +20,7 @@ from .methods import (
     DRTMLEMethod,
     EstimationMethod,
     MethodAvailability,
+    Runtime,
     TMLEMethod,
 )
 from .msm import MSM, MSMSet
@@ -419,6 +421,38 @@ _STRING_ESTIMANDS: dict[str, str] = {
     "ate_ipsi": "IncrementalEffect(interventions=...)",
     "msm": "MSMProjection(model=...)",
 }
+
+
+def _narrow_bands(
+    result: Any, retained: Mapping[str, Any], method: EstimationMethod
+) -> SimultaneousBands | None:
+    """Joint bands over the parameters this effect reports, not the ones the engine computed.
+
+    A typed estimand can ask for a subset of what its engine produces: ``CounterfactualMean``
+    naming an arm of a multi-arm fit, or a longitudinal target whose engine reports means and
+    contrasts together. Filtering ``estimates`` alone left ``simultaneous`` behind, so the
+    result carried a critical value quantifying a family it no longer contained and bands
+    keyed to parameters it could not index -- and ``summary()`` printed them.
+
+    The bands are recomputed rather than dropped, from the same influence curves and the same
+    ``alpha``, draw count, multiplier distribution, seed and cluster structure the engine used.
+    That makes them the bands the engine itself would have produced had it been asked for this
+    family alone. Below two parameters there is no joint question left, and both engines
+    already return ``None`` there rather than a one-parameter band.
+    """
+    bands = result.simultaneous
+    if bands is None or len(retained) == len(result.estimates):
+        return bands
+    if len(retained) < 2:
+        return None
+    return simultaneous_bands(
+        retained,
+        alpha=bands.alpha,
+        n_replicates=bands.n_replicates,
+        kind=bands.kind,
+        random_state=getattr(method, "runtime", Runtime()).random_state,
+        cluster=result.data.cluster,
+    )
 
 
 @dataclass(frozen=True)
@@ -830,7 +864,7 @@ class IdentifiedEffect:
             if functional.intermediate is not None
             else result_set.single()
         )
-        raw = self._select_point_parameters(raw)
+        raw = self._select_point_parameters(raw, method)
         return replace(
             raw,
             identified_effect=self,
@@ -838,7 +872,7 @@ class IdentifiedEffect:
             parameter_keys=self._point_parameter_keys(raw),
         )
 
-    def _select_point_parameters(self, result: TMLEResult) -> TMLEResult:
+    def _select_point_parameters(self, result: TMLEResult, method: EstimationMethod) -> TMLEResult:
         if (
             not isinstance(self.estimand, CounterfactualMean)
             or self.estimand.treatment is None
@@ -851,13 +885,28 @@ class IdentifiedEffect:
                 f"treatment {self.estimand.treatment!r} is not available; "
                 f"choose from {list(data.treatment_levels)}"
             )
-        alias = parameter_name("ey", arm=self.estimand.treatment)
+        # Compose the alias from the arm label the estimator itself used, not from the value
+        # the caller typed.  A numeric arm arrives as a float level, so ``treatment=1`` built
+        # ``ey[1]`` while the fit reported ``ey[1.0]``; nothing matched, and the narrowing
+        # returned an empty result rather than raising.  Resolving through ``arm_label`` is
+        # the same "compose the known names forward" rule the parameter keys follow.
+        code = float(data.treatment_levels.index(self.estimand.treatment))
+        alias = parameter_name("ey", arm=data.arm_label(code))
         estimates = {
             name: value
             for name, value in result.estimates.items()
             if name == alias or name.startswith(f"{alias}[")
         }
-        return replace(result, estimates=estimates)
+        if not estimates:
+            raise CleverlyError(
+                f"selecting {self.estimand.treatment!r} kept none of the estimator's "
+                f"parameters {list(result.estimates)}; expected {alias!r}"
+            )
+        return replace(
+            result,
+            estimates=estimates,
+            simultaneous=_narrow_bands(result, estimates, method),
+        )
 
     def _point_parameter_keys(self, result: TMLEResult) -> dict[str, ParameterKey]:
         data = result.data
@@ -964,7 +1013,12 @@ class IdentifiedEffect:
         index = None
         if raw.parameter_index is not None:
             index = {name: raw.parameter_index[name] for name in estimates}
-        raw = replace(raw, estimates=estimates, parameter_index=index)
+        raw = replace(
+            raw,
+            estimates=estimates,
+            parameter_index=index,
+            simultaneous=_narrow_bands(raw, estimates, method),
+        )
         return replace(
             raw,
             identified_effect=self,

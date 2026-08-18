@@ -1,6 +1,7 @@
 """Typed study, identification, capability, and configuration contracts."""
 
 import dataclasses
+import inspect
 from dataclasses import FrozenInstanceError
 
 import numpy as np
@@ -23,7 +24,15 @@ from cleverly import (
     TMLEMethod,
 )
 from cleverly.datasets import make_linear_ate
-from cleverly.methods import SHORTCUTS
+from cleverly.estimators import TMLE
+from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
+from cleverly.methods import (
+    DEFAULT_LONGITUDINAL_G_BOUNDS,
+    DEFAULT_LONGITUDINAL_MULTIPLIER,
+    DEFAULT_POINT_MULTIPLIER,
+    SHORTCUTS,
+)
 from cleverly.msm import MSM
 from tests.conftest import FAST_KWARGS
 
@@ -278,6 +287,41 @@ def test_a_shortcut_named_like_a_field_sets_that_field() -> None:
                 f"shortcut {shortcut!r} sets {group}.{attribute} but is also the name of a "
                 f"field on {owners}; a caller will reasonably expect it to set that one"
             )
+
+
+def test_auto_resolves_to_each_engines_own_default_and_says_so_when_they_move() -> None:
+    """``Inference`` serves two engines whose defaults are not the same number.
+
+    ``n_multiplier`` was a single literal 1000, which matches ``TMLE`` and silently halved
+    every study-driven longitudinal fit: ``LTMLE`` draws 2000. Nothing reported the change,
+    and the parity suite could not see it because it turns simultaneous bands off. ``"auto"``
+    now defers to the engine, exactly as ``g_bounds`` already did.
+
+    The resolved values are restated in ``cleverly.methods`` rather than imported, so this
+    reads both engine signatures and fails when a restatement stops matching -- otherwise the
+    duplication would be free to drift back apart.
+    """
+    point = inspect.signature(TMLE).parameters
+    sequential = inspect.signature(LTMLE).parameters
+    assert point["n_multiplier"].default == DEFAULT_POINT_MULTIPLIER
+    assert sequential["n_multiplier"].default == DEFAULT_LONGITUDINAL_MULTIPLIER
+    assert DEFAULT_POINT_MULTIPLIER != DEFAULT_LONGITUDINAL_MULTIPLIER, (
+        "if the engines ever agree, delete the sentinel rather than keeping a split that "
+        "no longer splits anything"
+    )
+    assert DEFAULT_LONGITUDINAL_G_BOUNDS == DEFAULT_LTMLE_G_BOUNDS
+
+    method = TMLEMethod()
+    assert method.inference.n_multiplier == "auto"
+    assert method.estimator_kwargs()["n_multiplier"] == DEFAULT_POINT_MULTIPLIER
+    assert (
+        method.estimator_kwargs(longitudinal=True)["n_multiplier"]
+        == DEFAULT_LONGITUDINAL_MULTIPLIER
+    )
+    # An explicit request still wins on both paths.
+    asked = TMLEMethod().with_overrides(n_multiplier=400)
+    assert asked.estimator_kwargs()["n_multiplier"] == 400
+    assert asked.estimator_kwargs(longitudinal=True)["n_multiplier"] == 400
 
 
 def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() -> None:

@@ -66,8 +66,15 @@ def longitudinal_msm_design(label: str, horizon: int, frame: Any) -> np.ndarray:
     return np.column_stack([np.ones(len(frame)), np.full(len(frame), duration + 0.0 * horizon)])
 
 
-def assert_identical(old: Any, new: Any) -> None:
-    """Point value and every inference quantity are bit-for-bit unchanged."""
+def assert_identical(old: Any, new: Any, *, check_bands: bool = False) -> None:
+    """Point value and every inference quantity are bit-for-bit unchanged.
+
+    ``check_bands`` is separate because most of these tests hand the study a narrower family
+    than the engine reports, and a joint band over a subfamily is *supposed* to differ from
+    the engine's. Pass it wherever the study reports exactly what the engine did -- there the
+    critical value has to match too, and the fact that nothing checked it is how a study-driven
+    longitudinal fit came to draw half the multipliers the engine declares.
+    """
     expected_estimates = old.estimates if hasattr(old, "estimates") else old
     assert list(new.estimates) == list(expected_estimates)
     for name, expected in expected_estimates.items():
@@ -78,6 +85,17 @@ def assert_identical(old: Any, new: Any) -> None:
         assert observed.std_error == expected.std_error
         assert observed.ci == expected.ci
         assert observed.pvalue == expected.pvalue
+    if not check_bands:
+        return
+    expected_bands, observed_bands = old.simultaneous, new.simultaneous
+    assert (expected_bands is None) == (observed_bands is None)
+    if expected_bands is None:
+        return
+    assert observed_bands.critical_value == expected_bands.critical_value
+    assert observed_bands.n_replicates == expected_bands.n_replicates
+    assert observed_bands.kind == expected_bands.kind
+    assert observed_bands.alpha == expected_bands.alpha
+    assert observed_bands.bands == expected_bands.bands
 
 
 @pytest.mark.parametrize(
@@ -245,6 +263,92 @@ def test_longitudinal_msm_is_bit_for_bit_unchanged(tmp_path: Any) -> None:
     new = study.estimate(MSMProjection(model, regimens=regimens), **LONG_SETTINGS)
     assert_identical(old, new)
     assert_identical(new, load(new.save(tmp_path / "longitudinal-msm.npz")))
+
+
+BAND_POINT_SETTINGS = {**FAST_KWARGS, "simultaneous": True}
+BAND_LONG_SETTINGS = {**LONG_SETTINGS, "simultaneous": True}
+
+
+def test_an_unnarrowed_fit_reports_the_engines_own_bands() -> None:
+    """Simultaneous inference is part of the parity claim, not an extra.
+
+    Every other test here sets ``simultaneous=False``, so nothing compared a critical value,
+    a draw count, or a band. That is the blind spot three separate defects lived in.
+    """
+    frame, _ = make_binary_outcome(n=180, seed=21)
+    columns = ("W1", "W2", "W3")
+    old = (
+        TMLE(estimands=("ey",), **BAND_POINT_SETTINGS)
+        .fit(frame, outcome="Y", treatment="A", covariates=columns)
+        .single()
+    )
+    study = CausalStudy(
+        frame, design=PointTreatment(outcome="Y", treatment="A", adjustment=columns)
+    )
+    new = study.estimate(CounterfactualMean(), **BAND_POINT_SETTINGS)
+    assert new.simultaneous is not None
+    assert_identical(old, new, check_bands=True)
+
+
+def test_a_longitudinal_fit_draws_the_multipliers_its_engine_declares() -> None:
+    """The study path drew 1000 where ``LTMLE`` declares 2000, so every band was narrower."""
+    frame, _ = make_longitudinal(n=220, seed=28)
+    regimens = {"always": 1, "never": 0, "early": (1, 0)}
+    model = MSM(design=longitudinal_msm_design, terms=("(intercept)", "duration"))
+    old = LTMLE(regimens, msm=model, **BAND_LONG_SETTINGS).fit(frame, **LONG_COLUMNS)
+    study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
+    new = study.estimate(MSMProjection(model, regimens=regimens), **BAND_LONG_SETTINGS)
+    assert new.simultaneous is not None
+    assert new.simultaneous.n_replicates == 2000
+    assert_identical(old, new, check_bands=True)
+
+
+def test_selecting_one_arm_leaves_no_band_from_the_family_it_left() -> None:
+    """A one-parameter result cannot carry a three-parameter critical value.
+
+    ``CounterfactualMean(treatment=...)`` narrows a multi-arm fit after the fact. Filtering
+    ``estimates`` alone left ``simultaneous`` holding the full family's critical value and
+    bands for two arms the result no longer contains -- which ``summary()`` then printed.
+    Both engines report no bands below two parameters, and so does this.
+    """
+    frame, _ = make_binary_outcome(n=240, seed=31)
+    rng = np.random.default_rng(3)
+    arms = np.array(["low", "mid", "high"])[rng.integers(0, 3, size=len(frame))]
+    study = CausalStudy(
+        frame.assign(A=arms),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+    )
+    every = study.estimate(CounterfactualMean(), **BAND_POINT_SETTINGS)
+    assert len(every.estimates) == 3
+    assert set(every.simultaneous.bands) == set(every.estimates)
+
+    one = study.estimate(CounterfactualMean(treatment="mid"), **BAND_POINT_SETTINGS)
+    assert list(one.estimates) == ["ey[mid]"]
+    assert one.simultaneous is None
+    assert "simultaneous" not in one.summary()
+
+
+def test_a_narrowed_longitudinal_family_gets_its_own_critical_value() -> None:
+    """Bands are recomputed for the reported family, not inherited from a wider one.
+
+    ``RegimeMean`` keeps the means and drops the contrasts, so the engine's five-parameter
+    critical value quantified a family two of whose members are gone. A max-t quantile over a
+    subfamily cannot exceed the one over the family containing it -- that inequality is the
+    property being checked, so it survives any rewrite of how the bands are rebuilt.
+    """
+    frame, _ = make_longitudinal(n=260, seed=33)
+    regimens = {"always": 1, "never": 0, "early": (1, 0)}
+    engine = LTMLE(regimens, reference="never", **BAND_LONG_SETTINGS).fit(frame, **LONG_COLUMNS)
+    study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
+    means = study.estimate(RegimeMean(regimens, reference="never"), **BAND_LONG_SETTINGS)
+
+    assert len(means.estimates) == 3 and len(engine.estimates) == 5
+    assert set(means.simultaneous.bands) == set(means.estimates)
+    assert means.simultaneous.critical_value <= engine.simultaneous.critical_value
+    assert means.simultaneous.critical_value > means.simultaneous.pointwise_critical_value
+    for name, (low, high) in means.simultaneous.bands.items():
+        pointwise_low, pointwise_high = means[name].ci
+        assert low <= pointwise_low and high >= pointwise_high
 
 
 @pytest.mark.parametrize(

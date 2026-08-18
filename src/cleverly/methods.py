@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, TargetingScheme
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
 
 __all__ = [
+    "DEFAULT_LONGITUDINAL_G_BOUNDS",
+    "DEFAULT_LONGITUDINAL_MULTIPLIER",
+    "DEFAULT_POINT_MULTIPLIER",
     "SHORTCUTS",
     "CollaborativeTMLEMethod",
     "CrossFitting",
@@ -22,6 +25,16 @@ __all__ = [
     "TMLEMethod",
     "Targeting",
 ]
+
+
+#: What ``"auto"`` resolves to, per engine.  These restate the engines' own signature defaults
+#: rather than importing them, because importing ``cleverly.estimators`` here would invert this
+#: module's place in the dependency order.  A restated default is a default that can drift, so
+#: ``tests.unit.test_causal_study`` reads both signatures and fails when one of these stops
+#: matching -- which is what makes the duplication safe rather than merely tidy.
+DEFAULT_POINT_MULTIPLIER = 1000
+DEFAULT_LONGITUDINAL_MULTIPLIER = 2000
+DEFAULT_LONGITUDINAL_G_BOUNDS = (0.01, 1.0)
 
 
 @dataclass(frozen=True)
@@ -89,7 +102,13 @@ class Inference:
     n_bootstrap: int = 0
     bootstrap_resampling: Resampling = "auto"
     simultaneous: bool = True
-    n_multiplier: int = 1000
+    #: Multiplier-bootstrap draws behind the simultaneous bands.  ``"auto"`` is each engine's
+    #: own default, which is not one number: the point path draws 1000 and the sequential path
+    #: draws 2000.  A single literal here would silently pick one of them for the other engine
+    #: -- and it did, halving every study-driven longitudinal fit's draws with nothing to read
+    #: that said so.  Resolved in :meth:`TMLEMethod.estimator_kwargs`, exactly as ``g_bounds``
+    #: is; the stored configuration keeps ``"auto"`` so it still says "the engine's default".
+    n_multiplier: int | Literal["auto"] = "auto"
     multiplier_kind: MultiplierKind = "rademacher"
 
 
@@ -259,8 +278,12 @@ class TMLEMethod:
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a
             # point-treatment policy and has no sequential meaning.
             if common["g_bounds"] == "auto":
-                common["g_bounds"] = (0.01, 1.0)
+                common["g_bounds"] = DEFAULT_LONGITUDINAL_G_BOUNDS
+            if common["n_multiplier"] == "auto":
+                common["n_multiplier"] = DEFAULT_LONGITUDINAL_MULTIPLIER
             return common
+        if common["n_multiplier"] == "auto":
+            common["n_multiplier"] = DEFAULT_POINT_MULTIPLIER
         common.update(
             {
                 "treatment_learner": models.treatment_learner,
