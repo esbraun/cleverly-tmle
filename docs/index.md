@@ -2,13 +2,15 @@
 
 ```{raw} html
 <div class="cleverly-hero">
-  <span class="cleverly-eyebrow">Causal inference for Python · Alpha</span>
+  <span class="cleverly-eyebrow">The Python toolbox for TMLE-based causal studies · Alpha</span>
   <p class="cleverly-hero-title">Start with the causal question.<br>Then choose the estimator.</p>
-  <p class="cleverly-hero-copy">Targeted maximum likelihood estimation for point and
-  longitudinal treatment settings, with typed estimands, influence-curve inference,
-  diagnostics, and sensitivity analysis.</p>
+  <p class="cleverly-hero-copy">Design, estimate, assess, and report point and longitudinal
+  causal studies with targeted maximum likelihood estimation, typed estimands,
+  influence-curve inference, diagnostics, and sensitivity analysis.</p>
 </div>
 ```
+
+*It is named for TMLE's clever covariate—proof that even the jokes in this toolbox are targeted.*
 
 ::::{grid} 1 2 2 2
 :gutter: 2
