@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_longitudinal
 from cleverly.fluctuation.submodel import Submodel
@@ -62,8 +63,10 @@ def setup() -> tuple[LongitudinalData, Any, Any, dict[str, Any]]:
     )
     plans = resolve_plans(resolve_regimens(SPEC, data.n_times), data)
     folds = make_folds(data.n, n_folds=2, random_state=0)
-    classifier = resolve_learner("glm", task="classification", n_folds=2, random_state=0)
-    regressor = resolve_learner("glm", task="regression", n_folds=2, random_state=0)
+    classifier = resolve_learner(
+        LogisticRegression(max_iter=1000), task="classification", n_folds=2, random_state=0
+    )
+    regressor = resolve_learner(LinearRegression(), task="regression", n_folds=2, random_state=0)
     mechanism = fit_mechanism(
         data, plans, treatment_learner=classifier, censoring_learner=classifier, folds=folds
     )

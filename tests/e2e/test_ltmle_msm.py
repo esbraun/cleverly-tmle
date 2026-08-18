@@ -22,6 +22,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.datasets import make_longitudinal
 from cleverly.longitudinal import LTMLE
@@ -34,9 +35,9 @@ DURATION: dict[str, float] = {"always": 2.0, "never": 0.0, "early": 1.0, "late":
 SPEC: dict[str, Any] = {"always": 1, "never": 0, "early": (1, 0), "late": (0, 1)}
 
 FAST: dict[str, Any] = {
-    "outcome_learner": "glm",
-    "pseudo_learner": "glm",
-    "treatment_learner": "glm",
+    "outcome_learner": sklearn.linear_model.LinearRegression(),
+    "pseudo_learner": sklearn.linear_model.LinearRegression(),
+    "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
     "n_folds": 3,
     "learner_folds": 3,
     "random_state": 0,
@@ -247,7 +248,11 @@ class TestTheProjectionIsSolvedOnTheOutcomeScale:
         relabelled = frame.copy()
         relabelled["Y"] = shift + factor * frame["Y"]
 
-        settings = {**FAST, "outcome_learner": "glm", "pseudo_learner": "glm"}
+        settings = {
+            **FAST,
+            "outcome_learner": sklearn.linear_model.LinearRegression(),
+            "pseudo_learner": sklearn.linear_model.LinearRegression(),
+        }
         base = LTMLE(SPEC, msm=MSM(design=dose, terms=TERMS), **settings).fit(
             frame, family="gaussian", **COLUMNS
         )

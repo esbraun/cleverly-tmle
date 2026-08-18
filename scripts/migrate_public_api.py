@@ -32,6 +32,16 @@ FIT_ROLES = {
     "family",
     "treatment_kind",
 }
+LEARNER_SLOTS = {
+    "outcome_learner",
+    "treatment_learner",
+    "missingness_learner",
+    "intermediate_learner",
+    "pseudo_learner",
+    "censoring_learner",
+    "reduced_outcome_learner",
+    "reduced_treatment_learner",
+}
 SKIP_PARTS = {".git", ".mypy_cache", ".nox", ".pytest_cache", ".ruff_cache", ".venv"}
 
 
@@ -118,6 +128,17 @@ class MigrationVisitor(ast.NodeVisitor):
                     node,
                     "move estimator fit role(s) to PointTreatment/LongitudinalTreatment: "
                     + ", ".join(roles),
+                )
+        for keyword in node.keywords:
+            if (
+                keyword.arg in LEARNER_SLOTS
+                and isinstance(keyword.value, ast.Constant)
+                and isinstance(keyword.value.value, str)
+            ):
+                self.add(
+                    keyword.value,
+                    f"{keyword.arg} no longer accepts learner name {keyword.value.value!r}; "
+                    "pass an sklearn-compatible estimator object",
                 )
         self.generic_visit(node)
 

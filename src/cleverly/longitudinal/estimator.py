@@ -76,6 +76,7 @@ from ..inference.delta import delta_method
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..learners.crossfit import Folds, make_folds, resolve_n_folds
+from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM
 from ..provenance import Provenance, fingerprint_array
@@ -675,7 +676,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         )
 
     def save(self, path: Any) -> Any:
-        """Persist the fitted result, including its sequential and causal metadata."""
+        """Persist the complete fitted result to a trusted joblib artifact."""
         from ..estimators.serialize import save as _save
 
         return _save(self, path)
@@ -965,10 +966,10 @@ class LTMLE:
         reference: str | None = None,
         horizons: Sequence[int] | None = None,
         msm: MSM | None = None,
-        outcome_learner: Learner | str | Sequence[Any] | None = None,
-        pseudo_learner: Learner | str | Sequence[Any] | None = None,
-        treatment_learner: Learner | str | Sequence[Any] | None = None,
-        censoring_learner: Learner | str | Sequence[Any] | None = None,
+        outcome_learner: Learner | None = None,
+        pseudo_learner: Learner | None = None,
+        treatment_learner: Learner | None = None,
+        censoring_learner: Learner | None = None,
         n_folds: int = 10,
         learner_folds: int = 5,
         g_bounds: CumulativeGBounds = DEFAULT_LTMLE_G_BOUNDS,
@@ -985,6 +986,10 @@ class LTMLE:
         n_jobs: int = 1,
         **refused: Any,
     ) -> None:
+        _validate_learner(outcome_learner, "outcome_learner")
+        _validate_learner(pseudo_learner, "pseudo_learner")
+        _validate_learner(treatment_learner, "treatment_learner")
+        _validate_learner(censoring_learner, "censoring_learner")
         self.regimens = regimens
         self.reference = reference
         self.horizons = horizons

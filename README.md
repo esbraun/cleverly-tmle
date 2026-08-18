@@ -31,7 +31,8 @@ Install the core package from GitHub:
 python -m pip install "git+https://github.com/esbraun/cleverly-tmle.git"
 ```
 
-Add pandas, polars, LightGBM, and plotting support with the `all` extra:
+Add pandas, polars, and plotting support with the `all` extra. Third-party nuisance estimators
+such as XGBoost or LightGBM can be installed separately and passed as sklearn-compatible objects:
 
 ```bash
 python -m pip install "cleverly[all] @ git+https://github.com/esbraun/cleverly-tmle.git"
@@ -47,6 +48,7 @@ Declare the observed-data design and the causal estimand separately, inspect ide
 estimate:
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_nonlinear_ate
 
@@ -107,7 +109,7 @@ benchmarks, and accepted implementation plans.
   CV-TMLE, simultaneous intervals, and bootstrap inference.
 - Ordinary TMLE, collaborative TMLE, and DR-TMLE for their documented compatible estimands.
 - Positivity, nuisance, and score diagnostics; omitted-variable, E-value, and missingness
-  sensitivity analyses; refutation; variable importance; and safe persistence/replay.
+  sensitivity analyses; refutation; variable importance; and trusted whole-result persistence.
 
 Graph identification, front-door, IV, mediation, transport, direct Riesz learning, and EP learning
 are explicitly unimplemented. See
@@ -121,7 +123,9 @@ Named shortcuts normalize into immutable configuration groups:
 from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod
 
 method = TMLEMethod(
-    models=ModelSpec(outcome_learner="glm", treatment_learner="glm"),
+    models=ModelSpec(
+        outcome_learner=LinearRegression(), treatment_learner=LogisticRegression(max_iter=1000)
+    ),
     cross_fitting=CrossFitting(n_folds=5, learner_folds=3),
     inference=Inference(alpha=0.05, simultaneous=False),
     runtime=Runtime(random_state=7, n_jobs=1),

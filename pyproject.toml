@@ -44,9 +44,8 @@ dependencies = [
 [project.optional-dependencies]
 pandas = ["pandas>=1.5"]
 polars = ["polars>=0.20"]
-boost = ["lightgbm>=4.0"]
 plot = ["matplotlib>=3.7"]
-all = ["cleverly[pandas,polars,boost,plot]"]
+all = ["cleverly[pandas,polars,plot]"]
 docs = [
     "cleverly[all]",
     "sphinx>=8.1,<9",

@@ -8,7 +8,8 @@ The answer is: almost nothing, and the fix is worth making anyway. Both halves o
 the point.
 
 > Measured on the four-core Intel Xeon @ 2.80 GHz container this repository's cloud
-> sessions run in, `/proc/loadavg` under 0.6, Python 3.11, `library="glm"`, `n_folds=2`.
+> sessions run in, `/proc/loadavg` under 0.6, Python 3.11, linear/logistic sklearn nuisance
+> estimators, `n_folds=2`. The original run predates the estimator-object API.
 
 ## 1. The phases now say what they are
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.estimators import TMLE
 from tests import discrete_law as law
@@ -27,8 +28,8 @@ def result():
     """A fit on the exactly-representable discrete law, with oracle-friendly settings."""
     return (
         TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             estimands="all",
             random_state=0,
@@ -127,7 +128,12 @@ class TestClustering:
         frame, _ = GENERATORS["clustered"](n=400, seed=9)
         covariates = [c for c in frame.columns if c.startswith("W")]
         result = (
-            TMLE(outcome_learner="glm", treatment_learner="glm", n_folds=4, random_state=7)
+            TMLE(
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                n_folds=4,
+                random_state=7,
+            )
             .fit(frame, outcome="Y", treatment="A", covariates=covariates, id="cluster")
             .single()
         )

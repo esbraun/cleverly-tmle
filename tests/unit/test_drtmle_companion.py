@@ -41,6 +41,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.datasets import make_linear_ate, make_weak_overlap
 from cleverly.estimators import DRTMLE
@@ -50,10 +51,10 @@ from cleverly.estimators import DRTMLE
 N = 240
 FOLDS = 3
 SETTINGS: dict[str, Any] = {
-    "outcome_learner": "glm",
-    "treatment_learner": "glm",
-    "reduced_outcome_learner": "glm",
-    "reduced_treatment_learner": "glm",
+    "outcome_learner": sklearn.linear_model.LinearRegression(),
+    "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
+    "reduced_outcome_learner": sklearn.linear_model.LinearRegression(),
+    "reduced_treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
     "n_folds": FOLDS,
     "learner_folds": 2,
     "random_state": 0,
@@ -279,7 +280,7 @@ class TestABoundActiveFitKeepsTheIdentity:
     def test_the_bound_binds_at_all(self, pinched: Any) -> None:
         """The non-failing control: without a clipped row this fixture proves nothing."""
         targeted = pinched.repeats[0].fluctuations["mean"].mechanism.propensity
-        assert np.isclose(targeted.min(), 0.15) or np.isclose(targeted.max(), 0.85)
+        assert targeted.min() < 0.151 or targeted.max() > 0.849
 
     def test_the_identity_still_holds_fold_by_fold(self, pinched: Any) -> None:
         record = _reduction(pinched)

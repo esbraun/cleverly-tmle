@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
-from cleverly.estimators.serialize import result_from_dict, result_to_dict
+from cleverly.estimators.serialize import dumps, loads
 from cleverly.inference.cluster import cross_validated_variance, influence_variance
 from cleverly.inference.influence import ParameterEstimate, average_estimates, make_estimate
 from cleverly.provenance import fingerprint_array
@@ -499,7 +499,7 @@ class TestTheSpreadAcrossDraws:
         assert "split noise" not in once.summary()
 
     def test_it_survives_the_round_trip(self, repeated: Any) -> None:
-        reloaded = result_from_dict(*result_to_dict(repeated))
+        reloaded = loads(dumps(repeated))
         assert reloaded.repeat_spread() == repeated.repeat_spread()
 
 
@@ -619,7 +619,7 @@ class TestTheOmittedVariableBoundFollowsTheDraws:
 
 class TestSerialization:
     def test_every_draw_survives_the_round_trip(self, repeated: Any) -> None:
-        reloaded = result_from_dict(*result_to_dict(repeated))
+        reloaded = loads(dumps(repeated))
         assert reloaded.n_repeats == REPEATS
         assert reloaded.config.crossfit.repeats == REPEATS
         for original, restored in zip(repeated.repeats, reloaded.repeats, strict=True):
@@ -633,17 +633,12 @@ class TestSerialization:
                 original.fluctuations["mean"].epsilon, restored.fluctuations["mean"].epsilon
             )
 
-    def test_the_recipe_carries_the_repeat_count(self, repeated: Any) -> None:
-        # A reloaded result rebuilds its estimator from the recipe, and refit() then
-        # re-runs the whole fit. A recipe that dropped repeats= would quietly refit a
-        # single draw under the same name -- the failure is silent, so it is pinned here.
-        from cleverly.estimators.recipe import TMLERecipe
-
-        recipe = TMLERecipe.from_estimator(repeated.estimator)
-        assert TMLERecipe.from_dict(recipe.to_dict()).build().repeats == REPEATS
+    def test_the_live_estimator_carries_the_repeat_count(self, repeated: Any) -> None:
+        reloaded = loads(dumps(repeated))
+        assert reloaded.estimator.repeats == REPEATS
 
     def test_a_reloaded_fit_reproduces_its_own_report(self, repeated: Any) -> None:
-        reloaded = result_from_dict(*result_to_dict(repeated))
+        reloaded = loads(dumps(repeated))
         assert reloaded.psi("ate") == repeated.psi("ate")
         curve = truncation_curve(reloaded, bounds=[reloaded.config.g_bounds[0]], estimands=["ate"])
         assert float(curve["psi"][0]) == pytest.approx(reloaded.psi("ate"), rel=1e-9)

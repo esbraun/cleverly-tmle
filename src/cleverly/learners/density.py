@@ -273,11 +273,11 @@ def _bin_block(index: IntArray, n_hazards: int) -> FloatArray:
     """How the bin a record belongs to enters the pooled hazard design.
 
     Two representations of the same integer, side by side, because the two kinds of
-    learner in the presets need different ones:
+    candidate estimators need different ones:
 
     - **drop-first indicators**, so a model linear in its design gets a *free* baseline
       hazard -- one coefficient per bin, unconstrained.  This is the discrete-time hazard
-      model's nonparametric baseline, and without it ``library="glm"`` would force the
+      model's nonparametric baseline, and without it a logistic regression would force the
       log-odds of the hazard to be linear in the bin index, which is a very particular
       density family rather than a mild approximation.  The drop-first convention is the
       one :meth:`~cleverly.data.CausalData.treatment_block` already uses, for the same

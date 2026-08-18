@@ -263,7 +263,7 @@ class TestTheReferenceCanBeMoved:
 
 class TestTheFitSurvivesARoundTrip:
     def test_every_array_and_the_axis_come_back(self, fit, tmp_path) -> None:
-        path = tmp_path / "ipsi.npz"
+        path = tmp_path / "ipsi.joblib"
         fit.save(path)
         back = load(path)
         assert back.config.parameter_axis == "ipsi"
@@ -276,7 +276,7 @@ class TestTheFitSurvivesARoundTrip:
 
     def test_retargeting_a_loaded_fit_reproduces_it(self, fit, tmp_path) -> None:
         """The whole point of storing arrays rather than the declaration."""
-        path = tmp_path / "ipsi.npz"
+        path = tmp_path / "ipsi.joblib"
         fit.save(path)
         back = load(path)
         estimates, _ = back.estimator.retarget(

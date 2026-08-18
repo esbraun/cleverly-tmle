@@ -31,6 +31,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 from sklearn.base import BaseEstimator
 
 import tests.conftest as conftest
@@ -104,7 +105,7 @@ def _fit(*, n: int = N, seed: int = 5, curvature: float = 0.25, **kwargs: Any): 
     frame, truth = dgp.sample(n, shifts=POLICIES, seed=seed)
     settings: dict[str, Any] = {
         "outcome_learner": OracleShiftOutcome(dgp),
-        "treatment_learner": "glm",
+        "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "cross_fit": False,
         "shifts": SHIFTS,
         "density_bins": BINS,
@@ -263,7 +264,7 @@ class TestTheDegenerateShifts:
         low = float(np.min(np.asarray(frame["A"]))) - 1.0
         estimator = TMLE(
             outcome_learner=OracleShiftOutcome(dgp),
-            treatment_learner="glm",
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             shifts=[Shift(1.0, cap=low, name="unreachable")],
             random_state=0,
@@ -378,7 +379,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
         result = (
             TMLE(
                 outcome_learner=OracleShiftOutcome(dgp),
-                treatment_learner="glm",
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 missingness_learner=conftest.OracleDoseMechanism(_MissingAtRandom(dgp)),
                 cross_fit=False,
                 shifts=SHIFTS,
@@ -426,7 +427,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
         naive = (
             TMLE(
                 outcome_learner=OracleShiftOutcome(dgp),
-                treatment_learner="glm",
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 cross_fit=False,
                 shifts=SHIFTS,
                 density_bins=BINS,
@@ -457,8 +458,28 @@ class TestAShiftWithOutcomesMissingAtRandom:
         assert report["natural course"].ess_ratio < 1.0
 
     def test_the_fit_survives_a_round_trip(self, mar_fit, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        result, _, _, _ = mar_fit
-        path = tmp_path / "shift_mar.npz"
+        _, _, holed, _ = mar_fit
+        result = (
+            TMLE(
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                cross_fit=False,
+                shifts=SHIFTS,
+                density_bins=BINS,
+                random_state=0,
+                simultaneous=False,
+            )
+            .fit(
+                holed,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+                delta="Delta",
+            )
+            .single()
+        )
+        path = tmp_path / "shift_mar.joblib"
         result.save(path)
         back = load(path)
         assert back.nuisance.missingness.shape == (result.data.n, len(SHIFTS) + 1)
@@ -469,8 +490,21 @@ class TestAShiftWithOutcomesMissingAtRandom:
 
 class TestTheFitSurvivesARoundTrip:
     def test_treatment_kind_density_and_shifts_all_come_back(self, oracle_fit, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        result, _, _ = oracle_fit
-        path = tmp_path / "shift.npz"
+        _, _, frame = oracle_fit
+        result = (
+            TMLE(
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+                cross_fit=False,
+                shifts=SHIFTS,
+                density_bins=BINS,
+                random_state=0,
+                simultaneous=False,
+            )
+            .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+            .single()
+        )
+        path = tmp_path / "shift.joblib"
         result.save(path)
         back = load(path)
 

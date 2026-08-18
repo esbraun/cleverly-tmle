@@ -14,6 +14,7 @@ import time
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.datasets import make_longitudinal
 from cleverly.longitudinal import LTMLE, LongitudinalData
@@ -104,9 +105,9 @@ def test_an_ltmle_fit_reports_every_phase_it_declares() -> None:
     )
     estimator = LTMLE(
         {"always": 1, "never": 0},
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=2,
         learner_folds=2,
         random_state=0,
@@ -145,9 +146,9 @@ def test_profiling_does_not_change_the_fit() -> None:
     }
     estimator = LTMLE(
         {"always": 1},
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=2,
         learner_folds=2,
         random_state=0,

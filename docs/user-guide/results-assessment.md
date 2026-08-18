@@ -60,13 +60,15 @@ reported unavailable rather than borrowing point-treatment formulas.
 ```python
 from cleverly import load
 
-result.save("analysis.npz")
-restored = load("analysis.npz")
+result.save("analysis.joblib")
+restored = load("analysis.joblib")
 assert restored.parameter_keys == result.parameter_keys
-assert restored.method == result.method
+assert type(restored.method) is type(result.method)
+assert type(restored.method.models.outcome_learner) is type(result.method.models.outcome_learner)
 ```
 
-The format allow-lists structured metadata and arrays; it does not pickle arbitrary objects.
-Named learner libraries round-trip exactly. Custom estimator objects and callables are recorded by
-identity so cached assessment can replay, but their restored slots refuse a new fit rather than
-substituting a default. `result.replayability` explains what remains available.
+The joblib artifact contains the complete result graph, including nuisance estimator templates,
+so successfully restored results retain refit-based assessment. Joblib uses pickle internally:
+loading can execute arbitrary code, so load only trusted artifacts in an environment with
+compatible cleverly, sklearn, Python, and third-party estimator versions. Legacy `.npz` results
+must be loaded with the cleverly version that created them.

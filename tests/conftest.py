@@ -1,8 +1,7 @@
 """Shared fixtures and helpers.
 
-The fast tier keeps runtime down by using parametric nuisance learners
-(``library="glm"``) wherever the test is about the estimator's machinery rather than
-about the Super Learner.  Tests that specifically exercise flexible learning say so.
+The fast tier keeps runtime down with small explicit parametric SuperLearners wherever
+the test is about estimator machinery rather than flexible learning.
 """
 
 from __future__ import annotations
@@ -13,9 +12,14 @@ from typing import Any
 import numpy as np
 import pytest
 from sklearn.base import BaseEstimator
+from sklearn.dummy import DummyClassifier, DummyRegressor
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 import cleverly
 from cleverly.estimators import TMLE
+from cleverly.learners import SuperLearner
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,10 +60,79 @@ def pytest_configure(config: pytest.Config) -> None:
     _check_source_matches_checkout()
 
 
+class _AdaptiveMean(BaseEstimator):
+    """The old parametric fallback candidate, expressed as one estimator object."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _AdaptiveMean:
+        self.model_ = (
+            DummyClassifier(strategy="prior")
+            if np.unique(np.asarray(y)).size <= 2
+            else DummyRegressor(strategy="mean")
+        )
+        self.model_.fit(X, y, sample_weight=sample_weight)
+        return self
+
+    def predict(self, X: Any) -> Any:
+        return self.model_.predict(X)
+
+    def predict_proba(self, X: Any) -> Any:
+        return self.model_.predict_proba(X)
+
+
+class _AdaptiveGLM(BaseEstimator):
+    """Linear or effectively unpenalized logistic regression, selected from ``y``."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _AdaptiveGLM:
+        if np.unique(np.asarray(y)).size <= 2:
+            self.model_ = Pipeline(
+                [
+                    ("scale", StandardScaler()),
+                    ("model", LogisticRegression(C=1e6, max_iter=1000)),
+                ]
+            )
+            fit_kwargs = {} if sample_weight is None else {"model__sample_weight": sample_weight}
+            self.model_.fit(X, y, **fit_kwargs)
+        else:
+            self.model_ = LinearRegression().fit(X, y, sample_weight=sample_weight)
+        return self
+
+    def predict(self, X: Any) -> Any:
+        return self.model_.predict(X)
+
+    def predict_proba(self, X: Any) -> Any:
+        return self.model_.predict_proba(X)
+
+
 #: Estimator settings for the fast tier: parametric nuisances, few folds, seeded.
 FAST_KWARGS: dict[str, Any] = {
-    "outcome_learner": "glm",
-    "treatment_learner": "glm",
+    "outcome_learner": SuperLearner(
+        library=[
+            ("mean", _AdaptiveMean()),
+            ("glm", _AdaptiveGLM()),
+        ],
+        task=None,
+        n_folds=3,
+        clip=(0.0, 1.0),
+        random_state=None,
+    ),
+    "treatment_learner": SuperLearner(
+        library=[
+            ("mean", DummyClassifier(strategy="prior")),
+            (
+                "glm",
+                Pipeline(
+                    [
+                        ("scale", StandardScaler()),
+                        ("model", LogisticRegression(C=1e6, max_iter=1000)),
+                    ]
+                ),
+            ),
+        ],
+        task="classification",
+        n_folds=3,
+        clip=(0.0, 1.0),
+        random_state=None,
+    ),
     "n_folds": 5,
     "learner_folds": 3,
     "random_state": 0,

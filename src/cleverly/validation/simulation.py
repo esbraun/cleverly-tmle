@@ -295,12 +295,16 @@ class CoverageStudy:
 
     Example
     -------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
     >>> from cleverly.estimators import TMLE
     >>> from cleverly.datasets import nonlinear_dgp
     >>> from cleverly.validation import CoverageStudy
     >>> study = CoverageStudy(
     ...     dgp=nonlinear_dgp(),
-    ...     estimator=lambda: TMLE(outcome_learner="glm", treatment_learner="glm"),
+    ...     estimator=lambda: TMLE(
+    ...         outcome_learner=LinearRegression(),
+    ...         treatment_learner=LogisticRegression(max_iter=1000),
+    ...     ),
     ...     n=500,
     ...     n_replicates=50,
     ...     seed=0,

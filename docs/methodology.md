@@ -785,9 +785,11 @@ and it turns on the reductions having **fixed dimension**: the entropy condition
 class of functions of one scalar for the default construction or two for the bivariate probability,
 not on the primary nuisances' complexity, so the Donsker condition
 cross-fitting exists to avoid is available for these regressions even where it is not for the
-regressions they are reductions *of*. It holds for every learner library this package ships except
-`"rich"`, and its remaining condition — that the reduction fit moves continuously with its design —
-is what `DRTMLE(reduced_crossfit="nested")` measures rather than assumes.
+regressions they are reductions *of*. The automatic Super Learner includes a random forest, so this
+smooth fixed-dimensional condition is not claimed for the automatic reduction fit. Pass explicit
+smooth parametric reduction estimators when relying on that argument;
+`DRTMLE(reduced_crossfit="nested")` instead measures the generated-regressor dependence rather than
+assuming it away.
 
 The canonical R `drtmle` package's `cvFolds` path makes the same engineering choices as the
 supported route here: out-of-fold primary and reduced predictions, one pooled alternation, one

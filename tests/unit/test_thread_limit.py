@@ -151,13 +151,11 @@ def test_an_explicit_limit_overrides_the_configured_default():
 
 
 def test_a_pool_loaded_after_the_cache_is_seen_once_something_says_so(monkeypatch):
-    """The LightGBM hazard, with a fake pool standing in for the OpenMP one.
+    """A late-loaded native backend is visible after an explicit refresh.
 
     A controller cached before a library is loaded cannot know about its pool.  Nothing
     detects that automatically -- the detection *is* the walk the cache exists to avoid --
-    so the contract is that a refresh picks it up, and that the package calls the refresh
-    where it imports a backend.  Both halves are checked: this one is the mechanism, and
-    :func:`test_has_lightgbm_refreshes_the_controller` is the call site.
+    so callers that load a native backend later can refresh the controller explicitly.
     """
     seen: list[int] = []
 
@@ -174,21 +172,6 @@ def test_a_pool_loaded_after_the_cache_is_seen_once_something_says_so(monkeypatc
     refresh_thread_pools()
     _threads._controller()
     assert seen == [0, 1]
-
-
-def test_has_lightgbm_refreshes_the_controller(monkeypatch):
-    """The one lazily-imported backend invalidates the cache, and only on the import."""
-    from cleverly.learners import library
-
-    calls: list[int] = []
-    monkeypatch.setattr(library, "_LIGHTGBM", None)
-    monkeypatch.setattr(library, "refresh_thread_pools", lambda: calls.append(1))
-
-    first = library.has_lightgbm()
-    assert library.has_lightgbm() is first
-    # One refresh if the import succeeded, none if the extra is absent -- and never a
-    # second, because the answer is cached.
-    assert calls == ([1] if first else [])
 
 
 def test_concurrent_entry_builds_one_controller(monkeypatch):

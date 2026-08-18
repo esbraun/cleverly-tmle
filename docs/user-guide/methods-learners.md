@@ -6,9 +6,13 @@
 estimator variants; they do not change the causal question.
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CollaborativeTMLEMethod, DRTMLEMethod, ModelSpec
 
-parametric = ModelSpec(outcome_learner="glm", treatment_learner="glm")
+parametric = ModelSpec(
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+)
 
 collaborative = effect.estimate(
     method=CollaborativeTMLEMethod(models=parametric, strategy="greedy"),
@@ -37,7 +41,10 @@ learner deliberately for these two rather than inheriting it.
 from cleverly import CrossFitting, Inference, ModelSpec, Runtime, TMLEMethod, Targeting
 
 method = TMLEMethod(
-    models=ModelSpec(outcome_learner="glm", treatment_learner="glm"),
+    models=ModelSpec(
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+    ),
     cross_fitting=CrossFitting(n_folds=5, learner_folds=3, repeats=1),
     targeting=Targeting(g_bounds="auto", algorithm="iterative"),
     inference=Inference(alpha=0.05, simultaneous=False),
@@ -51,18 +58,35 @@ groups. A method object makes the normalized configuration serializable and revi
 
 ## Learner choices
 
-Four named libraries are available, each a Super Learner over the listed candidates:
+Every nuisance slot takes an sklearn-compatible estimator object. Strings such as `"glm"` and
+`"default"` are rejected so the configuration always identifies the actual model being fitted.
 
-| name | candidates | use it for |
-| --- | --- | --- |
-| `"glm"` | mean, linear/logistic | examples, debugging, and deliberately parametric analyses |
-| `"fast"` | mean, glm, spline GAM, gradient boosting | a flexible fit when runtime is the binding constraint |
-| `"default"` | mean, glm, elastic net, spline GAM, gradient boosting | the unnamed default |
-| `"rich"` | the `"default"` five plus a random forest | the widest library shipped |
+When learners are omitted, cleverly constructs a task-appropriate `SuperLearner` over three
+concrete sklearn candidates: histogram gradient boosting, a random forest, and lasso (`LassoCV`
+for a mean regression or L1 logistic cross-validation for a probability). No optional model
+package is imported. Install XGBoost or LightGBM yourself and pass its estimator object when that
+is the model you want.
 
-`SuperLearner` may be constructed directly, and a scikit-learn-compatible object may be passed in
-place of a name. The boosting candidate uses LightGBM when the `boost` extra is installed and
-scikit-learn's histogram gradient boosting otherwise, so the library keeps its shape either way.
+Construct an ensemble explicitly by passing model objects, optionally paired with report names:
+
+```python
+from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
+
+from cleverly import SuperLearner
+
+outcome_model = SuperLearner(
+    library=[
+        ("boost", HistGradientBoostingRegressor(random_state=3)),
+        ("forest", RandomForestRegressor(n_jobs=1, random_state=3)),
+        ("linear", LinearRegression()),
+    ],
+    n_folds=3,
+    random_state=3,
+)
+```
+
+The estimator clones each candidate before fitting. The objects supplied by the caller therefore
+remain unfitted and can be reused in another method configuration.
 
 Library size multiplies with both fold layers below, so it is the first thing to reach for when a
 fit is slower than expected.

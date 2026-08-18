@@ -18,6 +18,7 @@ import warnings
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 import tests.conftest as conftest
 import tests.discrete_law_shift_cde as shift_law
@@ -60,8 +61,8 @@ def fit_binary(**kwargs):  # type: ignore[no-untyped-def]
 
 def estimator(**kwargs):  # type: ignore[no-untyped-def]
     settings = {
-        "outcome_learner": "glm",
-        "treatment_learner": "glm",
+        "outcome_learner": sklearn.linear_model.LinearRegression(),
+        "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "n_folds": 4,
         "random_state": 0,
         "simultaneous": False,
@@ -430,7 +431,7 @@ class TestACoarsenedShiftFit:
         every score is zero whatever the covariate is, ``epsilon`` is zero, and the curve
         is flat for a reason that has nothing to do with the bound.
         """
-        result = self._law_fit(outcome_learner="glm")
+        result = self._law_fit(outcome_learner=sklearn.linear_model.LinearRegression())
         assert float(np.max(np.abs(result.fluctuations["mtp"].epsilon))) > 1e-6
         curve = result.sensitivity.truncation_curve(mechanism=True, bounds=[0.01, 0.3, 0.45])
         values = np.asarray(curve["psi"])[np.asarray(curve["estimand"]) == "ey_shift[+1]"]

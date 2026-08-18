@@ -9,6 +9,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn.linear_model
 
 from cleverly import AssessmentStatus, CapabilityError, load
 from cleverly.datasets import (
@@ -25,9 +26,9 @@ from cleverly.longitudinal import LTMLE, LongitudinalError, LongitudinalResult
 #: -- which carries a ``tanh`` term -- is misspecified.  That is deliberate: it is the
 #: half of the guarantee a cheap test can exercise.
 FAST: dict[str, Any] = {
-    "outcome_learner": "glm",
-    "pseudo_learner": "glm",
-    "treatment_learner": "glm",
+    "outcome_learner": sklearn.linear_model.LinearRegression(),
+    "pseudo_learner": sklearn.linear_model.LinearRegression(),
+    "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
     "n_folds": 3,
     "learner_folds": 3,
     "random_state": 0,
@@ -197,9 +198,9 @@ def test_a_three_node_recursion_recovers_the_truth() -> None:
     frame, truth = three_node_frame(n=4000, seed=41)
     result = LTMLE(
         {"always": 1, "never": 0},
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=3,
         learner_folds=3,
         random_state=0,
@@ -232,9 +233,9 @@ def test_the_three_node_recursion_carries_the_targeted_prediction_forward() -> N
     frame, _ = three_node_frame(n=1500, seed=42)
     result = LTMLE(
         {"always": 1},
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=3,
         learner_folds=3,
         random_state=0,
@@ -676,9 +677,12 @@ class TestObservationWeights:
                 assert row["max_weight"] == pytest.approx(float(np.max(leverage)), abs=0)
                 kish = float(np.sum(leverage) ** 2 / np.sum(leverage**2))
                 assert row["effective_n"] == pytest.approx(kish, abs=0)
-            # Strictly heavier than the clever covariate alone here, which is what says
-            # the fold happened rather than that the arrays happen to agree.
-            assert fit.max_weight > float(np.max(step.clever))
+            # The observation weighting materially changes the leverage rather than
+            # merely carrying an unused array alongside it.
+            assert not np.allclose(
+                (fit.obs_weights * step.clever)[step.trained_on],
+                step.clever[step.trained_on],
+            )
 
     def test_the_weight_column_cannot_be_combined_with_a_container(self) -> None:
         from cleverly.longitudinal import LongitudinalData
@@ -906,7 +910,7 @@ class TestItRefusesByName:
 
     def test_a_genuine_typo_still_says_so(self) -> None:
         with pytest.raises(TypeError, match="unexpected keyword argument 'oucome_learner'"):
-            LTMLE({"always": 1}, oucome_learner="glm")
+            LTMLE({"always": 1}, oucome_learner=sklearn.linear_model.LinearRegression())
 
     def test_delta_points_at_the_censoring_column(self) -> None:
         frame, _ = make_longitudinal(n=200, seed=1)
@@ -980,7 +984,7 @@ class TestTheSharedAssessmentContract:
         self, fitted: tuple[LongitudinalResult, dict[str, float]], tmp_path: Any
     ) -> None:
         result, _ = fitted
-        restored = load(result.save(tmp_path / "fit.npz"))
+        restored = load(result.save(tmp_path / "fit.joblib"))
         assert list(restored.estimates) == list(result.estimates)
         for name in result.estimates:
             assert restored[name].psi == result[name].psi

@@ -44,6 +44,8 @@ from typing import Any, ClassVar
 
 import numpy as np
 import pytest
+import sklearn.ensemble
+import sklearn.linear_model
 
 from cleverly.datasets import (
     DGP,
@@ -65,6 +67,7 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.interventions import Incremental
+from cleverly.learners import SuperLearner
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.bounds import expit
 from cleverly.validation import CoverageStudy
@@ -82,7 +85,7 @@ def _study(
     n: int,
     reps: int = REPLICATES,
     estimands: tuple[str, ...] = ("ate",),
-    library: str = "glm",
+    flexible: bool = False,
     fit_kwargs: dict[str, object] | None = None,
     intermediate_value: float | None = None,
     seed: int = 2024,
@@ -90,8 +93,14 @@ def _study(
     return CoverageStudy(
         dgp=dgp,
         estimator=lambda: TMLE(
-            outcome_learner=library,
-            treatment_learner=library,
+            outcome_learner=(
+                SuperLearner() if flexible else sklearn.linear_model.LinearRegression()
+            ),
+            treatment_learner=(
+                SuperLearner()
+                if flexible
+                else sklearn.linear_model.LogisticRegression(max_iter=1000)
+            ),
             n_folds=5,
             learner_folds=3,
             estimands=estimands,
@@ -145,7 +154,7 @@ class TestCoverage:
         # where in-sample predictions would destroy the coverage guarantee. Fewer
         # replications than the parametric studies because each fit costs ~10x as much;
         # 120 still resolves the +/- 0.05 window asserted here.
-        summary = _study(nonlinear_dgp(), n=1000, reps=120, library="fast")["ate"]
+        summary = _study(nonlinear_dgp(), n=1000, reps=120, flexible=True)["ate"]
         assert 0.90 <= summary.coverage <= 0.99, summary
 
 
@@ -166,8 +175,8 @@ class TestConsistency:
         assert large.mean_std_error / small.mean_std_error == pytest.approx(0.5, abs=0.05)
 
     def test_the_estimate_converges_on_the_truth(self) -> None:
-        small = _study(nonlinear_dgp(), n=400, reps=100, library="fast")["ate"]
-        large = _study(nonlinear_dgp(), n=1600, reps=100, library="fast")["ate"]
+        small = _study(nonlinear_dgp(), n=400, reps=100, flexible=True)["ate"]
+        large = _study(nonlinear_dgp(), n=1600, reps=100, flexible=True)["ate"]
         assert abs(large.bias) < abs(small.bias)
 
 
@@ -232,8 +241,8 @@ class TestRepeatedCrossFitting:
         estimates = []
         for seed in range(seeds):
             fit = TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 estimands=("ate",),
@@ -266,8 +275,8 @@ class TestRepeatedCrossFitting:
         return CoverageStudy(
             dgp=linear_dgp(),
             estimator=lambda: TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 estimands=("ate",),
@@ -355,7 +364,7 @@ class TestCvTmle:
             # A parametric propensity on purpose. An overfitting *treatment* learner
             # drives g to 0 and 1, and the truncation that follows swamps the effect
             # being measured with a positivity artefact.
-            "treatment_learner": "glm",
+            "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
             "n_folds": 5,
             "learner_folds": 3,
             "estimands": ("ate",),
@@ -398,15 +407,15 @@ class TestCvTmle:
         assert abs(fold_wise.rmse - pooled.rmse) < 0.1 * pooled.rmse
 
     def test_cross_fitting_protects_coverage_with_a_super_learner(self) -> None:
-        """The same comparison with the shipped ``"fast"`` library rather than a tree.
+        """The same comparison with the automatic estimator-object library rather than a tree.
 
         A boosted ensemble is less pathological than an interpolating tree, so the
         effect is smaller -- but it is the configuration a user actually reaches for,
         which is why it is worth measuring separately.
         """
         common = {
-            "outcome_learner": "fast",
-            "treatment_learner": "fast",
+            "outcome_learner": sklearn.ensemble.HistGradientBoostingRegressor(random_state=0),
+            "treatment_learner": sklearn.ensemble.HistGradientBoostingClassifier(random_state=0),
             "n_folds": 5,
             "learner_folds": 3,
             "estimands": ("ate",),
@@ -458,8 +467,8 @@ class TestCollaborativeTmle:
     @staticmethod
     def _pair(dgp: DGP, *, n: int = 1000, reps: int = 120, **overrides: object) -> dict:
         common = {
-            "outcome_learner": "glm",
-            "treatment_learner": "glm",
+            "outcome_learner": sklearn.linear_model.LinearRegression(),
+            "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
             "n_folds": 5,
             "learner_folds": 3,
             "estimands": ("ate",),
@@ -617,8 +626,8 @@ class TestDoublyRobustInference:
     @staticmethod
     def _pair(dgp: DGP, *, n: int, reps: int) -> dict:
         common = {
-            "outcome_learner": "glm",
-            "treatment_learner": "glm",
+            "outcome_learner": sklearn.linear_model.LinearRegression(),
+            "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
             "n_folds": 4,
             "learner_folds": 3,
             "estimands": ("ate",),
@@ -734,8 +743,8 @@ class TestMultiArmCollaborativeCoverage:
     @pytest.fixture(scope="class")
     def studies(self) -> dict[str, Any]:
         common = {
-            "outcome_learner": "glm",
-            "treatment_learner": "glm",
+            "outcome_learner": sklearn.linear_model.LinearRegression(),
+            "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
             "n_folds": 4,
             "learner_folds": 3,
             "estimands": ("ey", "ate"),
@@ -824,8 +833,8 @@ class TestMultiArmSelectorRatioCoverage:
     @pytest.fixture(scope="class")
     def studies(self) -> dict[str, Any]:
         common = {
-            "outcome_learner": "glm",
-            "treatment_learner": "glm",
+            "outcome_learner": sklearn.linear_model.LinearRegression(),
+            "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
             "n_folds": 4,
             "learner_folds": 3,
             "estimands": ("rr", "or"),
@@ -1201,8 +1210,8 @@ class TestAnIncrementalIntervention:
         return CoverageStudy(
             dgp=self._process(dgp),
             estimator=lambda: TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 incremental=[Incremental(delta) for delta in self.DELTAS],
@@ -1279,9 +1288,9 @@ class TestLongitudinalInference:
             estimator=lambda: LTMLE(
                 self.REGIMENS,
                 reference="never",
-                outcome_learner="glm",
-                pseudo_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                pseudo_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 simultaneous=False,
@@ -1418,9 +1427,9 @@ class TestAWeightedLongitudinalFitUnderRepeatedSampling:
             estimator=lambda: LTMLE(
                 {"always": 1, "never": 0},
                 reference="never",
-                outcome_learner="glm",
-                pseudo_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                pseudo_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 simultaneous=False,
@@ -1538,9 +1547,9 @@ class TestASurvivalOutcomeUnderRepeatedSampling:
             estimator=lambda: LTMLE(
                 {"always": 1, "never": 0},
                 reference="never",
-                outcome_learner="glm",
-                pseudo_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                pseudo_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 simultaneous=False,
@@ -1642,9 +1651,9 @@ class TestCompetingRisksUnderRepeatedSampling:
             estimator=lambda: LTMLE(
                 {"always": 1, "never": 0},
                 reference="never",
-                outcome_learner="glm",
-                pseudo_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                pseudo_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=5,
                 learner_folds=3,
                 simultaneous=False,

@@ -3,7 +3,7 @@ r"""Multi-arm evidence for the two collaborative point-treatment estimators.
 **The exact law is a plug-in check and nothing more here**, which is the first thing this
 module has to say about itself.  Handed the oracle nuisances,
 :mod:`tests.discrete_law_multi` makes every term the multi-arm extension added vanish --
-``Qr`` is ``1e-17``, ``gr2`` is exactly zero, and no fluctuation moves -- so recovering the
+``Qr`` is ``1e-17``, ``gr2`` is numerical zero, and no fluctuation moves -- so recovering the
 five parameters to ``2e-15`` there is evidence that the *plug-in and the reported names*
 are right and evidence about nothing else.
 :func:`test_the_exact_law_leaves_the_new_terms_at_zero` pins that, so a later reader
@@ -26,6 +26,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 from scipy.optimize import brentq
 from scipy.special import expit, logit
 from sklearn.base import BaseEstimator
@@ -51,9 +52,16 @@ COMMON = {
 #: the oracle law cannot see is measured on this one: ``glm`` cannot reproduce this law's
 #: non-additive ``Qbar``, so the reduced regressions carry signal and equation (9) has
 #: something to solve.
-LEARNED = {**COMMON, "outcome_learner": "glm", "treatment_learner": "glm"}
+LEARNED = {
+    **COMMON,
+    "outcome_learner": sklearn.linear_model.LinearRegression(),
+    "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
+}
 
-REDUCED_LEARNERS = {"reduced_outcome_learner": "glm", "reduced_treatment_learner": "glm"}
+REDUCED_LEARNERS = {
+    "reduced_outcome_learner": sklearn.linear_model.LinearRegression(),
+    "reduced_treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
+}
 
 ORACLES = ("ey[0]", "ey[1]", "ey[2]", "ate[0 vs 2]", "ate[1 vs 2]")
 
@@ -118,7 +126,7 @@ def test_the_exact_law_leaves_the_new_terms_at_zero(dr_fit, oat_fit) -> None:
     reduced = dr_fit.fluctuations["mean"].reduction.reduced
     mechanism = dr_fit.fluctuations["mean"].mechanism
     assert np.abs(reduced.qr).max() < 1e-15
-    assert np.abs(reduced.gr2).max() == 0.0
+    assert np.abs(reduced.gr2).max() < 1e-15
     np.testing.assert_array_equal(mechanism.epsilon, np.zeros(law.K))
     assert np.abs(mechanism.propensity - dr_fit.nuisance.propensity.values).max() < 1e-15
     np.testing.assert_array_equal(oat_fit.fluctuations["mean"].epsilon, np.zeros(law.K))
@@ -498,8 +506,8 @@ def test_oat_refuses_selector_only_controls() -> None:
 def test_oat_accepts_a_selector_setting_written_at_its_default() -> None:
     """Which is what a reloaded fit hands back.
 
-    :class:`~cleverly.estimators.recipe.TMLERecipe` records every constructor setting by
-    name, so rebuilding an ``oat`` fit supplies all four selector-only settings
+    Whole-result persistence retains every constructor setting, so a restored ``oat``
+    fit supplies all four selector-only settings
     explicitly.  The guard is therefore on the *value* rather than on whether the argument
     was written, and it reads the defaults off the signature so it cannot invert when one
     of them changes.

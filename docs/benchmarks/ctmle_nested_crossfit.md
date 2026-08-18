@@ -11,7 +11,7 @@ selection fold cost, and how many inner folds are a usable default?
 
 Measured 2026-08-09 on Windows 11, Python 3.13.7, Intel Family 6 Model 186. Each cell is a complete
 `CTMLE.fit(...).single()` on `make_instrument(n=2000, seed=seed)` for seeds 0, 1, and 2, using
-`estimands=("ate",)`, `outcome_learner="glm"`, `treatment_learner="glm"`, default selection folds,
+`estimands=("ate",)`, direct linear/logistic sklearn nuisance estimators, default selection folds,
 and otherwise default settings. An unrecorded `n=200` ordered fit warmed imports and caches before
 each implementation run.
 

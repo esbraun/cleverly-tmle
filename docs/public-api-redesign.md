@@ -824,7 +824,7 @@ Other rules:
 - sensitivity is resolved against a structured parameter key, not a parsed display name;
 - missingness tilts remain limited to functionals with published identification under the tilt;
 - mechanism-bound curves remain distinct from direct-Riesz regularization sensitivity;
-- benchmarking that refits models must require a reconstructible method recipe;
+- benchmarking that refits models must require a fitted estimator configuration;
 - saved results may replay cached retargeting analyses but must refuse operations requiring lost
   custom callables;
 - combined reports skip inapplicable families while explaining the omission.

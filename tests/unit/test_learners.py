@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from itertools import pairwise
-
 import numpy as np
 import pytest
 from sklearn.dummy import DummyRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.pipeline import make_pipeline
+from sklearn.pipeline import Pipeline, make_pipeline
 
 from cleverly.exceptions import DataError
 from cleverly.learners import (
@@ -17,12 +16,12 @@ from cleverly.learners import (
     Folds,
     SuperLearner,
     check_integrity,
+    default_library,
     fit_learner,
     infer_task,
     make_folds,
     predict_mean,
     refuse_scheme,
-    resolve_library,
     resolve_n_folds,
     screen_by_correlation,
     supports_sample_weight,
@@ -528,66 +527,72 @@ class TestFittingHelpers:
 
 
 class TestLibrary:
-    @pytest.mark.parametrize("preset", ["glm", "fast", "default", "rich"])
     @pytest.mark.parametrize("task", ["regression", "classification"])
-    def test_presets_resolve_to_named_estimators(self, preset: str, task: str) -> None:
-        library = resolve_library(preset, task)  # type: ignore[arg-type]
-        assert len(library) >= 2
-        assert all(hasattr(estimator, "fit") for _, estimator in library)
-        # SL.mean is always present: it is what stops the ensemble being dragged
-        # around by a candidate that overfits.
-        assert library[0][0] == "mean"
+    def test_default_resolves_to_three_named_estimators(self, task: str) -> None:
+        from cleverly.learners.library import _resolve_library
 
-    def test_presets_grow_monotonically(self) -> None:
-        sizes = [
-            len(resolve_library(name, "regression")) for name in ("glm", "fast", "default", "rich")
-        ]
-        # Strictly, not `sizes == sorted(sizes)`: that is also true when all four presets
-        # resolve to the *same* library, which is the way this can actually break.
-        assert all(a < b for a, b in pairwise(sizes)), sizes
+        library = _resolve_library(None, task)  # type: ignore[arg-type]
+        assert [name for name, _ in library] == ["hist_gradient_boosting", "random_forest", "lasso"]
+        assert all(hasattr(estimator, "fit") for _, estimator in library)
+
+    def test_regression_default_uses_the_declared_sklearn_models(self) -> None:
+        library = default_library("regression", random_state=3)
+        assert isinstance(library[0][1], HistGradientBoostingRegressor)
+        assert isinstance(library[1][1], RandomForestRegressor)
+        assert isinstance(library[2][1], Pipeline)
 
     def test_bare_estimators_get_names(self) -> None:
-        library = resolve_library([LinearRegression(), DummyRegressor()], "regression")
+        from cleverly.learners.library import _resolve_library
+
+        library = _resolve_library([LinearRegression(), DummyRegressor()], "regression")
         assert [name for name, _ in library] == ["LinearRegression", "DummyRegressor"]
 
     def test_duplicate_names_are_disambiguated(self) -> None:
-        library = resolve_library([LinearRegression(), LinearRegression()], "regression")
+        from cleverly.learners.library import _resolve_library
+
+        library = _resolve_library([LinearRegression(), LinearRegression()], "regression")
         assert [name for name, _ in library] == ["LinearRegression", "LinearRegression_2"]
 
     def test_explicit_pairs_pass_through(self) -> None:
-        library = resolve_library([("mine", LinearRegression())], "regression")
+        from cleverly.learners.library import _resolve_library
+
+        library = _resolve_library([("mine", LinearRegression())], "regression")
         assert library[0][0] == "mine"
 
-    def test_spline_learner_is_skipped_for_wide_data(self) -> None:
-        names = [name for name, _ in resolve_library("default", "regression", n_features=200)]
-        assert "gam" not in names
+    def test_string_presets_are_refused(self) -> None:
+        with pytest.raises(TypeError, match="estimator objects"):
+            from cleverly.learners.library import _resolve_library
 
-    def test_unknown_preset_is_refused(self) -> None:
-        with pytest.raises(ValueError, match="unknown library preset"):
-            resolve_library("magic", "regression")
+            _resolve_library("glm", "regression")  # type: ignore[arg-type]
 
     def test_empty_library_is_refused(self) -> None:
         with pytest.raises(ValueError, match="library is empty"):
-            resolve_library([], "regression")
+            from cleverly.learners.library import _resolve_library
+
+            _resolve_library([], "regression")
 
 
 class TestSuperLearner:
+    @staticmethod
+    def library() -> list[object]:
+        return [LinearRegression(), DummyRegressor()]
+
     def test_weights_lie_on_the_simplex(self, sample) -> None:
         x, y, _ = sample
-        model = SuperLearner(library="glm", n_folds=3, random_state=0).fit(x, y)
+        model = SuperLearner(library=self.library(), n_folds=3, random_state=0).fit(x, y)
         assert model.coef_.sum() == pytest.approx(1.0)
         assert np.all(model.coef_ >= -1e-12)
 
     def test_the_ensemble_beats_or_matches_its_worst_candidate(self, sample) -> None:
         x, y, _ = sample
-        model = SuperLearner(library="glm", n_folds=3, random_state=0).fit(x, y)
+        model = SuperLearner(library=self.library(), n_folds=3, random_state=0).fit(x, y)
         assert model.diagnostics_.ensemble_cv_risk <= model.cv_risk_.max()
 
     def test_discrete_super_learner_picks_a_single_candidate(self, sample) -> None:
         x, y, _ = sample
-        model = SuperLearner(library="glm", meta_learner="discrete", n_folds=3, random_state=0).fit(
-            x, y
-        )
+        model = SuperLearner(
+            library=self.library(), meta_learner="discrete", n_folds=3, random_state=0
+        ).fit(x, y)
         assert np.count_nonzero(model.coef_) == 1
         assert model.learner_names_[int(np.argmax(model.coef_))] == model.diagnostics_.best
 
@@ -606,9 +611,9 @@ class TestSuperLearner:
 
     def test_classification_probabilities_stay_in_range(self, sample) -> None:
         x, _, a = sample
-        model = SuperLearner(library="glm", n_folds=3, random_state=0, clip=(0.001, 0.999)).fit(
-            x, a
-        )
+        model = SuperLearner(
+            library=self.library(), n_folds=3, random_state=0, clip=(0.001, 0.999)
+        ).fit(x, a)
         p = model.predict(x)
         assert p.min() >= 0.001
         assert p.max() <= 0.999
@@ -617,12 +622,12 @@ class TestSuperLearner:
 
     def test_nnloglik_is_the_default_for_a_binary_target(self, sample) -> None:
         x, _, a = sample
-        model = SuperLearner(library="glm", n_folds=3, random_state=0).fit(x, a)
+        model = SuperLearner(library=self.library(), n_folds=3, random_state=0).fit(x, a)
         assert model.diagnostics_.loss == "neg_log_likelihood"
 
     def test_out_of_fold_predictions_are_retained_for_every_row(self, sample) -> None:
         x, y, _ = sample
-        model = SuperLearner(library="glm", n_folds=4, random_state=0).fit(x, y)
+        model = SuperLearner(library=self.library(), n_folds=4, random_state=0).fit(x, y)
         assert model.cv_predictions_.shape == (len(y), len(model.learner_names_))
         assert np.all(np.isfinite(model.cv_predictions_))
 
@@ -659,7 +664,9 @@ class TestSuperLearner:
     def test_clusters_are_respected_by_the_inner_folds(self, sample) -> None:
         x, y, _ = sample
         groups = np.repeat(np.arange(len(y) // 10), 10)
-        model = SuperLearner(library="glm", n_folds=4, random_state=0).fit(x, y, groups=groups)
+        model = SuperLearner(library=self.library(), n_folds=4, random_state=0).fit(
+            x, y, groups=groups
+        )
         for train, test in model.folds_:
             assert set(groups[train]).isdisjoint(set(groups[test]))
 
@@ -667,21 +674,21 @@ class TestSuperLearner:
         x, y, _ = sample
         rng = np.random.default_rng(0)
         weights = rng.uniform(0.2, 2.0, len(y))
-        plain = SuperLearner(library="glm", n_folds=3, random_state=0).fit(x, y)
-        weighted = SuperLearner(library="glm", n_folds=3, random_state=0).fit(
+        plain = SuperLearner(library=self.library(), n_folds=3, random_state=0).fit(x, y)
+        weighted = SuperLearner(library=self.library(), n_folds=3, random_state=0).fit(
             x, y, sample_weight=weights
         )
         assert not np.allclose(plain.predict(x), weighted.predict(x))
 
     def test_weights_mapping_matches_the_coefficients(self, sample) -> None:
         x, y, _ = sample
-        model = SuperLearner(library="glm", n_folds=3, random_state=0).fit(x, y)
+        model = SuperLearner(library=self.library(), n_folds=3, random_state=0).fit(x, y)
         assert model.weights == dict(zip(model.learner_names_, model.coef_.tolist(), strict=True))
 
     def test_mismatched_lengths_are_refused(self, sample) -> None:
         x, y, _ = sample
         with pytest.raises(ValueError, match="expected"):
-            SuperLearner(library="glm", n_folds=3).fit(x, y[:-1])
+            SuperLearner(library=self.library(), n_folds=3).fit(x, y[:-1])
 
 
 class TestCrossFitRouting:
@@ -735,7 +742,13 @@ class TestCrossFitRouting:
 
         Spy, seen = self._spy()
         cross_fit_predictions(
-            Spy(library="glm", task="classification", n_folds=3, random_state=0, clip=(0.0, 1.0)),
+            Spy(
+                library=[LogisticRegression(max_iter=1000)],
+                task="classification",
+                n_folds=3,
+                random_state=0,
+                clip=(0.0, 1.0),
+            ),
             design,
             treatment,
             np.ones(n),
@@ -771,7 +784,11 @@ class TestCrossFitRouting:
 
         Spy, seen = self._spy()
         learner = Spy(
-            library="glm", task="classification", n_folds=3, random_state=0, clip=(0.0, 1.0)
+            library=[LogisticRegression(max_iter=1000)],
+            task="classification",
+            n_folds=3,
+            random_state=0,
+            clip=(0.0, 1.0),
         )
         cross_fit_predictions(
             _screened(learner, 0.1, None) if screen else learner,
@@ -806,7 +823,9 @@ class TestCrossFitRouting:
         outcome = design[:, 0] + rng.normal(scale=0.5, size=n)
         weights = rng.uniform(0.2, 2.0, n)
 
-        wrapped = _screened(SuperLearner(library="glm", n_folds=3, random_state=0), 0.1, None)
+        wrapped = _screened(
+            SuperLearner(library=[LinearRegression()], n_folds=3, random_state=0), 0.1, None
+        )
         plain = fit_learner(wrapped, design, outcome, None)
         weighted = fit_learner(wrapped, design, outcome, weights)
         assert not np.allclose(plain.predict(design), weighted.predict(design))

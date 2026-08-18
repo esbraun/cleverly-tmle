@@ -29,12 +29,11 @@ from .density import (
     bin_edges,
     fit_conditional_density,
 )
-from .library import LIBRARY_PRESETS, has_lightgbm, resolve_library
+from .library import default_library
 from .screeners import CorrelationScreener, screen_by_correlation
 from .super_learner import SuperLearner, SuperLearnerDiagnostics
 
 __all__ = [
-    "LIBRARY_PRESETS",
     "ConditionalDensity",
     "CorrelationScreener",
     "CrossFitPlan",
@@ -45,16 +44,15 @@ __all__ = [
     "accepts_groups",
     "bin_edges",
     "check_integrity",
+    "default_library",
     "fit_conditional_density",
     "fit_learner",
     "get_thread_limit",
-    "has_lightgbm",
     "infer_task",
     "make_folds",
     "predict_mean",
     "refresh_thread_pools",
     "refuse_scheme",
-    "resolve_library",
     "resolve_n_folds",
     "screen_by_correlation",
     "set_thread_limit",

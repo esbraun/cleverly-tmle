@@ -38,9 +38,9 @@ denominators needed to challenge these conclusions.
 - Compare against a competent numpy baseline, not merely the current spelling of a function.
 - Report the kernel's share of an end-to-end fit. A large ratio on a negligible region does not
   justify a runtime dependency.
-- Measure with the intended learner preset. `library="glm"` is useful as a stress case because it
-  makes package-owned arithmetic unusually visible; `library="default"` is the realistic
-  denominator.
+- Measure with the intended estimator objects. Direct `LinearRegression` and
+  `LogisticRegression` models are useful stress cases because they make package-owned arithmetic
+  unusually visible; `SuperLearner()` with its automatic library is the realistic denominator.
 - Include compile time, warm and cold behavior, allocation, core count, and environment metadata.
 - Treat results as properties of their hardware, dependency versions, configuration, and harness.
   Do not compare raw timings across unlike runs.

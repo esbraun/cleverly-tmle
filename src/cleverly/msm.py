@@ -276,6 +276,23 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
 
 
 @dataclass(frozen=True)
+class _LinearDesign:
+    """Pickle-compatible callable backing :meth:`MSM.linear`."""
+
+    modifiers: tuple[str, ...]
+    interaction: bool
+
+    def __call__(self, level: Any, frame: Any) -> FloatArray:
+        dose = _numeric_dose(level, _frame_len(frame))
+        columns = [np.ones(_frame_len(frame)), dose]
+        modifier_values = [_column(frame, name) for name in self.modifiers]
+        columns.extend(modifier_values)
+        if self.interaction:
+            columns.extend(dose * values for values in modifier_values)
+        return np.column_stack(columns)
+
+
+@dataclass(frozen=True)
 class MSM:
     r"""A working model, declared as a design function and the names of its terms.
 
@@ -389,17 +406,8 @@ class MSM:
         if interaction:
             terms = (*terms, *(f"a:{name}" for name in names))
 
-        def build(level: Any, frame: Any) -> FloatArray:
-            dose = _numeric_dose(level, _frame_len(frame))
-            columns = [np.ones(_frame_len(frame)), dose]
-            modifier_values = [_column(frame, name) for name in names]
-            columns.extend(modifier_values)
-            if interaction:
-                columns.extend(dose * values for values in modifier_values)
-            return np.column_stack(columns)
-
         return cls(
-            design=build,
+            design=_LinearDesign(names, interaction),
             terms=terms,
             weights=weights,
             link=link,

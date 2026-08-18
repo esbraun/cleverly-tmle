@@ -56,6 +56,7 @@ from typing import Any
 
 import polars as pl
 import pytest
+import sklearn.linear_model
 
 import cleverly
 from cleverly import CapabilityError
@@ -348,8 +349,8 @@ def results() -> dict[str, Any]:
     point_frame, _ = make_linear_ate(n=400, seed=0)
     point = (
         TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             n_folds=2,
             learner_folds=2,
             random_state=0,
@@ -361,9 +362,9 @@ def results() -> dict[str, Any]:
     long_frame, _ = make_longitudinal(n=400, seed=11)
     longitudinal = LTMLE(
         {"always": 1, "never": 0},
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=2,
         learner_folds=2,
         random_state=0,

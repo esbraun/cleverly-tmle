@@ -39,6 +39,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
@@ -231,7 +232,10 @@ class TestFrequencyWeightsAreRefused:
     def test_weights_type_frequency_is_an_error(self) -> None:
         frame = law.frame().assign(w=1.0)
         with pytest.raises(DataError, match="frequency"):
-            TMLE(outcome_learner="glm", treatment_learner="glm").fit(
+            TMLE(
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            ).fit(
                 frame,
                 outcome="Y",
                 treatment="A",
@@ -335,8 +339,8 @@ class TestTheReport:
         """
         frame = law.frame().assign(w=1.0 + 0.5 * law.frame()["W"])
         estimator = TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             estimands=("ate",),
             n_bootstrap=2,
@@ -355,8 +359,8 @@ class TestTheReport:
     def test_no_such_warning_for_weights_that_were_not_estimated(self) -> None:
         frame = law.frame().assign(w=1.0 + 0.5 * law.frame()["W"])
         estimator = TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
+            outcome_learner=sklearn.linear_model.LinearRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
             estimands=("ate",),
             n_bootstrap=2,
@@ -443,8 +447,8 @@ class TestSampleSizeDependentSettings:
         frame = law.frame().assign(w=law.row_weights(cells))
         result = (
             TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 cross_fit=False,
                 g_bounds=0.01,
                 random_state=0,

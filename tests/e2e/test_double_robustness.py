@@ -34,7 +34,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly import SuperLearner
 from cleverly.datasets import DGP, nonlinear_dgp
 from cleverly.estimators import TMLE
 from cleverly.utils.bounds import expit
@@ -46,7 +48,7 @@ def weak_overlap_nonlinear(strength: float = 2.2) -> DGP:
     """:func:`~cleverly.datasets.nonlinear_dgp` with the propensity pushed into the tails.
 
     The bundled :func:`~cleverly.datasets.weak_overlap_dgp` cannot serve here: its outcome
-    mean is linear, so ``"glm"`` is *correct* for ``Qbar`` and the two "wrong" cells of the
+    mean is linear, so a linear regression is *correct* for ``Qbar`` and the two "wrong" cells of the
     grid would not be wrong.  Scaling the nonlinear process's linear predictor keeps both
     nuisances misspecifiable while moving 11% of the population below ``g = 0.05`` and 2%
     above 0.95 -- a practical positivity violation rather than a nominal one.
@@ -99,19 +101,19 @@ class TestDoubleRobustnessGrid:
     """Both nuisances wrong is the only cell that should be biased."""
 
     @pytest.mark.parametrize(
-        "label,outcome_learner,treatment_learner",
+        "label,outcome_correct,treatment_correct",
         [
-            ("both correct", "oracle_q", "oracle_g"),
-            ("outcome correct only", "oracle_q", "glm"),
-            ("treatment correct only", "glm", "oracle_g"),
+            ("both correct", True, True),
+            ("outcome correct only", True, False),
+            ("treatment correct only", False, True),
         ],
     )
     def test_one_correct_nuisance_suffices(
-        self, label: str, outcome_learner: str, treatment_learner: str
+        self, label: str, outcome_correct: bool, treatment_correct: bool
     ) -> None:
         dgp = nonlinear_dgp()
-        q = OracleOutcomeContinuous(dgp) if outcome_learner == "oracle_q" else "glm"
-        g = OracleTreatment(dgp) if treatment_learner == "oracle_g" else "glm"
+        q = OracleOutcomeContinuous(dgp) if outcome_correct else LinearRegression()
+        g = OracleTreatment(dgp) if treatment_correct else LogisticRegression(max_iter=1000)
         summary = _study(q, g, n=700, reps=40)["ate"]
         # The bias must be indistinguishable from zero at the Monte Carlo resolution.
         assert abs(summary.bias) < max(3.5 * summary.bias_se, 0.03), (
@@ -119,7 +121,9 @@ class TestDoubleRobustnessGrid:
         )
 
     def test_both_nuisances_wrong_is_visibly_biased(self) -> None:
-        summary = _study("glm", "glm", n=700, reps=40)["ate"]
+        summary = _study(LinearRegression(), LogisticRegression(max_iter=1000), n=700, reps=40)[
+            "ate"
+        ]
         # This is the control condition: with no consistent nuisance, double robustness
         # has nothing to work with and the bias is real and detectable. Without this
         # row, a suite of "is unbiased" assertions could not distinguish a working
@@ -132,8 +136,10 @@ class TestDoubleRobustnessGrid:
     # double-robustness grid above it is the deliberate spending in this module.
     @pytest.mark.slow
     def test_the_standard_error_shrinks_at_the_root_n_rate(self) -> None:
-        small = _study("glm", "glm", n=500, reps=30)["ate"]
-        large = _study("glm", "glm", n=2000, reps=30)["ate"]
+        small = _study(LinearRegression(), LogisticRegression(max_iter=1000), n=500, reps=30)["ate"]
+        large = _study(LinearRegression(), LogisticRegression(max_iter=1000), n=2000, reps=30)[
+            "ate"
+        ]
         # Quadrupling n should halve the standard error.
         ratio = large.mean_std_error / small.mean_std_error
         assert ratio == pytest.approx(0.5, abs=0.1)
@@ -143,16 +149,18 @@ class TestDoubleRobustnessGrid:
 class TestFlexibleLearners:
     """The practical case for the Super Learner, at sizes the fast tier cannot afford."""
 
-    def test_a_flexible_learner_removes_the_bias_the_glm_leaves(self) -> None:
-        misspecified = _study("glm", "glm", n=1000, reps=60)["ate"]
-        flexible = _study("fast", "fast", n=1000, reps=60)["ate"]
+    def test_a_flexible_learner_removes_the_parametric_bias(self) -> None:
+        misspecified = _study(
+            LinearRegression(), LogisticRegression(max_iter=1000), n=1000, reps=60
+        )["ate"]
+        flexible = _study(SuperLearner(), SuperLearner(), n=1000, reps=60)["ate"]
         # Same estimator, same data: the bias largely disappears once the nuisance
         # models are able to fit the process.
         assert abs(flexible.bias) < 0.5 * abs(misspecified.bias)
 
     def test_bias_shrinks_with_sample_size(self) -> None:
-        small = _study("fast", "fast", n=500, reps=60)["ate"]
-        large = _study("fast", "fast", n=2000, reps=60)["ate"]
+        small = _study(SuperLearner(), SuperLearner(), n=500, reps=60)["ate"]
+        large = _study(SuperLearner(), SuperLearner(), n=2000, reps=60)["ate"]
         assert abs(large.bias) < abs(small.bias)
         # Root-n consistency: sqrt(n) * bias stays bounded rather than growing.
         assert abs(large.root_n_bias) < 2.0 * max(abs(small.root_n_bias), 0.5)
@@ -211,12 +219,22 @@ class TestDoubleRobustnessIsNotSymmetricUnderWeakOverlap:
     def cells(self, dgp) -> dict[str, object]:
         return {
             "outcome correct only": _study(
-                OracleOutcomeContinuous(dgp), "glm", n=self.N, reps=self.REPS, dgp=dgp
+                OracleOutcomeContinuous(dgp),
+                LogisticRegression(max_iter=1000),
+                n=self.N,
+                reps=self.REPS,
+                dgp=dgp,
             )["ate"],
             "treatment correct only": _study(
-                "glm", OracleTreatment(dgp), n=self.N, reps=self.REPS, dgp=dgp
+                LinearRegression(), OracleTreatment(dgp), n=self.N, reps=self.REPS, dgp=dgp
             )["ate"],
-            "neither correct": _study("glm", "glm", n=self.N, reps=self.REPS, dgp=dgp)["ate"],
+            "neither correct": _study(
+                LinearRegression(),
+                LogisticRegression(max_iter=1000),
+                n=self.N,
+                reps=self.REPS,
+                dgp=dgp,
+            )["ate"],
         }
 
     def test_the_outcome_half_still_delivers(self, cells) -> None:

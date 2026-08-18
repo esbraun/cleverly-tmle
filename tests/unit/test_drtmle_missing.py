@@ -7,6 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 import pytest
+import sklearn.linear_model
 from sklearn.base import BaseEstimator
 from sklearn.dummy import DummyRegressor
 
@@ -66,11 +67,11 @@ def _estimator(**settings: object) -> DRTMLE:
     return DRTMLE(
         randomized=True,
         cross_fit=False,
-        outcome_learner="glm",
-        treatment_learner="glm",
-        missingness_learner="glm",
-        reduced_outcome_learner="glm",
-        reduced_treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+        reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         estimands=("ate", "ey1", "ey0"),
         simultaneous=False,
         random_state=0,
@@ -288,17 +289,20 @@ class _FailIfFit(BaseEstimator):
     def fit(self, X, y, sample_weight=None):  # pragma: no cover - failure is the assertion
         raise AssertionError("known randomization probabilities must bypass treatment fitting")
 
+    def predict(self, X):  # pragma: no cover - failure is the assertion
+        raise AssertionError("known randomization probabilities must bypass treatment prediction")
+
 
 def test_known_probabilities_bypass_the_treatment_learner() -> None:
     frame = _trial(n=260, seed=17)
     estimator = DRTMLE(
         randomized=False,
         cross_fit=False,
-        outcome_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
         treatment_learner=_FailIfFit(),
-        missingness_learner="glm",
-        reduced_outcome_learner="glm",
-        reduced_treatment_learner="glm",
+        missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+        reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+        reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         estimands=("ate",),
         simultaneous=False,
         random_state=0,
@@ -336,7 +340,7 @@ def test_two_dimensional_known_probabilities_are_copied() -> None:
     np.testing.assert_array_equal(result.nuisance.propensity.values, before)
 
 
-def test_known_probability_recipe_is_explicitly_unreconstructible(tmp_path) -> None:
+def test_known_probabilities_survive_whole_result_persistence(tmp_path) -> None:
     frame = _trial(n=120, seed=31)
     result = (
         _estimator()
@@ -356,8 +360,11 @@ def test_known_probability_recipe_is_explicitly_unreconstructible(tmp_path) -> N
     assert restored.validation.score_check() == result.validation.score_check()
     curve = restored.sensitivity.truncation_curve(bounds=[0.05])
     assert len(curve) == len(result.estimates)
-    with pytest.raises(ValueError, match="row-aligned known treatment probabilities"):
-        restored.estimator.refit(restored.data)
+    refitted = restored.estimator.refit(restored.data)
+    np.testing.assert_array_equal(
+        refitted.nuisance.propensity.values,
+        restored.nuisance.propensity.values,
+    )
 
 
 def test_observational_missing_outcomes_are_refused() -> None:
@@ -459,9 +466,9 @@ def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:
         guard=(),
         randomized=False,
         cross_fit=False,
-        outcome_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
         treatment_learner=_FailIfFit(),
-        missingness_learner="glm",
+        missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         estimands=("ate",),
         simultaneous=False,
         random_state=0,
@@ -581,10 +588,10 @@ def test_the_estimator_is_consistent_when_only_the_outcome_model_is_wrong() -> N
             # both the interaction and the covariate that drives the chance of being seen. Only
             # the mechanism can carry consistency from here.
             outcome_learner=DummyRegressor(strategy="mean"),
-            treatment_learner="glm",
-            missingness_learner="glm",
-            reduced_outcome_learner="glm",
-            reduced_treatment_learner="glm",
+            treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
+            reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
+            reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             estimands=("ate", "ey1", "ey0"),
             simultaneous=False,
             random_state=0,

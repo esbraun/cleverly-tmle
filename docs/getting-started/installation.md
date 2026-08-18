@@ -10,7 +10,8 @@ python -m pip install "git+https://github.com/esbraun/cleverly-tmle.git"
 ```
 
 The core install includes NumPy, SciPy, scikit-learn, narwhals, joblib, and threadpoolctl. Install
-the `all` extra for pandas, polars, LightGBM, and plotting support:
+the `all` extra for pandas, polars, and plotting support. Install third-party nuisance estimators
+such as XGBoost or LightGBM separately and pass their sklearn-compatible objects directly:
 
 ```bash
 python -m pip install "cleverly[all] @ git+https://github.com/esbraun/cleverly-tmle.git"

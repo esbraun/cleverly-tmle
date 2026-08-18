@@ -6,6 +6,7 @@
 outcome processes. At treatment node `t`, a dynamic rule sees only history available by `t`.
 
 ```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 from cleverly.datasets import make_longitudinal
 
@@ -22,9 +23,9 @@ study = CausalStudy(
 )
 result = study.estimate(
     RegimeContrast({"always": 1, "never": 0}, reference="always"),
-    outcome_learner="glm",
-    pseudo_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
     n_folds=3,
     learner_folds=3,
     random_state=0,
@@ -55,9 +56,9 @@ study = CausalStudy(
 )
 risks = study.estimate(
     RegimeMean({"always": 1, "never": 0}, horizons=(1, 2)),
-    outcome_learner="glm",
-    pseudo_learner="glm",
-    treatment_learner="glm",
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
 )
 ```
 

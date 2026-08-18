@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
+from cleverly import SuperLearner
 from cleverly.datasets import cde_dgp, make_cde, make_missing_outcome, missing_outcome_dgp
 from cleverly.estimators import TMLE
 from cleverly.estimators.base import TMLEResultSet
@@ -69,7 +71,13 @@ class TestMissingOutcomes:
             # An intercept-only outcome model: badly misspecified on purpose, so only the
             # inverse-probability part of the clever covariate can carry the estimate.
             settings = {
-                "outcome_learner": [("mean", _MeanOnly())],
+                "outcome_learner": SuperLearner(
+                    [("mean", _MeanOnly())],
+                    task="regression",
+                    n_folds=3,
+                    clip=(0.0, 1.0),
+                    random_state=0,
+                ),
                 "treatment_learner": OracleTreatment(dgp),
                 "n_folds": 4,
                 "learner_folds": 3,
@@ -277,8 +285,8 @@ class TestCoverageStudiesRunPerLevel:
         return CoverageStudy(
             dgp=cde_dgp(),
             estimator=lambda: TMLE(
-                outcome_learner="glm",
-                treatment_learner="glm",
+                outcome_learner=sklearn.linear_model.LinearRegression(),
+                treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=3,
                 random_state=0,
                 simultaneous=False,

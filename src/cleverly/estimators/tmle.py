@@ -122,6 +122,7 @@ from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..learners._fitting import Task
 from ..learners.crossfit import CrossFitPlan, Folds, make_folds
+from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, MSMSet
 from ..provenance import record as provenance_record
@@ -169,10 +170,9 @@ class TMLE:
     Parameters
     ----------
     outcome_learner, treatment_learner:
-        Nuisance estimators for ``Qbar(A, W)`` and ``g(W)``.  A string or list is
-        treated as a :class:`~cleverly.learners.SuperLearner` library specification
-        (see :data:`cleverly.learners.LIBRARY_PRESETS`); any scikit-learn compatible
-        estimator is used directly.
+        Scikit-learn-compatible nuisance estimators for ``Qbar(A, W)`` and ``g(W)``.
+        When omitted, each task receives the concrete default
+        :class:`~cleverly.learners.SuperLearner`.
     missingness_learner, intermediate_learner:
         Estimators for ``P(Delta = 1 | A, W)`` and ``P(Z = 1 | A, W)``.  Default to the
         same specification as ``treatment_learner``; only used when the data supplies
@@ -346,10 +346,10 @@ class TMLE:
     def __init__(
         self,
         *,
-        outcome_learner: Learner | str | Sequence[Any] | None = "default",
-        treatment_learner: Learner | str | Sequence[Any] | None = "default",
-        missingness_learner: Learner | str | Sequence[Any] | None = None,
-        intermediate_learner: Learner | str | Sequence[Any] | None = None,
+        outcome_learner: Learner | None = None,
+        treatment_learner: Learner | None = None,
+        missingness_learner: Learner | None = None,
+        intermediate_learner: Learner | None = None,
         family: Family = "auto",
         fluctuation: FluctuationKind = "logistic",
         targeting: TargetingMethod = "iterative",
@@ -388,6 +388,10 @@ class TMLE:
         run_id: str | None = None,
         n_jobs: int = 1,
     ) -> None:
+        _validate_learner(outcome_learner, "outcome_learner")
+        _validate_learner(treatment_learner, "treatment_learner")
+        _validate_learner(missingness_learner, "missingness_learner")
+        _validate_learner(intermediate_learner, "intermediate_learner")
         self.run_id = run_id
         self.outcome_learner = outcome_learner
         self.treatment_learner = treatment_learner
@@ -1128,10 +1132,10 @@ class TMLE:
 
     def _resolve_learner(
         self,
-        spec: Learner | str | Sequence[Any] | None,
+        spec: Learner | None,
         *,
         task: Task,
-        fallback: Learner | str | Sequence[Any] | None = None,
+        fallback: Learner | None = None,
         seed: int | None = None,
     ) -> Learner:
         """Turn a learner specification into a fitted-per-fold estimator.
@@ -2784,12 +2788,19 @@ def tmle(
     :class:`TMLE` may be passed through.
 
     >>> import numpy as np
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
     >>> from cleverly.estimators.tmle import tmle
     >>> rng = np.random.default_rng(0)
     >>> W = rng.normal(size=(500, 3))
     >>> A = rng.binomial(1, 0.5, 500).astype(float)
     >>> Y = A + W[:, 0] + rng.normal(size=500)
-    >>> res = tmle(Y, A, W, outcome_learner="glm", treatment_learner="glm").single()
+    >>> res = tmle(
+    ...     Y,
+    ...     A,
+    ...     W,
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ... ).single()
     >>> round(res.psi("ate"), 1)                    # doctest: +SKIP
     1.0
     """

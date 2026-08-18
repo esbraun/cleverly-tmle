@@ -213,7 +213,7 @@ class TestTheBivariateFit:
         assert bivariate_fit.validation.correction_check().passed
 
     def test_it_round_trips_without_becoming_univariate(self, bivariate_fit, tmp_path) -> None:
-        back = load(bivariate_fit.save(tmp_path / "bivariate.npz"))
+        back = load(bivariate_fit.save(tmp_path / "bivariate.joblib"))
         before = bivariate_fit.repeats[0].fluctuations["mean"].reduction.reduced
         after = back.repeats[0].fluctuations["mean"].reduction.reduced
 
@@ -488,7 +488,7 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
         nothing could check afterwards, and this check's whole subject is a disagreement
         between what a fit *recorded* and what it *reports*.
         """
-        back = load(fit.save(tmp_path / "fit.npz"))
+        back = load(fit.save(tmp_path / "fit.joblib"))
         before = fit.validation.correction_check()
         after = back.validation.correction_check()
 
@@ -618,7 +618,7 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
         sibling can use and this one cannot: an unsolved row's ``stored`` is ``nan``, and
         ``nan != nan`` would make this pass for the wrong reason on any two objects.
         """
-        back = load(single_guard.save(tmp_path / "single.npz"))
+        back = load(single_guard.save(tmp_path / "single.joblib"))
         after, before = (fit.validation.correction_check().rows for fit in (back, single_guard))
 
         assert len(after) == len(before) == 4
@@ -636,7 +636,7 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
 class TestItSurvivesARoundTrip:
     def test_the_estimates_and_curves_come_back(self, fit, tmp_path) -> None:
         """The curve is what is stored, so a reloaded fit reports the doubly-robust one."""
-        back = load(fit.save(tmp_path / "fit.npz"))
+        back = load(fit.save(tmp_path / "fit.joblib"))
 
         for name in ESTIMANDS:
             assert back.estimates[name].psi == fit.estimates[name].psi
@@ -655,7 +655,7 @@ class TestItSurvivesARoundTrip:
         could not see it: what it round-tripped was the estimates, and the estimates were
         always fine.
         """
-        back = load(fit.save(tmp_path / "verdict.npz"))
+        back = load(fit.save(tmp_path / "verdict.joblib"))
 
         live, after = fit.validation.score_check(), back.validation.score_check()
         assert [row.name for row in after.rows] == [row.name for row in live.rows]

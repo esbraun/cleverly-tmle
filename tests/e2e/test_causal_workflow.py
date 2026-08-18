@@ -2,6 +2,8 @@
 
 import numpy as np
 import pytest
+import sklearn.linear_model
+from joblib import hash as joblib_hash
 
 from cleverly import (
     ATE,
@@ -47,10 +49,10 @@ def test_the_new_binary_ate_path_is_bit_for_bit_the_existing_fit(backend: str, t
     assert result.parameter_keys["ate"].treatment == 1
     assert result.parameter_keys["ate"].reference == 0
     assert "identification assumptions" in result.summary()
-    saved = result.save(tmp_path / "causal-result.npz")
+    saved = result.save(tmp_path / "causal-result.joblib")
     restored = load(saved)
     assert restored.parameter_keys == result.parameter_keys
-    assert restored.method == result.method
+    assert joblib_hash(restored.method) == joblib_hash(result.method)
     assert restored.identified_effect.summary() == effect.summary()
 
 
@@ -88,19 +90,19 @@ def test_longitudinal_causal_metadata_and_inference_survive_persistence(tmp_path
         ),
     ).identify(RegimeMean({"always": 1, "never": 0}, reference="always"))
     result = effect.estimate(
-        outcome_learner="glm",
-        pseudo_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=sklearn.linear_model.LinearRegression(),
+        pseudo_learner=sklearn.linear_model.LinearRegression(),
+        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
         n_folds=3,
         learner_folds=3,
         random_state=0,
         simultaneous=False,
     )
 
-    restored = load(result.save(tmp_path / "longitudinal-causal.npz"))
+    restored = load(result.save(tmp_path / "longitudinal-causal.joblib"))
 
     assert restored.parameter_keys == result.parameter_keys
-    assert restored.method == result.method
+    assert joblib_hash(restored.method) == joblib_hash(result.method)
     assert restored.identified_effect.summary() == effect.summary()
     assert list(restored.estimates) == list(result.estimates)
     for name in result.estimates:

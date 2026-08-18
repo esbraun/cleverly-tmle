@@ -686,7 +686,7 @@ class CausalData:
         dose-response -- is not answerable by indicators here; it is answered by the
         learner instead.  That is why the default library's splines and boosting matter
         more for a continuous treatment than for an arm-coded one, and why
-        ``library="glm"`` on a continuous dose really does fit a straight line in the
+        a linear regression on a continuous dose really does fit a straight line in the
         exposure.
         """
         c = np.asarray(codes, dtype=float).reshape(-1)

@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import sklearn.linear_model
 
 from cleverly import (
     ATC,
@@ -44,9 +45,9 @@ from tests.conftest import FAST_KWARGS
 
 POINT_SETTINGS = {**FAST_KWARGS, "simultaneous": False}
 LONG_SETTINGS: dict[str, Any] = {
-    "outcome_learner": "glm",
-    "pseudo_learner": "glm",
-    "treatment_learner": "glm",
+    "outcome_learner": sklearn.linear_model.LinearRegression(),
+    "pseudo_learner": sklearn.linear_model.LinearRegression(),
+    "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
     "n_folds": 3,
     "learner_folds": 3,
     "random_state": 0,
@@ -262,7 +263,7 @@ def test_longitudinal_msm_is_bit_for_bit_unchanged(tmp_path: Any) -> None:
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
     new = study.estimate(MSMProjection(model, regimens=regimens), **LONG_SETTINGS)
     assert_identical(old, new)
-    assert_identical(new, load(new.save(tmp_path / "longitudinal-msm.npz")))
+    assert_identical(new, load(new.save(tmp_path / "longitudinal-msm.joblib")))
 
 
 BAND_POINT_SETTINGS = {**FAST_KWARGS, "simultaneous": True}
@@ -409,7 +410,7 @@ def test_longitudinal_curves_are_bit_for_bit_unchanged(
     )
     expected = {name: value for name, value in old.estimates.items() if name.startswith(prefix)}
     assert_identical(expected, new)
-    assert_identical(new, load(new.save(tmp_path / "longitudinal-curve.npz")))
+    assert_identical(new, load(new.save(tmp_path / "longitudinal-curve.joblib")))
 
     # The keys say what the engine's own index says, cell for cell.  Rebuilding the
     # regimen/cause/horizon grid beside the index and zipping it positionally agreed with it
