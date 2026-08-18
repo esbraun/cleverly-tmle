@@ -781,3 +781,59 @@ class TestProvenance:
     def test_provenance_appears_in_the_summary(self) -> None:
         text = _fit(run_id="abc").summary()
         assert "abc" in text
+
+
+class TestTheAssessmentCacheSurvives:
+    """Format version 18: the cached reports, and the enumeration their statuses use.
+
+    Grafted on rather than fitted, following the two classes above -- what is under test
+    is the encoding, not which operations happen to have been run. The enum node is the
+    part with two sides: a writer that accepted *any* ``Enum`` was paired with a reader
+    that accepted exactly one class, so anything else wrote a file that failed only on
+    ``load``. Both sides now consult the same allowlist.
+    """
+
+    @staticmethod
+    def _with_cache(result, payload):  # type: ignore[no-untyped-def]
+        from dataclasses import replace
+
+        return replace(result, assessment_cache={"probe": payload})
+
+    def test_a_status_returns_as_the_enum_and_not_as_its_value(self, result) -> None:  # type: ignore[no-untyped-def]
+        from cleverly import AssessmentStatus
+        from cleverly.assessment import AssessmentItem, ValidationReport
+
+        report = ValidationReport(
+            (AssessmentItem("support", AssessmentStatus.WARNING, "grafted"),), "pandas"
+        )
+        back = loads(dumps(self._with_cache(result, report)))
+        restored = back.assessment_cache["probe"].items[0].status
+        # `==` passes for a plain string too, because AssessmentStatus is a StrEnum --
+        # only identity can tell a decoded enum from a decoded scalar.
+        assert restored is AssessmentStatus.WARNING
+
+    def test_an_enum_outside_the_allowlist_is_not_written_as_one(self, result) -> None:  # type: ignore[no-untyped-def]
+        """A caller's own ``StrEnum`` is a scalar, and used to round-trip as one."""
+        import enum
+
+        class Flavour(enum.StrEnum):
+            MILD = "mild"
+
+        back = loads(dumps(self._with_cache(result, Flavour.MILD)))
+        assert back.assessment_cache["probe"] == "mild"
+
+    def test_the_writer_and_the_reader_share_one_allowlist(self) -> None:
+        """The asymmetry itself: whatever is written as an enum must be readable."""
+        from cleverly.estimators.serialize import _structured_enums
+
+        allowed = _structured_enums()
+        assert "cleverly.assessment.AssessmentStatus" in allowed
+        for name, kind in allowed.items():
+            assert f"{kind.__module__}.{kind.__qualname__}" == name
+
+    def test_an_unknown_enum_record_is_refused_rather_than_misread(self) -> None:
+        from cleverly.estimators.serialize import _Arrays, _structured_from
+
+        payload = {"__cleverly_type__": "enum", "class": "somewhere.Colour", "value": "red"}
+        with pytest.raises(ValueError, match="no allowlisted enum"):
+            _structured_from(_Arrays(), payload)
