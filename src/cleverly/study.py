@@ -361,6 +361,16 @@ class ControlledDirectEffect:
     contrast: ATE | ATT | ATC | RiskRatio | OddsRatio = field(default_factory=ATE)
     name: str = field(default="controlled_direct_effect", init=False)
 
+    def __post_init__(self) -> None:
+        # Identification reads ``self.contrast.name`` before anything else, so a string here
+        # would surface as ``AttributeError: 'str' object has no attribute 'name'`` from deep
+        # inside the provider rather than as a refusal naming what to pass instead.
+        if not isinstance(self.contrast, (ATE, ATT, ATC, RiskRatio, OddsRatio)):
+            raise DataError(
+                "ControlledDirectEffect(contrast=...) takes a typed arm contrast -- "
+                f"ATE(), ATT(), ATC(), RiskRatio(), or OddsRatio() -- not {self.contrast!r}"
+            )
+
     @property
     def definition(self) -> str:
         return f"controlled direct effect with the intermediate fixed at {self.intermediate}"
@@ -385,6 +395,30 @@ PointEstimand = (
     | MSMProjection
     | ControlledDirectEffect
 )
+
+#: The typed object to reach for when a caller passes the legacy string spelling.  Only the
+#: names that used to be accepted as ``TMLE(estimands=(...,))`` strings are listed; anything
+#: else gets the generic pointer to the roster in ``cleverly.__all__``.
+_STRING_ESTIMANDS: dict[str, str] = {
+    "ate": "ATE()",
+    "att": "ATT()",
+    "atc": "ATC()",
+    "ey": "CounterfactualMean()",
+    "ey1": "CounterfactualMean(treatment=1)",
+    "ey0": "CounterfactualMean(treatment=0)",
+    "ey_obs": "NaturalCourseMean()",
+    "par": "PopulationAttributableRisk()",
+    "paf": "PopulationAttributableFraction()",
+    "rr": "RiskRatio()",
+    "or": "OddsRatio()",
+    "ey_regime": "RegimeMean(regimens=...)",
+    "ate_regime": "RegimeContrast(regimens=...)",
+    "ey_shift": "ModifiedTreatmentPolicy(shifts=...)",
+    "ate_shift": "ModifiedTreatmentPolicyEffect(shifts=...)",
+    "ey_ipsi": "IncrementalMean(interventions=...)",
+    "ate_ipsi": "IncrementalEffect(interventions=...)",
+    "msm": "MSMProjection(model=...)",
+}
 
 
 @dataclass(frozen=True)
@@ -478,9 +512,29 @@ class ExplicitAdjustmentProvider:
         if target not in TARGETS:
             raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
         axis = TARGETS[target].parameter_axis
-        if design.treatment_kind == "continuous" and target not in {"ey_shift", "ate_shift"}:
+        # The rule is about the parameter *axis*, not about a list of target names.  Naming
+        # targets refused `msm` -- whose axis is `msm`, indexed by working-model term, and
+        # which the density-ratio path fits happily on a dose (tests/unit/test_continuous_msm.py)
+        # -- while telling the caller it was "arm-indexed", which it is not.  A regime is a
+        # density over arms and an incremental intervention tilts an odds, so those two stay
+        # refused; both statements now come from the axis rather than from a spelling.
+        if design.treatment_kind == "continuous" and axis not in {"shift", "msm"}:
             raise CapabilityError(
-                f"{type(actual).__name__} is arm-indexed but this design declares a continuous dose"
+                f"{type(actual).__name__} is indexed by {axis}, which a continuous dose does "
+                "not provide; a continuous-dose design supports modified treatment policies "
+                "and MSM projections"
+            )
+        if getattr(actual, "horizons", None) is not None:
+            raise CapabilityError(
+                f"{type(actual).__name__}(horizons=...) selects follow-up times from a "
+                "sequential fit, and a point-treatment design has one time point; declare "
+                "LongitudinalTreatment to ask that question"
+            )
+        if isinstance(actual, MSMProjection) and actual.regimens is not None:
+            raise CapabilityError(
+                "MSMProjection(regimens=...) projects over longitudinal regimen cells; on a "
+                "point-treatment design the projection is over the declared arms or doses. "
+                "Drop regimens=, or declare LongitudinalTreatment"
             )
         reference = getattr(actual, "reference", None)
         if (
@@ -591,6 +645,27 @@ class CausalStudy:
         *,
         provider: IdentificationProvider | None = None,
     ) -> IdentifiedEffect:
+        """Bind one typed estimand to an observed-data functional, before any fitting.
+
+        The type check is here rather than in the provider because this is the one place
+        every path passes through, and because the failure it replaces was unreadable: a
+        provider dereferences ``estimand.name`` as its first act, so ``identify("ate")`` --
+        the spelling every legacy ``TMLE(estimands=("ate",))`` call site used -- died with
+        ``AttributeError: 'str' object has no attribute 'name'`` and no mention of estimands.
+        A string is refused rather than resolved: the accepted design says one public
+        question normalizes to one evidenced engine request, not that strings drive a second
+        convenience path.
+        """
+        if not isinstance(estimand, PointEstimand):
+            raise CapabilityError(
+                f"{estimand!r} is not a typed causal estimand; pass one of the objects "
+                f"exported by cleverly, such as ATE()"
+                + (
+                    f". For {estimand!r}, that is {_STRING_ESTIMANDS[estimand]}"
+                    if isinstance(estimand, str) and estimand in _STRING_ESTIMANDS
+                    else ""
+                )
+            )
         return (provider or ExplicitAdjustmentProvider()).identify(self, estimand)
 
     def estimate(
@@ -614,10 +689,25 @@ class IdentifiedEffect:
     _study: CausalStudy | None = field(repr=False, compare=False, default=None)
 
     def available_methods(self) -> tuple[MethodAvailability, ...]:
+        """Structured capability records, checked before any nuisance model is built.
+
+        A controlled direct effect is refused here rather than mid-fit.  Its functional
+        target is the *contrast's* name -- ``ate``, ``rr`` -- so a check that reads only the
+        target declared both variants available for it, and both engines then refused once
+        fitting had already started, which is the boundary
+        ``docs/architecture-invariants.md`` exists to hold.
+        """
         point = not self.functional.longitudinal
         target = self.functional.target
+        blocker = (
+            "a controlled direct effect fixes an intermediate variable, and neither "
+            "variant's score is derived for that functional"
+            if self.functional.intermediate is not None
+            else None
+        )
         variants = (
-            point
+            blocker is None
+            and point
             and self.functional.axis == "arm"
             and target in {"ate", "ey", "ey1", "ey0", "rr", "or"}
         )
@@ -626,14 +716,16 @@ class IdentifiedEffect:
             MethodAvailability(
                 "collaborative_tmle",
                 variants,
-                None if variants else "no collaborative score is evidenced for this functional",
+                None
+                if variants
+                else blocker or "no collaborative score is evidenced for this functional",
             ),
             MethodAvailability(
                 "drtmle",
                 variants,
                 None
                 if variants
-                else "no reduced-dimension correction is evidenced for this functional",
+                else blocker or "no reduced-dimension correction is evidenced for this functional",
             ),
             MethodAvailability(
                 "riesz_tmle",

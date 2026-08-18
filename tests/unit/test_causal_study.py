@@ -3,20 +3,28 @@
 import dataclasses
 from dataclasses import FrozenInstanceError
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from cleverly import (
     ATE,
     CapabilityError,
     CausalStudy,
+    ControlledDirectEffect,
     CrossFitting,
+    DataError,
     ModelSpec,
+    MSMProjection,
     PointTreatment,
+    RegimeContrast,
+    RegimeMean,
     Runtime,
     TMLEMethod,
 )
 from cleverly.datasets import make_linear_ate
 from cleverly.methods import SHORTCUTS
+from cleverly.msm import MSM
 from tests.conftest import FAST_KWARGS
 
 
@@ -104,6 +112,134 @@ def test_method_availability_is_structured_and_refuses_before_fitting(monkeypatc
     monkeypatch.setattr("cleverly.study.TMLE", MustNotConstruct)
     with pytest.raises(CapabilityError, match="direct-Riesz engine"):
         effect.estimate(method="riesz_tmle")
+
+
+def test_a_controlled_direct_effect_refuses_the_variants_before_fitting(monkeypatch) -> None:
+    """The variant check has to read the intermediate, not only the functional's target.
+
+    A ``ControlledDirectEffect``'s ``functional.target`` is its *contrast's* name -- ``ate`` --
+    so a check reading the target alone declared C-TMLE and DR-TMLE available for it, and both
+    engines then refused partway through a fit.  Refusing after nuisance fitting has started is
+    the thing ``docs/architecture-invariants.md`` puts at the identification boundary.
+    """
+    frame, _ = make_linear_ate(n=120, seed=21)
+    study = CausalStudy(
+        frame.assign(Z=(frame["W1"] > 0).astype(int)),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W1", "W2"), intermediate="Z"
+        ),
+    )
+    effect = study.identify(ControlledDirectEffect(intermediate=1.0))
+    methods = {record.name: record for record in effect.available_methods()}
+    assert methods["tmle"].available
+    for name in ("collaborative_tmle", "drtmle"):
+        assert not methods[name].available
+        assert "controlled direct effect" in (methods[name].reason or "")
+
+    monkeypatch.setattr("cleverly.study.CTMLE", _MustNotConstruct)
+    monkeypatch.setattr("cleverly.study.DRTMLE", _MustNotConstruct)
+    for name in ("collaborative_tmle", "drtmle"):
+        with pytest.raises(CapabilityError, match="controlled direct effect"):
+            effect.estimate(method=name)
+
+
+class _MustNotConstruct:
+    """An engine stand-in proving a refusal happened before nuisance fitting."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        raise AssertionError("nuisance fitting path was reached")
+
+
+@pytest.mark.parametrize(
+    ("estimand", "reason"),
+    [
+        ("ate", "not a typed causal estimand"),
+        (None, "not a typed causal estimand"),
+        (ATE, "not a typed causal estimand"),
+    ],
+)
+def test_an_untyped_estimand_is_refused_by_name(estimand, reason, monkeypatch) -> None:
+    """``identify("ate")`` used to die on ``'str' object has no attribute 'name'``.
+
+    Every legacy call site spelled its estimands as strings, so that is the first thing a
+    migrating reader tries.  The provider dereferences ``estimand.name`` as its opening move,
+    so the failure surfaced from inside identification with nothing pointing at the typed
+    object to pass instead.  ``ATE`` the *class* is here too: it has a ``name`` attribute, so
+    it got further than a string did and failed later and less legibly.
+    """
+    monkeypatch.setattr("cleverly.study.TMLE", _MustNotConstruct)
+    with pytest.raises(CapabilityError, match=reason) as raised:
+        _study().identify(estimand)
+    if estimand == "ate":
+        assert "ATE()" in str(raised.value)
+
+
+def test_a_string_contrast_on_a_controlled_direct_effect_is_refused_at_construction() -> None:
+    with pytest.raises(DataError, match="typed arm contrast"):
+        ControlledDirectEffect(intermediate=1.0, contrast="ate")
+
+
+@pytest.mark.parametrize(
+    ("estimand", "reason"),
+    [
+        (RegimeMean(regimens=(), horizons=(1, 2)), "one time point"),
+        (RegimeContrast(regimens=(), horizons=(1,)), "one time point"),
+        (MSMProjection(MSM.linear(), horizons=(1,)), "one time point"),
+        (MSMProjection(MSM.linear(), regimens={"always": 1}), "longitudinal regimen cells"),
+    ],
+)
+def test_a_sequential_declaration_on_a_point_design_is_refused(
+    estimand, reason, monkeypatch
+) -> None:
+    """A declaration that cannot take effect is refused, not dropped.
+
+    ``horizons=`` and ``MSMProjection(regimens=...)`` are read only on the longitudinal path.
+    On a point design they were silently discarded, so the fit answered a different question
+    from the one written down and reported it under the name of the one asked for.
+    """
+    monkeypatch.setattr("cleverly.study.TMLE", _MustNotConstruct)
+    with pytest.raises(CapabilityError, match=reason):
+        _study().identify(estimand)
+
+
+def test_a_continuous_dose_refuses_by_axis_and_admits_a_working_model() -> None:
+    """The dose rule is about the parameter axis, and ``msm`` is not an arm axis.
+
+    The refusal named targets rather than axes, so a continuous-dose ``MSMProjection`` was
+    turned away with the message "is arm-indexed" -- which ``TARGETS["msm"].parameter_axis``
+    contradicts, and which the engine contradicts too: ``tests/unit/test_continuous_msm.py``
+    fits exactly this composition.  The two genuinely arm-shaped axes stay refused, and now
+    say which axis they are.
+    """
+    rng = np.random.default_rng(11)
+    n = 180
+    w = rng.normal(size=n)
+    a = 0.4 * w + rng.normal(size=n)
+    frame = pd.DataFrame({"Y": 1.0 + 2.0 * a + 0.3 * w, "A": a, "W": w})
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W",), treatment_kind="continuous"
+        ),
+    )
+
+    result = study.estimate(
+        MSMProjection(MSM.linear(doses=np.linspace(-1.5, 1.5, 9))),
+        outcome_learner="glm",
+        treatment_learner="glm",
+        cross_fit=False,
+        density_bins=8,
+        simultaneous=False,
+        random_state=3,
+    )
+    # The same slope and score the engine-level test pins, reached through the typed API.
+    assert result["msm[a]"].psi == pytest.approx(2.0, abs=2e-6)
+    assert abs(result["msm[a]"].score) < 1e-10
+    assert result.parameter_keys["msm[a]"].term == "a"
+
+    for refused, axis in ((ATE(), "arm"), (RegimeMean(regimens=()), "regime")):
+        with pytest.raises(CapabilityError, match=f"indexed by {axis}"):
+            study.identify(refused)
 
 
 def test_keyword_shortcuts_normalize_to_the_same_typed_method() -> None:
