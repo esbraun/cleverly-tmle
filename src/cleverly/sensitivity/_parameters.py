@@ -16,7 +16,7 @@ would file it under a contrast that does not exist instead of failing.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..targets import parameter_name
 
@@ -24,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
     from ..fluctuation.submodel import TargetGroup
 
-__all__ = ["ArmParameter", "arm_parameters"]
+__all__ = ["ArmParameter", "arm_parameters", "conditional_stratum", "stratum_refusal"]
 
 
 @dataclass(frozen=True)
@@ -69,6 +69,39 @@ class ArmParameter:
         return None
 
 
+def conditional_stratum(result: TMLEResult, estimand: str) -> tuple[Any, ...] | None:
+    """The baseline stratum a reported alias conditions on, or ``None`` if it is marginal.
+
+    Read off the structured key rather than the name: ``"a vs b"`` is a legal arm label,
+    so a bracket in an alias does not by itself mean a stratum.
+    """
+    keys = getattr(result, "parameter_keys", None)
+    key = keys.get(estimand) if keys else None
+    return None if key is None else key.stratum
+
+
+def stratum_refusal(result: TMLEResult, estimand: str, analysis: str) -> str | None:
+    """Why *analysis* cannot answer for a stratum-conditional alias, or ``None``.
+
+    The fit really did report this parameter, so "not requested in this fit" would be a
+    false statement about the sample rather than about coverage.  What is missing is the
+    derivation: conditioning on a stratum changes the functional, and with it the Riesz
+    representer the bound squares and the weights the tilt re-mixes.  Neither is obtained
+    by relabelling the marginal one.
+    """
+    stratum = conditional_stratum(result, estimand)
+    if stratum is None:
+        return None
+    marginal = estimand.rsplit("[", 1)[0]
+    return (
+        f"estimand {estimand!r} is conditional on a baseline stratum, and {analysis} is "
+        f"derived here for the marginal functional only. Conditioning changes the "
+        f"parameter, so its representer is not the marginal one under another name. Ask "
+        f"for {marginal!r} to assess the marginal parameter, or fit the stratum as its "
+        f"own study."
+    )
+
+
 def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
     """Every arm-indexed *linear* parameter this fit could have reported, by name.
 
@@ -103,6 +136,15 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
         structured: dict[str, ArmParameter] = {}
         for alias, key in result.parameter_keys.items():
             if key.axis != "arm" or key.estimand not in {"ey", "ey1", "ey0", "ate", "att", "atc"}:
+                continue
+            # A stratum-conditional alias is minted by copying the marginal key and
+            # changing only ``alias`` and ``stratum`` (``CausalStudy._point_parameter_keys``),
+            # so every field this map reads is the *marginal* one.  Admitting it here would
+            # hand back an ``ArmParameter`` indistinguishable from the marginal parameter,
+            # and the bound and the tilt would report the marginal quantity under the
+            # stratum's name.  The conditional parameter is a different functional with its
+            # own representer; it is refused by name where it is asked for.
+            if key.stratum is not None:
                 continue
             target = TARGETS[key.estimand]
             if key.value is None:
