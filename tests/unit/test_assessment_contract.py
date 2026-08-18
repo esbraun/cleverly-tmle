@@ -14,6 +14,7 @@ from cleverly import (
     CausalStudy,
     LongitudinalTreatment,
     PointTreatment,
+    PositivityWarning,
     RegimeMean,
     load,
 )
@@ -229,3 +230,82 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
                 and parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
             ]
             assert not required, f"{row.operation} needs {required} but declares none"
+
+
+class TestSupportDiagnosticsSeeAPerInterventionReport:
+    """A shift or IPSI fit reports a mapping, which the attribute probes cannot read.
+
+    ``support()`` returns one record per declared intervention on these axes rather than
+    a single report object, so ``hasattr(report, "truncated")``,
+    ``isinstance(report, LongitudinalDiagnostics)`` and ``getattr(report, "regimes")`` all
+    miss -- and the battery reported ``passed`` for every shift fit ever made, including
+    one that had already warned about extrapolating past the observed dose.
+    """
+
+    @pytest.fixture(scope="class")
+    def extrapolating_shift(self):  # type: ignore[no-untyped-def]
+        from cleverly import ModifiedTreatmentPolicy
+        from cleverly.datasets import make_shift_dose
+        from cleverly.interventions import Shift
+
+        frame, _ = make_shift_dose(n=300, seed=0)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="Y",
+                treatment="A",
+                adjustment=["W1", "W2"],
+                treatment_kind="continuous",
+            ),
+        )
+        with pytest.warns(PositivityWarning, match="above the largest one observed"):
+            return study.identify(ModifiedTreatmentPolicy(shifts=[Shift(3.0, cap=None)])).estimate(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=3,
+                learner_folds=2,
+                random_state=0,
+                simultaneous=False,
+            )
+
+    def test_the_stored_report_really_does_breach_a_threshold(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
+        """The witness: without this the status below would be vacuously right."""
+        support = extrapolating_shift.diagnostics.support()
+        assert min(item.ess_ratio for item in support.values()) < 0.2
+
+    def test_validate_reports_the_warning_rather_than_passing(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
+        item = extrapolating_shift.validate()["support"]
+        assert item.status is AssessmentStatus.WARNING
+        assert "+3" in item.detail
+
+    def test_the_combined_report_agrees_with_validate(self, extrapolating_shift) -> None:  # type: ignore[no-untyped-def]
+        item = extrapolating_shift.diagnostics.run_all()["support"]
+        assert item.status is AssessmentStatus.WARNING
+
+    def test_a_well_supported_tilt_still_passes(self) -> None:
+        """The control: the new branch must not warn about every mapping it sees."""
+        from cleverly import IncrementalMean
+        from cleverly.datasets import make_linear_ate
+        from cleverly.interventions import Incremental
+
+        frame, _ = make_linear_ate(n=300, seed=11)
+        result = (
+            CausalStudy(
+                frame,
+                design=PointTreatment(
+                    outcome="Y", treatment="A", adjustment=["W1", "W2", "W3", "W4"]
+                ),
+            )
+            .identify(IncrementalMean(interventions=[Incremental(2.0)]))
+            .estimate(
+                outcome_learner="glm",
+                treatment_learner="glm",
+                n_folds=3,
+                learner_folds=2,
+                random_state=4,
+                simultaneous=False,
+            )
+        )
+        support = result.diagnostics.support()
+        assert min(item.ess_ratio for item in support.values()) >= 0.2
+        assert result.validate()["support"].status is AssessmentStatus.PASSED

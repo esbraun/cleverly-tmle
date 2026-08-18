@@ -827,6 +827,21 @@ def _support_warning(report: Any) -> str | None:
             return "cumulative mechanism truncation exceeds 5% at one or more nodes"
         if any(row.n_followed and row.effective_n / row.n_followed < 0.2 for row in report.rows):
             return "cumulative weights leave less than 20% effective sample size at a node"
+    if isinstance(report, Mapping):
+        # A shift or IPSI fit reports one support record per declared intervention rather
+        # than a single object, so none of the attribute probes above sees it.  These
+        # dataclasses carry the same quantities the other branches threshold on, at the
+        # same tiers; read them by field so the two classes need no separate branches --
+        # ``IncrementalSupport`` has an ``ess_ratio`` but no ``unsupported`` or
+        # ``capped_fraction``, and a missing field must not read as a breach.
+        for name, item in report.items():
+            if int(getattr(item, "unsupported", 0)) > 0:
+                return f"intervention {name!r} has units with estimated zero support"
+            if float(getattr(item, "ess_ratio", 1.0)) < 0.2:
+                return f"intervention {name!r} leaves less than 20% effective sample size"
+            if float(getattr(item, "capped_fraction", 0.0)) > 0.05:
+                return f"intervention {name!r} had more than 5% of its weights capped"
+        return None
     regimes = getattr(report, "regimes", None)
     if regimes and any(item.unsupported for item in regimes.values()):
         return "one or more declared regimes has estimated zero support"
