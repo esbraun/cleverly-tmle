@@ -111,9 +111,21 @@ benchmarks, and accepted implementation plans.
 - Positivity, nuisance, and score diagnostics; omitted-variable, E-value, and missingness
   sensitivity analyses; refutation; variable importance; and trusted whole-result persistence.
 
-Graph identification, front-door, IV, mediation, transport, direct Riesz learning, and EP learning
-are explicitly unimplemented. See
-[Capabilities and refusals](https://esbraun.github.io/cleverly-tmle/user-guide/capabilities.html).
+## Roadmap
+
+- Build the general nested Riesz engine and its initial evidence-gated catalog, including analytic
+  and direct representers, nested composition, diagnostics, and persistence.
+- Add optional DoWhy integration for graph-based identification and backdoor translation while
+  keeping the core package standalone.
+- Add EP learning for heterogeneous effects, beginning with conditional average treatment effects
+  and conditional relative risks.
+- Expand the estimand catalog target by target, with a separate derivation, evidence record,
+  refusal contract, and statistical study for each family.
+
+These are accepted directions, not implemented release claims. The detailed evidence and source
+requirements are in the [roadmap](docs/roadmap.md),
+[public API redesign](docs/public-api-redesign.md), and
+[nested Riesz implementation plan](docs/riesz-implementation-plan.md).
 
 ## Method configuration
 
