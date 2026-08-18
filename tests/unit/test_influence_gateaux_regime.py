@@ -23,7 +23,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import TMLE
+from cleverly.estimators import TMLE
 from tests import discrete_law as law
 from tests import regimes as reg
 from tests.conftest import OracleOutcome, OracleTreatment

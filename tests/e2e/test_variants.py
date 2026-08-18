@@ -12,8 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import make_linear_ate, make_nonlinear_ate, make_weak_overlap
+from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning
 from tests.conftest import fast_tmle
 
@@ -391,7 +391,7 @@ class TestConfigurationErrors:
             fast_tmle().fit(np.zeros((50, 4)), outcome="Y", treatment="A").single()
 
     def test_column_names_cannot_be_mixed_with_causal_data(self) -> None:
-        from cleverly import CausalData
+        from cleverly.data import CausalData
 
         frame, _ = make_linear_ate(n=200, seed=47)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A")
@@ -413,7 +413,7 @@ class TestConfigurationErrors:
 
 class TestArrayEntryPoint:
     def test_the_r_style_function_recovers_the_truth(self) -> None:
-        from cleverly import tmle
+        from cleverly.estimators import tmle
 
         frame, truth = make_linear_ate(n=1000, seed=50)
         result = tmle(
@@ -431,8 +431,8 @@ class TestArrayEntryPoint:
         assert low <= truth["ate"] <= high
 
     def test_r_style_keyword_names_are_accepted(self) -> None:
-        from cleverly import tmle
         from cleverly.datasets import make_missing_outcome
+        from cleverly.estimators import tmle
 
         frame, truth = make_missing_outcome(n=1000, seed=51)
         result = tmle(

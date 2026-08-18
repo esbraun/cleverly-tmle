@@ -21,8 +21,8 @@ from typing import ClassVar
 import numpy as np
 import pytest
 
-from cleverly import CTMLE, TMLE
 from cleverly.datasets import instrument_dgp, make_instrument, make_missing_outcome
+from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.targeting import build_submodel
 from cleverly.inference.influence import counterfactual_means
 from tests.conftest import FAST_KWARGS

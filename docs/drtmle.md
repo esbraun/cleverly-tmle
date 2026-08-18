@@ -72,21 +72,24 @@ cleverly fit against a two-arm `drtmle` fit should expect agreement in the equat
 rather than in the iterates.
 
 ```python
-from cleverly import DRTMLE
+from cleverly import ATE, CausalStudy, DRTMLEMethod, PointTreatment
 from cleverly.datasets import make_nonlinear_ate
 
 frame, truth = make_nonlinear_ate(n=1000, seed=0)
-
-res = (
-    DRTMLE(
-        estimands=("ate",),
-        guard=("Q", "g"),
-        outcome_learner="glm",
-        treatment_learner="glm",
-        random_state=0,
-    )
-    .fit(frame, outcome="Y", treatment="A")
-    .single()
+study = CausalStudy(
+    frame,
+    design=PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2", "W3", "W4"),
+    ),
+)
+res = study.estimate(
+    ATE(),
+    method=DRTMLEMethod(guard=("Q", "g")),
+    outcome_learner="glm",
+    treatment_learner="glm",
+    random_state=0,
 )
 ```
 

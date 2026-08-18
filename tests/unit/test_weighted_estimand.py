@@ -40,8 +40,8 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 
-from cleverly import TMLE
 from cleverly.data import CausalData
+from cleverly.estimators import TMLE
 from cleverly.exceptions import DataError, WeightingWarning
 from tests import discrete_law as law
 from tests import discrete_law_mar as mar

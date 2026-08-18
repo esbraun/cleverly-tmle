@@ -19,7 +19,6 @@ import narwhals as nw
 import numpy as np
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -27,6 +26,7 @@ from cleverly.datasets import (
     make_nonlinear_ate,
     make_weak_overlap,
 )
+from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning
 from tests.conftest import fast_tmle
 

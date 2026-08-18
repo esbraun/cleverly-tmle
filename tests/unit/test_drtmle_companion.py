@@ -42,8 +42,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import DRTMLE
 from cleverly.datasets import make_linear_ate, make_weak_overlap
+from cleverly.estimators import DRTMLE
 
 #: Small, cross-fitted, and ``glm`` throughout: every claim here is an exact identity, so
 #: the sample size only has to be enough for three folds to be fittable.

@@ -1,22 +1,47 @@
 """Typed study, identification, capability, and configuration contracts."""
 
 import dataclasses
+import inspect
+import re
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 
+import cleverly
 from cleverly import (
     ATE,
     CapabilityError,
     CausalStudy,
+    ControlledDirectEffect,
     CrossFitting,
+    DataError,
+    LongitudinalTreatment,
     ModelSpec,
+    MSMProjection,
     PointTreatment,
+    RegimeContrast,
+    RegimeMean,
     Runtime,
     TMLEMethod,
 )
-from cleverly.datasets import make_linear_ate
-from cleverly.methods import SHORTCUTS
+from cleverly.data import CausalData, validate
+from cleverly.data.validate import RANDOMIZED_INTERCEPT
+from cleverly.datasets import make_linear_ate, make_longitudinal
+from cleverly.estimators import TMLE
+from cleverly.longitudinal import LTMLE, LongitudinalData
+from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
+from cleverly.methods import (
+    DEFAULT_LONGITUDINAL_G_BOUNDS,
+    DEFAULT_LONGITUDINAL_MULTIPLIER,
+    DEFAULT_POINT_MULTIPLIER,
+    SHORTCUTS,
+)
+from cleverly.msm import MSM
+from cleverly.study import _STRING_ESTIMANDS
+from tests.conftest import FAST_KWARGS
 
 
 def _study() -> CausalStudy:
@@ -55,6 +80,143 @@ def test_the_study_cannot_be_pointed_at_a_design_it_did_not_prepare() -> None:
     assert study.design.outcome == "Y"
 
 
+class TestAPreparedContainerIsReconciledWithTheDesign:
+    """Handing the study a built container used to adopt it without a single check.
+
+    ``prepare`` returned any ``CausalData``/``LongitudinalData`` unchanged, so every role on
+    the design became a claim nothing had verified. The design is what
+    ``IdentifiedEffect.functional`` records and ``summary()`` prints, so a design naming an
+    adjustment set the container never adjusted for reported that set as identification --
+    and this PR then persisted it. It is the data-construction half of the hazard
+    ``test_the_study_cannot_be_pointed_at_a_design_it_did_not_prepare`` argues for rebinding.
+    """
+
+    @staticmethod
+    def _prepared():  # type: ignore[no-untyped-def]
+        frame, _ = make_linear_ate(n=120, seed=19)
+        return frame, CausalData.from_frame(
+            frame, outcome="Y", treatment="A", covariates=("W1", "W2", "W3")
+        )
+
+    def test_a_matching_container_is_accepted_and_reported_truthfully(self) -> None:
+        _, data = self._prepared()
+        design = PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"))
+        effect = CausalStudy(data, design=design).identify(ATE())
+        assert effect.functional.adjustment == ("W1", "W2", "W3")
+        assert "W1" in effect.summary()
+
+    @pytest.mark.parametrize(
+        ("design", "reason"),
+        [
+            (
+                PointTreatment(outcome="Y", treatment="A", adjustment=("Z1",)),
+                "adjusts for",
+            ),
+            (
+                PointTreatment(outcome="W1", treatment="A", adjustment=("W1", "W2", "W3")),
+                "outcome=",
+            ),
+            (
+                PointTreatment(outcome="Y", treatment="W1", adjustment=("W1", "W2", "W3")),
+                "treatment=",
+            ),
+            (
+                PointTreatment(
+                    outcome="Y", treatment="A", adjustment=("W1", "W2", "W3"), cluster="G"
+                ),
+                "cluster=",
+            ),
+            (
+                PointTreatment(
+                    outcome="Y",
+                    treatment="A",
+                    adjustment=("W1", "W2", "W3"),
+                    treatment_kind="continuous",
+                ),
+                "treatment_kind=",
+            ),
+            (
+                PointTreatment(
+                    outcome="Y",
+                    treatment="A",
+                    adjustment=("W1", "W2", "W3"),
+                    outcome_family="binomial",
+                ),
+                "outcome_family=",
+            ),
+        ],
+    )
+    def test_every_role_the_design_states_is_checked(self, design, reason) -> None:  # type: ignore[no-untyped-def]
+        _, data = self._prepared()
+        with pytest.raises(DataError, match=reason):
+            CausalStudy(data, design=design)
+
+    def test_an_adjustment_set_survives_encoding_and_dropping(self) -> None:
+        """``covariate_names`` is post-encoding, so the comparison uses the named columns.
+
+        A categorical adjustment variable becomes several generated columns and a degenerate
+        one is dropped outright, so comparing the stored names to the declaration directly
+        would reject the very containers this check exists to accept.
+        """
+        frame, _ = make_linear_ate(n=120, seed=23)
+        frame = frame.assign(G=pd.Categorical(np.where(frame["W1"] > 0, "high", "low")), C=1.0)
+        data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=("W1", "G", "C"))
+        assert data.dropped_covariates == ("C",)
+        assert set(data.covariate_names) != {"W1", "G", "C"}
+        design = PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "G", "C"))
+        assert CausalStudy(data, design=design).data is data
+
+    def test_a_longitudinal_container_is_reconciled_node_by_node(self) -> None:
+        frame, _ = make_longitudinal(n=100, seed=11)
+        columns = {
+            "outcome": "Y",
+            "treatment": ("A1", "A2"),
+            "baseline": ("W1", "W2"),
+            "time_varying": ((), ("L2",)),
+            "censoring": ("C1", "C2"),
+        }
+        data = LongitudinalData.from_frame(frame, **columns)
+        assert CausalStudy(data, design=LongitudinalTreatment(**columns)).data is data
+        for role, changed in (
+            ("baseline", {"baseline": ("W1",)}),
+            ("outcome event nodes", {"outcome": ("Y1", "Y2")}),
+            ("censoring", {"censoring": None}),
+            ("time_varying", {"time_varying": (("L2",), ())}),
+        ):
+            with pytest.raises(DataError, match=role):
+                CausalStudy(data, design=LongitudinalTreatment(**{**columns, **changed}))
+
+
+def test_the_reserved_intercept_column_survives_the_constant_sweep() -> None:
+    """One name, two packages, and only one thing standing between them and a bug.
+
+    ``PointTreatment(randomized=True, adjustment=())`` is a claim of *no* adjustment, and the
+    reserved constant column is what keeps the design well formed for learners that fit their
+    own intercept. ``check_covariates`` drops constant columns, so the exemption keyed on that
+    name is the only reason the column survives -- and the name was written out as a bare
+    literal at both ends, where renaming one would have left the fit with no covariates.
+    """
+    written_out = [
+        path
+        for path in Path(cleverly.__file__).parent.rglob("*.py")
+        if f'"{RANDOMIZED_INTERCEPT}"' in path.read_text(encoding="utf-8")
+    ]
+    assert written_out == [Path(validate.__file__)], (
+        "the reserved name is spelled out somewhere other than its definition; import "
+        "RANDOMIZED_INTERCEPT instead, so a rename cannot reach one end and not the other"
+    )
+    frame, _ = make_linear_ate(n=120, seed=29)
+    study = CausalStudy(
+        frame[["Y", "A"]], design=PointTreatment(outcome="Y", treatment="A", randomized=True)
+    )
+    assert study.data.covariate_names == (RANDOMIZED_INTERCEPT,)
+    assert study.data.dropped_covariates == ()
+    result = study.estimate(ATE(), outcome_learner="glm", treatment_learner="glm")
+    assert np.isfinite(result.psi("ate"))
+    # The design still says what it claimed: no adjustment variables at all.
+    assert result.identified_effect.functional.adjustment == ()
+
+
 def test_identification_is_inspectable_before_estimation() -> None:
     effect = _study().identify(ATE())
     assert effect.functional.adjustment == ("W1", "W2", "W3", "W4")
@@ -72,7 +234,7 @@ def test_an_unknown_reference_is_refused_during_identification() -> None:
         _study().identify(ATE(reference="not-an-arm"))
 
 
-def test_stratified_parameter_keys_are_refused_before_estimation() -> None:
+def test_stratified_parameter_keys_are_structured_before_the_alias_is_displayed() -> None:
     frame, _ = make_linear_ate(n=120, seed=20)
     frame = frame.assign(S=(frame["W1"] > 0).astype(int))
     study = CausalStudy(
@@ -84,8 +246,9 @@ def test_stratified_parameter_keys_are_refused_before_estimation() -> None:
             strata=("S",),
         ),
     )
-    with pytest.raises(CapabilityError, match="stratified ATE parameters"):
-        study.identify(ATE())
+    result = study.identify(ATE()).estimate(**FAST_KWARGS)
+    assert result.parameter_keys["ate[S=0]"].stratum == (0,)
+    assert result.parameter_keys["ate[S=1]"].stratum == (1,)
 
 
 def test_method_availability_is_structured_and_refuses_before_fitting(monkeypatch) -> None:
@@ -102,6 +265,155 @@ def test_method_availability_is_structured_and_refuses_before_fitting(monkeypatc
     monkeypatch.setattr("cleverly.study.TMLE", MustNotConstruct)
     with pytest.raises(CapabilityError, match="direct-Riesz engine"):
         effect.estimate(method="riesz_tmle")
+
+
+def test_a_controlled_direct_effect_refuses_the_variants_before_fitting(monkeypatch) -> None:
+    """The variant check has to read the intermediate, not only the functional's target.
+
+    A ``ControlledDirectEffect``'s ``functional.target`` is its *contrast's* name -- ``ate`` --
+    so a check reading the target alone declared C-TMLE and DR-TMLE available for it, and both
+    engines then refused partway through a fit.  Refusing after nuisance fitting has started is
+    the thing ``docs/architecture-invariants.md`` puts at the identification boundary.
+    """
+    frame, _ = make_linear_ate(n=120, seed=21)
+    study = CausalStudy(
+        frame.assign(Z=(frame["W1"] > 0).astype(int)),
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W1", "W2"), intermediate="Z"
+        ),
+    )
+    effect = study.identify(ControlledDirectEffect(intermediate=1.0))
+    methods = {record.name: record for record in effect.available_methods()}
+    assert methods["tmle"].available
+    for name in ("collaborative_tmle", "drtmle"):
+        assert not methods[name].available
+        assert "controlled direct effect" in (methods[name].reason or "")
+
+    monkeypatch.setattr("cleverly.study.CTMLE", _MustNotConstruct)
+    monkeypatch.setattr("cleverly.study.DRTMLE", _MustNotConstruct)
+    for name in ("collaborative_tmle", "drtmle"):
+        with pytest.raises(CapabilityError, match="controlled direct effect"):
+            effect.estimate(method=name)
+
+
+class _MustNotConstruct:
+    """An engine stand-in proving a refusal happened before nuisance fitting."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        raise AssertionError("nuisance fitting path was reached")
+
+
+@pytest.mark.parametrize(
+    ("estimand", "reason"),
+    [
+        ("ate", "not a typed causal estimand"),
+        (None, "not a typed causal estimand"),
+        (ATE, "not a typed causal estimand"),
+    ],
+)
+def test_an_untyped_estimand_is_refused_by_name(estimand, reason, monkeypatch) -> None:
+    """``identify("ate")`` used to die on ``'str' object has no attribute 'name'``.
+
+    Every legacy call site spelled its estimands as strings, so that is the first thing a
+    migrating reader tries.  The provider dereferences ``estimand.name`` as its opening move,
+    so the failure surfaced from inside identification with nothing pointing at the typed
+    object to pass instead.  ``ATE`` the *class* is here too: it has a ``name`` attribute, so
+    it got further than a string did and failed later and less legibly.
+    """
+    monkeypatch.setattr("cleverly.study.TMLE", _MustNotConstruct)
+    with pytest.raises(CapabilityError, match=reason) as raised:
+        _study().identify(estimand)
+    if estimand == "ate":
+        assert "ATE()" in str(raised.value)
+
+
+def test_the_refusal_recommends_what_the_migration_guide_recommends() -> None:
+    """Two places tell a migrating reader what to write instead, and they must agree.
+
+    The refusal names a typed object for the string it was given; ``docs/migration.md`` maps
+    the same strings in its argument table. If those drift, one of them is telling somebody to
+    write code that does not do what the other says it does. The table is parsed rather than
+    restated here for the same reason ``TestEvidenceManifest`` parses ``docs/evidence.md``:
+    the artefact a reader opens has to be the thing that is checked.
+    """
+    rows = re.findall(
+        r"^\|\s*`estimands=\(\"(\w+)\",\)`\s*\|\s*`([^`]+)`\s*\|",
+        (Path(cleverly.__file__).parents[2] / "docs" / "migration.md").read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    assert len(rows) > 5, "the migration table stopped matching; fix the pattern, not the count"
+    documented = dict(rows)
+    for target, replacement in documented.items():
+        assert _STRING_ESTIMANDS[target] == replacement
+    assert documented.keys() <= _STRING_ESTIMANDS.keys()
+
+
+def test_a_string_contrast_on_a_controlled_direct_effect_is_refused_at_construction() -> None:
+    with pytest.raises(DataError, match="typed arm contrast"):
+        ControlledDirectEffect(intermediate=1.0, contrast="ate")
+
+
+@pytest.mark.parametrize(
+    ("estimand", "reason"),
+    [
+        (RegimeMean(regimens=(), horizons=(1, 2)), "one time point"),
+        (RegimeContrast(regimens=(), horizons=(1,)), "one time point"),
+        (MSMProjection(MSM.linear(), horizons=(1,)), "one time point"),
+        (MSMProjection(MSM.linear(), regimens={"always": 1}), "longitudinal regimen cells"),
+    ],
+)
+def test_a_sequential_declaration_on_a_point_design_is_refused(
+    estimand, reason, monkeypatch
+) -> None:
+    """A declaration that cannot take effect is refused, not dropped.
+
+    ``horizons=`` and ``MSMProjection(regimens=...)`` are read only on the longitudinal path.
+    On a point design they were silently discarded, so the fit answered a different question
+    from the one written down and reported it under the name of the one asked for.
+    """
+    monkeypatch.setattr("cleverly.study.TMLE", _MustNotConstruct)
+    with pytest.raises(CapabilityError, match=reason):
+        _study().identify(estimand)
+
+
+def test_a_continuous_dose_refuses_by_axis_and_admits_a_working_model() -> None:
+    """The dose rule is about the parameter axis, and ``msm`` is not an arm axis.
+
+    The refusal named targets rather than axes, so a continuous-dose ``MSMProjection`` was
+    turned away with the message "is arm-indexed" -- which ``TARGETS["msm"].parameter_axis``
+    contradicts, and which the engine contradicts too: ``tests/unit/test_continuous_msm.py``
+    fits exactly this composition.  The two genuinely arm-shaped axes stay refused, and now
+    say which axis they are.
+    """
+    rng = np.random.default_rng(11)
+    n = 180
+    w = rng.normal(size=n)
+    a = 0.4 * w + rng.normal(size=n)
+    frame = pd.DataFrame({"Y": 1.0 + 2.0 * a + 0.3 * w, "A": a, "W": w})
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W",), treatment_kind="continuous"
+        ),
+    )
+
+    result = study.estimate(
+        MSMProjection(MSM.linear(doses=np.linspace(-1.5, 1.5, 9))),
+        outcome_learner="glm",
+        treatment_learner="glm",
+        cross_fit=False,
+        density_bins=8,
+        simultaneous=False,
+        random_state=3,
+    )
+    # The same slope and score the engine-level test pins, reached through the typed API.
+    assert result["msm[a]"].psi == pytest.approx(2.0, abs=2e-6)
+    assert abs(result["msm[a]"].score) < 1e-10
+    assert result.parameter_keys["msm[a]"].term == "a"
+
+    for refused, axis in ((ATE(), "arm"), (RegimeMean(regimens=()), "regime")):
+        with pytest.raises(CapabilityError, match=f"indexed by {axis}"):
+            study.identify(refused)
 
 
 def test_keyword_shortcuts_normalize_to_the_same_typed_method() -> None:
@@ -140,6 +452,41 @@ def test_a_shortcut_named_like_a_field_sets_that_field() -> None:
                 f"shortcut {shortcut!r} sets {group}.{attribute} but is also the name of a "
                 f"field on {owners}; a caller will reasonably expect it to set that one"
             )
+
+
+def test_auto_resolves_to_each_engines_own_default_and_says_so_when_they_move() -> None:
+    """``Inference`` serves two engines whose defaults are not the same number.
+
+    ``n_multiplier`` was a single literal 1000, which matches ``TMLE`` and silently halved
+    every study-driven longitudinal fit: ``LTMLE`` draws 2000. Nothing reported the change,
+    and the parity suite could not see it because it turns simultaneous bands off. ``"auto"``
+    now defers to the engine, exactly as ``g_bounds`` already did.
+
+    The resolved values are restated in ``cleverly.methods`` rather than imported, so this
+    reads both engine signatures and fails when a restatement stops matching -- otherwise the
+    duplication would be free to drift back apart.
+    """
+    point = inspect.signature(TMLE).parameters
+    sequential = inspect.signature(LTMLE).parameters
+    assert point["n_multiplier"].default == DEFAULT_POINT_MULTIPLIER
+    assert sequential["n_multiplier"].default == DEFAULT_LONGITUDINAL_MULTIPLIER
+    assert DEFAULT_POINT_MULTIPLIER != DEFAULT_LONGITUDINAL_MULTIPLIER, (
+        "if the engines ever agree, delete the sentinel rather than keeping a split that "
+        "no longer splits anything"
+    )
+    assert DEFAULT_LONGITUDINAL_G_BOUNDS == DEFAULT_LTMLE_G_BOUNDS
+
+    method = TMLEMethod()
+    assert method.inference.n_multiplier == "auto"
+    assert method.estimator_kwargs()["n_multiplier"] == DEFAULT_POINT_MULTIPLIER
+    assert (
+        method.estimator_kwargs(longitudinal=True)["n_multiplier"]
+        == DEFAULT_LONGITUDINAL_MULTIPLIER
+    )
+    # An explicit request still wins on both paths.
+    asked = TMLEMethod().with_overrides(n_multiplier=400)
+    assert asked.estimator_kwargs()["n_multiplier"] == 400
+    assert asked.estimator_kwargs(longitudinal=True)["n_multiplier"] == 400
 
 
 def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() -> None:

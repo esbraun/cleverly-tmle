@@ -20,9 +20,9 @@ from itertools import pairwise
 import numpy as np
 import pytest
 
-from cleverly import CTMLE, DRTMLE, TMLE
 from cleverly.data import CausalData
 from cleverly.datasets import nonlinear_dgp
+from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators._nuisance import Propensity
 from cleverly.estimators.serialize import load
 from cleverly.estimators.targeting import _negligible_bar, _solved, build_submodel

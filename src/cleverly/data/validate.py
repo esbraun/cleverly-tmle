@@ -19,6 +19,7 @@ from ..exceptions import DataError, DataWarning
 __all__ = [
     "MAX_TREATMENT_LEVELS",
     "MIN_CONTINUOUS_LEVELS",
+    "RANDOMIZED_INTERCEPT",
     "arm_indicators",
     "check_binary",
     "check_covariates",
@@ -30,6 +31,16 @@ __all__ = [
     "encode_treatment",
     "infer_family",
 ]
+
+#: The one covariate column ``cleverly`` supplies itself, for
+#: ``PointTreatment(randomized=True, adjustment=())`` -- an identification claim of *no*
+#: adjustment, which still needs a well-formed design for learners that fit their own
+#: intercept.  Producer and consumer live in different packages, so the name is defined
+#: once here rather than written out at both ends: it was a bare literal in
+#: ``cleverly.study`` and another in :func:`check_covariates`, where it is the only thing
+#: standing between the column and ``drop_constant``.  Renaming one of the two would have
+#: dropped the column and left an unadjusted randomized fit with no covariates at all.
+RANDOMIZED_INTERCEPT = "__cleverly_randomized_intercept__"
 
 #: Most treatment levels the estimator will accept.  Each level costs a counterfactual
 #: mean, a clever-covariate column and a row/column of the Newton solve, and positivity
@@ -394,8 +405,17 @@ def check_covariates(
     keep = np.ones(matrix.shape[1], dtype=bool)
     dropped: list[str] = []
 
+    # ``PointTreatment(randomized=True, adjustment=())`` supplies one reserved zero
+    # column so ordinary learners can fit their own intercept.  It is not an adjustment
+    # variable and must remain constant: replacing it by row position would silently
+    # introduce a data-order-dependent nuisance model for an unadjusted randomized effect.
+    # Kept per column rather than by comparing the whole list, so the exemption still
+    # applies -- and still means the same thing -- if the reserved column ever travels
+    # alongside another one.
     if drop_constant:
         for j in range(matrix.shape[1]):
+            if names[j] == RANDOMIZED_INTERCEPT:
+                continue
             if np.ptp(matrix[:, j]) == 0.0:
                 keep[j] = False
                 dropped.append(names[j])

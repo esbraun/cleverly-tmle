@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from sklearn.base import BaseEstimator
 
-from cleverly import CTMLE, DRTMLE
+from cleverly.estimators import CTMLE, DRTMLE
 from tests import discrete_law_multi as law
 from tests.discrete_law_longitudinal import CellMeans
 

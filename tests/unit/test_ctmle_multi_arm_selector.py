@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import CTMLE
+from cleverly.estimators import CTMLE
 from cleverly.estimators.ctmle import _penalty_of, _weighted_partial_correlation
 from cleverly.estimators.serialize import dumps, loads
 from tests import discrete_law_multi as law

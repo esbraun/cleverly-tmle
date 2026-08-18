@@ -42,7 +42,7 @@ _BIN = ["ey1", "ey0", "ate", "att", "atc", "rr", "or"]
 
 
 def _data(maker: Any, n: int, seed: int = 1) -> Any:
-    from cleverly import CausalData
+    from cleverly.data import CausalData
 
     frame, _ = maker(n=n, seed=seed)
     covariates = [c for c in frame.columns if c not in ("Y", "A", "id")]
@@ -85,8 +85,8 @@ def tmle_scenario(
     n: int = 20_000, library: str = "glm", targeting: str = "iterative"
 ) -> ScenarioResult:
     """Pooled TMLE: cached nuisances through targeting, estimands, curves and inference."""
-    from cleverly import TMLE
     from cleverly.datasets import make_binary_outcome
+    from cleverly.estimators import TMLE
 
     data = _data(make_binary_outcome, n)
     estimator = TMLE(
@@ -125,8 +125,8 @@ def tmle_scenario(
 
 def cvtmle_scenario(n: int = 20_000, library: str = "glm", n_folds: int = 10) -> ScenarioResult:
     """CV-TMLE: a separate fluctuation per validation fold, stitched back by index."""
-    from cleverly import TMLE
     from cleverly.datasets import make_binary_outcome
+    from cleverly.estimators import TMLE
 
     data = _data(make_binary_outcome, n)
     estimator = TMLE(
@@ -166,8 +166,8 @@ def sensitivity_scenario(n: int = 20_000, library: str = "glm", grid: int = 25) 
     fit is paid once against all of them.  Reported as latency for one point and throughput
     for the grid, because a sweep is judged on the second.
     """
-    from cleverly import TMLE
     from cleverly.datasets import make_binary_outcome
+    from cleverly.estimators import TMLE
 
     data = _data(make_binary_outcome, n)
     estimator = TMLE(
@@ -221,8 +221,8 @@ def ltmle_scenario(n: int = 20_000, library: str = "glm") -> ScenarioResult:
     half cannot be *called*; it can only be separated inside a profile.  ``detail`` carries
     the split, and ``post_nuisance_seconds`` is the fit net of the learner machinery.
     """
-    from cleverly import LTMLE, LongitudinalData
     from cleverly.datasets import make_longitudinal
+    from cleverly.longitudinal import LTMLE, LongitudinalData
 
     frame, _ = make_longitudinal(n=n, seed=1)
     data = LongitudinalData.from_frame(
@@ -265,8 +265,8 @@ def ltmle_scenario(n: int = 20_000, library: str = "glm") -> ScenarioResult:
 
 def survival_scenario(n: int = 5_000, library: str = "glm") -> ScenarioResult:
     """A discrete-time survival fit: one backward pass per horizon per regimen."""
-    from cleverly import LTMLE, LongitudinalData
     from cleverly.datasets import make_longitudinal_survival
+    from cleverly.longitudinal import LTMLE, LongitudinalData
 
     frame, _ = make_longitudinal_survival(n=n, seed=1)
     columns = list(frame.columns)
@@ -317,8 +317,8 @@ def drtmle_scenario(n: int = 5_000, library: str = "glm") -> ScenarioResult:
     :mod:`threadpoolctl` constructing a controller per learner fit.  ``detail`` carries the
     external share so the claim is on the record rather than in a commit message.
     """
-    from cleverly import DRTMLE
     from cleverly.datasets import make_linear_ate
+    from cleverly.estimators import DRTMLE
 
     data = _data(make_linear_ate, n)
     estimator = DRTMLE(
@@ -357,8 +357,8 @@ def drtmle_scenario(n: int = 5_000, library: str = "glm") -> ScenarioResult:
 
 def ctmle_scenario(n: int = 5_000, library: str = "glm") -> ScenarioResult:
     """CTMLE: the post-selection retarget, beside the share of the fit that is candidates."""
-    from cleverly import CTMLE
     from cleverly.datasets import make_linear_ate
+    from cleverly.estimators import CTMLE
 
     data = _data(make_linear_ate, n)
     estimator = CTMLE(

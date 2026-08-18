@@ -355,7 +355,7 @@ class TestStratifyingOnARareOutcome:
     """
 
     def _rare_event_data(self, n: int = 300, n_events: int = 8):  # type: ignore[no-untyped-def]
-        from cleverly import CausalData
+        from cleverly.data import CausalData
 
         rng = np.random.default_rng(0)
         a = np.zeros(n)
@@ -406,7 +406,7 @@ class TestStratifyingOnARareOutcome:
         # A fold with no *observed* outcomes in an arm cannot fit the regression either,
         # so Delta=0 must not be pooled with Y=0.
         pd = pytest.importorskip("pandas")
-        from cleverly import CausalData
+        from cleverly.data import CausalData
 
         rng = np.random.default_rng(0)
         n = 200
@@ -431,7 +431,7 @@ class TestStratifyingOnARareOutcome:
         assert unobserved.isdisjoint(observed)
 
     def test_a_continuous_outcome_is_refused_by_name(self) -> None:
-        from cleverly import CausalData
+        from cleverly.data import CausalData
 
         rng = np.random.default_rng(0)
         data = CausalData.from_arrays(

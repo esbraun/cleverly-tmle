@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly import TMLE
 from cleverly.data import CausalData
+from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import DataError
 

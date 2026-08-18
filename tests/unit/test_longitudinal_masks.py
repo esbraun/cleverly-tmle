@@ -26,8 +26,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import LTMLE, LongitudinalData
 from cleverly.datasets import make_longitudinal, make_longitudinal_survival
+from cleverly.longitudinal import LTMLE, LongitudinalData
 
 
 def _end_of_study(n: int = 1200, seed: int = 3) -> LongitudinalData:

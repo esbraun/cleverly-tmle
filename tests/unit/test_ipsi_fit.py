@@ -12,8 +12,9 @@ from itertools import pairwise
 import numpy as np
 import pytest
 
-from cleverly import CTMLE, TMLE, load
+from cleverly import load
 from cleverly.datasets import make_nonlinear_ate
+from cleverly.estimators import CTMLE, TMLE
 from cleverly.exceptions import DataError
 from cleverly.interventions import Incremental, Shift, Static
 from tests.conftest import FAST_KWARGS

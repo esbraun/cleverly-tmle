@@ -84,8 +84,8 @@ from typing import Any
 
 import numpy as np
 
-from cleverly import TMLE
 from cleverly.datasets import make_nonlinear_ate
+from cleverly.estimators import TMLE
 from cleverly.estimators.base import format_table
 from cleverly.fluctuation import mean_submodel, solve_fluctuation, solve_one_step
 from cleverly.fluctuation.iterative import InitialFit
@@ -446,8 +446,8 @@ def bench_longitudinal(sizes: tuple[int, ...], library: str) -> list[Timing]:
     The recursion's own arithmetic is what the ``(n, 1)`` fluctuation per node costs; the
     row below it is the whole fit, so the ratio is the answer.
     """
-    from cleverly import LTMLE
     from cleverly.datasets import make_longitudinal
+    from cleverly.longitudinal import LTMLE
 
     timings: list[Timing] = []
     for n in sizes:

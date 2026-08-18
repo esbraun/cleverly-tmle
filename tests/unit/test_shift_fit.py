@@ -21,9 +21,9 @@ import pytest
 
 import tests.conftest as conftest
 import tests.discrete_law_shift_cde as shift_law
-from cleverly import TMLE
 from cleverly.data import CausalData
 from cleverly.datasets import GENERATORS, make_shift_dose
+from cleverly.estimators import TMLE
 from cleverly.exceptions import DataError
 from cleverly.fluctuation.iterative import InitialFit, solve_fluctuation
 from cleverly.fluctuation.submodel import submodel_for

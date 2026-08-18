@@ -58,9 +58,10 @@ import polars as pl
 import pytest
 
 import cleverly
-from cleverly import TMLE
 from cleverly.datasets import make_linear_ate, make_longitudinal
+from cleverly.estimators import TMLE
 from cleverly.longitudinal import LTMLE
+from cleverly.methods import CollaborativeTMLEMethod, DRTMLEMethod, TMLEMethod
 from tests.conftest import assert_estimate_coherent
 
 # --------------------------------------------------------------------------- the roster
@@ -80,14 +81,7 @@ NON_ESTIMATORS: dict[str, str] = {
 #: Exported classes with a public ``fit`` that are deliberately *not* the point-treatment
 #: estimator, and why each could not be.  A row here is a claim that the parameter cannot
 #: reuse the point-treatment result contract.
-SEPARATE_ESTIMATORS: dict[str, str] = {
-    "LTMLE": (
-        "a regimen is a plan over nodes rather than a value some unit took, so the "
-        "parameter cannot be expressed by a Target: the point-treatment pipeline is built "
-        "around one Qbar(a, W) and one g(a | W). It needs its own container and its own "
-        "result object, which is what makes every row of SURFACE something to answer"
-    ),
-}
+SEPARATE_ESTIMATORS: dict[str, str] = {}
 
 
 def _exported_fit_classes() -> dict[str, type]:
@@ -108,11 +102,75 @@ def _exported_fit_classes() -> dict[str, type]:
 FIT_CLASSES = _exported_fit_classes()
 
 
+def test_the_beginner_facing_root_is_pinned() -> None:
+    expected = {
+        "ATC",
+        "ATE",
+        "ATT",
+        "BackdoorMeanContrast",
+        "CapabilityError",
+        "CausalResult",
+        "CausalStudy",
+        "CleverlyError",
+        "CollaborativeTMLEMethod",
+        "ControlledDirectEffect",
+        "ConvergenceWarning",
+        "CounterfactualMean",
+        "CrossFitting",
+        "DRTMLEMethod",
+        "DataError",
+        "Estimand",
+        "EstimationMethod",
+        "ExplicitAdjustmentProvider",
+        "IdentificationProvider",
+        "IdentifiedEffect",
+        "IncrementalEffect",
+        "IncrementalMean",
+        "Inference",
+        "LongitudinalTreatment",
+        "MSMProjection",
+        "MethodAvailability",
+        "ModelSpec",
+        "ModifiedTreatmentPolicy",
+        "ModifiedTreatmentPolicyEffect",
+        "NaturalCourseMean",
+        "NotFittedError",
+        "OddsRatio",
+        "ParameterEstimate",
+        "ParameterKey",
+        "PointTreatment",
+        "PopulationAttributableFraction",
+        "PopulationAttributableRisk",
+        "PositivityWarning",
+        "Provenance",
+        "RegimeContrast",
+        "RegimeMean",
+        "RiskRatio",
+        "Runtime",
+        "SuperLearner",
+        "TMLEMethod",
+        "Targeting",
+        "VariableImportanceEntry",
+        "VariableImportanceResult",
+        "WeightingWarning",
+        "__version__",
+        "load",
+        "variable_importance",
+    }
+    assert set(cleverly.__all__) == expected
+
+
 def test_the_roster_is_not_empty() -> None:
     # A discovery that silently found nothing would make every test below vacuous, which
     # is the one way a structural check fails open.
-    assert len(FIT_CLASSES) >= 4, sorted(FIT_CLASSES)
-    assert {"TMLE", "CTMLE", "DRTMLE", "LTMLE"} <= set(FIT_CLASSES)
+    assert {"SuperLearner": cleverly.SuperLearner} == FIT_CLASSES
+    assert all(not hasattr(cleverly, name) for name in ("TMLE", "CTMLE", "DRTMLE", "LTMLE"))
+
+
+def test_public_estimation_methods_are_typed_instead_of_fit_constructors() -> None:
+    methods = (TMLEMethod(), CollaborativeTMLEMethod(), DRTMLEMethod())
+    assert {method.name for method in methods} == {"tmle", "collaborative_tmle", "drtmle"}
+    assert all(dataclasses.is_dataclass(method) for method in methods)
 
 
 def test_every_fitting_class_is_a_tmle_or_says_why_not() -> None:
@@ -227,12 +285,7 @@ SURFACE: dict[str, dict[str, Any]] = {
     "save": {
         "call": lambda r, tmp: r.save(tmp / "result.joblib"),
         "TMLEResult": ...,
-        "LongitudinalResult": Refusal(
-            NotImplementedError,
-            "cannot be serialised yet",
-            "cleverly.load rebuilds a TMLEResult from a CausalData, and the longitudinal "
-            "container holds a node ordering that format has no place for",
-        ),
+        "LongitudinalResult": ...,
     },
     "diagnostics": {
         "call": lambda r, tmp: r.diagnostics(),
@@ -398,6 +451,7 @@ def _package_classes() -> dict[str, type]:
 #: * ``argument`` -- the backend is a parameter of ``to_frame`` because the object was not
 #:   built from a fit at all.
 BACKEND_ROUTES: dict[str, str] = {
+    "CausalResult": "protocol",
     "CausalData": "field",
     "CorrectionCheck": "field",
     "CVTargeting": "field",

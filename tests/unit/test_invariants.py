@@ -58,7 +58,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly import TMLE
+from cleverly.estimators import TMLE
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment, fast_tmle
 

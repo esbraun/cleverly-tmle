@@ -16,8 +16,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import cde_dgp, make_cde, make_missing_outcome, missing_outcome_dgp
+from cleverly.estimators import TMLE
 from cleverly.estimators.base import TMLEResultSet
 from tests.conftest import OracleTreatment, fast_tmle
 
@@ -110,7 +110,7 @@ class TestMissingOutcomes:
         """The low-level guard against silently dropping the missingness model."""
         from sklearn.linear_model import LinearRegression, LogisticRegression
 
-        from cleverly import CausalData
+        from cleverly.data import CausalData
         from cleverly.estimators._nuisance import fit_nuisances
         from cleverly.learners import Folds
         from cleverly.utils.bounds import OutcomeScaler

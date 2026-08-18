@@ -62,9 +62,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import DRTMLE
 from cleverly.data import CausalData
 from cleverly.datasets import make_linear_ate
+from cleverly.estimators import DRTMLE
 from cleverly.estimators import _nuisance as nuisance_module
 from cleverly.estimators import drtmle as drtmle_module
 from cleverly.estimators import reduced as reduced_module

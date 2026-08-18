@@ -15,7 +15,7 @@ import pytest
 from sklearn.base import BaseEstimator
 
 import cleverly
-from cleverly import TMLE
+from cleverly.estimators import TMLE
 
 ROOT = Path(__file__).resolve().parents[1]
 

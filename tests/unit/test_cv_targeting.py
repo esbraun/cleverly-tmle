@@ -20,8 +20,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import make_binary_outcome, make_linear_ate
+from cleverly.estimators import TMLE
 from cleverly.estimators.tmle import _average_over_folds
 from cleverly.fluctuation import restrict, stitch
 from cleverly.fluctuation.submodel import att_submodel, mean_submodel

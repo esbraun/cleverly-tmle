@@ -102,7 +102,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import DRTMLE
+from cleverly.estimators import DRTMLE
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.discrete_law_longitudinal import CellMeans

@@ -13,8 +13,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly import TMLE
 from cleverly.data import CausalData
+from cleverly.estimators import TMLE
 from cleverly.estimators._nuisance import Propensity, UnfittedPropensity
 from cleverly.exceptions import DataError
 from cleverly.fluctuation.submodel import atc_submodel, att_submodel, mean_submodel
@@ -305,7 +305,7 @@ class TestWhatIsRefused:
             ).fit(_three_arm_frame(), outcome="Y", treatment="A")
 
     def test_selector_ctmle_uses_one_joint_multinomial_path(self) -> None:
-        from cleverly import CTMLE
+        from cleverly.estimators import CTMLE
 
         result = (
             CTMLE(

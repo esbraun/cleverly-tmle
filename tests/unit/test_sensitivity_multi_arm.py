@@ -33,7 +33,7 @@ import pandas as pd
 import pytest
 from sklearn.base import BaseEstimator
 
-from cleverly import TMLE
+from cleverly.estimators import TMLE
 from cleverly.sensitivity.missingness import missingness_tilt, tipping_gamma
 from cleverly.sensitivity.omitted_variable import (
     omitted_variable_bounds,

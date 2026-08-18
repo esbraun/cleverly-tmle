@@ -19,8 +19,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from cleverly import CTMLE, TMLE
 from cleverly.datasets import GENERATORS
+from cleverly.estimators import CTMLE, TMLE
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 

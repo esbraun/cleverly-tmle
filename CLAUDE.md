@@ -43,6 +43,12 @@ Cross-module constraints that are not derivable from one implementation live in
   neither one sees a syntax error in an example.
 - Run the smallest relevant test while iterating, then use the current validation commands in
   `README.md` or the matching nox session before handing off a change.
+- **Never run the fast and slow tiers at the same time.** Both size themselves from
+  `tests.parallel.available_cores()` and each expects the machine, so running them concurrently
+  oversubscribes every core and both get slower than running them in sequence would have been.
+  The slow tier alone takes about an hour; wait for it rather than starting the fast tier beside
+  it. For the same reason, do not re-run the slow tier to re-confirm a change that provably
+  cannot reach it — say which code paths the change touches and which slow tests exercise them.
 - **GitHub Actions is out of budget, so CI is not a gate and its results are not signal.** Jobs
   currently fail at startup in seconds with no steps run, which looks identical to a red build. Do
   not read a PR's checks as a verdict on its code, and do not push expecting CI to catch anything.

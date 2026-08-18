@@ -1,14 +1,15 @@
 # The documentation set
 
-Nine things a reader might want, and where each of them is. Nothing here is generated —
+Ten things a reader might want, and where each of them is. Nothing here is generated —
 every file is hand-written and is expected to be read.
 
 | document | what is in it |
 | --- | --- |
 | [User guide](user-guide.md) | one worked recipe per capability: multi-arm treatments, dynamic and stochastic regimes, continuous doses, incremental interventions, marginal structural models, longitudinal and survival fits, C-TMLE, cross-fitting, weights |
+| [Migration guide](migration.md) | runnable old-to-new workflows, complete constructor-argument maps, changed defaults, the static audit tool, and the final-old-API tag |
 | [Technical appendix](methodology.md) | per algorithm: the estimand, its efficient influence curve, the second-order remainder, and the test that fails when it is built wrong |
 | [Roadmap](roadmap.md) | proposed methods in priority order, with the publication and canonical-source evidence required before implementation |
-| [Public API redesign](public-api-redesign.md) | the accepted-before-implementation design gate for the next public API: the study/identify/estimate object model, Riesz and EP integration, the ordered work packages, and the evidence each one exits on — **a design contract, not wholly the API that exists**: logical PR 1 has landed and the rest is still a proposal |
+| [Public API redesign](public-api-redesign.md) | the accepted design gate for the study/identify/estimate object model, Riesz and EP integration, ordered work packages, and exit evidence — work package 1 is implemented; later packages remain proposals |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Evidence](evidence.md) | per registered estimand: which instruments check its influence curve — oracle law, Gateaux comparison, remainder rate, exact identity — and which mistakes none of them would see |
 | [DR-TMLE](drtmle.md) | the doubly-robust variant's production contract: supported estimands and refusals, what Theorem 1 covers, the targeting and cross-fitting choices, the nuisance conditions the interval is conditional on, and the diagnostics to inspect |

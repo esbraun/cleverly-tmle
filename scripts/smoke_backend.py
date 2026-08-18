@@ -31,7 +31,7 @@ import sys
 
 import numpy as np
 
-from cleverly import TMLE
+from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_longitudinal_weighted
 from cleverly.utils.frames import available_backends
 
@@ -60,17 +60,20 @@ def main() -> None:
     frame, _ = make_linear_ate(n=400, seed=0, backend=backend)
     check(isinstance(frame, frame_type), f"make_linear_ate returns a {backend} frame")
 
-    result = (
-        TMLE(
-            outcome_learner="glm",
-            treatment_learner="glm",
-            n_folds=4,
-            learner_folds=3,
-            random_state=0,
-            estimands=("ate",),
-        )
-        .fit(frame, outcome="Y", treatment="A")
-        .single()
+    result = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y",
+            treatment="A",
+            adjustment=("W1", "W2", "W3", "W4"),
+        ),
+    ).estimate(
+        ATE(),
+        outcome_learner="glm",
+        treatment_learner="glm",
+        n_folds=4,
+        learner_folds=3,
+        random_state=0,
     )
     check(np.isfinite(result.psi("ate")), "the fit produced a finite estimate")
     check(isinstance(result.to_frame(), frame_type), "to_frame() follows the backend")

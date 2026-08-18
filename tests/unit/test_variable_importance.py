@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from cleverly import TMLE, variable_importance
+from cleverly import variable_importance
+from cleverly.estimators import TMLE
 from cleverly.variable_importance import _bh_adjust
 
 

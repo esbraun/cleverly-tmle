@@ -24,8 +24,8 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from cleverly import TMLE
 from cleverly.datasets import make_binary_outcome, make_linear_ate, make_missing_outcome
+from cleverly.estimators import TMLE
 from tests.conftest import fast_tmle
 
 ESTIMANDS = ("ate", "att", "atc", "ey1", "ey0")
@@ -327,7 +327,7 @@ class TestResultApi:
         the truth only 95% of the time by construction, so the old assertion was a coin
         flip standing in for something exactly checkable.
         """
-        from cleverly import CausalData
+        from cleverly.data import CausalData
 
         frame, _ = make_linear_ate(n=800, seed=96)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A")
@@ -540,7 +540,7 @@ class TestTheResultSet:
         )
 
     def test_the_array_entry_point_returns_a_set_too(self) -> None:
-        from cleverly import tmle
+        from cleverly.estimators import tmle
 
         rng = np.random.default_rng(0)
         w = rng.normal(size=(200, 2))
