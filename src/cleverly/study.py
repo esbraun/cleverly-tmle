@@ -190,6 +190,10 @@ class PointTreatment:
             ("weights", self.weights, data.weights_name),
             ("strata", tuple(self.strata), tuple(data.strata_names)),
             ("treatment_kind", self.treatment_kind, data.treatment_kind),
+            # Not role names, but they change what the reported variance means, so a
+            # disagreement here is as consequential as a mis-named column.
+            ("weights_type", self.weights_type, data.weight_spec.kind),
+            ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
         )
         for role, declared, held in expected:
             if declared != held:
@@ -301,6 +305,8 @@ class LongitudinalTreatment:
             ("censoring", tuple(self.censoring or ()), tuple(data.censoring_names)),
             ("cluster", self.cluster, data.cluster_name),
             ("weights", self.weights, data.weights_name),
+            ("weights_type", self.weights_type, data.weight_spec.kind),
+            ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("outcome event nodes", events, tuple(data.event_names)),
             ("outcome causes", causes, tuple(data.cause_labels)),
         )
