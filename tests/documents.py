@@ -6,10 +6,15 @@ documentation set": :mod:`tests.unit.test_documentation_links` and
 a new guide added under ``docs/`` would be covered by one of them and not the other, and
 nothing would say so.
 
+Three modules now, since :mod:`tests.unit.test_documentation_runtime` *executes* the
+reader-facing subset rather than only compiling it.  That does not make examples an
+executable tier in the sense ``docs/architecture-invariants.md`` rules out: the runtime check
+asserts that nothing raises and asserts nothing about any number, so an example is still
+explanatory material and still not statistical evidence.
+
 This deliberately carries no section metadata, no dependency graph and no change selector.
-Documentation examples are explanatory material rather than an executable tier
-(``docs/architecture-invariants.md``), so the only thing wanted here is the text of each
-block and where it starts.
+The only thing wanted here is the text of each block and where it starts; which documents are
+executable, and what each needs defined first, is that module's own registry.
 """
 
 from __future__ import annotations

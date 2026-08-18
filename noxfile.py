@@ -59,6 +59,22 @@ def typecheck(session: nox.Session) -> None:
     session.run("mypy", "src/cleverly")
 
 
+@nox.session
+def docs(session: nox.Session) -> None:
+    """Build the production documentation and fail on every Sphinx warning."""
+    session.install("-e", ".[docs]")
+    session.run(
+        "sphinx-build",
+        "-W",
+        "--keep-going",
+        "-b",
+        "html",
+        "docs",
+        "docs/_build/html",
+        *session.posargs,
+    )
+
+
 @nox.session(python=PYTHONS)
 def tests(session: nox.Session) -> None:
     """Fast tier: unit, integration, and end-to-end tests except statistical studies."""

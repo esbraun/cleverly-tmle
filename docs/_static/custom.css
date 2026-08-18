@@ -1,0 +1,39 @@
+:root {
+  --cleverly-ink: #102a43;
+  --cleverly-blue: #1565c0;
+  --cleverly-teal: #087f8c;
+}
+
+html[data-theme="light"] {
+  --pst-color-primary: var(--cleverly-blue);
+  --pst-color-secondary: var(--cleverly-teal);
+}
+
+.bd-main .bd-content .bd-article-container {
+  max-width: 58rem;
+}
+
+.cleverly-hero {
+  border-bottom: 1px solid var(--pst-color-border);
+  margin-bottom: 2rem;
+  padding: 1.5rem 0 2rem;
+}
+
+.sd-card {
+  border-radius: 0.65rem;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.sd-card:hover {
+  border-color: var(--pst-color-primary);
+  transform: translateY(-2px);
+}
+
+.pst-scrollable-table-container {
+  scrollbar-width: thin;
+}
+
+.pst-scrollable-table-container td:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+}

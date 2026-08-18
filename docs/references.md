@@ -43,6 +43,33 @@ not a citation; a page number is.
   all-training fit. This is the design source for C-TMLE's nested selection predictions.
 - van der Laan & Gruber (2016), *One-step targeted minimum loss-based estimation*.
 
+## Point treatment and stochastic interventions
+
+- van der Laan (2010), [*Targeted Maximum Likelihood Based Causal Inference: Part I*](https://doi.org/10.2202/1557-4679.1211),
+  DOI 10.2202/1557-4679.1211, and [*Part II*](https://doi.org/10.2202/1557-4679.1241),
+  DOI 10.2202/1557-4679.1241. These provide the general causal-effect and practical TMLE
+  constructions cited by the conditional-population and regimen targets.
+- Robins (2004), *Optimal Structural Nested Models for Optimal Sequential Decisions*, in
+  *Proceedings of the Second Seattle Symposium on Biostatistics*, pp. 189–326, DOI
+  [10.1007/978-1-4419-9076-1_11](https://doi.org/10.1007/978-1-4419-9076-1_11).
+- Díaz & van der Laan (2013), [*Assessing the Causal Effect of Policies: An Example Using
+  Stochastic Interventions*](https://doi.org/10.1515/ijb-2013-0014), *International Journal of
+  Biostatistics* 9(2):161–174, DOI 10.1515/ijb-2013-0014. The companion to the 2012 paper above,
+  cited for the stochastic-regime parameter rather than the population-intervention one. The
+  byline differs between the two — *Díaz Muñoz* in 2012, *Díaz* in 2013 — and the prose follows
+  each as published.
+- Haneuse & Rotnitzky (2013), *Estimation of the effect of interventions that modify the received
+  treatment*, *Statistics in Medicine* 32(30):5260–5277, DOI
+  [10.1002/sim.5907](https://doi.org/10.1002/sim.5907).
+- Díaz, Williams, Hoffman & Schenck (2023), [*Nonparametric Causal Effects Based on Longitudinal
+  Modified Treatment Policies*](https://doi.org/10.1080/01621459.2021.1955691), *Journal of the
+  American Statistical Association* 118(542):846–857, DOI 10.1080/01621459.2021.1955691. The
+  package implements the point-treatment shift case; the citation supplies the general modified-
+  policy identification and efficient influence-function theory, not a claim of longitudinal-shift
+  support.
+- van der Laan & Rose (2011), *Targeted Learning: Causal Inference for Observational and
+  Experimental Data*, Springer. Chapter 12 covers marginal structural model targets.
+
 ## Collaborative TMLE
 
 - van der Laan & Gruber (2010), [*Collaborative double robust targeted maximum likelihood
@@ -109,8 +136,9 @@ not a citation; a page number is.
 
 ## Incremental interventions
 
-- Kennedy (2019), *Nonparametric causal effects based on incremental propensity score
-  interventions*.
+- Kennedy (2019), [*Nonparametric causal effects based on incremental propensity score
+  interventions*](https://doi.org/10.1080/01621459.2017.1422737), *Journal of the American
+  Statistical Association* 114(526):645–656, DOI 10.1080/01621459.2017.1422737.
 
 ## Riesz representation and nested targeted learning
 

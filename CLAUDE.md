@@ -31,12 +31,15 @@ Cross-module constraints that are not derivable from one implementation live in
 
 - Use `tests.conftest.FAST_KWARGS` and parametric learners for estimator tests unless flexible
   learning is the behavior under test. Mark statistical studies that require many fits `slow`.
-- Documentation examples are explanatory and are not executed as tests. Cover behavior in the
-  ordinary fast unit/integration/e2e tier or the named slow statistical tier. Reading the rendered
-  prose is a manual act with no workflow behind it. What *is* automated stays in the fast tier:
-  `tests/unit/test_documentation_links.py` resolves every link, and
-  `tests/unit/test_documentation_examples.py` compiles every `python` fence — so a fence is still a
-  promise that the block is Python, and prose belongs in a `text` fence.
+- Documentation examples are not statistical evidence. Cover behavior in the ordinary fast
+  unit/integration/e2e tier or the named slow statistical tier. Reading the rendered prose is a
+  manual act with no workflow behind it. What *is* automated stays in the fast tier:
+  `tests/unit/test_documentation_links.py` resolves every link, including links naming a path in
+  this repository; `tests/unit/test_documentation_examples.py` compiles every `python` fence — so a
+  fence is still a promise that the block is Python, and prose belongs in a `text` fence; and
+  `tests/unit/test_documentation_runtime.py` *executes* the registered reader-facing documents,
+  asserting only that nothing raises. A reader-facing guide added under `docs/examples/`,
+  `docs/getting-started/` or `docs/user-guide/` must be registered there or explicitly excluded.
 - Ruff and mypy are pinned separately in `pyproject.toml`, `noxfile.py`, and CI. Update all copies
   together. Ruff *formats* the Python examples in Markdown, so run it over the whole tree — but its
   linter does not read Markdown at all, and the formatter skips any block it cannot parse, so
