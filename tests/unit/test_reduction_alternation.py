@@ -363,7 +363,7 @@ class TestTheReductionsAreRefittedInsideTheLoop:
         [
             (BOTH, 6),
             (("Q",), 2),
-            (("g",), 0),
+            (("g",), 4),
         ],
     )
     def test_each_round_fits_only_the_families_its_guard_consumes(

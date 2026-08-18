@@ -1068,9 +1068,6 @@ class _Companion:
     def take_mechanism(self, carried: Sequence[FloatArray]) -> None:
         self.mechanism = tuple(carried)
 
-    def take_reduced(self, sets: Sequence[ReducedSet]) -> None:
-        self.reduced = tuple(sets)
-
     def take_partial(self, sets: Sequence[ReducedSet], names: Sequence[str]) -> None:
         """Replace only ``names`` of each fold's set -- the paper order's two-vintage refit."""
         self.reduced = tuple(
@@ -1545,18 +1542,17 @@ def solve_with_reduction(
                 if companion is not None:
                     companion.take_mechanism(tail)
                 current = _retargeted_mechanism(nuisance, targeted_g, arms, inner_g)
-                if "g" in guard:
-                    mechanism_families: tuple[ReducedFamily, ...] = (
-                        ("gr1", "gr2") if reduced.reduction == "univariate" else ("gr1",)
-                    )
-                    reduced, reduced_companion = reduction.refit(
-                        _reduction_inputs(
-                            current, targeted_q, targeted_g, reduced, inner_q, companion
-                        ),
-                        mechanism_families,
-                    )
-                    if companion is not None:
-                        companion.take_partial(reduced_companion, mechanism_families)
+
+            if "g" in guard:
+                mechanism_families: tuple[ReducedFamily, ...] = (
+                    ("gr1", "gr2") if reduced.reduction == "univariate" else ("gr1",)
+                )
+                reduced, reduced_companion = reduction.refit(
+                    _reduction_inputs(current, targeted_q, targeted_g, reduced, inner_q, companion),
+                    mechanism_families,
+                )
+                if companion is not None:
+                    companion.take_partial(reduced_companion, mechanism_families)
 
             if "g" in guard:
                 extra_submodel = reduced_outcome_submodel(
@@ -2445,6 +2441,10 @@ def _reduction_inputs(
     alternation rather than three equations solved at arrays fixed in advance.  ``folds``,
     the scaler and the weights travel unchanged, so the refit is out of fold on the same
     split the primary fits used.
+
+    ``reduced`` is the current complete set. Family-specific refits carry its unrequested
+    regressions forward, so a mechanism-only refit does not restore a stale ``qr`` and a
+    ``qr``-only refit does not restore stale ``gr1`` or ``gr2`` values.
 
     ``inner`` moves the nested construction's fold-free outcome regressions along with it,
     for the reason the refit reads the targeted pair at all: equations (9) and (10) are

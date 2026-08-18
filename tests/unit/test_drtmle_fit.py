@@ -500,12 +500,9 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 def single_guard():
     """``guard=("g",)`` on this module's own draw -- the first partial-guard fit anywhere here.
 
-    **1.8s measured**, against ~25s for the default-guard ``fit``, and the difference is
-    structural rather than luck: ``reduction.refit`` is called only inside the ``"Q"``
-    branches of the alternation, so this fit runs no reduced refits at all. That is why the
-    cheap direction is the one taken end to end and ``guard=("Q",)`` is left to
-    ``tests/unit/test_influence_drtmle.py``, where a solve on the exact law costs
-    milliseconds.
+    This is the cheaper partial direction: it refits only ``gr1`` and ``gr2`` before solving
+    equation (10), while ``guard=("Q",)`` is left to
+    ``tests/unit/test_influence_drtmle.py``, where a solve on the exact law costs milliseconds.
 
     ``frame()`` rather than a fresh draw for three reasons: no second sample to fit, the
     same draw as ``fit`` so the two are comparable, and -- decisively -- this draw is
@@ -537,6 +534,16 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
 
         assert check.clipped == 0
         assert fluctuation.mechanism is None
+
+    def test_the_reduced_mechanisms_are_refitted_at_the_targeted_regression(
+        self, single_guard
+    ) -> None:
+        """The nonzero witness: equation (10) must not keep its initial regressions."""
+        initial = single_guard.nuisance.reduced
+        reduced = single_guard.repeats[0].fluctuations["mean"].reduction.reduced
+
+        assert np.max(np.abs(reduced.gr1 - initial.gr1)) > 1e-2
+        assert np.max(np.abs(reduced.gr2 - initial.gr2)) > 1e-2
 
     def test_the_unsolved_correction_is_large_enough_to_matter(self, single_guard) -> None:
         """The negative control: without it every assertion below could hold vacuously.
@@ -678,7 +685,7 @@ class TestTheAlternationCanBeIllConditioned:
     tabulated at the ``drtmle-validation-archive-2026-08`` tag -- says otherwise:
     the solve is numerically difficult on 5 of 12 ``linear`` draws at ``n = 600`` and 9 of 12 at ``n = 1,200``,
     and highest exactly where the mechanism is easiest to get right, which is what the
-    paragraph above predicts and what sweeping only hard processes would have hidden.  A fit
+    paragraph above predicts and what sweeping only hard processes would have hidden.
     The historical ``ill_conditioned`` field counts either a singular solve or one that
     stopped at working precision just above its inner tolerance. The final score check can
     still pass, and ``validate()`` now warns so the numerical event is not hidden by that pass.
