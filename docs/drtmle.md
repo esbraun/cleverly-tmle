@@ -480,19 +480,39 @@ Two things the algorithm has no counterpart for and this implementation adds: a 
 frozen final reductions, so the reported scores are the scores of the state returned; and the
 truncation of [the previous section](#the-bound-inactive-scope).
 
-The alternation is **not guaranteed to converge.** Equation (10)'s covariate is near-singular on
-exactly the fits anybody wants, so a draw can exit at the outer cap and report
-`failure = "max_iter_reached"`. Over a 96-fit sweep, 87 reach the tolerance, 8 stall and 1 runs out
-of rounds. No argument here *proves* the iterates approach a common zero of the three equations,
-which is why [the diagnostics](#5-diagnostics-to-inspect) decide rather than the argument.
+The alternation is **not guaranteed to converge.** Equation (10)'s covariate becomes small on
+exactly the fits anybody wants, so its inner solve can be singular or stop at working precision.
+The archived 96-fit sweep — 87 tolerance exits, 8 stalls and 1 cap — had cross-fitting disabled
+and therefore did not cover the shipped 10-fold default.
+
+A fixed-seed `glm` check of the current source produced the following default-path evidence. The
+counter's historical name is `ill_conditioned`, but it counts every equation-(10) inner failure,
+including a tolerance-limited full-rank solve; `res.validate()` therefore describes these as
+numerically difficult rather than asserting that every Hessian was singular.
+
+| n | primary folds | exit | numerically difficult rounds | final score check |
+| ---: | ---: | --- | ---: | --- |
+| 200 | off | cap | 0 of 50 | passed |
+| 200 | 10 | stall | 3 of 46 | passed |
+| 1000 | off | tolerance | 0 of 44 | passed |
+| 1000 | 10 | tolerance | 2 of 16 | passed |
+| 3000 | off | cap | 0 of 50 | passed |
+| 3000 | 10 | tolerance | 0 of 8 | passed |
+
+The affected 10-fold `n=200` solves had full-rank two-column designs and absolute scores between
+`4e-13` and `9e-13`; the statistical score check passed because those residuals were negligible.
+No argument here *proves* the iterates approach a common zero of the three equations, which is why
+[the diagnostics](#5-diagnostics-to-inspect) surface both convergence and numerical difficulty.
 
 ### The update order
 
-`update_order="cleverly"` (default) or `"paper"`. **A diagnostic keyword rather than a tuning
-one.** The working paper's step 7 states its own termination as the three empirical means being
+`update_order="drtmle"` (default) or `"benkeser"`. **A diagnostic keyword rather than a tuning
+one.** `"drtmle"` follows the canonical R package: equation (9), refit only `g_{r,1}` and
+`g_{r,2}`, equations (10) and (8), then refit only `Q_r`. `"benkeser"` follows the published
+six-step recursion. The working paper's step 7 states its termination as the three empirical means being
 approximately zero, so its six-step order is one route to a fixed point rather than something
 Theorem 1 assumes about the collection returned — the theorem's hypotheses are conditions on the
-returned collection, not on the route. `"paper"` implements that order beside this package's,
+returned collection, not on the route. `"benkeser"` implements that order beside R `drtmle`'s,
 sharing the stopping rule, stall test and closing pass, deliberately: what is in question is the
 route, and a comparison in which two things differ answers nothing.
 
@@ -664,6 +684,7 @@ In cost order. The first two are free.
 | --- | --- |
 | `res.score_verdict` | the score check's verdict, carried whether it passed or not. `summary()` prints it whenever it **fails**; a passing fit says nothing extra. Derived from the fluctuations rather than stored, so a reloaded fit recomputes it. |
 | `res.diagnostics.score_equations()` | the same score object, asked for directly |
+| `res.validate()` | the default assessment; reports `warning` when equation (10) had numerically difficult inner solves even if the returned score equations pass, with the affected round count and fraction |
 | `res.validation.correction_check()` | the low-level doubly-robust rows: per arm, per equation. Empty unless the fit is a guarded `DRTMLE`. |
 | `res.diagnostics.nuisance_models()` | the primary fits' held-out risk and diagnostics |
 | `res.diagnostics.refute()` | negative controls; costs refits |

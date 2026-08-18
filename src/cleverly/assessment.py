@@ -856,16 +856,27 @@ def validate_result(result: Any) -> ValidationReport:
         score = diagnostics.score_equations()
         score_passed = bool(getattr(score, "passed", False))
         score_rows = tuple(getattr(score, "rows", ()))
+        conditioning = _reduction_conditioning_warning(result) if score_passed else None
         items = [
             AssessmentItem(
                 "score_equations",
-                AssessmentStatus.PASSED if score_passed else AssessmentStatus.FAILED,
                 (
-                    f"all {len(score_rows)} stored score checks converged"
+                    AssessmentStatus.WARNING
+                    if conditioning
+                    else AssessmentStatus.PASSED
+                    if score_passed
+                    else AssessmentStatus.FAILED
+                ),
+                (
+                    conditioning or f"all {len(score_rows)} stored score checks converged"
                     if score_passed
                     else "one or more stored score equations failed its convergence check"
                 ),
-                () if score_passed else ("inspect result.diagnostics.score_equations()",),
+                (("inspect result.repeats[*].fluctuations['mean'].reduction.ill_conditioned"),)
+                if conditioning
+                else ()
+                if score_passed
+                else ("inspect result.diagnostics.score_equations()",),
             )
         ]
         support = diagnostics.support()
@@ -900,6 +911,33 @@ def validate_result(result: Any) -> ValidationReport:
         return ValidationReport(tuple(items), result.data.backend)
 
     return _cached(result, "validate", (), {}, compute)
+
+
+def _reduction_conditioning_warning(result: Any) -> str | None:
+    """Summarize successful equation-(10) solves that needed an ill-conditioned step."""
+    ill_conditioned = 0
+    rounds = 0
+    affected = 0
+    repeats = tuple(getattr(result, "repeats", ()))
+    for repeat in repeats:
+        fluctuation = getattr(repeat, "fluctuations", {}).get("mean")
+        reduction = getattr(fluctuation, "reduction", None)
+        count = int(getattr(reduction, "ill_conditioned", 0))
+        rounds += int(getattr(reduction, "rounds", 0))
+        if count <= 0:
+            continue
+        ill_conditioned += count
+        affected += 1
+    if ill_conditioned == 0:
+        return None
+    fraction = ill_conditioned / rounds if rounds else float("nan")
+    draws = f" across {affected} of {len(repeats)} repeat(s)" if len(repeats) > 1 else ""
+    return (
+        f"all stored score checks converged, but equation (10) reported numerical difficulty in "
+        f"{ill_conditioned} of {rounds} refitting round(s) ({fraction:.1%}){draws}; "
+        "one or more inner solves were ill-conditioned or stopped at their numerical "
+        "tolerance even though the returned score equations passed"
+    )
 
 
 def _sensitivity_operations() -> tuple[str, ...]:

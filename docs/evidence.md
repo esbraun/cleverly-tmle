@@ -84,6 +84,16 @@ provenance rather than R numerical parity. It does not establish a published cro
 and it supplies no corrected fold-aggregation result for `targeting_scheme="fold"` or
 `cv_evaluation=True`; both refusals remain pinned in `tests/unit/test_drtmle_fit.py`.
 
+The complete-outcome alternation defaults to `update_order="drtmle"`, the canonical R-package
+sequence; `"benkeser"` names the published six-step recursion. The canonical round refits only
+`gr1`/`gr2` after equation (9) and only `qr` after equation (8). The fit-count mutation in
+`tests/unit/test_reduction_alternation.py` requires six reduced-column fits per two-arm univariate
+round rather than the former twelve, while the theorem, Gateaux, remainder, score, and correction
+gates establish that the returned collection still satisfies the estimator identities. The same
+module pins both source-specific solve orders. `tests/unit/test_drtmle_fit.py` separately requires
+`validate()` to warn, and to preserve that warning through serialization, when equation (10)'s
+historical `ill_conditioned` counter is positive despite a passing final score check.
+
 The bivariate alternative is also a construction over these targets. Its acceptance chain
 starts at van der Laan (2014), Theorem 3 and the bivariate remainder, then separately pins the
 pinned R source's two-column reduced probability and `(gr-g)/(g*gr)` outcome direction.

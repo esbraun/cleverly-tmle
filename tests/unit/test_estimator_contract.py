@@ -178,6 +178,7 @@ def test_public_estimation_methods_are_typed_instead_of_fit_constructors() -> No
     methods = (TMLEMethod(), CollaborativeTMLEMethod(), DRTMLEMethod())
     assert {method.name for method in methods} == {"tmle", "collaborative_tmle", "drtmle"}
     assert all(dataclasses.is_dataclass(method) for method in methods)
+    assert DRTMLEMethod().update_order == "drtmle"
 
 
 def test_every_fitting_class_is_a_tmle_or_says_why_not() -> None:

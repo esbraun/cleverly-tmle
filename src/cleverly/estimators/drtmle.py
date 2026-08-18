@@ -38,13 +38,14 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       condition.  Use this where you have a reason to think one nuisance is badly estimated;
       do not treat the interval as settled.
    3. **The alternation is not guaranteed to converge, though it mostly does.**
-      Equation (10)'s covariate is near-singular on exactly the fits anybody wants -- see
+      Equation (10)'s covariate becomes small on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so a draw can exit at
-      the outer cap and report ``failure = "max_iter_reached"``.  Over a 96-fit sweep, 87
-      reach the tolerance, 8 stall and 1 runs out of rounds.  No argument here *proves* the
-      iterates approach a common zero of the three equations, which is why the diagnostics
-      rather than the argument decide: ``summary()`` ends with the score check whenever the
-      check fails, and ``res.score_verdict`` carries the verdict either way.
+      the outer cap or an inner solve can stop at working precision. The original 96-fit
+      sweep had cross-fitting disabled and therefore did not cover the shipped 10-fold
+      default. A fixed-seed default-path check observed numerical difficulty in 3 of 46
+      rounds at ``n=200``, 2 of 16 at ``n=1000``, and none of 8 at ``n=3000``; every final
+      score check passed. No argument here *proves* the iterates approach a common zero,
+      which is why ``validate()`` warns on those rounds even when the score verdict passes.
 
    Two things that were open and are closed, kept because both are the kind of defect that
    returns.  The **sign** of the mechanism correction is the appendices' orientation and not
@@ -106,9 +107,11 @@ against 0.06850, which is a fact about one draw and not a general narrowing.  A 
 fit's ``score_check`` says so in its own verdict rather than signing the fit off as having
 solved the efficient score equation.
 
-**What it costs.**  Two further learner fits per arm per round for the univariate reduction,
-or one for the bivariate reduction, refitted *inside* the alternation, plus a mechanism
-fluctuation.  A truncation curve or an MNAR sweep on a
+**What it costs.** Three reduced-family fits per arm per round for the univariate reduction,
+or two for the bivariate reduction, plus a mechanism fluctuation. Each family is fitted once,
+at the nuisance vintage its next equation consumes; the former implementation fitted every
+family at both refit sites and discarded or overwrote half the work. A truncation curve or
+an MNAR sweep on a
 ``DRTMLE`` result therefore costs about a fit per point rather than a fraction of one:
 ``retarget`` here is no longer arithmetic on cached arrays, which is the one contract this
 variant breaks and the reason it is a class of its own rather than a keyword.
@@ -143,6 +146,7 @@ from .reduced import (
     REDUCED_CROSSFITS,
     REDUCTIONS,
     MissingOutcomeReducedSet,
+    ReducedFamily,
     ReducedSet,
     fit_missing_outcome_reduced,
     fit_reduced,
@@ -153,13 +157,11 @@ from .tmle import TMLE
 
 __all__ = ["DRTMLE", "ReducedFit"]
 
-#: The two routes through a round, in ``update_order=``'s vocabulary -- see
-#: :data:`~cleverly.estimators.targeting.ReductionOrder`.  ``"paper"`` exists to be measured
-#: against ``"cleverly"`` rather than to be chosen: the theorem's exit is a fixed point and
-#: not a route, so the two are the same estimator if they land in the same place, which is
-#: the update-order comparison; ``docs/drtmle.md``'s *The update order* is what
-#: the sweep that read it found.
-UPDATE_ORDERS = ("cleverly", "paper")
+#: The two source-defined routes through a round. ``"drtmle"`` is the canonical R
+#: package's loop and the default; ``"benkeser"`` is the published six-step recursion.
+#: The theorem's exit is a fixed point rather than a route, so the update-order comparison
+#: measures whether the two reach the same returned collection.
+UPDATE_ORDERS = ("drtmle", "benkeser")
 
 #: The two guards, in ``drtmle``'s vocabulary.  **Crossed**, and the commonest thing to
 #: transcribe backwards: ``"Q"`` guards against a misspecified *outcome regression* and adds
@@ -271,14 +273,14 @@ class DRTMLE(TMLE):
         complete-outcome fits; univariate remains the default.
     update_order:
         On complete-outcome fits, which route a round of the alternation takes,
-        ``"cleverly"`` (default) or
-        ``"paper"``.  **A diagnostic keyword rather than a tuning one**, and the reason is
+        ``"drtmle"`` (default) or
+        ``"benkeser"``.  **A diagnostic keyword rather than a tuning one**, and the reason is
         the update-order question: the 2016 working paper's step 7 states
         its own termination as the three empirical means being approximately zero, so its
         six-step order is one route to a fixed point rather than something Theorem 1
         assumes about the collection returned. Missing-outcome fits always use their
-        dedicated published cycle. ``"paper"`` implements the complete-data order beside
-        this package's -- equation (8), then :math:`g_{r,1}` and :math:`g_{r,2}` at the
+        dedicated published cycle. ``"benkeser"`` implements the complete-data order beside
+        R ``drtmle``'s -- equation (8), then :math:`g_{r,1}` and :math:`g_{r,2}` at the
         **once-updated** outcome regression, then equation (10), then :math:`Q_r` at the
         **twice-updated** one, then equation (9) -- so that *whether the two reach the same
         fixed point on real data* is something a sweep measures rather than something a
@@ -416,7 +418,7 @@ class DRTMLE(TMLE):
         reduced_outcome_learner: Any = None,
         reduced_treatment_learner: Any = None,
         reduced_crossfit: str = "pooled",
-        update_order: ReductionOrder = "cleverly",
+        update_order: ReductionOrder = "drtmle",
         evaluation: Any = None,
         randomized: bool = False,
         **kwargs: Any,
@@ -475,10 +477,9 @@ class DRTMLE(TMLE):
         if self.update_order not in UPDATE_ORDERS:
             raise ValueError(
                 f"update_order must be one of {list(UPDATE_ORDERS)}; got "
-                f"{self.update_order!r}. 'cleverly' is this package's alternation and the "
-                "default; 'paper' is the 2016 working paper's six-step recursion, which is "
-                "here so that the two routes to the theorem's stated exit can be compared "
-                "on real data rather than argued about."
+                f"{self.update_order!r}. 'drtmle' is the canonical R package's loop and "
+                "the default; 'benkeser' is the published six-step recursion. The former "
+                "names 'cleverly' and 'paper' are no longer accepted."
             )
         if self.reduction not in REDUCTIONS:
             raise ValueError(f"reduction must be one of {list(REDUCTIONS)}; got {self.reduction!r}")
@@ -737,11 +738,14 @@ class DRTMLE(TMLE):
 
         def refit(
             current: NuisanceEstimates,
+            families: tuple[ReducedFamily, ...],
         ) -> tuple[
             ReducedSet | MissingOutcomeReducedSet,
             tuple[ReducedSet | MissingOutcomeReducedSet, ...],
         ]:
-            production, _, at_companion = self._fit_reduced(data, current, bounds)
+            production, _, at_companion = self._fit_reduced(
+                data, current, bounds, families=families
+            )
             return production, at_companion
 
         def missing_refit(
@@ -806,6 +810,7 @@ class DRTMLE(TMLE):
         g_bounds: tuple[float, float],
         *,
         missingness_bound: float | None = None,
+        families: tuple[ReducedFamily, ...] | None = None,
     ) -> tuple[
         ReducedSet | MissingOutcomeReducedSet,
         dict[str, list[SuperLearnerDiagnostics]],
@@ -848,6 +853,7 @@ class DRTMLE(TMLE):
             g_bounds=g_bounds,
             reduction=self.reduction,
             crossfit=self.reduced_crossfit,
+            families=families,
             # Off the object handed in rather than off ``self``, so that a refit inside the
             # alternation predicts at the companion designs that round's state implies --
             # `_reduction_inputs` is what writes them there.

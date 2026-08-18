@@ -601,7 +601,7 @@ class TestDoublyRobustInference:
     than ``n^(-1/4)`` -- a Super Learner in enough dimensions -- at an ``n`` large enough for
     the coverage decay to show.  That is out of reach here rather than uninteresting: the
     pilot's two ``DRTMLE`` studies took 358s and 372s against the plain estimator's 5s and 3s,
-    because the alternation refits three reduced regressions per arm on every round.  Scaling
+    because the alternation fits three reduced families per arm on every round. Scaling
     that to flexible learners at ``n = 2000`` over 200 replicates is hours, not minutes.
 
     So: this class is a guard, not a demonstration, and it says so rather than letting a

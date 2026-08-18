@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from cleverly.estimators._nuisance import NuisanceEstimates, Propensity
-from cleverly.estimators.reduced import ReducedSet, fit_reduced
+from cleverly.estimators.reduced import ReducedFamily, ReducedSet, fit_reduced
 from cleverly.estimators.targeting import (
     _UNSOLVED,
     ReductionSpec,
@@ -62,7 +62,9 @@ NUISANCE_BOUND = 1e-8
 def refit_closure(data, counter: list[NuisanceEstimates] | None = None):
     """A saturated refit of the three reduced regressions, recording what it was handed."""
 
-    def refit(current: NuisanceEstimates) -> tuple[ReducedSet, tuple[ReducedSet, ...]]:
+    def refit(
+        current: NuisanceEstimates, families: tuple[ReducedFamily, ...]
+    ) -> tuple[ReducedSet, tuple[ReducedSet, ...]]:
         if counter is not None:
             counter.append(current)
         reduced, _, at_companion = fit_reduced(
@@ -71,6 +73,7 @@ def refit_closure(data, counter: list[NuisanceEstimates] | None = None):
             regression_learner=CellMeans(),
             classification_learner=CellMeans(),
             g_bounds=INERT_BOUNDS,
+            families=families,
             companion=current.companion,
         )
         return reduced, at_companion
@@ -354,6 +357,34 @@ class TestTheReductionsAreRefittedInsideTheLoop:
         np.testing.assert_array_equal(
             nuisance.propensity.arm(1.0), nuisances(WRONG_G, WRONG_Q).propensity.arm(1.0)
         )
+
+    @pytest.mark.parametrize(
+        ("guard", "columns_per_round"),
+        [
+            (BOTH, 6),
+            (("Q",), 2),
+            (("g",), 0),
+        ],
+    )
+    def test_each_round_fits_only_the_families_its_guard_consumes(
+        self, monkeypatch, guard, columns_per_round
+    ) -> None:
+        """Two arms times one Qr or two reduced-mechanism families, never both twice."""
+        from cleverly.estimators import reduced as reduced_module
+
+        calls = 0
+        original = reduced_module._reduced_column
+
+        def counted(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(reduced_module, "_reduced_column", counted)
+        fluctuation = alternate(WRONG_G, WRONG_Q, guard=guard)
+
+        initial_columns = 3 * len(ARMS)
+        assert calls == initial_columns + columns_per_round * fluctuation.reduction.rounds
 
 
 class TestTheGuardSelectsTheEquations:
