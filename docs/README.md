@@ -1,6 +1,6 @@
 # The documentation set
 
-Ten things a reader might want, and where each of them is. Nothing here is generated —
+Eleven things a reader might want, and where each of them is. Nothing here is generated —
 every file is hand-written and is expected to be read.
 
 | document | what is in it |
@@ -10,6 +10,7 @@ every file is hand-written and is expected to be read.
 | [Technical appendix](methodology.md) | per algorithm: the estimand, its efficient influence curve, the second-order remainder, and the test that fails when it is built wrong |
 | [Roadmap](roadmap.md) | proposed methods in priority order, with the publication and canonical-source evidence required before implementation |
 | [Public API redesign](public-api-redesign.md) | the accepted design gate for the study/identify/estimate object model, Riesz and EP integration, ordered work packages, and exit evidence — work package 1 is implemented; later packages remain proposals |
+| [Nested Riesz implementation plan](riesz-implementation-plan.md) | the source-audited, review-gated plan for work package 3: typed stages and representers, stage order, direct loss, catalog boundary, persistence, mutations, and implementation commits |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Evidence](evidence.md) | per registered estimand: which instruments check its influence curve — oracle law, Gateaux comparison, remainder rate, exact identity — and which mistakes none of them would see |
 | [DR-TMLE](drtmle.md) | the doubly-robust variant's production contract: supported estimands and refusals, what Theorem 1 covers, the targeting and cross-fitting choices, the nuisance conditions the interval is conditional on, and the diagnostics to inspect |

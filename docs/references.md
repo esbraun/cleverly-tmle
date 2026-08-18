@@ -112,6 +112,32 @@ not a citation; a page number is.
 - Kennedy (2019), *Nonparametric causal effects based on incremental propensity score
   interventions*.
 
+## Riesz representation and nested targeted learning
+
+- Balkus, Testa & Hejazi (2026),
+  [*A Riesz Representer Perspective on Targeted Learning*](https://arxiv.org/abs/2604.21721),
+  arXiv:2604.21721v1. Equation (1) gives the single-stage Riesz EIF; Theorem 1 and
+  Corollary 1 on pages 5–6 give its general and conditional-mean forms; Theorem 2 on
+  pages 6–8 gives the sequential EIF with cumulative representer products; Algorithm 1
+  on pages 9–10 gives the nested TMLE order; Sections 5.1–5.2 instantiate point-treatment
+  means and longitudinal treatment regimes.
+- Chernozhukov, Newey & Singh (2022),
+  [*Automatic Debiased Machine Learning of Causal and Structural Effects*](https://arxiv.org/abs/1809.05224),
+  *Econometrica* 90(3), 967–1027, DOI 10.3982/ECTA18515. Equation (2.4) gives the
+  orthogonal Riesz moment, equation (2.5) its product-bias identity, equations (3.1)–(3.2)
+  the cross-fitted debiased and targeted estimators, and equations (3.3), (3.6), and (3.7)
+  the dictionary moment, Gram matrix, and penalized minimum-distance Riesz learner.
+- Testa, Balkus & Hejazi, R package
+  [`RieszCML`](https://github.com/nshlab/RieszCML) at commit
+  [`45e8d277`](https://github.com/nshlab/RieszCML/tree/45e8d277930cd0df4eb8a91a7c686ee4c6fdef09).
+  `R/ComposedRieszCurve.R` and `R/riesz_tmle.R` are the pinned implementation locators
+  for innermost-first storage, suffix cumulative products, sequential targeting, and the
+  distinct intervention evaluation `alpha_star`. `tests/testthat/test-double-robustness.R`
+  supplies secondary nonzero mutations for reversed products and observed-state plug-in
+  updates. The pinned code uses the untargeted curve for a targeted estimate's reported
+  variance and falls back to observed `alpha` when `alpha_star` is missing; neither choice
+  is adopted without an independent derivation.
+
 ## Sensitivity analysis
 
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2022), *Long story short: omitted variable bias

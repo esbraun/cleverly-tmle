@@ -7,7 +7,9 @@ the former beginner-facing root constructors. Its configuration boundary now ref
 that the selected engine cannot apply, through the library error hierarchy. Work package 2 adds the
 shared diagnostics facade, inexpensive validation, capability-aware sensitivity, immutable status
 reports, cache persistence, and longitudinal stage adapters. Riesz, DoWhy, EP, and catalog
-expansion remain design contracts rather than implemented behavior.
+expansion remain design contracts rather than implemented behavior. Work package 3 has a detailed,
+source-audited planning gate in [`riesz-implementation-plan.md`](riesz-implementation-plan.md);
+runtime implementation does not begin until that plan is reviewed and merged.
 
 Decision date: 2026-08-17
 
@@ -1337,10 +1339,11 @@ complete before their respective implementation PR begins.
 
 - [x] Product/API design accepted.
 - [x] Clean-break release target selected: the foundational API PR.
-- [ ] Riesz TMLE paper read first-hand and precise results recorded.
-- [ ] RieszCML revision pinned and paper/code discrepancies recorded.
+- [x] Riesz TMLE paper read first-hand and precise results recorded in
+  [`riesz-implementation-plan.md`](riesz-implementation-plan.md).
+- [x] RieszCML revision pinned and paper/code discrepancies recorded.
 - [ ] EP paper read first-hand and first supported contrasts confirmed.
-- [ ] Initial Riesz catalog enumerated with evidence status for every entry.
+- [x] Initial Riesz catalog enumerated with evidence status for every entry in the detailed plan.
 - [ ] DoWhy supported version and public adapter boundary confirmed.
 - [x] Old-to-new migration examples agreed and published in `docs/migration.md`.
 - [x] Logical PR 1 acceptance tests enumerated at test-case level in section 12.1.
