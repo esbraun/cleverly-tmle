@@ -2,6 +2,7 @@
 
 import dataclasses
 import inspect
+import re
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from cleverly.methods import (
     SHORTCUTS,
 )
 from cleverly.msm import MSM
+from cleverly.study import _STRING_ESTIMANDS
 from tests.conftest import FAST_KWARGS
 
 
@@ -323,6 +325,27 @@ def test_an_untyped_estimand_is_refused_by_name(estimand, reason, monkeypatch) -
         _study().identify(estimand)
     if estimand == "ate":
         assert "ATE()" in str(raised.value)
+
+
+def test_the_refusal_recommends_what_the_migration_guide_recommends() -> None:
+    """Two places tell a migrating reader what to write instead, and they must agree.
+
+    The refusal names a typed object for the string it was given; ``docs/migration.md`` maps
+    the same strings in its argument table. If those drift, one of them is telling somebody to
+    write code that does not do what the other says it does. The table is parsed rather than
+    restated here for the same reason ``TestEvidenceManifest`` parses ``docs/evidence.md``:
+    the artefact a reader opens has to be the thing that is checked.
+    """
+    rows = re.findall(
+        r"^\|\s*`estimands=\(\"(\w+)\",\)`\s*\|\s*`([^`]+)`\s*\|",
+        (Path(cleverly.__file__).parents[2] / "docs" / "migration.md").read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    assert len(rows) > 5, "the migration table stopped matching; fix the pattern, not the count"
+    documented = dict(rows)
+    for target, replacement in documented.items():
+        assert _STRING_ESTIMANDS[target] == replacement
+    assert documented.keys() <= _STRING_ESTIMANDS.keys()
 
 
 def test_a_string_contrast_on_a_controlled_direct_effect_is_refused_at_construction() -> None:
