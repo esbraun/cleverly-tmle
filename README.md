@@ -1,5 +1,7 @@
 # cleverly
 
+**[Read the cleverly documentation →](https://esbraun.github.io/cleverly-tmle/)**
+
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1565c0.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-c97a00.svg)](https://pypi.org/classifiers/)
@@ -35,7 +37,8 @@ Add pandas, polars, LightGBM, and plotting support with the `all` extra:
 python -m pip install "cleverly[all] @ git+https://github.com/esbraun/cleverly-tmle.git"
 ```
 
-Python 3.11 or newer is required. See [Installation](docs/getting-started/installation.md) for a
+Python 3.11 or newer is required. See
+[Installation](https://esbraun.github.io/cleverly-tmle/getting-started/installation.html) for a
 development environment and reproducible commit-pinned installs.
 
 ## Quickstart
@@ -70,25 +73,28 @@ and available methods before any learner is fit. The result retains estimates, i
 joint covariance, structured parameter keys, normalized method configuration, provenance, and
 post-fit assessment.
 
-Continue with the [full quickstart](docs/getting-started/quickstart.md) or the
-[analysis workflow](docs/workflow.md).
+Continue with the
+[full quickstart](https://esbraun.github.io/cleverly-tmle/getting-started/quickstart.html) or the
+[analysis workflow](https://esbraun.github.io/cleverly-tmle/workflow.html).
 
 ## Documentation
 
-The Sphinx/MyST documentation site is version-ready for Read the Docs and builds from `docs/`.
+The Sphinx/MyST documentation is published on
+[GitHub Pages](https://esbraun.github.io/cleverly-tmle/) and builds from `docs/`.
 
 | section | use it for |
 | --- | --- |
-| [Getting started](docs/getting-started/index.md) | installation, first fit, and result basics |
-| [Workflow](docs/workflow.md) | moving from a causal question through identification, estimation, assessment, and reporting |
-| [User guide](docs/user-guide/index.md) | data roles, estimands, learners, methods, longitudinal designs, results, and refusals |
-| [Technical reference](docs/technical-reference/index.md) | every implementation family, with theory, citations, local source, external provenance, and evidence |
-| [Examples](docs/examples/index.md) | complete point, intervention, longitudinal, and post-fit workflows |
-| [Python API](docs/api/index.md) | generated signatures, attributes, methods, and return types |
+| [Getting started](https://esbraun.github.io/cleverly-tmle/getting-started/) | installation, first fit, and result basics |
+| [Workflow](https://esbraun.github.io/cleverly-tmle/workflow.html) | moving from a causal question through identification, estimation, assessment, and reporting |
+| [User guide](https://esbraun.github.io/cleverly-tmle/user-guide/) | data roles, estimands, learners, methods, longitudinal designs, results, and refusals |
+| [Technical reference](https://esbraun.github.io/cleverly-tmle/technical-reference/) | every implementation family, with theory, citations, local source, external provenance, and evidence |
+| [Examples](https://esbraun.github.io/cleverly-tmle/examples/) | complete point, intervention, longitudinal, and post-fit workflows |
+| [Python API](https://esbraun.github.io/cleverly-tmle/api/) | generated signatures, attributes, methods, and return types |
 
-The [development reference](docs/development/index.md) contains architecture invariants, the
-test-enforced evidence manifest, migration guide, roadmap, benchmarks, and accepted implementation
-plans.
+The
+[development reference](https://esbraun.github.io/cleverly-tmle/development/)
+contains architecture invariants, the test-enforced evidence manifest, migration guide, roadmap,
+benchmarks, and accepted implementation plans.
 
 ## Implemented analysis families
 
@@ -104,7 +110,8 @@ plans.
   sensitivity analyses; refutation; variable importance; and safe persistence/replay.
 
 Graph identification, front-door, IV, mediation, transport, direct Riesz learning, and EP learning
-are explicitly unimplemented. See [Capabilities and refusals](docs/user-guide/capabilities.md).
+are explicitly unimplemented. See
+[Capabilities and refusals](https://esbraun.github.io/cleverly-tmle/user-guide/capabilities.html).
 
 ## Method configuration
 
@@ -146,8 +153,9 @@ gate.
 ## Citing
 
 There is no DOI yet. Cite the repository commit used in the analysis and the primary method papers
-listed in the [technical reference](docs/technical-reference/index.md) and
-[references](docs/references.md).
+listed in the
+[technical reference](https://esbraun.github.io/cleverly-tmle/technical-reference/) and
+[references](https://esbraun.github.io/cleverly-tmle/references.html).
 
 ## License
 

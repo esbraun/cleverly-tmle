@@ -2,18 +2,38 @@
 
 ```{raw} html
 <div class="cleverly-hero">
-  <p class="lead">Targeted maximum likelihood estimation for Python, organized around the
-  causal question before the estimation method.</p>
+  <span class="cleverly-eyebrow">Causal inference for Python · Alpha</span>
+  <p class="cleverly-hero-title">Start with the causal question.<br>Then choose the estimator.</p>
+  <p class="cleverly-hero-copy">Targeted maximum likelihood estimation for point and
+  longitudinal treatment settings, with typed estimands, influence-curve inference,
+  diagnostics, and sensitivity analysis.</p>
 </div>
 ```
 
-`cleverly` provides typed causal estimands, targeted maximum likelihood estimation, influence-
-curve inference, diagnostics, and sensitivity analysis for point and longitudinal treatment
-settings. The workflow keeps the scientific question separate from the estimation machinery:
+::::{grid} 1 2 2 2
+:gutter: 2
+:class-container: cleverly-actions
 
-```text
-study design -> typed estimand -> identified effect -> estimation method -> causal result
+:::{grid-item}
+```{button-ref} getting-started/index
+:color: primary
+:expand:
+
+Get started
 ```
+:::
+
+:::{grid-item}
+```{button-ref} api/index
+:color: secondary
+:outline:
+:expand:
+
+Browse the Python API
+```
+:::
+
+::::
 
 :::{warning}
 `cleverly` is alpha software. Unsupported combinations fail before fitting, but the public API may
@@ -21,8 +41,36 @@ still change. Pin a commit for reproducible work and read the identification sta
 your analysis.
 :::
 
+## Install from GitHub
+
+```bash
+python -m pip install "git+https://github.com/esbraun/cleverly-tmle.git"
+```
+
+Python 3.11 or newer is required. The [installation guide](getting-started/installation.md) covers
+optional backends, development environments, and reproducible commit-pinned installs.
+
+## One workflow, explicit decisions
+
+```{raw} html
+<ol class="cleverly-workflow" aria-label="The cleverly analysis workflow">
+  <li><strong>Design</strong><span>Declare the observed data</span></li>
+  <li><strong>Estimand</strong><span>Name the causal question</span></li>
+  <li><strong>Identify</strong><span>Inspect assumptions</span></li>
+  <li><strong>Estimate</strong><span>Configure and fit</span></li>
+  <li><strong>Result</strong><span>Assess and report</span></li>
+</ol>
+```
+
+The separation is deliberate: changing an estimation method does not silently change the
+scientific question. Follow the [analysis workflow](workflow.md) from formulation through
+diagnostics and reporting.
+
+## Choose your path
+
 ::::{grid} 1 2 3 3
 :gutter: 3
+:class-container: cleverly-card-grid
 
 :::{grid-item-card} Getting started
 :link: getting-started/index
@@ -80,10 +128,17 @@ Look up supported objects, signatures, attributes, methods, and return types.
 - Post-fit validation, positivity and nuisance diagnostics, sensitivity analysis, variable
   importance, and safe result persistence.
 
+## Know the boundaries
+
 Graph discovery, front-door adjustment, instrumental-variable effects, mediation decompositions,
 and transport are outside the current scope: there is no object to construct, so nothing
-approximates them. Direct Riesz learning and EP learning go further and are declared refusals —
-`available_methods()` reports each as unavailable with the reason it is missing.
+approximates them. Direct Riesz learning and EP learning are declared refusals —
+`available_methods()` reports each as unavailable with the reason it is missing. Read the full
+[capability and refusal contract](user-guide/capabilities.md).
+
+Contributors can trace implementation decisions, validation evidence, benchmarks, and accepted
+plans in the [development reference](development/index.md), or inspect the
+[source on GitHub](https://github.com/esbraun/cleverly-tmle).
 
 ```{toctree}
 :hidden:
