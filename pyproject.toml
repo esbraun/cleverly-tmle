@@ -83,7 +83,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/esbraun/cleverly-tmle"
+Homepage = "https://esbraun.github.io/cleverly-tmle/"
+Documentation = "https://esbraun.github.io/cleverly-tmle/"
 Repository = "https://github.com/esbraun/cleverly-tmle"
 
 [tool.hatch.build.targets.wheel]

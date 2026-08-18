@@ -1,7 +1,9 @@
 :root {
   --cleverly-ink: #102a43;
   --cleverly-blue: #1565c0;
+  --cleverly-blue-deep: #0d47a1;
   --cleverly-teal: #087f8c;
+  --cleverly-surface: #f3f8fc;
 }
 
 html[data-theme="light"] {
@@ -10,23 +12,105 @@ html[data-theme="light"] {
 }
 
 .bd-main .bd-content .bd-article-container {
-  max-width: 58rem;
+  max-width: 62rem;
 }
 
 .cleverly-hero {
-  border-bottom: 1px solid var(--pst-color-border);
+  background:
+    radial-gradient(circle at 88% 18%, rgb(8 127 140 / 16%), transparent 34%),
+    linear-gradient(135deg, rgb(21 101 192 / 12%), transparent 60%);
+  border: 1px solid var(--pst-color-border);
+  border-radius: 1rem;
+  margin: 1rem 0 1.25rem;
+  overflow: hidden;
+  padding: clamp(2rem, 6vw, 4.5rem) clamp(1.5rem, 6vw, 4.5rem);
+}
+
+.cleverly-eyebrow {
+  color: var(--pst-color-primary);
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+}
+
+.cleverly-hero-title {
+  color: var(--pst-color-text-base);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+  margin: 0;
+  max-width: 16ch;
+}
+
+.cleverly-hero-copy {
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  line-height: 1.65;
+  margin: 1.5rem 0 0;
+  max-width: 48rem;
+}
+
+.cleverly-actions {
   margin-bottom: 2rem;
-  padding: 1.5rem 0 2rem;
+  max-width: 38rem;
+}
+
+.cleverly-actions .sd-btn {
+  font-weight: 650;
+  min-height: 2.8rem;
+}
+
+.cleverly-workflow {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  list-style: none;
+  margin: 1.5rem 0;
+  padding: 0;
+}
+
+.cleverly-workflow li {
+  background: var(--cleverly-surface);
+  border-left: 3px solid var(--cleverly-teal);
+  border-radius: 0.45rem;
+  color: var(--cleverly-ink);
+  min-width: 0;
+  padding: 0.9rem;
+}
+
+.cleverly-workflow strong,
+.cleverly-workflow span {
+  display: block;
+}
+
+.cleverly-workflow span {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  margin-top: 0.25rem;
+}
+
+html[data-theme="dark"] .cleverly-workflow li {
+  background: rgb(21 101 192 / 16%);
+  color: var(--pst-color-text-base);
 }
 
 .sd-card {
   border-radius: 0.65rem;
-  transition: border-color 120ms ease, transform 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
 .sd-card:hover {
   border-color: var(--pst-color-primary);
+  box-shadow: 0 0.35rem 1rem rgb(16 42 67 / 10%);
   transform: translateY(-2px);
+}
+
+.sd-card:focus-within {
+  outline: 3px solid color-mix(in srgb, var(--pst-color-primary) 45%, transparent);
+  outline-offset: 2px;
 }
 
 .pst-scrollable-table-container {
@@ -36,4 +120,25 @@ html[data-theme="light"] {
 .pst-scrollable-table-container td:first-child {
   font-weight: 600;
   white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .cleverly-hero {
+    border-radius: 0.7rem;
+    margin-top: 0.5rem;
+  }
+
+  .cleverly-workflow {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sd-card {
+    transition: none;
+  }
+
+  .sd-card:hover {
+    transform: none;
+  }
 }

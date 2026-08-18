@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 
 import cleverly
 import cleverly.datasets
@@ -10,6 +11,10 @@ from tests.documents import ROOT
 
 SITE_INDEX = ROOT / "docs" / "index.md"
 API_ROOT = ROOT / "docs" / "api"
+README = ROOT / "README.md"
+SPHINX_CONFIG = ROOT / "docs" / "conf.py"
+PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "pages.yml"
+PUBLIC_DOCS_URL = "https://esbraun.github.io/cleverly-tmle/"
 
 
 def test_site_navigation_has_every_public_section() -> None:
@@ -24,6 +29,39 @@ def test_site_navigation_has_every_public_section() -> None:
         "api/index",
     }
     assert required <= set(text.split())
+
+
+def test_the_readme_routes_to_the_canonical_site_immediately() -> None:
+    """The repository landing page sends readers to the rendered docs before its first section."""
+    text = README.read_text(encoding="utf-8")
+    opening = text.partition("\n## ")[0]
+    assert PUBLIC_DOCS_URL in opening
+
+
+def test_publication_metadata_agrees_on_one_canonical_site() -> None:
+    """Sphinx and package metadata cannot advertise different official documentation sites."""
+    config = SPHINX_CONFIG.read_text(encoding="utf-8")
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    urls = project["project"]["urls"]
+
+    assert f'html_baseurl = "{PUBLIC_DOCS_URL}"' in config
+    assert urls["Homepage"] == PUBLIC_DOCS_URL
+    assert urls["Documentation"] == PUBLIC_DOCS_URL
+
+
+def test_pages_workflow_builds_and_deploys_the_sphinx_site() -> None:
+    """The canonical site is produced by the warning-as-error build, not a second toolchain."""
+    workflow = PAGES_WORKFLOW.read_text(encoding="utf-8")
+    required = {
+        "sphinx-build -W --keep-going -b html docs docs/_build/html",
+        "actions/configure-pages@v5",
+        "actions/upload-pages-artifact@v4",
+        "actions/deploy-pages@v4",
+        "pages: write",
+        "id-token: write",
+    }
+    missing = sorted(item for item in required if item not in workflow)
+    assert not missing, f"pages workflow is missing its publication contract: {missing}"
 
 
 def test_every_root_export_is_in_the_python_api() -> None:

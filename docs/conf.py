@@ -58,6 +58,7 @@ intersphinx_mapping = {
 
 html_theme = "pydata_sphinx_theme"
 html_title = "cleverly documentation"
+html_baseurl = "https://esbraun.github.io/cleverly-tmle/"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 html_theme_options = {

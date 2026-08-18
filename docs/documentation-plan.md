@@ -105,22 +105,24 @@ The implementation will add:
   dependencies;
 - `docs/conf.py`, a root `docs/index.md`, section indexes, API autosummary pages, static styling, and
   a Sphinx build command;
-- `.readthedocs.yaml` so the repository is ready for versioned hosted builds without committing
-  generated HTML;
+- a GitHub Pages workflow that builds the default branch and deploys generated HTML as an artifact,
+  without committing it to the source branch;
 - a local `nox -s docs` session that installs the package and fails on Sphinx warnings;
 - link, navigation, and API-surface tests that make new docs part of the existing documentation
   contract.
 
 Generated `_build/` and autosummary output will remain uncommitted. Published pages should be built
-from a tagged or default-branch checkout so source and API signatures stay aligned.
+from the default branch so source and API signatures stay aligned. The canonical site is
+`https://esbraun.github.io/cleverly-tmle/`; the alpha release publishes one current version without
+a version switcher.
 
 ## Work packages
 
 ### 1. Infrastructure and navigation
 
-Add Sphinx / MyST configuration, theme styling, dependency declarations, Read the Docs
-configuration, the docs build session, and the complete toctree. Prove that a clean local build
-finishes with warnings treated as errors.
+Add Sphinx / MyST configuration, theme styling, dependency declarations, the GitHub Pages workflow,
+the docs build session, and the complete toctree. Prove that a clean local build finishes with
+warnings treated as errors.
 
 ### 2. Landing pages and onboarding
 
@@ -167,7 +169,8 @@ validation record. Hosted GitHub Actions are not a correctness signal for this r
 
 The package is complete only when all of the following are true:
 
-- the README is a useful standalone landing page and routes to the hosted-site source;
+- the README is a useful standalone landing page and prominently routes to the canonical hosted
+  site;
 - Getting Started, Workflow, User Guide, Technical Reference, Examples, and Python API are all
   first-class site sections reachable from the main navigation;
 - the technical reference accounts for every family in the coverage contract with theory,
@@ -177,4 +180,5 @@ The package is complete only when all of the following are true:
 - all relative links and all Python fences pass the repository's documentation tests;
 - lint, formatting, type checking, and the full fast test tier pass locally;
 - generated HTML is visually checked and no build artifact is committed;
+- the Pages workflow builds the warning-as-error site and deploys its artifact from `main`;
 - one branch, one coherent commit, and one draft PR contain the completed documentation package.
