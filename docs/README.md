@@ -1,5 +1,8 @@
 # Documentation source map
 
+This directory contains the documentation for `cleverly`, the Python toolbox for causal studies
+built on targeted maximum likelihood estimation (TMLE).
+
 [`index.md`](index.md) is the Sphinx/MyST site root. The main reader paths are
 [Getting started](getting-started/index.md), [Workflow](workflow.md),
 [User guide](user-guide/index.md), [Technical reference](technical-reference/index.md),

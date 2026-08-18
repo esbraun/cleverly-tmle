@@ -6,8 +6,10 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-087f8c.svg)](LICENSE)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-c97a00.svg)](https://pypi.org/classifiers/)
 
-Targeted maximum likelihood estimation for Python, organized around the causal question before
-the estimation method.
+`cleverly` is the Python toolbox for causal studies built on targeted maximum likelihood
+estimation (TMLE), organized around the causal question before the estimation method.
+
+*It is named for TMLE's clever covariate—proof that even the jokes in this toolbox are targeted.*
 
 ```text
 study design -> typed estimand -> identified effect -> estimation method -> causal result
