@@ -57,7 +57,7 @@ from ..provenance import Provenance
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import NuisanceEstimates, Propensity, RepeatFit
 from .base import TMLEConfig, TMLEResult
-from .recipe import TMLERecipe
+from .recipe import TMLERecipe, _is_specification
 from .reduced import MissingOutcomeReducedSet, ReducedSet
 from .targeting import (
     ObservationMechanismFluctuation,
@@ -148,7 +148,14 @@ __all__ = ["FORMAT_VERSION", "load", "result_from_dict", "result_to_dict", "save
 #: ``16`` records causal-workflow identification, normalized method, and structured parameter
 #: keys, and adds the longitudinal result graph. The structured values use an allow-listed
 #: dataclass/array encoding; no arbitrary objects are unpickled.
-FORMAT_VERSION = 16
+#:
+#: ``17`` adds the opaque node, which records a learner slot's identity when it holds an
+#: object rather than a library specification.  Version 16 wrote the normalized method, whose
+#: learner slots hold whatever the caller passed, but had no representation for an estimator
+#: instance -- so every result fitted with ``outcome_learner=LogisticRegression()`` raised
+#: rather than writing a file, while the same estimator passed as a bare *class* was callable
+#: and degraded quietly.  Both now degrade, to a placeholder that refuses use and says why.
+FORMAT_VERSION = 17
 
 _ARRAY_MARK = "__array__"
 
@@ -188,8 +195,53 @@ class _UnavailableCallable:
             "persistence cannot reconstruct executable Python; refit from the original code"
         )
 
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _UnavailableCallable) and other.description == self.description
+
+    def __hash__(self) -> int:
+        return hash((type(self).__name__, self.description))
+
     def __repr__(self) -> str:
         return f"<unavailable saved callable {self.description}>"
+
+
+class _UnavailableLearner:
+    """A persisted learner's identity, for a slot whose object cannot be described.
+
+    The sibling of :class:`_UnavailableCallable`, and inert rather than callable: a learner is
+    used through ``fit`` and ``predict``, so refusing ``__call__`` would refuse nothing. Any
+    non-dunder attribute raises instead, which keeps the surrounding object graph loadable --
+    a saved result must still report its estimates and replay its cached analyses -- while
+    making the one thing it cannot do say why.
+    """
+
+    def __init__(self, description: str, kind: str) -> None:
+        self.description = description
+        self.kind = kind
+
+    def __getattr__(self, name: str) -> Any:
+        from ..exceptions import CapabilityError
+
+        if name.startswith("__"):
+            raise AttributeError(name)
+        raise CapabilityError(
+            f"the saved result was fitted with {self.description}, and array-plus-JSON "
+            f"persistence records a learner object's identity rather than its code or its "
+            f"fitted state; {name!r} is unavailable. Refit from the original learner"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, _UnavailableLearner)
+            and other.description == self.description
+            and other.kind == self.kind
+        )
+
+    def __hash__(self) -> int:
+        return hash((type(self).__name__, self.description, self.kind))
+
+    def __repr__(self) -> str:
+        return f"<unavailable saved learner {self.description}>"
 
 
 def _structured_types() -> dict[str, type[Any]]:
@@ -226,6 +278,26 @@ def _structured_types() -> dict[str, type[Any]]:
     return result
 
 
+def _opaque_to(prefix: str, value: Any) -> Any:
+    """Encode a declared-opaque slot: a specification verbatim, an object by identity.
+
+    ``_is_specification`` is the recipe layer's own predicate for "library name versus fitted
+    estimator", reused so the two persistence paths cannot disagree about which is which. It
+    also settles a split this format used to have: an *instantiated* estimator fell off the end
+    of the dispatch chain and killed the write, while the same estimator passed as a bare class
+    was callable and quietly degraded. Both are objects, and both degrade now.
+    """
+    if _is_specification(value) or isinstance(value, (_UnavailableCallable, _UnavailableLearner)):
+        # A specification encodes itself; a placeholder re-emits its original node, which is
+        # what keeps a description from gaining a layer of ``repr`` on every re-save.
+        return None
+    return {
+        _TYPE_MARK: "opaque",
+        "description": repr(value),
+        "kind": type(value).__qualname__,
+    }
+
+
 def _structured_to(arrays: _Arrays, prefix: str, value: Any) -> Any:
     """Encode an allowlisted immutable object graph without pickle."""
     if isinstance(value, np.ndarray):
@@ -234,6 +306,12 @@ def _structured_to(arrays: _Arrays, prefix: str, value: Any) -> Any:
         return value.item()
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
+    # Re-emit a placeholder as itself.  Round-tripping a loaded result otherwise wrapped the
+    # placeholder's repr in another placeholder, so a description grew a layer per save.
+    if isinstance(value, _UnavailableLearner):
+        return {_TYPE_MARK: "opaque", "description": value.description, "kind": value.kind}
+    if isinstance(value, _UnavailableCallable):
+        return {_TYPE_MARK: "callable", "description": value.description}
     if callable(value) and not dataclasses.is_dataclass(value):
         return {_TYPE_MARK: "callable", "description": repr(value)}
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
@@ -244,8 +322,8 @@ def _structured_to(arrays: _Arrays, prefix: str, value: Any) -> Any:
             _TYPE_MARK: "dataclass",
             "class": kind,
             "fields": {
-                item.name: _structured_to(
-                    arrays, f"{prefix}.{item.name}", getattr(value, item.name)
+                item.name: _structured_field(
+                    arrays, f"{prefix}.{item.name}", getattr(value, item.name), item
                 )
                 for item in dataclasses.fields(value)
                 if item.init and item.name != "_study"
@@ -286,6 +364,17 @@ def _structured_to(arrays: _Arrays, prefix: str, value: Any) -> Any:
     raise TypeError(f"persistence cannot represent {type(value).__name__} at {prefix}")
 
 
+def _structured_field(
+    arrays: _Arrays, prefix: str, value: Any, item: dataclasses.Field[Any]
+) -> Any:
+    """Encode one dataclass field, degrading only where the field says it may."""
+    if item.metadata.get("persist") == "opaque":
+        placeholder = _opaque_to(prefix, value)
+        if placeholder is not None:
+            return placeholder
+    return _structured_to(arrays, prefix, value)
+
+
 def _structured_from(arrays: _Arrays, payload: Any) -> Any:
     if isinstance(payload, dict) and _ARRAY_MARK in payload:
         return arrays.get(payload)
@@ -294,6 +383,8 @@ def _structured_from(arrays: _Arrays, payload: Any) -> Any:
     kind = payload[_TYPE_MARK]
     if kind == "callable":
         return _UnavailableCallable(payload["description"])
+    if kind == "opaque":
+        return _UnavailableLearner(payload["description"], payload["kind"])
     if kind == "dataclass":
         classes = _structured_types()
         cls = classes.get(payload["class"])
@@ -1112,6 +1203,21 @@ def _ctmle_extra_from(arrays: _Arrays, payload: dict[str, Any] | None) -> dict[s
     }
 
 
+def _recipe_to(estimator: Any) -> dict[str, Any] | None:
+    """The settings of the fit, carried forward verbatim when they are already a recipe.
+
+    A reloaded result's ``estimator`` is a :class:`_LazyEstimator` that rebuilds on first
+    attribute access, and rebuilding is exactly what an unreconstructible learner slot cannot
+    do.  Reading its recipe instead keeps re-saving a loaded result possible -- which it has
+    to be, now that saving one in the first place is.
+    """
+    if estimator is None:
+        return None
+    if isinstance(estimator, _LazyEstimator):
+        return estimator.recipe.to_dict()
+    return TMLERecipe.from_estimator(estimator).to_dict()
+
+
 def result_to_dict(result: Any) -> tuple[dict[str, Any], dict[str, FloatArray]]:
     """Split a result into a JSON-safe manifest and a dictionary of arrays.
 
@@ -1165,11 +1271,7 @@ def result_to_dict(result: Any) -> tuple[dict[str, Any], dict[str, FloatArray]]:
         "intermediate_value": result.intermediate_value,
         "ctmle_extra": ctmle_extra,
         "provenance": None if result.provenance is None else result.provenance.to_dict(),
-        "recipe": (
-            None
-            if result.estimator is None
-            else TMLERecipe.from_estimator(result.estimator).to_dict()
-        ),
+        "recipe": _recipe_to(result.estimator),
         "identified_effect": _structured_to(
             arrays, "causal.identified_effect", result.identified_effect
         ),
@@ -1257,6 +1359,11 @@ class _LazyEstimator:
         self._recipe = recipe
         self._built: Any = None
         self._retargeter: Any = None
+
+    @property
+    def recipe(self) -> TMLERecipe:
+        """The settings themselves, reachable without building anything from them."""
+        return self._recipe
 
     def __getattr__(self, name: str) -> Any:
         if name == "retarget":

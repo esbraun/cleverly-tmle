@@ -19,12 +19,24 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LogisticRegression
 
-from cleverly import ATE, ParameterKey, TMLEMethod, load
-from cleverly.datasets import GENERATORS, make_instrument, make_shift_dose
+from cleverly import (
+    ATE,
+    CapabilityError,
+    CausalStudy,
+    LongitudinalTreatment,
+    ModelSpec,
+    ParameterKey,
+    PointTreatment,
+    RegimeContrast,
+    TMLEMethod,
+    load,
+)
+from cleverly.datasets import GENERATORS, make_instrument, make_longitudinal, make_shift_dose
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.recipe import TMLERecipe
 from cleverly.estimators.serialize import FORMAT_VERSION, dumps, loads, result_to_dict, save
 from cleverly.interventions import Shift
+from cleverly.learners import SuperLearner
 from cleverly.study import BackdoorMeanContrast, ExplicitAdjustmentProvider, IdentifiedEffect
 from cleverly.targets import TARGETS
 from tests.conftest import FAST_KWARGS
@@ -384,6 +396,151 @@ class TestCausalMetadataSurvives:
         result.save(path)
         assert path.exists()
         assert load(path).psi("ate") == result.psi("ate")
+
+
+class TestALearnerObjectIsRecordedRatherThanRefused:
+    """A learner slot may hold something this format cannot describe, and often does.
+
+    Version 16 began writing the normalized method, whose learner slots hold whatever the
+    caller passed. It had no representation for an estimator instance, so ``save()`` raised
+    ``TypeError: persistence cannot represent LogisticRegression at
+    causal.method.models.outcome_learner`` for every result fitted through ``CausalStudy``
+    with an object learner -- while the same estimator passed as a bare *class* was callable
+    and degraded quietly, so the slot's behaviour turned on a pair of parentheses.
+
+    The rule these tests pin is the one ``docs/public-api-redesign.md`` already states for
+    custom configurations: record the identity, mark it non-reconstructible, and refuse to
+    substitute a default. It is declared per field, so an object anywhere else still raises.
+    """
+
+    @staticmethod
+    def _fit_with(learner, tmp_path):  # type: ignore[no-untyped-def]
+        frame, _ = GENERATORS["binary_outcome"](n=160, seed=4)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3")),
+        )
+        result = study.estimate(
+            ATE(),
+            outcome_learner="glm",
+            treatment_learner=learner,
+            n_folds=3,
+            learner_folds=3,
+            random_state=0,
+            simultaneous=False,
+        )
+        return result, load(result.save(tmp_path / "learner.npz"))
+
+    @pytest.mark.parametrize(
+        "learner", [LogisticRegression(), SuperLearner(library="glm")], ids=["sklearn", "super"]
+    )
+    def test_the_file_is_written_and_the_slot_says_what_it_held(self, learner, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        original, back = self._fit_with(learner, tmp_path)
+        assert back.psi("ate") == original.psi("ate")
+        slot = back.method.models.treatment_learner
+        assert type(learner).__name__ in repr(slot)
+
+    @pytest.mark.parametrize(
+        "learner", [LogisticRegression(), SuperLearner(library="glm")], ids=["sklearn", "super"]
+    )
+    def test_using_the_restored_slot_refuses_instead_of_substituting(
+        self, learner, tmp_path
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Inert, not callable: a learner is used through ``fit``/``predict``."""
+        _, back = self._fit_with(learner, tmp_path)
+        slot = back.method.models.treatment_learner
+        for attribute in ("fit", "predict", "predict_proba"):
+            with pytest.raises(CapabilityError, match="Refit from the original learner"):
+                getattr(slot, attribute)
+
+    def test_a_specification_is_untouched(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        """The control. Degrading a slot that *is* describable would lose real information."""
+        _, back = self._fit_with("glm", tmp_path)
+        assert back.method.models.treatment_learner == "glm"
+        assert back.method.models.outcome_learner == "glm"
+
+    def test_a_class_and_an_instance_reach_the_same_placeholder(self, result) -> None:  # type: ignore[no-untyped-def]
+        """The parenthesis-dependent split, closed.
+
+        An uninstantiated estimator is callable, so it used to take the callable branch and
+        survive, while its instance killed the write. Neither is describable and both are now
+        recorded the same way. A list of library names is here as the control that the shared
+        predicate still calls a specification a specification.
+        """
+        kinds = {}
+        for name, learner in (
+            ("class", LogisticRegression),
+            ("instance", LogisticRegression()),
+            ("names", ["glm", "mean"]),
+        ):
+            carrying = replace(result, method=TMLEMethod(models=ModelSpec(outcome_learner=learner)))
+            kinds[name] = loads(dumps(carrying)).method.models.outcome_learner
+        assert kinds["names"] == ["glm", "mean"]
+        for name in ("class", "instance"):
+            assert "LogisticRegression" in repr(kinds[name])
+            with pytest.raises(CapabilityError):
+                _ = kinds[name].fit
+
+    def test_a_second_round_trip_does_not_nest_the_description(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        """Re-saving a loaded result has to stay possible, and stay stable.
+
+        A placeholder is an object too, so re-encoding it wrapped its ``repr`` in another
+        placeholder and the description grew a layer per save. The recipe is carried forward
+        rather than rebuilt for the same reason: rebuilding is exactly what an
+        unreconstructible slot cannot do.
+        """
+        original, back = self._fit_with(LogisticRegression(), tmp_path)
+        again = load(back.save(tmp_path / "again.npz"))
+        assert again.method == back.method
+        assert again.psi("ate") == original.psi("ate")
+        assert repr(again.method.models.treatment_learner).count("unavailable") == 1
+
+    def test_an_undescribable_value_outside_a_learner_slot_still_raises(self, result) -> None:  # type: ignore[no-untyped-def]
+        """The negative control that keeps the terminal refusal a real guard.
+
+        Degrading everything unrepresentable would turn a genuine gap in the format into a
+        silently dropped field. Only slots that declare they may hold an object degrade.
+        """
+        carrying = replace(
+            result,
+            identified_effect=IdentifiedEffect(
+                estimand=ATE(),
+                functional=BackdoorMeanContrast(
+                    outcome=LogisticRegression(),
+                    treatment="A",
+                    adjustment=("W1",),
+                    target="ate",
+                ),
+                identification=TARGETS["ate"].identification,
+                provider=ExplicitAdjustmentProvider(),
+            ),
+        )
+        with pytest.raises(TypeError, match="persistence cannot represent LogisticRegression"):
+            dumps(carrying)
+
+    def test_a_longitudinal_result_degrades_the_same_way(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        frame, _ = make_longitudinal(n=200, seed=11)
+        columns = {
+            "outcome": "Y",
+            "treatment": ("A1", "A2"),
+            "baseline": ("W1", "W2"),
+            "time_varying": ((), ("L2",)),
+            "censoring": ("C1", "C2"),
+        }
+        study = CausalStudy(frame, design=LongitudinalTreatment(**columns))
+        original = study.estimate(
+            RegimeContrast({"always": 1, "never": 0}, reference="always"),
+            outcome_learner="glm",
+            pseudo_learner="glm",
+            treatment_learner=LogisticRegression(),
+            n_folds=3,
+            learner_folds=3,
+            random_state=0,
+            simultaneous=False,
+        )
+        back = load(original.save(tmp_path / "long.npz"))
+        assert back.estimate.psi == original.estimate.psi
+        assert "LogisticRegression" in repr(back.method.models.treatment_learner)
 
 
 class TestTheReducedRegressionsSurvive:

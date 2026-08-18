@@ -165,8 +165,10 @@ assert restored.method == result.method
 ```
 
 The format stores arrays plus allow-listed structured metadata; it does not pickle arbitrary
-objects. Custom callables can be recorded for reporting, but a restored result cannot silently
-substitute them and refit.
+objects. A learner given as a library name round-trips exactly. A learner given as an object — a
+scikit-learn estimator, a `SuperLearner` — is recorded by identity instead, as custom callables
+are: the file is still written and every cached analysis still replays, but the restored slot
+refuses use rather than silently substituting a default and refitting.
 
 ## What is implemented and refused
 
