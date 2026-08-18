@@ -66,6 +66,10 @@ class AssessmentCapability:
     interpretation: str
     cost: Literal["cheap", "moderate", "expensive"]
     reason: str | None = None
+    #: Arguments the caller must supply for which this operation has no default, so a
+    #: combined report cannot run it. Declared here rather than special-cased by name in
+    #: ``run_all``, which knows nothing about any particular operation.
+    requires_arguments: tuple[str, ...] = ()
 
 
 def _capability(
@@ -80,6 +84,7 @@ def _capability(
     available: bool = True,
     status: AssessmentStatus = AssessmentStatus.PASSED,
     reason: str | None = None,
+    requires_arguments: Sequence[str] = (),
 ) -> AssessmentCapability:
     return AssessmentCapability(
         operation=operation,
@@ -93,6 +98,7 @@ def _capability(
         interpretation=interpretation,
         cost=cost,
         reason=reason,
+        requires_arguments=tuple(requires_arguments),
     )
 
 
@@ -929,6 +935,7 @@ class SensitivityFacade:
                 available=not longitudinal and replayability(self._result).refit_nuisances,
                 status=AssessmentStatus.UNAVAILABLE,
                 reason="benchmarking requires a reconstructible point-treatment method recipe",
+                requires_arguments=("covariates",),
             ),
             _capability(
                 "missingness",
@@ -1011,9 +1018,28 @@ class SensitivityFacade:
                         )
                     )
                     continue
+                if capability.requires_arguments:
+                    # A combined report runs every operation argument-free, so one with a
+                    # required argument and no default cannot appear in it.  Choosing a
+                    # value here -- which covariates to benchmark against -- would be a
+                    # scientific choice made silently on the caller's behalf.
+                    needed = ", ".join(capability.requires_arguments)
+                    items.append(
+                        AssessmentItem(
+                            capability.operation,
+                            AssessmentStatus.UNAVAILABLE,
+                            f"needs an explicit {needed} argument, which a combined report "
+                            f"has no basis to choose",
+                            (
+                                f"call result.sensitivity.{capability.operation}() "
+                                f"directly with {needed}",
+                            ),
+                        )
+                    )
+                    continue
                 try:
                     getattr(self, capability.operation)()
-                except (CapabilityError, KeyError, ValueError) as error:
+                except (CapabilityError, KeyError, TypeError, ValueError) as error:
                     items.append(
                         AssessmentItem(
                             capability.operation,

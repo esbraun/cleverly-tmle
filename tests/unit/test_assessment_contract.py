@@ -188,3 +188,44 @@ def test_replayability_names_the_refit_boundary(point_result, longitudinal_resul
     assert longitudinal_result.replayability.summarize_existing_artifacts
     assert not longitudinal_result.replayability.retarget_cached_nuisances
     assert not longitudinal_result.replayability.evaluate_new_data
+
+
+class TestTheCombinedSensitivityReportRunsToCompletion:
+    """``run_all`` invokes every operation argument-free, which not all of them accept."""
+
+    def test_including_refits_does_not_raise(self, point_result) -> None:  # type: ignore[no-untyped-def]
+        report = point_result.sensitivity.run_all(include_refits=True)
+        assert {item.name for item in report.items} == {
+            "omitted_confounding",
+            "benchmark",
+            "missingness",
+        }
+
+    def test_benchmark_says_it_needs_covariates_rather_than_crashing(self, point_result) -> None:  # type: ignore[no-untyped-def]
+        report = point_result.sensitivity.run_all(include_refits=True)
+        item = report["benchmark"]
+        assert item.status is AssessmentStatus.UNAVAILABLE
+        assert "covariates" in item.detail
+        assert any("benchmark" in step for step in item.next_steps)
+
+    def test_the_requirement_is_declared_on_the_capability_row(self, point_result) -> None:  # type: ignore[no-untyped-def]
+        """``run_all`` must learn this from the row, not from the operation's name."""
+        rows = {row.operation: row for row in point_result.sensitivity.capabilities}
+        assert rows["benchmark"].requires_arguments == ("covariates",)
+        assert rows["omitted_confounding"].requires_arguments == ()
+
+    def test_every_argument_free_row_really_is_argument_free(self, point_result) -> None:  # type: ignore[no-untyped-def]
+        """The gate that would have caught this: call what the report claims it can call."""
+        import inspect
+
+        for row in point_result.sensitivity.capabilities:
+            if row.requires_arguments or not row.available:
+                continue
+            signature = inspect.signature(getattr(point_result.sensitivity, row.operation))
+            required = [
+                name
+                for name, parameter in signature.parameters.items()
+                if parameter.default is inspect.Parameter.empty
+                and parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+            ]
+            assert not required, f"{row.operation} needs {required} but declares none"
