@@ -258,6 +258,15 @@ def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
         for output in cell.get("outputs", ())
         if "image/png" in output.get("data", {})
     ]
+    comparison_cell = next(cell for cell in code if cell["id"] == "comparison-figure")
+    comparison_text = "".join(
+        text
+        for output in comparison_cell.get("outputs", ())
+        for text in output.get("data", {}).get("text/plain", ())
+    )
+    ordinary_tmle_row = next(
+        line for line in comparison_text.splitlines() if "ordinary package TMLE" in line
+    )
 
     counts = [cell.get("execution_count") for cell in code]
     source_payload = "\n\n# --- notebook cell ---\n\n".join(
@@ -273,6 +282,9 @@ def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
         f"TWINS execution counts are not contiguous: {counts}"
     )
     assert len(figures) >= 3, "the TWINS notebook lost one or more evidence figures"
+    assert "NaN" not in ordinary_tmle_row, (
+        "the ordinary package TMLE lost its confidence interval in the comparison figure"
+    )
     assert execution.get("code_source_sha256") == expected_digest, (
         "TWINS code changed without re-executing stored outputs; run "
         "python scripts/execute_notebook.py docs/examples/twins-causal-inference.ipynb"
