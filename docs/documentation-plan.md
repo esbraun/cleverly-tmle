@@ -163,7 +163,7 @@ Run, in order:
 Finally, inspect the rendered site at desktop and narrow viewport widths, audit every objective
 against files and build output, commit the complete package as one intentionally scoped change,
 push `agent/production-docs`, and open one draft pull request against `main` with the local
-validation record. Hosted GitHub Actions are not a correctness signal for this repository.
+validation record. The pull request's GitHub Actions CI run must also be green before merge.
 
 ## Acceptance criteria
 

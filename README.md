@@ -165,8 +165,8 @@ nox -s docs
 Documentation examples are explanatory and are not executed as tests. The fast tier compiles every
 Python fence, resolves every relative link, and checks that the complete root API is represented in
 the generated API source. Scientific behavior belongs in the ordinary fast tests or named slow
-statistical studies. Hosted GitHub Actions are currently out of budget; local checks are the release
-gate.
+statistical studies. Run the relevant checks locally before handoff; a green GitHub Actions CI run
+is the final merge signal.
 
 ## Citing
 
