@@ -17,7 +17,7 @@ version = __version__
 release = __version__
 
 extensions = [
-    "myst_parser",
+    "myst_nb",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.intersphinx",
@@ -28,8 +28,13 @@ extensions = [
 ]
 
 root_doc = "index"
-source_suffix = {".md": "markdown", ".rst": "restructuredtext"}
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+source_suffix = {".rst": "restructuredtext", ".md": "myst-nb", ".ipynb": "myst-nb"}
+exclude_patterns = ["_build", "api/generated/*.md", "Thumbs.db", ".DS_Store"]
+
+# Notebooks are executed deliberately before review and commit their outputs.  Documentation
+# builds remain deterministic, offline, and quick: they render those stored outputs without
+# downloading data or refitting estimators.
+nb_execution_mode = "off"
 
 myst_enable_extensions = [
     "colon_fence",
