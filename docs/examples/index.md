@@ -9,6 +9,7 @@ in the [evidence manifest](../evidence.md).
 :maxdepth: 1
 
 point-treatment
+twins-causal-inference
 interventions
 longitudinal
 assessment

@@ -44,6 +44,7 @@ check -- which is the same failure :mod:`tests.documents` exists to prevent.
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 from typing import Any
 
@@ -188,9 +189,18 @@ REACHED = ("docs/examples", "docs/getting-started", "docs/user-guide", "docs/wor
 
 #: Declared, not silent.  ``docs/user-guide.md`` is the legacy recipe compendium that the site
 #: routes into the user guide.  It is one worked recipe per capability and would need a prelude
-#: per section; it is left out here rather than half-covered, and that is a gap in this module
-#: rather than a property of the document.
-EXCLUDED = frozenset({"docs/user-guide.md"})
+#: per section.  The TWINS notebook downloads a pinned external dataset and deliberately runs the
+#: estimator comparison at publication time; Sphinx renders its stored outputs with execution
+#: disabled.  Both are left out rather than half-covered, and both remain explicit gaps in this
+#: smoke module rather than properties of the documents.
+EXCLUDED = frozenset(
+    {
+        "docs/examples/twins-causal-inference.ipynb",
+        "docs/user-guide.md",
+    }
+)
+
+TWINS_NOTEBOOK = ROOT / "docs/examples/twins-causal-inference.ipynb"
 
 
 def documented() -> set[str]:
@@ -198,9 +208,15 @@ def documented() -> set[str]:
     found = set()
     for reached in REACHED:
         target = ROOT / reached
-        paths = [target] if target.is_file() else sorted(target.glob("*.md"))
+        paths = (
+            [target]
+            if target.is_file()
+            else sorted((*target.glob("*.md"), *target.glob("*.ipynb")))
+        )
         for path in paths:
-            if python_blocks(path):
+            # Notebooks carry code in JSON rather than Markdown fences.  Their presence is enough
+            # to require an explicit PRELUDES or EXCLUDED decision.
+            if path.suffix == ".ipynb" or python_blocks(path):
                 found.add(path.relative_to(ROOT).as_posix())
     return found
 
@@ -220,6 +236,31 @@ def test_the_registry_names_real_documents() -> None:
     assert len(PRELUDES) >= 10
     for relative in [*PRELUDES, *EXCLUDED]:
         assert (ROOT / relative).is_file(), f"{relative} is registered but does not exist"
+
+
+def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
+    """The expensive external-data example is stored complete rather than trusted implicitly."""
+    notebook = json.loads(TWINS_NOTEBOOK.read_text(encoding="utf-8"))
+    code = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
+    assert code, "the TWINS notebook has no code cells"
+
+    unexecuted = [cell["id"] for cell in code if cell.get("execution_count") is None]
+    errors = [
+        (cell["id"], output.get("ename"), output.get("evalue"))
+        for cell in code
+        for output in cell.get("outputs", ())
+        if output.get("output_type") == "error"
+    ]
+    figures = [
+        output
+        for cell in code
+        for output in cell.get("outputs", ())
+        if "image/png" in output.get("data", {})
+    ]
+
+    assert not unexecuted, f"unexecuted TWINS notebook cell(s): {unexecuted}"
+    assert not errors, f"TWINS notebook error output(s): {errors}"
+    assert figures, "the TWINS notebook lost its estimator-comparison figure"
 
 
 @pytest.mark.parametrize("relative", sorted(PRELUDES), ids=lambda name: name)
