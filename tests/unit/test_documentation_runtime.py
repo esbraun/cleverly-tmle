@@ -44,6 +44,7 @@ check -- which is the same failure :mod:`tests.documents` exists to prevent.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -258,9 +259,24 @@ def test_the_twins_notebook_is_a_successfully_executed_artifact() -> None:
         if "image/png" in output.get("data", {})
     ]
 
+    counts = [cell.get("execution_count") for cell in code]
+    source_payload = "\n\n# --- notebook cell ---\n\n".join(
+        "".join(cell["source"]) if isinstance(cell["source"], list) else cell["source"]
+        for cell in code
+    ).encode()
+    expected_digest = hashlib.sha256(source_payload).hexdigest()
+    execution = notebook.get("metadata", {}).get("cleverly_execution", {})
+
     assert not unexecuted, f"unexecuted TWINS notebook cell(s): {unexecuted}"
     assert not errors, f"TWINS notebook error output(s): {errors}"
-    assert figures, "the TWINS notebook lost its estimator-comparison figure"
+    assert counts == list(range(1, len(code) + 1)), (
+        f"TWINS execution counts are not contiguous: {counts}"
+    )
+    assert len(figures) >= 3, "the TWINS notebook lost one or more evidence figures"
+    assert execution.get("code_source_sha256") == expected_digest, (
+        "TWINS code changed without re-executing stored outputs; run "
+        "python scripts/execute_notebook.py docs/examples/twins-causal-inference.ipynb"
+    )
 
 
 @pytest.mark.parametrize("relative", sorted(PRELUDES), ids=lambda name: name)
