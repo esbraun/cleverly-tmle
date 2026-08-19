@@ -30,6 +30,7 @@ import importlib
 import sys
 
 import numpy as np
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
 from cleverly.datasets import make_linear_ate, make_longitudinal, make_longitudinal_weighted
@@ -69,8 +70,8 @@ def main() -> None:
         ),
     ).estimate(
         ATE(),
-        outcome_learner="glm",
-        treatment_learner="glm",
+        outcome_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=4,
         learner_folds=3,
         random_state=0,

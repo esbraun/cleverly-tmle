@@ -878,9 +878,9 @@ documentation remains primary.
   translation-equivalence checks actually execute in the ordinary local tiers. `dev` resolves to
   `cleverly[all]` plus tooling, so an extra kept out of `all` and out of `dev` is installed by no
   session and its tests can only skip. That is exactly the `numba`/`bench` trap already recorded in
-  `pyproject.toml`, whose only mitigation was a dedicated CI job -- and this repository's stated
-  budget condition rules CI out as a gate, so the mitigation is not available a second time. A
-  skipped correctness check reads like a passing one;
+  `pyproject.toml`, whose mitigation is a dedicated CI job. DoWhy should not need another special
+  job when the ordinary local and CI tiers can exercise it directly. A skipped correctness check
+  reads like a passing one;
 - pin a tested compatible range rather than importing unbounded private APIs;
 - isolate all imports under the integration package;
 - test missing-dependency errors, which requires a way to run the suite *without* the extra --
@@ -1219,8 +1219,7 @@ For every registered functional:
 - smallest relevant tests while iterating, then complete local fast and relevant slow tiers;
 - documentation examples are not executed as tests and are not a correctness gate, but their links
   and their syntax are checked in the fast tier, because neither check needs to run them;
-- no reliance on GitHub Actions as a correctness signal while the repository's stated budget
-  condition remains in force.
+- a green GitHub Actions CI run after the complete local validation record.
 
 ## 14. Documentation plan
 

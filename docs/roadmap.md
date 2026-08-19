@@ -55,9 +55,9 @@ number:
   component is wrong. Exact-law checks alone are blind to terms that disappear at the truth;
 - a cross-module change satisfies [the architecture invariants](architecture-invariants.md), which
   also hold the standing decisions and the condition that would reopen each one;
-- **every check has been run locally.** GitHub Actions is out of budget: jobs currently fail at
-  startup in seconds with no steps run, which looks identical to a red build. A pull request's
-  checks are not a verdict on its code, and pushing does not test anything.
+- **every relevant check has been run locally, and the GitHub Actions CI run is green.** CI is the
+  final merge signal, not a substitute for the local validation record or the smallest relevant
+  check while iterating.
 
 ## Ordered priorities
 

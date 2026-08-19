@@ -575,8 +575,8 @@ pytest <named applicable Riesz slow studies> -q
 
 Fast and slow tests must not run concurrently. The complete slow tier is required only if the
 shared estimation or inference changes can affect non-Riesz families; otherwise the named point
-and longitudinal Riesz studies are the correct evidence scope. GitHub Actions is not a gate under
-the repository's current budget condition.
+and longitudinal Riesz studies are the correct evidence scope. The local validation record remains
+required, and the GitHub Actions CI run must be green before merge.
 
 The handoff report must list:
 

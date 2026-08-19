@@ -69,8 +69,7 @@ Cross-module constraints that are not derivable from one implementation live in
   `tests.parallel.available_cores()` and each expects the machine, so concurrent tiers oversubscribe
   every core and take longer than running sequentially. The complete slow tier takes about an hour;
   finish the fast tier before starting any relevant slow study.
-- **GitHub Actions is out of budget, so CI is not a gate and its results are not signal.** Jobs
-  currently fail at startup in seconds with no steps run, which looks identical to a red build. Do
-  not read a PR's checks as a verdict on its code, and do not push expecting CI to catch anything.
-  Every check must be run locally, or on a local runner, before a change is handed off. This holds
-  until the project reaches beta and the repository is public.
+- Run the relevant checks locally before a change is handed off, then treat the GitHub
+  Actions jobs as the final merge signal. CI complements the local validation record; it does not
+  replace the smallest relevant check while iterating or justify handing off a change known to
+  fail locally.
