@@ -90,7 +90,7 @@ def test_the_diagnostics_report_shares_per_label_not_a_binary_share() -> None:
     result = LTMLE(SPEC, reference="inactive", **SETTINGS).fit(
         categorical_treatments(frame), outcome="Y", **COLUMNS
     )
-    diagnostics = result.diagnostics()
+    diagnostics = result.diagnostics.stagewise().to_frame()
     assert "assigned_shares" in diagnostics.columns
     assert "share_assigned_1" not in diagnostics.columns
 
@@ -108,7 +108,7 @@ def test_a_binary_panel_keeps_the_share_it_always_reported() -> None:
     result = LTMLE({"never": 0, "always": 1}, reference="never", **SETTINGS).fit(
         frame, outcome="Y", **COLUMNS
     )
-    diagnostics = result.diagnostics()
+    diagnostics = result.diagnostics.stagewise().to_frame()
     assert "share_assigned_1" in diagnostics.columns
     assert "assigned_shares" not in diagnostics.columns
     assert set(diagnostics["share_assigned_1"]) == {0.0, 1.0}

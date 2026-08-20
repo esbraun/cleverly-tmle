@@ -18,7 +18,7 @@ What each number is for:
 means treatment is close to randomised given ``W``, which is *good* for overlap.  An AUC
 near 1 means treatment is nearly determined by ``W``, which means poor overlap and a
 fragile estimate -- read it together with
-:meth:`~cleverly.sensitivity.SensitivityAnalysis.positivity`.
+:meth:`~cleverly.assessment.DiagnosticsFacade.support`.
 
 **Calibration.**  Discrimination is irrelevant if the probabilities themselves are
 wrong: the clever covariate divides by ``g(W)``, so a systematically overconfident
@@ -168,7 +168,7 @@ class NuisanceDiagnostics:
                 notes.append(
                     f"the missingness model predicts almost perfectly (AUC {auc:.3f}); some "
                     "units had virtually no chance of a recorded outcome, so 1/P(Delta=1|A,W) "
-                    "gives them extreme leverage -- check res.sensitivity.positivity()"
+                    "gives them extreme leverage -- check res.diagnostics.support()"
                 )
             if slope is not None and not 0.7 <= slope <= 1.4:
                 notes.append(

@@ -59,7 +59,6 @@ import pytest
 import sklearn.linear_model
 
 import cleverly
-from cleverly import CapabilityError
 from cleverly.datasets import make_linear_ate, make_longitudinal
 from cleverly.estimators import TMLE
 from cleverly.longitudinal import LTMLE
@@ -273,23 +272,13 @@ SURFACE: dict[str, dict[str, Any]] = {
         "TMLEResult": ...,
         "LongitudinalResult": ...,
     },
-    "validation": {
-        "call": lambda r, tmp: r.validation,
-        "TMLEResult": ...,
-        "LongitudinalResult": Refusal(
-            CapabilityError,
-            "replaced by result.diagnostics and result.validate()",
-            "the unified assessment contract deliberately removes the old suite and "
-            "routes longitudinal score and nuisance checks through stagewise adapters",
-        ),
-    },
     "save": {
         "call": lambda r, tmp: r.save(tmp / "result.joblib"),
         "TMLEResult": ...,
         "LongitudinalResult": ...,
     },
     "diagnostics": {
-        "call": lambda r, tmp: r.diagnostics(),
+        "call": lambda r, tmp: r.diagnostics,
         "TMLEResult": ...,
         "LongitudinalResult": ...,
     },
@@ -511,21 +500,21 @@ POLARS_EMITTERS: dict[str, list[Any]] = {
     "TMLEResult": [
         lambda r: r.to_frame(),
         lambda r: r.influence_frame(),
-        lambda r: r.sensitivity.positivity().to_frame(),
+        lambda r: r.diagnostics.support().to_frame(),
         # SupportReport is deliberately absent: it reports overlap for *declared regimes*
         # and refuses on an arm-indexed fit, so reaching it would need a second fixture
         # fit. Its route is pinned statically above, which is the division of labour this
         # module is built on -- a class declares its route, a fit confirms the ones it
         # walks.
-        lambda r: r.validation.score_check().to_frame(),
-        lambda r: r.validation.nuisance().to_frame(),
-        lambda r: r.validation.refute().to_frame(),
+        lambda r: r.diagnostics.score_equations().to_frame(),
+        lambda r: r.diagnostics.nuisance_models().to_frame(),
+        lambda r: r.diagnostics.refute().to_frame(),
         lambda r: r.diagnostics.run_all().to_frame(),
         lambda r: r.validate().to_frame(),
     ],
     "LongitudinalResult": [
         lambda r: r.to_frame(),
-        lambda r: r.diagnostics(),
+        lambda r: r.diagnostics.stagewise().to_frame(),
         lambda r: r.diagnostics.score_equations().to_frame(),
         lambda r: r.diagnostics.nuisance_models().to_frame(),
         lambda r: r.validate().to_frame(),

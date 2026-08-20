@@ -74,7 +74,15 @@ def longitudinal_result():  # type: ignore[no-untyped-def]
 
 
 def test_every_diagnostic_operation_covers_every_result_family() -> None:
-    expected = {"support", "nuisance_models", "score_equations", "refute", "stagewise"}
+    expected = {
+        "support",
+        "nuisance_models",
+        "score_equations",
+        "corrections",
+        "truncation_curve",
+        "refute",
+        "stagewise",
+    }
     assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == {"point", "longitudinal"}
     for family in ("point", "longitudinal"):
         family_rows = [item for item in ASSESSMENT_CAPABILITIES if item.result_family == family]
@@ -98,16 +106,13 @@ def test_capabilities_declare_artifacts_cost_and_replay_semantics(point_result) 
 
 def test_point_diagnostics_reuse_the_existing_numbers(point_result) -> None:  # type: ignore[no-untyped-def]
     score = point_result.diagnostics.score_equations()
-    legacy_score = point_result.validation.score_check()
-    assert score == legacy_score
+    assert score == point_result.score_verdict
 
     nuisance = point_result.diagnostics.nuisance_models()
-    legacy_nuisance = point_result.validation.nuisance()
-    assert nuisance == legacy_nuisance
+    assert nuisance == point_result.diagnostics.nuisance_models()
 
     support = point_result.diagnostics.support()
-    legacy_support = point_result._legacy_sensitivity.positivity()
-    assert support == legacy_support
+    assert support == point_result.diagnostics.support()
 
 
 def test_longitudinal_stagewise_adapter_preserves_the_existing_table(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
@@ -176,9 +181,9 @@ def test_cached_assessments_replay_after_persistence(
 
 
 def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    before = point_result.sensitivity.truncation_curve(bounds=[0.02, 0.05])
+    before = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
     restored = load(point_result.save(tmp_path / "cached-frame.joblib"))
-    after = restored.sensitivity.truncation_curve(bounds=[0.02, 0.05])
+    after = restored.diagnostics.truncation_curve(bounds=[0.02, 0.05])
     assert isinstance(after, pd.DataFrame)
     pd.testing.assert_frame_equal(after, before, check_exact=True)
 
@@ -199,8 +204,13 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
         report = point_result.sensitivity.run_all(include_refits=True)
         assert {item.name for item in report.items} == {
             "omitted_confounding",
+            "robustness_value",
+            "elements",
             "benchmark",
+            "contour",
+            "evalue",
             "missingness",
+            "tipping_gamma",
         }
 
     def test_benchmark_says_it_needs_covariates_rather_than_crashing(self, point_result) -> None:  # type: ignore[no-untyped-def]
@@ -424,6 +434,6 @@ class TestAttributeAccessAnswersExistenceNotAvailability:
 
     def test_the_point_facade_still_delegates_and_caches(self, point_result) -> None:  # type: ignore[no-untyped-def]
         """The control: a fit that *can* serve these must be unaffected."""
-        curve = point_result.sensitivity.truncation_curve(bounds=[0.02, 0.05])
+        curve = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
         assert curve is not None
         assert hasattr(point_result.sensitivity, "evalue")

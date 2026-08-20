@@ -70,7 +70,7 @@ def oracle_fit() -> tuple[object, dict[str, float], object]:
 class TestOracleNuisances:
     def test_the_score_equation_is_solved_exactly(self, oracle_fit) -> None:
         result, _, _ = oracle_fit
-        check = result.validation.score_check()
+        check = result.diagnostics.score_equations()
         assert check.passed
         # Not merely "within tolerance" -- the fluctuation is a maximum-likelihood
         # solution, so the score is at floating-point zero.
@@ -189,7 +189,7 @@ class TestOracleNuisancesWithMissingOutcomes:
 
     def test_the_score_equation_is_solved_exactly(self, oracle_fit) -> None:
         result, _ = oracle_fit
-        check = result.validation.score_check()
+        check = result.diagnostics.score_equations()
         assert check.passed
         for row in check.rows:
             assert abs(row.score) < 1e-12
@@ -360,7 +360,7 @@ class TestRandomisedTreatment:
 
     def test_the_score_equation_is_solved_exactly(self, fit) -> None:
         result, _, _ = fit
-        check = result.validation.score_check()
+        check = result.diagnostics.score_equations()
         assert check.passed
         for row in check.rows:
             assert abs(row.score) < 1e-12

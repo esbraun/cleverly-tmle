@@ -93,7 +93,8 @@ The current implementation already has several valuable seams:
 
 - A fitted point-treatment result retains influence curves, nuisance predictions, targeting state,
   fold plans, configuration, and provenance.
-- `result.sensitivity` and `result.validation` correctly make assessment a post-fit operation.
+- `result.sensitivity`, `result.diagnostics`, and `result.validate()` correctly make assessment a
+  post-fit operation.
 - The target registry separates a reported functional from the fluctuation group used to target
   it.
 - The submodel registry separates score equations from estimand names.

@@ -124,7 +124,7 @@ def solve_one_step(
         warnings.warn(
             f"one-step targeting stopped after {steps} step(s) with a relative score of "
             f"{relative:.3g} > {tol:g}. Try a smaller step_size, or check "
-            "res.sensitivity.positivity() for a positivity violation.",
+            "res.diagnostics.support() for a positivity violation.",
             ConvergenceWarning,
             stacklevel=2,
         )

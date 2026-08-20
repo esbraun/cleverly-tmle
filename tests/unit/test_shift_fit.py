@@ -106,7 +106,7 @@ class TestWhatAShiftFitReports:
         result = fit(shifts=SHIFTS)
         assert "mtp" in result.fluctuations
         assert result.fluctuations["mtp"].converged
-        assert bool(result.validation.score_check())
+        assert bool(result.diagnostics.score_equations())
 
     def test_the_config_records_the_axis(self) -> None:
         assert fit(shifts=SHIFTS).config.parameter_axis == "shift"
@@ -397,11 +397,11 @@ class TestACoarsenedShiftFit:
     def test_the_diagnostics_read_the_mechanism_at_the_rows_own_dose(self) -> None:
         result = self._law_fit()
         covariate, index = self._cells()
-        report = {model.name: model for model in result.validation.nuisance().models}
+        report = {model.name: model for model in result.diagnostics.nuisance_models().models}
         assert "missingness" in report
         # A calibration report compares a prediction against an outcome, and Delta is
         # evidence about pi at the dose the row actually took -- block 0, no selection.
-        support = result.sensitivity.shift_support()
+        support = result.diagnostics.support()
         assert support["+1"].min_mechanism == pytest.approx(
             float(np.min(np.maximum(shift_law.PI_EXACT[covariate, index], 0.01))), abs=1e-9
         )
@@ -415,7 +415,7 @@ class TestACoarsenedShiftFit:
     def test_the_mnar_tilt_refuses_this_axis_by_name(self) -> None:
         result = self._law_fit()
         with pytest.raises(ValueError, match="continuous dose with shifts="):
-            result.sensitivity.missingness_tilt()
+            result.sensitivity.missingness()
 
     def test_the_mechanism_truncation_curve_is_not_flat(self) -> None:
         """The diagnostic that would be vacuous if ``pi`` were baked in at fit time.
@@ -433,7 +433,7 @@ class TestACoarsenedShiftFit:
         """
         result = self._law_fit(outcome_learner=sklearn.linear_model.LinearRegression())
         assert float(np.max(np.abs(result.fluctuations["mtp"].epsilon))) > 1e-6
-        curve = result.sensitivity.truncation_curve(mechanism=True, bounds=[0.01, 0.3, 0.45])
+        curve = result.diagnostics.truncation_curve(mechanism=True, bounds=[0.01, 0.3, 0.45])
         values = np.asarray(curve["psi"])[np.asarray(curve["estimand"]) == "ey_shift[+1]"]
         assert float(np.ptp(values)) > 1e-6
 
@@ -484,20 +484,13 @@ class TestAWeightedShiftFit:
 
 
 class TestTheDiagnosticsMatchTheAxis:
-    def test_positivity_refuses_and_names_the_report_that_applies(self) -> None:
-        """It would otherwise return an empty table with ``simplex_deviation=1.0``.
-
-        Every field of the arm-level report is per arm, and a dose has none -- so the
-        multi-arm branch computed its simplex deviation from a zero-column mechanism and
-        got the largest value the field can take, then raised on an empty ``min()``.
-        """
+    def test_support_dispatches_to_the_density_ratio_report(self) -> None:
         result = fit(shifts=SHIFTS)
-        with pytest.raises(DataError, match="shift_support"):
-            result.sensitivity.positivity()
+        assert set(result.diagnostics.support()) == {"natural course", "+0.5"}
 
     def test_shift_support_reports_the_density_ratio_per_shift(self) -> None:
         result = fit(shifts=SHIFTS)
-        report = result.sensitivity.shift_support()
+        report = result.diagnostics.support()
         assert set(report) == {"natural course", "+0.5"}
         # A shift of zero divides a density by itself, so its ratio is one everywhere and
         # it costs no effective sample size at all.
@@ -505,6 +498,6 @@ class TestTheDiagnosticsMatchTheAxis:
         assert report["natural course"].ess_ratio == pytest.approx(1.0)
         assert report["+0.5"].max_ratio > 1.0
 
-    def test_shift_support_refuses_an_arm_indexed_fit(self) -> None:
-        with pytest.raises(ValueError, match="this fit declared none"):
-            fit_binary().sensitivity.shift_support()
+    def test_support_dispatches_to_propensity_overlap_on_an_arm_fit(self) -> None:
+        report = fit_binary().diagnostics.support()
+        assert report.propensity_quantiles

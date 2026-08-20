@@ -69,8 +69,8 @@ from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.interventions import Incremental
 from cleverly.learners import SuperLearner
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.bounds import expit
 from cleverly.validation import CoverageStudy
+from tests.parallel import STUDY_JOBS
 
 pytestmark = pytest.mark.slow
 
@@ -113,26 +113,11 @@ def _study(
         fit_kwargs=fit_kwargs or {"outcome": "Y", "treatment": "A"},
         intermediate_value=intermediate_value,
         seed=seed,
-        n_jobs=2,
+        n_jobs=STUDY_JOBS,
     ).run()
 
 
-class TestCoverage:
-    @pytest.mark.parametrize("n", [500, 2000])
-    def test_confidence_intervals_cover_at_the_nominal_rate(self, n: int) -> None:
-        summary = _study(linear_dgp(), n=n)["ate"]
-        # Both nuisance models are correctly specified here, so nothing but the
-        # inference machinery can be responsible for a shortfall.
-        assert 0.93 <= summary.coverage <= 0.97, summary
-        assert abs(summary.coverage - 0.95) < 3.0 * summary.coverage_se
-
-    def test_the_reported_standard_error_matches_the_actual_variability(self) -> None:
-        summary = _study(linear_dgp(), n=1000)["ate"]
-        # The ratio of the mean reported standard error to the observed spread of the
-        # estimates. Below one means the reported uncertainty is optimistic, which is
-        # how under-coverage almost always arises.
-        assert 0.93 <= summary.se_ratio <= 1.07, summary
-
+class TestAdditionalCoverageFamilies:
     @pytest.mark.parametrize("estimand", ["ate", "att", "atc", "ey1", "ey0"])
     def test_every_estimand_covers(self, estimand: str) -> None:
         summary = _study(linear_dgp(), n=1000, estimands=("ate", "att", "atc", "ey1", "ey0"))[
@@ -156,64 +141,6 @@ class TestCoverage:
         # 120 still resolves the +/- 0.05 window asserted here.
         summary = _study(nonlinear_dgp(), n=1000, reps=120, flexible=True)["ate"]
         assert 0.90 <= summary.coverage <= 0.99, summary
-
-
-class TestConsistency:
-    def test_root_n_bias_stays_bounded(self) -> None:
-        sizes = (500, 2000, 8000)
-        scaled = []
-        for n in sizes:
-            summary = _study(linear_dgp(), n=n, reps=200)["ate"]
-            scaled.append(abs(summary.root_n_bias))
-        # sqrt(n) * bias must not grow with n. Allowing a factor of 2.5 leaves room for
-        # Monte Carlo noise while still catching a bias that vanishes too slowly.
-        assert scaled[-1] < 2.5 * min(scaled), dict(zip(sizes, scaled, strict=True))
-
-    def test_the_standard_error_halves_when_n_quadruples(self) -> None:
-        small = _study(linear_dgp(), n=500, reps=200)["ate"]
-        large = _study(linear_dgp(), n=2000, reps=200)["ate"]
-        assert large.mean_std_error / small.mean_std_error == pytest.approx(0.5, abs=0.05)
-
-    def test_the_estimate_converges_on_the_truth(self) -> None:
-        small = _study(nonlinear_dgp(), n=400, reps=100, flexible=True)["ate"]
-        large = _study(nonlinear_dgp(), n=1600, reps=100, flexible=True)["ate"]
-        assert abs(large.bias) < abs(small.bias)
-
-
-def _null_dgp() -> DGP:
-    """A process with confounding but genuinely no treatment effect."""
-
-    def propensity(w: np.ndarray) -> np.ndarray:
-        return expit(0.5 * w[:, 0] - 0.3 * w[:, 1])
-
-    def outcome_mean(w: np.ndarray, a: float, z: float | None) -> np.ndarray:
-        del a, z  # the treatment does not enter: the sharp null holds
-        return 1.0 + 0.9 * w[:, 0] + 0.6 * w[:, 1] - 0.4 * w[:, 2]
-
-    return DGP(
-        name="null_effect",
-        n_latent=3,
-        covariate_names=("W1", "W2", "W3"),
-        propensity=propensity,
-        outcome_mean=outcome_mean,
-    )
-
-
-class TestTypeIError:
-    def test_the_rejection_rate_is_near_the_nominal_level(self) -> None:
-        dgp = _null_dgp()
-        assert dgp.truth()["ate"] == pytest.approx(0.0, abs=1e-9)
-        summary = _study(dgp, n=1000)["ate"]
-        # Under the null, "reject at 5%" should happen 5% of the time. The binomial
-        # standard error at 400 replications is about 1.1 points.
-        assert abs(summary.rejection_rate - 0.05) < 3.0 * np.sqrt(
-            0.05 * 0.95 / summary.n_replicates
-        ), summary
-        assert 0.93 <= summary.coverage <= 0.97
-
-    def test_the_null_estimate_is_unbiased(self) -> None:
-        summary = _study(_null_dgp(), n=1000)["ate"]
-        assert abs(summary.bias) < 3.0 * summary.bias_se
 
 
 class TestRepeatedCrossFitting:
@@ -288,7 +215,7 @@ class TestRepeatedCrossFitting:
             n_replicates=150,
             estimands=("ate",),
             seed=2024,
-            n_jobs=2,
+            n_jobs=STUDY_JOBS,
         ).run()["ate"]
 
     def test_averaging_costs_no_coverage_and_buys_a_conservative_interval(self) -> None:
@@ -379,7 +306,7 @@ class TestCvTmle:
             n_replicates=reps,
             estimands=("ate",),
             seed=11,
-            n_jobs=2,
+            n_jobs=STUDY_JOBS,
         ).run()["ate"]
 
     def test_cross_fitting_restores_calibrated_standard_errors(self) -> None:
@@ -431,7 +358,7 @@ class TestCvTmle:
                 n_replicates=120,
                 estimands=("ate",),
                 seed=99,
-                n_jobs=2,
+                n_jobs=STUDY_JOBS,
             ).run()["ate"]
 
         assert results["cross-fitted"].coverage > results["in-sample"].coverage
@@ -487,7 +414,7 @@ class TestCollaborativeTmle:
                 n_replicates=reps,
                 estimands=("ate",),
                 seed=11,
-                n_jobs=2,
+                n_jobs=STUDY_JOBS,
             ).run()["ate"]
         return out
 
@@ -649,7 +576,7 @@ class TestDoublyRobustInference:
                 n_replicates=reps,
                 estimands=("ate",),
                 seed=11,
-                n_jobs=2,
+                n_jobs=STUDY_JOBS,
             ).run()
         return out
 
@@ -772,7 +699,7 @@ class TestMultiArmCollaborativeCoverage:
                 n_replicates=self.REPLICATES,
                 estimands=self.ESTIMANDS,
                 seed=31,
-                n_jobs=2,
+                n_jobs=STUDY_JOBS,
             ).run()
             for label, factory in factories.items()
         }
@@ -860,7 +787,7 @@ class TestMultiArmSelectorRatioCoverage:
                 n_replicates=self.REPLICATES,
                 estimands=self.ESTIMANDS,
                 seed=8311,
-                n_jobs=2,
+                n_jobs=STUDY_JOBS,
             ).run()
             for label, factory in factories.items()
         }
@@ -1223,7 +1150,7 @@ class TestAnIncrementalIntervention:
             n_replicates=reps,
             fit_kwargs={"outcome": "Y", "treatment": "A"},
             seed=2024,
-            n_jobs=2,
+            n_jobs=STUDY_JOBS,
         ).run()
 
     def test_the_interval_covers_under_ordinary_overlap(self) -> None:
@@ -1307,7 +1234,7 @@ class TestLongitudinalInference:
             ),
             fit_kwargs=self.COLUMNS,
             seed=2024,
-            n_jobs=2,
+            n_jobs=STUDY_JOBS,
         ).run()
 
     @pytest.fixture(scope="class")
@@ -1440,7 +1367,7 @@ class TestAWeightedLongitudinalFitUnderRepeatedSampling:
             estimands=self.ESTIMANDS,
             fit_kwargs=columns,
             seed=2024,
-            n_jobs=2,
+            n_jobs=STUDY_JOBS,
         ).run()
 
     @pytest.fixture(scope="class")
@@ -1560,7 +1487,7 @@ class TestASurvivalOutcomeUnderRepeatedSampling:
             estimands=self.ESTIMANDS,
             fit_kwargs=self.COLUMNS,
             seed=2025,
-            n_jobs=2,
+            n_jobs=STUDY_JOBS,
         ).run()
 
     @pytest.fixture(scope="class")
@@ -1664,7 +1591,7 @@ class TestCompetingRisksUnderRepeatedSampling:
             estimands=self.ESTIMANDS,
             fit_kwargs=self.COLUMNS,
             seed=2026,
-            n_jobs=2,
+            n_jobs=STUDY_JOBS,
         ).run()
 
     @pytest.fixture(scope="class")

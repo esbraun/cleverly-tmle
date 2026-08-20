@@ -8,7 +8,6 @@ estimator are shared, because every method that gets an evidence row needs the s
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -16,7 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from cleverly.validation import CoverageStudy
+from cleverly.validation import CoverageStudy, ReplicationRecord, summarize_replications
 from tests.studies.evidence.inference import (
     Interval,
     clopper_pearson,
@@ -86,21 +85,23 @@ def run_cells(
             seed=cell.seed,
             n_jobs=n_jobs,
         ).run()
-        summary = result[cell.estimand]
+        records = tuple(
+            record for record in result.replications if record.estimand == cell.estimand
+        )
         frames.append(
             pd.DataFrame(
                 {
                     "property": cell.property,
                     "cell": cell.cell,
-                    "replicate": np.arange(len(summary.estimates)),
+                    "replicate": [record.replicate for record in records],
                     "n": cell.n,
                     "requested_replicates": cell.replicates,
                     "failed_replicates": result.n_failed,
-                    "truth": summary.truth,
-                    "estimate": np.asarray(summary.estimates, dtype=float),
-                    "std_error": np.asarray(summary.std_errors, dtype=float),
-                    "covered": np.asarray(summary.covered, dtype=int),
-                    "rejected": np.asarray(summary.rejected, dtype=int),
+                    "truth": [record.truth for record in records],
+                    "estimate": [record.estimate for record in records],
+                    "std_error": [record.std_error for record in records],
+                    "covered": [int(record.covered) for record in records],
+                    "rejected": [int(record.rejected) for record in records],
                 }
             )
         )
@@ -139,6 +140,25 @@ def summarize_cells(
         estimates = group["estimate"].to_numpy(dtype=float)
         truth = float(group["truth"].iloc[0])
         replicates = len(group)
+        canonical = summarize_replications(
+            tuple(
+                ReplicationRecord(
+                    replicate=int(row.replicate),
+                    seed=-1,
+                    estimand="cell",
+                    truth=float(row.truth),
+                    estimate=float(row.estimate),
+                    std_error=float(row.std_error),
+                    covered=bool(row.covered),
+                    rejected=bool(row.rejected),
+                    inference_estimate=float(row.estimate),
+                    alpha=alpha,
+                )
+                for row in group.itertuples(index=False)
+            ),
+            estimand="cell",
+            n=int(group["n"].iloc[0]),
+        )
         bias = standardized_bias_verdict(
             estimates - truth, margin=margin, confidence_level=confidence_level
         )
@@ -149,7 +169,6 @@ def summarize_cells(
             int(group["rejected"].sum()), replicates, confidence_level=confidence_level
         )
         empirical_se = bias.scale
-        mean_std_error = float(group["std_error"].mean())
         records.append(
             {
                 "property": property_name,
@@ -158,23 +177,23 @@ def summarize_cells(
                 "replicates": replicates,
                 "failed_replicates": int(group["failed_replicates"].iloc[0]),
                 "truth": truth,
-                "mean_estimate": float(np.mean(estimates)),
-                "bias": bias.bias,
-                "bias_se": empirical_se / math.sqrt(replicates),
+                "mean_estimate": canonical.mean_estimate,
+                "bias": canonical.bias,
+                "bias_se": canonical.bias_se,
                 "bias_ci_lower": bias.interval.low,
                 "bias_ci_upper": bias.interval.high,
                 "bias_margin": bias.margin,
                 "standardized_bias": bias.standardized,
                 "bias_equivalent": bias.equivalent,
                 "bias_discriminated": bias.discriminated,
-                "root_n_bias": math.sqrt(int(group["n"].iloc[0])) * bias.bias,
+                "root_n_bias": canonical.root_n_bias,
                 "empirical_se": empirical_se,
-                "mean_std_error": mean_std_error,
-                "se_ratio": mean_std_error / empirical_se,
-                "coverage": float(group["covered"].mean()),
+                "mean_std_error": canonical.mean_std_error,
+                "se_ratio": canonical.se_ratio,
+                "coverage": canonical.coverage,
                 "coverage_ci_lower": coverage.low,
                 "coverage_ci_upper": coverage.high,
-                "rejection_rate": float(group["rejected"].mean()),
+                "rejection_rate": canonical.rejection_rate,
                 "rejection_ci_lower": rejection.low,
                 "rejection_ci_upper": rejection.high,
                 "nominal_size": alpha,

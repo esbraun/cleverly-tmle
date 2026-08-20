@@ -461,7 +461,7 @@ def solve_fluctuation(
             f"targeting step did not drive the relative score below {tol:g} after "
             f"{iterations} iteration(s) (relative score = {relative:.3g}): "
             f"{_FAILURE_TEXT[failure] if failure else 'cause not identified'}. "
-            "Inspect res.fluctuations[group].failure and res.sensitivity.positivity().",
+            "Inspect res.fluctuations[group].failure and res.diagnostics.support().",
             ConvergenceWarning,
             stacklevel=2,
         )

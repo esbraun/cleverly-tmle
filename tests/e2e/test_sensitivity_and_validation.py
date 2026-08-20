@@ -29,7 +29,7 @@ from cleverly.datasets import (
     make_weak_overlap,
 )
 from cleverly.estimators import TMLE
-from cleverly.exceptions import PositivityWarning
+from cleverly.exceptions import CapabilityError, PositivityWarning
 from tests.conftest import fast_tmle
 
 
@@ -53,7 +53,7 @@ def poor_overlap() -> object:
 
 class TestPositivity:
     def test_good_overlap_is_reported_as_adequate(self, good_overlap) -> None:
-        report = good_overlap.sensitivity.positivity()
+        report = good_overlap.diagnostics.support()
         assert "adequate" in report.verdict()
         assert report.truncated["fraction"] == 0.0
         for arm in ("treated", "control"):
@@ -61,7 +61,7 @@ class TestPositivity:
             assert report.effective_sample_size[arm]["ratio"] > 0.8
 
     def test_poor_overlap_is_flagged(self, poor_overlap) -> None:
-        report = poor_overlap.sensitivity.positivity()
+        report = poor_overlap.diagnostics.support()
         assert "adequate" not in report.verdict()
         assert report.truncated["fraction"] > 0.0
         worst = min(ess["ratio"] for ess in report.effective_sample_size.values())
@@ -69,19 +69,19 @@ class TestPositivity:
         assert worst < 0.6
 
     def test_the_effective_sample_size_never_exceeds_the_arm_size(self, poor_overlap) -> None:
-        report = poor_overlap.sensitivity.positivity()
+        report = poor_overlap.diagnostics.support()
         for ess in report.effective_sample_size.values():
             assert ess["effective"] <= ess["n"] + 1e-9
 
     def test_weight_concentration_is_higher_under_poor_overlap(
         self, good_overlap, poor_overlap
     ) -> None:
-        good = good_overlap.sensitivity.positivity().weight_share["treated"]["top_1pct"]
-        poor = poor_overlap.sensitivity.positivity().weight_share["treated"]["top_1pct"]
+        good = good_overlap.diagnostics.support().weight_share["treated"]["top_1pct"]
+        poor = poor_overlap.diagnostics.support().weight_share["treated"]["top_1pct"]
         assert poor > good
 
     def test_the_report_renders_and_tabulates(self, good_overlap) -> None:
-        report = good_overlap.sensitivity.positivity()
+        report = good_overlap.diagnostics.support()
         text = report.summary()
         assert "Positivity" in text
         assert "VERDICT" in text
@@ -96,7 +96,7 @@ class TestPositivity:
 class TestTruncationCurve:
     def test_the_curve_is_flat_when_overlap_is_good(self, good_overlap) -> None:
         curve = nw.from_native(
-            good_overlap.sensitivity.truncation_curve([0.001, 0.01, 0.05], estimands=["ate"]),
+            good_overlap.diagnostics.truncation_curve([0.001, 0.01, 0.05], estimands=["ate"]),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -105,7 +105,7 @@ class TestTruncationCurve:
 
     def test_the_curve_moves_when_overlap_is_poor(self, poor_overlap) -> None:
         curve = nw.from_native(
-            poor_overlap.sensitivity.truncation_curve([0.001, 0.01, 0.05, 0.15], estimands=["ate"]),
+            poor_overlap.diagnostics.truncation_curve([0.001, 0.01, 0.05, 0.15], estimands=["ate"]),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -118,25 +118,25 @@ class TestTruncationCurve:
 
     def test_the_fitted_bound_is_marked(self, good_overlap) -> None:
         curve = nw.from_native(
-            good_overlap.sensitivity.truncation_curve(estimands=["ate"]), eager_only=True
+            good_overlap.diagnostics.truncation_curve(estimands=["ate"]), eager_only=True
         )
         assert sum(curve["is_fitted_bound"].to_list()) >= 1
 
     def test_an_invalid_bound_is_refused(self, good_overlap) -> None:
         with pytest.raises(ValueError, match="must lie in"):
-            good_overlap.sensitivity.truncation_curve([0.7])
+            good_overlap.diagnostics.truncation_curve([0.7])
 
 
 class TestOmittedVariableBias:
     def test_the_bound_grows_with_the_assumed_confounding(self, good_overlap) -> None:
-        weak = good_overlap.sensitivity.omitted_variable("ate", cf_y=0.01, cf_d=0.01)
-        strong = good_overlap.sensitivity.omitted_variable("ate", cf_y=0.10, cf_d=0.10)
+        weak = good_overlap.sensitivity.omitted_confounding("ate", cf_y=0.01, cf_d=0.01)
+        strong = good_overlap.sensitivity.omitted_confounding("ate", cf_y=0.10, cf_d=0.10)
         assert strong.bias > weak.bias
         assert strong.lower < weak.lower
         assert strong.upper > weak.upper
 
     def test_zero_confounding_reproduces_the_point_estimate(self, good_overlap) -> None:
-        bounds = good_overlap.sensitivity.omitted_variable("ate", cf_y=0.0, cf_d=0.0)
+        bounds = good_overlap.sensitivity.omitted_confounding("ate", cf_y=0.0, cf_d=0.0)
         assert bounds.lower == pytest.approx(bounds.psi)
         assert bounds.upper == pytest.approx(bounds.psi)
 
@@ -145,7 +145,7 @@ class TestOmittedVariableBias:
         rv = values["rv"]
         assert 0.0 < rv < 1.0
         # By definition, setting cf_y = cf_d = RV must put the bound at zero.
-        at_rv = good_overlap.sensitivity.omitted_variable("ate", cf_y=rv, cf_d=rv)
+        at_rv = good_overlap.sensitivity.omitted_confounding("ate", cf_y=rv, cf_d=rv)
         edge = at_rv.lower if at_rv.psi > 0 else at_rv.upper
         assert edge == pytest.approx(0.0, abs=1e-4)
 
@@ -192,7 +192,7 @@ class TestOmittedVariableBias:
         frame, _ = make_binary_outcome(n=800, seed=74)
         result = fast_tmle(estimands="all").fit(frame, outcome="Y", treatment="A").single()
         with pytest.raises(ValueError, match=r"sensitivity\.evalue"):
-            result.sensitivity.omitted_variable("rr")
+            result.sensitivity.omitted_confounding("rr")
 
     def test_benchmarking_a_real_confounder_reports_its_strength(self) -> None:
         frame, _ = make_linear_ate(n=1500, seed=75)
@@ -281,7 +281,7 @@ class TestMissingnessTilt:
 
     def test_no_tilt_reproduces_the_reported_estimate(self, missing_fit) -> None:
         curve = nw.from_native(
-            missing_fit.sensitivity.missingness_tilt([0.0], estimands=["ate"]), eager_only=True
+            missing_fit.sensitivity.missingness([0.0], estimands=["ate"]), eager_only=True
         )
         # gamma = 0 is the MAR analysis, so the curve must pass exactly through the
         # reported point estimate. Anything else means the tilt is mis-parameterised.
@@ -290,9 +290,7 @@ class TestMissingnessTilt:
 
     def test_the_tilt_moves_the_estimate_monotonically(self, missing_fit) -> None:
         curve = nw.from_native(
-            missing_fit.sensitivity.missingness_tilt(
-                [-1.0, -0.5, 0.0, 0.5, 1.0], estimands=["ey1"]
-            ),
+            missing_fit.sensitivity.missingness([-1.0, -0.5, 0.0, 0.5, 1.0], estimands=["ey1"]),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -313,17 +311,17 @@ class TestMissingnessTilt:
         assert tipping is None or abs(tipping) > 1.0
 
     def test_the_tilt_needs_missing_outcomes(self, good_overlap) -> None:
-        with pytest.raises(ValueError, match="requires a fit with missing outcomes"):
-            good_overlap.sensitivity.missingness_tilt()
+        with pytest.raises(CapabilityError, match="not_applicable"):
+            good_overlap.sensitivity.missingness()
 
     def test_a_ratio_estimand_is_excluded(self, missing_fit) -> None:
         with pytest.raises(ValueError, match="no tiltable estimands"):
-            missing_fit.sensitivity.missingness_tilt(estimands=["rr"])
+            missing_fit.sensitivity.missingness(estimands=["rr"])
 
 
 class TestValidation:
     def test_the_score_check_passes_and_reports(self, good_overlap) -> None:
-        check = good_overlap.validation.score_check()
+        check = good_overlap.diagnostics.score_equations()
         assert check.passed
         assert bool(check)
         assert check.failures == ()
@@ -333,7 +331,7 @@ class TestValidation:
     def test_the_score_check_can_be_made_to_fail(self, good_overlap) -> None:
         # An absurd tolerance turns the check into a failure, exercising the reporting
         # path that a real convergence problem would take.
-        strict = good_overlap.validation.score_check(tolerance=1e-30)
+        strict = good_overlap.diagnostics.score_equations(tolerance=1e-30)
         assert not strict.passed
         assert strict.failures
         with pytest.raises(AssertionError, match="score equation was not solved"):
@@ -379,7 +377,7 @@ class TestValidation:
         assert "95% CI" in summary
 
     def test_nuisance_diagnostics_cover_every_model(self, good_overlap) -> None:
-        diagnostics = good_overlap.validation.nuisance()
+        diagnostics = good_overlap.diagnostics.nuisance_models()
         names = {model.name for model in diagnostics.models}
         assert names == {"propensity", "outcome"}
         assert 0.0 < diagnostics["propensity"].metrics["auc"] < 1.0
@@ -392,11 +390,11 @@ class TestValidation:
         rng = np.random.default_rng(0)
         randomised = frame.assign(A=rng.binomial(1, 0.5, len(frame)).astype(float))
         result = fast_tmle(estimands=("ate",)).fit(randomised, outcome="Y", treatment="A").single()
-        verdict = result.validation.nuisance().verdict()
+        verdict = result.diagnostics.nuisance_models().verdict()
         assert "overlap is excellent" in verdict
 
     def test_calibration_is_reported_per_model(self, good_overlap) -> None:
-        diagnostics = good_overlap.validation.nuisance()
+        diagnostics = good_overlap.diagnostics.nuisance_models()
         frame = nw.from_native(
             diagnostics.calibration_frame("propensity", good_overlap.data), eager_only=True
         )
@@ -423,13 +421,13 @@ class TestValidation:
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        weights = result.validation.nuisance()["outcome"].learner_weights
+        weights = result.diagnostics.nuisance_models()["outcome"].learner_weights
         assert weights
         assert sum(weights.values()) == pytest.approx(1.0, abs=1e-6)
 
     def test_the_combined_report_renders(self, good_overlap) -> None:
-        assert "Score-equation check" in good_overlap.validation.report()
-        assert "Nuisance model diagnostics" in good_overlap.validation.report()
+        assert "score_equations" in good_overlap.diagnostics.run_all().summary()
+        assert "nuisance_models" in good_overlap.diagnostics.run_all().summary()
 
 
 class TestRefutation:
@@ -437,7 +435,7 @@ class TestRefutation:
     def refutation(self) -> object:
         frame, _ = make_linear_ate(n=700, seed=83)
         result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
-        return result.validation.refute(n_replicates=3, random_state=0)
+        return result.diagnostics.refute(n_replicates=3, random_state=0)
 
     def test_all_default_tests_behave(self, refutation) -> None:
         assert refutation.passed
@@ -467,7 +465,7 @@ class TestRefutation:
         # An outcome built from the covariates alone, with no treatment component.
         rng = np.random.default_rng(0)
         control = frame["W1"].to_numpy() * 0.5 + rng.normal(size=len(frame))
-        outcome = result.validation.refute(
+        outcome = result.diagnostics.refute(
             tests=["negative_control_outcome"],
             negative_control_outcome=control,
             random_state=0,
@@ -478,19 +476,19 @@ class TestRefutation:
         frame, _ = make_linear_ate(n=400, seed=85)
         result = fast_tmle(estimands=("ate",)).fit(frame, outcome="Y", treatment="A").single()
         with pytest.raises(ValueError, match="needs an outcome array"):
-            result.validation.refute(tests=["negative_control_outcome"])
+            result.diagnostics.refute(tests=["negative_control_outcome"])
 
     def test_an_unknown_test_is_refused(self, good_overlap) -> None:
         with pytest.raises(ValueError, match="unknown refutation test"):
-            good_overlap.validation.refute(tests=["magic"])
+            good_overlap.diagnostics.refute(tests=["magic"])
 
 
 class TestCombinedSensitivityReport:
     def test_the_report_gathers_what_it_can(self, good_overlap) -> None:
-        report = good_overlap.sensitivity.report("ate")
-        assert "Positivity" in report
-        assert "Omitted-variable sensitivity" in report
-        assert "E-value" in report
+        report = good_overlap.sensitivity.run_all().summary()
+        assert "omitted_confounding" in report
+        assert "robustness_value" in report
+        assert "evalue" in report
 
 
 class TestTheMechanismDenominatorsAreDiagnosed:
@@ -522,7 +520,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
             )
 
     def test_the_report_carries_the_mechanism(self, strained) -> None:
-        report = strained.sensitivity.positivity()
+        report = strained.diagnostics.support()
         assert "P(Delta=1|A,W)" in report.mechanisms
         stats = report.mechanisms["P(Delta=1|A,W)"]
         assert 0.0 < stats["min"] < stats["q01"] < stats["q05"] < stats["median"] < 1.0
@@ -543,7 +541,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         # covariate runs 53-195, the propensity ESS stays above 0.88 and nothing is
         # truncated. The windows below are set to hold across that whole range rather
         # than to the one seed the fixture happens to use.
-        report = strained.sensitivity.positivity()
+        report = strained.diagnostics.support()
         mechanism = report.mechanisms["P(Delta=1|A,W)"]
         assert report.truncated["fraction"] == 0.0
         assert min(ess["ratio"] for ess in report.effective_sample_size.values()) > 0.88
@@ -576,14 +574,14 @@ class TestTheMechanismDenominatorsAreDiagnosed:
                 )
                 .single()
             )
-        verdict = result.sensitivity.positivity().verdict()
+        verdict = result.diagnostics.support().verdict()
         assert "P(Delta=1|A,W) strains the estimate" in verdict
         assert "truncation_curve(mechanism=True)" in verdict
 
     def test_a_low_mechanism_ess_reaches_the_verdict(self, strained) -> None:
         # The other branch, checked on the rule rather than through a process: what a
         # data-driven version would be measuring is the tail of a normal, not the rule.
-        report = strained.sensitivity.positivity()
+        report = strained.diagnostics.support()
         assert "adequate" in report.verdict()
         degenerate = dataclasses.replace(
             report,
@@ -594,7 +592,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         assert "P(Delta=1|A,W) strains the estimate" in degenerate.verdict()
 
     def test_a_fit_without_missingness_reports_no_mechanism(self, good_overlap) -> None:
-        report = good_overlap.sensitivity.positivity()
+        report = good_overlap.diagnostics.support()
         assert report.mechanisms == {}
         assert "P(Delta=1|A,W)" not in report.summary()
 
@@ -606,7 +604,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
 
     def test_the_curve_sweeps_the_mechanism_bound(self, strained) -> None:
         curve = nw.from_native(
-            strained.sensitivity.truncation_curve(
+            strained.diagnostics.truncation_curve(
                 [0.01, 0.1, 0.25], estimands=["ate"], mechanism=True
             ),
             eager_only=True,
@@ -623,7 +621,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
         smallest = float(np.min(strained.nuisance.missingness))
         grid = [smallest / 8.0, smallest / 4.0, smallest / 2.0]
         curve = nw.from_native(
-            strained.sensitivity.truncation_curve(grid, estimands=["ate"], mechanism=True),
+            strained.diagnostics.truncation_curve(grid, estimands=["ate"], mechanism=True),
             eager_only=True,
         )
         values = np.array(curve["psi"].to_list())
@@ -631,7 +629,7 @@ class TestTheMechanismDenominatorsAreDiagnosed:
 
     def test_sweeping_the_mechanism_needs_a_mechanism(self, good_overlap) -> None:
         with pytest.raises(ValueError, match="needs a fit with missing outcomes"):
-            good_overlap.sensitivity.truncation_curve(mechanism=True)
+            good_overlap.diagnostics.truncation_curve(mechanism=True)
 
     def test_a_degenerate_mechanism_warns(self) -> None:
         """The warning half: a fit that leans on the bound has to say so at fit time."""

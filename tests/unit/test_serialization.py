@@ -58,7 +58,7 @@ def test_file_round_trip_retains_the_complete_point_result(point_result, tmp_pat
 
 def test_loaded_result_can_refit_nuisances(point_result, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
     restored = load(point_result.save(tmp_path / "refit.joblib"))
-    report = restored.validation.refute(n_replicates=1, tests=["placebo"])
+    report = restored.diagnostics.refute(n_replicates=1, tests=["placebo"])
     assert report.passed
 
 

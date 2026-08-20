@@ -110,7 +110,7 @@ class TestTheSampleRealisesTheLaw:
         lower, upper = exact_fit.config.g_bounds
         assert float(np.min(propensity.values)) > lower
         assert float(np.max(propensity.values)) < upper
-        assert exact_fit.sensitivity.positivity().simplex_deviation == pytest.approx(0.0)
+        assert exact_fit.diagnostics.support().simplex_deviation == pytest.approx(0.0)
 
 
 class TestTheInfluenceCurveIsTheEIF:

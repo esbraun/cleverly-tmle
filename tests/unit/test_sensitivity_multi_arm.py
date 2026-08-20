@@ -227,8 +227,9 @@ class TestTheRestOfTheFacade:
         # "ate" is what a caller gets by default and is not a parameter here, so the
         # default has to be a rule rather than a name -- otherwise the omitted-variable
         # block is silently missing from every multi-arm report.
-        report = exact_fit.sensitivity.report()
-        assert "Omitted-variable sensitivity for 'ate[high vs low]'" in report
+        bounds = exact_fit.sensitivity.omitted_confounding()
+        assert bounds.estimand == "ate[high vs low]"
+        assert exact_fit.sensitivity.run_all()["omitted_confounding"].status == "passed"
 
     def test_the_benchmark_refits_and_calibrates_for_one_contrast(self, missing_fit: Any) -> None:
         calibrated = missing_fit.sensitivity.benchmark(["W1"], estimand="ate[mid vs low]")

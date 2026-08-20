@@ -36,6 +36,8 @@ validation = result.validate()
 support = result.diagnostics.support()
 nuisance = result.diagnostics.nuisance_models()
 scores = result.diagnostics.score_equations()
+corrections = result.diagnostics.corrections()
+stability = result.diagnostics.truncation_curve()
 all_cached = result.diagnostics.run_all()
 ```
 
@@ -50,10 +52,11 @@ all_sensitivity = result.sensitivity.run_all()
 print(all_sensitivity.summary())
 ```
 
-Available point-treatment analyses include positivity summaries, E-values where meaningful,
-omitted-variable bounds, missingness tilts, and refit-based benchmarking. A combined cache-only
-call excludes refits by default. Longitudinal operations without a published derivation are
-reported unavailable rather than borrowing point-treatment formulas.
+Support and truncation stability live under `result.diagnostics`. Point-treatment sensitivity
+methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()`, `benchmark()`,
+`contour()`, `evalue()`, `missingness()`, and `tipping_gamma()`. A combined call excludes refits by
+default. Longitudinal operations without a published derivation are reported unavailable rather
+than borrowing point-treatment formulas.
 
 ## Persistence and replayability
 

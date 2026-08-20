@@ -646,11 +646,11 @@ class TestEquivalenceWithPlainTmle:
             restored.nuisance.targeting_outcome.observed,
             result.nuisance.targeting_outcome.observed,
         )
-        assert restored.validation.score_check().passed
+        assert restored.diagnostics.score_equations().passed
 
     def test_it_solves_the_score_equation(self, instrument_frame) -> None:
         result = CTMLE(**CTMLE_KWARGS).fit(instrument_frame, outcome="Y", treatment="A").single()
-        assert result.validation.score_check().passed
+        assert result.diagnostics.score_equations().passed
 
 
 class TestReporting:

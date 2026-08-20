@@ -94,7 +94,7 @@ categorized API tables.
    cleverly.interventions.check_support
    cleverly.interventions.check_incremental_support
    cleverly.interventions.check_shift_support
-   cleverly.sensitivity.SensitivityAnalysis
+   cleverly.assessment.SensitivityFacade
    cleverly.sensitivity.PositivityReport
    cleverly.sensitivity.SensitivityBounds
    cleverly.sensitivity.SensitivityElements
@@ -108,7 +108,7 @@ categorized API tables.
    cleverly.sensitivity.evalue.evalue
    cleverly.sensitivity.missingness_tilt
    cleverly.sensitivity.tipping_gamma
-   cleverly.validation.ValidationSuite
+   cleverly.assessment.DiagnosticsFacade
    cleverly.validation.ScoreCheck
    cleverly.validation.ScoreCheckRow
    cleverly.validation.NuisanceDiagnostics
@@ -117,6 +117,8 @@ categorized API tables.
    cleverly.validation.RefutationResult
    cleverly.validation.CoverageStudy
    cleverly.validation.StudyResult
+   cleverly.validation.ReplicationRecord
+   cleverly.validation.ReplicationFailure
    cleverly.validation.score_check
    cleverly.validation.nuisance_diagnostics
    cleverly.validation.refute

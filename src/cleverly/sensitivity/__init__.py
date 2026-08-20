@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from .api import SensitivityAnalysis
 from .evalue import EValue, evalue, evalue_from_rr
 from .missingness import DEFAULT_GAMMA_GRID, missingness_tilt, tipping_gamma
 from .omitted_variable import (
@@ -24,7 +23,6 @@ __all__ = [
     "BenchmarkResult",
     "EValue",
     "PositivityReport",
-    "SensitivityAnalysis",
     "SensitivityBounds",
     "SensitivityElements",
     "benchmark",

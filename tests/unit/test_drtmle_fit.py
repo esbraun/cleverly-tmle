@@ -99,7 +99,7 @@ class TestWhatItReports:
         assert set(fit.estimates) == set(ESTIMANDS)
 
     def test_all_three_score_equations_are_reported_and_solved(self, fit) -> None:
-        check = fit.validation.score_check()
+        check = fit.diagnostics.score_equations()
         names = {row.name for row in check.rows}
 
         assert {"mean", "mean (mechanism)", "mean (reduced)"} <= names
@@ -107,7 +107,7 @@ class TestWhatItReports:
 
     def test_the_verdict_is_reachable_without_knowing_the_subsystem(self, fit) -> None:
         """``res.score_verdict`` is the same object, derived rather than stored."""
-        assert fit.score_verdict.rows == fit.validation.score_check().rows
+        assert fit.score_verdict.rows == fit.diagnostics.score_equations().rows
         assert fit.score_verdict.passed
 
     def test_a_passing_fit_adds_no_line_to_the_summary(self, fit) -> None:
@@ -124,8 +124,8 @@ class TestWhatItReports:
         ``reduced_corrections`` exists to deny. A plain fit's verdict is unchanged, word
         for word, because there the phrase is right; ``README.md``'s transcript quotes it.
         """
-        corrected = fit.validation.score_check()
-        plain = ordinary.validation.score_check()
+        corrected = fit.diagnostics.score_equations()
+        plain = ordinary.diagnostics.score_equations()
 
         assert corrected.corrected and not plain.corrected
         assert "efficient" not in corrected.summary().lower().split("validity is not")[0]
@@ -188,7 +188,7 @@ class TestWhatItReports:
             assessment_cache={},
         )
 
-        assert warned.validation.score_check().passed
+        assert warned.diagnostics.score_equations().passed
         item = warned.validate()["score_equations"]
         assert item.status is AssessmentStatus.WARNING
         assert "3 of 5 refitting round(s) (60.0%)" in item.detail
@@ -209,8 +209,8 @@ class TestTheBivariateFit:
         assert reduction.reduced.reduction == "bivariate"
         assert np.isnan(reduction.reduced.gr2).all()
         assert set(bivariate_fit.extra["drtmle"].diagnostics) == {"qr", "gr1"}
-        assert bivariate_fit.validation.score_check().passed
-        assert bivariate_fit.validation.correction_check().passed
+        assert bivariate_fit.diagnostics.score_equations().passed
+        assert bivariate_fit.diagnostics.corrections().passed
 
     def test_it_round_trips_without_becoming_univariate(self, bivariate_fit, tmp_path) -> None:
         back = load(bivariate_fit.save(tmp_path / "bivariate.joblib"))
@@ -294,7 +294,7 @@ class TestAnEmptyGuardIsAPlainTMLE:
         assert bare.nuisance.reduced is None
         # And in the *report* as well as in the arrays: `corrected` is read off the
         # reduction records, so this fit gets a plain fit's verdict word for word.
-        check = bare.validation.score_check()
+        check = bare.diagnostics.score_equations()
         assert not check.corrected
         assert "solved the estimated efficient score equation" in check.summary()
 
@@ -366,7 +366,7 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 
     def test_there_is_a_row_per_arm_and_per_equation(self, fit) -> None:
         """Per arm and **before** the contrast -- an ATE-only check cannot see a cancelling pair."""
-        check = fit.validation.correction_check()
+        check = fit.diagnostics.corrections()
 
         assert {(row.arm, row.equation) for row in check.rows} == {
             (arm, equation) for arm in (0.0, 1.0) for equation in ("D*_g", "D*_Q")
@@ -374,7 +374,7 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
         assert all(row.solved for row in check.rows), "both guards are on"
 
     def test_every_identity_holds_at_roundoff(self, fit) -> None:
-        check = fit.validation.correction_check()
+        check = fit.diagnostics.corrections()
 
         assert check.passed
         for row in check.rows:
@@ -382,7 +382,7 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 
     def test_the_bound_never_binds_here_and_the_diagnostic_says_so(self, fit) -> None:
         """The control for the fixture that does clip: zero rows, zero bias, exactly."""
-        check = fit.validation.correction_check()
+        check = fit.diagnostics.corrections()
 
         assert check.clipped == 0
         for row in check.rows:
@@ -391,7 +391,7 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 
     def test_it_adds_no_failing_row_to_a_clean_fit(self, fit) -> None:
         """The new rows are on every doubly-robust report, so a passing fit must stay passing."""
-        check = fit.validation.score_check()
+        check = fit.diagnostics.score_equations()
 
         assert check.passed
         assert not check.identity_failures
@@ -416,7 +416,7 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
         arithmetic that feeds it.  ``residual = stored - reported``, so a row is made to fail
         one test or the other by moving exactly one of the two numbers.
         """
-        real = fit.validation.correction_check()
+        real = fit.diagnostics.corrections()
 
         def row(**overrides):
             base = {
@@ -456,8 +456,8 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
 
     def test_a_plain_fit_gets_no_such_rows(self, ordinary) -> None:
         """No estimand outside this variant reports a correction, so none gains a row."""
-        assert ordinary.validation.correction_check().rows == ()
-        assert {row.kind for row in ordinary.validation.score_check().rows} == {
+        assert ordinary.diagnostics.corrections().rows == ()
+        assert {row.kind for row in ordinary.diagnostics.score_equations().rows} == {
             "fluctuation",
             "influence curve",
         }
@@ -475,7 +475,7 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
         tilted = replace(fit.data, weights=1.0 + 0.5 * np.cos(rows))
         moved = correction_check(replace(fit, data=tilted), tolerance=DEFAULT_TOLERANCE)
         plain = {
-            (row.arm, row.equation): row.reported for row in fit.validation.correction_check().rows
+            (row.arm, row.equation): row.reported for row in fit.diagnostics.corrections().rows
         }
 
         for row in moved.rows:
@@ -489,8 +489,8 @@ class TestTheCorrectionsAreTheOnesTheFitSolvedFor:
         between what a fit *recorded* and what it *reports*.
         """
         back = load(fit.save(tmp_path / "fit.joblib"))
-        before = fit.validation.correction_check()
-        after = back.validation.correction_check()
+        before = fit.diagnostics.corrections()
+        after = back.diagnostics.corrections()
 
         assert after.rows == before.rows
         assert after.passed
@@ -529,7 +529,7 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
         truncation.  No mechanism fluctuation is what says equation (9) was never posed --
         so ``D*_g``'s mean here is not a solver's residual but an arbitrary number.
         """
-        check = single_guard.validation.correction_check()
+        check = single_guard.diagnostics.corrections()
         fluctuation = single_guard.repeats[0].fluctuations["mean"]
 
         assert check.clipped == 0
@@ -552,7 +552,7 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
         bar -- 225 and 58 times over, on the *good*-overlap draw this module fits
         everything else on. An earlier implementation put these into the reported curve.
         """
-        check = single_guard.validation.correction_check()
+        check = single_guard.diagnostics.corrections()
         unsolved = [row for row in check.rows if row.equation == "D*_g"]
 
         assert len(unsolved) == 2
@@ -593,7 +593,7 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
         stay -- as ``diagnostic`` rows, held to no threshold, which is what stops a correct
         fit failing for a term nothing subtracts.
         """
-        check = single_guard.validation.score_check()
+        check = single_guard.diagnostics.score_equations()
         kinds = {row.name: row.kind for row in check.rows}
 
         assert check.passed
@@ -606,7 +606,7 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
 
     def test_the_verdict_names_the_curve_this_fit_actually_reports(self, single_guard) -> None:
         """Derived from the rows, so it cannot go on claiming a term the curve dropped."""
-        summary = single_guard.validation.score_check().summary()
+        summary = single_guard.diagnostics.score_equations().summary()
 
         assert "D = D* - D*_Q," in summary
         assert "D*_g" not in summary.split("Validity is not efficiency")[1]
@@ -619,7 +619,7 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
         ``nan != nan`` would make this pass for the wrong reason on any two objects.
         """
         back = load(single_guard.save(tmp_path / "single.joblib"))
-        after, before = (fit.validation.correction_check().rows for fit in (back, single_guard))
+        after, before = (fit.diagnostics.corrections().rows for fit in (back, single_guard))
 
         assert len(after) == len(before) == 4
         for new, old in zip(after, before, strict=True):
@@ -657,7 +657,7 @@ class TestItSurvivesARoundTrip:
         """
         back = load(fit.save(tmp_path / "verdict.joblib"))
 
-        live, after = fit.validation.score_check(), back.validation.score_check()
+        live, after = fit.diagnostics.score_equations(), back.diagnostics.score_equations()
         assert [row.name for row in after.rows] == [row.name for row in live.rows]
         assert [row.score for row in after.rows] == [row.score for row in live.rows]
         assert after.passed == live.passed
@@ -737,7 +737,7 @@ class TestTheAlternationCanBeIllConditioned:
 
     def test_and_the_score_check_passes_regardless(self, hard) -> None:
         """Because the question is whether the score matters, not whether it is tiny."""
-        check = hard.validation.score_check()
+        check = hard.diagnostics.score_equations()
         assert check.passed, check.summary()
         worst = max(abs(row.score) for row in check.rows)
         assert worst < 1e-3 * hard.estimates["ate"].std_error
@@ -1001,7 +1001,7 @@ class TestEachDrawSolvesItsOwnEquations:
 
     def test_every_draw_gets_its_own_three_rows(self, repeated) -> None:
         """Six fluctuation rows, not three -- each draw solved its own set, and solved it."""
-        check = repeated.validation.score_check()
+        check = repeated.diagnostics.score_equations()
         rows = {row.name: row for row in check.rows}
 
         for draw in (0, 1):
@@ -1117,7 +1117,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         *initial* mechanism leaves the bounds -- the precondition the centring defect needed and the one
         thing here the targeting convention cannot have moved.
         """
-        rows = repeated.validation.correction_check().rows
+        rows = repeated.diagnostics.corrections().rows
         by_draw = {draw: [row for row in rows if row.draw == draw] for draw in (0, 1)}
 
         assert all(row.margin > 1e-2 for row in by_draw[0])
@@ -1134,7 +1134,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         exactly zero rather than negligible is the point: a small non-zero here would mean a
         row still sitting outside the bounds at the exit, which was the failing state.
         """
-        check = repeated.validation.correction_check()
+        check = repeated.diagnostics.corrections()
 
         assert check.clipped == 0
         assert check.margin < 1e-4, "on a fixture where the bound had something to do"
@@ -1144,7 +1144,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
 
     def test_equation_ten_is_the_control_and_holds_on_every_draw(self, repeated) -> None:
         """Nothing truncates on that side, so an instrument that fired there would be broken."""
-        for row in repeated.validation.correction_check().rows:
+        for row in repeated.diagnostics.corrections().rows:
             if row.equation == "D*_Q":
                 assert abs(row.residual) < 1e-15, row.name
 
@@ -1156,7 +1156,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         ``check.passed`` alone is what makes this fail loudly on the draw it was written for
         rather than quietly somewhere else.
         """
-        check = repeated.validation.score_check()
+        check = repeated.diagnostics.score_equations()
 
         assert check.passed
         assert not check.identity_failures
@@ -1187,7 +1187,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         both sides are ``1e-10`` -- and it is still what fails if the rows are reported on
         the fitting scale instead of the outcome's.
         """
-        rows = repeated.validation.correction_check().rows
+        rows = repeated.diagnostics.corrections().rows
         per_arm = {
             arm: sum(row.reported for row in rows if row.arm == arm) / repeated.n_repeats
             for arm in (0.0, 1.0)
@@ -1215,7 +1215,7 @@ class TestTheReportedCurveIsCentredWhereTheBoundBinds:
         ]
         worst = max(
             abs(row.score)
-            for row in repeated.validation.score_check().rows
+            for row in repeated.diagnostics.score_equations().rows
             if row.kind == "fluctuation"
         )
 
@@ -1272,7 +1272,7 @@ class TestTheContractSaysWhichEstimator:
 
     def test_an_ordinary_fit_is_the_theorems_estimator(self, fit) -> None:
         """No truncation active, so Theorem 1 applies as written and the label says so."""
-        check = fit.validation.correction_check()
+        check = fit.diagnostics.corrections()
 
         assert check.contract == "theorem"
         assert check.truncations_active == ()
@@ -1287,7 +1287,7 @@ class TestTheContractSaysWhichEstimator:
         mechanism the theorem assumes bounded and the third has no assumption behind it --
         so a reader has to be able to see which bit.
         """
-        check = pinched.validation.correction_check()
+        check = pinched.diagnostics.corrections()
 
         assert check.contract == "bound-active"
         assert check.truncations_active == (
@@ -1306,12 +1306,12 @@ class TestTheContractSaysWhichEstimator:
         a verdict would report a sound fit as broken, and a reader would route around the
         regime the variant is most needed in.
         """
-        check = pinched.validation.correction_check()
+        check = pinched.diagnostics.corrections()
 
         assert check.passed
         assert check.identity_failures() == ()
         assert check.correction_failures() == ()
-        assert pinched.validation.score_check().passed
+        assert pinched.diagnostics.score_equations().passed
         assert "score check: FAIL" not in pinched.summary()
 
     def test_the_label_and_its_three_numbers_are_on_the_face_of_the_check(self, pinched) -> None:
@@ -1321,7 +1321,7 @@ class TestTheContractSaysWhichEstimator:
         frame carries the two new columns per draw, so "which side of the line is this fit
         on" is a read rather than an analysis.
         """
-        check = pinched.validation.correction_check()
+        check = pinched.diagnostics.corrections()
         summary = check.summary()
         frame = check.to_frame()
 
@@ -1331,7 +1331,7 @@ class TestTheContractSaysWhichEstimator:
 
     def test_a_plain_tmle_has_no_contract_to_report(self, ordinary) -> None:
         """No corrections, no mechanism tilt, nothing for the label to be about."""
-        assert ordinary.validation.correction_check().contract == "none"
+        assert ordinary.diagnostics.corrections().contract == "none"
 
     def test_a_complete_data_fit_has_no_observation_witness_to_report(self, pinched) -> None:
         """``nan``, not zero, and the difference is the whole point of the sentinel.
@@ -1342,7 +1342,7 @@ class TestTheContractSaysWhichEstimator:
         :attr:`truncations_active` would then name a truncation that does not exist on
         this fit.  The exact tuple above is what says it does not.
         """
-        check = pinched.validation.correction_check()
+        check = pinched.diagnostics.corrections()
 
         assert np.isnan(check.observation_margin)
         assert np.isnan(check.observation_clip_share)
@@ -1400,10 +1400,10 @@ class TestBothUpdateOrdersReachTheTheoremsExit:
         makes it a statement about the *reported* state rather than about what a solver
         recorded, which is the distinction items 20 and 23 were both found in.
         """
-        check = benkeser.validation.correction_check()
+        check = benkeser.diagnostics.corrections()
 
         assert check.passed, check.summary()
-        assert benkeser.validation.score_check().passed
+        assert benkeser.diagnostics.score_equations().passed
         for row in check.rows:
             assert abs(row.residual) < 1e-15, row.name
 

@@ -159,9 +159,6 @@ class ParameterEstimate:
         """
         return float(np.mean(self.influence_curve))
 
-    def with_alpha(self, alpha: float) -> ParameterEstimate:
-        return replace(self, alpha=alpha)
-
     def with_bootstrap(self, summary: BootstrapSummary) -> ParameterEstimate:
         return replace(self, bootstrap=summary)
 

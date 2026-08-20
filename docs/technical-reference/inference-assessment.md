@@ -70,7 +70,7 @@ Status is part of the contract: `not_applicable` means no such analysis exists f
 preserves completed reports and replayability metadata.
 
 Implementation: [`assessment.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/assessment.py),
-[`validation/api.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/api.py),
+[`validation/nuisance.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/nuisance.py),
 and [`validation/score.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/score.py).
 Evidence: the status and artifact contract in
 [`tests/unit/test_assessment_contract.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_assessment_contract.py), and

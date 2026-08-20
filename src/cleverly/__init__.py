@@ -19,7 +19,7 @@ Quickstart
 The estimator takes pandas or polars dataframes interchangeably and returns results
 in whichever backend it was given.  Every result carries its influence curves, so
 :attr:`~cleverly.estimators.base.TMLEResult.sensitivity` and
-:attr:`~cleverly.estimators.base.TMLEResult.validation` need no refitting.
+:attr:`~cleverly.estimators.base.TMLEResult.diagnostics` need no refitting.
 """
 
 from __future__ import annotations

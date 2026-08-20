@@ -47,7 +47,40 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.tmle import TMLE
     from ..longitudinal import LTMLE
 
-__all__ = ["CoverageStudy", "EstimandSummary", "StudyResult"]
+__all__ = [
+    "CoverageStudy",
+    "EstimandSummary",
+    "ReplicationFailure",
+    "ReplicationRecord",
+    "StudyResult",
+    "summarize_replications",
+]
+
+
+@dataclass(frozen=True)
+class ReplicationRecord:
+    """One estimand from one successful repeated-sampling draw."""
+
+    replicate: int
+    seed: int
+    estimand: str
+    truth: float
+    estimate: float
+    std_error: float
+    covered: bool
+    rejected: bool
+    inference_estimate: float
+    alpha: float
+
+
+@dataclass(frozen=True)
+class ReplicationFailure:
+    """A failed draw retained with enough context to diagnose the study."""
+
+    replicate: int
+    seed: int
+    error_type: str
+    message: str
 
 
 @dataclass(frozen=True)
@@ -167,16 +200,43 @@ class EstimandSummary:
         }
 
 
+def summarize_replications(
+    records: Sequence[ReplicationRecord], *, estimand: str, n: int
+) -> EstimandSummary:
+    """Build the canonical descriptive summary for one estimand's records."""
+    selected = tuple(record for record in records if record.estimand == estimand)
+    if not selected:
+        raise ValueError(f"no successful replication records for estimand {estimand!r}")
+    estimates = np.asarray([record.estimate for record in selected], dtype=float)
+    inference = np.asarray([record.inference_estimate for record in selected], dtype=float)
+    return EstimandSummary(
+        estimand=estimand,
+        truth=float(np.mean([record.truth for record in selected])),
+        n=n,
+        n_replicates=len(selected),
+        estimates=estimates,
+        std_errors=np.asarray([record.std_error for record in selected], dtype=float),
+        covered=np.asarray([record.covered for record in selected], dtype=float),
+        rejected=np.asarray([record.rejected for record in selected], dtype=float),
+        inference_estimates=None if np.array_equal(inference, estimates) else inference,
+    )
+
+
 @dataclass(frozen=True)
 class StudyResult:
     """The full output of a :class:`CoverageStudy`."""
 
     summaries: dict[str, EstimandSummary]
+    replications: tuple[ReplicationRecord, ...]
+    failures: tuple[ReplicationFailure, ...]
     n: int
     n_replicates: int
-    n_failed: int
     alpha: float
     label: str
+
+    @property
+    def n_failed(self) -> int:
+        return len(self.failures)
 
     def __getitem__(self, estimand: str) -> EstimandSummary:
         return self.summaries[estimand]
@@ -406,7 +466,10 @@ class CoverageStudy:
 
         seeds = np.random.SeedSequence(self.seed).generate_state(self.n_replicates)
 
-        def replicate(seed: int) -> dict[str, tuple[float, float, float, float, float]] | None:
+        def replicate(
+            replicate_index: int,
+            seed: int,
+        ) -> tuple[ReplicationRecord, ...] | ReplicationFailure:
             try:
                 frame, truth = self._draw(int(seed))
                 with warnings.catch_warnings():
@@ -416,7 +479,7 @@ class CoverageStudy:
                     fitted = self.estimator().fit(frame, **self.fit_kwargs)
                 result = self._select(fitted)
                 names = self.estimands or tuple(result.estimates)
-                out: dict[str, tuple[float, float, float, float, float]] = {}
+                out: list[ReplicationRecord] = []
                 for name in names:
                     estimate = result[name]
                     prefix = "" if self.truth_key == "population" else "sample_"
@@ -426,56 +489,66 @@ class CoverageStudy:
                     # the log scale for a ratio -- taken off `log_psi`, the same field `ci`
                     # builds the interval from, rather than re-derived here. `se_ratio` is the
                     # only consumer, and it is the only summary that has to compare the two.
-                    out[name] = (
-                        estimate.psi,
-                        estimate.std_error,
-                        float(low <= reference <= high),
-                        float(estimate.pvalue < result.config.alpha_sig),
-                        float(
-                            estimate.log_psi
-                            if estimate.scale == "ratio" and estimate.log_psi is not None
-                            else estimate.psi
-                        ),
+                    out.append(
+                        ReplicationRecord(
+                            replicate=replicate_index,
+                            seed=int(seed),
+                            estimand=name,
+                            truth=float(reference),
+                            estimate=float(estimate.psi),
+                            std_error=float(estimate.std_error),
+                            covered=bool(low <= reference <= high),
+                            rejected=bool(estimate.pvalue < estimate.alpha),
+                            inference_estimate=float(
+                                estimate.log_psi
+                                if estimate.scale == "ratio" and estimate.log_psi is not None
+                                else estimate.psi
+                            ),
+                            alpha=float(estimate.alpha),
+                        )
                     )
-                    out[f"__truth__{name}"] = (reference, 0.0, 0.0, 0.0, 0.0)
-                return out
-            except Exception:
-                return None
+                return tuple(out)
+            except Exception as error:
+                return ReplicationFailure(
+                    replicate=replicate_index,
+                    seed=int(seed),
+                    error_type=type(error).__name__,
+                    message=str(error),
+                )
 
-        outcomes = map_parallel(replicate, seeds.tolist(), n_jobs=self.n_jobs)
-        successes = [row for row in outcomes if row is not None]
-        if not successes:
-            raise RuntimeError("every replication failed; check the estimator configuration")
-
-        names = [key for key in successes[0] if not key.startswith("__truth__")]
-        alpha = 0.05
-        summaries: dict[str, EstimandSummary] = {}
-        for name in names:
-            estimates = np.array([row[name][0] for row in successes])
-            std_errors = np.array([row[name][1] for row in successes])
-            covered = np.array([row[name][2] for row in successes])
-            rejected = np.array([row[name][3] for row in successes])
-            truths = np.array([row[f"__truth__{name}"][0] for row in successes])
-            inference = np.array([row[name][4] for row in successes])
-            summaries[name] = EstimandSummary(
-                estimand=name,
-                truth=float(np.mean(truths)),
-                n=self.n,
-                n_replicates=len(successes),
-                estimates=estimates,
-                std_errors=std_errors,
-                covered=covered,
-                rejected=rejected,
-                # `None` when the two scales coincide, so a difference estimand's `se_ratio`
-                # is arithmetically what it always was rather than merely close to it.
-                inference_estimates=None if np.array_equal(inference, estimates) else inference,
+        outcomes = map_parallel(replicate, list(enumerate(seeds.tolist())), n_jobs=self.n_jobs)
+        failures = tuple(outcome for outcome in outcomes if isinstance(outcome, ReplicationFailure))
+        records = tuple(
+            record
+            for outcome in outcomes
+            if not isinstance(outcome, ReplicationFailure)
+            for record in outcome
+        )
+        if not records:
+            detail = ""
+            if failures:
+                first = failures[0]
+                detail = f"; first failure was {first.error_type}: {first.message}"
+            raise RuntimeError(
+                "every replication failed; check the estimator configuration" + detail
             )
+
+        alphas = {record.alpha for record in records}
+        if len(alphas) != 1:
+            raise RuntimeError(f"replications returned inconsistent alpha levels: {sorted(alphas)}")
+        alpha = alphas.pop()
+        names = tuple(dict.fromkeys(record.estimand for record in records))
+        summaries = {
+            name: summarize_replications(records, estimand=name, n=self.n) for name in names
+        }
+        successful_draws = len({record.replicate for record in records})
 
         return StudyResult(
             summaries=summaries,
+            replications=records,
+            failures=failures,
             n=self.n,
-            n_replicates=len(successes),
-            n_failed=len(outcomes) - len(successes),
+            n_replicates=successful_draws,
             alpha=alpha,
             label=self.label,
         )

@@ -341,9 +341,9 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
             "propensity to tabulate and this report has no rows to fill. A shift's "
             "positivity question is whether the density ratio g(a - delta | W) / "
             "g(a | W) stays bounded, not whether an arm probability does -- use "
-            "res.sensitivity.shift_support(). With delta= or intermediate= there is a "
+            "res.diagnostics.support(). With delta= or intermediate= there is a "
             "mechanism in the denominator as well, and it is the one bound this axis "
-            "actually has: res.sensitivity.truncation_curve(mechanism=True) sweeps it."
+            "actually has: res.diagnostics.truncation_curve(mechanism=True) sweeps it."
         )
     if result.data.is_binary_treatment:
         return _binary_positivity_report(result)

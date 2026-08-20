@@ -1385,7 +1385,7 @@ class TMLE:
                 f"{outside:.1%} of units have an estimated treatment probability outside the "
                 f"truncation bounds [{lower:.4g}, {upper:.4g}] for at least one arm, so those "
                 "units' contributions rest on extrapolation rather than data. Inspect "
-                "res.sensitivity.positivity() and res.sensitivity.truncation_curve() before "
+                "res.diagnostics.support() and res.diagnostics.truncation_curve() before "
                 "trusting the estimate.",
                 PositivityWarning,
                 stacklevel=3,
@@ -1423,7 +1423,7 @@ class TMLE:
                     f"{config.missingness_bound:.4g}. That probability divides the clever "
                     "covariate just as g(W) does, so those rows carry outsized leverage and "
                     "the bound is trading bias for variance. Inspect "
-                    "res.sensitivity.positivity() and re-run with a different nuisance_bound.",
+                    "res.diagnostics.support() and re-run with a different nuisance_bound.",
                     PositivityWarning,
                     stacklevel=3,
                 )

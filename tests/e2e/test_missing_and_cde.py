@@ -47,14 +47,14 @@ class TestMissingOutcomes:
         result, _ = fit
         assert result.nuisance.missingness is not None
         assert result.nuisance.missingness.shape == (result.data.n, 2)
-        diagnostics = result.validation.nuisance()
+        diagnostics = result.diagnostics.nuisance_models()
         report = diagnostics["missingness"]
         # The mechanism depends on A and W in this process, so it must be predictable.
         assert report.metrics["auc"] > 0.55
 
     def test_the_score_equation_accounts_for_missingness(self, fit) -> None:
         result, _ = fit
-        assert result.validation.score_check().passed
+        assert result.diagnostics.score_equations().passed
 
     def test_only_observed_rows_enter_the_outcome_regression(self, fit) -> None:
         result, _ = fit
@@ -106,7 +106,7 @@ class TestMissingOutcomes:
         outcome.  Nothing exercised this path before.
         """
         result, _ = fit
-        refutation = result.validation.refute(estimand="ate", n_replicates=3, random_state=0)
+        refutation = result.diagnostics.refute(estimand="ate", n_replicates=3, random_state=0)
         assert {test.name for test in refutation.tests} == {
             "placebo",
             "random_common_cause",
@@ -221,11 +221,13 @@ class TestControlledDirectEffect:
         result = fits[0.0]
         assert result.nuisance.intermediate is not None
         assert result.nuisance.intermediate.shape == (result.data.n, 2)
-        assert "intermediate" in {model.name for model in result.validation.nuisance().models}
+        assert "intermediate" in {
+            model.name for model in result.diagnostics.nuisance_models().models
+        }
 
     def test_the_score_equation_is_solved_for_both_levels(self, fits) -> None:
         for z in (0.0, 1.0):
-            assert fits[z].validation.score_check().passed
+            assert fits[z].diagnostics.score_equations().passed
 
     def test_the_result_set_stacks_into_one_frame(self, fits) -> None:
         frame = fits.to_frame()

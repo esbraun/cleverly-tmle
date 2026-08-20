@@ -112,11 +112,11 @@ class TestCovariance:
 
 class TestErrors:
     def test_unknown_estimand_is_refused(self, result) -> None:  # type: ignore[no-untyped-def]
-        with pytest.raises(KeyError, match="not requested"):
+        with pytest.raises(KeyError, match="unknown parameter"):
             result.contrast(difference, ["ey1", "nope"])
 
     def test_empty_selection_is_refused(self, result) -> None:  # type: ignore[no-untyped-def]
-        with pytest.raises(ValueError, match="no estimands"):
+        with pytest.raises(ValueError, match="no parameters"):
             result.covariance([])
 
 

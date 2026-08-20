@@ -276,6 +276,25 @@ arbitrary Python code, so load only trusted artifacts under compatible dependenc
 
 ## Changed defaults and validations
 
+Post-fit assessment has one authoritative path. The alpha API removes the legacy
+`result.validation` suite and the callable longitudinal `result.diagnostics()` spelling:
+
+| previous call | alpha call |
+| --- | --- |
+| `result.validation.score_check()` | `result.diagnostics.score_equations()` |
+| `result.validation.correction_check()` | `result.diagnostics.corrections()` |
+| `result.validation.nuisance()` | `result.diagnostics.nuisance_models()` |
+| `result.validation.refute(...)` | `result.diagnostics.refute(...)` |
+| `result.diagnostics()` on LTMLE | `result.diagnostics.stagewise().to_frame()` |
+| `result.sensitivity.positivity()` and axis-specific support methods | `result.diagnostics.support()` |
+| `result.sensitivity.truncation_curve(...)` | `result.diagnostics.truncation_curve(...)` |
+| `result.sensitivity.omitted_variable(...)` | `result.sensitivity.omitted_confounding(...)` |
+| `result.sensitivity.missingness_tilt(...)` | `result.sensitivity.missingness(...)` |
+
+`result.validate()` remains the inexpensive, no-refit battery. Sensitivity exposes only the
+capability-aware explicit methods documented in the results and assessment guide; removed aliases
+are not retained as runtime compatibility shims.
+
 - An empty adjustment set is refused unless `PointTreatment(randomized=True)` is declared.
 - Ordinary estimation returns a causal result directly; no `.single()` wrapper remains.
 - `alpha=` is the inference significance level. Use `submodel_alpha=` for the targeting bound.

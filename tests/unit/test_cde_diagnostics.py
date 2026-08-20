@@ -184,7 +184,7 @@ class TestTheTruncationCurveReadsTheTargetedLevel:
         self, request: Any, level: str, expected: float
     ) -> None:
         result = request.getfixturevalue(f"fit_at_{level}")
-        curve = result.sensitivity.truncation_curve(mechanism=True, bounds=[0.01])
+        curve = result.diagnostics.truncation_curve(mechanism=True, bounds=[0.01])
         fraction = np.asarray(curve["truncated_fraction"], dtype=float)
         assert np.allclose(fraction, expected), f"{level}: {fraction}"
 
@@ -193,10 +193,8 @@ class TestTheTruncationCurveReadsTheTargetedLevel:
         # Two code paths report the same clipping from the same array; asserting they
         # agree is what survives a refactor of either.
         result = request.getfixturevalue(f"fit_at_{level}")
-        curve = result.sensitivity.truncation_curve(mechanism=True, bounds=[0.01])
-        reported = result.sensitivity.positivity().mechanisms[f"P(Z={z:.0f}|A,W)"][
-            "clipped_fraction"
-        ]
+        curve = result.diagnostics.truncation_curve(mechanism=True, bounds=[0.01])
+        reported = result.diagnostics.support().mechanisms[f"P(Z={z:.0f}|A,W)"]["clipped_fraction"]
         assert np.allclose(np.asarray(curve["truncated_fraction"], dtype=float), reported)
 
 
@@ -241,7 +239,7 @@ class TestTheEffectiveSampleSizeCountsOnlyTheRowsTheMechanismWeights:
 
         weights = 1.0 / used
         expected = float(weights.sum() ** 2 / (weights.size * (weights**2).sum()))
-        reported = result.sensitivity.positivity().mechanisms[f"P(Z={z:.0f}|A,W)"]["ess_ratio"]
+        reported = result.diagnostics.support().mechanisms[f"P(Z={z:.0f}|A,W)"]["ess_ratio"]
         assert reported == pytest.approx(expected, rel=1e-12)
 
     @pytest.mark.parametrize("z", [0.0, 1.0])
@@ -256,7 +254,7 @@ class TestTheEffectiveSampleSizeCountsOnlyTheRowsTheMechanismWeights:
         at_arm = np.where(data.treatment == 1.0, density[:, 1], density[:, 0])
         every_row = 1.0 / np.maximum(at_arm[data.observed], 0.01)
         wrong = float(every_row.sum() ** 2 / (every_row.size * (every_row**2).sum()))
-        reported = result.sensitivity.positivity().mechanisms[f"P(Z={z:.0f}|A,W)"]["ess_ratio"]
+        reported = result.diagnostics.support().mechanisms[f"P(Z={z:.0f}|A,W)"]["ess_ratio"]
         assert abs(reported - wrong) > 1e-3, (reported, wrong)
 
     def test_the_targeted_row_mask_is_the_intersection(self, fit_at_zero: Any) -> None:

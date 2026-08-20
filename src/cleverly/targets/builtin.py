@@ -10,8 +10,11 @@ Registration order is report order.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 
+from .._typing import FloatArray
 from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
 from ..inference.influence import ParameterEstimate, atc_estimate, att_estimate
 from .base import Identification, Target, TargetContext, parameter_name
@@ -351,17 +354,22 @@ def _msm(ctx: TargetContext) -> list[ParameterEstimate]:
     ]
 
 
-def _rr(ctx: TargetContext) -> list[ParameterEstimate]:
+def _ratio_contrasts(
+    ctx: TargetContext,
+    stem: str,
+    influence: Callable[[float, FloatArray, float, FloatArray], tuple[float, FloatArray]],
+) -> list[ParameterEstimate]:
+    """Build a ratio family from its log-scale influence transformation."""
     reference = ctx.means[ctx.reference]
     out: list[ParameterEstimate] = []
     for arm in ctx.contrast_arms:
         mean = ctx.means[arm]
-        log_psi, ic = log_ratio_influence(
+        log_psi, ic = influence(
             mean.psi, mean.influence_curve, reference.psi, reference.influence_curve
         )
         out.append(
             ctx.finish(
-                ctx.name_for("rr", arm, versus=ctx.reference),
+                ctx.name_for(stem, arm, versus=ctx.reference),
                 float(np.exp(log_psi)),
                 ic,
                 "ratio",
@@ -369,26 +377,14 @@ def _rr(ctx: TargetContext) -> list[ParameterEstimate]:
             )
         )
     return out
+
+
+def _rr(ctx: TargetContext) -> list[ParameterEstimate]:
+    return _ratio_contrasts(ctx, "rr", log_ratio_influence)
 
 
 def _or(ctx: TargetContext) -> list[ParameterEstimate]:
-    reference = ctx.means[ctx.reference]
-    out: list[ParameterEstimate] = []
-    for arm in ctx.contrast_arms:
-        mean = ctx.means[arm]
-        log_psi, ic = log_odds_ratio_influence(
-            mean.psi, mean.influence_curve, reference.psi, reference.influence_curve
-        )
-        out.append(
-            ctx.finish(
-                ctx.name_for("or", arm, versus=ctx.reference),
-                float(np.exp(log_psi)),
-                ic,
-                "ratio",
-                log_psi=log_psi,
-            )
-        )
-    return out
+    return _ratio_contrasts(ctx, "or", log_odds_ratio_influence)
 
 
 def _conditional(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:

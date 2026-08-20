@@ -19,10 +19,15 @@ from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import Fluctuation
 from ..inference.bootstrap import BootstrapResult
-from ..inference.cluster import influence_covariance
-from ..inference.delta import delta_method
-from ..inference.influence import ParameterEstimate, Scale, make_estimate
+from ..inference.influence import ParameterEstimate, Scale
 from ..inference.multiplier import SimultaneousBands
+from ..inference.results import (
+    estimate_covariance,
+    estimate_curves,
+    select_estimates,
+    smooth_contrast,
+    sole_estimate,
+)
 from ..learners.crossfit import CrossFitPlan
 from ..provenance import Provenance
 from ..targets import TARGETS, all_names, resolve_estimands
@@ -34,8 +39,6 @@ from .targeting import TargetingSpec
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import DiagnosticsFacade, Replayability, SensitivityFacade, ValidationReport
-    from ..sensitivity.api import SensitivityAnalysis
-    from ..validation.api import ValidationSuite
     from ..validation.score import ScoreCheck
 
 __all__ = [
@@ -516,12 +519,7 @@ class TMLEResult:
     @property
     def estimate(self) -> ParameterEstimate:
         """The sole parameter estimate, with an explicit refusal for multi-parameter fits."""
-        if len(self.estimates) != 1:
-            raise ValueError(
-                "this result contains multiple parameters; index the one you want from "
-                f"{list(self.estimates)}"
-            )
-        return next(iter(self.estimates.values()))
+        return sole_estimate(self.estimates)
 
     def psi(self, name: str | None = None) -> float:
         """Point estimate for ``name``, or for the sole parameter when omitted."""
@@ -538,7 +536,7 @@ class TMLEResult:
 
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
-        return {name: estimate.influence_curve for name, estimate in self.estimates.items()}
+        return estimate_curves(self.estimates)
 
     @property
     def cv_targeting(self) -> CVTargeting | None:
@@ -562,11 +560,7 @@ class TMLEResult:
         influence curves at the right independent unit, so a clustered fit gets the
         cluster-level covariance.
         """
-        chosen = self._names(names)
-        # column_stack, not a list: influence_covariance takes an (n, m) matrix, and a
-        # list of m curves would be read as m observations of n estimands.
-        curves = np.column_stack([self[name].influence_curve for name in chosen])
-        return influence_covariance(curves, cluster=self.data.cluster)
+        return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
     def contrast(
         self,
@@ -592,47 +586,29 @@ class TMLEResult:
         The result is an ordinary :class:`~cleverly.inference.ParameterEstimate`, so it
         carries its own influence curve and can itself be fed back into a contrast.
         """
-        chosen = self._names(names)
-        estimates = [self[key].psi for key in chosen]
-        curves = [self[key].influence_curve for key in chosen]
-        value, curve = delta_method(function, estimates, curves, gradient=gradient)
-        label = name or f"contrast({', '.join(chosen)})"
-        return make_estimate(
-            label,
-            value,
-            curve,
+        return smooth_contrast(
+            self.estimates,
+            function,
+            names,
             n=self.n,
             cluster=self.data.cluster,
-            scale=scale,
             alpha=self.config.alpha_sig,
+            name=name,
+            scale=scale,
+            gradient=gradient,
         )
 
     def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
-        chosen = tuple(self.estimates) if names is None else tuple(names)
-        missing = [key for key in chosen if key not in self.estimates]
-        if missing:
-            raise KeyError(
-                f"estimand(s) {missing} were not requested; available: {list(self.estimates)}"
-            )
-        if not chosen:
-            raise ValueError("no estimands selected")
-        return chosen
+        return select_estimates(self.estimates, names)
 
     # ----------------------------------------------------------- diagnostics
-
-    @cached_property
-    def _legacy_sensitivity(self) -> SensitivityAnalysis:
-        """The evidenced point analyses wrapped by the public capability facade."""
-        from ..sensitivity.api import SensitivityAnalysis
-
-        return SensitivityAnalysis(self)
 
     @cached_property
     def sensitivity(self) -> SensitivityFacade:
         """Capability-aware sensitivity analyses for this fitted method."""
         from ..assessment import SensitivityFacade
 
-        return SensitivityFacade(self, self._legacy_sensitivity)
+        return SensitivityFacade(self)
 
     @cached_property
     def diagnostics(self) -> DiagnosticsFacade:
@@ -655,17 +631,10 @@ class TMLEResult:
         return replayability(self)
 
     @cached_property
-    def validation(self) -> ValidationSuite:
-        """Validation diagnostics for this fit -- see :mod:`cleverly.validation`."""
-        from ..validation.api import ValidationSuite
-
-        return ValidationSuite(self)
-
-    @cached_property
     def score_verdict(self) -> ScoreCheck:
         """This fit's own answer to whether its interval is licensed.
 
-        The same object ``result.validation.score_check()`` returns, at the default
+        The same object ``result.diagnostics.score_equations()`` returns, at the default
         tolerance, held here because :meth:`summary` reports it and because a caller
         should not have to know which subsystem owns the question.  **Derived, never
         stored**: it is recomputed from the fluctuations a result carries, so a fit
@@ -675,7 +644,9 @@ class TMLEResult:
 
         Free: it reads cached arrays and refits nothing.
         """
-        return self.validation.score_check()
+        from ..validation.score import score_check
+
+        return score_check(self)
 
     # ---------------------------------------------------------------- output
 

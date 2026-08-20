@@ -221,7 +221,7 @@ class TestTheInfluenceCurveIsTheEIF:
 
     @pytest.mark.parametrize("level", law.LEVELS)
     def test_the_score_equation_is_solved(self, exact_fit, level: int) -> None:
-        assert exact_fit[float(level)].validation.score_check().passed
+        assert exact_fit[float(level)].diagnostics.score_equations().passed
 
 
 class TestTheTwoLevelsAreDifferentParameters:

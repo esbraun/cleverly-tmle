@@ -125,6 +125,20 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation="the score equations the selected method actually solved",
     ),
     _capability(
+        "corrections",
+        "point",
+        artifacts=("doubly-robust correction state",),
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        "point",
+        artifacts=("fitted nuisance predictions", "targeting state"),
+        execution="retarget",
+        cost="moderate",
+        interpretation="estimate stability across declared mechanism bounds",
+    ),
+    _capability(
         "refute",
         "point",
         artifacts=("fitted estimator configuration", "analysis data"),
@@ -159,6 +173,29 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         "longitudinal",
         artifacts=("stagewise targeting state",),
         interpretation="one targeting score and convergence record per regimen and node",
+    ),
+    _capability(
+        "corrections",
+        "longitudinal",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        reason="longitudinal targeting does not use the point-treatment correction system",
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        "longitudinal",
+        artifacts=("sequential nuisance predictions",),
+        execution="refit",
+        cost="expensive",
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        reason=(
+            "changing a sequential bound changes every earlier pseudo-outcome and requires "
+            "a full refit"
+        ),
+        interpretation="estimate stability across declared mechanism bounds",
     ),
     _capability(
         "refute",
@@ -633,26 +670,54 @@ class DiagnosticsFacade:
 
         def compute() -> Any:
             nuisance = self._result.nuisance
-            legacy = self._result._legacy_sensitivity
+            from .interventions import (
+                check_incremental_support,
+                check_shift_support,
+                check_support,
+            )
+            from .sensitivity.positivity import positivity_report
+
             if nuisance.regimes is not None:
-                return legacy.support()
-            if nuisance.shifts is not None:
-                return legacy.shift_support()
+                return check_support(
+                    nuisance.regimes,
+                    self._result.data.treatment,
+                    nuisance.propensity.values,
+                    backend=self._result.data.backend,
+                )
+            if nuisance.shifts is not None and nuisance.density is not None:
+                bound = self._result.config.missingness_bound
+                level = self._result.intermediate_value
+                mechanisms = [
+                    values
+                    for values in (
+                        nuisance.bounded_missingness(bound),
+                        None if level is None else nuisance.intermediate_density(level, bound),
+                    )
+                    if values is not None
+                ]
+                return check_shift_support(
+                    nuisance.shifts,
+                    nuisance.density,
+                    self._result.data.treatment,
+                    mechanisms=mechanisms,
+                )
             if nuisance.incremental is not None:
-                return legacy.incremental_support()
-            return legacy.positivity()
+                return check_incremental_support(nuisance.incremental, self._result.data.treatment)
+            return positivity_report(self._result)
 
         return _cached(self._result, "diagnostics.support", (), {}, compute)
 
     def nuisance_models(self) -> Any:
         self._require("nuisance_models")
         if _family(self._result) == "point":
+            from .validation.nuisance import nuisance_diagnostics
+
             return _cached(
                 self._result,
                 "diagnostics.nuisance_models",
                 (),
                 {},
-                lambda: self._result.validation.nuisance(),
+                lambda: nuisance_diagnostics(self._result),
             )
         return _cached(
             self._result,
@@ -662,14 +727,68 @@ class DiagnosticsFacade:
             lambda: _longitudinal_nuisances(self._result),
         )
 
-    def score_equations(self) -> Any:
+    def score_equations(self, *, tolerance: float = 1e-3) -> Any:
         self._require("score_equations")
-        compute = (
-            (lambda: _longitudinal_scores(self._result))
-            if _family(self._result) == "longitudinal"
-            else (lambda: self._result.validation.score_check())
+        from .validation.score import score_check
+
+        if _family(self._result) == "longitudinal":
+            return _cached(
+                self._result,
+                "diagnostics.score_equations",
+                (),
+                {"tolerance": tolerance},
+                lambda: _longitudinal_scores(self._result),
+            )
+        return _cached(
+            self._result,
+            "diagnostics.score_equations",
+            (),
+            {"tolerance": tolerance},
+            lambda: score_check(self._result, tolerance=tolerance),
         )
-        return _cached(self._result, "diagnostics.score_equations", (), {}, compute)
+
+    def corrections(self, *, tolerance: float = 1e-3, identity_tolerance: float = 1e-12) -> Any:
+        self._require("corrections")
+        from .validation.drtmle import correction_check
+
+        return _cached(
+            self._result,
+            "diagnostics.corrections",
+            (),
+            {"tolerance": tolerance, "identity_tolerance": identity_tolerance},
+            lambda: correction_check(
+                self._result,
+                tolerance=tolerance,
+                identity_tolerance=identity_tolerance,
+            ),
+        )
+
+    def truncation_curve(
+        self,
+        bounds: Sequence[float] | None = None,
+        *,
+        estimands: Sequence[str] | None = None,
+        mechanism: bool = False,
+    ) -> Any:
+        self._require("truncation_curve")
+        from .sensitivity.positivity import truncation_curve
+
+        if self._result.nuisance.incremental is not None and not mechanism:
+            raise ValueError(
+                "the propensity g is *inside* the estimand for an incremental intervention, "
+                "so a propensity-bound curve would compare different parameters; use "
+                "diagnostics.support(), or pass mechanism=True when a separate observation "
+                "mechanism was fitted"
+            )
+        return _cached(
+            self._result,
+            "diagnostics.truncation_curve",
+            (bounds,),
+            {"estimands": estimands, "mechanism": mechanism},
+            lambda: truncation_curve(
+                self._result, bounds, estimands=estimands, mechanism=mechanism
+            ),
+        )
 
     def refute(self, **kwargs: Any) -> Any:
         self._require("refute")
@@ -679,12 +798,14 @@ class DiagnosticsFacade:
                 "refutation requires nuisance refits, but this estimator cannot be "
                 f"reconstructed; unavailable slots: {list(missing)}"
             )
+        from .validation.refute import refute
+
         return _cached(
             self._result,
             "diagnostics.refute",
             (),
             kwargs,
-            lambda: self._result.validation.refute(**kwargs),
+            lambda: refute(self._result, **kwargs),
         )
 
     def run_all(self, *, include_refits: bool = False) -> DiagnosticReport:
@@ -694,12 +815,13 @@ class DiagnosticsFacade:
                 if capability.operation == "stagewise" and _family(self._result) == "point":
                     items.append(_item_from_capability(capability))
                     continue
-                if capability.execution == "refit" and not include_refits:
+                if capability.execution != "summarize" and not include_refits:
                     items.append(
                         AssessmentItem(
                             capability.operation,
                             AssessmentStatus.UNAVAILABLE,
-                            "not run by default because it refits models; pass include_refits=True",
+                            "not run by default because it retargets or refits models; "
+                            "pass include_refits=True",
                         )
                     )
                     continue
@@ -726,13 +848,6 @@ class DiagnosticsFacade:
             {"include_refits": include_refits},
             compute,
         )
-
-    def __call__(self) -> Any:
-        """Compatibility for the former longitudinal ``result.diagnostics()`` spelling."""
-
-        if _family(self._result) == "longitudinal":
-            return self.stagewise().to_frame()
-        return self.run_all()
 
 
 def _item_from_capability(capability: AssessmentCapability) -> AssessmentItem:
@@ -885,23 +1000,11 @@ def _reduction_conditioning_warning(result: Any) -> str | None:
     )
 
 
-def _sensitivity_operations() -> tuple[str, ...]:
-    """The public operation names, read off the class so the two cannot drift apart.
-
-    Off the *class*, not the instance: a longitudinal result has no legacy analysis object
-    at all, and "does this operation exist" still has to have an answer there.
-    """
-    from .sensitivity.api import SensitivityAnalysis
-
-    return tuple(sorted(name for name in vars(SensitivityAnalysis) if not name.startswith("_")))
-
-
 class SensitivityFacade:
     """Capability-aware sensitivity operations with normalized persistent caching."""
 
-    def __init__(self, result: Any, legacy: Any | None = None) -> None:
+    def __init__(self, result: Any) -> None:
         self._result = result
-        self._legacy = legacy
 
     def _unavailable(self, operation: str, *, not_applicable: bool = False) -> CapabilityError:
         status = "not_applicable" if not_applicable else "unavailable"
@@ -924,19 +1027,46 @@ class SensitivityFacade:
             else getattr(self._result.nuisance, "missingness", None) is not None
         )
         benchmarkable = not longitudinal and replayability(self._result).refit_nuisances
-        return (
-            _capability(
-                "omitted_confounding",
+        available = not longitudinal
+        status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
+        reason = "no longitudinal sensitivity derivation is registered" if longitudinal else None
+
+        def standard(
+            operation: str,
+            *,
+            artifacts: Sequence[str],
+            interpretation: str,
+            cost: Literal["cheap", "moderate", "expensive"] = "cheap",
+        ) -> AssessmentCapability:
+            return _capability(
+                operation,
                 family,
+                artifacts=artifacts,
+                interpretation=interpretation,
+                cost=cost,
+                available=available,
+                status=status,
+                reason=reason,
+            )
+
+        return (
+            standard(
+                "omitted_confounding",
                 artifacts=("fitted representer", "outcome residuals"),
                 interpretation="omitted-confounder bias for the fitted orthogonal score",
-                available=not longitudinal,
-                status=AssessmentStatus.UNAVAILABLE if longitudinal else AssessmentStatus.PASSED,
-                reason="no longitudinal omitted-confounder derivation" if longitudinal else None,
+            ),
+            standard(
+                "robustness_value",
+                artifacts=("fitted representer", "outcome residuals"),
+                interpretation="confounding strength needed to move the estimate to its null",
+            ),
+            standard(
+                "elements",
+                artifacts=("fitted representer", "outcome residuals"),
+                interpretation="raw components of the omitted-confounder bias bound",
             ),
             _capability(
                 "benchmark",
-                family,
                 artifacts=("fitted estimator configuration",),
                 execution="refit",
                 deterministic=False,
@@ -947,21 +1077,30 @@ class SensitivityFacade:
                 reason=(
                     None
                     if benchmarkable
-                    else "benchmarking requires a fitted point-treatment estimator configuration"
+                    else "benchmarking requires a replayable point-treatment estimator"
                 ),
                 requires_arguments=("covariates",),
+                family=family,
+            ),
+            standard(
+                "contour",
+                artifacts=("fitted representer", "outcome residuals"),
+                interpretation="bias bounds over a grid of confounding strengths",
+                cost="moderate",
+            ),
+            standard(
+                "evalue",
+                artifacts=("ratio-scale estimate",),
+                interpretation="minimum risk-ratio association needed to explain away an effect",
             ),
             _capability(
                 "missingness",
-                family,
+                family=family,
                 artifacts=("observation mechanism", "published tilt identification"),
                 execution="retarget",
                 cost="moderate",
                 interpretation="departure from missing-at-random identification",
                 available=missing,
-                # Three cases, not two.  A point fit that *has* a missingness mechanism can
-                # run the tilt, and used to publish `unavailable` with the longitudinal
-                # adapter's reason attached to it.
                 status=(
                     AssessmentStatus.PASSED
                     if missing
@@ -974,7 +1113,30 @@ class SensitivityFacade:
                     if missing
                     else "no longitudinal missingness-tilt adapter is implemented"
                     if longitudinal
-                    else "the identified functional has no observation/missingness mechanism"
+                    else "the identified functional has no observation mechanism"
+                ),
+            ),
+            _capability(
+                "tipping_gamma",
+                family=family,
+                artifacts=("observation mechanism", "published tilt identification"),
+                execution="retarget",
+                cost="moderate",
+                interpretation="missingness departure at which the conclusion reaches its null",
+                available=missing,
+                status=(
+                    AssessmentStatus.PASSED
+                    if missing
+                    else AssessmentStatus.UNAVAILABLE
+                    if longitudinal
+                    else AssessmentStatus.NOT_APPLICABLE
+                ),
+                reason=(
+                    None
+                    if missing
+                    else "no longitudinal missingness-tilt adapter is implemented"
+                    if longitudinal
+                    else "the identified functional has no observation mechanism"
                 ),
             ),
         )
@@ -983,45 +1145,104 @@ class SensitivityFacade:
         return next(item for item in self.capabilities if item.operation == operation)
 
     def omitted_confounding(self, *args: Any, **kwargs: Any) -> Any:
-        capability = self._capability("omitted_confounding")
-        if not capability.available or self._legacy is None:
-            raise self._unavailable("omitted_confounding")
-        legacy = self._legacy
-        return _cached(
-            self._result,
-            "sensitivity.omitted_confounding",
+        return self._cached_sensitivity(
+            "omitted_confounding",
+            "sensitivity.omitted_variable",
+            "omitted_variable_bounds",
             args,
             kwargs,
-            lambda: legacy.omitted_variable(*args, **kwargs),
+        )
+
+    def robustness_value(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cached_sensitivity(
+            "robustness_value", "sensitivity.omitted_variable", "robustness_value", args, kwargs
+        )
+
+    def elements(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cached_sensitivity(
+            "elements", "sensitivity.omitted_variable", "sensitivity_elements", args, kwargs
         )
 
     def benchmark(self, *args: Any, **kwargs: Any) -> Any:
         capability = self._capability("benchmark")
-        if not capability.available or self._legacy is None:
+        if not capability.available:
             raise self._unavailable("benchmark")
-        legacy = self._legacy
+        from .sensitivity.omitted_variable import benchmark
+
         return _cached(
             self._result,
             "sensitivity.benchmark",
             args,
             kwargs,
-            lambda: legacy.benchmark(*args, **kwargs),
+            lambda: benchmark(self._result, *args, **kwargs),
         )
+
+    def contour(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cached_sensitivity(
+            "contour", "sensitivity.omitted_variable", "contour_data", args, kwargs
+        )
+
+    def evalue(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cached_sensitivity("evalue", "sensitivity.evalue", "evalue", args, kwargs)
 
     def missingness(self, *args: Any, **kwargs: Any) -> Any:
         capability = self._capability("missingness")
-        if not capability.available or self._legacy is None:
+        if not capability.available:
             raise self._unavailable(
                 "missingness", not_applicable=capability.status == AssessmentStatus.NOT_APPLICABLE
             )
-        legacy = self._legacy
+        from .sensitivity.missingness import missingness_tilt
+
         return _cached(
             self._result,
             "sensitivity.missingness",
             args,
             kwargs,
-            lambda: legacy.missingness_tilt(*args, **kwargs),
+            lambda: missingness_tilt(self._result, *args, **kwargs),
         )
+
+    def tipping_gamma(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cached_sensitivity(
+            "tipping_gamma", "sensitivity.missingness", "tipping_gamma", args, kwargs
+        )
+
+    def _cached_sensitivity(
+        self,
+        operation: str,
+        module_name: str,
+        function_name: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Any:
+        capability = self._capability(operation)
+        if not capability.available:
+            raise self._unavailable(
+                operation, not_applicable=capability.status == AssessmentStatus.NOT_APPLICABLE
+            )
+        import importlib
+
+        if operation in {"omitted_confounding", "robustness_value", "elements", "contour"}:
+            args = self._with_default_parameter(args, kwargs)
+        function = getattr(importlib.import_module(f"cleverly.{module_name}"), function_name)
+        return _cached(
+            self._result,
+            f"sensitivity.{operation}",
+            args,
+            kwargs,
+            lambda: function(self._result, *args, **kwargs),
+        )
+
+    def _with_default_parameter(
+        self, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> tuple[Any, ...]:
+        """Choose the first reported linear contrast when the binary short name is absent."""
+        if args or "estimand" in kwargs or "ate" in self._result.estimates:
+            return args
+        from .sensitivity._parameters import arm_parameters
+
+        known = arm_parameters(self._result)
+        selected = next((name for name in self._result.estimates if name in known), None)
+        return args if selected is None else (selected,)
 
     def run_all(self, *, include_refits: bool = False) -> DiagnosticReport:
         def compute() -> DiagnosticReport:
@@ -1085,46 +1306,3 @@ class SensitivityFacade:
             {"include_refits": include_refits},
             compute,
         )
-
-    def __getattr__(self, name: str) -> Any:
-        """Route the established point analyses through the same persistent cache.
-
-        Two different questions the previous version answered with one error.  *Does this
-        operation exist?* is answered here, and its "no" has to be ``AttributeError`` --
-        ``hasattr`` only swallows that one, so raising ``CapabilityError`` (a ``ValueError``)
-        made ``hasattr`` and ``getattr(..., default)`` raise instead of reporting absence,
-        and gave a typo the sequential-recursion rationale as though it named something.
-
-        *Can this fit serve it?* is answered on call, by a stub, so that a real operation
-        this family cannot run still refuses by name with a reason rather than claiming
-        not to exist.
-        """
-
-        if name.startswith("_"):
-            raise AttributeError(name)
-        if name not in _sensitivity_operations():
-            raise AttributeError(
-                f"{type(self).__name__!r} object has no attribute {name!r}; the sensitivity "
-                f"operations are {', '.join(_sensitivity_operations())}"
-            )
-        if self._legacy is None:
-            error = self._unavailable(name)
-
-            def refuse(*args: Any, **kwargs: Any) -> Any:
-                raise error
-
-            return refuse
-        attribute = getattr(self._legacy, name)
-        if not callable(attribute):
-            return attribute
-
-        def cached_call(*args: Any, **kwargs: Any) -> Any:
-            return _cached(
-                self._result,
-                f"sensitivity.{name}",
-                args,
-                kwargs,
-                lambda: attribute(*args, **kwargs),
-            )
-
-        return cached_call

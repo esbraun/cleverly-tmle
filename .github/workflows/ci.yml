@@ -15,25 +15,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      # Pinned, not `@latest`: a formatter release can turn this job red with no commit
-      # to blame, and it has -- 0.16 began formatting the Python blocks inside Markdown,
-      # which here means README.md, CLAUDE.md and everything under docs/.
-      # Bump it deliberately, in step with the `ruff==` pin in pyproject's `dev` extra, so
-      # that `ruff format --check .` run locally is the same check that runs here.
-      - run: uv tool run ruff@0.16.1 check .
-      - run: uv tool run ruff@0.16.1 format --check .
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+          extra: dev
+      - run: ruff check .
+      - run: ruff format --check .
 
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       # The install steps live in the composite action; it says why they are what they are.
-      # `mypy` is pinned for the reason the ruff version above is: `mypy>=1.11` resolved to
-      # whatever was current, and a release that tightens a check -- or a dependency that
-      # ships better stubs -- turns this job red with no commit to blame. Bump it
-      # deliberately, in step with pyproject's `dev` extra and `noxfile.py`.
-      #
       # The interpreter matches `[tool.mypy]`'s `python_version`, which is `3.12` and says at
       # length why it is not the `3.11` of `requires-python`: numpy's stubs use PEP 695 `type`
       # statements, which a 3.11 target refuses to parse. Running the job on the interpreter it
@@ -42,8 +35,7 @@ jobs:
       - uses: ./.github/actions/setup-env
         with:
           python-version: "3.12"
-          extra: all
-          packages: mypy==1.19.1
+          extra: dev
       - run: mypy src/cleverly
 
   tests:

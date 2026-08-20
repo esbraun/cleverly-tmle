@@ -73,10 +73,8 @@ dev = [
     "pyarrow>=15",
     "pytest>=7.4",
     "pytest-xdist>=3.5",
-    # Pinned exactly, and kept in step with .github/workflows/ci.yml. A range would let a
-    # local `ruff format --check .` pass against a formatter CI does not run: 0.16 began
-    # formatting the Python blocks inside Markdown, so the two disagreed about README.md
-    # and now about docs/*.md as well.
+    # Exact pins live here and in uv.lock. CI and nox install this extra rather than
+    # restating versions, so local and automated toolchains resolve from one declaration.
     "ruff==0.16.1",
     "mypy==1.19.1",
     "nox>=2024.3",

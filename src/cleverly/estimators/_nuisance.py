@@ -264,15 +264,6 @@ class InnerDesigns:
     def n_folds(self) -> int:
         return len(self.outcome)
 
-    def propensity_arm(self, arm: float) -> tuple[FloatArray, ...]:
-        """``g(arm | W)`` from each outer fold's copy, untruncated, one ``(n,)`` per fold.
-
-        What the alternation carries: the mechanism tilt moves an ``(n,)`` array for the
-        upper arm and takes the other as its complement, so the fold-free copies travel in
-        the same shape and are rebuilt into a :class:`Propensity` on the way back.
-        """
-        return tuple(each.arm(arm) for each in self.propensity)
-
 
 @dataclass(frozen=True)
 class CompanionEstimates:
@@ -349,10 +340,6 @@ class CompanionEstimates:
         """
         sizes = np.asarray(self.fold_sizes, dtype=float)
         return sizes / float(sizes.sum())
-
-    def propensity_arm(self, arm: float) -> tuple[FloatArray, ...]:
-        """``g(arm | W)`` from each fold's copy at the companion rows, untruncated."""
-        return tuple(each.arm(arm) for each in self.propensity)
 
 
 @dataclass(frozen=True)

@@ -122,6 +122,12 @@ Loading therefore has pickle's arbitrary-code-execution risk and is restricted t
 artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
 format can represent arbitrary third-party sklearn-compatible models without weakening replay.
 
+Scalar result algebra is composed once in `inference.results`: sole-estimate selection, ordered
+name validation, influence-curve extraction, joint covariance, and smooth delta-method contrasts.
+Point and longitudinal result types delegate those operations and retain only method-specific
+artifacts and reports. Scientific formulas that differ by method stay separate; identical result
+algebra must not be copied into another result class.
+
 Assessment is routed by declared fitted artifacts, not result-class names or parsed parameter
 aliases. Every public result family has an explicit supported, `not_applicable`, or `unavailable`
 answer for every public diagnostic; sensitivity selects parameters through `ParameterKey`.
@@ -131,6 +137,12 @@ is persisted separately from estimates, and may not mutate the headline estimate
 *Reconsider when* an assessment needs stochastic state that cannot be normalized or serialized;
 that operation must then declare itself non-deterministic from a saved result rather than entering
 the persistent cache silently.
+
+Repeated-sampling studies retain one structured `ReplicationRecord` per estimand and a
+`ReplicationFailure` with replicate index, seed, exception type, and message for every failed
+draw. Summaries are derived from those records through `summarize_replications`; evidence adapters
+must not reimplement bias, root-n bias, coverage, or standard-error calibration. The study alpha
+comes from the returned `ParameterEstimate`, and all successful records must agree on it.
 
 ## Targets, interventions, and variants
 
@@ -237,6 +249,10 @@ gate while adding no coverage — the failure mode the removed job had, whose
 Note the division: the ruff *formatter* does reach inside `python` fences and is covered by the
 whole-tree `ruff format --check .`, but it skips any block it cannot parse, so syntax is a test's
 job and not the formatter's.
+
+Development-tool versions have one declaration: exact Ruff and mypy pins in the `dev` extra,
+resolved by `uv.lock`. Nox and CI install that extra; they do not restate versions in session or
+workflow files.
 
 Size every layer from `tests/parallel.available_cores()`, which reads a container's CPU quota and
 affinity mask through joblib. Neither `os.cpu_count()` nor xdist's `-n auto` does. Nesting pools is

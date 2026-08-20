@@ -70,11 +70,17 @@ import numpy as np
 
 from .._typing import CumulativeGBounds, FloatArray, Learner
 from ..data.weighting import effective_sample_size
-from ..exceptions import CapabilityError, PositivityWarning
+from ..exceptions import PositivityWarning
 from ..inference.cluster import influence_covariance
-from ..inference.delta import delta_method
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
+from ..inference.results import (
+    estimate_covariance,
+    estimate_curves,
+    select_estimates,
+    smooth_contrast,
+    sole_estimate,
+)
 from ..learners.crossfit import Folds, make_folds, resolve_n_folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
@@ -401,10 +407,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: persistence writes this alongside the sequential artifacts it was computed from.
     assessment_cache: dict[str, Any] = field(default_factory=dict)
 
-    @property
-    def has_msm(self) -> bool:
-        return self.msm is not None
-
     # ------------------------------------------------------------- mapping API
 
     def __getitem__(self, name: str) -> ParameterEstimate:
@@ -426,12 +428,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     @property
     def estimate(self) -> ParameterEstimate:
         """The sole estimate, refusing ambiguity on a multi-parameter result."""
-        if len(self.estimates) != 1:
-            raise ValueError(
-                "this result contains multiple parameters; index the one you want from "
-                f"{list(self.estimates)}"
-            )
-        return next(iter(self.estimates.values()))
+        return sole_estimate(self.estimates)
 
     @property
     def n(self) -> int:
@@ -442,13 +439,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
-        return {name: estimate.influence_curve for name, estimate in self.estimates.items()}
+        return estimate_curves(self.estimates)
 
     def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
         """Joint covariance of the requested estimates, at the right independent unit."""
-        chosen = self._names(names)
-        curves = np.column_stack([self[name].influence_curve for name in chosen])
-        return influence_covariance(curves, cluster=self.data.cluster)
+        return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
     def contrast(
         self,
@@ -460,31 +455,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         gradient: Callable[[FloatArray], FloatArray] | None = None,
     ) -> ParameterEstimate:
         """A smooth function of several regimens, with the delta method on the joint curve."""
-        chosen = self._names(names)
-        value, curve = delta_method(
+        return smooth_contrast(
+            self.estimates,
             function,
-            [self[key].psi for key in chosen],
-            [self[key].influence_curve for key in chosen],
-            gradient=gradient,
-        )
-        return make_estimate(
-            name or f"contrast({', '.join(chosen)})",
-            value,
-            curve,
+            names,
             n=self.n,
             cluster=self.data.cluster,
-            scale=scale,
             alpha=self.config.alpha_sig,
+            name=name,
+            scale=scale,
+            gradient=gradient,
         )
 
     def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
-        chosen = tuple(self.estimates) if names is None else tuple(names)
-        if not chosen:
-            raise ValueError(f"no parameters selected; this fit reports {list(self)}")
-        missing = [key for key in chosen if key not in self.estimates]
-        if missing:
-            raise KeyError(f"unknown parameter(s) {missing}; this fit reports {list(self)}")
-        return chosen
+        return select_estimates(self.estimates, names)
 
     # ------------------------------------------------------------ diagnostics
 
@@ -666,14 +650,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         from ..assessment import SensitivityFacade
 
         return SensitivityFacade(self)
-
-    @property
-    def validation(self) -> Any:
-        raise CapabilityError(
-            "result.validation was replaced by result.diagnostics and result.validate(); "
-            "the latter runs the inexpensive stagewise battery and the former exposes "
-            "score_equations(), nuisance_models(), support(), and explicit capabilities"
-        )
 
     def save(self, path: Any) -> Any:
         """Persist the complete fitted result to a trusted joblib artifact."""
@@ -1410,7 +1386,8 @@ class LTMLE:
             f"{details}. The fit solves the score built from the truncated weights; "
             "material truncation can trade reduced weight extremes for truncation bias and "
             "can make plug-in "
-            "influence-curve inference unreliable. Inspect res.diagnostics(), report "
+            "influence-curve inference unreliable. Inspect "
+            "res.diagnostics.stagewise().to_frame(), report "
             "the configured bounds, and refit the full backward recursion under "
             "substantively justified alternatives.",
             PositivityWarning,
