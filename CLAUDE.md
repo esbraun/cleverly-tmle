@@ -40,8 +40,9 @@ Cross-module constraints that are not derivable from one implementation live in
   `tests/unit/test_documentation_runtime.py` *executes* the registered reader-facing documents,
   asserting only that nothing raises. A reader-facing guide added under `docs/examples/`,
   `docs/getting-started/` or `docs/user-guide/` must be registered there or explicitly excluded.
-- Ruff and mypy are pinned separately in `pyproject.toml`, `noxfile.py`, and CI. Update all copies
-  together. Ruff *formats* the Python examples in Markdown, so run it over the whole tree — but its
+- Ruff and mypy are pinned once in `pyproject.toml`'s `dev` extra and resolved by `uv.lock`.
+  Nox and CI install that extra instead of restating versions. Ruff *formats* the Python examples
+  in Markdown, so run it over the whole tree — but its
   linter does not read Markdown at all, and the formatter skips any block it cannot parse, so
   neither one sees a syntax error in an example.
 - Run the smallest relevant test while iterating, then use the current validation commands in

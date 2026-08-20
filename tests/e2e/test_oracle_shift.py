@@ -168,7 +168,7 @@ def shift_one_step(result, index: int, delta: float, cap: float | None) -> float
 class TestTheScoreEquationIsSolved:
     def test_the_score_is_zero_to_floating_point(self, oracle_fit) -> None:  # type: ignore[no-untyped-def]
         result, _, frame = oracle_fit
-        check = result.validation.score_check()
+        check = result.diagnostics.score_equations()
         assert bool(check)
 
         # Not merely "within tolerance" -- the fluctuation is a maximum-likelihood
@@ -399,7 +399,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
     def test_the_score_equation_is_still_solved(self, mar_fit) -> None:  # type: ignore[no-untyped-def]
         result, _, _, _ = mar_fit
         assert result.fluctuations["mtp"].converged
-        assert bool(result.validation.score_check())
+        assert bool(result.diagnostics.score_equations())
 
     @pytest.mark.parametrize(
         "estimand",
@@ -449,7 +449,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
 
     def test_the_overlap_report_is_of_the_whole_weight(self, mar_fit) -> None:  # type: ignore[no-untyped-def]
         result, _, _, _ = mar_fit
-        report = result.sensitivity.shift_support()
+        report = result.diagnostics.support()
         assert report["+0.5"].min_mechanism is not None
         assert report["+0.5"].min_mechanism < 1.0
         # The natural course's ratio is one everywhere, so with no mechanism its ESS is

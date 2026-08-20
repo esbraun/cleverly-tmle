@@ -6,7 +6,7 @@
 :toctree: generated
 :nosignatures:
 
-cleverly.sensitivity.SensitivityAnalysis
+cleverly.assessment.SensitivityFacade
 cleverly.sensitivity.PositivityReport
 cleverly.sensitivity.SensitivityBounds
 cleverly.sensitivity.SensitivityElements
@@ -28,7 +28,7 @@ cleverly.sensitivity.tipping_gamma
 :toctree: generated
 :nosignatures:
 
-cleverly.validation.ValidationSuite
+cleverly.assessment.DiagnosticsFacade
 cleverly.validation.ScoreCheck
 cleverly.validation.ScoreCheckRow
 cleverly.validation.NuisanceDiagnostics
@@ -37,6 +37,8 @@ cleverly.validation.RefutationTest
 cleverly.validation.RefutationResult
 cleverly.validation.CoverageStudy
 cleverly.validation.StudyResult
+cleverly.validation.ReplicationRecord
+cleverly.validation.ReplicationFailure
 cleverly.validation.score_check
 cleverly.validation.nuisance_diagnostics
 cleverly.validation.refute

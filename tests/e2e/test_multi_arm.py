@@ -115,17 +115,17 @@ class TestTheJointInfluenceCurve:
 
 class TestTheRestOfTheStackStillWorks:
     def test_positivity_reports_every_arm(self, fit) -> None:
-        report = fit.sensitivity.positivity()
+        report = fit.diagnostics.support()
         assert set(report.effective_sample_size) == {"low", "medium", "high"}
         assert set(report.propensity_quantiles) == {"g[low]", "g[medium]", "g[high]"}
         assert report.summary()
 
     def test_the_nuisance_diagnostics_report_every_arm(self, fit) -> None:
-        names = {model.name for model in fit.validation.nuisance().models}
+        names = {model.name for model in fit.diagnostics.nuisance_models().models}
         assert {"propensity[low]", "propensity[medium]", "propensity[high]"} <= names
 
     def test_the_score_check_passes(self, fit) -> None:
-        assert fit.validation.score_check().passed
+        assert fit.diagnostics.score_equations().passed
 
     def test_a_round_trip_changes_nothing(self, fit, tmp_path) -> None:
         path = tmp_path / "multi.joblib"
@@ -143,7 +143,7 @@ class TestTheRestOfTheStackStillWorks:
         )
 
     def test_the_truncation_curve_sweeps_a_multi_arm_fit(self, fit) -> None:
-        frame = fit.sensitivity.truncation_curve(bounds=[0.01, 0.05])
+        frame = fit.diagnostics.truncation_curve(bounds=[0.01, 0.05])
         assert len(frame) > 0
 
     def test_the_omitted_variable_bound_survives_the_round_trip(self, fit, tmp_path) -> None:
@@ -159,8 +159,8 @@ class TestTheRestOfTheStackStillWorks:
         path = tmp_path / "multi-sensitivity.joblib"
         fit.save(path)
         reloaded = load(path)
-        assert reloaded.sensitivity.omitted_variable(name).max_bias == pytest.approx(
-            fit.sensitivity.omitted_variable(name).max_bias, rel=1e-12
+        assert reloaded.sensitivity.omitted_confounding(name).max_bias == pytest.approx(
+            fit.sensitivity.omitted_confounding(name).max_bias, rel=1e-12
         )
 
     @pytest.mark.parametrize("scheme", ["pooled", "fold"])
@@ -245,7 +245,7 @@ class TestTheConditionalEffects:
 
     def test_the_score_check_passes_for_every_group(self, conditional_fit) -> None:
         result, _ = conditional_fit
-        assert result.validation.score_check().passed
+        assert result.diagnostics.score_equations().passed
         for group in ("mean", "att", "atc"):
             assert result.fluctuations[group].converged
 

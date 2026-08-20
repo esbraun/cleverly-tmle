@@ -110,7 +110,7 @@ class TestTheRealRowsUseIt:
 
     Both carry ``nan`` defaults on their optional columns and both are compared with ``==``
     by a test -- ``CorrectionRow`` through ``after.rows == before.rows`` across a save/load,
-    ``ScoreCheckRow`` through ``fit.score_verdict.rows == fit.validation.score_check().rows``
+    ``ScoreCheckRow`` through ``fit.score_verdict.rows == fit.diagnostics.score_equations().rows``
     -- so a class that grew a sentinel column and did not get the decorator would be found
     by a failing round trip rather than here.  This is the cheaper place to notice.
     """

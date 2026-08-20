@@ -6,13 +6,13 @@ evidence: each is measured against the law, not against the other.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from cleverly.utils.parallel import map_parallel
+from cleverly.validation import ReplicationRecord, summarize_replications
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.inference import (
     Interval,
@@ -32,17 +32,32 @@ def summarize(rows: pd.DataFrame) -> pd.DataFrame:
     records: list[dict[str, Any]] = []
     for key, group in rows.groupby(CELL_KEYS, sort=True):
         implementation, scenario, estimand = key
-        estimates = group["estimate"].to_numpy(dtype=float)
         inference = group["inference_estimate"].to_numpy(dtype=float)
         truth = float(group["truth"].iloc[0])
         truth_inference = truth_on_inference_scale(
             str(estimand), truth, str(group["inference_scale"].iloc[0])
         )
         replicates = len(group)
-        bias = float(np.mean(estimates) - truth)
+        summary = summarize_replications(
+            tuple(
+                ReplicationRecord(
+                    replicate=index,
+                    seed=-1,
+                    estimand=str(estimand),
+                    truth=float(row.truth),
+                    estimate=float(row.estimate),
+                    std_error=float(row.std_error),
+                    covered=bool(row.covered),
+                    rejected=False,
+                    inference_estimate=float(row.inference_estimate),
+                    alpha=0.05,
+                )
+                for index, row in enumerate(group.itertuples(index=False))
+            ),
+            estimand=str(estimand),
+            n=int(group["n"].iloc[0]),
+        )
         empirical_se = float(np.std(inference, ddof=1))
-        mean_se = float(group["std_error"].mean())
-        coverage = float(group["covered"].mean())
         inference_bias = float(np.mean(inference) - truth_inference)
         records.append(
             {
@@ -52,16 +67,16 @@ def summarize(rows: pd.DataFrame) -> pd.DataFrame:
                 "n": int(group["n"].iloc[0]),
                 "replicates": replicates,
                 "truth": truth,
-                "mean_estimate": float(np.mean(estimates)),
-                "bias": bias,
-                "bias_se": float(np.std(estimates, ddof=1) / math.sqrt(replicates)),
-                "root_n_bias": float(math.sqrt(group["n"].iloc[0]) * bias),
-                "rmse": float(np.sqrt(np.mean((estimates - truth) ** 2))),
+                "mean_estimate": summary.mean_estimate,
+                "bias": summary.bias,
+                "bias_se": summary.bias_se,
+                "root_n_bias": summary.root_n_bias,
+                "rmse": summary.rmse,
                 "empirical_se": empirical_se,
-                "mean_std_error": mean_se,
-                "se_ratio": mean_se / empirical_se,
-                "coverage": coverage,
-                "coverage_se": math.sqrt(coverage * (1.0 - coverage) / replicates),
+                "mean_std_error": summary.mean_std_error,
+                "se_ratio": summary.se_ratio,
+                "coverage": summary.coverage,
+                "coverage_se": summary.coverage_se,
                 "inference_bias": inference_bias,
                 "standardized_bias": inference_bias / empirical_se,
             }

@@ -113,7 +113,7 @@ bounded there on the ordinary terms.  This regularises estimation; it does not
 redefine the target.  The plug-in is an average of targeted predictions and contains no
 mechanism at all, so no bound can move :math:`\Psi` -- what a binding bound moves is
 :math:`R_2`, by exactly the formula above evaluated at the truncated value.  The trade
-is variance for second-order bias, and ``res.sensitivity.truncation_curve()`` (with
+is variance for second-order bias, and ``res.diagnostics.truncation_curve()`` (with
 ``mechanism=True`` for :math:`\pi`) is how to see how much of it you are paying.
 """
 

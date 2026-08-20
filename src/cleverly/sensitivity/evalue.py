@@ -137,7 +137,7 @@ def _default_estimand(result: TMLEResult) -> str:
     three bare names, which exist only on a two-armed fit -- there they are the only
     parameters with those stems and this is the rule it always followed.  With more arms
     the first contrast in report order stands in for the report as a whole, the same way
-    :meth:`~cleverly.sensitivity.api.SensitivityAnalysis.report` picks one.
+    :meth:`~cleverly.assessment.SensitivityFacade.evalue` picks one.
     """
     for stem in ("rr", "or", "ate"):
         for name in result.estimates:

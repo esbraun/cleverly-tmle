@@ -193,8 +193,8 @@ that product, so it makes the mechanism half of the guarantee harder to earn, no
 Positivity, likewise, now has two ways to fail.  Overlap in :math:`g` can look immaculate
 while :math:`q_z(a, W)` is near zero for a subpopulation -- and it is *asymmetric* in
 :math:`z`, since the covariate divides by :math:`q_z` for the level being targeted and by
-its complement at the other level.  ``res.sensitivity.positivity()`` reports the density
-actually used at each level, and ``res.sensitivity.truncation_curve(mechanism=True)``
+its complement at the other level.  ``res.diagnostics.support()`` reports the density
+actually used at each level, and ``res.diagnostics.truncation_curve(mechanism=True)``
 sweeps the bound applied to it.
 
 .. _cde-scope:

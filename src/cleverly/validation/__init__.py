@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from .api import ValidationSuite
 from .drtmle import (
     IDENTITY_TOLERANCE,
     MARGIN_ACTIVE,
@@ -13,7 +12,14 @@ from .drtmle import (
 from .nuisance import NuisanceDiagnostics, NuisanceModelReport, nuisance_diagnostics
 from .refute import DEFAULT_TESTS, RefutationResult, RefutationTest, refute
 from .score import DEFAULT_TOLERANCE, ScoreCheck, ScoreCheckRow, score_check
-from .simulation import CoverageStudy, EstimandSummary, StudyResult
+from .simulation import (
+    CoverageStudy,
+    EstimandSummary,
+    ReplicationFailure,
+    ReplicationRecord,
+    StudyResult,
+    summarize_replications,
+)
 
 __all__ = [
     "DEFAULT_TESTS",
@@ -28,12 +34,14 @@ __all__ = [
     "NuisanceModelReport",
     "RefutationResult",
     "RefutationTest",
+    "ReplicationFailure",
+    "ReplicationRecord",
     "ScoreCheck",
     "ScoreCheckRow",
     "StudyResult",
-    "ValidationSuite",
     "correction_check",
     "nuisance_diagnostics",
     "refute",
     "score_check",
+    "summarize_replications",
 ]

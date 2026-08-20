@@ -74,7 +74,7 @@ def truth():
 
 class TestTheScoreEquationsAreSolved:
     def test_the_check_passes_and_covers_both_halves(self, fit) -> None:
-        check = fit.validation.score_check()
+        check = fit.diagnostics.score_equations()
         assert check.passed, check.summary()
         kinds = {row.name for row in check.rows if row.kind == "fluctuation"}
         assert kinds == {"ipsi", "ipsi (mechanism)"}
@@ -253,7 +253,7 @@ class TestWhatTheTiltBuysUnderWeakOverlap:
         g = fit.nuisance.propensity.arm(1.0)
         assert g.min() < 0.02, "the process must actually have overlap trouble"
 
-        tilt = fit.sensitivity.incremental_support()["odds x2"]
+        tilt = fit.diagnostics.support()["odds x2"]
         assert tilt.max_ratio <= 2.0 + 1e-12
         assert tilt.ess_ratio > 0.5
 

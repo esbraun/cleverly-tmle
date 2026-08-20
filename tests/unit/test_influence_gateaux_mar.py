@@ -161,7 +161,7 @@ class TestTheInfluenceCurveIsTheEIF:
         np.testing.assert_allclose(ate, one - zero, atol=1e-12, rtol=0)
 
     def test_the_score_equation_is_solved(self, exact_fit) -> None:
-        assert exact_fit.validation.score_check().passed
+        assert exact_fit.diagnostics.score_equations().passed
 
 
 def _ey1_influence(

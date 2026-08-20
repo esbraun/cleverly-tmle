@@ -468,7 +468,7 @@ class TestTheFitAnswersTheLaw:
         # a regimen label comes back whole rather than cut at the cause's separator.
         assert set(law.REGIMEN_ARMS) <= set(curve["regimen"])
         assert {"always vs never", "continue_if_l2 vs never"} <= set(curve["regimen"])
-        assert "cause" in fit.diagnostics().columns
+        assert "cause" in fit.diagnostics.stagewise().to_frame().columns
 
     def test_the_incidences_sum_to_the_truth_here(self, fit: object) -> None:
         """With exact nuisances the causes *do* exhaust the mass, so the excess is zero.

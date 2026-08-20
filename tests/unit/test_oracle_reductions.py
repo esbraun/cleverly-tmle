@@ -297,10 +297,10 @@ class TestAFitWithOracleReductionsRecoversTheTruth:
         assert single.estimates[name].psi == pytest.approx(law.TRUTH[name], abs=1e-12)
 
     def test_all_three_scores_and_both_identities(self, fits) -> None:
-        check = fits["oracle"].validation.correction_check()
+        check = fits["oracle"].diagnostics.corrections()
 
         assert check.passed, check.summary()
-        assert fits["oracle"].validation.score_check().passed
+        assert fits["oracle"].diagnostics.score_equations().passed
         for row in check.rows:
             assert abs(row.residual) < 1e-15, row.name
 
@@ -336,10 +336,10 @@ class TestAWrongReductionMovesPsiAndNotTheScores:
         assert np.max(np.abs(glm.gr2 - oracle.gr2)) > 1e-3, "the glm reduction is not wrong here"
 
     def test_but_the_equations_are_still_solved(self, fits) -> None:
-        check = fits["glm"].validation.correction_check()
+        check = fits["glm"].diagnostics.corrections()
 
         assert check.passed, check.summary()
-        assert fits["glm"].validation.score_check().passed
+        assert fits["glm"].diagnostics.score_equations().passed
 
     def test_and_psi_is_biased_against_the_known_truth(self, fits) -> None:
         r"""The size of it, in standard errors, against a truth rather than against a fit.
@@ -376,12 +376,12 @@ class TestTheBivariateOracleReduction:
         self, bivariate_oracle: Any
     ) -> None:
         reduced = _reduced_of(bivariate_oracle)
-        correction = bivariate_oracle.validation.correction_check()
+        correction = bivariate_oracle.diagnostics.corrections()
 
         assert reduced.reduction == "bivariate"
         assert np.isnan(reduced.gr2).all()
         assert np.max(np.abs(reduced.gr1 - 0.5)) > 1e-3
         assert correction.passed, correction.summary()
-        assert bivariate_oracle.validation.score_check().passed
+        assert bivariate_oracle.diagnostics.score_equations().passed
         for row in correction.rows:
             assert abs(row.residual) < 1e-12, row.name

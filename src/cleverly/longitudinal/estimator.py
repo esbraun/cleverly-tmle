@@ -69,12 +69,17 @@ from typing import Any
 import numpy as np
 
 from .._typing import CumulativeGBounds, FloatArray, Learner
-from ..data.weighting import effective_sample_size
-from ..exceptions import CapabilityError, PositivityWarning
+from ..exceptions import PositivityWarning
 from ..inference.cluster import influence_covariance
-from ..inference.delta import delta_method
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
+from ..inference.results import (
+    estimate_covariance,
+    estimate_curves,
+    select_estimates,
+    smooth_contrast,
+    sole_estimate,
+)
 from ..learners.crossfit import Folds, make_folds, resolve_n_folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
@@ -220,29 +225,6 @@ def _fit_key(label: str, cause: str | None, horizon: int, survival: bool) -> str
     indexes its parameter.
     """
     return _index(label, cause, horizon, survival)
-
-
-def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
-    """What a regimen assigns at one node, as ``"active=0.62, none=0.38"``.
-
-    The categorical counterpart of ``share_assigned_1``, and written in the *labels*
-    rather than the dense codes for the reason every user-facing string in this package
-    is: a reader asked to translate ``2.0`` back to ``"none"`` has been handed the
-    encoding rather than the answer.  Every level appears, including one the regimen
-    never assigns, so the shares in a row sum to one and a zero is legible as "not this
-    arm" rather than as a level the fit forgot about.
-
-    Deliberately a string and not a column per level: the level sets are per node, so
-    numeric columns would be ragged across a frame whose rows are ``(regimen, time)``
-    pairs, and most of them empty.
-    """
-    if not assigned.size:
-        return ""
-    shares = (
-        f"{level}={float(np.mean(assigned == float(code))):.3g}"
-        for code, level in enumerate(levels)
-    )
-    return ", ".join(shares)
 
 
 def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> None:
@@ -401,10 +383,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: persistence writes this alongside the sequential artifacts it was computed from.
     assessment_cache: dict[str, Any] = field(default_factory=dict)
 
-    @property
-    def has_msm(self) -> bool:
-        return self.msm is not None
-
     # ------------------------------------------------------------- mapping API
 
     def __getitem__(self, name: str) -> ParameterEstimate:
@@ -426,12 +404,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     @property
     def estimate(self) -> ParameterEstimate:
         """The sole estimate, refusing ambiguity on a multi-parameter result."""
-        if len(self.estimates) != 1:
-            raise ValueError(
-                "this result contains multiple parameters; index the one you want from "
-                f"{list(self.estimates)}"
-            )
-        return next(iter(self.estimates.values()))
+        return sole_estimate(self.estimates)
 
     @property
     def n(self) -> int:
@@ -442,13 +415,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
-        return {name: estimate.influence_curve for name, estimate in self.estimates.items()}
+        return estimate_curves(self.estimates)
 
     def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
         """Joint covariance of the requested estimates, at the right independent unit."""
-        chosen = self._names(names)
-        curves = np.column_stack([self[name].influence_curve for name in chosen])
-        return influence_covariance(curves, cluster=self.data.cluster)
+        return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
     def contrast(
         self,
@@ -460,31 +431,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         gradient: Callable[[FloatArray], FloatArray] | None = None,
     ) -> ParameterEstimate:
         """A smooth function of several regimens, with the delta method on the joint curve."""
-        chosen = self._names(names)
-        value, curve = delta_method(
+        return smooth_contrast(
+            self.estimates,
             function,
-            [self[key].psi for key in chosen],
-            [self[key].influence_curve for key in chosen],
-            gradient=gradient,
-        )
-        return make_estimate(
-            name or f"contrast({', '.join(chosen)})",
-            value,
-            curve,
+            names,
             n=self.n,
             cluster=self.data.cluster,
-            scale=scale,
             alpha=self.config.alpha_sig,
+            name=name,
+            scale=scale,
+            gradient=gradient,
         )
 
     def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
-        chosen = tuple(self.estimates) if names is None else tuple(names)
-        if not chosen:
-            raise ValueError(f"no parameters selected; this fit reports {list(self)}")
-        missing = [key for key in chosen if key not in self.estimates]
-        if missing:
-            raise KeyError(f"unknown parameter(s) {missing}; this fit reports {list(self)}")
-        return chosen
+        return select_estimates(self.estimates, names)
 
     # ------------------------------------------------------------ diagnostics
 
@@ -492,99 +452,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     def converged(self) -> bool:
         """Whether every node's targeting step reached its tolerance."""
         return all(fit.converged for fit in self.fits.values())
-
-    def _legacy_diagnostics_frame(self) -> Any:
-        """A row per regimen and node: how much data it had, and how hard it leaned on it.
-
-        ``n_followed`` is the number of units that followed the regimen and stayed under
-        observation through the node -- the sample the regression there was fitted on.
-        ``max_weight`` and ``effective_n`` describe the cumulative clever covariate, which
-        is where sequential positivity shows up: they are properties of the *product* of
-        the node-by-node mechanisms and can be alarming while every node looks fine.  On a
-        weighted fit they describe ``w / prod g`` rather than ``1 / prod g``, because the
-        two reweightings multiply -- see
-        :attr:`~cleverly.longitudinal.sequential.RegimenFit.leverage`.  For the weighting's
-        own cost, and the estimand statement that goes with it, see
-        ``result.data.weight_report()``.
-
-        ``share_assigned_1`` is the fraction of the units at risk at that node whom the
-        regimen would treat.  For a static regimen it is exactly ``0`` or ``1``, so the
-        column doubles as a check on the plan the fit actually ran; for a dynamic rule it
-        is the number a reader needs, since what a rule assigns is a property of the data
-        rather than of the declaration and appears nowhere in the settings report.
-
-        **When any treatment node is categorical the column is** ``assigned_shares``
-        **instead**, holding ``"active=0.62, none=0.38"`` in that node's label order -- the
-        presentation :func:`~cleverly.estimators.base._arm_shares` uses for the same
-        question about a point treatment.  A single share cannot answer it at three arms:
-        "the fraction assigned arm 1" is the fraction assigned whichever label happens to
-        sort second, which is not a quantity anybody asked for, and a static plan on a
-        third arm would report ``0`` exactly as a plan on the first arm does.  A wholly
-        two-level panel keeps ``share_assigned_1`` and its values unchanged, so the switch
-        is visible in the columns rather than hidden in them.
-
-        ``share_truncated`` compares the raw and bounded cumulative probabilities on the
-        same ``trained_on`` rows as the node's score.  Unlike ``max_weight``, it reveals
-        when the configured cap replaced every contributing row.
-        """
-        survival = self.data.is_survival
-        competing = self.data.is_competing
-        # A working model's fluctuation is pooled across the cells, so ``epsilon`` is one
-        # vector of ``p`` shared by every regimen at a node rather than a number belonging
-        # to one of them.  A single ``epsilon`` column would print the first coefficient
-        # on every regimen's row and read as though each had its own -- silently wrong
-        # rather than absent -- so the column becomes one per term, identical down the
-        # regimens at a given time by construction.
-        terms = () if self.msm is None else self.msm.terms
-        epsilon_columns = ["epsilon"] if self.msm is None else [f"epsilon[{t}]" for t in terms]
-        # One column shape for the whole frame rather than one per row: the level sets are
-        # a property of the data, so whether a share is answerable by a single number is
-        # settled before any node is read.
-        categorical = any(len(levels) > 2 for levels in self.data.treatment_levels)
-        assigned_column = "assigned_shares" if categorical else "share_assigned_1"
-        rows: dict[str, list[Any]] = {
-            "regimen": [],
-            **({"cause": []} if competing else {}),
-            **({"horizon": []} if survival else {}),
-            "time": [],
-            "n_followed": [],
-            assigned_column: [],
-            "max_weight": [],
-            "effective_n": [],
-            "share_truncated": [],
-            **{column: [] for column in epsilon_columns},
-            "converged": [],
-        }
-        # Read off the fit's own fields rather than the key it is filed under: on a
-        # survival fit that key is the regimen *and* the horizon, and a ``regimen``
-        # column carrying both would be the one column here nobody could group by.
-        for fit in self.fits.values():
-            for step in fit.steps:
-                weights = (fit.obs_weights * step.clever)[step.trained_on]
-                assigned = fit.assignment[step.at_risk, step.time - 1]
-                rows["regimen"].append(fit.regimen.label)
-                if competing:
-                    rows["cause"].append(fit.cause)
-                if survival:
-                    rows["horizon"].append(fit.horizon)
-                rows["time"].append(step.time)
-                rows["n_followed"].append(step.n_trained)
-                rows[assigned_column].append(
-                    _assigned_shares(assigned, self.data.treatment_levels[step.time - 1])
-                    if categorical
-                    else (float(np.mean(assigned == 1.0)) if assigned.size else float("nan"))
-                )
-                rows["max_weight"].append(float(np.max(weights)) if weights.size else float("nan"))
-                rows["effective_n"].append(effective_sample_size(weights, on_degenerate=0.0))
-                raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
-                bounded = fit.cumulative[:, step.time - 1][step.trained_on]
-                rows["share_truncated"].append(
-                    float(np.mean(raw != bounded)) if raw.size else float("nan")
-                )
-                for column, name in enumerate(epsilon_columns):
-                    rows[name].append(float(step.fluctuation.epsilon[column]))
-                rows["converged"].append(bool(step.fluctuation.converged))
-        return self.data.frame_like(rows)
 
     @property
     def diagnostics(self) -> Any:
@@ -666,14 +533,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         from ..assessment import SensitivityFacade
 
         return SensitivityFacade(self)
-
-    @property
-    def validation(self) -> Any:
-        raise CapabilityError(
-            "result.validation was replaced by result.diagnostics and result.validate(); "
-            "the latter runs the inexpensive stagewise battery and the former exposes "
-            "score_equations(), nuisance_models(), support(), and explicit capabilities"
-        )
 
     def save(self, path: Any) -> Any:
         """Persist the complete fitted result to a trusted joblib artifact."""
@@ -1410,7 +1269,8 @@ class LTMLE:
             f"{details}. The fit solves the score built from the truncated weights; "
             "material truncation can trade reduced weight extremes for truncation bias and "
             "can make plug-in "
-            "influence-curve inference unreliable. Inspect res.diagnostics(), report "
+            "influence-curve inference unreliable. Inspect "
+            "res.diagnostics.stagewise().to_frame(), report "
             "the configured bounds, and refit the full backward recursion under "
             "substantively justified alternatives.",
             PositivityWarning,

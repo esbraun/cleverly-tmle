@@ -1,7 +1,7 @@
 """Task automation for cleverly.
 
-The sessions mirror CI. Statistical validation is manual; documentation examples are
-explanatory material and are not executed as tests.
+The sessions mirror CI. Statistical validation is manual; registered reader-facing
+documentation examples execute in the fast test tier.
 """
 
 from __future__ import annotations
@@ -12,15 +12,6 @@ nox.options.default_venv_backend = "uv|virtualenv"
 nox.options.sessions = ["lint", "typecheck", "tests"]
 
 PYTHONS = ["3.11", "3.12", "3.13"]
-
-
-#: Pinned exactly, and the same values as ``pyproject.toml``'s ``dev`` extra and
-#: ``.github/workflows/ci.yml``.  All three name the toolchain and all three have to move
-#: together: these sessions used to install ``ruff>=0.6`` and ``mypy>=1.11``, so
-#: ``nox -s lint`` resolved to whatever was current on PyPI and could pass against a
-#: formatter CI rejects -- which is the exact failure the pins exist to prevent.
-RUFF = "ruff==0.16.1"
-MYPY = "mypy==1.19.1"
 
 
 def _workers() -> str:
@@ -48,15 +39,15 @@ def _workers() -> str:
 
 @nox.session
 def lint(session: nox.Session) -> None:
-    session.install(RUFF)
+    session.install("-e", ".[dev]")
     session.run("ruff", "check", ".")
     session.run("ruff", "format", "--check", ".")
 
 
 @nox.session
 def typecheck(session: nox.Session) -> None:
-    session.install("-e", ".[all]", MYPY)
-    session.run("mypy", "src/cleverly")
+    session.install("-e", ".[dev]")
+    session.run("mypy")
 
 
 @nox.session

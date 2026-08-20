@@ -648,7 +648,7 @@ class TestWhereTheDesignsDifferTheConstructionsDo:
     def test_both_fits_still_solve_their_equations(self, pair: dict[str, Any]) -> None:
         """A construction that moved the arrays and broke the loop would prove nothing."""
         for fit in pair.values():
-            assert fit.validation.score_check().passed
+            assert fit.diagnostics.score_equations().passed
 
     def test_a_retarget_of_a_nested_fit_is_still_nested(self, pair: dict[str, Any]) -> None:
         r"""The sensitivity analyses re-enter the alternation, and must not fall back to pooled.

@@ -54,7 +54,7 @@ class TestTheFit:
         assert abs(estimate.psi - truth["ate"]) < 3.0 * estimate.std_error
 
     def test_it_solves_the_score_equation(self, fit) -> None:
-        check = fit.validation.score_check()
+        check = fit.diagnostics.score_equations()
         assert check.passed, check.summary()
 
     def test_the_ate_influence_curve_is_the_difference_of_the_means(self, fit) -> None:
@@ -84,13 +84,13 @@ class TestTheFit:
 
 class TestDownstreamMachineryStillWorks:
     def test_sensitivity_analyses_run_against_the_selected_model(self, fit) -> None:
-        report = fit.sensitivity.positivity()
+        report = fit.diagnostics.support()
         assert report is not None
-        curve = fit.sensitivity.truncation_curve()
+        curve = fit.diagnostics.truncation_curve()
         assert len(curve) > 0
 
     def test_the_nuisance_diagnostics_describe_the_selected_model(self, fit) -> None:
-        diagnostics = fit.validation.nuisance()
+        diagnostics = fit.diagnostics.nuisance_models()
         assert "propensity" in {model.name for model in diagnostics.models}
         assert diagnostics.summary()
         # Computed from the selected mechanism itself, not from a shared g(W) fit.
@@ -108,7 +108,7 @@ class TestDownstreamMachineryStillWorks:
         ordinary ``g(W)`` table, describing a model the estimate never used.  ``oat`` does
         have one shared fit, and the assertion below keeps the two paths distinguishable.
         """
-        report = fit.validation.nuisance()["propensity"]
+        report = fit.diagnostics.nuisance_models()["propensity"]
         assert report.learner_weights == {}
         assert report.learner_risks == {}
 
@@ -128,13 +128,13 @@ class TestDownstreamMachineryStillWorks:
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        report = oat.validation.nuisance()["propensity"]
+        report = oat.diagnostics.nuisance_models()["propensity"]
         assert report.learner_weights and report.learner_risks
 
     def test_refutation_runs(self, fit) -> None:
         # A placebo refit goes back through CTMLE._nuisances, so the selection is
         # redone on the permuted data rather than reused -- which is the point.
-        refutation = fit.validation.refute(tests=("placebo",), n_replicates=2, random_state=0)
+        refutation = fit.diagnostics.refute(tests=("placebo",), n_replicates=2, random_state=0)
         assert "placebo" in {test.name for test in refutation.tests}
 
     def test_the_summary_prints(self, fit) -> None:
@@ -213,7 +213,7 @@ class TestCombinedWithOtherOptions:
         self, variants, variant: str
     ) -> None:
         result = variants[variant]
-        assert result.validation.score_check().passed
+        assert result.diagnostics.score_equations().passed
         assert "ctmle" in result.extra
 
     def test_fold_targeted_composition_is_refused(self) -> None:
@@ -235,7 +235,7 @@ class TestCombinedWithOtherOptions:
             .single()
         )
         assert result.nuisance.missingness is not None
-        assert result.validation.score_check().passed
+        assert result.diagnostics.score_equations().passed
 
     def test_the_bootstrap_repeats_the_selection(self, frame_and_truth) -> None:
         # The influence-curve standard error treats the selected propensity model as

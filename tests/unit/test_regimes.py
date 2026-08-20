@@ -97,7 +97,7 @@ class TestARuleIsEstimated:
         assert "ate" not in result.estimates
 
     def test_targeting_solved_the_score_equation(self, result) -> None:
-        assert result.validation.score_check().passed
+        assert result.diagnostics.score_equations().passed
 
     def test_the_contrast_is_the_difference_of_the_means(self, result) -> None:
         difference = result["ey_regime[treat if W1 > 0]"].psi - result["ey_regime[never]"].psi
@@ -186,17 +186,18 @@ class TestTheRegimesTravelWithTheFit:
         )
 
     def test_support_is_reported_per_regime(self, result) -> None:
-        report = result.sensitivity.support()
+        report = result.diagnostics.support()
         assert set(report.regimes) == {"never", "rule"}
         assert report.regimes["rule"].min_support_propensity > 0.0
         assert "rule" in report.summary()
 
-    def test_support_is_refused_on_an_arm_fit(self, frame) -> None:
-        with pytest.raises(ValueError, match="declared none"):
-            fit(frame).sensitivity.support()
+    def test_support_dispatches_to_arm_overlap_on_an_arm_fit(self, frame) -> None:
+        report = fit(frame).diagnostics.support()
+        assert report.n == len(frame)
+        assert report.propensity_quantiles
 
     def test_a_truncation_sweep_retargets_the_same_regimes(self, result) -> None:
-        curve = result.sensitivity.truncation_curve([0.01, 0.05])
+        curve = result.diagnostics.truncation_curve([0.01, 0.05])
         names = {str(value) for value in curve["estimand"]}
         assert names == set(result.estimates)
 
@@ -213,7 +214,7 @@ class TestTheRegimesTravelWithTheFit:
         np.testing.assert_array_equal(
             loaded.nuisance.regimes.values, result.nuisance.regimes.values
         )
-        assert loaded.sensitivity.support().regimes.keys() == {"never", "rule"}
+        assert loaded.diagnostics.support().regimes.keys() == {"never", "rule"}
 
     def test_an_importable_rule_survives_whole_result_persistence(self, result) -> None:
         restored = loads(dumps(result))

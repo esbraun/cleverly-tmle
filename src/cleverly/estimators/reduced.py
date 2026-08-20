@@ -111,6 +111,24 @@ REDUCED_CROSSFITS = ("pooled", "nested")
 ReducedFamily = Literal["qr", "gr1", "gr2"]
 
 
+@dataclass(frozen=True)
+class ReducedFamilySpec:
+    """Declarative learner and sampling contract for one reduced regression."""
+
+    name: ReducedFamily
+    learner: Literal["outcome", "treatment"]
+    task: Task
+    clip: tuple[float, float] | None
+    observed_arm_only: bool = False
+
+
+REDUCED_FAMILY_SPECS: tuple[ReducedFamilySpec, ...] = (
+    ReducedFamilySpec("qr", "outcome", "regression", None, observed_arm_only=True),
+    ReducedFamilySpec("gr1", "treatment", "classification", (0.0, 1.0)),
+    ReducedFamilySpec("gr2", "outcome", "regression", None),
+)
+
+
 def _replace_families(base: ReducedSet, fresh: dict[ReducedFamily, FloatArray]) -> ReducedSet:
     """Carry omitted families without hiding their types behind dynamic keywords."""
     return replace(
@@ -515,7 +533,7 @@ def fit_reduced(
     array *is* a regression of that quotient.  The fit's own declared ``g_bounds`` is
     what it divides by, and it is recorded on :attr:`ReducedSet.g_bounds`.  The
     consequence has to be said where a reader meets it rather than discovered:
-    :meth:`~cleverly.sensitivity.SensitivityAnalysis.truncation_curve` moves the clever
+    :meth:`~cleverly.assessment.DiagnosticsFacade.truncation_curve` moves the clever
     covariate's denominator and **does not** move these arrays, so the part of the curve
     that comes from the extra equations is flat by construction.  Flat-by-construction
     reads as insensitivity rather than as a limitation, which is exactly the mistake
@@ -636,11 +654,11 @@ def fit_reduced(
         #
         # gr2: the mechanism residual in inverse-probability form, on Qbar-hat.  Signed,
         # so no clip; and its target is the one quotient formed at fit time.
-        all_roles: tuple[tuple[str, Learner, Task, tuple[float, float] | None], ...] = (
-            ("qr", regression_learner, "regression", None),
-            ("gr1", classification_learner, "classification", (0.0, 1.0)),
-        ) + (() if reduction == "bivariate" else (("gr2", regression_learner, "regression", None),))
-        roles = tuple(role for role in all_roles if role[0] in names)
+        specs = tuple(
+            spec
+            for spec in REDUCED_FAMILY_SPECS
+            if spec.name in names and not (spec.name == "gr2" and reduction == "bivariate")
+        )
         elsewhere = (
             None
             if companion is None
@@ -651,10 +669,14 @@ def fit_reduced(
                 for fold in range(companion.n_folds)
             ]
         )
-        for name, learner, task, clip in roles:
+        for spec in specs:
+            name = spec.name
+            learner = regression_learner if spec.learner == "outcome" else classification_learner
             design, target = production[name]
             fit_mask = (
-                (indicator == 1.0) & np.asarray(data.observed, dtype=bool) if name == "qr" else None
+                (indicator == 1.0) & np.asarray(data.observed, dtype=bool)
+                if spec.observed_arm_only
+                else None
             )
             values, at_companion = _reduced_column(
                 learner,
@@ -665,8 +687,8 @@ def fit_reduced(
                 fit_mask=fit_mask,
                 data=data,
                 nuisance=nuisance,
-                task=task,
-                clip=clip,
+                task=spec.task,
+                clip=spec.clip,
                 n_jobs=n_jobs,
                 diagnostics=diagnostics[name],
             )

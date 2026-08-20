@@ -112,8 +112,8 @@ def pinched_observation_fit():
 
 
 def test_randomized_missing_outcomes_solve_the_reported_equations(randomized_fit) -> None:
-    assert randomized_fit.validation.score_check().passed
-    check = randomized_fit.validation.correction_check()
+    assert randomized_fit.diagnostics.score_equations().passed
+    check = randomized_fit.diagnostics.corrections()
     assert check.passed
     assert {row.equation for row in check.rows} == {"D*_A", "D*_M", "D*_Y"}
     assert len(check.rows) == 6
@@ -179,17 +179,17 @@ def test_the_five_reductions_and_observation_tilt_survive_serialization(
     for name in ("gamma_a", "gamma_m", "r_a", "r_m", "e"):
         np.testing.assert_array_equal(getattr(after.reduced, name), getattr(before.reduced, name))
     np.testing.assert_array_equal(after.observation.propensity, before.observation.propensity)
-    assert restored.validation.score_check() == randomized_fit.validation.score_check()
+    assert restored.diagnostics.score_equations() == randomized_fit.diagnostics.score_equations()
     # The truncation columns read `nuisance.missingness` and `reduction.missingness_bound`,
     # both of which are persisted -- so a reloaded fit must report the same contract as the
     # fit it came from, rather than one measured on whatever survived the round trip.
-    assert restored.validation.correction_check().rows == (
-        randomized_fit.validation.correction_check().rows
+    assert restored.diagnostics.corrections().rows == (
+        randomized_fit.diagnostics.corrections().rows
     )
 
 
 def test_the_report_shows_the_product_the_covariate_divides_by(randomized_fit) -> None:
-    mechanisms = randomized_fit.sensitivity.positivity().mechanisms
+    mechanisms = randomized_fit.diagnostics.support().mechanisms
     joint = randomized_fit.nuisance.propensity.values * randomized_fit.nuisance.missingness
     assert mechanisms["P(A=a,Delta=1|W)"]["min"] == pytest.approx(float(joint.min()))
     assert mechanisms["P(A=a,Delta=1|W)"]["min"] < mechanisms["P(Delta=1|A,W)"]["min"]
@@ -198,7 +198,7 @@ def test_the_report_shows_the_product_the_covariate_divides_by(randomized_fit) -
 def test_treatment_truncation_sweep_counts_only_the_treatment_mechanism(randomized_fit) -> None:
     propensity = randomized_fit.nuisance.propensity.values
     bound = 0.1
-    curve = randomized_fit.sensitivity.truncation_curve(bounds=[bound])
+    curve = randomized_fit.diagnostics.truncation_curve(bounds=[bound])
     reported = float(np.asarray(curve["truncated_fraction"])[0])
     assert reported == pytest.approx(float(np.mean((propensity < bound) | (propensity > 0.9))))
 
@@ -209,7 +209,7 @@ def test_observation_truncation_sweep_refits_at_and_counts_the_selected_bound(
     missingness = randomized_fit.nuisance.missingness
     assert missingness is not None
     bound = 0.2
-    curve = randomized_fit.sensitivity.truncation_curve(bounds=[bound], mechanism=True)
+    curve = randomized_fit.diagnostics.truncation_curve(bounds=[bound], mechanism=True)
     reported = float(np.asarray(curve["truncated_fraction"])[0])
     assert reported == pytest.approx(float(np.mean(missingness < bound)))
 
@@ -316,7 +316,7 @@ def test_known_probabilities_bypass_the_treatment_learner() -> None:
         treatment_probabilities=np.full(len(frame), 0.5),
     ).single()
     np.testing.assert_array_equal(result.nuisance.propensity.values, np.full((len(frame), 2), 0.5))
-    assert result.validation.score_check().passed
+    assert result.diagnostics.score_equations().passed
 
 
 def test_two_dimensional_known_probabilities_are_copied() -> None:
@@ -357,8 +357,8 @@ def test_known_probabilities_survive_whole_result_persistence(tmp_path) -> None:
     path = tmp_path / "known-probabilities.cleverly"
     result.save(path)
     restored = load(path)
-    assert restored.validation.score_check() == result.validation.score_check()
-    curve = restored.sensitivity.truncation_curve(bounds=[0.05])
+    assert restored.diagnostics.score_equations() == result.diagnostics.score_equations()
+    curve = restored.diagnostics.truncation_curve(bounds=[0.05])
     assert len(curve) == len(result.estimates)
     refitted = restored.estimator.refit(restored.data)
     np.testing.assert_array_equal(
@@ -484,8 +484,8 @@ def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:
 
     np.testing.assert_array_equal(result.nuisance.propensity.values, np.full((len(frame), 2), 0.5))
     assert result.extra["drtmle"].guard == ()
-    assert result.validation.correction_check().contract == "none"
-    assert result.validation.score_check().passed
+    assert result.diagnostics.corrections().contract == "none"
+    assert result.diagnostics.score_equations().passed
 
 
 def test_known_probabilities_without_delta_are_still_refused() -> None:
@@ -620,7 +620,7 @@ class TestTheContractSeesTheObservationTruncations:
     """
 
     def test_a_well_behaved_trial_is_still_the_theorems_estimator(self, randomized_fit) -> None:
-        check = randomized_fit.validation.correction_check()
+        check = randomized_fit.diagnostics.corrections()
 
         assert check.contract == "theorem"
         assert check.truncations_active == ()
@@ -629,7 +629,7 @@ class TestTheContractSeesTheObservationTruncations:
 
     def test_a_pinched_observation_mechanism_is_bound_active(self, pinched_observation_fit) -> None:
         """The nonzero witness. Both observation truncations bite, and the label says so."""
-        check = pinched_observation_fit.validation.correction_check()
+        check = pinched_observation_fit.diagnostics.corrections()
 
         assert check.observation_clip_share > 0.05
         assert check.observation_margin <= MARGIN_ACTIVE
@@ -651,7 +651,7 @@ class TestTheContractSeesTheObservationTruncations:
         the assertions above red, and this test is also what forbids the fixture from
         drifting into a state where some other truncation is doing the work.
         """
-        check = pinched_observation_fit.validation.correction_check()
+        check = pinched_observation_fit.diagnostics.corrections()
 
         assert check.initial_clip_share == 0.0
         assert check.margin > MARGIN_ACTIVE
@@ -659,17 +659,17 @@ class TestTheContractSeesTheObservationTruncations:
 
     def test_bound_active_is_a_scope_label_here_too(self, pinched_observation_fit) -> None:
         """A pinched fit is outside Theorem 1, not broken -- as on the complete-data path."""
-        check = pinched_observation_fit.validation.correction_check()
+        check = pinched_observation_fit.diagnostics.corrections()
 
         assert check.passed
         assert check.identity_failures() == ()
         assert check.correction_failures() == ()
-        assert pinched_observation_fit.validation.score_check().passed
+        assert pinched_observation_fit.diagnostics.score_equations().passed
 
     def test_the_two_new_columns_are_on_the_face_of_the_check(
         self, pinched_observation_fit
     ) -> None:
-        check = pinched_observation_fit.validation.correction_check()
+        check = pinched_observation_fit.diagnostics.corrections()
         frame = check.to_frame()
         summary = check.summary()
 
@@ -698,7 +698,7 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
         g_lower, g_upper = pinched_observation_fit.config.g_bounds
         m_lower = pinched_observation_fit.config.missingness_bound
         altered = (treatment < g_lower) | (treatment > g_upper) | (observation < m_lower)
-        stats = pinched_observation_fit.sensitivity.positivity().mechanisms["P(A=a,Delta=1|W)"]
+        stats = pinched_observation_fit.diagnostics.support().mechanisms["P(A=a,Delta=1|W)"]
 
         assert altered.sum() > 0, "the fixture's precondition: the truncation must bite"
         assert stats["clipped"] == pytest.approx(float(altered.sum()))
@@ -728,7 +728,7 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
 
         weights = 1.0 / used
         expected = (weights.sum() ** 2 / np.square(weights).sum()) / float(used.size)
-        stats = pinched_observation_fit.sensitivity.positivity().mechanisms["P(A=a,Delta=1|W)"]
+        stats = pinched_observation_fit.diagnostics.support().mechanisms["P(A=a,Delta=1|W)"]
 
         assert stats["ess_ratio"] == pytest.approx(expected)
 
@@ -744,7 +744,7 @@ class TestTheJointRowCountsTheTruncationTheEstimatorApplies:
 
     def test_it_names_both_bounds_it_was_truncated_at(self, pinched_observation_fit) -> None:
         """Every other row has one bound; quoting it here named one the row never met."""
-        report = pinched_observation_fit.sensitivity.positivity()
+        report = pinched_observation_fit.diagnostics.support()
         text = report.summary() + report.verdict()
 
         assert "P(A=a,Delta=1|W) truncated to" in text

@@ -184,7 +184,7 @@ class TestTheScoreEquation:
             .fit(_three_arm_frame(), outcome="Y", treatment="A")
             .single()
         )
-        check = result.validation.score_check()
+        check = result.diagnostics.score_equations()
         assert check.passed
         assert len(result.fluctuations["mean"].score) == 3
 
@@ -287,7 +287,7 @@ class TestTruncation:
             .fit(_three_arm_frame(), outcome="Y", treatment="A")
             .single()
         )
-        report = result.sensitivity.positivity()
+        report = result.diagnostics.support()
         assert report.simplex_deviation > 0.0
         # The plug-in is an average of targeted predictions and contains no mechanism, so
         # a bound that binds this hard still leaves the estimates finite and ordered.

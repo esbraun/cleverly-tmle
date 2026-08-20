@@ -60,7 +60,7 @@ margins that sum to something other than one (measured: `0.9975` on the three-ar
 fixture). That is what `drtmle` does too, and it is licensed by the score equations rather
 than by the mechanism still being a conditional distribution. The initial categorical
 mechanism *is* compatible and sums to one, using cleverly's existing multiclass learner
-path; `sensitivity.positivity()` reports how far the targeted rows depart from it.
+path; `diagnostics.support()` reports how far the targeted rows depart from it.
 
 **Two arms keep their own route, which is not the armwise one.** `drtmle` fluctuates both
 margins independently even at `K = 2`; cleverly instead tilts `g_1` alone along a
@@ -622,7 +622,7 @@ takes more rounds. And **neither construction makes the targeted collection fold
 On the univariate construction, `g_{r,2}`'s bound is fixed at **fit** time — the only bound in
 the package chosen at fit time
 rather than at targeting time — because the array *is* a regression of a quotient by the mechanism.
-Two consequences a reader will otherwise trip on. `SensitivityAnalysis.truncation_curve` moves the
+Two consequences a reader will otherwise trip on. `DiagnosticsFacade.truncation_curve` moves the
 clever covariate's denominator and does **not** move these arrays, so that part of the curve is
 flat *by construction*; `ReducedSet.g_bounds` is on record so a reader of such a curve can find out
 the sweep never reached them. And `gr1` is stored **untruncated** and bounded at read time through
@@ -686,7 +686,7 @@ In cost order. The first two are free.
 | `res.score_verdict` | the score check's verdict, carried whether it passed or not. `summary()` prints it whenever it **fails**; a passing fit says nothing extra. Derived from the fluctuations rather than stored, so a reloaded fit recomputes it. |
 | `res.diagnostics.score_equations()` | the same score object, asked for directly |
 | `res.validate()` | the default assessment; reports `warning` when equation (10) had numerically difficult inner solves even if the returned score equations pass, with the affected round count and fraction |
-| `res.validation.correction_check()` | the low-level doubly-robust rows: per arm, per equation. Empty unless the fit is a guarded `DRTMLE`. |
+| `res.diagnostics.corrections()` | the low-level doubly-robust rows: per arm, per equation. Empty unless the fit is a guarded `DRTMLE`. |
 | `res.diagnostics.nuisance_models()` | the primary fits' held-out risk and diagnostics |
 | `res.diagnostics.refute()` | negative controls; costs refits |
 

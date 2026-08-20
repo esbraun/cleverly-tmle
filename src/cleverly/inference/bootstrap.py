@@ -187,7 +187,7 @@ def run_bootstrap(
     if not successes:
         raise RuntimeError(
             f"all {n_replicates} bootstrap replicates failed; the fit is too unstable to "
-            "bootstrap. Check res.sensitivity.positivity() and consider tighter g_bounds."
+            "bootstrap. Check res.diagnostics.support() and consider tighter g_bounds."
         )
     if n_failed:
         warnings.warn(

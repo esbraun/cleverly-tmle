@@ -9,21 +9,27 @@ scalar result family, including deliberate refusals.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import cached_property
 from typing import Any, Literal
 
 import numpy as np
 
+from ._typing import FloatArray
 from .data.weighting import effective_sample_size
 from .exceptions import CapabilityError
 from .utils.frames import emit_frame
 from .utils.text import format_table
+from .validation.drtmle import IDENTITY_TOLERANCE
+from .validation.score import DEFAULT_TOLERANCE
 
 __all__ = [
     "ASSESSMENT_CAPABILITIES",
+    "SENSITIVITY_ROUTES",
     "AssessmentCapability",
     "AssessmentItem",
     "AssessmentStatus",
@@ -34,6 +40,7 @@ __all__ = [
     "LongitudinalScoreDiagnostics",
     "Replayability",
     "SensitivityFacade",
+    "SensitivityRoute",
     "ValidationReport",
     "assessment_capabilities",
     "replayability",
@@ -125,6 +132,20 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation="the score equations the selected method actually solved",
     ),
     _capability(
+        "corrections",
+        "point",
+        artifacts=("doubly-robust correction state",),
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        "point",
+        artifacts=("fitted nuisance predictions", "targeting state"),
+        execution="retarget",
+        cost="moderate",
+        interpretation="estimate stability across declared mechanism bounds",
+    ),
+    _capability(
         "refute",
         "point",
         artifacts=("fitted estimator configuration", "analysis data"),
@@ -161,6 +182,29 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation="one targeting score and convergence record per regimen and node",
     ),
     _capability(
+        "corrections",
+        "longitudinal",
+        artifacts=(),
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        reason="longitudinal targeting does not use the point-treatment correction system",
+        interpretation="the correction identities solved by guarded doubly-robust targeting",
+    ),
+    _capability(
+        "truncation_curve",
+        "longitudinal",
+        artifacts=("sequential nuisance predictions",),
+        execution="refit",
+        cost="expensive",
+        available=False,
+        status=AssessmentStatus.UNAVAILABLE,
+        reason=(
+            "changing a sequential bound changes every earlier pseudo-outcome and requires "
+            "a full refit"
+        ),
+        interpretation="estimate stability across declared mechanism bounds",
+    ),
+    _capability(
         "refute",
         "longitudinal",
         artifacts=("fitted sequential estimator configuration",),
@@ -179,6 +223,46 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation="risk sets, assignment, leverage, truncation, and convergence by node",
     ),
 )
+
+
+@dataclass(frozen=True)
+class SensitivityRoute:
+    """Where one sensitivity operation is implemented, and how its estimand is supplied.
+
+    ``needs_estimand`` is a property of the target's *signature*, not of the operation's
+    name: the four omitted-variable analyses and :func:`tipping_gamma` all take
+    ``estimand`` as their second positional argument, so the facade can fill it in for a
+    fit that reports no bare ``"ate"``.  ``benchmark`` and ``missingness`` take
+    ``covariates`` and ``gamma`` there, and ``evalue`` selects for itself from a ``None``
+    sentinel -- injecting a name into any of those would silently pass it as something
+    else.
+    """
+
+    module: str
+    function: str
+    needs_estimand: bool = False
+
+
+#: Data for the same reason ``ASSESSMENT_CAPABILITIES`` is, and paired with it by a contract
+#: test in both directions: every declared sensitivity capability has a route, and every
+#: route is declared.  The alternative -- a ``module``/``function`` pair passed by each
+#: method plus an ``operation in {...}`` set inside the dispatcher -- is a second registry
+#: that no test can see, and it is how ``tipping_gamma`` came to be the one operation of its
+#: signature shape that did not get a default estimand.
+SENSITIVITY_ROUTES: dict[str, SensitivityRoute] = {
+    "omitted_confounding": SensitivityRoute(
+        "omitted_variable", "omitted_variable_bounds", needs_estimand=True
+    ),
+    "robustness_value": SensitivityRoute(
+        "omitted_variable", "robustness_value", needs_estimand=True
+    ),
+    "elements": SensitivityRoute("omitted_variable", "sensitivity_elements", needs_estimand=True),
+    "benchmark": SensitivityRoute("omitted_variable", "benchmark"),
+    "contour": SensitivityRoute("omitted_variable", "contour_data", needs_estimand=True),
+    "evalue": SensitivityRoute("evalue", "evalue"),
+    "missingness": SensitivityRoute("missingness", "missingness_tilt"),
+    "tipping_gamma": SensitivityRoute("missingness", "tipping_gamma", needs_estimand=True),
+}
 
 
 def _family(result: Any) -> str:
@@ -212,7 +296,13 @@ class DiagnosticReport:
     """The status of each requested diagnostic, including deliberate omissions."""
 
     items: tuple[AssessmentItem, ...]
+    #: The two cost classes a caller can opt into, declared separately because they are
+    #: disjoint: ``refute`` and ``benchmark`` refit nuisances without retargeting, and
+    #: ``truncation_curve``, ``missingness`` and ``tipping_gamma`` retarget cached
+    #: nuisances without refitting any.  Folding them into one flag made whichever class
+    #: it did not name a silent rider on the other.
     include_refits: bool = False
+    include_retargets: bool = False
     backend: str | None = None
 
     def __getitem__(self, name: str) -> AssessmentItem:
@@ -410,7 +500,38 @@ class LongitudinalStageRow:
 
 @dataclass(frozen=True)
 class LongitudinalDiagnostics:
-    """The existing longitudinal diagnostic arithmetic in an immutable report."""
+    """A row per regimen and node: how much data it had, and how hard it leaned on it.
+
+    ``n_followed`` is the number of units that followed the regimen and stayed under
+    observation through the node -- the sample the regression there was fitted on.
+    ``max_weight`` and ``effective_n`` describe the cumulative clever covariate, which is
+    where sequential positivity shows up: they are properties of the *product* of the
+    node-by-node mechanisms and can be alarming while every node looks fine.  On a weighted
+    fit they describe ``w / prod g`` rather than ``1 / prod g``, because the two
+    reweightings multiply -- see
+    :attr:`~cleverly.longitudinal.sequential.RegimenFit.leverage`.  For the weighting's own
+    cost, and the estimand statement that goes with it, see ``result.data.weight_report()``.
+
+    ``share_assigned_1`` is the fraction of the units at risk at that node whom the regimen
+    would treat.  For a static regimen it is exactly ``0`` or ``1``, so the column doubles
+    as a check on the plan the fit actually ran; for a dynamic rule it is the number a
+    reader needs, since what a rule assigns is a property of the data rather than of the
+    declaration and appears nowhere in the settings report.
+
+    **When any treatment node is categorical the column is** ``assigned_shares``
+    **instead**, holding ``"active=0.62, none=0.38"`` in that node's label order -- the
+    presentation :func:`~cleverly.estimators.base._arm_shares` uses for the same question
+    about a point treatment.  A single share cannot answer it at three arms: "the fraction
+    assigned arm 1" is the fraction assigned whichever label happens to sort second, which
+    is not a quantity anybody asked for, and a static plan on a third arm would report ``0``
+    exactly as a plan on the first arm does.  A wholly two-level panel keeps
+    ``share_assigned_1`` and its values unchanged, so the switch is visible in the columns
+    rather than hidden in them.
+
+    ``share_truncated`` compares the raw and bounded cumulative probabilities on the same
+    ``trained_on`` rows as the node's score.  Unlike ``max_weight``, it reveals when the
+    configured cap replaced every contributing row.
+    """
 
     rows: tuple[LongitudinalStageRow, ...]
     epsilon_names: tuple[str, ...]
@@ -440,6 +561,16 @@ class LongitudinalDiagnostics:
 
 @dataclass(frozen=True)
 class LongitudinalScoreRow:
+    """One node's targeting score, and the verdict two separate gates reach about it.
+
+    ``converged`` is the fit's own flag: whether that node's Newton step settled against
+    the targeting tolerance it was configured with.  ``passed`` additionally holds the
+    node's ``relative_score`` to the tolerance the *caller* asked for.  They are kept apart
+    because they can disagree, and because only their conjunction is safe -- a caller
+    tolerance may tighten the verdict and may never license a fluctuation whose step
+    failed.
+    """
+
     regimen: str
     cause: str | None
     horizon: int | None
@@ -447,18 +578,30 @@ class LongitudinalScoreRow:
     score: float
     relative_score: float
     converged: bool
+    passed: bool
     n_iter: int
     failure: str | None
 
 
 @dataclass(frozen=True)
 class LongitudinalScoreDiagnostics:
+    """Stagewise targeting scores, gated at the tolerance they were asked for.
+
+    ``tolerance`` bounds each node's *relative* score -- the largest score component as a
+    fraction of its maximum possible magnitude, which is the quantity the sequential
+    targeting loop itself gates on.  The point-treatment report answers the same question
+    on a different scale, comparing the score in the outcome's own units against
+    ``tolerance * se / sqrt(n)``; see :data:`~cleverly.validation.score.DEFAULT_TOLERANCE`.
+    The number is carried here so a report says which gate produced its verdict.
+    """
+
     rows: tuple[LongitudinalScoreRow, ...]
+    tolerance: float
     backend: str | None = None
 
     @property
     def passed(self) -> bool:
-        return all(row.converged for row in self.rows)
+        return all(row.passed for row in self.rows)
 
     def to_frame(self, data: Any = None) -> Any:
         return emit_frame(
@@ -470,6 +613,7 @@ class LongitudinalScoreDiagnostics:
                 "score": [row.score for row in self.rows],
                 "relative_score": [row.relative_score for row in self.rows],
                 "converged": [row.converged for row in self.rows],
+                "passed": [row.passed for row in self.rows],
                 "n_iter": [row.n_iter for row in self.rows],
                 "failure": [row.failure for row in self.rows],
             },
@@ -510,23 +654,48 @@ class LongitudinalNuisanceDiagnostics:
         )
 
 
+def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
+    """What a regimen assigns at one node, as ``"active=0.62, none=0.38"``.
+
+    The categorical counterpart of ``share_assigned_1``, and written in the *labels* rather
+    than the dense codes for the reason every user-facing string in this package is: a
+    reader asked to translate ``2.0`` back to ``"none"`` has been handed the encoding rather
+    than the answer.  Every level appears, including one the regimen never assigns, so the
+    shares in a row sum to one and a zero is legible as "not this arm" rather than as a
+    level the fit forgot about.
+
+    Deliberately a string and not a column per level: the level sets are per node, so
+    numeric columns would be ragged across a frame whose rows are ``(regimen, time)`` pairs,
+    and most of them empty.
+    """
+    if not assigned.size:
+        return ""
+    return ", ".join(
+        f"{level}={float(np.mean(assigned == float(code))):.3g}"
+        for code, level in enumerate(levels)
+    )
+
+
 def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     terms = () if result.msm is None else result.msm.terms
     epsilon_names = ("epsilon",) if result.msm is None else tuple(f"epsilon[{t}]" for t in terms)
+    # One column shape for the whole frame rather than one per row: the level sets are a
+    # property of the data, so whether a share is answerable by a single number is settled
+    # before any node is read.
     categorical = any(len(levels) > 2 for levels in result.data.treatment_levels)
     rows = []
+    # Read off the fit's own fields rather than the key it is filed under: on a survival fit
+    # that key is the regimen *and* the horizon, and a ``regimen`` column carrying both would
+    # be the one column here nobody could group by.
     for fit in result.fits.values():
         for step in fit.steps:
             weights = (fit.obs_weights * step.clever)[step.trained_on]
             assigned = fit.assignment[step.at_risk, step.time - 1]
-            if categorical:
-                levels = result.data.treatment_levels[step.time - 1]
-                assignment: float | str = ", ".join(
-                    f"{level}={float(np.mean(assigned == float(code))):.3g}"
-                    for code, level in enumerate(levels)
-                )
-            else:
-                assignment = float(np.mean(assigned == 1.0)) if assigned.size else float("nan")
+            assignment: float | str = (
+                _assigned_shares(assigned, result.data.treatment_levels[step.time - 1])
+                if categorical
+                else (float(np.mean(assigned == 1.0)) if assigned.size else float("nan"))
+            )
             raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
             bounded = fit.cumulative[:, step.time - 1][step.trained_on]
             rows.append(
@@ -554,11 +723,22 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     )
 
 
-def _longitudinal_scores(result: Any) -> LongitudinalScoreDiagnostics:
+def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreDiagnostics:
+    """Every node's targeting score, gated at ``tolerance`` on the relative scale.
+
+    The gate is a *conjunction*, and deliberately so.  Sequential targeting settles against
+    its own ``tol`` -- ``1e-10``, far tighter than the default asked for here -- so requiring
+    ``converged`` as well leaves the default verdict exactly what it was while letting a
+    caller tighten it.  Gating on the relative score alone would do the opposite: a node
+    whose Newton step failed but whose residual score happens to sit under a loose tolerance
+    would be reported as passing, which is the one answer this diagnostic must never give.
+    """
     rows = []
     for fit in result.fits.values():
         for step in fit.steps:
             fluctuation = step.fluctuation
+            relative = float(fluctuation.relative_score_norm)
+            converged = bool(fluctuation.converged)
             rows.append(
                 LongitudinalScoreRow(
                     fit.regimen.label,
@@ -566,13 +746,14 @@ def _longitudinal_scores(result: Any) -> LongitudinalScoreDiagnostics:
                     fit.horizon if result.data.is_survival else None,
                     step.time,
                     float(result.scaler.range * fluctuation.score_norm),
-                    float(fluctuation.relative_score_norm),
-                    bool(fluctuation.converged),
+                    relative,
+                    converged,
+                    converged and relative <= tolerance,
                     int(fluctuation.n_iter),
                     fluctuation.failure,
                 )
             )
-    return LongitudinalScoreDiagnostics(tuple(rows), result.data.backend)
+    return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
 
 
 def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
@@ -594,27 +775,151 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
     return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend)
 
 
-class DiagnosticsFacade:
-    """Unified diagnostics for point and longitudinal causal results."""
+class _CapabilityFacade:
+    """Lookup, refusal, and combined-report machinery shared by both public facades.
+
+    The two facades answer different questions from different declarations, but the way
+    they *route* a question is one algorithm: find the operation's row, refuse by that row
+    when it is unavailable, and in a combined report skip what the caller has not paid for.
+    Written twice, it drifted five ways -- the availability and cost checks in opposite
+    orders, two spellings of the cost gate, one refusal that re-derived a reason the record
+    already carried, different caught-exception sets, and one side that discarded what its
+    operations returned and so could only ever report ``passed``.  Subclasses supply
+    :attr:`capabilities` and the two labels below; everything else is settled here.
+    """
+
+    #: What an operation of this kind is called in a refusal: ``diagnostic 'refute' is ...``.
+    _kind: str
+    #: The attribute a caller reaches it through, for the ``next_steps`` of a skipped row.
+    _attribute: str
 
     def __init__(self, result: Any) -> None:
         self._result = result
 
     @property
     def capabilities(self) -> tuple[AssessmentCapability, ...]:
-        return assessment_capabilities(self._result)
+        raise NotImplementedError  # pragma: no cover - subclasses declare their own
 
     def capability(self, operation: str) -> AssessmentCapability:
         for item in self.capabilities:
             if item.operation == operation:
                 return item
-        raise KeyError(f"unknown diagnostic {operation!r}")
+        raise KeyError(f"unknown {self._kind} {operation!r}")
 
     def _require(self, operation: str) -> AssessmentCapability:
         item = self.capability(operation)
         if not item.available:
-            raise CapabilityError(f"diagnostic {operation!r} is {item.status.value}: {item.reason}")
+            # ``reason`` first, and ``interpretation`` only as a fallback: the record knows
+            # why *this* operation is refused, and re-deriving one from the result family
+            # gave an E-value on a longitudinal fit a rationale about pseudo-outcome
+            # recursion, which is a true sentence about a different operation.
+            raise CapabilityError(
+                f"{self._kind} {operation!r} is {item.status.value}: "
+                f"{item.reason or item.interpretation}"
+            )
         return item
+
+    def _run_all(self, *, include_refits: bool, include_retargets: bool) -> DiagnosticReport:
+        def compute() -> DiagnosticReport:
+            items = []
+            for capability in self.capabilities:
+                # Availability first. A row that is unavailable *and* expensive is refused
+                # for the reason it declares, not for a cost the caller could have paid --
+                # "pass include_refits=True" is a false instruction when no flag can make
+                # the operation exist.
+                if not capability.available:
+                    items.append(_item_from_capability(capability))
+                    continue
+                skipped = _cost_refusal(
+                    capability, self._attribute, include_refits, include_retargets
+                )
+                if skipped is not None:
+                    items.append(skipped)
+                    continue
+                if capability.requires_arguments:
+                    # A combined report runs every operation argument-free, so one with a
+                    # required argument and no default cannot appear in it.  Choosing a
+                    # value here -- which covariates to benchmark against -- would be a
+                    # scientific choice made silently on the caller's behalf.
+                    needed = ", ".join(capability.requires_arguments)
+                    items.append(
+                        AssessmentItem(
+                            capability.operation,
+                            AssessmentStatus.UNAVAILABLE,
+                            f"needs an explicit {needed} argument, which a combined report "
+                            f"has no basis to choose",
+                            (
+                                f"call result.{self._attribute}.{capability.operation}() "
+                                f"directly with {needed}",
+                            ),
+                        )
+                    )
+                    continue
+                try:
+                    report = getattr(self, capability.operation)()
+                except (KeyError, TypeError, ValueError) as error:
+                    # ``CapabilityError`` subclasses ``ValueError`` and needs no separate
+                    # entry here.
+                    items.append(
+                        AssessmentItem(
+                            capability.operation,
+                            AssessmentStatus.UNAVAILABLE,
+                            str(error),
+                        )
+                    )
+                else:
+                    items.append(_diagnostic_item(capability.operation, report))
+            return DiagnosticReport(
+                tuple(items),
+                include_refits=include_refits,
+                include_retargets=include_retargets,
+                backend=self._result.data.backend,
+            )
+
+        return _cached(
+            self._result,
+            f"{self._attribute}.run_all",
+            (),
+            {"include_refits": include_refits, "include_retargets": include_retargets},
+            compute,
+        )
+
+
+def _cost_refusal(
+    capability: AssessmentCapability,
+    attribute: str,
+    include_refits: bool,
+    include_retargets: bool,
+) -> AssessmentItem | None:
+    """The skip a combined report owes an operation the caller has not paid for.
+
+    Two flags rather than one because the two costs are disjoint: refutation and
+    benchmarking refit nuisances without retargeting, and the truncation curve and the
+    missingness tilt retarget cached nuisances without refitting any.  One flag made
+    whichever class it did not name run silently under the other's permission.
+    """
+    allowed = {"summarize": True, "refit": include_refits, "retarget": include_retargets}
+    if allowed[capability.execution]:
+        return None
+    work = "refits nuisance models" if capability.execution == "refit" else "retargets the fit"
+    flag = "include_refits" if capability.execution == "refit" else "include_retargets"
+    return AssessmentItem(
+        capability.operation,
+        AssessmentStatus.UNAVAILABLE,
+        f"not run by default because it {work}; pass {flag}=True",
+        (f"call result.{attribute}.{capability.operation}() directly, or pass {flag}=True",),
+    )
+
+
+class DiagnosticsFacade(_CapabilityFacade):
+    """Unified diagnostics for point and longitudinal causal results."""
+
+    _kind = "diagnostic"
+    _attribute = "diagnostics"
+
+    @property
+    def capabilities(self) -> tuple[AssessmentCapability, ...]:
+        return assessment_capabilities(self._result)
 
     def stagewise(self) -> LongitudinalDiagnostics:
         self._require("stagewise")
@@ -633,43 +938,135 @@ class DiagnosticsFacade:
 
         def compute() -> Any:
             nuisance = self._result.nuisance
-            legacy = self._result._legacy_sensitivity
+            from .interventions import (
+                check_incremental_support,
+                check_shift_support,
+                check_support,
+            )
+            from .sensitivity.positivity import positivity_report
+
             if nuisance.regimes is not None:
-                return legacy.support()
+                return check_support(
+                    nuisance.regimes,
+                    self._result.data.treatment,
+                    nuisance.propensity.values,
+                    backend=self._result.data.backend,
+                )
+            # ``shifts`` alone, not ``shifts and density``: a shift fit without a fitted
+            # density is a broken shift fit, and the density-ratio report says so by name.
+            # Adding the second condition sent it to the arm-level report instead, which
+            # answers a different question or refuses for an unrelated reason.
             if nuisance.shifts is not None:
-                return legacy.shift_support()
+                bound = self._result.config.missingness_bound
+                level = self._result.intermediate_value
+                mechanisms = [
+                    values
+                    for values in (
+                        nuisance.bounded_missingness(bound),
+                        None if level is None else nuisance.intermediate_density(level, bound),
+                    )
+                    if values is not None
+                ]
+                return check_shift_support(
+                    nuisance.shifts,
+                    nuisance.density,
+                    self._result.data.treatment,
+                    mechanisms=mechanisms,
+                )
             if nuisance.incremental is not None:
-                return legacy.incremental_support()
-            return legacy.positivity()
+                return check_incremental_support(nuisance.incremental, self._result.data.treatment)
+            return positivity_report(self._result)
 
         return _cached(self._result, "diagnostics.support", (), {}, compute)
 
     def nuisance_models(self) -> Any:
         self._require("nuisance_models")
-        if _family(self._result) == "point":
-            return _cached(
+
+        def compute() -> Any:
+            if _family(self._result) == "longitudinal":
+                return _longitudinal_nuisances(self._result)
+            from .validation.nuisance import nuisance_diagnostics
+
+            return nuisance_diagnostics(self._result)
+
+        return _cached(self._result, "diagnostics.nuisance_models", (), {}, compute)
+
+    def score_equations(self, *, tolerance: float = DEFAULT_TOLERANCE) -> Any:
+        """Whether targeting solved the score equations this fit relies on.
+
+        ``tolerance`` gates both families but on the scale each one's score lives on, and
+        the two are not interchangeable.  A point-treatment fit compares the score in the
+        outcome's own units against ``tolerance * se / sqrt(n)``
+        (:data:`~cleverly.validation.score.DEFAULT_TOLERANCE` says why that shape).  A
+        longitudinal fit bounds each node's *relative* score -- the largest component as a
+        fraction of its maximum possible magnitude -- which is the quantity the sequential
+        targeting loop gates on, and it can only tighten a node's verdict beyond the fit's
+        own convergence flag.
+        """
+        self._require("score_equations")
+
+        def compute() -> Any:
+            if _family(self._result) == "longitudinal":
+                return _longitudinal_scores(self._result, tolerance=tolerance)
+            from .validation.score import score_check
+
+            return score_check(self._result, tolerance=tolerance)
+
+        return _cached(
+            self._result,
+            "diagnostics.score_equations",
+            (),
+            {"tolerance": tolerance},
+            compute,
+        )
+
+    def corrections(
+        self,
+        *,
+        tolerance: float = DEFAULT_TOLERANCE,
+        identity_tolerance: float = IDENTITY_TOLERANCE,
+    ) -> Any:
+        self._require("corrections")
+        from .validation.drtmle import correction_check
+
+        return _cached(
+            self._result,
+            "diagnostics.corrections",
+            (),
+            {"tolerance": tolerance, "identity_tolerance": identity_tolerance},
+            lambda: correction_check(
                 self._result,
-                "diagnostics.nuisance_models",
-                (),
-                {},
-                lambda: self._result.validation.nuisance(),
+                tolerance=tolerance,
+                identity_tolerance=identity_tolerance,
+            ),
+        )
+
+    def truncation_curve(
+        self,
+        bounds: Sequence[float] | None = None,
+        *,
+        estimands: Sequence[str] | None = None,
+        mechanism: bool = False,
+    ) -> Any:
+        self._require("truncation_curve")
+        from .sensitivity.positivity import truncation_curve
+
+        if self._result.nuisance.incremental is not None and not mechanism:
+            raise ValueError(
+                "the propensity g is *inside* the estimand for an incremental intervention, "
+                "so a propensity-bound curve would compare different parameters; use "
+                "diagnostics.support(), or pass mechanism=True when a separate observation "
+                "mechanism was fitted"
             )
         return _cached(
             self._result,
-            "diagnostics.nuisance_models",
-            (),
-            {},
-            lambda: _longitudinal_nuisances(self._result),
+            "diagnostics.truncation_curve",
+            (bounds,),
+            {"estimands": estimands, "mechanism": mechanism},
+            lambda: truncation_curve(
+                self._result, bounds, estimands=estimands, mechanism=mechanism
+            ),
         )
-
-    def score_equations(self) -> Any:
-        self._require("score_equations")
-        compute = (
-            (lambda: _longitudinal_scores(self._result))
-            if _family(self._result) == "longitudinal"
-            else (lambda: self._result.validation.score_check())
-        )
-        return _cached(self._result, "diagnostics.score_equations", (), {}, compute)
 
     def refute(self, **kwargs: Any) -> Any:
         self._require("refute")
@@ -679,60 +1076,20 @@ class DiagnosticsFacade:
                 "refutation requires nuisance refits, but this estimator cannot be "
                 f"reconstructed; unavailable slots: {list(missing)}"
             )
+        from .validation.refute import refute
+
         return _cached(
             self._result,
             "diagnostics.refute",
             (),
             kwargs,
-            lambda: self._result.validation.refute(**kwargs),
+            lambda: refute(self._result, **kwargs),
         )
 
-    def run_all(self, *, include_refits: bool = False) -> DiagnosticReport:
-        def compute() -> DiagnosticReport:
-            items = []
-            for capability in self.capabilities:
-                if capability.operation == "stagewise" and _family(self._result) == "point":
-                    items.append(_item_from_capability(capability))
-                    continue
-                if capability.execution == "refit" and not include_refits:
-                    items.append(
-                        AssessmentItem(
-                            capability.operation,
-                            AssessmentStatus.UNAVAILABLE,
-                            "not run by default because it refits models; pass include_refits=True",
-                        )
-                    )
-                    continue
-                if not capability.available:
-                    items.append(_item_from_capability(capability))
-                    continue
-                try:
-                    report = getattr(self, capability.operation)()
-                    items.append(_diagnostic_item(capability.operation, report))
-                except (CapabilityError, ValueError) as error:
-                    items.append(
-                        AssessmentItem(
-                            capability.operation,
-                            AssessmentStatus.UNAVAILABLE,
-                            str(error),
-                        )
-                    )
-            return DiagnosticReport(tuple(items), include_refits, self._result.data.backend)
-
-        return _cached(
-            self._result,
-            "diagnostics.run_all",
-            (),
-            {"include_refits": include_refits},
-            compute,
-        )
-
-    def __call__(self) -> Any:
-        """Compatibility for the former longitudinal ``result.diagnostics()`` spelling."""
-
-        if _family(self._result) == "longitudinal":
-            return self.stagewise().to_frame()
-        return self.run_all()
+    def run_all(
+        self, *, include_refits: bool = False, include_retargets: bool = False
+    ) -> DiagnosticReport:
+        return self._run_all(include_refits=include_refits, include_retargets=include_retargets)
 
 
 def _item_from_capability(capability: AssessmentCapability) -> AssessmentItem:
@@ -885,37 +1242,22 @@ def _reduction_conditioning_warning(result: Any) -> str | None:
     )
 
 
-def _sensitivity_operations() -> tuple[str, ...]:
-    """The public operation names, read off the class so the two cannot drift apart.
-
-    Off the *class*, not the instance: a longitudinal result has no legacy analysis object
-    at all, and "does this operation exist" still has to have an answer there.
-    """
-    from .sensitivity.api import SensitivityAnalysis
-
-    return tuple(sorted(name for name in vars(SensitivityAnalysis) if not name.startswith("_")))
-
-
-class SensitivityFacade:
+class SensitivityFacade(_CapabilityFacade):
     """Capability-aware sensitivity operations with normalized persistent caching."""
 
-    def __init__(self, result: Any, legacy: Any | None = None) -> None:
-        self._result = result
-        self._legacy = legacy
+    _kind = "sensitivity"
+    _attribute = "sensitivity"
 
-    def _unavailable(self, operation: str, *, not_applicable: bool = False) -> CapabilityError:
-        status = "not_applicable" if not_applicable else "unavailable"
-        if _family(self._result) == "longitudinal":
-            reason = (
-                "changing a sequential mechanism bound changes every earlier pseudo-outcome "
-                "and requires a full evidence-backed recursion/refit adapter"
-            )
-        else:
-            reason = "the fitted artifacts or published sensitivity derivation are absent"
-        return CapabilityError(f"sensitivity {operation!r} is {status}: {reason}")
-
-    @property
+    @cached_property
     def capabilities(self) -> tuple[AssessmentCapability, ...]:
+        """The eight declarations, computed once per facade.
+
+        Unlike the diagnostics table these depend on the individual fit -- whether it
+        carries an observation mechanism, whether its estimator can be replayed -- so they
+        cannot be module-level data.  Cached because ``capability`` looks one row up by
+        rebuilding the tuple, which otherwise constructs all eight records on every
+        operation call and once more per row inside a combined report.
+        """
         family = _family(self._result)
         longitudinal = family == "longitudinal"
         missing = (
@@ -924,44 +1266,44 @@ class SensitivityFacade:
             else getattr(self._result.nuisance, "missingness", None) is not None
         )
         benchmarkable = not longitudinal and replayability(self._result).refit_nuisances
-        return (
-            _capability(
-                "omitted_confounding",
+        available = not longitudinal
+        status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
+        reason = "no longitudinal sensitivity derivation is registered" if longitudinal else None
+
+        def standard(
+            operation: str,
+            *,
+            artifacts: Sequence[str],
+            interpretation: str,
+            cost: Literal["cheap", "moderate", "expensive"] = "cheap",
+        ) -> AssessmentCapability:
+            return _capability(
+                operation,
                 family,
-                artifacts=("fitted representer", "outcome residuals"),
-                interpretation="omitted-confounder bias for the fitted orthogonal score",
-                available=not longitudinal,
-                status=AssessmentStatus.UNAVAILABLE if longitudinal else AssessmentStatus.PASSED,
-                reason="no longitudinal omitted-confounder derivation" if longitudinal else None,
-            ),
-            _capability(
-                "benchmark",
-                family,
-                artifacts=("fitted estimator configuration",),
-                execution="refit",
-                deterministic=False,
-                cost="expensive",
-                interpretation="calibration against named observed covariates",
-                available=benchmarkable,
-                status=AssessmentStatus.PASSED if benchmarkable else AssessmentStatus.UNAVAILABLE,
-                reason=(
-                    None
-                    if benchmarkable
-                    else "benchmarking requires a fitted point-treatment estimator configuration"
-                ),
-                requires_arguments=("covariates",),
-            ),
-            _capability(
-                "missingness",
+                artifacts=artifacts,
+                interpretation=interpretation,
+                cost=cost,
+                available=available,
+                status=status,
+                reason=reason,
+            )
+
+        def tilt(operation: str, *, interpretation: str) -> AssessmentCapability:
+            """The two MNAR analyses, which share every field but their interpretation.
+
+            Three cases, not two.  A point fit that *has* a missingness mechanism can run
+            the tilt; one that has none is answering a question about a functional with no
+            observation mechanism in it, which is ``not_applicable``; and a longitudinal
+            fit is refused because no adapter has been derived, which is ``unavailable``.
+            """
+            return _capability(
+                operation,
                 family,
                 artifacts=("observation mechanism", "published tilt identification"),
                 execution="retarget",
                 cost="moderate",
-                interpretation="departure from missing-at-random identification",
+                interpretation=interpretation,
                 available=missing,
-                # Three cases, not two.  A point fit that *has* a missingness mechanism can
-                # run the tilt, and used to publish `unavailable` with the longitudinal
-                # adapter's reason attached to it.
                 status=(
                     AssessmentStatus.PASSED
                     if missing
@@ -974,157 +1316,132 @@ class SensitivityFacade:
                     if missing
                     else "no longitudinal missingness-tilt adapter is implemented"
                     if longitudinal
-                    else "the identified functional has no observation/missingness mechanism"
+                    else "the identified functional has no observation mechanism"
                 ),
+            )
+
+        return (
+            standard(
+                "omitted_confounding",
+                artifacts=("fitted representer", "outcome residuals"),
+                interpretation="omitted-confounder bias for the fitted orthogonal score",
+            ),
+            standard(
+                "robustness_value",
+                artifacts=("fitted representer", "outcome residuals"),
+                interpretation="confounding strength needed to move the estimate to its null",
+            ),
+            standard(
+                "elements",
+                artifacts=("fitted representer", "outcome residuals"),
+                interpretation="raw components of the omitted-confounder bias bound",
+            ),
+            _capability(
+                "benchmark",
+                artifacts=("fitted estimator configuration",),
+                execution="refit",
+                deterministic=False,
+                cost="expensive",
+                interpretation="calibration against named observed covariates",
+                available=benchmarkable,
+                status=AssessmentStatus.PASSED if benchmarkable else AssessmentStatus.UNAVAILABLE,
+                reason=(
+                    None
+                    if benchmarkable
+                    else "benchmarking requires a replayable point-treatment estimator"
+                ),
+                requires_arguments=("covariates",),
+                family=family,
+            ),
+            standard(
+                "contour",
+                artifacts=("fitted representer", "outcome residuals"),
+                interpretation="bias bounds over a grid of confounding strengths",
+                cost="moderate",
+            ),
+            standard(
+                "evalue",
+                artifacts=("ratio-scale estimate",),
+                interpretation="minimum risk-ratio association needed to explain away an effect",
+            ),
+            tilt(
+                "missingness",
+                interpretation="departure from missing-at-random identification",
+            ),
+            tilt(
+                "tipping_gamma",
+                interpretation="missingness departure at which the conclusion reaches its null",
             ),
         )
 
-    def _capability(self, operation: str) -> AssessmentCapability:
-        return next(item for item in self.capabilities if item.operation == operation)
-
     def omitted_confounding(self, *args: Any, **kwargs: Any) -> Any:
-        capability = self._capability("omitted_confounding")
-        if not capability.available or self._legacy is None:
-            raise self._unavailable("omitted_confounding")
-        legacy = self._legacy
-        return _cached(
-            self._result,
-            "sensitivity.omitted_confounding",
-            args,
-            kwargs,
-            lambda: legacy.omitted_variable(*args, **kwargs),
-        )
+        return self._dispatch("omitted_confounding", args, kwargs)
+
+    def robustness_value(self, *args: Any, **kwargs: Any) -> Any:
+        return self._dispatch("robustness_value", args, kwargs)
+
+    def elements(self, *args: Any, **kwargs: Any) -> Any:
+        return self._dispatch("elements", args, kwargs)
 
     def benchmark(self, *args: Any, **kwargs: Any) -> Any:
-        capability = self._capability("benchmark")
-        if not capability.available or self._legacy is None:
-            raise self._unavailable("benchmark")
-        legacy = self._legacy
-        return _cached(
-            self._result,
-            "sensitivity.benchmark",
-            args,
-            kwargs,
-            lambda: legacy.benchmark(*args, **kwargs),
-        )
+        return self._dispatch("benchmark", args, kwargs)
+
+    def contour(self, *args: Any, **kwargs: Any) -> Any:
+        return self._dispatch("contour", args, kwargs)
+
+    def evalue(self, *args: Any, **kwargs: Any) -> Any:
+        return self._dispatch("evalue", args, kwargs)
 
     def missingness(self, *args: Any, **kwargs: Any) -> Any:
-        capability = self._capability("missingness")
-        if not capability.available or self._legacy is None:
-            raise self._unavailable(
-                "missingness", not_applicable=capability.status == AssessmentStatus.NOT_APPLICABLE
-            )
-        legacy = self._legacy
+        return self._dispatch("missingness", args, kwargs)
+
+    def tipping_gamma(self, *args: Any, **kwargs: Any) -> Any:
+        return self._dispatch("tipping_gamma", args, kwargs)
+
+    def _dispatch(self, operation: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+        """Refuse by the declared capability, then call the declared implementation."""
+        self._require(operation)
+        route = SENSITIVITY_ROUTES[operation]
+        if route.needs_estimand:
+            # Before the cache key, so an implicit call and the explicit call it resolves
+            # to share one entry rather than computing the same bound twice.
+            args = self._with_default_parameter(args, kwargs)
+        module = importlib.import_module(f".sensitivity.{route.module}", __package__)
+        function = getattr(module, route.function)
         return _cached(
             self._result,
-            "sensitivity.missingness",
+            f"sensitivity.{operation}",
             args,
             kwargs,
-            lambda: legacy.missingness_tilt(*args, **kwargs),
+            lambda: function(self._result, *args, **kwargs),
         )
 
-    def run_all(self, *, include_refits: bool = False) -> DiagnosticReport:
-        def compute() -> DiagnosticReport:
-            items = []
-            for capability in self.capabilities:
-                if not capability.available:
-                    items.append(_item_from_capability(capability))
-                    continue
-                if capability.execution == "refit" and not include_refits:
-                    items.append(
-                        AssessmentItem(
-                            capability.operation,
-                            AssessmentStatus.UNAVAILABLE,
-                            "not run by default because it refits nuisance models",
-                        )
-                    )
-                    continue
-                if capability.requires_arguments:
-                    # A combined report runs every operation argument-free, so one with a
-                    # required argument and no default cannot appear in it.  Choosing a
-                    # value here -- which covariates to benchmark against -- would be a
-                    # scientific choice made silently on the caller's behalf.
-                    needed = ", ".join(capability.requires_arguments)
-                    items.append(
-                        AssessmentItem(
-                            capability.operation,
-                            AssessmentStatus.UNAVAILABLE,
-                            f"needs an explicit {needed} argument, which a combined report "
-                            f"has no basis to choose",
-                            (
-                                f"call result.sensitivity.{capability.operation}() "
-                                f"directly with {needed}",
-                            ),
-                        )
-                    )
-                    continue
-                try:
-                    getattr(self, capability.operation)()
-                except (CapabilityError, KeyError, TypeError, ValueError) as error:
-                    items.append(
-                        AssessmentItem(
-                            capability.operation,
-                            AssessmentStatus.UNAVAILABLE,
-                            str(error),
-                        )
-                    )
-                else:
-                    items.append(
-                        AssessmentItem(
-                            capability.operation,
-                            AssessmentStatus.PASSED,
-                            "completed from the fitted method's declared artifacts",
-                        )
-                    )
-            return DiagnosticReport(tuple(items), include_refits, self._result.data.backend)
+    def _with_default_parameter(
+        self, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> tuple[Any, ...]:
+        """Supply the estimand only when the fit leaves no choice about which one.
 
-        return _cached(
-            self._result,
-            "sensitivity.run_all",
-            (),
-            {"include_refits": include_refits},
-            compute,
-        )
+        These analyses default to ``"ate"``, which a multi-arm fit never reports under that
+        bare name -- it reports ``"ate[medium vs low]"``.  Filling the gap is worth doing
+        when exactly one reported parameter is one the analysis applies to, and is a
+        scientific choice made on the caller's behalf as soon as there are two: picking the
+        first would answer about ``ey1`` on an ``ey1``/``ey0`` fit, silently returning a
+        statement about a counterfactual mean to someone who asked about an effect.
 
-    def __getattr__(self, name: str) -> Any:
-        """Route the established point analyses through the same persistent cache.
-
-        Two different questions the previous version answered with one error.  *Does this
-        operation exist?* is answered here, and its "no" has to be ``AttributeError`` --
-        ``hasattr`` only swallows that one, so raising ``CapabilityError`` (a ``ValueError``)
-        made ``hasattr`` and ``getattr(..., default)`` raise instead of reporting absence,
-        and gave a typo the sequential-recursion rationale as though it named something.
-
-        *Can this fit serve it?* is answered on call, by a stub, so that a real operation
-        this family cannot run still refuses by name with a reason rather than claiming
-        not to exist.
+        When it is ambiguous this returns the arguments untouched and the analysis refuses
+        for itself -- :func:`~cleverly.sensitivity.omitted_variable.resolve_parameter` and
+        :func:`~cleverly.sensitivity.missingness.missingness_tilt` both already name every
+        estimand they could have answered for.
         """
+        if args or "estimand" in kwargs or "ate" in self._result.estimates:
+            return args
+        from .sensitivity._parameters import arm_parameters
 
-        if name.startswith("_"):
-            raise AttributeError(name)
-        if name not in _sensitivity_operations():
-            raise AttributeError(
-                f"{type(self).__name__!r} object has no attribute {name!r}; the sensitivity "
-                f"operations are {', '.join(_sensitivity_operations())}"
-            )
-        if self._legacy is None:
-            error = self._unavailable(name)
+        known = arm_parameters(self._result)
+        candidates = [name for name in self._result.estimates if name in known]
+        return (candidates[0],) if len(candidates) == 1 else args
 
-            def refuse(*args: Any, **kwargs: Any) -> Any:
-                raise error
-
-            return refuse
-        attribute = getattr(self._legacy, name)
-        if not callable(attribute):
-            return attribute
-
-        def cached_call(*args: Any, **kwargs: Any) -> Any:
-            return _cached(
-                self._result,
-                f"sensitivity.{name}",
-                args,
-                kwargs,
-                lambda: attribute(*args, **kwargs),
-            )
-
-        return cached_call
+    def run_all(
+        self, *, include_refits: bool = False, include_retargets: bool = False
+    ) -> DiagnosticReport:
+        return self._run_all(include_refits=include_refits, include_retargets=include_retargets)

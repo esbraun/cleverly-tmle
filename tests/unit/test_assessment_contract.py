@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import dataclasses
+import importlib
+import inspect
+import re
 
 import pandas as pd
 import pytest
@@ -19,9 +22,11 @@ from cleverly import (
     RegimeMean,
     load,
 )
-from cleverly.assessment import ASSESSMENT_CAPABILITIES
+from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.datasets import make_linear_ate, make_longitudinal
 from cleverly.sensitivity._parameters import arm_parameters
+from cleverly.sensitivity.positivity import positivity_report
+from cleverly.validation.nuisance import nuisance_diagnostics
 
 
 @pytest.fixture(scope="module")
@@ -74,7 +79,15 @@ def longitudinal_result():  # type: ignore[no-untyped-def]
 
 
 def test_every_diagnostic_operation_covers_every_result_family() -> None:
-    expected = {"support", "nuisance_models", "score_equations", "refute", "stagewise"}
+    expected = {
+        "support",
+        "nuisance_models",
+        "score_equations",
+        "corrections",
+        "truncation_curve",
+        "refute",
+        "stagewise",
+    }
     assert {item.result_family for item in ASSESSMENT_CAPABILITIES} == {"point", "longitudinal"}
     for family in ("point", "longitudinal"):
         family_rows = [item for item in ASSESSMENT_CAPABILITIES if item.result_family == family]
@@ -97,23 +110,37 @@ def test_capabilities_declare_artifacts_cost_and_replay_semantics(point_result) 
 
 
 def test_point_diagnostics_reuse_the_existing_numbers(point_result) -> None:  # type: ignore[no-untyped-def]
+    """Each facade answer must equal what the function it routes to computes.
+
+    Against the independent implementation, never against a second call to the facade:
+    every one of these goes through ``_cached``, so ``facade.x() == facade.x()`` compares
+    one cached object with itself and holds whatever the facade does.
+    """
     score = point_result.diagnostics.score_equations()
-    legacy_score = point_result.validation.score_check()
-    assert score == legacy_score
+    assert score == point_result.score_verdict
 
     nuisance = point_result.diagnostics.nuisance_models()
-    legacy_nuisance = point_result.validation.nuisance()
-    assert nuisance == legacy_nuisance
+    assert nuisance == nuisance_diagnostics(point_result)
 
     support = point_result.diagnostics.support()
-    legacy_support = point_result._legacy_sensitivity.positivity()
-    assert support == legacy_support
+    assert support == positivity_report(point_result)
 
 
-def test_longitudinal_stagewise_adapter_preserves_the_existing_table(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
-    before = longitudinal_result._legacy_diagnostics_frame()
-    after = longitudinal_result.diagnostics.stagewise().to_frame()
-    pd.testing.assert_frame_equal(after, before, check_exact=True)
+def test_longitudinal_stagewise_reports_one_row_per_node(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
+    frame = longitudinal_result.diagnostics.stagewise().to_frame()
+    assert list(frame.columns) == [
+        "regimen",
+        "time",
+        "n_followed",
+        "share_assigned_1",
+        "max_weight",
+        "effective_n",
+        "share_truncated",
+        "epsilon",
+        "converged",
+    ]
+    assert len(frame) == sum(len(fit.steps) for fit in longitudinal_result.fits.values())
+    assert set(frame["share_assigned_1"]) == {0.0, 1.0}  # two static regimens
 
 
 def test_longitudinal_score_and_nuisance_adapters_cover_every_node(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
@@ -148,8 +175,44 @@ def test_combined_reports_distinguish_inapplicable_from_unavailable(point_result
 def test_longitudinal_sensitivity_is_a_capability_aware_facade(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
     report = longitudinal_result.sensitivity.run_all()
     assert {item.status for item in report.items} == {AssessmentStatus.UNAVAILABLE}
-    with pytest.raises(CapabilityError, match="full evidence-backed recursion/refit adapter"):
+    with pytest.raises(CapabilityError, match="no longitudinal sensitivity derivation"):
         longitudinal_result.sensitivity.omitted_confounding()
+
+
+def test_a_refusal_gives_the_reason_its_own_capability_declared(  # type: ignore[no-untyped-def]
+    longitudinal_result,
+) -> None:
+    """The reason is per operation, not per family.
+
+    An E-value has no mechanism bound in it, so refusing one with a sentence about
+    sequential pseudo-outcome recursion is a true statement about a different analysis.
+    """
+    for operation in ("evalue", "robustness_value", "missingness"):
+        declared = longitudinal_result.sensitivity.capability(operation)
+        with pytest.raises(CapabilityError, match=re.escape(declared.reason)):
+            getattr(longitudinal_result.sensitivity, operation)()
+
+
+def test_every_sensitivity_operation_is_declared_and_routed(  # type: ignore[no-untyped-def]
+    point_result, longitudinal_result
+) -> None:
+    """Both directions, as for the diagnostics table.
+
+    The gate that would have caught ``tipping_gamma`` being the one operation of its
+    signature shape left out of the default-estimand set.
+    """
+    for result in (point_result, longitudinal_result):
+        declared = {row.operation for row in result.sensitivity.capabilities}
+        assert declared == set(SENSITIVITY_ROUTES)
+        for operation in declared:
+            assert callable(getattr(result.sensitivity, operation))
+    # ``needs_estimand`` is a claim about the target's signature, so read the signature.
+    # ``evalue`` takes ``estimand`` there too but defaults it to ``None`` and selects for
+    # itself, which is why the flag is not simply the parameter's name.
+    for route in SENSITIVITY_ROUTES.values():
+        module = importlib.import_module(f"cleverly.sensitivity.{route.module}")
+        parameter = list(inspect.signature(getattr(module, route.function)).parameters.values())[1]
+        assert route.needs_estimand == (parameter.name == "estimand" and parameter.default == "ate")
 
 
 def test_sensitivity_routing_reads_structured_parameter_keys(point_result) -> None:  # type: ignore[no-untyped-def]
@@ -176,9 +239,9 @@ def test_cached_assessments_replay_after_persistence(
 
 
 def test_a_cached_frame_replays_in_the_callers_backend(point_result, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    before = point_result.sensitivity.truncation_curve(bounds=[0.02, 0.05])
+    before = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
     restored = load(point_result.save(tmp_path / "cached-frame.joblib"))
-    after = restored.sensitivity.truncation_curve(bounds=[0.02, 0.05])
+    after = restored.diagnostics.truncation_curve(bounds=[0.02, 0.05])
     assert isinstance(after, pd.DataFrame)
     pd.testing.assert_frame_equal(after, before, check_exact=True)
 
@@ -196,12 +259,36 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
     """``run_all`` invokes every operation argument-free, which not all of them accept."""
 
     def test_including_refits_does_not_raise(self, point_result) -> None:  # type: ignore[no-untyped-def]
-        report = point_result.sensitivity.run_all(include_refits=True)
-        assert {item.name for item in report.items} == {
-            "omitted_confounding",
-            "benchmark",
-            "missingness",
-        }
+        report = point_result.sensitivity.run_all(include_refits=True, include_retargets=True)
+        assert {item.name for item in report.items} == set(SENSITIVITY_ROUTES)
+
+    @pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
+    def test_the_two_cost_classes_are_skipped_by_their_own_flag(  # type: ignore[no-untyped-def]
+        self, point_result, facade: str
+    ) -> None:
+        """Both facades read the same declaration the same way.
+
+        They did not: one skipped everything non-``summarize`` and the other only
+        ``refit``, so ``tipping_gamma`` -- a root search over full missingness retargets --
+        ran in a bare ``sensitivity.run_all()`` while ``truncation_curve`` did not.
+        """
+        surface = getattr(point_result, facade)
+        rows = {row.operation: row for row in surface.capabilities if row.available}
+        assert {"refit", "retarget"} & {row.execution for row in rows.values()}
+
+        report = surface.run_all()
+        for operation, row in rows.items():
+            if row.execution == "summarize":
+                continue
+            flag = "include_refits" if row.execution == "refit" else "include_retargets"
+            assert report[operation].status is AssessmentStatus.UNAVAILABLE
+            assert f"pass {flag}=True" in report[operation].detail
+
+        for row in rows.values():
+            if row.execution == "retarget":
+                assert report[row.operation].detail != (
+                    surface.run_all(include_retargets=True)[row.operation].detail
+                )
 
     def test_benchmark_says_it_needs_covariates_rather_than_crashing(self, point_result) -> None:  # type: ignore[no-untyped-def]
         report = point_result.sensitivity.run_all(include_refits=True)
@@ -419,11 +506,11 @@ class TestAttributeAccessAnswersExistenceNotAvailability:
 
     def test_a_real_operation_still_refuses_by_name_when_called(self, longitudinal_result) -> None:  # type: ignore[no-untyped-def]
         """Existence is not availability: the refusal moves to the call, it does not go."""
-        with pytest.raises(CapabilityError, match="full evidence-backed recursion/refit adapter"):
+        with pytest.raises(CapabilityError, match="no longitudinal sensitivity derivation"):
             longitudinal_result.sensitivity.evalue()
 
     def test_the_point_facade_still_delegates_and_caches(self, point_result) -> None:  # type: ignore[no-untyped-def]
         """The control: a fit that *can* serve these must be unaffected."""
-        curve = point_result.sensitivity.truncation_curve(bounds=[0.02, 0.05])
+        curve = point_result.diagnostics.truncation_curve(bounds=[0.02, 0.05])
         assert curve is not None
         assert hasattr(point_result.sensitivity, "evalue")

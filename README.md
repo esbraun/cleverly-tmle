@@ -165,11 +165,10 @@ sphinx-build -W --keep-going -b html docs docs/_build/html
 `nox -s docs` runs that same warning-as-error build in an isolated environment, which is what CI
 does; the direct call is the faster loop and is why the install above includes the `docs` extra.
 
-Documentation examples are explanatory and are not executed as tests. The fast tier compiles every
-Python fence, resolves every relative link, and checks that the complete root API is represented in
-the generated API source. Scientific behavior belongs in the ordinary fast tests or named slow
-statistical studies. Run the relevant checks locally before handoff; a green GitHub Actions CI run
-is the final merge signal.
+The fast tier compiles every Python fence, executes the registered reader-facing guides, resolves
+every relative link, and checks that the complete root API is represented in generated API source.
+Scientific behavior belongs in ordinary fast tests or named slow statistical studies. Run the
+relevant checks locally before handoff; a green GitHub Actions CI run is the final merge signal.
 
 ## Citing
 

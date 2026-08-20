@@ -247,8 +247,8 @@ def test_drtmle_corrections_are_nonzero_and_solved_under_misspecification(
     assert moved > 1e-3
     assert np.abs(np.asarray(mechanism.propensity).sum(axis=1) - 1.0).max() > 1e-4
 
-    assert learned_dr_fit.validation.score_check().passed
-    check = learned_dr_fit.validation.correction_check()
+    assert learned_dr_fit.diagnostics.score_equations().passed
+    check = learned_dr_fit.diagnostics.corrections()
     assert check.passed
     assert {row.arm for row in check.rows} == set(learned_dr_fit.nuisance.arms)
 
@@ -290,8 +290,8 @@ def test_multi_arm_bivariate_corrections_are_nonzero_and_solved(
     mechanism = fluctuation.mechanism
     assert mechanism is not None
     assert mechanism.propensity.shape == (law.N, law.K)
-    assert fit.validation.score_check().passed
-    assert fit.validation.correction_check().passed
+    assert fit.diagnostics.score_equations().passed
+    assert fit.diagnostics.corrections().passed
 
     scaled = fit.nuisance.scaler.scale(fit.data.outcome)
     parts = correction_parts(fit.data, fit.nuisance, fluctuation, fluctuation.targeted, scaled)
@@ -349,7 +349,7 @@ def test_multi_arm_single_guard_uses_the_initial_mechanism_matrix(learned_dr_fit
         .single()
     )
     assert fit.fluctuations["mean"].mechanism is None
-    assert fit.validation.correction_check().passed
+    assert fit.diagnostics.corrections().passed
     # And the other guard did fluctuate, so the branch above is a branch rather than the
     # only thing this construction ever does.
     assert learned_dr_fit.fluctuations["mean"].mechanism is not None
@@ -365,7 +365,7 @@ def test_multi_arm_truncation_is_reported_per_row_not_per_cell() -> None:
     estimator = DRTMLE(guard=("g",), g_bounds=(0.34, 0.36), **REDUCED_LEARNERS, **LEARNED)
     with pytest.warns(PositivityWarning, match="outside the truncation bounds"):
         fit = estimator.fit(law.frame(), outcome="Y", treatment="A").single()
-    check = fit.validation.correction_check()
+    check = fit.diagnostics.corrections()
     # The bound is narrower than any margin this law produces, so every row clips on at
     # least two arms -- the case that used to over-count.
     assert check.clipped == check.n

@@ -429,7 +429,7 @@ class ProjectionFluctuation:
         is what the alternation converges to.  Under fold-wise targeting each fold had its
         own, recorded in :attr:`folds`, and this is still the one the coefficients are
         reported at.  Kept so that a caller rebuilding the covariate --
-        ``res.sensitivity.positivity()`` does -- does not have to guess at it.
+        ``res.diagnostics.support()`` does -- does not have to guess at it.
     trace:
         One ``(outer, relative outcome score, relative shift in beta)`` row per round.
         Kept for the reason the mechanism's trace is: a loop that stalls should be visible

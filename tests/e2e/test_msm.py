@@ -146,7 +146,7 @@ class TestItRecoversTheProjection:
 
     def test_the_score_equation_is_solved(self, fitted) -> None:
         result, _ = fitted
-        check = result.validation.score_check()
+        check = result.diagnostics.score_equations()
         assert check.passed, check.summary()
 
     def test_targeting_moved_the_coefficients(self, fitted) -> None:
@@ -264,7 +264,7 @@ class TestALinkChangesTheParameterAndNotTheMachinery:
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        check = result.validation.score_check()
+        check = result.diagnostics.score_equations()
         assert check.passed, check.summary()
         # The plug-in half is zero by construction and the residual half by the
         # fluctuation; together they are the reported curve's mean.
@@ -342,7 +342,7 @@ class TestFoldWiseTargetingGivesEachFoldItsOwnBeta:
     def test_the_stitched_score_is_still_zero(self, fold_fit) -> None:
         for record in fold_fit.fluctuations["msm"].folds:
             assert np.max(np.abs(record.score)) < 1e-9
-        assert fold_fit.validation.score_check().passed
+        assert fold_fit.diagnostics.score_equations().passed
         for estimate in fold_fit.estimates.values():
             assert abs(float(np.mean(estimate.influence_curve))) < 1e-9
 
@@ -421,12 +421,12 @@ class TestTheSurroundingMachineryWorks:
     def test_positivity_reports_on_the_arms(self, fitted) -> None:
         """The counterfactuals are still the arms, so the arm-level report still applies."""
         result, _ = fitted
-        report = result.sensitivity.positivity()
+        report = result.diagnostics.support()
         assert set(report.propensity_quantiles) >= {f"g[{label}]" for label in DOSE}
 
     def test_a_truncation_sweep_retargets_without_refitting(self, fitted) -> None:
         result, _ = fitted
-        curve = result.sensitivity.truncation_curve(bounds=[0.01, 0.05])
+        curve = result.diagnostics.truncation_curve(bounds=[0.01, 0.05])
         assert set(curve["estimand"]) == {"msm[(intercept)]", "msm[dose]"}
 
     def test_a_round_trip_leaves_every_retargeted_analysis_identical(
@@ -442,14 +442,14 @@ class TestTheSurroundingMachineryWorks:
             )
         assert reloaded.nuisance.msm is not None
         np.testing.assert_array_equal(reloaded.nuisance.msm.design, result.nuisance.msm.design)
-        assert reloaded.validation.score_check().passed
+        assert reloaded.diagnostics.score_equations().passed
 
     def test_a_reloaded_fit_can_be_refit(self, fitted, tmp_path) -> None:
         """Whole-result persistence retains the importable working-model design."""
         result, _ = fitted
         reloaded = load(result.save(tmp_path / "msm_refit.joblib"))
         refitted = reloaded.estimator.refit(reloaded.data)
-        assert refitted.validation.score_check().passed
+        assert refitted.diagnostics.score_equations().passed
 
 
 class TestTheAxisIsExclusive:

@@ -558,7 +558,7 @@ class TestTheSensitivityLayerFollowsTheDraws:
         assert "draw 1 of" not in positivity_report(once).summary()
 
     def test_the_nuisance_diagnostics_say_so_too(self, repeated: Any) -> None:
-        report = repeated.validation.nuisance()
+        report = repeated.diagnostics.nuisance_models()
         assert report.n_repeats == REPEATS
         assert "draw 1 of 3" in report.summary()
 

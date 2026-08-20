@@ -59,7 +59,7 @@ class TestWhatItReports:
         assert low < middle < high
 
     def test_both_score_equations_are_reported_and_solved(self, fit) -> None:
-        check = fit.validation.score_check()
+        check = fit.diagnostics.score_equations()
         names = {row.name for row in check.rows}
         assert "ipsi" in names and "ipsi (mechanism)" in names
         assert check.passed
@@ -82,17 +82,17 @@ class TestWhatItReports:
 
 class TestTheOverlapReport:
     def test_it_states_the_bound_the_tilt_guarantees(self, fit) -> None:
-        reports = fit.sensitivity.incremental_support()
+        reports = fit.diagnostics.support()
         assert reports["odds x2"].guaranteed == (pytest.approx(0.5), 2.0)
         assert reports["odds x2"].max_ratio <= 2.0 + 1e-12
 
     def test_the_natural_course_loses_no_effective_sample_size(self, fit) -> None:
-        report = fit.sensitivity.incremental_support()["natural course"]
+        report = fit.diagnostics.support()["natural course"]
         assert report.effective_sample_size == pytest.approx(fit.data.n, abs=1e-6)
 
     def test_positivity_still_reports_because_the_mechanism_still_matters(self, fit) -> None:
         """No doubly-robust fallback here, so g's quality matters *more*, not less."""
-        assert fit.sensitivity.positivity() is not None
+        assert fit.diagnostics.support() is not None
 
 
 class TestTheRefusals:
@@ -161,15 +161,14 @@ class TestTheRefusals:
                 frame, outcome="Y", treatment="A"
             )
 
-    def test_the_regime_and_shift_reports_refuse_and_name_the_right_one(self, fit) -> None:
-        with pytest.raises(ValueError, match="incremental_support"):
-            fit.sensitivity.support()
-        with pytest.raises(ValueError, match="declared none"):
-            fit.sensitivity.shift_support()
+    def test_the_single_support_operation_dispatches_to_the_incremental_report(self, fit) -> None:
+        reports = fit.diagnostics.support()
+        assert set(reports) == {"natural course", "odds x2", "odds x0.5"}
+        assert all(report.guaranteed for report in reports.values())
 
     def test_the_truncation_sweep_refuses_because_it_would_move_the_estimand(self, fit) -> None:
         with pytest.raises(ValueError, match=r"\*inside\* the estimand"):
-            fit.sensitivity.truncation_curve()
+            fit.diagnostics.truncation_curve()
 
 
 class TestAMissingOutcomeIsAccepted:
@@ -241,13 +240,13 @@ class TestAMissingOutcomeIsAccepted:
         self, missing_fit
     ) -> None:
         with pytest.raises(ValueError, match=r"\*inside\* the estimand"):
-            missing_fit.sensitivity.truncation_curve()
-        curve = missing_fit.sensitivity.truncation_curve([0.01, 0.05], mechanism=True)
+            missing_fit.diagnostics.truncation_curve()
+        curve = missing_fit.diagnostics.truncation_curve([0.01, 0.05], mechanism=True)
         assert len(curve["bound"]) == 2 * len(missing_fit.estimates)
 
     def test_the_mnar_tilt_refuses_and_says_which_report_to_use(self, missing_fit) -> None:
-        with pytest.raises(ValueError, match="incremental_support"):
-            missing_fit.sensitivity.missingness_tilt()
+        with pytest.raises(ValueError, match=r"diagnostics\.support"):
+            missing_fit.sensitivity.missingness()
 
 
 class TestTheReferenceCanBeMoved:

@@ -86,10 +86,10 @@ class TestBackendParity:
     def test_diagnostic_frames_follow_the_backend_too(self, paired_fits) -> None:
         from_pandas, from_polars, _ = paired_fits
         assert isinstance(
-            from_pandas.sensitivity.truncation_curve([0.01], estimands=["ate"]), pd.DataFrame
+            from_pandas.diagnostics.truncation_curve([0.01], estimands=["ate"]), pd.DataFrame
         )
         assert isinstance(
-            from_polars.sensitivity.truncation_curve([0.01], estimands=["ate"]), pl.DataFrame
+            from_polars.diagnostics.truncation_curve([0.01], estimands=["ate"]), pl.DataFrame
         )
 
     def test_the_summaries_are_identical_text(self, paired_fits) -> None:
@@ -169,7 +169,7 @@ class TestBackendParity:
         )
         assert isinstance(result.to_frame(), pl.DataFrame)
         assert result.data.n_clusters == 90
-        assert result.validation.score_check().passed
+        assert result.diagnostics.score_equations().passed
 
 
 class TestEveryReportFollowsTheBackend:
@@ -192,13 +192,13 @@ class TestEveryReportFollowsTheBackend:
         )
 
     def test_the_validation_reports(self, polars_fit) -> None:
-        assert isinstance(polars_fit.validation.score_check().to_frame(), pl.DataFrame)
-        assert isinstance(polars_fit.validation.nuisance().to_frame(), pl.DataFrame)
-        refutation = polars_fit.validation.refute(tests=["placebo"], n_replicates=2)
+        assert isinstance(polars_fit.diagnostics.score_equations().to_frame(), pl.DataFrame)
+        assert isinstance(polars_fit.diagnostics.nuisance_models().to_frame(), pl.DataFrame)
+        refutation = polars_fit.diagnostics.refute(tests=["placebo"], n_replicates=2)
         assert isinstance(refutation.to_frame(), pl.DataFrame)
 
     def test_the_positivity_report(self, polars_fit) -> None:
-        assert isinstance(polars_fit.sensitivity.positivity().to_frame(), pl.DataFrame)
+        assert isinstance(polars_fit.diagnostics.support().to_frame(), pl.DataFrame)
 
     def test_the_fold_targeting_report(self, polars_fit) -> None:
         """And it is a *frame*: this one alone used to hand back a bare ``dict``."""
@@ -216,7 +216,7 @@ class TestEveryReportFollowsTheBackend:
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        assert isinstance(result.sensitivity.support().to_frame(), pl.DataFrame)
+        assert isinstance(result.diagnostics.support().to_frame(), pl.DataFrame)
 
     def test_a_saved_fit_remembers_its_backend(self, polars_fit, tmp_path: Path) -> None:
         """The backend is a *name* now, so it survives the round trip -- it could not
@@ -228,7 +228,7 @@ class TestEveryReportFollowsTheBackend:
         reloaded = cleverly.load(path)
         assert reloaded.data.backend == "polars"
         assert isinstance(reloaded.to_frame(), pl.DataFrame)
-        assert isinstance(reloaded.validation.score_check().to_frame(), pl.DataFrame)
+        assert isinstance(reloaded.diagnostics.score_equations().to_frame(), pl.DataFrame)
 
 
 class TestResultApi:
@@ -286,7 +286,7 @@ class TestResultApi:
     def test_diagnostics_are_cached_across_calls(self, paired_fits) -> None:
         result, _, _ = paired_fits
         assert result.sensitivity is result.sensitivity
-        assert result.validation is result.validation
+        assert result.diagnostics is result.diagnostics
 
     def test_estimates_expose_a_dict_form(self, paired_fits) -> None:
         result, _, _ = paired_fits
@@ -440,12 +440,12 @@ class TestPackageSurface:
         )
         assert isinstance(res.summary(), str)
 
-        assert isinstance(res.sensitivity.positivity().summary(), str)
+        assert isinstance(res.diagnostics.support().summary(), str)
         assert set(res.sensitivity.robustness_value()) >= {"rv", "rva"}
         assert res.sensitivity.benchmark(["W1", "W2"]) is not None
 
-        assert isinstance(res.validation.score_check().summary(), str)
-        assert isinstance(res.validation.nuisance().summary(), str)
+        assert isinstance(res.diagnostics.score_equations().summary(), str)
+        assert isinstance(res.diagnostics.nuisance_models().summary(), str)
 
         # The risk ratio was not among the requested estimands: it comes from the joint
         # influence curve by the delta method, with no refit.

@@ -79,11 +79,11 @@ def main() -> None:
     check(np.isfinite(result.psi("ate")), "the fit produced a finite estimate")
     check(isinstance(result.to_frame(), frame_type), "to_frame() follows the backend")
     check(
-        isinstance(result.validation.score_check().to_frame(), frame_type),
+        isinstance(result.diagnostics.score_equations().to_frame(), frame_type),
         "the score check follows the backend with nothing threaded in",
     )
     check(
-        isinstance(result.sensitivity.positivity().to_frame(), frame_type),
+        isinstance(result.diagnostics.support().to_frame(), frame_type),
         "the positivity report follows the backend with nothing threaded in",
     )
 

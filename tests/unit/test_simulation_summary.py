@@ -9,10 +9,13 @@ calibrated ``or`` of ``0.42`` read as an interval 2.8 times too wide.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
-from cleverly.validation import EstimandSummary
+from cleverly.inference import make_estimate
+from cleverly.validation import CoverageStudy, EstimandSummary
 
 
 def _summary(**overrides: object) -> EstimandSummary:
@@ -63,3 +66,78 @@ def test_a_difference_estimand_is_arithmetically_what_it_always_was() -> None:
 def test_a_degenerate_spread_reports_nothing_rather_than_dividing_by_zero() -> None:
     summary = _summary(estimand="ate", estimates=np.full(4, 0.3))
     assert np.isnan(summary.se_ratio)
+
+
+class _Result:
+    def __init__(self, *, alpha: float) -> None:
+        estimate = make_estimate(
+            "ate",
+            0.0,
+            np.array([-1.0, 1.0]),
+            n=2,
+            scale="difference",
+            alpha=alpha,
+        )
+        self.estimates = {"ate": estimate}
+
+    def __getitem__(self, name: str):  # type: ignore[no-untyped-def]
+        return self.estimates[name]
+
+
+class _Estimator:
+    def __init__(self, *, alpha: float = 0.05, error: str | None = None) -> None:
+        self.alpha = alpha
+        self.error = error
+
+    def fit(self, frame, **kwargs):  # type: ignore[no-untyped-def]
+        if self.error is not None:
+            raise RuntimeError(self.error)
+        return _Result(alpha=self.alpha)
+
+
+def test_coverage_study_uses_the_estimates_non_default_alpha() -> None:
+    study = CoverageStudy(
+        dgp=lambda n, seed: (SimpleNamespace(seed=seed), {"ate": 0.0}),
+        estimator=lambda: _Estimator(alpha=0.10),
+        n=2,
+        n_replicates=3,
+        seed=4,
+    ).run()
+    assert study.alpha == 0.10
+    assert {record.alpha for record in study.replications} == {0.10}
+    assert not any(record.rejected for record in study.replications)
+
+
+def test_failed_replications_retain_the_seed_and_cause() -> None:
+    seeds = np.random.SeedSequence(7).generate_state(3)
+
+    def dgp(n, seed):  # type: ignore[no-untyped-def]
+        if seed == int(seeds[0]):
+            raise LookupError("bad draw")
+        return SimpleNamespace(seed=seed), {"ate": 0.0}
+
+    study = CoverageStudy(
+        dgp=dgp,
+        estimator=lambda: _Estimator(),
+        n=2,
+        n_replicates=3,
+        seed=7,
+    ).run()
+    assert study.n_failed == 1
+    assert study.failures[0].replicate == 0
+    assert study.failures[0].seed == int(seeds[0])
+    assert study.failures[0].error_type == "LookupError"
+    assert study.failures[0].message == "bad draw"
+    assert {record.replicate for record in study.replications} == {1, 2}
+
+
+def test_an_all_failed_study_reports_the_first_cause() -> None:
+    study = CoverageStudy(
+        dgp=lambda n, seed: (None, {"ate": 0.0}),
+        estimator=lambda: _Estimator(error="deliberate failure"),
+        n=2,
+        n_replicates=2,
+        seed=8,
+    )
+    with pytest.raises(RuntimeError, match="RuntimeError: deliberate failure"):
+        study.run()

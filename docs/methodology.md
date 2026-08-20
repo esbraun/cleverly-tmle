@@ -122,7 +122,7 @@ R₂ = (δ-1)δ · E[(g₀-ĝ)² (Q̄₀(1,W) - Q̄₀(0,W)) / (D₀ D̂²)]    
 
 A consistent mechanism kills the remainder whatever `Q̄` does; a consistent `Q̄` does not,
 and no accuracy in it can. Read the interval as conditional on `g` being right — which is
-why `sensitivity.positivity()` still reports on this axis and matters *more* here than
+why `diagnostics.support()` still reports on this axis and matters *more* here than
 elsewhere, there being no doubly-robust fallback. `tests/unit/test_remainder_ipsi.py`
 asserts both directions as equalities rather than as an absence.
 
@@ -293,7 +293,7 @@ derived rate. It does not depend on row count, effective sample size, fitted pro
 or follow-up depth. A cumulative path probability naturally shrinks with depth, so falling
 below `0.01` does not by itself prove a node-level positivity failure; conversely, clipping
 can replace every scored row and make the clever covariate constant. The fixed floor does
-not vanish asymptotically. `res.diagnostics()["share_truncated"]` therefore reports its
+not vanish asymptotically. `res.diagnostics.stagewise().to_frame()["share_truncated"]` therefore reports its
 effect per regimen and node. When it is material, report the bounds, truncation shares,
 maximum weights, and effective sample sizes, and refit the complete backward recursion
 under substantively justified alternatives.
@@ -340,7 +340,7 @@ analysis rather than about this package's coverage.
 | a **stochastic** categorical policy at a node | a different question | a deterministic rule assigns one label per unit and the clever covariate selects that label's probability. A policy that assigns a *distribution* over the labels replaces the intervention density itself, so the cumulative product carries a ratio rather than a selected column, and the parameter is the mean under that density. **Deterministic static and dynamic categorical regimens are supported** — see [treatment over time](user-guide.md#treatment-given-over-time) |
 | a **continuous dose** at a node | a different question | there is no label to assign, so the intervention is a shift along a conditional density at every node — the longitudinal counterpart of `shifts=` rather than a node with many arms. A numeric node with a coarse support is accepted, and warns that its values became unordered arms and its spacing was discarded |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
-| the targeted bootstrap, and `res.sensitivity` | not written yet | both refit against resampled or re-truncated nuisances. `g_bounds` enters the *pseudo-outcome* of every earlier node through the recursion, so changing it changes what the earlier regressions were fitted to: there is no `retarget` here that re-solves the fluctuation alone, and the whole backward pass has to run again. For positivity — the assumption that bites hardest here — `res.diagnostics()` already answers the question |
+| the targeted bootstrap, and `res.sensitivity` | not written yet | both refit against resampled or re-truncated nuisances. `g_bounds` enters the *pseudo-outcome* of every earlier node through the recursion, so changing it changes what the earlier regressions were fitted to: there is no `retarget` here that re-solves the fluctuation alone, and the whole backward pass has to run again. For positivity — the assumption that bites hardest here — `res.diagnostics.stagewise().to_frame()` already answers the question |
 
 ## Dynamic rules: what the oracle law checks
 
@@ -439,7 +439,7 @@ of that module's 30 tests red.
 What does **not** change is the positivity story. Being event-free is part of the history,
 not an intervened node, so it enters the *indicator* of the clever covariate and never its
 denominator: the cumulative product is still over the `2T` treatment and censoring factors,
-with each cumulative prefix truncated after multiplication, and `res.diagnostics()` reports
+with each cumulative prefix truncated after multiplication, and `res.diagnostics.stagewise().to_frame()` reports
 the same weights — now with a
 `horizon` column beside the `time` one, since the leverage is shared across horizons and
 the `epsilon` is not.
@@ -1015,8 +1015,8 @@ setting turns one into the other.
 | `eliminate=` on a competing-risks fit | the incidence of a cause if the competing events were *removed*, which intervenes on them rather than conditioning on the history — a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions for the competing event. What is reported instead is the incidence with the competing causes left alone |
 | `intermediate=` on `LTMLE` | a controlled direct effect fixes a mediator at one time point; over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | `ey1` and `ey_regime` from one fit; `msm=` with `interventions=` or `shifts=` | each keyword declares what "counterfactual" means for the fit, or how the counterfactuals are summarised. One fluctuation solves one set of score equations, so a fit reporting parameters from two axes would be putting two of them under one heading |
-| `sensitivity.positivity()` on a continuous fit; `stratify_folds="treatment+outcome"` on a continuous outcome or dose | a per-arm propensity table has no rows when there are no arms. `sensitivity.shift_support()` asks the question that does apply — whether the density *ratio* stays bounded |
-| `res.sensitivity`, `res.diagnostics`, `res.validate()` and `res.save()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, and nuisance loss are supported; sensitivity operations without a longitudinal derivation report `unavailable`. `res.diagnostics()` remains the compatibility spelling for the cumulative-weight table |
+| the per-arm propensity table on a continuous fit; `stratify_folds="treatment+outcome"` on a continuous outcome or dose | a per-arm table has no rows when there are no arms. `diagnostics.support()` is not itself refused: on a fit that declared `shifts=` it dispatches to the question that does apply — whether the density *ratio* stays bounded — and it reaches the per-arm table only when no intervention axis was declared |
+| `res.sensitivity`, `res.diagnostics`, `res.validate()` and `res.save()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, and nuisance loss are supported; sensitivity operations without a longitudinal derivation report `unavailable`. `res.diagnostics.stagewise().to_frame()` is the cumulative-weight table; the callable `res.diagnostics()` spelling it replaced is gone, and `res.diagnostics` is a facade object |
 
 ### Wrong by construction
 

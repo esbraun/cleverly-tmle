@@ -131,7 +131,7 @@ def missingness_tilt(
             "the tilted parameter is still the shift parameter under a non-ignorable "
             "mechanism has not been derived here. Use "
             "truncation_curve(mechanism=True) for sensitivity to the missingness bound, "
-            "or shift_support() for the overlap question."
+            "or diagnostics.support() for the overlap question."
         )
     if result.nuisance.incremental is not None:
         raise ValueError(
@@ -142,7 +142,7 @@ def missingness_tilt(
             "lives in the tangent space of g, which the tilt does not move but which the "
             "alternation re-solves against a Qbar that has. Whether the tilted parameter "
             "is that alternation's fixed point has not been derived, so reporting a curve "
-            "would be guessing. Use incremental_support() for the overlap question, or "
+            "would be guessing. Use diagnostics.support() for the overlap question, or "
             "truncation_curve(mechanism=True) for sensitivity to the missingness bound."
         )
     if result.nuisance.missingness is None:  # pragma: no cover - guarded above

@@ -53,7 +53,7 @@ class TestVariantsAgree:
 
     @pytest.mark.parametrize("variant", list(VARIANTS))
     def test_every_variant_solves_the_score_equation(self, variants, variant: str) -> None:
-        assert variants[variant].validation.score_check().passed
+        assert variants[variant].diagnostics.score_equations().passed
 
     def test_targeting_methods_agree(self, variants) -> None:
         iterative = variants["iterative"]
@@ -194,7 +194,7 @@ class TestWeightsAndClusters:
             .single()
         )
         assert weighted.psi("ate") != plain.psi("ate")
-        assert weighted.validation.score_check().passed
+        assert weighted.diagnostics.score_equations().passed
 
     def test_uniform_weights_reproduce_the_unweighted_fit(self) -> None:
         frame, _ = make_linear_ate(n=800, seed=38)

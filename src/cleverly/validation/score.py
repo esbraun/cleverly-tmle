@@ -62,7 +62,7 @@ The usual reasons for a failure:
 
 * **positivity.** Targeted predictions pin against ``[0, 1]`` and cannot move further,
   so the fluctuation cannot reach the root.  Check
-  :meth:`~cleverly.sensitivity.SensitivityAnalysis.positivity`.
+  :meth:`~cleverly.assessment.DiagnosticsFacade.support`.
 * **a fluctuation that has to travel far**, from a poor initial fit -- try
   ``targeting="one_step"``, which rebuilds the direction along the path.
 * **too coarse a step** in the one-step walk -- lower ``step_size``.
@@ -230,7 +230,7 @@ class ScoreCheck:
                 *self._identity_lines(),
                 "  The standard errors above are read off an influence curve whose mean is",
                 "  not zero, so they do not describe this estimate.  See",
-                "  res.validation.score_check() for the table and cleverly.validation.score",
+                "  res.diagnostics.score_equations() for the table and cleverly.validation.score",
                 "  for the usual causes.",
             ]
         )
@@ -253,7 +253,7 @@ class ScoreCheck:
             "  step recorded and the term the reported curve carries are not the same",
             "  functional of the state this fit returned.  That is a defect in the",
             "  implementation and iterating longer will not fix",
-            "  it.  See res.validation.correction_check().",
+            "  it.  See res.diagnostics.corrections().",
         ]
 
     def _worst_ratio(self) -> float:
@@ -298,7 +298,7 @@ class ScoreCheck:
                         "returned. That is a defect in the implementation rather than",
                         "a fit that failed to converge, and the standard errors do not "
                         "describe this estimate.",
-                        "See res.validation.correction_check() for the recomputation and "
+                        "See res.diagnostics.corrections() for the recomputation and "
                         "the clipping bias.",
                     ]
                 )

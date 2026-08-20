@@ -378,7 +378,7 @@ class TestCanonicalEvaluation:
     def test_the_score_equation_still_holds(self, canonical_report) -> None:
         # The common update solves the average validation score even though individual
         # folds retain nonzero score contributions.
-        assert canonical_report.validation.score_check().passed
+        assert canonical_report.diagnostics.score_equations().passed
 
     def test_it_names_the_estimator_it_ran(self, pooled_report, canonical_report) -> None:
         assert pooled_report.config.estimator_name == "stacked CV-TMLE (Levy)"

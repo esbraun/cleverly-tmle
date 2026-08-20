@@ -36,12 +36,29 @@ validation = result.validate()
 support = result.diagnostics.support()
 nuisance = result.diagnostics.nuisance_models()
 scores = result.diagnostics.score_equations()
+corrections = result.diagnostics.corrections()
+stability = result.diagnostics.truncation_curve()
 all_cached = result.diagnostics.run_all()
 ```
 
 Combined reports distinguish five states: `passed`, `failed`, `warning`, `not_applicable`, and
 `unavailable`. “Not applicable” means the scientific question has no such analysis; “unavailable”
 means the question is meaningful but the fit lacks a derivation or saved artifact.
+
+A combined report runs only the operations that summarise stored artifacts. The two costlier
+classes are named separately, because they are disjoint — `refute()` and `benchmark()` refit
+nuisance models, while `truncation_curve()`, `missingness()` and `tipping_gamma()` retarget cached
+ones:
+
+```python
+everything = result.diagnostics.run_all(include_refits=True, include_retargets=True)
+```
+
+`score_equations(tolerance=...)` gates both result families, but on the scale each one’s score
+lives on. A point-treatment fit compares the score in the outcome’s own units against
+`tolerance * se / sqrt(n)`; a longitudinal fit bounds each node’s relative score, the quantity
+the sequential targeting loop itself gates on, and can only tighten the fit’s own convergence
+verdict rather than overturn it.
 
 ## Sensitivity analysis
 
@@ -50,10 +67,12 @@ all_sensitivity = result.sensitivity.run_all()
 print(all_sensitivity.summary())
 ```
 
-Available point-treatment analyses include positivity summaries, E-values where meaningful,
-omitted-variable bounds, missingness tilts, and refit-based benchmarking. A combined cache-only
-call excludes refits by default. Longitudinal operations without a published derivation are
-reported unavailable rather than borrowing point-treatment formulas.
+Support and truncation stability live under `result.diagnostics`. Point-treatment sensitivity
+methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()`, `benchmark()`,
+`contour()`, `evalue()`, `missingness()`, and `tipping_gamma()`. A combined call excludes refits and
+retargets by default, and each skipped row names the flag that would run it. Longitudinal
+operations without a published derivation are reported unavailable rather than borrowing
+point-treatment formulas, and each refusal gives the reason its own capability row declares.
 
 ## Persistence and replayability
 

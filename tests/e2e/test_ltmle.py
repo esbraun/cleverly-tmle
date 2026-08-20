@@ -217,7 +217,7 @@ def test_a_three_node_recursion_recovers_the_truth() -> None:
     # Every one of the three score equations, not just the two a T=2 fit has.
     for step in fit.steps:
         assert step.fluctuation.relative_score_norm < 1e-8
-    assert len(result.diagnostics()) == 6  # two regimens by three nodes
+    assert len(result.diagnostics.stagewise().to_frame()) == 6  # two regimens by three nodes
     estimate = result["ey_regimen[always]"]
     assert abs(estimate.psi - truth) < 3.0 * estimate.std_error
 
@@ -333,7 +333,7 @@ def test_diagnostics_report_the_cumulative_leverage(
     describe.
     """
     result, _ = fitted
-    frame = result.diagnostics()
+    frame = result.diagnostics.stagewise().to_frame()
     assert len(frame) == 4  # two regimens by two nodes
     rows = {(row["regimen"], row["time"]): row for _, row in frame.iterrows()}
     for label, fit in result.fits.items():
@@ -402,7 +402,7 @@ def test_material_cumulative_truncation_warns_and_reports_the_share() -> None:
     frame, _ = make_longitudinal(n=400, seed=91)
     with pytest.warns(PositivityWarning, match="constant on scored rows"):
         result = run(frame, regimens={"always": 1}, g_bounds=0.9)
-    diagnostics = result.diagnostics()
+    diagnostics = result.diagnostics.stagewise().to_frame()
     assert float(diagnostics["share_truncated"].max()) == 1.0
     fit = result.fits["always"]
     np.testing.assert_allclose(fit.cumulative[:, -1], 0.9)
@@ -418,7 +418,7 @@ def test_a_nonbinding_bound_reports_zero_without_a_positivity_warning() -> None:
     np.testing.assert_array_equal(
         result.fits["always"].cumulative_unbounded, result.fits["always"].cumulative
     )
-    assert float(result.diagnostics()["share_truncated"].max()) == 0.0
+    assert float(result.diagnostics.stagewise().to_frame()["share_truncated"].max()) == 0.0
 
 
 def test_contrast_and_covariance_use_the_joint_curve(
@@ -521,7 +521,7 @@ def test_polars_in_polars_out() -> None:
     frame, _ = make_longitudinal(n=800, seed=5, backend="polars")
     result = run(frame)
     assert isinstance(result.to_frame(), polars.DataFrame)
-    assert isinstance(result.diagnostics(), polars.DataFrame)
+    assert isinstance(result.diagnostics.stagewise().to_frame(), polars.DataFrame)
 
 
 def test_the_two_backends_produce_identical_numbers() -> None:
@@ -665,11 +665,14 @@ class TestObservationWeights:
         A fit can be comfortable on the observation weights and comfortable on the clever
         covariate and thin on both together, which is the case a diagnostic showing one of
         them alone reads as fine.  Same reasoning, and the same choice, as
-        ``cleverly.sensitivity.positivity``.
+        ``result.diagnostics.support()``.
         """
         frame, _ = self._biased()
         result = run(frame, weights="w")
-        rows = {(row["regimen"], row["time"]): row for _, row in result.diagnostics().iterrows()}
+        rows = {
+            (row["regimen"], row["time"]): row
+            for _, row in result.diagnostics.stagewise().to_frame().iterrows()
+        }
         for label, fit in result.fits.items():
             for step in fit.steps:
                 leverage = (fit.obs_weights * step.clever)[step.trained_on]
@@ -760,7 +763,7 @@ class TestADynamicRule:
         fit ran; for a rule it is the only place the report says what the rule actually
         did to this sample, since the settings can only say that a rule was declared.
         """
-        frame = fitted.diagnostics()
+        frame = fitted.diagnostics.stagewise().to_frame()
         shares = {
             (row["regimen"], row["time"]): row["share_assigned_1"] for _, row in frame.iterrows()
         }
@@ -967,7 +970,7 @@ class TestTheSharedAssessmentContract:
         assert {item.status for item in result.sensitivity.run_all().items} == {
             AssessmentStatus.UNAVAILABLE
         }
-        with pytest.raises(CapabilityError, match="full evidence-backed recursion/refit adapter"):
+        with pytest.raises(CapabilityError, match="no longitudinal sensitivity derivation"):
             result.sensitivity.omitted_confounding()
 
     def test_validation_points_at_the_per_node_diagnostics(
@@ -1000,7 +1003,7 @@ class TestTheSharedAssessmentContract:
 
         Every replicate died on a missing ``subset`` inside the loop's blanket
         ``except Exception``, so a structural gap came out as a statistical diagnosis
-        recommending ``res.sensitivity.positivity()`` -- itself unavailable here.
+        recommending ``res.diagnostics.support()`` -- itself unavailable here.
         """
         from cleverly.inference.bootstrap import run_bootstrap
 
@@ -1147,7 +1150,7 @@ class TestASurvivalOutcome:
     ) -> None:
         """The ``regimen`` column is the regimen, not the key the fit is filed under."""
         result, _ = fitted
-        rows = result.diagnostics()
+        rows = result.diagnostics.stagewise().to_frame()
         assert set(rows["regimen"]) == {"always", "never"}
         assert set(rows["horizon"]) == {1, 2}
         # One row per node of every horizon of every regimen: 2 * (1 + 2).
