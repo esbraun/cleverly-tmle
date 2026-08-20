@@ -48,7 +48,39 @@ TargetingScheme = Literal["pooled", "fold"]
 #: long-standing behaviour and the default; ``"treatment+outcome"`` crosses in the
 #: outcome so that a rare event cannot leave a fold with none of them.
 FoldStrata = Literal["treatment", "treatment+outcome"]
-Estimand = Literal["ey1", "ey0", "ate", "att", "atc", "rr", "or"]
+#: Every estimand name :class:`~cleverly.estimators.TMLE`'s ``estimands=`` accepts, which is
+#: every key of the target registry.  Which of them a *particular* fit can report depends on
+#: its outcome family, its arm count and which parameter axis it declared, and that is
+#: checked at runtime by :func:`~cleverly.targets.resolve_estimands` against the registry
+#: itself.  This alias is the static half of the same statement and cannot be derived from
+#: the registry: a ``Literal`` has to be written out, and importing ``cleverly.targets`` here
+#: would invert the dependency of the type aliases on the package.
+#:
+#: So it is a hand-maintained copy, and the way a hand-maintained copy stays honest is a gate
+#: rather than care -- ``tests/unit/test_registry.py`` compares its members with ``TARGETS``
+#: in both directions.  It had already drifted once without one: ``ey``, ``ey_obs``, ``par``
+#: and ``paf`` were reportable and absent from here, as was every non-arm axis, so annotating
+#: a correct call was a type error.
+Estimand = Literal[
+    "ate",
+    "att",
+    "atc",
+    "ey",
+    "ey1",
+    "ey0",
+    "ey_obs",
+    "par",
+    "paf",
+    "rr",
+    "or",
+    "ey_regime",
+    "ate_regime",
+    "ey_ipsi",
+    "ate_ipsi",
+    "ey_shift",
+    "ate_shift",
+    "msm",
+]
 
 #: What a fit's parameters are indexed *by*: a treatment arm, a declared regime, a
 #: declared shift, a declared tilt of the mechanism, or a coefficient of a declared

@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__all__ = ["DOCUMENTS", "ROOT", "python_blocks"]
+__all__ = ["DOCUMENTS", "ROOT", "pipe_table", "python_blocks"]
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,3 +48,31 @@ def python_blocks(document: Path) -> list[tuple[int, str]]:
         (text[: match.start()].count("\n") + 1, match.group("code"))
         for match in FENCE.finditer(text)
     ]
+
+
+def pipe_table(document: Path, columns: tuple[str, ...]) -> list[dict[str, str]]:
+    """The first pipe table in ``document`` whose header is exactly ``columns``.
+
+    Selecting by header rather than by position is what lets a document carry several tables
+    of different shapes without any of the gates over them counting lines.  A renamed column
+    is then a failure here instead of a silent reinterpretation of every row beneath it.
+    """
+    lines = document.read_text(encoding="utf-8").splitlines()
+    header = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if [cell.strip() for cell in line.strip().strip("|").split("|")] == list(columns)
+        ),
+        None,
+    )
+    assert header is not None, f"{document.name} has no table with the header {columns}"
+
+    rows: list[dict[str, str]] = []
+    for line in lines[header + 2 :]:
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        assert len(cells) == len(columns), f"ragged row in {document.name}: {line}"
+        rows.append(dict(zip(columns, cells, strict=True)))
+    return rows
