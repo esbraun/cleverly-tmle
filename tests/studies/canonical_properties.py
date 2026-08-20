@@ -9,7 +9,7 @@ implementation comparison declares, so the two halves of the study cannot drift 
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -22,12 +22,15 @@ from cleverly.utils.bounds import expit
 from tests.conftest import OracleOutcomeContinuous, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_tmle import G_BOUNDS, STUDY
+from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     PropertyCell,
     rate,
     run_cells,
+    se_ratio_interval,
     summarize_cells,
 )
+from tests.studies.evidence.registry import StudyRecord
 
 #: Sized by what the claim needs, not by habit.  The 99% interval's half-width is about
 #: ``2.6 / sqrt(m)`` empirical standard deviations, so ``m`` decides the largest bias the study
@@ -38,8 +41,22 @@ from tests.studies.evidence.properties import (
 #: margin, and said so.  Raising the budget cannot buy a pass for a bad estimator: the interval
 #: contracts on the truth, so a bias past the margin becomes *discriminated* instead.
 DOUBLE_ROBUST_REPLICATES = 1_200
-RATE_REPLICATES = 200
+
+#: Sized by what the *coverage* gate in these cells needs, which is the binding one and was
+#: the budget's real constraint.  A 99% Clopper-Pearson lower endpoint clearing 0.90 needs
+#: 742 of 800 covered replications (92.75%); at 200 it needed 191 (95.5%), which a correctly
+#: calibrated 95% interval misses 54.5% of the time.  Raising the budget does not buy a pass:
+#: an estimator whose true coverage is 0.90 is refused at 800 with probability 0.996, the same
+#: as at 200.  What it buys is that a *passing* cell means something -- the committed n = 500
+#: cell sat at exactly 191 of 200, one replication from red for no reason a commit caused.
+RATE_REPLICATES = 800
 NULL_REPLICATES = 400
+
+#: The calibration cell below.  The 99% resampling interval for the SE ratio has half-width
+#: about ``2.58 / sqrt(2 * (m - 1))`` -- 3.7% at 2,400 -- so it leaves about half of the 7%
+#: equivalence margin for a real departure rather than spending all of it on Monte Carlo error.
+CALIBRATION_REPLICATES = 2_400
+CALIBRATION_N = 2000
 
 #: Three sizes, not two: a rate estimated from two points is a ratio with no residual, and
 #: quadrupling twice separates a root-n contraction from a merely decreasing one.
@@ -49,6 +66,14 @@ RATE_SIZES = (500, 2000, 8000)
 #: interval must exclude for the check to have discriminated anything.
 ROOT_N_SLOPE = -0.5
 EXCLUDED_SLOPE = -0.25
+
+#: How far from ``ROOT_N_SLOPE`` the fitted interval may reach and still be accepted.  Derived
+#: rather than chosen: half the distance to ``EXCLUDED_SLOPE``, the alternative this study was
+#: built to reject, so the accept and the discriminate verdicts partition the line between the
+#: two rates the claim is about.  Requiring the interval to *contain* -1/2 instead is the point
+#: test the framework refuses everywhere else: it gets harder as replications are added, and
+#: the reported-SE rate published at 200 replications per size cleared it by 4.4e-5.
+ROOT_N_SLOPE_MARGIN = 0.125
 
 #: Power positive control: an effect this large is rejected essentially always, so a
 #: rejection indicator that never fires cannot pass the type-I cell by being inert.
@@ -132,6 +157,18 @@ def cells() -> tuple[PropertyCell, ...]:
         )
     out.append(
         PropertyCell(
+            property="interval_calibration",
+            cell="correctly_specified",
+            dgp=linear,
+            outcome_learner=LinearRegression,
+            treatment_learner=lambda: LogisticRegression(max_iter=1000),
+            n=CALIBRATION_N,
+            replicates=CALIBRATION_REPLICATES,
+            seed=11_100,
+        )
+    )
+    out.append(
+        PropertyCell(
             property="type_i_error",
             cell="sharp_null",
             dgp=_null_dgp(),
@@ -178,25 +215,44 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return run_cells(cells(), _estimator, n_jobs=n_jobs)
 
 
-def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """Per-cell descriptive summary, the two rate rows, and every verdict.
+#: Columns every study family's property summary carries, whatever else it adds.
+SHARED_COLUMNS = (
+    "slope",
+    "slope_ci_lower",
+    "slope_ci_upper",
+    "se_ratio_ci_lower",
+    "se_ratio_ci_upper",
+)
+
+
+def apply_shared_verdicts(
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    extra_columns: Sequence[str] = (),
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Every cell the study families share, plus the two rate rows they both publish.
 
     Each verdict is an interval statement against a margin declared before the run.  For the
     double-robustness cells that means the positive cells must establish that the bias is
     *inside* the margin and the both-wrong control must establish that it is *outside* it --
     the same instrument in both directions, so neither can be passed by a study too small to
     say anything.
+
+    Shared rather than copied per study: the CV reports inherit these cells from
+    :func:`cells`, so a verdict written twice is a verdict that can be *changed* once.  The
+    caller supplies whatever further columns its own cells publish, because the rate rows are
+    built from the summary's columns and have to be built after they all exist.
     """
-    margins = STUDY.margins
+    margins = record.margins
     summary = summarize_cells(
         rows,
         margin=margins.standardized_bias,
         confidence_level=margins.confidence_level,
         alpha=margins.alpha,
     )
-    summary["slope"] = np.nan
-    summary["slope_ci_lower"] = np.nan
-    summary["slope_ci_upper"] = np.nan
+    for column in (*SHARED_COLUMNS, *extra_columns):
+        summary[column] = np.nan
     summary["passed"] = False
 
     positive = (summary["property"] == "double_robustness") & (summary["cell"] != "both_wrong")
@@ -210,6 +266,28 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         & summary.loc[efficiency, "se_ratio"].between(*margins.se_ratio_sanity)
         & summary.loc[efficiency, "bias_equivalent"]
     )
+
+    calibration = summary["property"] == "interval_calibration"
+    for offset, cell in enumerate(sorted(summary.loc[calibration, "cell"])):
+        group = rows.loc[(rows["property"] == "interval_calibration") & (rows["cell"] == cell)]
+        ratio = se_ratio_interval(
+            group,
+            replicates=margins.bootstrap_replicates,
+            confidence_level=margins.confidence_level,
+            seed=record.seed + 50_000 + offset,
+        )
+        mask = calibration & (summary["cell"] == cell)
+        summary.loc[mask, "se_ratio_ci_lower"] = ratio.low
+        summary.loc[mask, "se_ratio_ci_upper"] = ratio.high
+        row = summary.loc[mask].iloc[0]
+        coverage = Interval(float(row["coverage_ci_lower"]), float(row["coverage_ci_upper"]))
+        # Two-sided, and both halves needed.  A reported standard error inflated by a
+        # constant keeps coverage inside its band while failing the ratio; a curve that is
+        # right on average but wrong replication by replication does the reverse.
+        summary.loc[mask, "passed"] = bool(
+            ratio.within(*margins.calibration_se_ratio)
+            and coverage.within(*margins.calibration_coverage)
+        )
 
     null = summary["property"] == "type_i_error"
     # One-sided: a test that over-rejects is invalid, and one that under-rejects is
@@ -229,7 +307,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             statistic=statistic,
             bootstrap_replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
-            seed=STUDY.seed + 30_000 + len(rates),
+            seed=record.seed + 30_000 + len(rates),
         )
         row: dict[str, Any] = dict.fromkeys(summary.columns, np.nan)
         row.update(
@@ -243,11 +321,22 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
                 "slope_ci_lower": fitted.interval.low,
                 "slope_ci_upper": fitted.interval.high,
                 "passed": bool(
-                    fitted.consistent_with(ROOT_N_SLOPE) and fitted.excludes(EXCLUDED_SLOPE)
+                    fitted.equivalent_to(ROOT_N_SLOPE, ROOT_N_SLOPE_MARGIN)
+                    and fitted.excludes(EXCLUDED_SLOPE)
                 ),
             }
         )
         rates.append(row)
+    return summary, rates
+
+
+def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:
+    """Append the rate rows and put the table in its published order."""
     summary = pd.concat([summary, pd.DataFrame(rates)], ignore_index=True)
     summary["passed"] = summary["passed"].astype(bool)
     return summary.sort_values(["property", "cell"], ignore_index=True)
+
+
+def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
+    """Per-cell descriptive summary, the two rate rows, and every verdict."""
+    return finish(*apply_shared_verdicts(rows, STUDY))

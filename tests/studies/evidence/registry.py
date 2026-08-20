@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 from tests.studies.evidence.inference import se_ratio_for_coverage
 
@@ -41,6 +43,20 @@ class Margins:
     over_coverage_ceiling: float = 0.99
     #: Two-sided sanity band on mean reported SE over empirical SD.
     se_ratio_sanity: tuple[float, float] = (0.80, 1.20)
+    #: Two-sided *calibration* band, for the one property cell where both nuisances are
+    #: correctly specified.  Deliberately tighter than the coverage floor implies, which
+    #: :meth:`__post_init__` forbids for ``se_ratio_sanity`` -- and the two are different
+    #: instruments rather than the same one declared twice.  ``se_ratio_sanity`` is a screen
+    #: standing behind a one-sided validity gate, applied to every estimand of every law
+    #: including the ones whose influence-curve standard error is only conservative; here the
+    #: theory does promise the reported standard error is the efficient one, so a departure is
+    #: a defect rather than a regime.  Both remain equivalence-shaped, so both still become
+    #: easier to satisfy as replications are added.
+    calibration_se_ratio: tuple[float, float] = (0.93, 1.07)
+    #: The same claim on the coverage scale, also two-sided.  Asking whether the exact
+    #: interval lies inside this band is answerable and gets easier with replications; asking
+    #: whether coverage *is* 0.95 is the point test the coverage floor exists to avoid.
+    calibration_coverage: tuple[float, float] = (0.92, 0.98)
     #: How far above nominal a test's size may be established to sit.  One-sided: a test that
     #: under-rejects is conservative, and a power cell is what stops an inert one passing.
     type_i_margin: float = 0.05
@@ -57,6 +73,24 @@ class Margins:
                 f"the SE sanity band's lower limit {self.se_ratio_sanity[0]} is tighter than "
                 f"the coverage floor {self.coverage_floor} implies ({implied:.4f}), so the "
                 f"screen would bind before the validity gate does"
+            )
+        low, high = self.calibration_se_ratio
+        if low < self.se_ratio_sanity[0] or high > self.se_ratio_sanity[1]:
+            raise ValueError(
+                f"the calibration band {self.calibration_se_ratio} is not inside the sanity "
+                f"band {self.se_ratio_sanity}, so it adds no claim the screen does not already "
+                f"make"
+            )
+        if not low < 1.0 < high:
+            raise ValueError(
+                f"the calibration band {self.calibration_se_ratio} excludes a correctly scaled "
+                f"standard error, so no valid estimator could satisfy it"
+            )
+        nominal = 1.0 - self.alpha
+        if not self.calibration_coverage[0] < nominal < self.calibration_coverage[1]:
+            raise ValueError(
+                f"the calibration coverage band {self.calibration_coverage} excludes the "
+                f"nominal rate {nominal}, so no valid interval could satisfy it"
             )
         if not 0.0 < self.confidence_level < 1.0:
             raise ValueError(f"confidence_level must be in (0, 1); got {self.confidence_level}")
@@ -77,6 +111,8 @@ class Margins:
             "coverage_floor": self.coverage_floor,
             "over_coverage_ceiling": self.over_coverage_ceiling,
             "se_ratio_sanity_band": list(self.se_ratio_sanity),
+            "calibration_se_ratio_band": list(self.calibration_se_ratio),
+            "calibration_coverage_band": list(self.calibration_coverage),
             "type_i_margin": self.type_i_margin,
             "paired_difference_margin_sd": self.paired_difference,
             "rmse_ratio_noninferiority_margin": self.rmse_noninferiority,
@@ -111,6 +147,11 @@ class StudyRecord:
     incomparable_se: frozenset[str] = frozenset()
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()
+    #: Import paths for the study-specific sampling/fitting and property adapters.
+    runner_module: str = "tests.studies.canonical_tmle"
+    properties_module: str = "tests.studies.canonical_properties"
+    #: Property name -> the cells the committed property summary must contain.
+    property_cells: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def implementations(self) -> tuple[str, ...]:
@@ -136,6 +177,14 @@ class StudyRecord:
     def document_path(self) -> Path:
         return ROOT / self.document
 
+    def runner(self) -> Any:
+        """The study-specific module that draws samples and refits the subject."""
+        return import_module(self.runner_module)
+
+    def properties(self) -> Any:
+        """The study-specific module that generates and summarizes property cells."""
+        return import_module(self.properties_module)
+
 
 def registered() -> tuple[StudyRecord, ...]:
     """Every registered study, in documentation-grid order.
@@ -143,6 +192,8 @@ def registered() -> tuple[StudyRecord, ...]:
     Imported lazily so the framework modules stay importable without pulling in a study's
     estimator configuration, and so a study module can import the framework.
     """
+    from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
+    from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
 
-    return (CANONICAL_TMLE,)
+    return (CANONICAL_TMLE, CANONICAL_CVTMLE, FOLD_EVALUATED_CVTMLE)

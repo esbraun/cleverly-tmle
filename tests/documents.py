@@ -50,14 +50,47 @@ def python_blocks(document: Path) -> list[tuple[int, str]]:
     ]
 
 
-def pipe_table(document: Path, columns: tuple[str, ...]) -> list[dict[str, str]]:
+def pipe_table(
+    document: Path, columns: tuple[str, ...], *, section: str | None = None
+) -> list[dict[str, str]]:
     """The first pipe table in ``document`` whose header is exactly ``columns``.
 
     Selecting by header rather than by position is what lets a document carry several tables
     of different shapes without any of the gates over them counting lines.  A renamed column
     is then a failure here instead of a silent reinterpretation of every row beneath it.
+    When ``section`` is supplied, search only the level-two heading with that text or anchor;
+    method-evidence studies share one document and must not read one another's measured-value
+    tables.
     """
     lines = document.read_text(encoding="utf-8").splitlines()
+    if section is not None:
+
+        def matches_section(line: str) -> bool:
+            if not line.startswith("## "):
+                return False
+            heading = line[3:].strip()
+            kept = "".join(
+                character
+                for character in heading.casefold()
+                if character.isalnum() or character in " -_"
+            )
+            anchor = kept.strip().replace(" ", "-")
+            return heading.casefold() == section.casefold() or anchor == section
+
+        start = next(
+            (index for index, line in enumerate(lines) if matches_section(line)),
+            None,
+        )
+        assert start is not None, f"{document.name} has no level-two section {section!r}"
+        stop = next(
+            (
+                index
+                for index, line in enumerate(lines[start + 1 :], start=start + 1)
+                if line.startswith("## ")
+            ),
+            len(lines),
+        )
+        lines = lines[start:stop]
     header = next(
         (
             index

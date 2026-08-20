@@ -56,27 +56,27 @@ def test_the_resampling_bounds_are_recomputed_from_the_replication_rows(
         rtol=1e-12,
         atol=1e-12,
     )
-    pd.testing.assert_frame_equal(
-        pd.read_csv(study.artifact("equivalence.csv")),
-        equivalence(replicates, summaries, performance, record=study, n_jobs=JOBS),
-        check_exact=False,
-        rtol=1e-12,
-        atol=1e-12,
-    )
+    if study.reference is not None:
+        pd.testing.assert_frame_equal(
+            pd.read_csv(study.artifact("equivalence.csv")),
+            equivalence(replicates, summaries, performance, record=study, n_jobs=JOBS),
+            check_exact=False,
+            rtol=1e-12,
+            atol=1e-12,
+        )
 
 
 def test_refitting_committed_replications_reproduces_their_rows(
     study: StudyRecord, rows: dict[str, pd.DataFrame]
 ) -> None:
     """The study is evidence about this code only while this code still produces it."""
-    from tests.studies.canonical_tmle import cleverly_rows, draw_scenario
-
+    runner = study.runner()
     published = rows[study.slug]
     chosen = np.linspace(0, study.replicates - 1, REFIT_SAMPLE, dtype=int)
     for scenario in study.scenarios:
         for replicate in chosen:
-            frame, truth = draw_scenario(scenario, study.n, int(replicate))
-            refitted = pd.DataFrame(cleverly_rows(frame, truth, scenario, int(replicate)))
+            frame, truth = runner.draw_scenario(scenario, study.n, int(replicate))
+            refitted = pd.DataFrame(runner.cleverly_rows(frame, truth, scenario, int(replicate)))
             expected = published.loc[
                 (published["implementation"] == study.implementation)
                 & (published["scenario"] == scenario)
@@ -93,9 +93,8 @@ def test_refitting_committed_replications_reproduces_their_rows(
 def test_the_property_study_reproduces_its_verdicts_when_it_is_re_run(
     study: StudyRecord,
 ) -> None:
-    from tests.studies.canonical_properties import generate_property_rows, summarize_properties
-
-    regenerated = summarize_properties(generate_property_rows(n_jobs=JOBS))
+    properties = study.properties()
+    regenerated = properties.summarize_properties(properties.generate_property_rows(n_jobs=JOBS))
     published = pd.read_csv(study.artifact("properties.csv"))
     pd.testing.assert_frame_equal(
         published, regenerated, check_exact=False, check_dtype=False, rtol=1e-9, atol=1e-9
@@ -106,13 +105,6 @@ def test_the_property_study_reproduces_its_verdicts_when_it_is_re_run(
 def test_every_declared_property_cell_is_present_and_passing(study: StudyRecord) -> None:
     published = pd.read_csv(study.artifact("properties.csv"))
     by_property = published.groupby("property")["cell"].apply(set).to_dict()
-    assert by_property["double_robustness"] == {
-        "both_correct",
-        "outcome_correct",
-        "treatment_correct",
-        "both_wrong",
-    }
-    assert by_property["root_n_rate"] == {"empirical_sd", "reported_se"}
-    assert by_property["type_i_error"] == {"sharp_null"}
-    assert by_property["power"] == {"alternative"}
+    expected = {name: set(cells) for name, cells in study.property_cells.items()}
+    assert by_property == expected
     assert published["passed"].all(), published.loc[~published["passed"]].to_string()

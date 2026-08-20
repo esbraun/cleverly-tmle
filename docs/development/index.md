@@ -12,6 +12,7 @@ Documentation source index <../README>
 Production documentation plan <../documentation-plan>
 Architecture invariants <../architecture-invariants>
 Evidence manifest <../evidence>
+R comparisons and statistical evidence studies <method-evidence-studies>
 Technical appendix <../methodology>
 DR-TMLE contract <../drtmle>
 References <../references>

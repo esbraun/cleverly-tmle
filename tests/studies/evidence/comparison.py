@@ -38,6 +38,46 @@ PAIRED_COLUMNS = ("estimate", "covered", "inference_estimate", "std_error")
 RMSE_SCREEN = 1.25
 COVERAGE_SHORTFALL_SCREEN = 0.05
 
+EQUIVALENCE_COLUMNS = (
+    "scenario",
+    "estimand",
+    "subject",
+    "reference",
+    "paired_replicates",
+    "dropped_replications",
+    "confidence_level",
+    "mean_difference",
+    "paired_se",
+    "paired_ci_lower",
+    "paired_ci_upper",
+    "mean_margin",
+    "margin_utilization",
+    "paired_similarity",
+    "rmse_ratio",
+    "rmse_ratio_upper",
+    "rmse_noninferiority_margin",
+    "coverage_difference",
+    "subject_coverage_shortfall",
+    "coverage_difference_lower",
+    "coverage_noninferiority_margin",
+    "se_comparable",
+    "se_ratio_difference",
+    "subject_calibration_excess",
+    "calibration_excess_upper",
+    "calibration_noninferiority_margin",
+    "rmse_screen",
+    "coverage_shortfall_screen",
+    "subject_valid",
+    "reference_valid",
+    "subject_not_inferior",
+    "passed",
+)
+
+
+def empty_equivalence() -> pd.DataFrame:
+    """A schema-valid zero-row comparison for a study with no reference."""
+    return pd.DataFrame(columns=list(EQUIVALENCE_COLUMNS))
+
 
 def _bounds(payload: tuple[StudyRecord, pd.DataFrame, str, float, int]) -> dict[str, Any]:
     """One cell's one-sided bootstrap bounds, as a picklable unit of work."""
@@ -207,4 +247,4 @@ def equivalence(
                 "passed": bool(similar and not_inferior),
             }
         )
-    return pd.DataFrame.from_records(records)
+    return pd.DataFrame.from_records(records, columns=list(EQUIVALENCE_COLUMNS))
