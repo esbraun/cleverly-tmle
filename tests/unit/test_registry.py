@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import get_args
 
 import numpy as np
 import pytest
 import sklearn.linear_model
 
+from cleverly._typing import Estimand
 from cleverly.fluctuation.submodel import (
     SUBMODEL_BUILDERS,
     Submodel,
@@ -37,6 +39,7 @@ from cleverly.targets import (
 )
 from tests import discrete_law as law
 from tests import discrete_law_shift as shift_law
+from tests.documents import pipe_table
 
 #: Every law the coverage gate answers to, and together they must cover the registry
 #: exactly.  A tuple rather than one law because no single discrete law can express
@@ -157,6 +160,24 @@ class TestRegistryInvariants:
         target = TARGETS[name]
         if target.parameter_bounds is not None:
             assert target.undefined_when
+
+    def test_the_estimand_alias_lists_every_registered_target(self) -> None:
+        """The static ``estimands=`` type against the registry that validates it at runtime.
+
+        :data:`cleverly._typing.Estimand` is the only copy of the registry's key set that
+        cannot be derived from it -- a ``Literal`` has to be written out -- so it is the one
+        place the two can disagree, and it had: ``ey``, ``ey_obs``, ``par``, ``paf`` and every
+        non-arm axis were reportable and missing, which made annotating a correct call a type
+        error while leaving the call itself working.  Nothing else would have caught that,
+        because ``mypy`` checks ``src/cleverly`` and every caller of the widened parameter is
+        a test.
+        """
+        declared = set(get_args(Estimand))
+        assert declared == set(TARGETS), (
+            f"registered targets missing from the Estimand alias "
+            f"{sorted(set(TARGETS) - declared)}, alias members that are not targets "
+            f"{sorted(declared - set(TARGETS))}"
+        )
 
 
 class TestResolution:
@@ -558,27 +579,17 @@ EVIDENCE_COLUMNS = (
 def _evidence_rows() -> dict[str, dict[str, str]]:
     """The manifest's table, keyed by target, as ``{column: cell}``.
 
-    Reads the *first* pipe table whose header is :data:`EVIDENCE_COLUMNS`, so the
-    instruments table above it -- a different shape, about kinds rather than targets --
-    does not have to be skipped by counting lines.
+    Reads the *first* pipe table whose header is :data:`EVIDENCE_COLUMNS`, so neither the
+    instruments table above it nor the method evidence grid below it -- both a different
+    shape, and about different things -- has to be skipped by counting lines.  The parser is
+    :func:`tests.documents.pipe_table`, shared with the grid's own gate in
+    :mod:`tests.unit.test_method_evidence`.
     """
-    lines = EVIDENCE.read_text(encoding="utf-8").splitlines()
-    header = [
-        index
-        for index, line in enumerate(lines)
-        if [cell.strip() for cell in line.strip().strip("|").split("|")] == list(EVIDENCE_COLUMNS)
-    ]
-    assert header, f"{EVIDENCE.name} has no table with the header {EVIDENCE_COLUMNS}"
-
     rows: dict[str, dict[str, str]] = {}
-    for line in lines[header[0] + 2 :]:
-        if not line.startswith("|"):
-            break
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        assert len(cells) == len(EVIDENCE_COLUMNS), f"ragged row in {EVIDENCE.name}: {line}"
-        target = cells[0].strip("`")
+    for row in pipe_table(EVIDENCE, EVIDENCE_COLUMNS):
+        target = row["target"].strip("`")
         assert target not in rows, f"{EVIDENCE.name} has two rows for {target!r}"
-        rows[target] = dict(zip(EVIDENCE_COLUMNS, cells, strict=True))
+        rows[target] = row
     return rows
 
 

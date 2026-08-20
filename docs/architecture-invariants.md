@@ -206,6 +206,14 @@ Concurrency is `outer × inner × threads-per-fit`; the third factor is pinned t
 of the first two belongs to the test tier. The fast tier consists of thousands of short tests, so
 xdist balances it and inner `n_jobs` remains one.
 
+A standalone regeneration script is not a test tier and does not inherit that split. It owns the
+machine, so it sizes its inner pool from `tests.parallel.available_cores()` rather than from the
+measured `STUDY_JOBS` floor -- but it must keep its phases *sequential*. `tests/canonical/tmle3/`
+generates every sample and fits the Python side to completion before handing the same samples to
+the R container, because the two are the same work on the same cores and overlapping them would
+leave both contending for a machine neither can have. A slow-tier test that is the critical path of
+its tier may take half the budget; the fast tier still leaves inner parallelism alone.
+
 Documentation examples are not statistical evidence. Behavior shown in a guide must be covered by
 a unit, integration, or end-to-end test in the fast tier, or by a named statistical study in the
 slow tier, and no assertion about an estimate, an interval or a diagnostic verdict may rest on a
