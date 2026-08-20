@@ -64,6 +64,22 @@ follows from it.
 | `ate_shift` | `tests/discrete_law_shift.py` | `tests/unit/test_influence_gateaux_shift.py`, `tests/unit/test_influence_gateaux_shift_cde.py` | `tests/unit/test_remainder_shift_cde.py` | the same negative control as `ey_shift`, taken on the contrast (`tests/unit/test_influence_gateaux_shift.py`) | no plain-shift remainder module, as for `ey_shift`; and the MNAR tilt is refused on this axis by name, so nothing here measures sensitivity to it |
 | `msm` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_msm.py` | `tests/unit/test_remainder_msm.py` | a **saturated** working model reproduces the per-arm report exactly, at the covariate and at the estimate (`tests/unit/test_msm_submodel.py`, `tests/e2e/test_msm.py`); continuous-dose quadrature and its nonzero density-ratio score are pinned in `tests/unit/test_msm.py` and `tests/unit/test_continuous_msm.py` | the saturated identity is blind to every link-specific mistake — the curvature term, the alternation's restart, the loss of exact double robustness — because a saturated model *fits*, which is what a projection does not promise. The continuous test uses a linear truth; a nonlinear continuous-dose Gateaux oracle remains absent |
 
+## Method evidence grid
+
+The target table above asks whether each parameter is implemented correctly. The method grid asks
+the complementary repeated-sampling question: when a complete estimator is applied to samples
+from a known law, does its bias and uncertainty behave as its source theory predicts? Each row
+links to committed results rather than asking the prose to stand in for a run.
+
+| method | estimands and intervals | matching implementation study | paper-property study | limitations |
+| --- | --- | --- | --- | --- |
+| ordinary point-treatment TMLE | arm means, ATE, ATT, ATC, observed mean, PAR, PAF, RR, and OR; pointwise 95% Wald intervals, with RR/OR on the log scale | [17/17 paired similarity and `cleverly` non-inferiority tests pass at 99%](technical-reference/method-evidence.md#statistical-tests-at-99) against pinned R `tmle3` 0.2.0 | [34/34 independent implementation-performance tests plus double robustness, root-n rate, efficiency, coverage, and type-I error pass](technical-reference/method-evidence.md#measured-results) | [full study, result links, margins, updater and PAF qualifications](technical-reference/method-evidence.md#canonical-point-treatment-tmle) |
+
+The row is deliberately named **ordinary** TMLE. The public default cross-fits its nuisances;
+the R comparison disables cross-fitting in cleverly because R `tmle3`'s ordinary specs are not
+CV-TMLE. Cross-fitted and CV-TMLE constructions remain separate method variants and do not inherit
+this parity claim.
+
 ## Estimator variants over registered targets
 
 `CTMLE` and `DRTMLE` estimate the same registered `ey` and `ate` targets as `TMLE`, so they

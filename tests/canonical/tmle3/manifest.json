@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "study": "canonical point-treatment TMLE",
+  "generated_with": {
+    "cleverly": "working tree",
+    "tmle3_commit": "ed72f8a20e64c914ab25ffe015d865f7a9963d27",
+    "sl3_commit": "0e8f2365bcbe54010b8120c04a7a2dcfc8119227",
+    "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+  },
+  "configuration": {
+    "replicates": 400,
+    "n": 1000,
+    "seed": 20240819,
+    "alpha": 0.05,
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "statistical_testing": {
+      "confidence_level": 0.99,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.88,
+      "se_ratio_limits": [
+        0.8,
+        1.2
+      ],
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "reference_sha256": {
+    "Dockerfile": "1358b88fb2d5fd9ae129b33066c83a7ddd6e2a4e3d09fd81c82122be47ab1ff5",
+    "run_tmle3.R": "43568a91f7a09311f813a176017032ba2f2f5fbcaf5af477160cd0910d3822a5"
+  },
+  "sha256": {
+    "replicates.csv.gz": "7659a26db1da78dd9693cbd3c8f06e7d59296e9b2c33af62d78a3f566226a125",
+    "summary.csv": "8f9d1c4f25ec679b8af78454033dc4dd8142687ce44abb826caa39f97d659956",
+    "equivalence.csv": "550d602ae002ce899c536279f43fd84ea3afbdd57fd787e7f240b3024e00779f",
+    "performance-tests.csv": "371ea8a535ef132bd714929dc5a958c6b55517562d10e7652e3701b087cdc760",
+    "property-replicates.csv.gz": "d83e8bf510c4852214e33f7c3c25f85d66d923b1787cb348c6cc211d35db1901",
+    "properties.csv": "523e4ec2d6e8c73aa20f5f2b95345f6dae8ec4000cb9260ff339fd52895b7382"
+  }
+}
