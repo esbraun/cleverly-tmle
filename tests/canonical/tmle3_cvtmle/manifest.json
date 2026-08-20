@@ -1,0 +1,105 @@
+{
+  "schema_version": 2,
+  "study": "stacked point-treatment CV-TMLE",
+  "slug": "canonical-cvtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-stacked-cvtmle",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "739c27326b94316a151795fb9b9917ee5b74e9e9",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "tmle3-cvtmle",
+      "tmle3_commit": "ed72f8a20e64c914ab25ffe015d865f7a9963d27",
+      "sl3_commit": "0e8f2365bcbe54010b8120c04a7a2dcfc8119227",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 1000,
+    "seed": 20240820,
+    "scenarios": {
+      "binary": [
+        "ey1",
+        "ey0",
+        "ate",
+        "att",
+        "atc",
+        "ey_obs",
+        "par",
+        "paf",
+        "rr",
+        "or"
+      ],
+      "continuous": [
+        "ey1",
+        "ey0",
+        "ate",
+        "att",
+        "atc",
+        "ey_obs",
+        "par"
+      ]
+    },
+    "cross_fit": true,
+    "n_folds": 10,
+    "targeting_scheme": "pooled",
+    "cv_evaluation": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.025,
+      0.975
+    ],
+    "q_bounds": "sample outcome range",
+    "folds": "identical treatment-stratified assignments supplied to both implementations",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_cvtmle.py": "da8b017880c3baf0c6390883b4464ad1567495670a8bca304be028d9d65db5c3",
+    "tests/studies/canonical_tmle.py": "de44e2ce26506c4433042b0acfc4ccbd8730829b9660252d14556653b401a7d9",
+    "tests/studies/canonical_properties.py": "d42f4d9ad136d537b95c973d7054ecac9252e749e7406aa23efef9f35c56eed9",
+    "tests/studies/cvtmle_properties.py": "844792ff4768193cbc1c1a9690abe0147590a56ed4e2b7ca41a5b7fdd58b1fa9",
+    "tests/studies/stacked_cvtmle_properties.py": "c59e93a082b776365875cba8a4cda32120dab7d6d42c3fcb8fd3f76091ae355e",
+    "tests/studies/evidence/comparison.py": "3e863905447aab8e08820cad00ad936d77f285823c053ceac772da5038ffe733",
+    "tests/studies/evidence/inference.py": "1150221c9b9f5c9827125731eaf3547957bb083c8f9a1b4d02414264637c3f92",
+    "tests/studies/evidence/performance.py": "fdd1eff3ad00af21866a5c7c50569fcd2047bd14dd08313bf3b0858b5825003c",
+    "tests/studies/evidence/properties.py": "d90ccf63ce4b0ad122aca98700f42b46d176a8804d85b27798c683a0c1f137cb",
+    "tests/studies/evidence/schema.py": "52d87fd8683181315b87a5d94c94877cf455722e454caa6dfad1ccd246d6fa46",
+    "tests/studies/evidence/seeds.py": "3653f5cc4891c0f774c626d125457dc92e012249f8c3d6d3a1ac6553966bd078"
+  },
+  "reference_sha256": {
+    "Dockerfile": "d921bde6638d77cebe9f2c1d44643dcdbeaf4ee80e3bbff0adbf37e1b5970afe",
+    "run_tmle3_cvtmle.R": "1daaa32ded48c60f013173658c5d810a4b7cc98dd17b2758576fb2dd087e2473"
+  },
+  "sha256": {
+    "replicates.csv.gz": "4df4822aca6dc632849d9f70ea62e42514ff20fbc0ea5d635070bdee4457baad",
+    "summary.csv": "09931bc845fdfd3a7d109241e195620ee787776509935aaf6d10ff9ceb47b791",
+    "equivalence.csv": "f032a37f0325934702014b3f4ff2563661c202119c561a3912e88b508c769f94",
+    "performance-tests.csv": "1065b10764f62441f52e7b7375a950ef934a5db0b2628749a2abe4b62f301ca2",
+    "property-replicates.csv.gz": "9fbd815aef3548625e81d2785b0bc20d40ef9d7c1a079d547e8a816cb30a854c",
+    "properties.csv": "699687bff69ccf53af25187113fb9b52fcc741300ab1c1341fce17e8b14c9f0c"
+  }
+}

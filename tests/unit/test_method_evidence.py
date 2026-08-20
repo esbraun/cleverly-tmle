@@ -108,6 +108,9 @@ class TestArtifacts:
 
     @pytest.mark.parametrize("name", ["summary", "equivalence", "performance", "properties"])
     def test_reader_facing_tables_are_not_empty(self, study: StudyRecord, name: str) -> None:
+        if name == "equivalence" and study.reference is None:
+            assert load(study)[name].empty
+            return
         assert not load(study)[name].empty
 
 
@@ -172,6 +175,8 @@ class TestPublishedVerdicts:
     def test_the_subject_is_similar_to_and_no_worse_than_the_reference(
         self, study: StudyRecord
     ) -> None:
+        if study.reference is None:
+            pytest.skip("study declares no comparison implementation")
         published = pd.read_csv(study.artifact("equivalence.csv"))
         assert published["dropped_replications"].eq(0).all()
         assert published["paired_similarity"].all(), published.loc[~published["paired_similarity"]]
@@ -184,6 +189,8 @@ class TestPublishedVerdicts:
 
     def test_the_reference_is_reported_on_its_own_terms(self, study: StudyRecord) -> None:
         """A reference that degrades is a reference finding, not a subject failure."""
+        if study.reference is None:
+            pytest.skip("study declares no comparison implementation")
         published = pd.read_csv(study.artifact("equivalence.csv"))
         assert published["reference_valid"].all(), published.loc[~published["reference_valid"]]
         assert published["subject_valid"].all(), published.loc[~published["subject_valid"]]
@@ -191,13 +198,11 @@ class TestPublishedVerdicts:
     def test_paper_property_verdicts_are_recomputed_from_the_replication_rows(
         self, study: StudyRecord
     ) -> None:
-        from tests.studies.canonical_properties import summarize_properties
-
         rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
         published = pd.read_csv(study.artifact("properties.csv"))
         pd.testing.assert_frame_equal(
             published,
-            summarize_properties(rows),
+            study.properties().summarize_properties(rows),
             check_exact=False,
             check_dtype=False,
             rtol=1e-9,
@@ -228,35 +233,34 @@ class TestNegativeControls:
     def _inflate_standard_errors(frame: pd.DataFrame, mask: pd.Series) -> None:
         frame.loc[mask, "std_error"] *= 2.0
 
-    @pytest.mark.parametrize("target", [0, 1], ids=["subject", "reference"])
     @pytest.mark.parametrize("label", ["bias", "coverage", "standard error"])
     def test_a_corrupted_implementation_fails_alone(
-        self, study: StudyRecord, cell: pd.DataFrame, target: int, label: str
+        self, study: StudyRecord, cell: pd.DataFrame, label: str
     ) -> None:
         mutations = {
             "bias": self._shift_bias,
             "coverage": self._lose_coverage,
             "standard error": self._inflate_standard_errors,
         }
-        implementations = study.implementations
-        implementation = implementations[target]
-        other = implementations[1 - target]
-
-        mutated = cell.copy()
-        mutations[label](mutated, mutated["implementation"] == implementation)
-        verdicts = independent_performance_tests(mutated, record=_cheap(study), n_jobs=1).set_index(
-            "implementation"
-        )
-        assert not bool(verdicts.loc[implementation, "passed"]), (
-            f"a corrupted {label} for {implementation} was accepted"
-        )
-        assert bool(verdicts.loc[other, "passed"]), (
-            f"corrupting {implementation}'s {label} implicated {other}"
-        )
+        for implementation in study.implementations:
+            mutated = cell.copy()
+            mutations[label](mutated, mutated["implementation"] == implementation)
+            verdicts = independent_performance_tests(
+                mutated, record=_cheap(study), n_jobs=1
+            ).set_index("implementation")
+            assert not bool(verdicts.loc[implementation, "passed"]), (
+                f"a corrupted {label} for {implementation} was accepted"
+            )
+            for other in set(study.implementations) - {implementation}:
+                assert bool(verdicts.loc[other, "passed"]), (
+                    f"corrupting {implementation}'s {label} implicated {other}"
+                )
 
     def test_a_material_subject_regression_fails_similarity_and_noninferiority(
         self, study: StudyRecord, cell: pd.DataFrame
     ) -> None:
+        if study.reference is None:
+            pytest.skip("study declares no comparison implementation")
         cheap = _cheap(study)
         mutated = cell.copy()
         mask = mutated["implementation"] == study.implementation
@@ -274,6 +278,8 @@ class TestNegativeControls:
         self, study: StudyRecord, cell: pd.DataFrame
     ) -> None:
         """The asymmetry the document promises, exhibited rather than described."""
+        if study.reference is None:
+            pytest.skip("study declares no comparison implementation")
         cheap = _cheap(study)
         mutated = cell.copy()
         mask = mutated["implementation"] == study.reference
@@ -295,11 +301,10 @@ class TestTheStudyStillMeasuresTheCode:
     def test_refitting_a_committed_replication_reproduces_its_row(
         self, study: StudyRecord, rows: pd.DataFrame, replicate: int
     ) -> None:
-        from tests.studies.canonical_tmle import cleverly_rows, draw_scenario
-
+        runner = study.runner()
         for scenario in study.scenarios:
-            frame, truth = draw_scenario(scenario, study.n, replicate)
-            refitted = pd.DataFrame(cleverly_rows(frame, truth, scenario, replicate))
+            frame, truth = runner.draw_scenario(scenario, study.n, replicate)
+            refitted = pd.DataFrame(runner.cleverly_rows(frame, truth, scenario, replicate))
             published = rows.loc[
                 (rows["implementation"] == study.implementation)
                 & (rows["scenario"] == scenario)
@@ -323,6 +328,8 @@ class TestTheStudyStillMeasuresTheCode:
         one target has to have moved: an exact-agreement check goes blind precisely where the
         fluctuation is zero.
         """
+        if study.reference is None:
+            pytest.skip("study declares no comparison implementation")
         reference = rows.loc[(rows["implementation"] == study.reference) & (rows["replicate"] == 0)]
         moved = (reference["estimate"] - reference["initial_estimate"]).abs()
         assert moved.max() > 1e-3, moved.describe()
@@ -472,7 +479,7 @@ class TestTheQuotedMeasurements:
     ) -> None:
         data = load(study)
         wrong = []
-        for row in pipe_table(study.document_path, MEASURED_COLUMNS):
+        for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
             name = row["quantity"].strip("`")
             computed = value(study, name, data)
             if not matches(row["value"], computed):
@@ -484,11 +491,15 @@ class TestTheQuotedMeasurements:
     def test_the_table_reaches_every_family_of_result(self, study: StudyRecord) -> None:
         """A measured table that quoted one artefact would leave the rest unchecked prose."""
         quoted = {
-            row["quantity"].strip("`") for row in pipe_table(study.document_path, MEASURED_COLUMNS)
+            row["quantity"].strip("`")
+            for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor)
         }
         assert len(quoted) >= 8, f"only {len(quoted)} quantities are gated: {sorted(quoted)}"
         families = {_family(name) for name in quoted}
-        missing = {"performance", "equivalence", "properties"} - families
+        required = {"performance", "properties"}
+        if study.reference is not None:
+            required.add("equivalence")
+        missing = required - families
         assert missing == set(), f"nothing in the measured table comes from {sorted(missing)}"
 
 

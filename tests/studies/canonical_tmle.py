@@ -79,6 +79,20 @@ STUDY = StudyRecord(
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
     ),
+    runner_module="tests.studies.canonical_tmle",
+    properties_module="tests.studies.canonical_properties",
+    property_cells={
+        "double_robustness": (
+            "both_correct",
+            "outcome_correct",
+            "treatment_correct",
+            "both_wrong",
+        ),
+        "root_n_and_efficiency": ("n_500", "n_2000", "n_8000"),
+        "root_n_rate": ("empirical_sd", "reported_se"),
+        "type_i_error": ("sharp_null",),
+        "power": ("alternative",),
+    },
 )
 
 REFERENCE_METADATA = {

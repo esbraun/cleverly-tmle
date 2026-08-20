@@ -232,3 +232,194 @@ The study does not establish parity for cleverly's default cross-fitting, repeat
 CV-TMLE evaluation, simultaneous intervals, bootstrap inference, missing outcomes, weights,
 clustering, strata, multi-valued treatment, or flexible learners. Each is a distinct method or
 composition and needs its own evidence row.
+
+## Stacked point-treatment CV-TMLE
+
+This row covers the default cross-validated point-treatment construction described by Levy
+(2018): nuisance predictions are out of fold, one targeting regression is fitted over the stacked
+validation rows, and the updated regression is evaluated over the whole sample.  Zheng & van der
+Laan (2011) supplies the wider CV-TMLE framework; the source boundary is mapped in
+[Ordinary TMLE and CV-TMLE](estimator-variants.md#ordinary-tmle-and-cv-tmle).
+
+The bounded implementation witness compares cleverly with R
+[`tmle3`](https://github.com/tlverse/tmle3) 0.2.0 at commit
+[`ed72f8a`](https://github.com/tlverse/tmle3/tree/ed72f8a20e64c914ab25ffe015d865f7a9963d27)
+and [`sl3`](https://github.com/tlverse/sl3) at commit
+[`0e8f236`](https://github.com/tlverse/sl3/tree/0e8f2365bcbe54010b8120c04a7a2dcfc8119227).
+Python generates every realized sample and its treatment-stratified ten-fold assignment.  R
+reconstructs those exact validation indices with `origami`, asserts them on the `tmle3` task,
+wraps corresponding GLMs in `Lrnr_cv`, and uses `tmle3_Update(cvtmle = TRUE)`.  The two sides also
+share the 0.025--0.975 propensity bounds, treatment contrast, covariates, pointwise 95% interval
+level, and targeting tolerances that affect the comparison.
+
+The binary law covers `ey1`, `ey0`, `ate`, `att`, `atc`, `ey_obs`, `par`, `paf`, `rr`, and `or`;
+the bounded-continuous law covers the same catalog except its binary-only PAF, RR, and OR.  Every
+implementation-estimand cell is tested independently against exact truth before the paired tests,
+so agreement between two poor fits cannot earn the row.  The R runner aborts the whole study on
+any failed fit, changed fold, missing estimand, or silently dropped replication.
+
+### Measured values
+
+| quantity | value | source |
+| --- | --- | --- |
+| `replicates` | 1600 | replications per law |
+| `n` | 1000 | observations per replication |
+| `independent_tests_total` | 34 | implementation-estimand tests against truth |
+| `independent_tests_passed` | 34 | of those, passing |
+| `paired_tests_total` | 17 | scenario-estimand paired tests |
+| `paired_tests_passed` | 17 | of those, passing |
+| `property_cells_total` | 13 | repeated-sampling property cells |
+| `property_cells_passed` | 13 | of those, passing |
+| `max_standardized_bias` | 0.133 | largest absolute bias in empirical standard deviations |
+| `min_coverage` | 0.9356 | lowest measured coverage of a nominal 95% interval |
+| `min_coverage_ci_lower` | 0.9182 | lowest exact 99% coverage endpoint, against 0.90 |
+| `min_se_ratio_ci_lower` | 0.9057 | lowest bootstrap SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0728 | highest bootstrap SE-ratio endpoint |
+| `max_se_ratio_resolution` | 0.0943 | farthest the widest SE-ratio interval reaches from 1.0 |
+| `max_margin_utilization` | 0.6934 | largest share of a paired similarity margin used |
+| `max_rmse_ratio_upper` | 1.0121 | largest one-sided RMSE-ratio bound, against 1.10 |
+| `min_coverage_difference_lower` | -0.0125 | smallest one-sided coverage-difference bound, against -0.025 |
+| `max_calibration_excess_upper` | 0.0131 | largest SE-calibration-excess bound, against 0.05 |
+| `properties[double_robustness/outcome_correct]:bias` | 0.000149 | bias with only the outcome nuisance correct |
+| `properties[double_robustness/treatment_correct]:bias` | -0.01956 | bias with only the treatment nuisance correct |
+| `properties[double_robustness/both_wrong]:bias` | -0.3348 | both-wrong negative control |
+| `properties[root_n_rate/empirical_sd]:slope` | -0.5464 | fitted log-log sampling-spread rate |
+| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.6073 | its 99% lower endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4875 | its 99% upper endpoint |
+| `properties[root_n_rate/reported_se]:slope` | -0.5056 | fitted reported-SE rate |
+| `properties[type_i_error/sharp_null]:rejection_rate` | 0.0325 | rejection under the confounded sharp null |
+| `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0627 | its 99% upper endpoint, against 0.10 |
+| `properties[power/alternative]:rejection_rate` | 1 | rejection under the positive control |
+| `properties[crossfit_overfitting/stacked_cvtmle]:coverage` | 0.895 | coverage with cross-fitted tree predictions |
+| `properties[crossfit_overfitting/stacked_cvtmle]:se_ratio` | 0.988 | SE calibration with cross-fitting |
+| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.65 | coverage with the deliberately in-sample tree |
+| `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.5792 | SE calibration of that control |
+| `properties[crossfit_overfitting/stacked_cvtmle]:coverage_gain_ci_lower` | 0.185 | paired 99% lower bound for coverage gained over the control |
+
+### Comparison and property verdicts
+
+Each implementation independently passes the ordinary study's 99% practical-bias, coverage, and
+SE-calibration gates.  On the pairing, the 99% interval for the mean difference must lie inside
+0.15 pooled empirical standard deviations.  Cleverly must also be non-inferior: the one-sided
+RMSE-ratio upper bound is at most 1.10, the coverage-difference lower bound is at least -0.025, and
+the excess absolute SE-calibration-error upper bound is at most 0.05 where the native inference
+scales are comparable.  All 17 cells pass both the symmetric similarity and one-sided
+non-inferiority claims, and both implementations remain independently valid.
+
+The largest similarity-margin use occurs for continuous-law ATC, followed by ATT.  Both remain
+inside the predeclared bound, and the RMSE, coverage, and calibration bounds remain well inside
+their non-inferiority margins.  Continuous-law PAR has the study's lowest coverage, but its exact
+99% lower endpoint still clears the 0.90 floor.  These are reported as the finite-sample cells that
+use the most evidence budget, not tuned exceptions.
+
+The 13 property cells use the same double-robustness, both-wrong discrimination, three-size
+efficiency/calibration, empirical and reported root-n, confounded-null, and power instruments as
+the fold-evaluated row below.  They add the same paired flexible-tree experiment: held-out
+predictions must restore the SE ratio to its 0.85--1.20 band, the deliberately in-sample control's
+upper bound must remain below 0.75, and the 99% lower bound for coverage gained by cross-fitting
+must exceed 0.15.  The measured cross-fitted coverage is therefore evidence of relative recovery
+and calibrated influence-curve scale, not a separate absolute 90% coverage claim; the primary GLM
+study carries that gate.
+
+PAF is the one inference-scale qualification.  Cleverly reports its fraction-scale influence
+curve, while `tmle3` transforms a negative-log-complement/log-risk-ratio interval.  They target the
+same parameter and their point performance and coverage are compared, but raw standard errors and
+finite-sample endpoints on those different native scales are not declared numerically equivalent.
+The study record names the exception and a test requires the scales actually to differ.
+
+The committed [replicate results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/replicates.csv.gz),
+[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/equivalence.csv),
+[property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/properties.csv),
+and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/manifest.json)
+record all rows, margins, seeds, configuration, source and reference hashes, package pins, and
+result hashes.  The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/README.md)
+gives the full and smoke regeneration commands.
+
+This row is bounded to two complete-outcome point-treatment laws, corresponding GLM learners, one
+ten-fold split, the declared truncation, a pooled update, whole-sample evaluation, and pointwise
+Wald inference.  It does not establish repeated or nested cross-fitting, fold-evaluated or
+fold-specific-epsilon CV-TMLE, simultaneous or bootstrap intervals, missing outcomes, weights,
+clusters, strata, multi-valued treatment, broad learner-library selection, or severe
+practical-positivity behavior.
+
+## Fold-evaluated point-treatment CV-TMLE
+
+This row covers cleverly's fold-evaluated CV-TMLE report: treatment-stratified ten-fold nuisance
+fitting, one pooled targeting update, equal-fold plug-in evaluation, and the cross-validated
+influence-curve variance.  It is kept separate from the stacked CV-TMLE row because averaging
+fold reports rather than evaluating the updated regression over the whole sample is a genuine
+finite-sample method choice.  The construction and its Zheng--van der Laan/Levy source boundary
+are mapped in [Ordinary TMLE and CV-TMLE](estimator-variants.md#ordinary-tmle-and-cv-tmle).
+
+The primary study uses the same binary and bounded-continuous laws as the ordinary TMLE study and
+tests `ey1`, `ey0`, `ate`, `att`, and `atc` against exact truth.  The nuisance learners are
+corresponding logistic and linear GLMs, the propensity is bounded to 0.025--0.975, and intervals
+are pointwise 95% identity-scale Wald intervals.  There is no external implementation in this
+row: a zero-row equivalence artifact records that absence instead of borrowing the stacked R
+comparison.
+
+### Measured values
+
+| quantity | value | source |
+| --- | --- | --- |
+| `replicates` | 1600 | replications per law |
+| `n` | 1000 | observations per replication |
+| `independent_tests_total` | 10 | estimand-law tests against truth |
+| `independent_tests_passed` | 10 | of those, passing |
+| `paired_tests_total` | 0 | external comparisons declared |
+| `paired_tests_passed` | 0 | external comparisons passing |
+| `property_cells_total` | 13 | repeated-sampling property cells |
+| `property_cells_passed` | 13 | of those, passing |
+| `max_standardized_bias` | 0.0455 | largest absolute bias in empirical standard deviations |
+| `min_coverage` | 0.9413 | lowest measured primary-study coverage |
+| `min_coverage_ci_lower` | 0.9244 | lowest exact 99% coverage endpoint, against 0.90 |
+| `min_se_ratio_ci_lower` | 0.9338 | lowest bootstrap SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0668 | highest bootstrap SE-ratio endpoint |
+| `properties[double_robustness/outcome_correct]:bias` | 0.000149 | bias with only the outcome nuisance correct |
+| `properties[double_robustness/treatment_correct]:bias` | -0.01956 | bias with only the treatment nuisance correct |
+| `properties[double_robustness/both_wrong]:bias` | -0.3348 | both-wrong negative control |
+| `properties[root_n_rate/empirical_sd]:slope` | -0.5464 | fitted log-log sampling-spread rate |
+| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.6086 | its 99% lower endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4866 | its 99% upper endpoint |
+| `properties[root_n_rate/reported_se]:slope` | -0.5059 | fitted reported-SE rate |
+| `properties[type_i_error/sharp_null]:rejection_rate` | 0.0325 | rejection under the confounded sharp null |
+| `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0627 | its 99% upper endpoint, against 0.10 |
+| `properties[power/alternative]:rejection_rate` | 1 | rejection under the positive control |
+| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:coverage` | 0.895 | coverage with cross-fitted tree predictions |
+| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:se_ratio` | 0.991 | SE calibration with cross-fitting |
+| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.65 | coverage with the deliberately in-sample tree |
+| `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.5792 | SE calibration of that control |
+| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:coverage_gain_ci_lower` | 0.1875 | paired 99% lower bound for coverage gained over the control |
+
+### Statistical claims and controls
+
+The first eleven property cells repeat the ordinary method's independent instruments: three
+correct-nuisance combinations must have practically equivalent bias, both nuisances wrong must
+be discriminated from that margin, calibration and efficiency must hold at three sample sizes,
+the empirical-spread rate must be consistent with -1/2 and exclude -1/4, and a confounded sharp
+null is paired with a nonzero-effect power control.  The reported-SE rate uses a predeclared
+[-0.55, -0.45] practical root-n band and must exclude -1/4.  Requiring an increasingly precise
+Monte Carlo interval to contain exactly -1/2 would eventually reject the arithmetic scaling for
+a negligible finite-sample remainder.
+
+Two additional cells exercise the reason to cross-fit.  A fully grown regression tree is fitted
+on the nonlinear law, once with held-out nuisance predictions and once as a deliberately
+in-sample control on the identical 400 samples of size 500.  The cross-fitted report must keep its
+99% SE-ratio interval within 0.85--1.20, the control's upper endpoint must remain below 0.75, and
+the paired 99% lower endpoint for the coverage gain must clear 0.15.  The cross-fitted cell's
+measured coverage is not presented as a separate 90% validity claim: its evidence is restored SE
+calibration and a load-bearing improvement over the overfit control, while the primary GLM study
+carries the absolute coverage gate.
+
+The committed [replicate results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/replicates.csv.gz),
+[property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/properties.csv),
+and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/manifest.json)
+record the primary and control samples, every margin and seed, the exact estimator configuration,
+source hashes, and result hashes.  The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/cvtmle_fold/README.md)
+gives the regeneration command.
+
+This study does not establish external parity, repeated or nested cross-fitting, a fold-specific
+targeting epsilon, simultaneous or bootstrap intervals, missing outcomes, weights, clusters,
+strata, multi-valued treatment, ratio estimands, observed-risk functionals, or behavior under
+severe practical-positivity violations.  It tests one fixed ten-fold assignment per sample and
+the declared complete-outcome point-treatment laws.

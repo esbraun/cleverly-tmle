@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 from tests.studies.evidence.inference import se_ratio_for_coverage
 
@@ -111,6 +113,11 @@ class StudyRecord:
     incomparable_se: frozenset[str] = frozenset()
     #: Repository-relative modules whose content the manifest records.
     modules: tuple[str, ...] = ()
+    #: Import paths for the study-specific sampling/fitting and property adapters.
+    runner_module: str = "tests.studies.canonical_tmle"
+    properties_module: str = "tests.studies.canonical_properties"
+    #: Property name -> the cells the committed property summary must contain.
+    property_cells: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def implementations(self) -> tuple[str, ...]:
@@ -136,6 +143,14 @@ class StudyRecord:
     def document_path(self) -> Path:
         return ROOT / self.document
 
+    def runner(self) -> Any:
+        """The study-specific module that draws samples and refits the subject."""
+        return import_module(self.runner_module)
+
+    def properties(self) -> Any:
+        """The study-specific module that generates and summarizes property cells."""
+        return import_module(self.properties_module)
+
 
 def registered() -> tuple[StudyRecord, ...]:
     """Every registered study, in documentation-grid order.
@@ -143,6 +158,8 @@ def registered() -> tuple[StudyRecord, ...]:
     Imported lazily so the framework modules stay importable without pulling in a study's
     estimator configuration, and so a study module can import the framework.
     """
+    from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
+    from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
 
-    return (CANONICAL_TMLE,)
+    return (CANONICAL_TMLE, CANONICAL_CVTMLE, FOLD_EVALUATED_CVTMLE)
