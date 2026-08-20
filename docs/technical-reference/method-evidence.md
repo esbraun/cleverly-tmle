@@ -62,6 +62,16 @@ Independently, per implementation and estimand, at 99% confidence:
   The resolution the band actually achieved is published below, because a wide margin must not
   read as a tight calibration proof.
 
+Neither of those two is a *calibration* claim, and the difference matters: a reported standard error
+uniformly a tenth too small leaves true coverage at 0.922, which clears the 0.90 floor and sits well
+inside the sanity band. Calibration is asked separately, of one property cell where both nuisance
+regressions are correctly specified and the theory therefore does promise that the influence-curve
+standard error is the efficient one. There the 99% resampling interval for the SE ratio must lie
+inside 0.93--1.07 and the exact coverage interval inside 0.92--0.98, two-sided in both cases. That
+is still an equivalence statement rather than a point test -- it asks whether the interval lies
+inside a declared band, which more replications make easier, not whether coverage *is* 0.95, which
+they would make impossible.
+
 Across implementations, on the pairing, also at 99%: the paired mean difference must lie within
 0.15 pooled empirical standard deviations, which is symmetric because a large difference in either
 direction means the two are not computing the same thing. The remaining comparisons are one-sided
@@ -92,8 +102,8 @@ error.
 | `independent_tests_passed` | 34 | of those, passing |
 | `paired_tests_total` | 17 | scenario-estimand cells compared with `tmle3` |
 | `paired_tests_passed` | 17 | of those, passing |
-| `property_cells_total` | 11 | repeated-sampling property cells |
-| `property_cells_passed` | 11 | of those, passing |
+| `property_cells_total` | 12 | repeated-sampling property cells |
+| `property_cells_passed` | 12 | of those, passing |
 | `max_standardized_bias` | 0.1254 | largest bias, in empirical standard deviations |
 | `min_coverage` | 0.9344 | lowest measured coverage of a nominal 95% interval |
 | `min_coverage_ci_lower` | 0.9168 | lowest exact 99% coverage endpoint, against a floor of 0.90 |
@@ -121,13 +131,17 @@ error.
 | `properties[double_robustness/treatment_correct]:bias` | -0.0182 | bias with only the treatment mechanism correct |
 | `properties[double_robustness/both_wrong]:bias` | -0.3332 | bias with both nuisances wrong -- the negative control |
 | `properties[double_robustness/both_wrong]:coverage` | 0.1967 | coverage of the same control |
-| `properties[root_n_rate/empirical_sd]:slope` | -0.5429 | fitted log-log contraction rate of the sampling spread |
-| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.6046 | its 99% lower endpoint |
-| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4826 | its 99% upper endpoint |
-| `properties[root_n_rate/reported_se]:slope` | -0.4974 | the same rate for the mean reported standard error |
-| `properties[root_n_and_efficiency/n_500]:se_ratio` | 0.9433 | SE calibration at n = 500 |
-| `properties[root_n_and_efficiency/n_2000]:se_ratio` | 0.9913 | SE calibration at n = 2,000 |
-| `properties[root_n_and_efficiency/n_8000]:se_ratio` | 1.0701 | SE calibration at n = 8,000 |
+| `properties[root_n_rate/empirical_sd]:slope` | -0.5045 | fitted log-log contraction rate of the sampling spread |
+| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5361 | its 99% lower endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4719 | its 99% upper endpoint |
+| `properties[root_n_rate/reported_se]:slope` | -0.4986 | the same rate for the mean reported standard error |
+| `properties[root_n_and_efficiency/n_500]:se_ratio` | 0.9913 | SE calibration at n = 500 |
+| `properties[root_n_and_efficiency/n_2000]:se_ratio` | 0.9777 | SE calibration at n = 2,000 |
+| `properties[root_n_and_efficiency/n_8000]:se_ratio` | 1.0077 | SE calibration at n = 8,000 |
+| `properties[interval_calibration/correctly_specified]:se_ratio` | 1.0027 | SE calibration where both nuisances are correct |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9679 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0383 | its 99% upper endpoint |
+| `properties[interval_calibration/correctly_specified]:coverage` | 0.9542 | coverage of the same cell |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0325 | rejection under a confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0627 | its 99% upper endpoint, against 0.05 + 0.05 |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under a real effect -- the positive control |
@@ -161,9 +175,13 @@ would be a wrong variance formula.
 
 **The standard-error band is a screen, not a calibration proof.** The widest bootstrap SE-ratio
 interval still reaches `max_se_ratio_resolution` from 1.0, so a systematic misstatement smaller
-than about a tenth is not something this study can rule out. Coverage carries the validity claim
+than about a tenth is not something these 34 cells can rule out. Coverage carries the validity claim
 instead, where the exact interval is tight enough to separate the nominal rate from a two-point
-shortfall.
+shortfall. Calibration is ruled on where it can be: the `interval_calibration` cell puts the SE
+ratio at `properties[interval_calibration/correctly_specified]:se_ratio` with a 99% interval from
+`properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` to
+`properties[interval_calibration/correctly_specified]:se_ratio_ci_upper`, which excludes the
+tenth-scale misstatement the screen above cannot.
 
 Continuous-law ATT and ATC use the most of the paired similarity margin -- `max_margin_utilization`
 of it at the widest -- and stay inside it. That difference was evaluated as a possible cleverly
@@ -192,14 +210,15 @@ it, so an exemption cannot be claimed where it is not earned.
 
 The [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/properties.csv)
 and their [replication-level data](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/property-replicates.csv.gz)
-record four nuisance-model cells, three sample sizes, a fitted rate, a sharp-null experiment and a
-power control:
+record four nuisance-model cells, three sample sizes, a fitted rate, a correctly-specified
+calibration cell, a sharp-null experiment and a power control:
 
 | claim | positive evidence | negative control or discriminator |
 | --- | --- | --- |
 | double-robust consistency | with both nuisances correct, with only the outcome regression correct, and with only the treatment mechanism correct, the 99% interval for the bias lies inside 0.25 empirical standard deviations of zero | with both nuisances wrong the same interval must lie entirely *outside* that margin -- the same instrument in both directions, so a study too small to say anything fails both halves rather than passing the first |
-| root-n behaviour | the log empirical spread of the estimates, regressed on log `n` across three sample sizes, has a 99% interval containing -1/2 | that interval must also exclude -1/4, so a merely decreasing spread fails. The mean *reported* standard error is fitted separately and labelled as what it is: an influence-curve SE is sigma-hat over root n, so its rate is near arithmetic and catches only a standard error carrying the wrong power of `n` |
+| root-n behaviour | the log empirical spread of the estimates, regressed on log `n` across three sample sizes, has a 99% interval lying within 0.125 of -1/2 -- half the distance to the alternative below, so the accept and the reject verdicts partition the two rates the claim is about | that interval must also exclude -1/4, so a merely decreasing spread fails. The margin is what keeps this an equivalence statement: requiring the interval to *contain* -1/2 is a point test, and at these replication counts the reported-SE rate is resolved to about a thousandth and would fail it. That rate is fitted separately and labelled as what it is -- an influence-curve SE is sigma-hat over root n, so its rate is near arithmetic and catches only a standard error carrying the wrong power of `n` |
 | local efficiency and inference | at each size, the SE ratio is inside the sanity band, coverage clears the floor, and the bias interval is inside the equivalence margin | SE calibration is checked separately from bias, so correct centering cannot hide the wrong width, and it is measured at three sizes so a finite-sample gap is distinguishable from a wrong formula |
+| interval calibration | on a law where a GLM is correctly specified for both nuisances, the 99% resampling interval for the SE ratio lies inside 0.93--1.07 and the exact coverage interval inside 0.92--0.98 | both halves are required and neither implies the other: a standard error inflated by a constant keeps coverage inside its band while failing the ratio, and this is the only gate in the study that a uniform tenth-scale understatement fails -- the coverage floor is one-sided and the sanity band cannot be tightened past what that floor implies |
 | type-I error | the 99% upper endpoint of the ATE rejection rate under a sharp null clears the nominal size by no more than the declared margin | the null law retains its confounding, so the test is not an unadjusted randomized comparison; and a separate cell under a real effect must reject, so a test that never fires cannot pass by being inert |
 
 These statistical checks complement rather than replace the exact-law, Gateaux, remainder, and
@@ -220,6 +239,11 @@ Replication seeds are derived per scenario and replication rather than from the 
 replication *k* is a fixed sample whatever the study's size. That is what lets the fast test suite
 redraw committed replications, refit them, and require the published rows back -- the check that
 keeps these artefacts evidence about the current code rather than a record of an old run.
+
+Each registered study derives its seeds from the seed on its own record, so the three rows in this
+document sample three different sets of datasets and their verdicts are three independent draws
+rather than one draw reported three times. A test requires that: it redraws each study's first
+replication through its own runner and refuses two studies that produce the same sample.
 
 The public R specifications are used directly except for ATT and ATC, which use the constrained,
 one-dimensional updater exercised in the pinned package's own tests. The public ATT convenience
@@ -268,25 +292,29 @@ any failed fit, changed fold, missing estimand, or silently dropped replication.
 | `independent_tests_passed` | 34 | of those, passing |
 | `paired_tests_total` | 17 | scenario-estimand paired tests |
 | `paired_tests_passed` | 17 | of those, passing |
-| `property_cells_total` | 13 | repeated-sampling property cells |
-| `property_cells_passed` | 13 | of those, passing |
-| `max_standardized_bias` | 0.133 | largest absolute bias in empirical standard deviations |
-| `min_coverage` | 0.9356 | lowest measured coverage of a nominal 95% interval |
-| `min_coverage_ci_lower` | 0.9182 | lowest exact 99% coverage endpoint, against 0.90 |
-| `min_se_ratio_ci_lower` | 0.9057 | lowest bootstrap SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.0728 | highest bootstrap SE-ratio endpoint |
-| `max_se_ratio_resolution` | 0.0943 | farthest the widest SE-ratio interval reaches from 1.0 |
-| `max_margin_utilization` | 0.6934 | largest share of a paired similarity margin used |
-| `max_rmse_ratio_upper` | 1.0121 | largest one-sided RMSE-ratio bound, against 1.10 |
-| `min_coverage_difference_lower` | -0.0125 | smallest one-sided coverage-difference bound, against -0.025 |
-| `max_calibration_excess_upper` | 0.0131 | largest SE-calibration-excess bound, against 0.05 |
+| `property_cells_total` | 14 | repeated-sampling property cells |
+| `property_cells_passed` | 14 | of those, passing |
+| `max_standardized_bias` | 0.108 | largest absolute bias in empirical standard deviations |
+| `min_coverage` | 0.9375 | lowest measured coverage of a nominal 95% interval |
+| `min_coverage_ci_lower` | 0.9203 | lowest exact 99% coverage endpoint, against 0.90 |
+| `min_se_ratio_ci_lower` | 0.9326 | lowest bootstrap SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0901 | highest bootstrap SE-ratio endpoint |
+| `max_se_ratio_resolution` | 0.0901 | farthest the widest SE-ratio interval reaches from 1.0 |
+| `max_margin_utilization` | 0.6941 | largest share of a paired similarity margin used |
+| `max_rmse_ratio_upper` | 1.0125 | largest one-sided RMSE-ratio bound, against 1.10 |
+| `min_coverage_difference_lower` | -0.0081 | smallest one-sided coverage-difference bound, against -0.025 |
+| `max_calibration_excess_upper` | 0.0116 | largest SE-calibration-excess bound, against 0.05 |
 | `properties[double_robustness/outcome_correct]:bias` | 0.000149 | bias with only the outcome nuisance correct |
 | `properties[double_robustness/treatment_correct]:bias` | -0.01956 | bias with only the treatment nuisance correct |
 | `properties[double_robustness/both_wrong]:bias` | -0.3348 | both-wrong negative control |
-| `properties[root_n_rate/empirical_sd]:slope` | -0.5464 | fitted log-log sampling-spread rate |
-| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.6073 | its 99% lower endpoint |
-| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4875 | its 99% upper endpoint |
-| `properties[root_n_rate/reported_se]:slope` | -0.5056 | fitted reported-SE rate |
+| `properties[root_n_rate/empirical_sd]:slope` | -0.5053 | fitted log-log sampling-spread rate |
+| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5376 | its 99% lower endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4731 | its 99% upper endpoint |
+| `properties[root_n_rate/reported_se]:slope` | -0.5067 | fitted reported-SE rate |
+| `properties[interval_calibration/correctly_specified]:se_ratio` | 1.0077 | SE calibration where both nuisances are correct |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9731 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0453 | its 99% upper endpoint |
+| `properties[interval_calibration/correctly_specified]:coverage` | 0.955 | coverage of the same cell |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0325 | rejection under the confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0627 | its 99% upper endpoint, against 0.10 |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under the positive control |
@@ -306,15 +334,17 @@ the excess absolute SE-calibration-error upper bound is at most 0.05 where the n
 scales are comparable.  All 17 cells pass both the symmetric similarity and one-sided
 non-inferiority claims, and both implementations remain independently valid.
 
-The largest similarity-margin use occurs for continuous-law ATC, followed by ATT.  Both remain
+The largest similarity-margin use occurs for continuous-law ATT, followed by ATC.  Both remain
 inside the predeclared bound, and the RMSE, coverage, and calibration bounds remain well inside
-their non-inferiority margins.  Continuous-law PAR has the study's lowest coverage, but its exact
-99% lower endpoint still clears the 0.90 floor.  These are reported as the finite-sample cells that
-use the most evidence budget, not tuned exceptions.
+their non-inferiority margins.  Binary-law `ey1` has the study's lowest coverage, at the same
+`min_coverage` in both implementations, and its exact 99% lower endpoint still clears the 0.90
+floor.  These are reported as the finite-sample cells that use the most evidence budget, not tuned
+exceptions.
 
-The 13 property cells use the same double-robustness, both-wrong discrimination, three-size
-efficiency/calibration, empirical and reported root-n, confounded-null, and power instruments as
-the fold-evaluated row below.  They add the same paired flexible-tree experiment: held-out
+The 14 property cells use the same double-robustness, both-wrong discrimination, three-size
+efficiency/calibration, empirical and reported root-n, interval-calibration, confounded-null, and
+power instruments as the fold-evaluated row below.  They add the same paired flexible-tree
+experiment: held-out
 predictions must restore the SE ratio to its 0.85--1.20 band, the deliberately in-sample control's
 upper bound must remain below 0.75, and the 99% lower bound for coverage gained by cross-fitting
 must exceed 0.15.  The measured cross-fitted coverage is therefore evidence of relative recovery
@@ -368,20 +398,24 @@ comparison.
 | `independent_tests_passed` | 10 | of those, passing |
 | `paired_tests_total` | 0 | external comparisons declared |
 | `paired_tests_passed` | 0 | external comparisons passing |
-| `property_cells_total` | 13 | repeated-sampling property cells |
-| `property_cells_passed` | 13 | of those, passing |
-| `max_standardized_bias` | 0.0455 | largest absolute bias in empirical standard deviations |
-| `min_coverage` | 0.9413 | lowest measured primary-study coverage |
-| `min_coverage_ci_lower` | 0.9244 | lowest exact 99% coverage endpoint, against 0.90 |
-| `min_se_ratio_ci_lower` | 0.9338 | lowest bootstrap SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.0668 | highest bootstrap SE-ratio endpoint |
+| `property_cells_total` | 14 | repeated-sampling property cells |
+| `property_cells_passed` | 14 | of those, passing |
+| `max_standardized_bias` | 0.0384 | largest absolute bias in empirical standard deviations |
+| `min_coverage` | 0.9375 | lowest measured primary-study coverage |
+| `min_coverage_ci_lower` | 0.9203 | lowest exact 99% coverage endpoint, against 0.90 |
+| `min_se_ratio_ci_lower` | 0.9312 | lowest bootstrap SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0751 | highest bootstrap SE-ratio endpoint |
 | `properties[double_robustness/outcome_correct]:bias` | 0.000149 | bias with only the outcome nuisance correct |
 | `properties[double_robustness/treatment_correct]:bias` | -0.01956 | bias with only the treatment nuisance correct |
 | `properties[double_robustness/both_wrong]:bias` | -0.3348 | both-wrong negative control |
-| `properties[root_n_rate/empirical_sd]:slope` | -0.5464 | fitted log-log sampling-spread rate |
-| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.6086 | its 99% lower endpoint |
-| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4866 | its 99% upper endpoint |
-| `properties[root_n_rate/reported_se]:slope` | -0.5059 | fitted reported-SE rate |
+| `properties[root_n_rate/empirical_sd]:slope` | -0.5053 | fitted log-log sampling-spread rate |
+| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5375 | its 99% lower endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4725 | its 99% upper endpoint |
+| `properties[root_n_rate/reported_se]:slope` | -0.5071 | fitted reported-SE rate |
+| `properties[interval_calibration/correctly_specified]:se_ratio` | 1.008 | SE calibration where both nuisances are correct |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9739 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0446 | its 99% upper endpoint |
+| `properties[interval_calibration/correctly_specified]:coverage` | 0.955 | coverage of the same cell |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0325 | rejection under the confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0627 | its 99% upper endpoint, against 0.10 |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under the positive control |
@@ -393,14 +427,20 @@ comparison.
 
 ### Statistical claims and controls
 
-The first eleven property cells repeat the ordinary method's independent instruments: three
+The first twelve property cells repeat the ordinary method's independent instruments: three
 correct-nuisance combinations must have practically equivalent bias, both nuisances wrong must
-be discriminated from that margin, calibration and efficiency must hold at three sample sizes,
-the empirical-spread rate must be consistent with -1/2 and exclude -1/4, and a confounded sharp
-null is paired with a nonzero-effect power control.  The reported-SE rate uses a predeclared
-[-0.55, -0.45] practical root-n band and must exclude -1/4.  Requiring an increasingly precise
-Monte Carlo interval to contain exactly -1/2 would eventually reject the arithmetic scaling for
-a negligible finite-sample remainder.
+be discriminated from that margin, efficiency and the coverage floor must hold at three sample
+sizes, a correctly specified cell must have a two-sided calibrated SE ratio and coverage, and a
+confounded sharp null is paired with a nonzero-effect power control.
+
+Both root-n rates -- the empirical spread and the mean reported standard error -- use the same
+predeclared equivalence band: the fitted 99% interval must lie within 0.125 of -1/2, half the
+distance to the -1/4 alternative it must also exclude.  A band rather than containment of -1/2,
+and the same band for both statistics rather than one rule each.  Requiring an increasingly
+precise Monte Carlo interval to contain exactly -1/2 would eventually reject the arithmetic
+scaling for a negligible finite-sample remainder: at these replication counts the reported-SE
+rate is already resolved to about a thousandth, and every one of the three studies would fail
+that rule today.
 
 Two additional cells exercise the reason to cross-fit.  A fully grown regression tree is fitted
 on the nonlinear law, once with held-out nuisance predictions and once as a deliberately

@@ -44,7 +44,12 @@ both implementations returning their initial plug-in estimates.
 
 Every property cell needs a law with an exact truth, a fixed estimator configuration, a replication
 budget justified by the desired confidence interval, and a seed derived independently of the run's
-size. Predeclare all margins before seeing the full results.
+size and from this study's own record. Predeclare all margins before seeing the full results.
+
+Justify the budget against the binding gate rather than the one that reads tightest. A coverage
+floor of 0.90 checked with an exact 99% interval needs 92.75% observed at 800 replications but
+95.5% at 200 -- so at 200 a correctly calibrated 95% interval fails it more often than not, and the
+cell discriminates nothing it did not already reject.
 
 Positive cells need controls that make the same instrument fail:
 
@@ -52,7 +57,10 @@ Positive cells need controls that make the same instrument fail:
 - type-I error needs a nonzero-effect power control;
 - coverage or SE-calibration claims need a deliberately invalid inference control;
 - a convergence-rate claim needs at least three sample sizes and must exclude a materially slower
-  rate, not merely contain the desired one.
+  rate, not merely contain the desired one. Accept it against a margin around the theoretical rate
+  rather than by containment: containment is a point test that a bigger budget eventually fails,
+  and half the distance to the slower rate you already declared is a margin you did not choose
+  after seeing the answer.
 
 Use interval-shaped verdicts. A bias equivalence interval should contract into a practical margin;
 a coverage lower bound should clear a validity floor; and a one-sided type-I bound should rule out
