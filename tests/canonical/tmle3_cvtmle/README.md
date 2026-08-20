@@ -17,6 +17,9 @@ continuous outcome laws, plus PAF, RR, and OR under the binary law.  PAF interva
 declared incomparable: `tmle3` transforms a log-risk-ratio interval while cleverly reports
 the fraction-scale influence-curve interval.
 
+Its samples come from the seed on its own study record rather than from the ordinary-TMLE study's,
+so this row is a separate draw and not the same experiment reported twice.
+
 Regenerate from the repository root with Docker running:
 
 ```powershell

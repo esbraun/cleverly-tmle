@@ -7,9 +7,13 @@ cross-validated influence-curve variance.
 
 The study tests `ey1`, `ey0`, `ate`, `att`, and `atc` against exact truth under binary and
 bounded continuous outcome laws.  It also measures double robustness with a both-wrong
-negative control, empirical and reported root-n rates, efficiency and interval calibration at
-three sample sizes, type-I error with a power control, and a flexible-learner overfitting case
-against a deliberately in-sample control.
+negative control, empirical and reported root-n rates against a predeclared equivalence band,
+efficiency and the coverage floor at three sample sizes, two-sided interval calibration on a law
+where a GLM is correct for both nuisances, type-I error with a power control, and a
+flexible-learner overfitting case against a deliberately in-sample control.
+
+Its samples come from the seed on its own study record, not from the ordinary-TMLE study's: the
+laws are shared, the datasets are not.
 
 There is no external comparison in this row.  The pinned R `tmle3` comparison is a separate
 stacked CV-TMLE construction; treating it as parity evidence for equal-fold plug-in evaluation

@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-fold-evaluated-cvtmle",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "739c27326b94316a151795fb9b9917ee5b74e9e9",
+      "cleverly_commit": "8a643970d38e120671727f2d52b591be610fd7e6",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -58,6 +58,14 @@
         0.8,
         1.2
       ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
       "type_i_margin": 0.05,
       "paired_difference_margin_sd": 0.15,
       "rmse_ratio_noninferiority_margin": 1.1,
@@ -66,24 +74,24 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/fold_evaluated_cvtmle.py": "bc52938cdbcf4ec2416b7c9809f3e5b30ceec4f740dd7515a28d7fecddf12b86",
-    "tests/studies/canonical_tmle.py": "de44e2ce26506c4433042b0acfc4ccbd8730829b9660252d14556653b401a7d9",
-    "tests/studies/canonical_properties.py": "d42f4d9ad136d537b95c973d7054ecac9252e749e7406aa23efef9f35c56eed9",
-    "tests/studies/cvtmle_properties.py": "844792ff4768193cbc1c1a9690abe0147590a56ed4e2b7ca41a5b7fdd58b1fa9",
+    "tests/studies/fold_evaluated_cvtmle.py": "d0ced2d0bdf99ca52fe33f1087102afb51246df295e65e184a9ff2df5bb866c3",
+    "tests/studies/canonical_tmle.py": "632e0de3e1aaf0b56d8fa85229e51eeabfb61dae9b4bcd8044772372554d33f7",
+    "tests/studies/canonical_properties.py": "5fec5d629d01444f1768dda0214af3141ea89720f268fe84c3c88313cc7d5306",
+    "tests/studies/cvtmle_properties.py": "a8bff80b2fdb6cf49c1801091c036fb335c55dd0947eb1fe39d46a7c937c61b0",
     "tests/studies/fold_cvtmle_properties.py": "06bd6e95f9734b8477f07953d5376bc88b50ae0bb513733c2eddb57b486835b9",
     "tests/studies/evidence/inference.py": "1150221c9b9f5c9827125731eaf3547957bb083c8f9a1b4d02414264637c3f92",
     "tests/studies/evidence/performance.py": "fdd1eff3ad00af21866a5c7c50569fcd2047bd14dd08313bf3b0858b5825003c",
-    "tests/studies/evidence/properties.py": "d90ccf63ce4b0ad122aca98700f42b46d176a8804d85b27798c683a0c1f137cb",
+    "tests/studies/evidence/properties.py": "61ad59dfeaa342219a63785d1f994591af8af02efcb73a38723c25077df2a249",
     "tests/studies/evidence/schema.py": "52d87fd8683181315b87a5d94c94877cf455722e454caa6dfad1ccd246d6fa46",
     "tests/studies/evidence/seeds.py": "3653f5cc4891c0f774c626d125457dc92e012249f8c3d6d3a1ac6553966bd078"
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "7eca2656f8821d57dcbcc7de53670e613a462f839e5c40a12aa924bfe34e7b11",
-    "summary.csv": "00335ba75a467e0b3a573bb9ca5a6586bcafd7c797a85caa9e1b99c3b678a8ea",
+    "replicates.csv.gz": "c9783a084f5371d862f8dc04a0da121dc1f7d626b611fc746856a7784e999e79",
+    "summary.csv": "659edcc8c4bdf53a7be274d8f62a03c16a86fa0663916f7480f39658d876b96e",
     "equivalence.csv": "1bff1bbd5512e831f56ade51c45a59ed3ac4177bfe11d6b5bbac6c50448c765a",
-    "performance-tests.csv": "75c3757e5fcdfbdd2fd3e13307a66ec9b549a4fa57a4941c2e2cac4e6bff6110",
-    "property-replicates.csv.gz": "8cae72fa09fc87152cece283861c3684208f75b4b2dbad5cdd6e08232b15624e",
-    "properties.csv": "2dab1c0d2b9c40a8485252dab7a4f8874a1edcb6d3ca9d6279ef1a36894fe180"
+    "performance-tests.csv": "eda478792e0c8577b73a24e6c7ee1af659d28a35d8531039d733de8802ea638f",
+    "property-replicates.csv.gz": "f96ea0174e0b1bcd30e0b92b85c1280980c850bd6ceaea18cab6698d7d614b99",
+    "properties.csv": "9fd3f9d70e0413cbc20822a5c197149eea2d2a3e5cf9610071180a5d692bda96"
   }
 }
