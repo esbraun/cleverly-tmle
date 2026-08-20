@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly._typing import Estimand
+from cleverly._typing import EstimandName
 from cleverly.fluctuation.submodel import (
     SUBMODEL_BUILDERS,
     Submodel,
@@ -164,7 +164,7 @@ class TestRegistryInvariants:
     def test_the_estimand_alias_lists_every_registered_target(self) -> None:
         """The static ``estimands=`` type against the registry that validates it at runtime.
 
-        :data:`cleverly._typing.Estimand` is the only copy of the registry's key set that
+        :data:`cleverly._typing.EstimandName` is the only copy of the registry's key set that
         cannot be derived from it -- a ``Literal`` has to be written out -- so it is the one
         place the two can disagree, and it had: ``ey``, ``ey_obs``, ``par``, ``paf`` and every
         non-arm axis were reportable and missing, which made annotating a correct call a type
@@ -172,9 +172,9 @@ class TestRegistryInvariants:
         because ``mypy`` checks ``src/cleverly`` and every caller of the widened parameter is
         a test.
         """
-        declared = set(get_args(Estimand))
+        declared = set(get_args(EstimandName))
         assert declared == set(TARGETS), (
-            f"registered targets missing from the Estimand alias "
+            f"registered targets missing from the EstimandName alias "
             f"{sorted(set(TARGETS) - declared)}, alias members that are not targets "
             f"{sorted(declared - set(TARGETS))}"
         )

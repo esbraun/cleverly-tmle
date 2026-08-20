@@ -14,7 +14,7 @@ __all__ = [
     "Backend",
     "BoolArray",
     "CumulativeGBounds",
-    "Estimand",
+    "EstimandName",
     "Family",
     "FloatArray",
     "FluctuationKind",
@@ -48,7 +48,7 @@ TargetingScheme = Literal["pooled", "fold"]
 #: long-standing behaviour and the default; ``"treatment+outcome"`` crosses in the
 #: outcome so that a rare event cannot leave a fold with none of them.
 FoldStrata = Literal["treatment", "treatment+outcome"]
-#: Every estimand name :class:`~cleverly.estimators.TMLE`'s ``estimands=`` accepts, which is
+#: Every estimand *name* :class:`~cleverly.estimators.TMLE`'s ``estimands=`` accepts, which is
 #: every key of the target registry.  Which of them a *particular* fit can report depends on
 #: its outcome family, its arm count and which parameter axis it declared, and that is
 #: checked at runtime by :func:`~cleverly.targets.resolve_estimands` against the registry
@@ -61,7 +61,19 @@ FoldStrata = Literal["treatment", "treatment+outcome"]
 #: in both directions.  It had already drifted once without one: ``ey``, ``ey_obs``, ``par``
 #: and ``paf`` were reportable and absent from here, as was every non-arm axis, so annotating
 #: a correct call was a type error.
-Estimand = Literal[
+#:
+#: Named ``EstimandName`` rather than ``Estimand`` because :class:`cleverly.Estimand` is a
+#: different thing entirely -- the :class:`~typing.Protocol` in :mod:`cleverly.study` that a
+#: question like :class:`~cleverly.ATE` satisfies.  The two shared a name while meaning a
+#: string and an object, and the public export won, so this one could not be reached under
+#: its own name from outside the package.
+#:
+#: It covers the *built-in* registry only.  A target registered at runtime -- see
+#: ``tests/unit/test_registry.py``'s ``TestRegistration`` -- is a name no ``Literal`` written
+#: here can know, so passing one is a legitimate ``cast``.  That is a reason to keep this
+#: narrow rather than to widen it to ``str``: the annotation exists to catch a misspelt
+#: built-in name, and the registry still validates every name at runtime either way.
+EstimandName = Literal[
     "ate",
     "att",
     "atc",

@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly._typing import Estimand
+from cleverly._typing import EstimandName
 from cleverly.datasets import DGP, binary_outcome_dgp
 from cleverly.estimators import TMLE
 from cleverly.utils.bounds import expit
@@ -40,11 +40,11 @@ SEED = 20240819
 
 #: Typed as estimand names rather than plain strings, so the study's own calls exercise the
 #: static contract ``TMLE`` declares instead of quietly widening past it.
-COMMON_ESTIMANDS: tuple[Estimand, ...] = ("ey1", "ey0", "ate", "att", "atc", "ey_obs", "par")
-BINARY_ESTIMANDS: tuple[Estimand, ...] = (*COMMON_ESTIMANDS, "paf", "rr", "or")
+COMMON_ESTIMANDS: tuple[EstimandName, ...] = ("ey1", "ey0", "ate", "att", "atc", "ey_obs", "par")
+BINARY_ESTIMANDS: tuple[EstimandName, ...] = (*COMMON_ESTIMANDS, "paf", "rr", "or")
 
 #: The same map the record carries, keeping the estimand type the record widens away.
-SCENARIO_ESTIMANDS: Mapping[str, tuple[Estimand, ...]] = {
+SCENARIO_ESTIMANDS: Mapping[str, tuple[EstimandName, ...]] = {
     "binary": BINARY_ESTIMANDS,
     "continuous": COMMON_ESTIMANDS,
 }
