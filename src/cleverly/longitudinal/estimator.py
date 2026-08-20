@@ -69,7 +69,6 @@ from typing import Any
 import numpy as np
 
 from .._typing import CumulativeGBounds, FloatArray, Learner
-from ..data.weighting import effective_sample_size
 from ..exceptions import PositivityWarning
 from ..inference.cluster import influence_covariance
 from ..inference.influence import ParameterEstimate, Scale, make_estimate
@@ -226,29 +225,6 @@ def _fit_key(label: str, cause: str | None, horizon: int, survival: bool) -> str
     indexes its parameter.
     """
     return _index(label, cause, horizon, survival)
-
-
-def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
-    """What a regimen assigns at one node, as ``"active=0.62, none=0.38"``.
-
-    The categorical counterpart of ``share_assigned_1``, and written in the *labels*
-    rather than the dense codes for the reason every user-facing string in this package
-    is: a reader asked to translate ``2.0`` back to ``"none"`` has been handed the
-    encoding rather than the answer.  Every level appears, including one the regimen
-    never assigns, so the shares in a row sum to one and a zero is legible as "not this
-    arm" rather than as a level the fit forgot about.
-
-    Deliberately a string and not a column per level: the level sets are per node, so
-    numeric columns would be ragged across a frame whose rows are ``(regimen, time)``
-    pairs, and most of them empty.
-    """
-    if not assigned.size:
-        return ""
-    shares = (
-        f"{level}={float(np.mean(assigned == float(code))):.3g}"
-        for code, level in enumerate(levels)
-    )
-    return ", ".join(shares)
 
 
 def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> None:
@@ -476,99 +452,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     def converged(self) -> bool:
         """Whether every node's targeting step reached its tolerance."""
         return all(fit.converged for fit in self.fits.values())
-
-    def _legacy_diagnostics_frame(self) -> Any:
-        """A row per regimen and node: how much data it had, and how hard it leaned on it.
-
-        ``n_followed`` is the number of units that followed the regimen and stayed under
-        observation through the node -- the sample the regression there was fitted on.
-        ``max_weight`` and ``effective_n`` describe the cumulative clever covariate, which
-        is where sequential positivity shows up: they are properties of the *product* of
-        the node-by-node mechanisms and can be alarming while every node looks fine.  On a
-        weighted fit they describe ``w / prod g`` rather than ``1 / prod g``, because the
-        two reweightings multiply -- see
-        :attr:`~cleverly.longitudinal.sequential.RegimenFit.leverage`.  For the weighting's
-        own cost, and the estimand statement that goes with it, see
-        ``result.data.weight_report()``.
-
-        ``share_assigned_1`` is the fraction of the units at risk at that node whom the
-        regimen would treat.  For a static regimen it is exactly ``0`` or ``1``, so the
-        column doubles as a check on the plan the fit actually ran; for a dynamic rule it
-        is the number a reader needs, since what a rule assigns is a property of the data
-        rather than of the declaration and appears nowhere in the settings report.
-
-        **When any treatment node is categorical the column is** ``assigned_shares``
-        **instead**, holding ``"active=0.62, none=0.38"`` in that node's label order -- the
-        presentation :func:`~cleverly.estimators.base._arm_shares` uses for the same
-        question about a point treatment.  A single share cannot answer it at three arms:
-        "the fraction assigned arm 1" is the fraction assigned whichever label happens to
-        sort second, which is not a quantity anybody asked for, and a static plan on a
-        third arm would report ``0`` exactly as a plan on the first arm does.  A wholly
-        two-level panel keeps ``share_assigned_1`` and its values unchanged, so the switch
-        is visible in the columns rather than hidden in them.
-
-        ``share_truncated`` compares the raw and bounded cumulative probabilities on the
-        same ``trained_on`` rows as the node's score.  Unlike ``max_weight``, it reveals
-        when the configured cap replaced every contributing row.
-        """
-        survival = self.data.is_survival
-        competing = self.data.is_competing
-        # A working model's fluctuation is pooled across the cells, so ``epsilon`` is one
-        # vector of ``p`` shared by every regimen at a node rather than a number belonging
-        # to one of them.  A single ``epsilon`` column would print the first coefficient
-        # on every regimen's row and read as though each had its own -- silently wrong
-        # rather than absent -- so the column becomes one per term, identical down the
-        # regimens at a given time by construction.
-        terms = () if self.msm is None else self.msm.terms
-        epsilon_columns = ["epsilon"] if self.msm is None else [f"epsilon[{t}]" for t in terms]
-        # One column shape for the whole frame rather than one per row: the level sets are
-        # a property of the data, so whether a share is answerable by a single number is
-        # settled before any node is read.
-        categorical = any(len(levels) > 2 for levels in self.data.treatment_levels)
-        assigned_column = "assigned_shares" if categorical else "share_assigned_1"
-        rows: dict[str, list[Any]] = {
-            "regimen": [],
-            **({"cause": []} if competing else {}),
-            **({"horizon": []} if survival else {}),
-            "time": [],
-            "n_followed": [],
-            assigned_column: [],
-            "max_weight": [],
-            "effective_n": [],
-            "share_truncated": [],
-            **{column: [] for column in epsilon_columns},
-            "converged": [],
-        }
-        # Read off the fit's own fields rather than the key it is filed under: on a
-        # survival fit that key is the regimen *and* the horizon, and a ``regimen``
-        # column carrying both would be the one column here nobody could group by.
-        for fit in self.fits.values():
-            for step in fit.steps:
-                weights = (fit.obs_weights * step.clever)[step.trained_on]
-                assigned = fit.assignment[step.at_risk, step.time - 1]
-                rows["regimen"].append(fit.regimen.label)
-                if competing:
-                    rows["cause"].append(fit.cause)
-                if survival:
-                    rows["horizon"].append(fit.horizon)
-                rows["time"].append(step.time)
-                rows["n_followed"].append(step.n_trained)
-                rows[assigned_column].append(
-                    _assigned_shares(assigned, self.data.treatment_levels[step.time - 1])
-                    if categorical
-                    else (float(np.mean(assigned == 1.0)) if assigned.size else float("nan"))
-                )
-                rows["max_weight"].append(float(np.max(weights)) if weights.size else float("nan"))
-                rows["effective_n"].append(effective_sample_size(weights, on_degenerate=0.0))
-                raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
-                bounded = fit.cumulative[:, step.time - 1][step.trained_on]
-                rows["share_truncated"].append(
-                    float(np.mean(raw != bounded)) if raw.size else float("nan")
-                )
-                for column, name in enumerate(epsilon_columns):
-                    rows[name].append(float(step.fluctuation.epsilon[column]))
-                rows["converged"].append(bool(step.fluctuation.converged))
-        return self.data.frame_like(rows)
 
     @property
     def diagnostics(self) -> Any:

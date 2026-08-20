@@ -47,7 +47,7 @@ def lint(session: nox.Session) -> None:
 @nox.session
 def typecheck(session: nox.Session) -> None:
     session.install("-e", ".[dev]")
-    session.run("mypy", "src/cleverly")
+    session.run("mypy")
 
 
 @nox.session

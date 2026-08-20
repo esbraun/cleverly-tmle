@@ -147,10 +147,13 @@ ignore = [
 #
 # So `3.12` is the *oldest target that still parses*, which keeps as much of the original
 # intent -- check against the floor -- as the dependency allows. Lower it again if numpy's
-# stubs ever stop needing 3.12. The `mypy==` pin itself has not moved, and still matches
-# `noxfile.py` and `ci.yml`.
+# stubs ever stop needing 3.12. The `mypy==` pin itself has not moved; it lives once in the
+# `dev` extra above, which `noxfile.py` and `ci.yml` install rather than restate.
 python_version = "3.12"
-files = ["src/cleverly"]
+# `scripts/` is in scope deliberately.  Nothing under it is imported by a test, so the
+# type checker is the only gate it has -- and the one that catches a script still calling
+# a result method the package has removed.
+files = ["src/cleverly", "scripts"]
 strict = false
 warn_unused_ignores = true
 warn_redundant_casts = true

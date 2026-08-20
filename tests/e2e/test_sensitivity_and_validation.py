@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 import sklearn.linear_model
 
-from cleverly import SuperLearner
+from cleverly import AssessmentStatus, SuperLearner
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -310,6 +310,22 @@ class TestMissingnessTilt:
         # This process has a substantial effect, so no plausible tilt nulls it.
         assert tipping is None or abs(tipping) > 1.0
 
+    def test_the_mnar_analyses_wait_to_be_asked_for(self, missing_fit) -> None:
+        """A fit that *can* run the tilt still does not run it by default.
+
+        ``tipping_gamma`` searches for a root by retargeting the whole tilt at every
+        probe, so a bare combined report must not pay for it -- and must say which flag
+        would.
+        """
+        default = missing_fit.sensitivity.run_all()
+        for operation in ("missingness", "tipping_gamma"):
+            assert default[operation].status is AssessmentStatus.UNAVAILABLE
+            assert "pass include_retargets=True" in default[operation].detail
+
+        asked = missing_fit.sensitivity.run_all(include_retargets=True)
+        assert asked["missingness"].status is AssessmentStatus.PASSED
+        assert asked["tipping_gamma"].status is AssessmentStatus.PASSED
+
     def test_the_tilt_needs_missing_outcomes(self, good_overlap) -> None:
         with pytest.raises(CapabilityError, match="not_applicable"):
             good_overlap.sensitivity.missingness()
@@ -481,6 +497,30 @@ class TestRefutation:
     def test_an_unknown_test_is_refused(self, good_overlap) -> None:
         with pytest.raises(ValueError, match="unknown refutation test"):
             good_overlap.diagnostics.refute(tests=["magic"])
+
+
+class TestTheDefaultEstimandOfTheOmittedVariableBound:
+    """These analyses default to ``estimand="ate"``, which not every fit reports."""
+
+    def test_a_sole_reported_parameter_is_supplied_without_being_named(self) -> None:
+        frame, _ = make_linear_ate(n=800, seed=73)
+        fit = fast_tmle(estimands=("ey1",)).fit(frame, outcome="Y", treatment="A").single()
+        assert "ate" not in fit.estimates
+        assert fit.sensitivity.robustness_value() == fit.sensitivity.robustness_value("ey1")
+
+    def test_a_choice_between_parameters_is_the_callers_to_make(self) -> None:
+        """``ey1`` and ``ey0`` are both linear and both reported, and they are different
+        questions.
+
+        Filling the gap by position would answer about the treated arm's counterfactual
+        mean for a caller who asked nothing about arms, and the returned bound names no
+        estimand for them to notice with.
+        """
+        frame, _ = make_linear_ate(n=800, seed=73)
+        fit = fast_tmle(estimands=("ey1", "ey0")).fit(frame, outcome="Y", treatment="A").single()
+        with pytest.raises(ValueError, match="was not requested in this fit"):
+            fit.sensitivity.robustness_value()
+        assert fit.sensitivity.robustness_value("ey0")["rv"] > 0.0
 
 
 class TestCombinedSensitivityReport:

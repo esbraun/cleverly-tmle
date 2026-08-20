@@ -223,13 +223,24 @@ class TestTheRestOfTheFacade:
         grid = exact_fit.sensitivity.contour("ate[high vs low]", grid_size=3)
         assert grid.shape == (9, 3)
 
-    def test_the_report_picks_a_reported_contrast(self, exact_fit: Any) -> None:
-        # "ate" is what a caller gets by default and is not a parameter here, so the
-        # default has to be a rule rather than a name -- otherwise the omitted-variable
-        # block is silently missing from every multi-arm report.
-        bounds = exact_fit.sensitivity.omitted_confounding()
-        assert bounds.estimand == "ate[high vs low]"
-        assert exact_fit.sensitivity.run_all()["omitted_confounding"].status == "passed"
+    def test_an_ambiguous_default_is_refused_by_name_rather_than_guessed(
+        self, exact_fit: Any
+    ) -> None:
+        """``"ate"`` is not a parameter here, and which one to answer for is not the
+        facade's call to make.
+
+        This fit reports seven arm-indexed linear parameters.  Substituting the first --
+        which is what filling the gap by position amounts to -- answers about whichever
+        one the report happens to order first, with nothing in the returned bound to say
+        which.  The refusal instead names every parameter the bound is available for, and
+        a combined report carries that same sentence rather than a silent number.
+        """
+        with pytest.raises(ValueError, match=r"available for .*'ate\[high vs low\]'"):
+            exact_fit.sensitivity.omitted_confounding()
+
+        item = exact_fit.sensitivity.run_all()["omitted_confounding"]
+        assert item.status == "unavailable"
+        assert "ate[high vs low]" in item.detail
 
     def test_the_benchmark_refits_and_calibrates_for_one_contrast(self, missing_fit: Any) -> None:
         calibrated = missing_fit.sensitivity.benchmark(["W1"], estimand="ate[mid vs low]")

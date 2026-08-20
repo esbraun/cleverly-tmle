@@ -295,6 +295,12 @@ Post-fit assessment has one authoritative path. The alpha API removes the legacy
 capability-aware explicit methods documented in the results and assessment guide; removed aliases
 are not retained as runtime compatibility shims.
 
+`run_all()` on either facade now names its two cost classes separately, because they are
+disjoint: `include_refits=True` admits the operations that refit nuisance models, and
+`include_retargets=True` those that retarget cached ones. Previously `sensitivity.run_all()` ran
+retargeting operations without being asked, and `diagnostics.run_all(include_refits=True)`
+admitted retargets under a flag that did not name them.
+
 - An empty adjustment set is refused unless `PointTreatment(randomized=True)` is declared.
 - Ordinary estimation returns a causal result directly; no `.single()` wrapper remains.
 - `alpha=` is the inference significance level. Use `submodel_alpha=` for the targeting bound.

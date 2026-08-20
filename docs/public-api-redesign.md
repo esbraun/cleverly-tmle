@@ -733,7 +733,7 @@ aggregate's influence contribution is implemented and tested.
 
 ```text
 validation = result.validate()
-full_diagnostics = result.diagnostics.run_all(include_refits=True)
+full_diagnostics = result.diagnostics.run_all(include_refits=True, include_retargets=True)
 
 overlap = result.diagnostics.support()
 nuisance = result.diagnostics.nuisance_models()

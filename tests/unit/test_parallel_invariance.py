@@ -7,12 +7,13 @@ hands the same closure to :func:`cleverly.utils.parallel.map_parallel`, which ru
 comprehension at ``n_jobs=1`` and a joblib ``Parallel`` above it.  Two code paths, one
 claimed result.
 
-**Nothing checked that claim until this module.**  ``n_jobs`` appears in the suite only as
-``n_jobs=2`` throughout :mod:`tests.e2e.test_coverage_slow`, where it is a runtime setting
-on a study whose output is a coverage rate with a Monte Carlo error around it -- so a
-scheduling bug that perturbed a fit would have to be large to show there, and a small one
-never would.  That is the gap: the setting is used where it cannot be audited and audited
-nowhere else.
+**Nothing checked that claim until this module.**  ``n_jobs`` appears elsewhere in the
+suite only as :data:`tests.parallel.STUDY_JOBS`, passed to the repeated-sampling studies in
+:mod:`tests.e2e.test_coverage_slow`, :mod:`tests.studies.canonical_properties` and their
+neighbours, where it is a runtime setting on a study whose output is a coverage rate with a
+Monte Carlo error around it -- so a scheduling bug that perturbed a fit would have to be
+large to show there, and a small one never would.  That is the gap: the setting is used
+where it cannot be audited and audited nowhere else.
 
 It matters now because the ``docs`` tier is about to *depend* on it.  Forty minutes of that
 tier is fold-parallel work running one fold at a time, and the fix is to raise ``n_jobs``

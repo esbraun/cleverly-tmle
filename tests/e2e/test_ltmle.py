@@ -970,7 +970,7 @@ class TestTheSharedAssessmentContract:
         assert {item.status for item in result.sensitivity.run_all().items} == {
             AssessmentStatus.UNAVAILABLE
         }
-        with pytest.raises(CapabilityError, match="full evidence-backed recursion/refit adapter"):
+        with pytest.raises(CapabilityError, match="no longitudinal sensitivity derivation"):
             result.sensitivity.omitted_confounding()
 
     def test_validation_points_at_the_per_node_diagnostics(

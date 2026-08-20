@@ -138,6 +138,17 @@ is persisted separately from estimates, and may not mutate the headline estimate
 that operation must then declare itself non-deterministic from a saved result rather than entering
 the persistent cache silently.
 
+Both assessment facades route through one base: lookup, refusal, and the combined report are
+written once, so a refusal always carries the reason its own capability row declares and a
+combined report reads the same declaration the same way on both. `run_all` names the two
+expensive classes separately -- `include_refits` for operations that refit nuisances,
+`include_retargets` for those that retarget cached ones -- because they are disjoint, and one
+flag made whichever class it did not name run under the other's permission. Sensitivity
+implementations are reached through `SENSITIVITY_ROUTES`, which also declares whether the target
+takes an estimand; that table and the declared capabilities are checked against each other in
+both directions. A facade may not fill in an estimand a fit leaves ambiguous: substitution is for
+the case where exactly one reported parameter fits, and otherwise the analysis refuses by name.
+
 Repeated-sampling studies retain one structured `ReplicationRecord` per estimand and a
 `ReplicationFailure` with replicate index, seed, exception type, and message for every failed
 draw. Summaries are derived from those records through `summarize_replications`; evidence adapters

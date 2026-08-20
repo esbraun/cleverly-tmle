@@ -45,9 +45,10 @@ work to do to return the zero, and an estimator that returned zero for the wrong
 would be caught by the same comparison.
 
 This is deliberately not the null used by the type I error study in
-:mod:`tests.e2e.test_coverage_slow`, which achieves a zero effect by leaving :math:`A` out
-of the outcome model altogether.  That is a statement about a data-generating process; this
-is a statement about arithmetic.
+:mod:`tests.studies.canonical_properties`, whose ``sharp_null`` cell draws from a law
+carrying an :math:`A` term set to zero and asks what fraction of intervals reject.  That is
+a statement about a data-generating process and a sampling distribution; this is a
+statement about arithmetic on one law.
 """
 
 from __future__ import annotations
