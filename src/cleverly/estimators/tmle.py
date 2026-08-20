@@ -79,7 +79,7 @@ import numpy as np
 
 from .._typing import (
     BoolArray,
-    Estimand,
+    EstimandName,
     Family,
     FloatArray,
     FluctuationKind,
@@ -368,7 +368,7 @@ class TMLE:
         screen_treatment: bool = False,
         screen_threshold: float = 0.1,
         min_retain: int | None = None,
-        estimands: Sequence[Estimand] | str | None = None,
+        estimands: Sequence[EstimandName] | str | None = None,
         interventions: Sequence[Any] | None = None,
         shifts: Sequence[Shift] | None = None,
         incremental: Sequence[Incremental] | None = None,
