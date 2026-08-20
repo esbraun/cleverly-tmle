@@ -24,12 +24,14 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies.evidence.claims import describe, load, matches, value
+from tests.studies import canonical_tmle
+from tests.studies.evidence.claims import describe, load, matches, quantities, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.schema import truth_on_inference_scale, validate_replicates
+from tests.studies.evidence.seeds import replicate_seed
 
 STUDIES = registered()
 IDS = [study.slug for study in STUDIES]
@@ -256,6 +258,31 @@ class TestNegativeControls:
                     f"corrupting {implementation}'s {label} implicated {other}"
                 )
 
+    def test_understated_standard_errors_fail_the_calibration_cell_alone(
+        self, study: StudyRecord
+    ) -> None:
+        """The failure the primary study's one-sided coverage floor lets through.
+
+        A reported standard error uniformly 10% too small leaves true coverage at 0.922, which
+        clears a 0.90 floor at 1,600 replications about two times in three, and sits inside the
+        0.80--1.20 sanity band that :class:`~tests.studies.evidence.registry.Margins` refuses to
+        let anyone tighten -- the band is a screen behind the coverage gate by construction.
+        The calibration cell is the gate that catches it, so this mutation is what shows the
+        cell is load bearing rather than decorative.
+        """
+        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
+        mutated = rows.copy()
+        mask = mutated["property"] == "interval_calibration"
+        assert mask.any(), "the study declares no calibration cell to corrupt"
+        mutated.loc[mask, "std_error"] *= 0.90
+        summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
+        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
+        assert not bool(summary.loc[("interval_calibration", "correctly_specified"), "passed"])
+        untouched = summary.index.drop(("interval_calibration", "correctly_specified"))
+        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
+            "corrupting the calibration cell moved a verdict somewhere else"
+        )
+
     def test_a_material_subject_regression_fails_similarity_and_noninferiority(
         self, study: StudyRecord, cell: pd.DataFrame
     ) -> None:
@@ -318,6 +345,44 @@ class TestTheStudyStillMeasuresTheCode:
                 assert merged[f"{column}_refitted"].to_numpy() == pytest.approx(
                     merged[f"{column}_published"].to_numpy(), rel=1e-6, abs=1e-9
                 ), f"{scenario} replicate {replicate} no longer reproduces its {column}"
+
+    def test_each_study_draws_from_the_seed_it_publishes(self, study: StudyRecord) -> None:
+        """The manifest's ``seed`` has to be the seed the samples actually came from.
+
+        It was not.  Two studies imported the ordinary-TMLE runner's ready-made
+        ``draw_scenario``, which closes over *its* record, so three rows sampled from one seed
+        while each published a different one -- and neither of the two could be reproduced
+        from what it published.  Nothing failed, because every other check in this module
+        reads the committed rows and the runner through the same wrong door.
+        """
+        runner = study.runner()
+        for scenario in study.scenarios:
+            drawn, _ = runner.draw_scenario(scenario, study.n, 0)
+            # Rebuilt from the published seed through the law's own sampler rather than
+            # through the runner again, which is what makes this a check on the seed and not
+            # a restatement of whatever the runner did.
+            seed = replicate_seed(study, scenario, 0)
+            dgp = canonical_tmle.scenario_dgp(scenario)
+            if scenario == "continuous":
+                expected, _ = canonical_tmle.sample_continuous(dgp, study.n, seed)
+            else:
+                expected, _ = dgp.sample(study.n, seed=seed, backend="pandas")
+            pd.testing.assert_frame_equal(drawn, expected)
+
+    def test_the_registered_studies_do_not_share_their_samples(self) -> None:
+        """Three rows drawn from one seed are one experiment reported three times."""
+        for scenario in STUDIES[0].scenarios:
+            frames = [
+                other.runner().draw_scenario(scenario, 200, 0)[0]
+                for other in STUDIES
+                if scenario in other.scenarios
+            ]
+            for index, frame in enumerate(frames):
+                for other in frames[index + 1 :]:
+                    assert not frame.equals(other), (
+                        f"two registered studies draw the identical {scenario} sample, so their "
+                        f"results are one draw's luck reported twice"
+                    )
 
     def test_the_reference_moved_its_estimates_off_the_plug_in(
         self, study: StudyRecord, rows: pd.DataFrame
@@ -520,11 +585,54 @@ _FAMILY = {
 }
 
 
+#: Names that summarise no single artefact family: the study's own configuration, and the
+#: descriptive counts read off ``summary.csv``.  Listed so that a new aggregate cannot be
+#: added without either a family or a deliberate exemption.
+_CONFIGURATION_QUANTITIES = frozenset({"replicates", "n"})
+
+
 def _family(name: str) -> str:
     """Which artefact a quantity name comes from -- the reference form says so directly."""
     if "[" in name:
         return name.split("[", 1)[0]
-    for prefix, family in _FAMILY.items():
+    # Longest prefix first.  ``min_coverage`` is a prefix of ``min_coverage_difference``, and
+    # first-match-wins on insertion order filed every equivalence bound under ``performance``.
+    for prefix in sorted(_FAMILY, key=len, reverse=True):
         if name.startswith(prefix):
-            return family
+            return _FAMILY[prefix]
     return "other"
+
+
+def _exempt(name: str) -> bool:
+    """Configuration, or a descriptive count of ``summary.csv`` rows rather than a verdict."""
+    return (
+        name in _CONFIGURATION_QUANTITIES or name.endswith("summary_cells") or "cells_with_" in name
+    )
+
+
+class TestTheQuantityVocabulary:
+    """The name-to-artefact map, which one gate reads and nothing else checks."""
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("min_coverage", "performance"),
+            ("min_coverage_ci_lower", "performance"),
+            ("min_coverage_difference_lower", "equivalence"),
+            ("properties[power/alternative]:rejection_rate", "properties"),
+        ],
+    )
+    def test_a_longer_prefix_wins_over_a_shorter_one(self, name: str, expected: str) -> None:
+        assert _family(name) == expected
+
+    def test_every_declared_quantity_resolves_to_an_artefact_or_is_exempt(
+        self, study: StudyRecord
+    ) -> None:
+        """A quantity with no family is invisible to the table-coverage gate below."""
+        unresolved = [
+            name for name in quantities(study) if _family(name) == "other" and not _exempt(name)
+        ]
+        assert unresolved == [], (
+            f"{sorted(unresolved)} resolve to no artefact family, so quoting one of them would "
+            f"count towards nothing in test_the_table_reaches_every_family_of_result"
+        )

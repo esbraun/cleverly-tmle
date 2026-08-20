@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 from scipy.stats import binom, norm
 
+from tests.studies.canonical_properties import ROOT_N_SLOPE_MARGIN
 from tests.studies.evidence.claims import matches
 from tests.studies.evidence.inference import (
     Interval,
@@ -29,7 +30,7 @@ from tests.studies.evidence.inference import (
     upper_bound,
 )
 from tests.studies.evidence.pairing import paired_wide
-from tests.studies.evidence.properties import rate, require_complete
+from tests.studies.evidence.properties import Rate, rate, require_complete
 from tests.studies.evidence.registry import Margins
 
 CONFIDENCE = 0.99
@@ -80,6 +81,31 @@ class TestStandardErrorCoverageCorrespondence:
     def test_margins_refuse_a_sanity_band_that_would_bind_before_the_coverage_floor(self) -> None:
         with pytest.raises(ValueError, match="tighter than"):
             Margins(coverage_floor=0.90, se_ratio_sanity=(0.95, 1.20))
+
+    def test_the_calibration_band_has_to_be_tighter_than_the_screen_it_sits_inside(self) -> None:
+        """Otherwise the calibration cell restates the screen and catches nothing new."""
+        with pytest.raises(ValueError, match="adds no claim"):
+            Margins(se_ratio_sanity=(0.80, 1.20), calibration_se_ratio=(0.75, 1.25))
+
+    def test_a_calibration_band_no_valid_estimator_could_satisfy_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="correctly scaled"):
+            Margins(calibration_se_ratio=(1.01, 1.07))
+        with pytest.raises(ValueError, match="nominal rate"):
+            Margins(alpha=0.05, calibration_coverage=(0.96, 0.99))
+
+    def test_the_calibration_band_is_the_one_that_catches_a_ten_percent_understatement(
+        self,
+    ) -> None:
+        """The gap finding 4 named, stated as an arithmetic fact rather than a policy.
+
+        A standard error 10% too small leaves coverage at 0.922 -- above the 0.90 floor and
+        inside the sanity band, which :meth:`Margins.__post_init__` will not let anyone
+        tighten past 0.8392.  Only the calibration band separates the two.
+        """
+        margins = Margins()
+        assert coverage_for_se_ratio(0.90, alpha=margins.alpha) > margins.coverage_floor
+        assert margins.se_ratio_sanity[0] < 0.90
+        assert margins.calibration_se_ratio[0] > 0.90
 
 
 class TestBootstrapEngine:
@@ -251,12 +277,12 @@ class TestVerdictsDoNotPunishEvidence:
 
 
 class TestRateEstimator:
-    def _rows(self, exponent: float, *, seed: int = 1) -> pd.DataFrame:
+    def _rows(self, exponent: float, *, replicates: int = 400, seed: int = 1) -> pd.DataFrame:
         rng = np.random.default_rng(seed)
         frames = []
         for size in (500, 2000, 8000):
             spread = size**exponent
-            estimates = rng.normal(scale=spread, size=400)
+            estimates = rng.normal(scale=spread, size=replicates)
             frames.append(
                 pd.DataFrame(
                     {
@@ -265,40 +291,62 @@ class TestRateEstimator:
                         "n": size,
                         "truth": 0.0,
                         "estimate": estimates,
-                        "std_error": np.full(400, spread * 1.96 / norm.ppf(0.975)),
+                        "std_error": np.full(replicates, spread * 1.96 / norm.ppf(0.975)),
                         "covered": 1,
                         "rejected": 0,
-                        "requested_replicates": 400,
+                        "requested_replicates": replicates,
                         "failed_replicates": 0,
-                        "replicate": np.arange(400),
+                        "replicate": np.arange(replicates),
                     }
                 )
             )
         return pd.concat(frames, ignore_index=True)
 
-    def test_a_root_n_sampling_distribution_is_recognised(self) -> None:
-        fitted = rate(
-            self._rows(-0.5),
+    def _fitted(self, exponent: float, *, replicates: int = 400, seed: int = 1) -> Rate:
+        return rate(
+            self._rows(exponent, replicates=replicates, seed=seed),
             property_name="rate",
             statistic="spread",
             bootstrap_replicates=2000,
             confidence_level=CONFIDENCE,
             seed=0,
         )
-        assert fitted.consistent_with(-0.5)
+
+    def test_a_root_n_sampling_distribution_is_recognised(self) -> None:
+        fitted = self._fitted(-0.5)
+        assert fitted.equivalent_to(-0.5, ROOT_N_SLOPE_MARGIN)
         assert fitted.excludes(-0.25)
 
     def test_a_slower_contraction_is_rejected(self) -> None:
         """The check has to be able to fail, which the ratio of two mean standard errors could not."""
-        fitted = rate(
-            self._rows(-0.25),
-            property_name="rate",
-            statistic="spread",
-            bootstrap_replicates=2000,
-            confidence_level=CONFIDENCE,
-            seed=0,
+        fitted = self._fitted(-0.25)
+        assert not fitted.equivalent_to(-0.5, ROOT_N_SLOPE_MARGIN)
+        assert not fitted.excludes(-0.25)
+
+    def test_the_margin_bounded_rate_verdict_survives_more_replications(self) -> None:
+        """The rule the studies use, on a distribution that really does contract at root-n."""
+        verdicts = [
+            self._fitted(-0.5, replicates=replicates).equivalent_to(-0.5, ROOT_N_SLOPE_MARGIN)
+            for replicates in (200, 800, 3200)
+        ]
+        assert all(verdicts), verdicts
+
+    def test_requiring_the_interval_to_contain_the_exact_rate_flips_the_other_way(self) -> None:
+        """The clause this replaced, on a sampling distribution that is root-n for any purpose.
+
+        An exponent of -0.52 is inside any margin a study of this kind declares, and the
+        published reported-SE rate cleared exact containment of -1/2 by 4.4e-5 -- so the rule
+        was one quadrupling away from turning a passing study red with no estimator change.
+        """
+        flags = [
+            self._fitted(-0.52, replicates=replicates).consistent_with(-0.5)
+            for replicates in (200, 800, 3200)
+        ]
+        assert flags[0] is True and flags[-1] is False, flags
+        assert all(
+            self._fitted(-0.52, replicates=replicates).equivalent_to(-0.5, ROOT_N_SLOPE_MARGIN)
+            for replicates in (200, 800, 3200)
         )
-        assert not fitted.consistent_with(-0.5)
 
     def test_two_sizes_are_refused_because_a_ratio_is_not_a_rate(self) -> None:
         rows = self._rows(-0.5)

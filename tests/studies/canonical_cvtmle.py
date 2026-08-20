@@ -18,7 +18,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly.estimators import TMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
-from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS, draw_scenario
+from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS, draw_for
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 
@@ -43,6 +43,7 @@ PROPERTY_CELLS = {
     ),
     "root_n_and_efficiency": ("n_500", "n_2000", "n_8000"),
     "root_n_rate": ("empirical_sd", "reported_se"),
+    "interval_calibration": ("correctly_specified",),
     "type_i_error": ("sharp_null",),
     "power": ("alternative",),
     "crossfit_overfitting": ("stacked_cvtmle", "in_sample_control"),
@@ -96,6 +97,15 @@ CONFIGURATION = {
     "q_bounds": "sample outcome range",
     "folds": "identical treatment-stratified assignments supplied to both implementations",
 }
+
+
+def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Replication ``replicate`` of ``scenario``, from *this* study's declared seed.
+
+    The laws come from the ordinary-TMLE study; the samples do not.  This row is separate
+    evidence, and it would not be if it re-used another study's draws.
+    """
+    return draw_for(STUDY, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame) -> Any:

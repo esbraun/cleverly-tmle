@@ -202,6 +202,25 @@ def summarize_cells(
     return pd.DataFrame.from_records(records)
 
 
+def se_ratio_interval(
+    group: pd.DataFrame, *, replicates: int, confidence_level: float, seed: int
+) -> Interval:
+    """Resampling interval for mean reported SE over the empirical spread of the estimates.
+
+    The point ratio is a quotient of two statistics of the same replications, so its Monte
+    Carlo error is dominated by the standard deviation in the denominator and is not available
+    in closed form.  Resampling the replications jointly keeps numerator and denominator on the
+    same draws, which is what makes the interval an interval for the ratio rather than for two
+    unrelated quantities.
+    """
+    values = group[["estimate", "std_error"]].to_numpy(dtype=float)
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, len(values), size=(replicates, len(values)))
+    draws = values[picks]
+    ratios = draws[:, :, 1].mean(axis=1) / draws[:, :, 0].std(axis=1, ddof=1)
+    return percentile_interval(ratios, confidence_level=confidence_level)
+
+
 @dataclass(frozen=True)
 class Rate:
     """A fitted ``log(quantity) ~ log(n)`` slope with a bootstrap interval."""
@@ -209,7 +228,20 @@ class Rate:
     slope: float
     interval: Interval
 
+    def equivalent_to(self, expected: float, margin: float) -> bool:
+        """The whole interval lies within ``margin`` of ``expected`` -- the accept verdict.
+
+        Margin-bounded rather than a containment test, for the reason the package docstring
+        gives: ``interval.contains(expected)`` is a test against a point, so it gets *harder*
+        as replications are added and eventually fails any estimator whose fitted rate is not
+        exactly the asymptotic one.  :meth:`consistent_with` below is that rule, kept because
+        :mod:`tests.unit.test_evidence_framework` holds the two side by side and asserts which
+        way each one moves.
+        """
+        return self.interval.within(expected - margin, expected + margin)
+
     def consistent_with(self, expected: float) -> bool:
+        """Does the interval contain ``expected``?  The rule :meth:`equivalent_to` replaced."""
         return self.interval.contains(expected)
 
     def excludes(self, value: float) -> bool:

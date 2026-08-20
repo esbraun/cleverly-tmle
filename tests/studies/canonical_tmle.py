@@ -90,6 +90,7 @@ STUDY = StudyRecord(
         ),
         "root_n_and_efficiency": ("n_500", "n_2000", "n_8000"),
         "root_n_rate": ("empirical_sd", "reported_se"),
+        "interval_calibration": ("correctly_specified",),
         "type_i_error": ("sharp_null",),
         "power": ("alternative",),
     },
@@ -190,14 +191,28 @@ def scenario_dgp(scenario: str) -> DGP:
     raise KeyError(scenario)
 
 
-def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    """Replication ``replicate`` of ``scenario``: a fixed sample, whatever the study's size."""
+def draw_for(
+    record: StudyRecord, scenario: str, n: int, replicate: int
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Replication ``replicate`` of ``scenario`` from ``record``'s own seed stream.
+
+    The laws are shared -- the CV studies estimate the same parameters of the same two
+    processes -- but the *samples* are not, and the record is what decides which.  Taking the
+    record as an argument rather than closing over one is the point: a study that imported a
+    ready-made ``draw_scenario`` would silently inherit the seed of whichever module defined
+    it, publish its own in ``manifest.json``, and be reproducible from neither.
+    """
     dgp = scenario_dgp(scenario)
-    seed = replicate_seed(STUDY, scenario, replicate)
+    seed = replicate_seed(record, scenario, replicate)
     if scenario == "continuous":
         return sample_continuous(dgp, n, seed)
     frame, _ = dgp.sample(n, seed=seed, backend="pandas")
     return frame, truth_for(dgp)
+
+
+def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    """Replication ``replicate`` of ``scenario``: a fixed sample, whatever the study's size."""
+    return draw_for(STUDY, scenario, n, replicate)
 
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
