@@ -424,11 +424,14 @@ class TestTheStudyStillMeasuresTheCode:
             # through the runner again, which is what makes this a check on the seed and not
             # a restatement of whatever the runner did.
             seed = replicate_seed(study, scenario, 0)
-            dgp = canonical_tmle.scenario_dgp(scenario)
-            if scenario == "continuous":
-                expected, _ = canonical_tmle.sample_continuous(dgp, study.n, seed)
+            if hasattr(runner, "draw_from_seed"):
+                expected, _ = runner.draw_from_seed(scenario, study.n, seed)
             else:
-                expected, _ = dgp.sample(study.n, seed=seed, backend="pandas")
+                dgp = canonical_tmle.scenario_dgp(scenario)
+                if scenario == "continuous":
+                    expected, _ = canonical_tmle.sample_continuous(dgp, study.n, seed)
+                else:
+                    expected, _ = dgp.sample(study.n, seed=seed, backend="pandas")
             pd.testing.assert_frame_equal(drawn, expected)
 
     def test_the_registered_studies_do_not_share_their_samples(self) -> None:
@@ -721,6 +724,9 @@ class TestTheQuantityVocabulary:
                 declared["margin:overfit_control_ceiling"]
                 == cvtmle_properties.OVERFIT_SE_CONTROL_CEILING
             )
+        if "selector_necessity" in study.property_cells:
+            selector = study.properties()
+            assert declared["margin:selector_rmse_ratio"] == selector.SELECTOR_RMSE_RATIO
         # And every one of them resolves through the same entry point a document quotes.
         for name, expected in declared.items():
             assert value(study, name) == expected

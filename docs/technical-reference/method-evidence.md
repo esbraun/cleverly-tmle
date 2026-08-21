@@ -546,3 +546,208 @@ targeting epsilon, simultaneous or bootstrap intervals, missing outcomes, weight
 strata, multi-valued treatment, ratio estimands, observed-risk functionals, or behavior under
 severe practical-positivity violations.  It tests one fixed ten-fold assignment per sample and
 the declared complete-outcome point-treatment laws.
+
+## Selector-based point-treatment C-TMLE
+
+This row separates three selector constructions from the outcome-adaptive construction below.
+The bounded implementation witness compares Cleverly's greedy, ordered, and discrete paths with
+R [`ctmle`](https://github.com/jucheng1992/ctmle) 0.1.2 at pinned commit
+[`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
+That package is the maintained comparator for these selector entry points; it is not a tlverse
+package. The tlverse comparison applies only to OAT in the next section.
+
+Python generates every binary-outcome sample, its exact ATE, and the treatment-stratified
+five-fold selector assignment supplied unchanged to R. Both sides use all three DGP covariates,
+corresponding logistic GLMs, 0.025--0.975 propensity bounds, pointwise 95% intervals, and the
+unpenalized selector loss. Cleverly's default penalty follows the published trace-plus-bias
+criterion and is not presented as numerical parity with R's implementation-specific adjustment.
+The parity fit also disables cross-fitting; the independent property study exercises the public
+nested-cross-fit default instead.
+
+### Measured values
+
+Names beginning `margin:` are declared rules; all other values are computed from the committed
+artifacts. The documentation test resolves each name and checks the printed rounding.
+
+| quantity | value | source |
+| --- | --- | --- |
+| `replicates` | 800 | replications per selector strategy |
+| `n` | 2000 | observations per replication |
+| `independent_tests_total` | 6 | implementation-strategy tests against truth |
+| `independent_tests_passed` | 6 | of those, passing |
+| `paired_tests_total` | 3 | paired selector-strategy tests |
+| `paired_tests_passed` | 3 | of those, passing |
+| `property_cells_total` | 14 | independent property cells |
+| `property_cells_passed` | 14 | of those, passing |
+| `max_standardized_bias` | 0.0426 | largest absolute primary bias in empirical standard deviations |
+| `min_coverage` | 0.9387 | lowest primary coverage |
+| `min_coverage_ci_lower` | 0.9136 | lowest exact 99% coverage endpoint |
+| `min_se_ratio_ci_lower` | 0.8850 | lowest bootstrap SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0342 | highest bootstrap SE-ratio endpoint |
+| `max_margin_utilization` | 0.0189 | largest share of the paired similarity margin used |
+| `max_rmse_ratio_upper` | 1.0048 | largest paired RMSE-ratio upper bound |
+| `min_coverage_difference_lower` | -0.0088 | smallest paired coverage-difference lower bound |
+| `max_calibration_excess_upper` | 0.0126 | largest paired SE-calibration-excess upper bound |
+| `properties[double_robustness/both_correct]:standardized_bias` | 0.0155 | both nuisances correct |
+| `properties[double_robustness/outcome_correct]:standardized_bias` | -0.0242 | only the outcome nuisance correct |
+| `properties[double_robustness/treatment_correct]:standardized_bias` | 0.1408 | only the treatment nuisance correct |
+| `properties[double_robustness/both_wrong]:standardized_bias` | 0.8464 | both-wrong negative control |
+| `properties[selector_necessity/collaborative]:rmse_ratio` | 0.1077 | collaborative RMSE divided by the empty-path control RMSE |
+| `properties[root_n_rate/empirical_sd]:slope` | -0.4954 | fitted empirical-spread rate |
+| `properties[root_n_rate/reported_se]:slope` | -0.5030 | fitted reported-SE rate |
+| `properties[interval_calibration/correctly_specified]:coverage` | 0.9437 | calibration-cell coverage |
+| `properties[interval_calibration/correctly_specified]:se_ratio` | 0.9942 | calibration-cell SE ratio |
+| `properties[type_i_error/sharp_null]:rejection_rate` | 0.0275 | rejection under the confounded sharp null |
+| `properties[power/alternative]:rejection_rate` | 1 | rejection under the power control |
+| `margin:confidence_level` | 0.9900 | confidence level of Monte Carlo intervals |
+| `margin:alpha` | 0.0500 | nominal estimator size |
+| `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
+| `margin:bootstrap_replicates` | 10000 | resamples per bootstrap interval |
+| `margin:standardized_bias` | 0.2500 | bias equivalence margin in empirical standard deviations |
+| `margin:coverage_floor` | 0.9000 | validity floor for the exact coverage lower endpoint |
+| `margin:over_coverage_ceiling` | 0.9900 | coverage above this is labeled conservative |
+| `margin:se_ratio_sanity_lower` | 0.8000 | primary SE-ratio screen, lower limit |
+| `margin:se_ratio_sanity_upper` | 1.2000 | primary SE-ratio screen, upper limit |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration SE-ratio band, lower limit |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration SE-ratio band, upper limit |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration coverage band, lower limit |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration coverage band, upper limit |
+| `margin:type_i_ceiling` | 0.1000 | one-sided type-I error ceiling |
+| `margin:paired_difference` | 0.1500 | paired mean-difference margin in pooled SDs |
+| `margin:rmse_noninferiority` | 1.1000 | paired RMSE-ratio upper limit |
+| `margin:coverage_noninferiority` | -0.0250 | paired coverage-difference lower limit |
+| `margin:calibration_noninferiority` | 0.0500 | paired calibration-excess upper limit |
+| `margin:minimum_power` | 0.8000 | power-control rejection lower bound |
+| `margin:root_n_slope` | -0.5000 | predicted root-n slope |
+| `margin:root_n_slope_lower` | -0.6250 | accepted slope band, lower limit |
+| `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
+| `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
+| `margin:selector_rmse_ratio` | 0.5000 | maximum collaborative-to-empty RMSE ratio |
+
+### Statistical claims and limitations
+
+The robustness cells use one confounded linear law and four explicit nuisance configurations.
+Both-correct, outcome-correct-only, and treatment-correct-only bias intervals must fit inside the
+same equivalence margin; the both-wrong control must be discriminated outside it. The selector
+instrument makes selection necessary by fitting a constant outcome regression on an
+instrument/confounder law. The public collaborative search must beat a selector restricted to
+the empty propensity path by the declared RMSE ratio, so a hard-coded empty selector cannot pass.
+The remaining cells check empirical and reported root-n contraction, efficiency at three sample
+sizes, two-sided interval calibration, type-I error, and a power positive control.
+
+The committed [replicate results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/replicates.csv.gz),
+[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/equivalence.csv),
+[property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/properties.csv),
+[manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/manifest.json),
+and [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_selector/README.md)
+record the results, provenance, and regeneration commands.
+
+The R parity claim is binary, two-arm, complete-outcome, GLM, non-cross-fitted, unpenalized ATE
+only. Continuous outcomes are covered by independent implementation tests elsewhere, not this
+parity witness. The row does not establish parity for Cleverly's default penalty or nested
+cross-fitting, alternative selector preorders, ratios or arm means, missing outcomes, weights,
+clusters, strata, multi-valued treatment, flexible learner libraries, simultaneous or bootstrap
+intervals, or severe practical-positivity behavior.
+
+## Outcome-adaptive point-treatment C-TMLE
+
+This row covers `CTMLE(strategy="oat")`, whose treatment mechanism is fitted on the vector of
+arm-specific outcome-regression predictions rather than on a selected subset of the original
+covariates. The bounded implementation witness uses archived tlverse
+[`ctmle3`](https://github.com/tlverse/ctmle3) 0.1.0 at commit
+[`a4ea77b`](https://github.com/tlverse/ctmle3/tree/a4ea77b07747dfee9b2eecb9cbca88262e0559ea),
+with contemporaneous `tmle3` commit `3a61005` and `sl3` commit `821ca89`.
+
+Both sides receive the same binary samples and exact truths, fit the same three-covariate
+logistic outcome regression, and use the archived non-cross-fitted OAT construction. The report
+checks both treatment-specific means, ATE, marginal risk ratio, and marginal odds ratio. Ratio
+standard errors and intervals use their log-scale delta-method curves. Cleverly's public
+cross-fitted generated-regressor behavior is tested independently rather than attributed to the
+archived implementation.
+
+### Measured values
+
+| quantity | value | source |
+| --- | --- | --- |
+| `replicates` | 800 | replications of the binary law |
+| `n` | 1000 | observations per replication |
+| `independent_tests_total` | 10 | implementation-estimand tests against truth |
+| `independent_tests_passed` | 10 | of those, passing |
+| `paired_tests_total` | 5 | paired estimand tests |
+| `paired_tests_passed` | 5 | of those, passing |
+| `property_cells_total` | 12 | independent property cells |
+| `property_cells_passed` | 12 | of those, passing |
+| `max_standardized_bias` | 0.0513 | largest absolute primary bias in empirical standard deviations |
+| `min_coverage` | 0.9425 | lowest primary coverage |
+| `min_coverage_ci_lower` | 0.9179 | lowest exact 99% coverage endpoint |
+| `min_se_ratio_ci_lower` | 0.9211 | lowest bootstrap SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0769 | highest bootstrap SE-ratio endpoint |
+| `max_margin_utilization` | 0.0016 | largest share of the paired similarity margin used |
+| `max_rmse_ratio_upper` | 1.0005 | largest paired RMSE-ratio upper bound |
+| `min_coverage_difference_lower` | 0 | smallest paired coverage-difference lower bound |
+| `max_calibration_excess_upper` | 0.000592 | largest paired SE-calibration-excess upper bound |
+| `properties[robustness_contract/outcome_correct]:standardized_bias` | 0.0166 | outcome-correct OAT bias |
+| `properties[robustness_contract/outcome_wrong]:standardized_bias` | -2.4768 | outcome-wrong negative control |
+| `properties[root_n_rate/empirical_sd]:slope` | -0.4967 | fitted empirical-spread rate |
+| `properties[root_n_rate/reported_se]:slope` | -0.5022 | fitted reported-SE rate |
+| `properties[interval_calibration/correctly_specified]:coverage` | 0.9467 | calibration-cell coverage |
+| `properties[interval_calibration/correctly_specified]:se_ratio` | 0.9870 | calibration-cell SE ratio |
+| `properties[type_i_error/sharp_null]:rejection_rate` | 0.0725 | rejection under the confounded sharp null |
+| `properties[power/alternative]:rejection_rate` | 1 | rejection under the power control |
+| `properties[crossfit_overfitting/cross_fitted_oat]:coverage` | 0.9325 | coverage with cross-fitted tree predictions |
+| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.6225 | coverage with the in-sample tree control |
+| `properties[crossfit_overfitting/cross_fitted_oat]:se_ratio` | 1.0681 | SE ratio with cross-fitting |
+| `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.5565 | SE ratio without cross-fitting |
+| `properties[crossfit_overfitting/cross_fitted_oat]:coverage_gain_ci_lower` | 0.2525 | paired 99% lower bound for coverage gained by cross-fitting |
+| `margin:confidence_level` | 0.9900 | confidence level of Monte Carlo intervals |
+| `margin:alpha` | 0.0500 | nominal estimator size |
+| `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
+| `margin:bootstrap_replicates` | 10000 | resamples per bootstrap interval |
+| `margin:standardized_bias` | 0.2500 | bias equivalence margin in empirical standard deviations |
+| `margin:coverage_floor` | 0.9000 | validity floor for the exact coverage lower endpoint |
+| `margin:over_coverage_ceiling` | 0.9900 | coverage above this is labeled conservative |
+| `margin:se_ratio_sanity_lower` | 0.8000 | primary SE-ratio screen, lower limit |
+| `margin:se_ratio_sanity_upper` | 1.2000 | primary SE-ratio screen, upper limit |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration SE-ratio band, lower limit |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration SE-ratio band, upper limit |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration coverage band, lower limit |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration coverage band, upper limit |
+| `margin:type_i_ceiling` | 0.1000 | one-sided type-I error ceiling |
+| `margin:paired_difference` | 0.1500 | paired mean-difference margin in pooled SDs |
+| `margin:rmse_noninferiority` | 1.1000 | paired RMSE-ratio upper limit |
+| `margin:coverage_noninferiority` | -0.0250 | paired coverage-difference lower limit |
+| `margin:calibration_noninferiority` | 0.0500 | paired calibration-excess upper limit |
+| `margin:minimum_power` | 0.8000 | power-control rejection lower bound |
+| `margin:root_n_slope` | -0.5000 | predicted root-n slope |
+| `margin:root_n_slope_lower` | -0.6250 | accepted slope band, lower limit |
+| `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
+| `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
+| `margin:overfit_se_floor` | 0.8500 | cross-fit SE-ratio lower limit |
+| `margin:overfit_control_ceiling` | 0.7500 | in-sample SE-ratio upper limit |
+| `margin:overfit_coverage_gain` | 0.1500 | cross-fit coverage-gain lower limit |
+
+### Statistical claims and limitations
+
+OAT deliberately has a narrower robustness contract than selector C-TMLE. With the outcome
+regression correct, its bias interval must fit inside the same equivalence margin; with that
+regression wrong, the negative control must be discriminated outside it. No treatment-correct-only
+claim is made because OAT's mechanism is a projection on the generated outcome-regression design,
+not a fit of treatment on the original covariates. Root-n, efficiency, calibration, null, and power
+cells check the remaining first-order report. A fully grown tree then makes overfitting visible:
+cross-fitted OAT must restore the SE ratio, the in-sample control must retain its underestimated
+spread, and the paired coverage-gain lower bound must clear the declared threshold.
+
+The committed [replicate results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/replicates.csv.gz),
+[paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/equivalence.csv),
+[property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/properties.csv),
+[manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/manifest.json),
+and [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle3_oat/README.md)
+record the results, provenance, and regeneration commands.
+
+The parity claim is binary, two-arm, complete-outcome, GLM, and non-cross-fitted. During
+feasibility work, the archived stack failed the analogous continuous law because its length-two
+outcome bounds enter a scalar `if` condition; the runner treats that as a reference limitation,
+not a dropped replication. The row does not establish continuous parity, multi-arm parity,
+missing outcomes, weights, clusters, strata, simultaneous or bootstrap intervals, broad learner
+libraries, or severe practical-positivity behavior. Cross-fitted public behavior is supported by
+the property study, not by the archived parity result.

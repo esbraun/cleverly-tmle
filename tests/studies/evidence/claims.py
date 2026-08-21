@@ -175,6 +175,9 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                 "margin:overfit_coverage_gain": overfit.OVERFIT_COVERAGE_GAIN,
             }
         )
+    if "selector_necessity" in record.property_cells:
+        selector = import_module("tests.studies.ctmle_selector_properties")
+        declared["margin:selector_rmse_ratio"] = selector.SELECTOR_RMSE_RATIO
     return declared
 
 

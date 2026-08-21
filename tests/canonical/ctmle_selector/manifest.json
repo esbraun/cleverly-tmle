@@ -1,0 +1,95 @@
+{
+  "schema_version": 2,
+  "study": "selector-based point-treatment C-TMLE",
+  "slug": "canonical-ctmle-selector",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ctmle-selector",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "e0378af4654019ec158119539fd86bf321613b13",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "r-ctmle",
+      "ctmle_commit": "18de559f47dc1286617350a0668391e80e1dbf7c",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20240822,
+    "scenarios": {
+      "binary_greedy": [
+        "ate"
+      ],
+      "binary_ordered": [
+        "ate"
+      ],
+      "binary_discrete": [
+        "ate"
+      ]
+    },
+    "cross_fit": false,
+    "selection_folds": 5,
+    "selection_inner_folds": 2,
+    "penalty": false,
+    "g_bounds": [
+      0.025,
+      0.975
+    ],
+    "comparison_scope": "binary ATE; continuous outcomes are assessed independently",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ctmle_selector.py": "c6d71f1b1bb8f8da68afa16596050391e369b59832bf2ef6d9b1e43f6dabe071",
+    "tests/studies/ctmle_selector_properties.py": "0930a5b760e7918a60e82645817a9727a11059a063a1553192f17221a315c63d",
+    "tests/studies/canonical_properties.py": "723b9b36428f6351406951f370acb2295166efbc155b8781a6a3803f05329332",
+    "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "d1def7684bd8b02915dc6c04de577eacdbfbb5aba16bf8c9c5e7ca5b147d8f96",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
+  },
+  "reference_sha256": {
+    "Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
+    "run_ctmle.R": "2629791f4bf8e653d51cc4a059a63d7854b2859bcc94ef7f77b188fb9a7fdd9c"
+  },
+  "sha256": {
+    "replicates.csv.gz": "242afd9ce5d271eabef8023fb1d21ac4c377ae371c725c8bbd09ae51cb56230e",
+    "summary.csv": "52da5daeed5ff18248d2c722f055a62009186e4a586ba0f995c7848443edf652",
+    "equivalence.csv": "747f299ce057e866a518e9a72b4a859fe5b38b19613a60a6775311c1f63cd0d6",
+    "performance-tests.csv": "453a16b47370d66cb5edaaa1cc1db34de156fb78caeb16d210fa8ae327265049",
+    "property-replicates.csv.gz": "2a67b1b0bd9231b76c80955be6869dce802fc0526e9ad0cd1a0eb15cd0263218",
+    "properties.csv": "cad485fe211407be5c95bf1a554c2de268b95a421f40cc60efb4f6f37c7225c5"
+  }
+}

@@ -192,8 +192,16 @@ def registered() -> tuple[StudyRecord, ...]:
     Imported lazily so the framework modules stay importable without pulling in a study's
     estimator configuration, and so a study module can import the framework.
     """
+    from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
+    from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
 
-    return (CANONICAL_TMLE, CANONICAL_CVTMLE, FOLD_EVALUATED_CVTMLE)
+    return (
+        CANONICAL_TMLE,
+        CANONICAL_CVTMLE,
+        FOLD_EVALUATED_CVTMLE,
+        CANONICAL_CTMLE_SELECTOR,
+        CANONICAL_CTMLE_OAT,
+    )
