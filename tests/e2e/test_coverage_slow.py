@@ -4,37 +4,42 @@ Everything in the fast tier checks that the estimator computes what it claims on
 given sample.  This tier checks the claim that actually matters to a user reading a
 p-value: that the reported uncertainty is honest.
 
-Three properties, each of which fails in a different, diagnosable way:
+The three headline properties -- nominal coverage, root-n consistency, and type-I error
+under a null -- are no longer asserted here.  They are registered cells of the method
+evidence studies instead, declared in :mod:`tests.studies.canonical_properties` and
+published with their margins, their Monte Carlo intervals, and their controls in
+``docs/technical-reference/method-evidence/``.  That move is what let each of them gain a
+control that makes the same instrument fail: a both-wrong nuisance pair beside double
+robustness, a power cell beside type-I error, a deliberately in-sample fit beside
+cross-fitting.  A bare threshold in a test function could not carry any of that.
 
-**Coverage.**  A nominal 95% interval must contain the truth about 95% of the time.
-Under-coverage means every inference drawn from the estimator is overconfident, and it
-is invisible on any single dataset.
+What remains here is everything those cells do not reach, and it is the larger half:
 
-**Root-n consistency.**  :math:`\sqrt{n} \times \mathrm{bias}` must stay bounded as
-:math:`n` grows.  Bias that shrinks more slowly than :math:`n^{-1/2}` eventually
-dominates the standard error, and coverage degrades as the sample gets *larger* -- the
-opposite of the usual intuition, and the reason this is checked as a rate rather than a
-level.
+**Estimand and scale coverage.**  Every reported estimand, ratio estimands on their log
+scale, and flexible nuisance learners at a size the fast tier cannot afford.
 
-**Type I error.**  Under a null process the rejection rate must sit near the nominal
-level.  This is the direct check that the whole machinery is calibrated.
+**Comparative claims about the variants.**  What CV-TMLE and C-TMLE are *for* is a
+statement about repeated sampling, and no single fit can show it.  These compare two
+configurations on the same processes rather than asserting an absolute level, because the
+claims themselves are comparative -- C-TMLE pays less variance than TMLE for an
+instrument; cross-fitting keeps the standard error honest where in-sample fitting does
+not; repeated folds shrink the spread across fold draws.
 
-The estimator *variants* are validated here too, for the same reason: what CV-TMLE
-and C-TMLE are for is a statement about repeated sampling, and no single fit can
-show it.  Those tests compare two configurations on the same processes rather than
-asserting an absolute level, because the claims themselves are comparative -- C-TMLE
-pays less variance than TMLE for an instrument; cross-fitting keeps the standard
-error honest where in-sample fitting does not.
+**Designs with no registered study row.**  Clustered and weighted inference, missing
+outcomes, controlled direct effects, incremental interventions, and the longitudinal,
+survival and competing-risks families.  Each carries its own coverage and root-n checks,
+because none of them is covered by a point-treatment property cell.
 
-These runs take minutes rather than seconds, so they are marked ``slow`` and run
-nightly rather than on every push.  The thresholds are set from the Monte Carlo standard
-error of each quantity, so a pass is evidence rather than a formality.
+These runs take minutes rather than seconds, so they are marked ``slow``.  The thresholds
+are set from the Monte Carlo standard error of each quantity, so a pass is evidence rather
+than a formality.
 
 What is *not* here, deliberately: the misspecification grid crossed with overlap.  Both
 arms of it live in :mod:`tests.e2e.test_double_robustness` and run in the fast tier, where
 they are cheap enough to be checked on every push -- and where the finding they carry (the
 propensity half of double robustness does not survive a practical positivity violation,
-while the outcome half does) was measured rather than assumed.
+while the outcome half does) was measured rather than assumed.  The flexible-learner bias
+claim lives there too, in ``TestFlexibleLearners``.
 """
 
 from __future__ import annotations
@@ -117,7 +122,7 @@ def _study(
     ).run()
 
 
-class TestAdditionalCoverageFamilies:
+class TestEstimandAndLearnerCoverage:
     @pytest.mark.parametrize("estimand", ["ate", "att", "atc", "ey1", "ey0"])
     def test_every_estimand_covers(self, estimand: str) -> None:
         summary = _study(linear_dgp(), n=1000, estimands=("ate", "att", "atc", "ey1", "ey0"))[
