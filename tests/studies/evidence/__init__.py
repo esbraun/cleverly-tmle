@@ -34,7 +34,13 @@ from tests.studies.evidence.inference import (
     student_interval,
     upper_bound,
 )
-from tests.studies.evidence.manifest import hashes, provenance, write_manifest
+from tests.studies.evidence.manifest import (
+    hashes,
+    provenance,
+    write_csv,
+    write_lines,
+    write_manifest,
+)
 from tests.studies.evidence.pairing import Paired, paired_wide
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord, registered
@@ -76,5 +82,7 @@ __all__ = [
     "upper_bound",
     "validate_replicates",
     "value",
+    "write_csv",
+    "write_lines",
     "write_manifest",
 ]

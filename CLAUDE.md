@@ -41,10 +41,13 @@ Cross-module constraints that are not derivable from one implementation live in
   asserting only that nothing raises. A reader-facing guide added under `docs/examples/`,
   `docs/getting-started/` or `docs/user-guide/` must be registered there or explicitly excluded.
 - Ruff and mypy are pinned once in `pyproject.toml`'s `dev` extra and resolved by `uv.lock`.
-  Nox and CI install that extra instead of restating versions. Ruff *formats* the Python examples
-  in Markdown, so run it over the whole tree — but its
-  linter does not read Markdown at all, and the formatter skips any block it cannot parse, so
-  neither one sees a syntax error in an example.
+  Nox and CI install that extra instead of restating versions. `dev` resolves to `cleverly[all]`
+  plus tooling, so an optional extra kept out of *both* is installed by no session and its tests
+  can only skip — and a skipped correctness check reads exactly like a passing one. Put a new
+  extra in `dev`, or give it a dedicated job the way `bench`/`numba` has one. Ruff *formats* the
+  Python examples in Markdown, so run it over the whole tree — but its linter does not read
+  Markdown at all, and the formatter skips any block it cannot parse, so neither one sees a
+  syntax error in an example.
 - Run the smallest relevant test while iterating, then use the current validation commands in
   `README.md` or the matching nox session before handing off a change.
 - The fast tier is the default handoff gate. Run a slow test only when all three conditions hold:

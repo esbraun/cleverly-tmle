@@ -20,7 +20,7 @@ from tests.studies.canonical_cvtmle import (
     draw_and_fit,
 )
 from tests.studies.evidence.comparison import equivalence
-from tests.studies.evidence.manifest import write_manifest
+from tests.studies.evidence.manifest import write_csv, write_manifest
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, validate_replicates
 from tests.studies.stacked_cvtmle_properties import (
@@ -96,9 +96,9 @@ def main() -> None:
             samples, truths, python = draw_and_fit(
                 replicates=args.replicates, n=args.n, n_jobs=args.jobs
             )
-            samples.to_csv(samples_path, index=False, compression="gzip")
-            truths.to_csv(truth_path, index=False)
-            python.to_csv(python_path, index=False, compression="gzip")
+            write_csv(samples, samples_path, compression="gzip")
+            write_csv(truths, truth_path)
+            write_csv(python, python_path, compression="gzip")
         if args.skip_r:
             committed = pd.read_csv(HERE / "replicates.csv.gz")
             r = committed.loc[
@@ -122,13 +122,13 @@ def main() -> None:
     validate_replicates(rows, record=record)
 
     paths = {name: out / name for name in ARTIFACT_NAMES}
-    rows.to_csv(paths["replicates.csv.gz"], index=False, compression={"method": "gzip", "mtime": 0})
+    write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
     summaries = summarize(rows)
-    summaries.to_csv(paths["summary.csv"], index=False)
+    write_csv(summaries, paths["summary.csv"])
     performance = independent_performance_tests(rows, record=record, n_jobs=args.jobs)
-    performance.to_csv(paths["performance-tests.csv"], index=False)
+    write_csv(performance, paths["performance-tests.csv"])
     paired = equivalence(rows, summaries, performance, record=record, n_jobs=args.jobs)
-    paired.to_csv(paths["equivalence.csv"], index=False)
+    write_csv(paired, paths["equivalence.csv"])
 
     if args.skip_properties:
         for name in ("property-replicates.csv.gz", "properties.csv"):
@@ -138,12 +138,12 @@ def main() -> None:
             paths[name].write_bytes(committed.read_bytes())
     else:
         property_rows = generate_property_rows(n_jobs=args.jobs)
-        property_rows.to_csv(
+        write_csv(
+            property_rows,
             paths["property-replicates.csv.gz"],
-            index=False,
             compression={"method": "gzip", "mtime": 0},
         )
-        summarize_properties(property_rows).to_csv(paths["properties.csv"], index=False)
+        write_csv(summarize_properties(property_rows), paths["properties.csv"])
 
     write_manifest(
         out / "manifest.json",

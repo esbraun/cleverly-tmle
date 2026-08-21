@@ -19,6 +19,7 @@ import argparse
 import re
 
 from tests.studies.evidence.claims import load, value
+from tests.studies.evidence.manifest import write_lines
 from tests.studies.evidence.registry import StudyRecord, registered
 
 MEASURED_COLUMNS = ("quantity", "value", "source")
@@ -104,7 +105,7 @@ def fill(record: StudyRecord) -> list[str]:
         lines[index] = f"| {match.group('quantity')} | {rendered} | {match.group('source')} |" + (
             "\n" if lines[index].endswith("\n") else ""
         )
-    document.write_text("".join(lines), encoding="utf-8")
+    write_lines(document, "".join(lines))
     return changed
 
 

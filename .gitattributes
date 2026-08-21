@@ -1,0 +1,15 @@
+# A checkout must produce the same bytes on every platform, because some of these
+# bytes are hashed.  `tests/studies/evidence/manifest.py` records a sha256 over each
+# published study artifact and `tests/unit/test_method_evidence.py` checks it, so a
+# line ending rewritten at checkout time turns a provenance claim into a statement
+# about the machine that ran `git clone`.  Without this file and with the common
+# `core.autocrlf=true`, the canonical TMLE and CV-TMLE manifests verified on Windows
+# and failed on Linux CI, which is the one thing a byte-exact claim must not do.
+#
+# `text=auto` still lets git detect binary content; `eol=lf` fixes the working-tree
+# ending for everything it does classify as text.  The compressed replicate archives
+# are marked explicitly rather than left to detection, since they are the artifacts
+# whose bytes matter most and a misdetection there would corrupt them silently.
+* text=auto eol=lf
+
+*.gz binary

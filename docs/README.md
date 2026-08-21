@@ -10,9 +10,7 @@ built on targeted maximum likelihood estimation (TMLE).
 from docstrings during the build; the narrative source remains ordinary Markdown that is readable
 on GitHub.
 
-Build the warning-as-error site locally with `nox -s docs`. Read the
-[production documentation plan](documentation-plan.md) for the reference review, information
-architecture, technical-coverage contract, publishing design, and acceptance gates.
+Build the warning-as-error site locally with `nox -s docs`.
 
 The documents below are the scientific and engineering record routed through the site's
 [development reference](development/index.md).
@@ -22,9 +20,7 @@ The documents below are the scientific and engineering record routed through the
 | [Recipe compendium](user-guide.md) | one worked recipe per capability retained alongside the task-oriented user guide |
 | [Migration guide](migration.md) | runnable old-to-new workflows, complete constructor-argument maps, changed defaults, the static audit tool, and the final-old-API tag |
 | [Technical appendix](methodology.md) | per algorithm: the estimand, efficient influence curve, second-order remainder, failure witness, and method evidence grid |
-| [Roadmap](roadmap.md) | proposed methods in priority order, with the publication and canonical-source evidence required before implementation |
-| [Public API redesign](public-api-redesign.md) | the accepted design gate for the study/identify/estimate object model, Riesz and EP integration, ordered work packages, and exit evidence — work package 1 is implemented; later packages remain proposals |
-| [Nested Riesz implementation plan](riesz-implementation-plan.md) | the source-audited, review-gated plan for work package 3: typed stages and representers, stage order, direct loss, catalog boundary, persistence, mutations, and implementation commits |
+| [Roadmap](roadmap.md) | all proposed work in parallel priority tracks, with governing sources, planned interfaces, implementation contracts, refusals, and evidence gates |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Evidence](evidence.md) | per registered estimand: which oracle, Gateaux, remainder, identity, and variant instruments exist — and which mistakes none of them would see |
 | [Method evidence studies](technical-reference/method-evidence.md) | dedicated test-by-test result pages for registered same-DGP comparisons and statistical-property studies |

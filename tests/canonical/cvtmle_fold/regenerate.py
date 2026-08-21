@@ -8,7 +8,7 @@ from pathlib import Path
 
 from tests.parallel import available_cores
 from tests.studies.evidence.comparison import empty_equivalence
-from tests.studies.evidence.manifest import write_manifest
+from tests.studies.evidence.manifest import write_csv, write_manifest
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.schema import validate_replicates
 from tests.studies.fold_cvtmle_properties import generate_property_rows, summarize_properties
@@ -49,12 +49,12 @@ def main() -> None:
     rows = draw_and_fit(replicates=args.replicates, n=args.n, n_jobs=args.jobs)
     validate_replicates(rows, record=record)
     paths = {name: out / name for name in ARTIFACT_NAMES}
-    rows.to_csv(paths["replicates.csv.gz"], index=False, compression={"method": "gzip", "mtime": 0})
+    write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
     summaries = summarize(rows)
-    summaries.to_csv(paths["summary.csv"], index=False)
+    write_csv(summaries, paths["summary.csv"])
     performance = independent_performance_tests(rows, record=record, n_jobs=args.jobs)
-    performance.to_csv(paths["performance-tests.csv"], index=False)
-    empty_equivalence().to_csv(paths["equivalence.csv"], index=False)
+    write_csv(performance, paths["performance-tests.csv"])
+    write_csv(empty_equivalence(), paths["equivalence.csv"])
 
     if args.skip_properties:
         for name in ("property-replicates.csv.gz", "properties.csv"):
@@ -64,12 +64,12 @@ def main() -> None:
             paths[name].write_bytes(committed.read_bytes())
     else:
         property_rows = generate_property_rows(n_jobs=args.jobs)
-        property_rows.to_csv(
+        write_csv(
+            property_rows,
             paths["property-replicates.csv.gz"],
-            index=False,
             compression={"method": "gzip", "mtime": 0},
         )
-        summarize_properties(property_rows).to_csv(paths["properties.csv"], index=False)
+        write_csv(summarize_properties(property_rows), paths["properties.csv"])
 
     write_manifest(
         out / "manifest.json",

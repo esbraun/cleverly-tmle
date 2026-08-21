@@ -9,7 +9,6 @@ implementation and evidence gates land.
 :maxdepth: 2
 
 Documentation source index <../README>
-Production documentation plan <../documentation-plan>
 Architecture invariants <../architecture-invariants>
 Evidence manifest <../evidence>
 R comparisons and statistical evidence studies <method-evidence-studies>
@@ -18,8 +17,6 @@ DR-TMLE contract <../drtmle>
 References <../references>
 Migration guide <../migration>
 Roadmap <../roadmap>
-Public API redesign <../public-api-redesign>
-Nested Riesz implementation plan <../riesz-implementation-plan>
 Benchmark programme <../benchmarks/README>
 Thread-limit profile <../benchmarks/thread_limit_profile>
 Longitudinal-mask benchmark <../benchmarks/longitudinal_masks>

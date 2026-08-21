@@ -81,25 +81,25 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_tmle.py": "0c980e9f9ebd49ed3950e0097d9b7580cfbe08bb86ce4a4127defaf7c6e7b02d",
-    "tests/studies/canonical_properties.py": "4e0f49f8f5d4ff5e8de58dbd6dc8fd7946ba2d9145c2bdf11002d87bbacee983",
-    "tests/studies/evidence/comparison.py": "fcc2389a4bd25ed3ab6df4d934e81c03a45e3788bb5fa21bece202260a312651",
-    "tests/studies/evidence/inference.py": "1150221c9b9f5c9827125731eaf3547957bb083c8f9a1b4d02414264637c3f92",
-    "tests/studies/evidence/performance.py": "6da2f5c7225dbecc5e898610f84c4f4b8b7140b2cd6814e5dc730a7db005dc5f",
-    "tests/studies/evidence/properties.py": "11e6385f8f22ab282672eaf717c9e7b0bf80d0c77b7d2fe171d73cb854945dd9",
-    "tests/studies/evidence/schema.py": "52d87fd8683181315b87a5d94c94877cf455722e454caa6dfad1ccd246d6fa46",
-    "tests/studies/evidence/seeds.py": "0e522cf5de2b64098d05c60bbe5873cf619a1fcdda51adee072ca27d42364dde"
+    "tests/studies/canonical_tmle.py": "0612fff90cad1d9db4dd44d6f77283b339aa0e5a6de109ac043fe52669c10f18",
+    "tests/studies/canonical_properties.py": "723b9b36428f6351406951f370acb2295166efbc155b8781a6a3803f05329332",
+    "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "d1def7684bd8b02915dc6c04de577eacdbfbb5aba16bf8c9c5e7ca5b147d8f96",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
   },
   "reference_sha256": {
     "Dockerfile": "1358b88fb2d5fd9ae129b33066c83a7ddd6e2a4e3d09fd81c82122be47ab1ff5",
-    "run_tmle3.R": "3b8af2b7a9a10faf9d677ced88a08143f3232072fede74620365193ee7764cc3"
+    "run_tmle3.R": "2b0ff3ace7f24f34a1346e24c0408ec4926245e8b88c91fe5dcc19deae3b6984"
   },
   "sha256": {
     "replicates.csv.gz": "dcd2362a16d944c47f68cb02ad56e0d8143ba50dca205463b6f87891cef33a9a",
-    "summary.csv": "7ec5512742410067e5ea2069b3bc3157c89ceb7327572951f45ed82171dbdc0e",
-    "equivalence.csv": "f5b4170754d6237800b3c83936ceca1b67beb38a78bda5d9118092dfe7ab6abb",
-    "performance-tests.csv": "bc0b51ebcdd3df272da90582b07fa80f711c7ff71950128f364dcb0e026c4c19",
+    "summary.csv": "65bb5241c08bd054a59bc7925e1dd877fee7321e5235c2199837bd8400e42fa3",
+    "equivalence.csv": "d7a70b8d233b9a4b969e37db5fe7bbb7963d9597a45d7dfa5a9237bc8cf32b4a",
+    "performance-tests.csv": "27a40c3eb059893bff0024571199cac0e6d0600b9fcb01fd214dc1bb0db7ed0e",
     "property-replicates.csv.gz": "228cb254997b5905cd9d9c02c349825f90fe31d9eb2aa6b37e35fae92b5997ee",
-    "properties.csv": "0f4d1a36d7464dfcd587210873a24f21b13c6b642a5013d2bfd104c4f837d9c3"
+    "properties.csv": "e74d225a625e98898db3ef1f2e26dc676239da92671f6adeee9937236996efaf"
   }
 }
