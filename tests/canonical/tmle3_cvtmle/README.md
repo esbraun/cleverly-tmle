@@ -35,6 +35,6 @@ uv run --extra dev python -m tests.canonical.tmle3_cvtmle.regenerate --replicate
 
 The Python declaration is `tests/studies/canonical_cvtmle.py`; the reader-facing scope,
 measurements, and limitations are in
-[stacked point-treatment CV-TMLE study page](../../../docs/technical-reference/method-evidence/stacked-point-treatment-cvtmle.md).
+[`docs/technical-reference/method-evidence.md`](../../../docs/technical-reference/method-evidence.md).
 Raw samples are temporary.  The committed replicate results and manifest retain everything
 needed to reproduce the statistical summaries, paired decisions, provenance, and hashes.

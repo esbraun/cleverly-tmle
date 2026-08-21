@@ -14,7 +14,6 @@ from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators import TMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_properties
-from tests.studies.evidence.document import number
 from tests.studies.evidence.inference import percentile_interval
 from tests.studies.evidence.properties import PropertyCell, run_cells, se_ratio_interval
 from tests.studies.evidence.registry import StudyRecord
@@ -83,32 +82,6 @@ def estimator(record: StudyRecord, variant: str) -> Callable[[PropertyCell], Cal
 
 def generate(record: StudyRecord, variant: str, *, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return run_cells(cells(variant), estimator(record, variant), n_jobs=n_jobs)
-
-
-def decision_rule(record: StudyRecord, variant: str, row: pd.Series) -> str:
-    """This row's own predeclared rule, including the two the overfitting cells split.
-
-    The cross-fit arm and the in-sample control are two different claims about the same
-    samples, and publishing one rule against both made the control read as though it had
-    been asked to produce a calibrated standard error -- which is the opposite of why it is
-    there.  The paired coverage-gain clause is marked as joint because it is a statement
-    about the pair rather than about either row.
-    """
-    if str(row["property"]) != "crossfit_overfitting":
-        return canonical_properties.decision_rule(record, row)
-    # One sentence about the pair, printed identically on both rows, because that is what it
-    # is: cross-fitting has to buy coverage the in-sample fit does not have on the same
-    # samples.  It decides ``property_passed``, not either row's ``passed``.
-    joint = f" (joint: paired coverage-gain lower ≥ {number(OVERFIT_COVERAGE_GAIN)})"
-    if str(row["role"]) == "control":
-        return (
-            f"control SE-ratio CI upper ≤ {number(OVERFIT_SE_CONTROL_CEILING)}, "
-            f"i.e. the in-sample fit must understate its own spread{joint}"
-        )
-    return (
-        f"cross-fit SE-ratio CI in [{number(OVERFIT_SE_FLOOR)}, "
-        f"{number(record.margins.se_ratio_sanity[1])}]{joint}"
-    )
 
 
 def _coverage_gain_interval(

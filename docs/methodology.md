@@ -9,9 +9,8 @@ a *corrected* curve that is the estimator's own influence function rather than t
 one, and that section says what follows from it.
 
 The order is the [user guide](user-guide.md)'s: one section per algorithm, then [how this is
-validated](#how-this-is-validated) across all of them, the [method evidence
-grid](#method-evidence-grid), the taxonomy behind every refusal the library states, how to add an
-estimand of your own, and the references.
+validated](#how-this-is-validated) across all of them, then the taxonomy behind every refusal
+the library states, then how to add an estimand of your own, then the references.
 
 ## Regimes: the density-ratio covariate
 
@@ -923,25 +922,6 @@ here checks that each method produces what its derivation predicts. The roadmap'
 [eligibility rules](roadmap.md#eligibility) and the
 [standing decisions](architecture-invariants.md#validation-and-evidence) carry the reasoning. And `score_check()`
 passing is not evidence that the equation was the right one — see below.
-
-## Method evidence grid
-
-The estimand evidence manifest records whether each parameter is implemented correctly. This grid
-records the complementary repeated-sampling studies of complete estimators. The three result
-columns answer different questions: performance against known truth, paired comparison with an
-external implementation where one is registered, and properties claimed by the method's source
-theory. Each method links to a dedicated page containing every registered test result and the rule
-used to read it.
-
-| method | estimands and intervals | performance vs truth | cross-implementation | scientific properties | limitations |
-| --- | --- | --- | --- | --- | --- |
-| [ordinary point-treatment TMLE](technical-reference/method-evidence/ordinary-point-treatment-tmle.md) | arm means, ATE, ATT, ATC, observed mean, PAR, PAF, RR, and OR; pointwise 95% Wald intervals, with RR/OR on the log scale | 34/34 implementation-estimand tests pass | 17/17 paired similarity and non-inferiority tests pass against pinned R `tmle3` 0.2.0 | 12/12 property and control cells pass | two complete-outcome laws, corresponding GLMs, ordinary targeting, declared bounds, and pointwise intervals; PAF SE scales differ |
-| [stacked point-treatment CV-TMLE](technical-reference/method-evidence/stacked-point-treatment-cvtmle.md) | the same estimands and intervals; ten-fold nuisance fitting, one stacked update, and whole-sample plug-in evaluation | 34/34 implementation-estimand tests pass | 17/17 paired similarity and non-inferiority tests pass against pinned R `tmle3`/`sl3` on identical folds | 14/14 property and control cells pass | two complete-outcome laws, corresponding GLMs, one ten-fold split, pooled targeting, declared bounds, and pointwise intervals; PAF SE scales differ |
-| [fold-evaluated point-treatment CV-TMLE](technical-reference/method-evidence/fold-evaluated-point-treatment-cvtmle.md) | arm means, ATE, ATT, and ATC; ten-fold nuisance fitting, pooled targeting, equal-fold evaluation, cross-validated variance, and pointwise 95% Wald intervals | 10/10 implementation-estimand tests pass | 0/0 external comparison tests; no comparator is registered | 14/14 property and control cells pass | five estimands, two complete-outcome laws, corresponding GLMs, one ten-fold split, pooled targeting, declared bounds, and pointwise intervals |
-
-Counts are computed from the committed result artifacts by `tests/unit/test_method_evidence.py`.
-The development procedure for registering, regenerating, and publishing another row is
-[R comparisons and statistical evidence studies](development/method-evidence-studies.md).
 
 ## Where a multi-valued treatment is supported
 

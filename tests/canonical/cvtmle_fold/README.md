@@ -28,5 +28,5 @@ uv run --extra dev python -m tests.canonical.cvtmle_fold.regenerate
 
 The declaration is `tests/studies/fold_evaluated_cvtmle.py`; the reader-facing scope,
 measurements, and limitations are in
-[fold-evaluated point-treatment CV-TMLE study page](../../../docs/technical-reference/method-evidence/fold-evaluated-point-treatment-cvtmle.md).
+[`docs/technical-reference/method-evidence.md`](../../../docs/technical-reference/method-evidence.md).
 The manifest records all margins, seeds, configuration, source hashes, and artifact hashes.

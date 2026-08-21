@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
+from importlib import import_module
 
 import pandas as pd
 
@@ -125,8 +126,65 @@ def _scenario_aggregates(
     return out
 
 
+def thresholds(record: StudyRecord) -> dict[str, float]:
+    """Every *declared* number a study's prose may quote, under the name it is declared as.
+
+    The vocabulary above resolves what a study measured.  This resolves what it decided in
+    advance, which had the same problem and no gate at all: the rules were restated in prose,
+    so moving ``MINIMUM_POWER`` or ``OVERFIT_SE_FLOOR`` left a document asserting a threshold
+    the study had not applied, and nothing failed.  Naming them makes the prose resolve
+    against the declaration the same way a measured value resolves against an artefact.
+
+    Derived limits are listed as limits rather than as their parts.  A reader checking "the
+    interval must lie in [-0.6250, -0.3750]" should not have to compose it from a centre and
+    a margin, and the composition is exactly where a hand-typed copy goes wrong.
+    """
+    margins = record.margins
+    shared = import_module("tests.studies.canonical_properties")
+    declared: dict[str, float] = {
+        "margin:confidence_level": margins.confidence_level,
+        "margin:alpha": margins.alpha,
+        "margin:nominal_coverage": 1.0 - margins.alpha,
+        "margin:bootstrap_replicates": float(margins.bootstrap_replicates),
+        "margin:standardized_bias": margins.standardized_bias,
+        "margin:coverage_floor": margins.coverage_floor,
+        "margin:over_coverage_ceiling": margins.over_coverage_ceiling,
+        "margin:se_ratio_sanity_lower": margins.se_ratio_sanity[0],
+        "margin:se_ratio_sanity_upper": margins.se_ratio_sanity[1],
+        "margin:calibration_se_ratio_lower": margins.calibration_se_ratio[0],
+        "margin:calibration_se_ratio_upper": margins.calibration_se_ratio[1],
+        "margin:calibration_coverage_lower": margins.calibration_coverage[0],
+        "margin:calibration_coverage_upper": margins.calibration_coverage[1],
+        "margin:type_i_ceiling": margins.alpha + margins.type_i_margin,
+        "margin:paired_difference": margins.paired_difference,
+        "margin:rmse_noninferiority": margins.rmse_noninferiority,
+        "margin:coverage_noninferiority": margins.coverage_noninferiority,
+        "margin:calibration_noninferiority": margins.calibration_noninferiority,
+        "margin:minimum_power": shared.MINIMUM_POWER,
+        "margin:root_n_slope": shared.ROOT_N_SLOPE,
+        "margin:root_n_slope_lower": shared.ROOT_N_SLOPE - shared.ROOT_N_SLOPE_MARGIN,
+        "margin:root_n_slope_upper": shared.ROOT_N_SLOPE + shared.ROOT_N_SLOPE_MARGIN,
+        "margin:excluded_slope": shared.EXCLUDED_SLOPE,
+    }
+    if "crossfit_overfitting" in record.property_cells:
+        overfit = import_module("tests.studies.cvtmle_properties")
+        declared.update(
+            {
+                "margin:overfit_se_floor": overfit.OVERFIT_SE_FLOOR,
+                "margin:overfit_control_ceiling": overfit.OVERFIT_SE_CONTROL_CEILING,
+                "margin:overfit_coverage_gain": overfit.OVERFIT_COVERAGE_GAIN,
+            }
+        )
+    return declared
+
+
 def quantities(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
-    return {**_aggregates(record), **_scenario_aggregates(record)}
+    declared = thresholds(record)
+    return {
+        **_aggregates(record),
+        **_scenario_aggregates(record),
+        **{name: (lambda data, value=value: value) for name, value in declared.items()},
+    }
 
 
 def value(record: StudyRecord, name: str, data: Mapping[str, pd.DataFrame] | None = None) -> float:

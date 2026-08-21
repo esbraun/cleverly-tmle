@@ -22,7 +22,6 @@ from cleverly.utils.bounds import expit
 from tests.conftest import OracleOutcomeContinuous, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_tmle import G_BOUNDS, STUDY
-from tests.studies.evidence.document import number
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     PropertyCell,
@@ -343,53 +342,6 @@ def apply_shared_verdicts(
         )
         rates.append(row)
     return summary, rates
-
-
-def decision_rule(record: StudyRecord, row: pd.Series) -> str:
-    """The predeclared rule this row's verdict was read against, in the reader's words.
-
-    Authored here rather than in :mod:`tests.studies.evidence.document` because this is where
-    the thresholds are declared.  The renderer used to re-type them -- ``"99% slope CI inside
-    [-0.6250, -0.3750]"`` and ``"rejection lower >= 0.8000"`` were string literals -- and the
-    gate that checks the published page reads the same literal on both sides, so moving
-    :data:`ROOT_N_SLOPE_MARGIN` or :data:`MINIMUM_POWER` published a rule the study had not
-    applied and nothing failed.  Formatting from the constants makes that impossible instead
-    of merely unlikely, and the module's content is hashed into the study manifest.
-    """
-    margins = record.margins
-    property_name = str(row["property"])
-    if property_name == "double_robustness":
-        # The control's rule is the positive cells' rule reversed: the same instrument has to
-        # say "outside" here, or a study too small to resolve anything would pass both.
-        direction = "outside" if str(row["role"]) == "control" else "inside"
-        return f"99% bias CI {direction} ±{number(row['bias_margin'])}"
-    if property_name == "root_n_and_efficiency":
-        return (
-            f"bias equivalent; coverage lower ≥ {number(margins.coverage_floor)}; "
-            f"SE ratio in [{number(margins.se_ratio_sanity[0])}, "
-            f"{number(margins.se_ratio_sanity[1])}]"
-        )
-    if property_name == "root_n_rate":
-        return (
-            f"99% slope CI inside [{number(ROOT_N_SLOPE - ROOT_N_SLOPE_MARGIN)}, "
-            f"{number(ROOT_N_SLOPE + ROOT_N_SLOPE_MARGIN)}] and excluding "
-            f"{number(EXCLUDED_SLOPE)}"
-        )
-    if property_name == "interval_calibration":
-        return (
-            f"coverage CI in [{number(margins.calibration_coverage[0])}, "
-            f"{number(margins.calibration_coverage[1])}]; SE-ratio CI in "
-            f"[{number(margins.calibration_se_ratio[0])}, "
-            f"{number(margins.calibration_se_ratio[1])}]"
-        )
-    if property_name == "type_i_error":
-        return (
-            f"rejection upper ≤ {number(margins.alpha + margins.type_i_margin)}; "
-            f"coverage lower ≥ {number(margins.coverage_floor)}"
-        )
-    if property_name == "power":
-        return f"99% rejection lower ≥ {number(MINIMUM_POWER)}"
-    raise ValueError(f"no declared decision rule for property {property_name!r}")
 
 
 def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:
