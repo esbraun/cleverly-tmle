@@ -90,9 +90,11 @@ mutation must fail the reference's column while leaving cleverly's standing.
 
 ### Measured values
 
-Every figure this section quotes is resolved from the committed results by name and checked at the
-precision it is printed to, so a stale or mistyped number is a test failure rather than a reading
-error.
+Every figure this section quotes is resolved by name and checked at the precision it is printed to,
+so a stale or mistyped number is a test failure rather than a reading error. Names beginning
+`margin:` are the thresholds declared *before* the run; everything else is measured from the
+committed results. Both resolve the same way, so moving a declared threshold in the code changes
+this table rather than leaving it asserting a rule the study never applied.
 
 | quantity | value | source |
 | --- | --- | --- |
@@ -307,6 +309,9 @@ any failed fit, changed fold, missing estimand, or silently dropped replication.
 
 ### Measured values
 
+Names beginning `margin:` are the thresholds declared *before* the run; everything else is measured
+from the committed results. Both are resolved by name and checked at the precision printed.
+
 | quantity | value | source |
 | --- | --- | --- |
 | `replicates` | 1600 | replications per law |
@@ -438,6 +443,9 @@ row: a zero-row equivalence artifact records that absence instead of borrowing t
 comparison.
 
 ### Measured values
+
+Names beginning `margin:` are the thresholds declared *before* the run; everything else is measured
+from the committed results. Both are resolved by name and checked at the precision printed.
 
 | quantity | value | source |
 | --- | --- | --- |
