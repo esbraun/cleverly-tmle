@@ -16,9 +16,9 @@ markdown at all -- pointed at ``README.md`` it reports "No Python files found" a
 zero.  So a syntax error in an example is invisible to both halves of the toolchain, and
 renders to the reader as an ordinary example.
 
-That is not hypothetical.  This module was added after a prose line was retagged from
-``text`` to ``python`` in ``docs/public-api-redesign.md`` and shipped through a green
-``ruff check .``, ``ruff format --check .`` and full test run.
+That is not hypothetical.  This module was added after a prose line in a planning document was retagged
+from ``text`` to ``python`` and shipped through a green ``ruff check .``,
+``ruff format --check .`` and full test run.
 """
 
 from __future__ import annotations

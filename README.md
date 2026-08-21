@@ -124,10 +124,9 @@ benchmarks, and accepted implementation plans.
 - Expand the estimand catalog target by target, with a separate derivation, evidence record,
   refusal contract, and statistical study for each family.
 
-These are accepted directions, not implemented release claims. The detailed evidence and source
-requirements are in the [roadmap](docs/roadmap.md),
-[public API redesign](docs/public-api-redesign.md), and
-[nested Riesz implementation plan](docs/riesz-implementation-plan.md).
+These are accepted directions, not implemented release claims. Their ordering, governing sources,
+interfaces, refusals, and evidence requirements are in the single
+[roadmap](docs/roadmap.md).
 
 ## Method configuration
 

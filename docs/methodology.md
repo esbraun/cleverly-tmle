@@ -948,7 +948,7 @@ carries the derivation; none of it is restated here.
 | `ey1` / `ey0` and the incremental estimands, on a multi-arm fit | wrong by construction | they *name* one of exactly two arms, so on five arms they would report a contrast of arms `0` and `1` under the name of a parameter about all of them. Declared by `requires_binary_treatment`; the multi-arm path reports per-arm `ey` instead |
 | `incremental=` itself, above two arms | a different question | an odds multiplier names two arms. One odds per contrast is well posed, but it is a *different intervention* with a different influence function rather than a generalisation of this one |
 | stochastic categorical policies and continuous doses at a longitudinal node | a different question | both change the intervention *density* rather than which label is assigned, so neither is the parameter the sequential regression identifies |
-| `DRTMLE` with `delta=` at more than two arms | waiting on published theory | Díaz and van der Laan's missing-outcome theorem is stated for a binary randomized treatment, and the per-arm multi-level assembly of its observation, treatment and outcome correction blocks is not in it. See the [roadmap](roadmap.md#ordered-priorities) |
+| `DRTMLE` with `delta=` at more than two arms | waiting on published theory | Díaz and van der Laan's missing-outcome theorem is stated for a binary randomized treatment, and the per-arm multi-level assembly of its observation, treatment and outcome correction blocks is not in it. See the [roadmap](roadmap.md#d1-multi-arm-missing-outcome-dr-tmle) |
 
 The last row is the only one a source could close as it stands. Neither `a different question`
 row would be closed by a source; each would be answered by a different estimand, with its own
@@ -968,7 +968,7 @@ question, or in the method itself.
 
 | section | where the problem is | what to do about it |
 | --- | --- | --- |
-| [Not written yet](#not-written-yet) | in this package | the parameter is well defined and nobody has written it here. Ask for it, compute it elsewhere, or contribute it; proposed work is on the [roadmap](roadmap.md#ordered-priorities) |
+| [Not written yet](#not-written-yet) | in this package | the parameter is well defined and nobody has written it here. Ask for it, compute it elsewhere, or contribute it; proposed work is on the [roadmap](roadmap.md) |
 | [A different question](#a-different-question) | in the question | what was asked for is a different estimand, usually with its own identification assumptions. Decide which one was meant; no flag here produces the other, and one that quietly did would be answering something nobody asked |
 | [Wrong by construction](#wrong-by-construction) | in the method | the naive version *runs* and returns a plausible number that is wrong, usually with a known direction of error. Read these as warnings about the analysis, not about this package's coverage |
 

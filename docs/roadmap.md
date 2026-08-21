@@ -1,164 +1,349 @@
 # Roadmap
 
-This document contains only proposed work and the evidence required to begin it. Implemented
+This is the single planning contract for `cleverly`. It contains proposed work only: implemented
 capabilities belong in the [user guide](user-guide.md), scientific contracts in the
 [technical appendix](methodology.md) and [DR-TMLE contract](drtmle.md), validation results in
-[`docs/evidence.md`](evidence.md), and performance findings in
-[the benchmark reports](benchmarks/README.md).
+[`docs/evidence.md`](evidence.md), and performance findings in the
+[benchmark reports](benchmarks/README.md).
 
-What is still *open* in a released estimator is a limitation of that estimator rather than a
-roadmap item, so it is not listed here. `DRTMLE`'s are in
-[what the validation programme established](drtmle.md#what-the-validation-programme-established),
-which states what is not established and why the release claim is conditional.
+The tracks below are independent. Order is binding within a track, but an item in one track does
+not block another track unless its dependency says so.
+
+| track | order | item | readiness | dependency | details |
+| --- | ---: | --- | --- | --- | --- |
+| Extensibility | E1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [E1](#e1-nested-riesz-engine-and-initial-catalog) |
+| Extensibility | E2 | Optional DoWhy integration | source audit | E1 in the default sequence; may split if schedules diverge | [E2](#e2-optional-dowhy-integration) |
+| Extensibility | E3 | EP learner | published support; pending source read | E1 in the default sequence; may split if schedules diverge | [E3](#e3-ep-learner) |
+| Extensibility | E4 | Evidence-gated catalog expansion | source audit for each target | the engine and target-specific derivation | [E4](#e4-evidence-gated-catalog-expansion) |
+| Longitudinal | L1 | Stochastic categorical policies at a node | waiting on published theory | none | [L1](#l1-stochastic-categorical-policies-at-a-node) |
+| Longitudinal | L2 | Targeted bootstrap | waiting on a citable construction | L1 ordering only | [L2](#l2-targeted-bootstrap) |
+| Longitudinal | L3 | Persistence and serialization | theory-neutral | L2 ordering only | [L3](#l3-persistence-and-serialization) |
+| Longitudinal | L4 | Sensitivity analysis | source audit for each operation | L3 ordering only | [L4](#l4-sensitivity-analysis) |
+| Longitudinal | L5 | Additional longitudinal estimands | waiting on published theory | L4 ordering only | [L5](#l5-additional-longitudinal-estimands) |
+| Longitudinal | L6 | Time-respecting cross-fitting | source audit | L5 | [L6](#l6-time-respecting-cross-fitting) |
+| DR-TMLE | D1 | Multi-arm missing-outcome DR-TMLE | waiting on published theory | a multi-arm corrected influence curve | [D1](#d1-multi-arm-missing-outcome-dr-tmle) |
+| DR-TMLE | D2 | Other refused DR-TMLE compositions | waiting on published theory | composition-specific reduced regressions and corrected curve | [D2](#d2-other-refused-dr-tmle-compositions) |
+| Later candidates | C1 | Replicate-weight designs | source audit | weighted-law variance construction | [C1](#c1-replicate-weight-designs) |
+| Later candidates | C2 | MNAR and incremental-intermediate extensions | waiting on published theory | composition-specific identification and influence function | [C2](#c2-mnar-and-incremental-intermediate-extensions) |
+| Later candidates | C3 | HAL and undersmoothed HAL learners | published support; source audit | profiling evidence before a native implementation | [C3](#c3-hal-and-undersmoothed-hal-learners) |
 
 ## Eligibility
 
 `cleverly` implements established statistical methods; it does not use a package feature as the
 place to invent one. A scientific feature enters implementation only when a published derivation
-covers the estimand and the requested inference regime. For a new estimator or composition, that
-means an identified parameter, its influence function, the targeting or estimating equations, and
-the remainder and rate conditions needed for the interval being claimed. If one of those is
-absent, the roadmap item is to locate published theory, not to create it here.
+covers the estimand and requested inference regime. A new estimator or composition requires an
+identified parameter, its influence function, the targeting or estimating equations, and the
+remainder and rate conditions needed for the claimed interval. If one is absent, the item is to
+locate published theory, not create it here.
 
-A canonical public implementation is valuable implementation provenance. It can settle intended
-control flow, data layout, and named conventions, and it can expose cases the paper leaves easy to
-misread. It is not acceptance evidence by itself. Where code and paper appear to disagree, the
+A canonical public implementation is valuable provenance for control flow, data layout, and named
+conventions, but it is not acceptance evidence by itself. Where code and paper disagree, the
 published derivation governs and the discrepancy becomes a nonzero regression or mutation test.
-The independent evidence requirements in [the technical appendix](methodology.md) and
-[`docs/evidence.md`](evidence.md) still apply.
 
-The status labels below rate **published-method support**, not programming effort:
+The readiness labels rate published-method support, not programming effort:
 
-- **published support** — a paper derives the requested method and inference claim;
-- **source audit** — published theory and/or canonical code appear to cover it, but the exact
-  construction must be matched and any discrepancy resolved before implementation;
-- **theory-neutral** — an engineering capability that preserves an already-derived estimator;
-- **waiting on published theory** — related estimators or code exist, but not the requested
-  composition or inference claim. This is not an active research assignment for this project.
-
-A label may add **pending source read**, meaning the governing result is published and identified
-but has not yet been read first-hand into this package's contract. An item is not started on the
-strength of a result nobody here has read.
+- **published support** — a paper derives the method and inference claim;
+- **source audit** — theory or canonical code appears to cover it, but the exact construction must
+  be matched and discrepancies resolved before implementation;
+- **theory-neutral** — engineering that preserves an already-derived estimator;
+- **waiting on published theory** — related methods exist, but not the requested composition or
+  inference claim; this is not an active research assignment for the project; and
+- **pending source read** — the governing result is identified but has not been read first-hand
+  into this package's contract.
 
 ## Definition of done
 
-An item is finished when all of these hold, not when the estimator runs and returns a plausible
-number:
+An item is complete only when all applicable conditions hold:
 
-- the estimand is registered and covered **in both directions** by the oracle and evidence gates in
-  `tests/unit/test_registry.py`, with a row in [`docs/evidence.md`](evidence.md) naming which
-  instruments check its influence curve and which mistakes none of them would see;
-- a well-posed composition this package still refuses has a test pinning the refusal and its
-  message, so the refusal cannot decay into a silent approximation of a different estimand;
-- wherever a sign, mask, guard, or counterfactual block can vanish at the truth, an exact-law check
-  is accompanied by a nonzero witness or a deliberate-mutation control that fails when that
-  component is wrong. Exact-law checks alone are blind to terms that disappear at the truth;
-- a cross-module change satisfies [the architecture invariants](architecture-invariants.md), which
-  also hold the standing decisions and the condition that would reopen each one;
-- **every relevant check has been run locally, and the GitHub Actions CI run is green.** CI is the
-  final merge signal, not a substitute for the local validation record or the smallest relevant
-  check while iterating.
+- the estimand is registered and covered in both directions by the oracle and evidence gates in
+  `tests/unit/test_registry.py`, with an [`evidence.md`](evidence.md) row naming which instruments
+  check its influence curve and which mistakes none can see;
+- every well-posed composition still refused has a pre-fit test pinning the refusal and message;
+- signs, masks, guards, and counterfactual blocks that can vanish at truth have a nonzero witness
+  or deliberate-mutation control in addition to exact-law checks;
+- cross-module changes satisfy [the architecture invariants](architecture-invariants.md);
+- reader-facing behavior, migration, methodology, references, and evidence are updated without
+  presenting a proposal as a release claim; and
+- every relevant check has run locally and GitHub Actions is green. CI is the final merge signal,
+  not a substitute for the local validation record.
 
-## Ordered priorities
+## Extensibility track
 
-DR-TMLE has no active item. Its cross-validated source audit and bivariate reduction are complete.
-The latter follows van der Laan (2014), Theorem 3 and the pinned R `estimategrn`, `fluctuateQ2`,
-and `eval_Dstar_Q` branches; those branches apply the construction armwise to a discrete
-multi-level treatment, while univariate remains the default. The multi-arm surface is therefore
-an implementation-backed extension of the binary theorem and is labelled as such.
+### E1. Nested Riesz engine and initial catalog
 
-One DR-TMLE refusal is narrower than the rest and is stated separately because a single source
-would close it. **Multi-arm missing-outcome DR-TMLE — waiting on published theory.** `delta=`
-under `guard=("Q", "g")` refuses a treatment with more than two arms: Díaz and van der Laan's
-missing-outcome theorem is stated for a binary randomized treatment, and the per-arm multi-level
-assembly of its observation, treatment and outcome correction blocks is not in it. This is not
-the armwise situation of the complete-outcome reductions above — there, a pinned canonical
-implementation applies the construction arm by arm and the extension is implementation-backed.
-Here nothing states what the arm-indexed blocks are, so an analogy would be inventing the
-construction rather than matching one. Implementation begins when a source gives the multi-arm
-corrected influence curve, its remainder, and the rate conditions for the interval; the existing
-binary evidence in [`docs/evidence.md`](evidence.md) is then the regression surface it must not
-disturb.
+#### Purpose and scientific boundary
 
-The remaining DR-TMLE refusals are **waiting on published theory** for this package's requested
-composition. Public implementations of ordinary TMLE for `att`/`atc`, stochastic interventions,
-continuous shifts, incremental interventions, marginal structural models, mediation, and C-TMLE
-do not establish an interval that remains valid when one primary nuisance is inconsistent.
-Estimated weights likewise need a published influence contribution for estimating the weights.
-Missing treatment also remains refused: canonical smoke tests do not supply this package's
-required identification, corrected curve, remainder, and rate conditions.
-Keep these refusals until a paper supplies the missing reduced regressions, corrected influence
-curve, remainder, and rate conditions; do not generalize the mean construction by analogy.
+Add the general nested Riesz engine as one scientific review unit. Direct Riesz learning replaces
+the analytic construction of a representer from propensity or density components; it does not
+generally replace the outcome regression. The single-stage form remains a plug-in term plus
+`alpha * (Y - f)`. Engine expressibility is not permission to register a causal target.
 
-### 1. Complete the LTMLE implementation surface
+The governing nested-TMLE source is Balkus, Testa & Hejazi (2026), arXiv:2604.21721v1: Theorems
+1–2, Algorithm 1, and Sections 4 and 5. Chernozhukov, Newey & Singh (2022), Econometrica 90(3),
+governs the direct representer moment problem and product-bias identity. RieszCML is pinned only as
+secondary implementation evidence; paper/code discrepancies must be recorded and tested.
 
-Deterministic multi-valued treatment nodes are no longer listed here: they are implemented, so
-by this document's own scope rule they belong in the [user guide](user-guide.md#treatment-given-over-time),
-[the technical appendix](methodology.md#treatment-given-over-time-the-sequential-regression),
-and [`docs/evidence.md`](evidence.md), with the source audit that preceded them recorded in
-[`docs/references.md`](references.md). What the audit narrowed is worth keeping in one line,
-because it governs what a future item may cite: Poulos et al. (2024) is a **point-treatment**
-multinomial TMLE paper and R `ltmle` 1.3-0 is binary implementation provenance, so neither is
-acceptance evidence for a longitudinal categorical extension.
+Stages are stored **innermost first**, matching the current backward recursion. Every public
+description, serialized manifest, fixture, and diagnostic names that direction.
 
-Work these in order, retaining the same oracle and evidence gates as the implemented longitudinal
-estimands.
+#### Contracts and public surface
 
-1. **Stochastic categorical policies at a node — waiting on published theory.** The implemented
-   surface is deterministic: a static or dynamic rule assigns one label per unit, and the clever
-   covariate selects that label's conditional probability. A policy assigning a *distribution*
-   over the labels replaces the intervention density, so the cumulative product carries a ratio
-   rather than a selected column and the parameter is the mean under that density. Implementation
-   begins when a source supplies that parameter's identification, its longitudinal influence
-   function, and the remainder and rate conditions for the interval — not by analogy with the
-   point-treatment regime path, which is a single node.
-2. **Targeted bootstrap — waiting on a citable construction.** Keep this second in the LTMLE
-   queue, but do not infer a procedure from the name. Implementation begins when a published
-   source states what is held fixed, what is resampled, which nuisance and targeting steps are
-   rerun, and what sampling law the resulting interval estimates. Resampling a stored influence
-   curve, retargeting cached arrays, and refitting the complete estimator are distinct procedures.
-3. **Persistence and serialization — theory-neutral.** Preserve the complete fitted recursion,
-   regimen and node metadata, targeting state, diagnostics, and enough learner state to
-   distinguish operations that can be replayed from those that require a refit. Round trips must
-   leave estimates, curves, scores, and refusals unchanged.
-4. **Sensitivity analysis — source audit for each operation.** A sweep over prespecified nuisance
-   bounds may refit the already-derived estimator and report diagnostics without defining a new
-   estimand. Any operation that changes the intervention, missingness law, or reported parameter
-   needs its own published identification and influence-function result. In every case the full
-   backward recursion must rerun when the bound changes an earlier pseudo-outcome.
+Introduce immutable advanced contracts under a Riesz namespace:
 
-### 2. Add published longitudinal estimands
+- `FunctionalStage` declares the regression, plug-in map, representer problem, intervention
+  evaluation, residual source, identification metadata, targeting map, stage name, and history;
+- `NestedFunctional` carries ordered stages, evidence ID, output shape, parameter key, and causal
+  metadata; custom statistical functionals may use it, but causal prose and intervals require a
+  registered evidence ID and complete influence construction;
+- `AnalyticRepresenter`, `DirectRiesz`, `ProvidedRepresenter`, and internal
+  `ComposedRepresenter` implement mechanism-derived, directly learned, externally supplied, and
+  cumulative stagewise representers;
+- fitted stage artifacts retain observed and intervention regression predictions, `alpha`,
+  `alpha_star`, component and cumulative products, residual sources, masks, folds, targeting
+  coefficients, losses, balance diagnostics, row identity, and training provenance; and
+- `RieszTMLEMethod` returns a scalar `RieszResult` satisfying `CausalResult` and the shared
+  inference, contrast, identification, assessment, persistence, and provenance protocols without
+  fabricating propensity objects for direct fits.
 
-Additional longitudinal estimands, including interventions on competing events, are **waiting on
-published theory** until their separate identification assumptions, influence functions, targeting
-construction, and inference conditions are available. Once a source supplies those objects, add
-the estimand in both directions to the oracle registry and evidence gates rather than treating it
-as another option on the existing cause-specific estimand.
+A provided representer must establish row identity, folds, training provenance, and
+counterfactual evaluation. Missing `alpha_star` is refused rather than replaced by observed
+`alpha`. Built-in estimands construct stages internally; advanced custom builders validate roles,
+shapes, histories, intervention evaluation, and identification metadata before fitting.
 
-### 3. Add time-respecting cross-fitting
+#### Folds, fitting, and targeting
 
-Blocked-temporal and rolling-origin cross-fitting are next after the longitudinal estimands. Treat
-each as a **source audit**: select a published sample-splitting result whose dependence assumptions
-match the supported data structure, then record which rows may train each prediction and which
-asymptotic argument licenses the reported influence-curve interval. Reusing the iid fold machinery
-with ordered indices is not sufficient.
+Use one validated outer fold plan for regression and representer fits. Each row is predicted only
+by models not trained on it; learner tuning remains inside the outer training fold; supplied folds
+must prove coverage, disjointness, grouping, cluster integrity, and row identity. Independent
+nuisance folds remain unavailable until their theory and diagnostic implications are specified.
 
-## Later candidates
+For stored stages `0..J-1`, innermost first, construct:
 
-These remain worthwhile but are not ahead of the ordered work above:
+```text
+omega_observed[j] = product(alpha[k], k=j..J-1)
+omega_plugin[j]   = alpha_star[j] * product(alpha[k], k=j+1..J-1)
+```
 
-- replicate-weight designs such as BRR and jackknife, once the published variance construction is
-  matched to the package's weighted-law estimands;
-- an MNAR tilt for continuous-dose shifts, and intermediate variables with incremental
-  interventions, only when published identification and influence-function results cover those
-  exact compositions;
-- HAL and undersmoothed HAL learners, following their published loss, basis, optimization, and
-  undersmoothing criteria. Consider native implementation only if profiling shows that their
-  package-owned workload materially dominates end-to-end time.
+The plug-in product changes only the current stage to its intervention state; it is not a product
+of every `alpha_star`. Store all components separately. Fit initial regressions from the observed
+outcome outward, fit or construct each stage's observed and intervention representers on the same
+training fold, and pass each plug-in output outward as the next target.
+
+Target innermost first. Solve the fluctuation with `omega_observed[j]`, update observed predictions
+with that product and plug-in predictions with `omega_plugin[j]`, and pass the targeted plug-in
+outward. Identity and logistic fluctuations are supported initially. Logistic targeting requires
+a validated scaler and preserved bounds; a degenerate direction raises `CleverlyError`.
+
+The targeted uncentered curve is:
+
+```text
+outermost_targeted_plugin
++ sum_j omega_observed[j] * (
+      targeted_residual_source[j] - targeted_observed_regression[j]
+  )
+```
+
+Center it at the targeted plug-in estimate, then apply declared Hájek weights, outcome scaling,
+cluster aggregation, covariance, smooth contrasts, and simultaneous inference through existing
+infrastructure. Recompute stage scores and the complete influence-curve mean from stored arrays.
+Do not use an untargeted curve for a targeted estimate's standard error.
+
+Repeated splitting follows only after a single split is correct: average point estimates and
+rowwise curves across repeats before variance calculation, retain repeat IDs on artifacts, and
+reject equal-fold averaging with an unequal-fold-size test.
+
+#### Initial catalog and refusals
+
+The implementation PR must support each initial cell with full evidence or retain its named
+pre-fit refusal.
+
+| typed estimand or design | analytic Riesz | direct Riesz | decision |
+| --- | --- | --- | --- |
+| point `CounterfactualMean` | yes | yes | canonical single-stage functional |
+| point `ATE` | yes | yes | joint contrast of counterfactual means |
+| point `RiskRatio` and `OddsRatio` | yes | yes | existing joint delta method; binary outcome only |
+| point outcome missing at random | yes | yes | missingness stage composed with each treatment-specific mean |
+| longitudinal static and dynamic `RegimeMean` | yes | yes | evidenced sequential instances after history and arm mutations pass |
+| longitudinal `RegimeContrast` | yes | yes | joint contrast of evidenced regimen means |
+| point `ModifiedTreatmentPolicy` | yes | yes | evidenced invertible policies with target-specific moment map |
+| smooth contrasts of initial rows | yes | yes | existing delta-method infrastructure |
+| `ATT` and `ATC` | gated | gated | ratio or conditional-functional stage and variance audit required |
+| `NaturalCourseMean`, `PAR`, and `PAF` | gated | gated | composition and parameter-key audit required |
+| one-point stochastic `RegimeMean` | gated | gated | density-valued direct-loss audit required |
+| `IncrementalMean` and `IncrementalEffect` | refused | refused | intervention depends on the treatment mechanism |
+| point or longitudinal `MSMProjection` | gated | gated | target-specific projection and coefficient-EIF adapter required |
+| mediation and `ControlledDirectEffect` | refused | refused | outside the first catalog |
+| survival and competing-risk results | refused | refused | separate at-risk/event audit required |
+| arbitrary custom nonlinear functional | refused as causal | refused as causal | statistical label only after validation |
+
+Analytic Riesz is the existing evidenced mechanism-derived estimator expressed through the new
+contract. Its gate is identity with the normalized existing engine for targeted predictions,
+influence curve, standard error, and interval—not point estimate parity alone.
+
+#### Diagnostics and persistence
+
+Default cheap validation covers stage scores, influence-curve mean, direct objective improvement,
+held-out moments, representer tails and leverage, regression loss, and fold/provenance integrity.
+Analytic fits may report mechanisms and truncation; direct fits report representer loss, balance,
+tails, leverage, regularization, and clipping; composed fits report components and products.
+Direct-only fits must not reconstruct a propensity model for diagnostics or sensitivity.
+
+Increment the persistence format. Store ordered stage definitions and evidence IDs, every fitted
+array, reconstructible strategy configuration, fingerprints, settings, structured identification
+and parameter keys, cached reports, and replayability. Unknown types fail allowlist decoding.
+Custom callables are descriptive and non-reconstructible; cache-only operations remain possible
+only when stored predictions and provenance suffice. Losing `alpha_star`, stage order, or component
+products is a load error. Round trips compare every artifact, score, diagnostic, estimate,
+influence curve, metadata record, and cached assessment.
+
+#### Evidence and implementation sequence
+
+For every registered functional, add exact finite-support laws, Gateaux derivatives, product
+remainders with both nuisance errors nonzero, score checks, union-model witnesses where derived,
+nonzero targeting, sign and `alpha_star` mutations, stage/product-order mutations, mask and
+counterfactual mutations, leakage spies, analytic regressions, and a pinned secondary fixture.
+Direct fits additionally require loss improvement, held-out moments, same-fold observed and
+intervention predictions, provenance, and extreme-representer diagnostic response.
+
+Nested evidence uses nonconstant two- and three-stage laws and rejects reversed stages, reversed
+products, all-starred products, wrong signs, and masks. Missingness evidence makes observation
+depend on treatment/history and proves unobserved rows receive the correct plug-in update.
+Longitudinal evidence covers dynamic-history restriction, third-arm categorical mutations,
+treatment/censoring products, clusters, repeats, and persistence. Named slow studies cover point
+means/ATE under both union-model halves, direct consistency and coverage, static/dynamic regimen
+means, and weak overlap with thresholds fixed before the final run.
+
+Implement in one review PR with gated commits: contracts and pre-fit refusals; analytic
+single-stage parity; direct single-stage learning; nested and missingness composition;
+longitudinal adapters; then persistence, assessment, documentation, and the secondary fixture. No
+commit merges independently. Handoff requires the enabled/refused catalog, source locators,
+implementation revision and discrepancies, evidence instruments, local commands/results, and
+path-based reasons for omitted slow studies.
+
+### E2. Optional DoWhy integration
+
+Add `DoWhyIdentificationProvider` behind a `dowhy` extra. It accepts supported graphs, invokes
+DoWhy identification, translates supported backdoor results into `IdentifiedEffect`, preserves
+the original identified estimand and graph/provider provenance, verifies treatment, outcome,
+adjustment set, and population, and refuses other strategies before fitting.
+
+The reverse adapter accepts a DoWhy `IdentifiedEstimand`, translates supported backdoor effects,
+runs the ordinary `cleverly` engine, returns the generic DoWhy estimate, and attaches the native
+`CausalResult`. The native result remains the complete diagnostics and provenance surface.
+
+Keep DoWhy out of the core and initially out of `all`, but include `cleverly[dowhy]` in `dev` so
+translation tests run in ordinary local and CI tiers. Pin a tested public-API version range,
+isolate imports under the integration package, document translation limits, and add a no-extra
+session or marker for missing-dependency errors.
+
+Acceptance requires equivalence between graph and explicit-adjustment workflows for the same
+identified functional, pre-fit refusals for unsupported results, round-trip provenance, a version
+matrix, and successful core import and operation without DoWhy installed.
+
+### E3. EP learner
+
+After first-hand review of the governing EP derivation, add `ConditionalContrast` estimands,
+modifier schema, sieve/basis strategy, efficient plug-in risk and targeting, bounded outcome
+predictions, a second-stage contrast learner, out-of-fold risk/calibration, and a conditional
+prediction result. Reuse study/identification objects, nuisance strategies, folds, data backends,
+provenance, persistence, and capability-aware assessment.
+
+The first catalog is paper-derived CATE and conditional relative risk. Other losses and contrasts
+require their own derivations. Aggregating an EP curve is a separate parameter and receives scalar
+inference only after its influence contribution is implemented and tested.
+
+Acceptance requires exact score and risk checks, bounded predictions, out-of-fold calibration,
+modifier and split/basis stability diagnostics, mutation controls for targeting sign, basis
+contribution, and contrast construction, plus named slow oracle-efficiency and stability studies.
+
+### E4. Evidence-gated catalog expansion
+
+Expand target by target after the engine lands. Mediation, additional longitudinal targets,
+sampling designs, and other nested functionals each require a governing derivation, typed adapter,
+registry entry, evidence row, refusal boundary, documentation, and applicable statistical study.
+Do not expose a generic engine capability as a certified causal estimand.
+
+## Longitudinal track
+
+### L1. Stochastic categorical policies at a node
+
+The implemented surface assigns one category per unit. A distribution-valued policy changes the
+intervention density and replaces selected probabilities with cumulative density ratios.
+Implementation waits for published identification, longitudinal influence function, remainder,
+and interval rate conditions; a point-treatment stochastic regime is not sufficient evidence.
+
+### L2. Targeted bootstrap
+
+Wait for a source specifying what is fixed, resampled, refitted, and retargeted and which sampling
+law the interval estimates. Resampling stored curves, retargeting cached arrays, and refitting the
+complete estimator are distinct procedures and must not be inferred from the name.
+
+### L3. Persistence and serialization
+
+Preserve the fitted recursion, regimen and node metadata, targeting state, diagnostics, and enough
+learner provenance to distinguish replayable operations from those requiring a refit. Round trips
+must preserve estimates, curves, scores, and refusal behavior.
+
+### L4. Sensitivity analysis
+
+A sweep over prespecified nuisance bounds may refit an established estimator without defining a
+new estimand. Any change to the intervention, missingness law, or reported parameter requires its
+own identification and influence-function result. Rerun the full backward recursion whenever a
+bound changes an earlier pseudo-outcome.
+
+### L5. Additional longitudinal estimands
+
+Competing-event interventions and other longitudinal estimands wait for their own identification
+assumptions, influence functions, targeting construction, and inference conditions. Add accepted
+targets in both directions to the oracle registry and evidence gates rather than treating them as
+options on an existing cause-specific estimand.
+
+### L6. Time-respecting cross-fitting
+
+Audit blocked-temporal and rolling-origin splitting separately against published results whose
+dependence assumptions match the supported data. Record which rows may train every prediction and
+which asymptotic argument licenses its interval. Ordered indices passed through iid fold machinery
+are not sufficient.
+
+## DR-TMLE track
+
+### D1. Multi-arm missing-outcome DR-TMLE
+
+`delta=` under `guard=("Q", "g")` continues to refuse more than two treatment arms. Díaz and van
+der Laan's missing-outcome theorem is binary and does not provide arm-indexed observation,
+treatment, and outcome correction blocks. Begin only when a source supplies the multi-arm
+corrected influence curve, remainder, and rate conditions. Existing binary evidence is the
+regression surface the extension must preserve.
+
+### D2. Other refused DR-TMLE compositions
+
+Continue pre-fit refusals for `att`/`atc`, stochastic and incremental interventions, continuous
+shifts, MSMs, mediation, C-TMLE, estimated weights, and missing treatment in the DR-TMLE regime.
+Ordinary-TMLE implementations do not establish intervals valid when one primary nuisance is
+inconsistent. Each composition waits for its reduced regressions, corrected influence curve,
+remainder, and rate conditions; estimated weights also require their estimation influence term.
+
+## Later-candidate track
+
+### C1. Replicate-weight designs
+
+Add BRR, jackknife, or another replicate design only after its published variance construction is
+matched to this package's weighted-law estimands and inference conventions.
+
+### C2. MNAR and incremental-intermediate extensions
+
+An MNAR tilt for continuous-dose shifts and intermediate variables with incremental interventions
+wait for identification and influence-function results covering those exact compositions.
+
+### C3. HAL and undersmoothed HAL learners
+
+Match published loss, basis, optimization, and undersmoothing criteria. Consider a native
+implementation only after profiling shows that package-owned HAL work materially dominates
+end-to-end time.
 
 ## Reading a gap correctly
 
-Not every absence on this page is the same kind of absence, and the full refusal taxonomy is in
-[How to read a refusal](methodology.md#how-to-read-a-refusal). It distinguishes missing package
-functionality from a different causal question and from a method that would be wrong by
-construction. Only the first is a roadmap item.
+Not every absence is missing package functionality. The refusal taxonomy in
+[How to read a refusal](methodology.md#how-to-read-a-refusal) distinguishes an unimplemented
+well-posed feature from a different causal question and a method that would be wrong by
+construction. Only the first belongs on this roadmap.

@@ -141,10 +141,8 @@ Look up supported objects, signatures, attributes, methods, and return types.
 - Expand the estimand catalog target by target, with a separate derivation, evidence record,
   refusal contract, and statistical study for each family.
 
-These are accepted directions, not implemented release claims. The detailed evidence and source
-requirements are in the [roadmap](roadmap.md),
-[public API redesign](public-api-redesign.md), and
-[nested Riesz implementation plan](riesz-implementation-plan.md).
+These are accepted directions, not implemented release claims. Their ordering, governing sources,
+interfaces, refusals, and evidence requirements are in the single [roadmap](roadmap.md).
 
 ```{toctree}
 :hidden:
