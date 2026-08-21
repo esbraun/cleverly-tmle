@@ -1,7 +1,7 @@
 # R comparisons and statistical evidence studies
 
-Use this guide when adding a method-level row to the
-[evidence manifest](../evidence.md#method-evidence-grid). It is the reusable contract behind the
+Use this guide when adding a method-level row to the Technical appendix's
+[method evidence grid](../methodology.md#method-evidence-grid). It is the reusable contract behind the
 canonical TMLE studies, not a suggestion to invent a fresh validation protocol for each method.
 
 ## Start with the scientific claim
@@ -75,7 +75,7 @@ instruments and should be added whenever the method's construction makes them ap
 ## Register, regenerate, and publish
 
 Add a `StudyRecord` with its scenarios, estimands, sample size, replication count, margins, runner
-module, property module, expected property cells, artifact directory, document anchor, and every
+module, property module, expected property cells, artifact directory, dedicated document, and every
 module that determines the results. A study without an external comparator records a schema-valid
 zero-row equivalence artifact and `0/0` paired tests; it must not invent a surrogate reference.
 

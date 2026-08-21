@@ -21,13 +21,13 @@ The documents below are the scientific and engineering record routed through the
 | --- | --- |
 | [Recipe compendium](user-guide.md) | one worked recipe per capability retained alongside the task-oriented user guide |
 | [Migration guide](migration.md) | runnable old-to-new workflows, complete constructor-argument maps, changed defaults, the static audit tool, and the final-old-API tag |
-| [Technical appendix](methodology.md) | per algorithm: the estimand, its efficient influence curve, the second-order remainder, and the test that fails when it is built wrong |
+| [Technical appendix](methodology.md) | per algorithm: the estimand, efficient influence curve, second-order remainder, failure witness, and method evidence grid |
 | [Roadmap](roadmap.md) | proposed methods in priority order, with the publication and canonical-source evidence required before implementation |
 | [Public API redesign](public-api-redesign.md) | the accepted design gate for the study/identify/estimate object model, Riesz and EP integration, ordered work packages, and exit evidence — work package 1 is implemented; later packages remain proposals |
 | [Nested Riesz implementation plan](riesz-implementation-plan.md) | the source-audited, review-gated plan for work package 3: typed stages and representers, stage order, direct loss, catalog boundary, persistence, mutations, and implementation commits |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
-| [Evidence](evidence.md) | per registered estimand and method: which instruments, canonical comparisons, and repeated-sampling studies exist — and which mistakes none of them would see |
-| [Method evidence studies](technical-reference/method-evidence.md) | reproducible same-DGP implementation comparisons and independent statistical-property studies, beginning with ordinary TMLE versus R `tmle3` |
+| [Evidence](evidence.md) | per registered estimand: which oracle, Gateaux, remainder, identity, and variant instruments exist — and which mistakes none of them would see |
+| [Method evidence studies](technical-reference/method-evidence.md) | dedicated test-by-test result pages for registered same-DGP comparisons and statistical-property studies |
 | [DR-TMLE](drtmle.md) | the doubly-robust variant's production contract: supported estimands and refusals, what Theorem 1 covers, the targeting and cross-fitting choices, the nuisance conditions the interval is conditional on, and the diagnostics to inspect |
 | [Benchmarks](benchmarks/README.md) | where a fit's time goes, and what compiling or parallelising the package's own arithmetic would buy — which, measured properly, is not enough for a dependency |
 | [References](references.md) | every paper a derivation is read off, with the locators the prose cites |

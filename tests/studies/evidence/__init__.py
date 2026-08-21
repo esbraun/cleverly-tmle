@@ -3,9 +3,9 @@
 A *method* evidence study asks the repeated-sampling question the estimand manifest does
 not: applied to samples from a known law, does a complete estimator's bias and uncertainty
 behave the way its source theory predicts, and -- where a canonical implementation exists --
-does this one match it?  ``docs/technical-reference/method-evidence.md`` is the reader-facing
-side; :mod:`tests.studies.evidence.registry` is the declaration a study writes to get all of
-this.
+does this one match it? The Technical appendix's method grid and the dedicated pages under
+``docs/technical-reference/method-evidence/`` are the reader-facing side;
+:mod:`tests.studies.evidence.registry` is the declaration a study writes to get all of this.
 
 The one rule the whole package is built around: **an accept-decision must be bounded by a
 margin declared in advance, never by a test against zero.**  Monte Carlo evidence accumulates

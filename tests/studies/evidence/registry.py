@@ -130,9 +130,8 @@ class StudyRecord:
     slug: str
     #: Directory holding the committed artefacts.
     artifacts: Path
-    #: Reader-facing document and the heading anchor its section lives under.
+    #: Reader-facing document dedicated to this study.
     document: str
-    anchor: str
     #: Scenario name -> the estimands that scenario reports.
     scenarios: Mapping[str, tuple[str, ...]]
     replicates: int

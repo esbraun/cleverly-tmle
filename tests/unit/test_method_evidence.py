@@ -25,8 +25,9 @@ import pytest
 
 from tests.documents import pipe_table
 from tests.studies import canonical_tmle
-from tests.studies.evidence.claims import describe, load, matches, quantities, value
+from tests.studies.evidence.claims import load, value
 from tests.studies.evidence.comparison import equivalence
+from tests.studies.evidence.document import RESULTS_START, generated_results, render_results
 from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -430,7 +431,7 @@ class TestTheStudyStillMeasuresTheCode:
             )
 
 
-GRID = ROOT / "docs" / "evidence.md"
+GRID = ROOT / "docs" / "methodology.md"
 
 #: The grid's header, in order.  The first study's row split the old single "paper-property
 #: study" column in two: 34 of the tests it was credited with are per-implementation
@@ -439,40 +440,35 @@ GRID = ROOT / "docs" / "evidence.md"
 GRID_COLUMNS = (
     "method",
     "estimands and intervals",
-    "independent performance vs truth",
-    "cross-implementation study",
-    "paper-property study",
+    "performance vs truth",
+    "cross-implementation",
+    "scientific properties",
     "limitations",
 )
 
 #: Which cell carries which pair of counts, and which quantities they must equal.
 COUNTED = {
-    "independent performance vs truth": ("independent_tests_passed", "independent_tests_total"),
-    "cross-implementation study": ("paired_tests_passed", "paired_tests_total"),
-    "paper-property study": ("property_cells_passed", "property_cells_total"),
+    "performance vs truth": ("independent_tests_passed", "independent_tests_total"),
+    "cross-implementation": ("paired_tests_passed", "paired_tests_total"),
+    "scientific properties": ("property_cells_passed", "property_cells_total"),
 }
-
-MEASURED_COLUMNS = ("quantity", "value", "source")
 
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 COUNT = re.compile(r"(\d+)/(\d+)")
 
 
 def _grid() -> dict[str, dict[str, str]]:
-    rows = {row["method"]: row for row in pipe_table(GRID, GRID_COLUMNS)}
-    assert len(rows) == len(pipe_table(GRID, GRID_COLUMNS)), "the grid has a duplicate method"
+    parsed = pipe_table(GRID, GRID_COLUMNS)
+    rows = {}
+    for row in parsed:
+        label = row["method"].split("](", 1)[0].removeprefix("[")
+        rows[label] = row
+    assert len(rows) == len(parsed), "the grid has a duplicate method"
     return rows
 
 
 class TestTheMethodEvidenceGrid:
-    """``docs/evidence.md``'s method grid against the register and the committed results.
-
-    The target table above it in the same document says of itself that it is a gate and not a
-    note.  The grid arrived as a note: nothing read it, its counts were typed, and one of them
-    counted the wrong study.  These tests are what make the two halves of that document the
-    same kind of object, and they are written against the register rather than against this
-    row, so the second method to be added inherits them.
-    """
+    """The Technical appendix's method grid against the register and committed results."""
 
     def test_every_registered_study_has_a_row_and_every_row_a_study(self) -> None:
         rows = set(_grid())
@@ -483,26 +479,18 @@ class TestTheMethodEvidenceGrid:
             f"no reader is routed to"
         )
 
-    def test_the_row_points_at_the_registered_studys_document_and_anchor(
-        self, study: StudyRecord
-    ) -> None:
+    def test_the_method_name_points_at_the_registered_studys_page(self, study: StudyRecord) -> None:
         row = _grid()[study.name]
-        targets = [target for cell in row.values() for target in LINK.findall(cell)]
-        assert targets, (
-            "the row links to nothing, so it stands in for the run rather than citing it"
+        targets = LINK.findall(row["method"])
+        assert len(targets) == 1, (
+            f"{study.slug}'s method name should have one page link, found {targets}"
         )
-        anchors = set()
-        for target in targets:
-            path, _, anchor = target.partition("#")
-            resolved = (GRID.parent / path).resolve()
-            assert resolved == study.document_path.resolve(), (
-                f"{study.slug}'s row links to {path}, not to its registered document "
-                f"{study.document}"
-            )
-            anchors.add(anchor)
-        assert study.anchor in anchors, (
-            f"no cell links to {study.slug}'s registered section #{study.anchor}"
+        path, _, anchor = targets[0].partition("#")
+        resolved = (GRID.parent / path).resolve()
+        assert resolved == study.document_path.resolve(), (
+            f"{study.slug}'s method links to {path}, not its registered page {study.document}"
         )
+        assert anchor == "", "a dedicated study page should be linked at its page root"
 
     @pytest.mark.parametrize("column", sorted(COUNTED))
     def test_every_count_is_derived_from_the_committed_results(
@@ -536,103 +524,33 @@ class TestTheMethodEvidenceGrid:
         )
 
 
-class TestTheQuotedMeasurements:
-    """Every number the study document prints, against the artefacts it printed them from."""
+class TestThePublishedStudyPages:
+    """The dedicated pages are complete, current renderings of the committed artifacts."""
 
-    def test_every_quoted_value_is_the_rounding_of_the_computed_one(
-        self, study: StudyRecord
-    ) -> None:
+    def test_the_generated_result_block_is_current(self, study: StudyRecord) -> None:
+        document = study.document_path.read_text(encoding="utf-8")
+        assert generated_results(document) == render_results(study)
+
+    def test_every_registered_property_is_explained(self, study: StudyRecord) -> None:
+        document = study.document_path.read_text(encoding="utf-8")
+        explanation = document.partition(RESULTS_START)[0]
+
+        def normalized(text: str) -> str:
+            return "".join(character for character in text.casefold() if character.isalnum())
+
+        explained = normalized(explanation)
+        missing = [name for name in study.property_cells if normalized(name) not in explained]
+        assert missing == [], f"{study.slug} does not explain property tests {missing}"
+
+    def test_the_page_has_no_unregistered_result_rows(self, study: StudyRecord) -> None:
         data = load(study)
-        wrong = []
-        for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
-            name = row["quantity"].strip("`")
-            computed = value(study, name, data)
-            if not matches(row["value"], computed):
-                wrong.append(f"{name}: {describe(computed, row['value'])}")
-        assert wrong == [], (
-            "the document quotes values its own results do not produce:\n  " + "\n  ".join(wrong)
-        )
-
-    def test_the_table_reaches_every_family_of_result(self, study: StudyRecord) -> None:
-        """A measured table that quoted one artefact would leave the rest unchecked prose."""
-        quoted = {
-            row["quantity"].strip("`")
-            for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor)
+        expected = {
+            "performance": sum(
+                len(estimands) * len(study.implementations)
+                for estimands in study.scenarios.values()
+            ),
+            "equivalence": 0 if study.reference is None else study.cells,
+            "properties": sum(len(cells) for cells in study.property_cells.values()),
         }
-        assert len(quoted) >= 8, f"only {len(quoted)} quantities are gated: {sorted(quoted)}"
-        families = {_family(name) for name in quoted}
-        required = {"performance", "properties"}
-        if study.reference is not None:
-            required.add("equivalence")
-        missing = required - families
-        assert missing == set(), f"nothing in the measured table comes from {sorted(missing)}"
-
-
-#: Which artefact an aggregate quantity summarises, for the coverage check above.
-_FAMILY = {
-    "independent_tests": "performance",
-    "subject_tests": "performance",
-    "min_coverage": "performance",
-    "max_se_ratio": "performance",
-    "min_se_ratio": "performance",
-    "max_standardized_bias": "performance",
-    "paired_tests": "equivalence",
-    "max_rmse_ratio": "equivalence",
-    "min_coverage_difference": "equivalence",
-    "max_calibration_excess": "equivalence",
-    "max_margin_utilization": "equivalence",
-    "property_cells": "properties",
-}
-
-
-#: Names that summarise no single artefact family: the study's own configuration, and the
-#: descriptive counts read off ``summary.csv``.  Listed so that a new aggregate cannot be
-#: added without either a family or a deliberate exemption.
-_CONFIGURATION_QUANTITIES = frozenset({"replicates", "n"})
-
-
-def _family(name: str) -> str:
-    """Which artefact a quantity name comes from -- the reference form says so directly."""
-    if "[" in name:
-        return name.split("[", 1)[0]
-    # Longest prefix first.  ``min_coverage`` is a prefix of ``min_coverage_difference``, and
-    # first-match-wins on insertion order filed every equivalence bound under ``performance``.
-    for prefix in sorted(_FAMILY, key=len, reverse=True):
-        if name.startswith(prefix):
-            return _FAMILY[prefix]
-    return "other"
-
-
-def _exempt(name: str) -> bool:
-    """Configuration, or a descriptive count of ``summary.csv`` rows rather than a verdict."""
-    return (
-        name in _CONFIGURATION_QUANTITIES or name.endswith("summary_cells") or "cells_with_" in name
-    )
-
-
-class TestTheQuantityVocabulary:
-    """The name-to-artefact map, which one gate reads and nothing else checks."""
-
-    @pytest.mark.parametrize(
-        ("name", "expected"),
-        [
-            ("min_coverage", "performance"),
-            ("min_coverage_ci_lower", "performance"),
-            ("min_coverage_difference_lower", "equivalence"),
-            ("properties[power/alternative]:rejection_rate", "properties"),
-        ],
-    )
-    def test_a_longer_prefix_wins_over_a_shorter_one(self, name: str, expected: str) -> None:
-        assert _family(name) == expected
-
-    def test_every_declared_quantity_resolves_to_an_artefact_or_is_exempt(
-        self, study: StudyRecord
-    ) -> None:
-        """A quantity with no family is invisible to the table-coverage gate below."""
-        unresolved = [
-            name for name in quantities(study) if _family(name) == "other" and not _exempt(name)
-        ]
-        assert unresolved == [], (
-            f"{sorted(unresolved)} resolve to no artefact family, so quoting one of them would "
-            f"count towards nothing in test_the_table_reaches_every_family_of_result"
-        )
+        actual = {family: len(data[family]) for family in expected}
+        assert actual == expected
