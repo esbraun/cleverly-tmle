@@ -202,8 +202,19 @@ def draw_for(
     ready-made ``draw_scenario`` would silently inherit the seed of whichever module defined
     it, publish its own in ``manifest.json``, and be reproducible from neither.
     """
+    return draw_from_seed(scenario, n, replicate_seed(record, scenario, replicate))
+
+
+def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    """One sample of ``scenario`` from an explicit seed.
+
+    Part of the runner contract rather than a private helper.  The published-seed audit in
+    ``tests/unit/test_method_evidence.py`` redraws a study's first replication and requires
+    the committed sample back, and it has to do that *through the study's own module*: a
+    study whose scenarios are not the two named here would otherwise be audited against
+    this module's laws, which is a check on nothing.
+    """
     dgp = scenario_dgp(scenario)
-    seed = replicate_seed(record, scenario, replicate)
     if scenario == "continuous":
         return sample_continuous(dgp, n, seed)
     frame, _ = dgp.sample(n, seed=seed, backend="pandas")

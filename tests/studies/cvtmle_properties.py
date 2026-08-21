@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from sklearn.tree import DecisionTreeRegressor
 
@@ -14,8 +13,12 @@ from cleverly.datasets import nonlinear_dgp
 from cleverly.estimators import TMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_properties
-from tests.studies.evidence.inference import percentile_interval
-from tests.studies.evidence.properties import PropertyCell, run_cells, se_ratio_interval
+from tests.studies.evidence.properties import (
+    PropertyCell,
+    coverage_gain_interval,
+    run_cells,
+    se_ratio_interval,
+)
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.seeds import stream_seed
 
@@ -84,28 +87,6 @@ def generate(record: StudyRecord, variant: str, *, n_jobs: int = STUDY_JOBS) -> 
     return run_cells(cells(variant), estimator(record, variant), n_jobs=n_jobs)
 
 
-def _coverage_gain_interval(
-    positive: pd.DataFrame,
-    control: pd.DataFrame,
-    *,
-    replicates: int,
-    confidence_level: float,
-    seed: int,
-) -> tuple[float, float]:
-    paired = positive[["replicate", "covered"]].merge(
-        control[["replicate", "covered"]], on="replicate", suffixes=("_positive", "_control")
-    )
-    differences = paired["covered_positive"].to_numpy(dtype=float) - paired[
-        "covered_control"
-    ].to_numpy(dtype=float)
-    rng = np.random.default_rng(seed)
-    picks = rng.integers(0, len(differences), size=(replicates, len(differences)))
-    interval = percentile_interval(
-        differences[picks].mean(axis=1), confidence_level=confidence_level
-    )
-    return interval.low, interval.high
-
-
 def summarize(rows: pd.DataFrame, record: StudyRecord, variant: str) -> pd.DataFrame:
     """Summarize the shared cells and make the overfitting control load-bearing."""
     margins = record.margins
@@ -131,7 +112,7 @@ def summarize(rows: pd.DataFrame, record: StudyRecord, variant: str) -> pd.DataF
         confidence_level=margins.confidence_level,
         seed=stream_seed(record, "crossfit_overfitting", "in_sample_control"),
     )
-    gain = _coverage_gain_interval(
+    gain = coverage_gain_interval(
         positive_rows,
         control_rows,
         replicates=margins.bootstrap_replicates,

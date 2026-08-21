@@ -24,7 +24,7 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies import canonical_properties, canonical_tmle, cvtmle_properties
+from tests.studies import canonical_properties, cvtmle_properties
 from tests.studies.evidence.claims import (
     describe,
     load,
@@ -237,19 +237,57 @@ class TestPublishedVerdicts:
         """
         published = pd.read_csv(study.artifact("properties.csv"))
         control = published["role"] == "control"
-        robustness = published["property"] == "double_robustness"
 
         def verdicts(mask: pd.Series, column: str) -> list[bool]:
             # ``bias_equivalent`` reads back as object, not bool: the rate rows leave it
             # blank, so the column is mixed and ``Series.equals`` would compare dtypes.
             return [bool(value) for value in published.loc[mask, column]]
 
-        assert verdicts(robustness & ~control, "passed") == verdicts(
-            robustness & ~control, "bias_equivalent"
+        families = set(study.property_cells)
+        unclassified = sorted(families - BIAS_GATED_PROPERTIES - ENDPOINT_GATED_PROPERTIES)
+        assert unclassified == [], (
+            f"{unclassified} declare cells but no per-row rule this test knows how to check. "
+            f"A family arriving without one is how a control came to publish the positive "
+            f"arm's verdict; classify it above rather than leaving it ungated"
         )
-        assert verdicts(robustness & control, "passed") == verdicts(
-            robustness & control, "bias_discriminated"
-        )
+        for family in sorted(families & BIAS_GATED_PROPERTIES):
+            rows = published["property"] == family
+            assert verdicts(rows & ~control, "passed") == verdicts(
+                rows & ~control, "bias_equivalent"
+            ), f"{family}: a positive row's verdict is not its own bias-equivalence endpoint"
+            assert verdicts(rows & control, "passed") == verdicts(
+                rows & control, "bias_discriminated"
+            ), f"{family}: a control's verdict is not its own discrimination endpoint"
+
+        necessity = published.loc[published["property"] == "selector_necessity"]
+        if not necessity.empty:
+            # The RMSE comparison belongs to neither row, so it is the one thing both share.
+            assert necessity["property_passed"].nunique() == 1
+            assert bool(necessity["property_passed"].iloc[0]) is bool(
+                necessity["passed"].all()
+                and necessity["rmse_ratio"].iloc[0] <= study.properties().SELECTOR_RMSE_RATIO
+            )
+
+        design = published.loc[published["property"] == "generated_design"]
+        if not design.empty:
+            margins = study.margins
+            for row in design.itertuples():
+                if row.cell == "oracle_design":
+                    expected = (
+                        margins.calibration_se_ratio[0]
+                        <= row.se_ratio_ci_lower
+                        <= row.se_ratio_ci_upper
+                        <= margins.calibration_se_ratio[1]
+                    )
+                else:
+                    expected = (
+                        row.se_ratio_deficit_upper <= -study.properties().GENERATED_DESIGN_DEFICIT
+                    )
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its own endpoints"
+                )
+            assert design["property_passed"].nunique() == 1
+            assert bool(design["property_passed"].iloc[0]) is bool(design["passed"].all())
 
         overfitting = published.loc[published["property"] == "crossfit_overfitting"]
         if overfitting.empty:
@@ -273,6 +311,28 @@ class TestPublishedVerdicts:
             and overfitting["coverage_gain_ci_lower"].iloc[0]
             >= cvtmle_properties.OVERFIT_COVERAGE_GAIN
         )
+
+
+#: Property families whose per-row verdict is the bias claim read in both directions: a
+#: positive row's equivalence interval inside the margin, a control's outside it.
+BIAS_GATED_PROPERTIES = frozenset(
+    {"double_robustness", "robustness_contract", "selector_necessity"}
+)
+
+#: Families whose rows answer to other endpoints -- coverage, an SE ratio, a rejection rate,
+#: a fitted slope.  Listed rather than inferred so that a family added to a study has to be
+#: classified here before its verdicts count.
+ENDPOINT_GATED_PROPERTIES = frozenset(
+    {
+        "crossfit_overfitting",
+        "generated_design",
+        "interval_calibration",
+        "power",
+        "root_n_and_efficiency",
+        "root_n_rate",
+        "type_i_error",
+    }
+)
 
 
 class TestNegativeControls:
@@ -424,11 +484,10 @@ class TestTheStudyStillMeasuresTheCode:
             # through the runner again, which is what makes this a check on the seed and not
             # a restatement of whatever the runner did.
             seed = replicate_seed(study, scenario, 0)
-            dgp = canonical_tmle.scenario_dgp(scenario)
-            if scenario == "continuous":
-                expected, _ = canonical_tmle.sample_continuous(dgp, study.n, seed)
-            else:
-                expected, _ = dgp.sample(study.n, seed=seed, backend="pandas")
+            # Through the runner, never through a law this test picked: a fallback here
+            # would audit a study against *this module's* scenarios rather than its own,
+            # and a study whose laws differ would pass by being redirected.
+            expected, _ = runner.draw_from_seed(scenario, study.n, seed)
             pd.testing.assert_frame_equal(drawn, expected)
 
     def test_the_registered_studies_do_not_share_their_samples(self) -> None:
@@ -721,6 +780,14 @@ class TestTheQuantityVocabulary:
                 declared["margin:overfit_control_ceiling"]
                 == cvtmle_properties.OVERFIT_SE_CONTROL_CEILING
             )
+        if "generated_design" in study.property_cells:
+            assert (
+                declared["margin:generated_design_deficit"]
+                == study.properties().GENERATED_DESIGN_DEFICIT
+            )
+        if "selector_necessity" in study.property_cells:
+            selector = study.properties()
+            assert declared["margin:selector_rmse_ratio"] == selector.SELECTOR_RMSE_RATIO
         # And every one of them resolves through the same entry point a document quotes.
         for name, expected in declared.items():
             assert value(study, name) == expected
