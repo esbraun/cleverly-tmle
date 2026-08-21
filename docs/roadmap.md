@@ -83,8 +83,19 @@ The governing nested-TMLE source is Balkus, Testa & Hejazi (2026), arXiv:2604.21
 governs the direct representer moment problem and product-bias identity. RieszCML is pinned only as
 secondary implementation evidence; paper/code discrepancies must be recorded and tested.
 
-Stages are stored **innermost first**, matching the current backward recursion. Every public
-description, serialized manifest, fixture, and diagnostic names that direction.
+Stages are stored **innermost first**, matching the order the backward recursion *executes* in.
+Two nearby orderings run the other way and neither is the storage convention. Theorem 2 indexes
+outermost first, so the paper's *prefix* product is a *suffix* product here:
+
+```text
+paper order:       outer 1, ..., inner T
+stored order:      inner 0, ..., outer J-1
+```
+
+And `longitudinal/sequential.py` reverses its steps before returning them, so the stored
+`SequentialStep` tuple is time-ascending — `steps[0]` is the outermost stage whose targeted
+prediction is averaged into the estimate. Do not mirror it. Every public description, serialized
+manifest, fixture, and diagnostic names the storage direction.
 
 #### Contracts and public surface
 
@@ -129,6 +140,11 @@ of every `alpha_star`. Store all components separately. Fit initial regressions 
 outcome outward, fit or construct each stage's observed and intervention representers on the same
 training fold, and pass each plug-in output outward as the next target.
 
+A direct strategy solves an explicit empirical Riesz moment problem. A generic supervised
+regression of an estimated inverse propensity score is not a direct-Riesz implementation and is
+not labelled one — it is the nearest wrong construction, and it fits and predicts without
+complaint.
+
 Target innermost first. Solve the fluctuation with `omega_observed[j]`, update observed predictions
 with that product and plug-in predictions with `omega_plugin[j]`, and pass the targeted plug-in
 outward. Identity and logistic fluctuations are supported initially. Logistic targeting requires
@@ -168,7 +184,7 @@ pre-fit refusal.
 | point `ModifiedTreatmentPolicy` | yes | yes | evidenced invertible policies with target-specific moment map |
 | smooth contrasts of initial rows | yes | yes | existing delta-method infrastructure |
 | `ATT` and `ATC` | gated | gated | ratio or conditional-functional stage and variance audit required |
-| `NaturalCourseMean`, `PAR`, and `PAF` | gated | gated | composition and parameter-key audit required |
+| `NaturalCourseMean`, `PopulationAttributableRisk`, and `PopulationAttributableFraction` | gated | gated | composition and parameter-key audit required |
 | one-point stochastic `RegimeMean` | gated | gated | density-valued direct-loss audit required |
 | `IncrementalMean` and `IncrementalEffect` | refused | refused | intervention depends on the treatment mechanism |
 | point or longitudinal `MSMProjection` | gated | gated | target-specific projection and coefficient-EIF adapter required |
@@ -226,6 +242,12 @@ Add `DoWhyIdentificationProvider` behind a `dowhy` extra. It accepts supported g
 DoWhy identification, translates supported backdoor results into `IdentifiedEffect`, preserves
 the original identified estimand and graph/provider provenance, verifies treatment, outcome,
 adjustment set, and population, and refuses other strategies before fitting.
+
+A graph stays optional and no causal discovery is performed. Supplying a graph *and* an
+adjustment set means "validate this proposed set", never "pick whichever is convenient": a
+disagreement is an error, and it is resolved by the user naming a different valid set rather than
+by the provider choosing one. Front-door, IV, transport, mediation, and unidentified results stay
+refused until a matching `cleverly` functional and estimator are evidenced.
 
 The reverse adapter accepts a DoWhy `IdentifiedEstimand`, translates supported backdoor effects,
 runs the ordinary `cleverly` engine, returns the generic DoWhy estimate, and attaches the native

@@ -71,6 +71,15 @@ question must normalize to one evidenced engine request. *Reconsider when* a dis
 a workflow that cannot be expressed through these contracts without losing information, and the
 alternative still converges to the same structured identification and result records.
 
+An estimation method is named, never selected from the data. `estimate(method=...)` carries a
+fixed default preset, which is a declaration rather than a choice; what is excluded is picking an
+estimator by scanning `available_methods()` or by comparing fits on the rows being estimated. The
+temptation grows with the catalog -- `riesz_tmle` and `ep` already appear there as
+unavailable-with-reason, so a "use the best available method" convenience is one short function
+away, and it would report an interval whose selection step nothing certified and whose influence
+curve does not account for it. *Reconsider when* a published selector supplies its own influence
+contribution and selection-aware inference, and certifies on draws that did not do the selecting.
+
 Identification is complete before nuisance fitting. Unsupported estimand/design/provider/method
 combinations fail at that boundary with a capability reason; a placeholder may not produce an
 estimate for graph, Riesz, EP, front-door, IV, mediation, or transport behavior that has not been
