@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ..exceptions import CapabilityError
 from ..utils.frames import emit_frame
 from ..utils.text import format_table
 
@@ -172,9 +173,9 @@ def refute(
     """
     estimator = result.estimator
     if estimator is None:
-        raise ValueError("refute needs the fitted estimator that produced the result")
+        raise CapabilityError("refute needs the fitted estimator that produced the result")
     if estimand not in result.estimates:
-        raise ValueError(f"estimand {estimand!r} was not requested in this fit")
+        raise CapabilityError(f"estimand {estimand!r} was not requested in this fit")
 
     original = result[estimand].psi
     std_error = result[estimand].std_error
