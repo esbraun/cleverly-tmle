@@ -14,10 +14,42 @@ from tests.conftest import OracleOutcomeContinuous
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_properties, cvtmle_properties
 from tests.studies.canonical_ctmle_oat import G_BOUNDS, STUDY
-from tests.studies.evidence.properties import PropertyCell, run_cells, se_ratio_interval
+from tests.studies.evidence.properties import (
+    PropertyCell,
+    coverage_gain_interval,
+    run_cells,
+    se_ratio_deficit_interval,
+    se_ratio_interval,
+)
 from tests.studies.evidence.seeds import stream_seed
 
 OAT_NULL_REPLICATES = 800
+
+#: The two cells that measure what OAT's reported interval leaves out.
+#:
+#: OAT fits ``g`` on ``Qbar`` itself, so when ``Qbar`` is estimated the *model class*
+#: ``g`` is chosen from is random too, and the influence curve does not see that.  These
+#: cells are one law and one set of draws with a single difference: whether ``Qbar`` moves.
+#: ``oracle_design`` pins it, and must be calibrated -- that is the positive claim, and it
+#: is what says the machinery is right when the design is fixed.  ``estimated`` fits it, and
+#: is a *control*: it must report a materially smaller standard error relative to its own
+#: spread, because a study that could not detect the omission would report the same
+#: "calibrated" verdict for both and establish nothing.
+#:
+#: The margin is a floor on a defect rather than a ceiling on one.  It is deliberately not
+#: a tolerance that blesses the current behaviour: if the reported interval is ever made to
+#: carry this term, this control stops being discriminated and the study goes red, which is
+#: the correct signal that the documented limitation has become stale.
+#: The confounded law with a real effect, at the size where the deficit was measured
+#: before this cell was written: 0.981 against 0.017 over 2,000 draws, or 0.036 of a
+#: reported standard error, and unchanged at ``n = 4,000``.  A cell whose law was chosen
+#: without measuring it first could have landed where OAT's design happens to span the
+#: true mechanism, where there is no omission to detect and the control fails for a reason
+#: that is not the estimator's.
+GENERATED_DESIGN_EFFECT = 0.3
+GENERATED_DESIGN_N = 1000
+GENERATED_DESIGN_REPLICATES = 1_200
+GENERATED_DESIGN_DEFICIT = 0.01
 
 
 def cells() -> tuple[PropertyCell, ...]:
@@ -49,9 +81,13 @@ def cells() -> tuple[PropertyCell, ...]:
         replace(
             cell,
             seed=cell.seed + 5_000,
-            # At 400 replications a valid 93.25% observed coverage has a 99%
-            # Clopper-Pearson lower endpoint below 0.90.  Doubling only this cell
-            # resolves the declared floor; it does not alter the floor or size margin.
+            # This cell answers to two gates, and at 400 replications it cleared
+            # neither with room: the exact coverage lower endpoint fell below the 0.90
+            # floor, and the one-sided rejection bound sat above the 0.10 ceiling.
+            # Doubling contracts both intervals around the rates actually observed
+            # without moving either margin.  It does not make the cell comfortable --
+            # see the OAT section on why this law's size sits above nominal at all --
+            # and the published endpoints, not the point estimates, are what show that.
             replicates=(
                 OAT_NULL_REPLICATES if cell.property == "type_i_error" else cell.replicates
             ),
@@ -82,7 +118,33 @@ def cells() -> tuple[PropertyCell, ...]:
             role="control",
         ),
     )
-    return (*robustness, *inherited, *overfit)
+    generated_law = canonical_properties.null_dgp(GENERATED_DESIGN_EFFECT)
+    generated = (
+        PropertyCell(
+            "generated_design",
+            "oracle_design",
+            generated_law,
+            lambda: OracleOutcomeContinuous(generated_law),
+            lambda: LogisticRegression(max_iter=1000),
+            GENERATED_DESIGN_N,
+            GENERATED_DESIGN_REPLICATES,
+            13_300,
+        ),
+        PropertyCell(
+            "generated_design",
+            "estimated",
+            generated_law,
+            LinearRegression,
+            lambda: LogisticRegression(max_iter=1000),
+            GENERATED_DESIGN_N,
+            GENERATED_DESIGN_REPLICATES,
+            # The same seed as its pair on purpose: the deficit below is a paired
+            # difference, and two cells drawn apart could not supply one.
+            13_300,
+            role="control",
+        ),
+    )
+    return (*robustness, *inherited, *overfit, *generated)
 
 
 def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
@@ -110,7 +172,12 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = canonical_properties.apply_shared_verdicts(
         rows,
         STUDY,
-        extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper"),
+        extra_columns=(
+            "coverage_gain_ci_lower",
+            "coverage_gain_ci_upper",
+            "se_ratio_deficit_lower",
+            "se_ratio_deficit_upper",
+        ),
     )
 
     robustness = summary["property"] == "robustness_contract"
@@ -134,7 +201,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         confidence_level=STUDY.margins.confidence_level,
         seed=stream_seed(STUDY, "crossfit_overfitting", "in_sample_control"),
     )
-    gain = cvtmle_properties._coverage_gain_interval(
+    gain = coverage_gain_interval(
         positive_rows,
         control_rows,
         replicates=STUDY.margins.bootstrap_replicates,
@@ -160,4 +227,43 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
         summary.loc[mask, "passed"] = verdicts[cell]
         summary.loc[mask, "property_passed"] = joint
+
+    generated = rows.loc[rows["property"] == "generated_design"]
+    estimated_rows = generated.loc[generated["cell"] == "estimated"].sort_values("replicate")
+    oracle_rows = generated.loc[generated["cell"] == "oracle_design"].sort_values("replicate")
+    oracle_se = se_ratio_interval(
+        oracle_rows,
+        replicates=STUDY.margins.bootstrap_replicates,
+        confidence_level=STUDY.margins.confidence_level,
+        seed=stream_seed(STUDY, "generated_design", "oracle_design"),
+    )
+    deficit = se_ratio_deficit_interval(
+        estimated_rows,
+        oracle_rows,
+        replicates=STUDY.margins.bootstrap_replicates,
+        confidence_level=STUDY.margins.confidence_level,
+        seed=stream_seed(STUDY, "generated_design", "deficit"),
+    )
+    estimated_se = se_ratio_interval(
+        estimated_rows,
+        replicates=STUDY.margins.bootstrap_replicates,
+        confidence_level=STUDY.margins.confidence_level,
+        seed=stream_seed(STUDY, "generated_design", "estimated"),
+    )
+    design_verdicts = {
+        # Fixed design: the ordinary calibration claim, on the ordinary band.
+        "oracle_design": bool(oracle_se.within(*STUDY.margins.calibration_se_ratio)),
+        # Estimated design: the omission must be *visible*, not merely suspected.
+        "estimated": bool(deficit.high <= -GENERATED_DESIGN_DEFICIT),
+    }
+    design_joint = bool(all(design_verdicts.values()))
+    for cell, interval in (("oracle_design", oracle_se), ("estimated", estimated_se)):
+        mask = (summary["property"] == "generated_design") & (summary["cell"] == cell)
+        summary.loc[mask, "se_ratio_ci_lower"] = interval.low
+        summary.loc[mask, "se_ratio_ci_upper"] = interval.high
+        summary.loc[mask, "se_ratio_deficit_lower"] = deficit.low
+        summary.loc[mask, "se_ratio_deficit_upper"] = deficit.high
+        summary.loc[mask, "passed"] = design_verdicts[cell]
+        summary.loc[mask, "property_passed"] = design_joint
+
     return canonical_properties.finish(summary, rates)

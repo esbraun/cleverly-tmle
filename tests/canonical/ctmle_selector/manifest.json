@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-ctmle-selector",
       "cleverly_version": "0.1.0",
-      "cleverly_commit": "e0378af4654019ec158119539fd86bf321613b13",
+      "cleverly_commit": "3e17cda0a01d068c6afe315f0d5c409b8a46a8c7",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.4.6",
@@ -36,6 +36,7 @@
       ]
     },
     "cross_fit": false,
+    "simultaneous_intervals": false,
     "selection_folds": 5,
     "selection_inner_folds": 2,
     "penalty": false,
@@ -71,24 +72,24 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ctmle_selector.py": "c6d71f1b1bb8f8da68afa16596050391e369b59832bf2ef6d9b1e43f6dabe071",
+    "tests/studies/canonical_ctmle_selector.py": "af7815d5eae7e35aebc8671a168f7dfcea2a975e091cd043ca0105d979af46c4",
     "tests/studies/ctmle_selector_properties.py": "0930a5b760e7918a60e82645817a9727a11059a063a1553192f17221a315c63d",
-    "tests/studies/canonical_properties.py": "723b9b36428f6351406951f370acb2295166efbc155b8781a6a3803f05329332",
+    "tests/studies/canonical_properties.py": "8a39dadba5257fccfa914e1c9c47f0f8652984c12ca888aaec387c8f5f18b557",
     "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
     "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
-    "tests/studies/evidence/properties.py": "d1def7684bd8b02915dc6c04de577eacdbfbb5aba16bf8c9c5e7ca5b147d8f96",
+    "tests/studies/evidence/properties.py": "7f755f90c27b63007e7419d0eef2bfb4b3b3bfd474cc156ed78d5890258be531",
     "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
     "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
   },
   "reference_sha256": {
     "Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
-    "run_ctmle.R": "2629791f4bf8e653d51cc4a059a63d7854b2859bcc94ef7f77b188fb9a7fdd9c"
+    "run_ctmle.R": "d8567c5d8a3bdc5765f023729fa222d0b9452d2c6df4dc83b60f9b892e7ab486"
   },
   "sha256": {
-    "replicates.csv.gz": "242afd9ce5d271eabef8023fb1d21ac4c377ae371c725c8bbd09ae51cb56230e",
-    "summary.csv": "52da5daeed5ff18248d2c722f055a62009186e4a586ba0f995c7848443edf652",
-    "equivalence.csv": "747f299ce057e866a518e9a72b4a859fe5b38b19613a60a6775311c1f63cd0d6",
-    "performance-tests.csv": "453a16b47370d66cb5edaaa1cc1db34de156fb78caeb16d210fa8ae327265049",
+    "replicates.csv.gz": "6bc7875edd5818e95582166ca18d472d21532fd39fe8aefcd599fdee27013d39",
+    "summary.csv": "5553b29576b4b3974c56bf259b9960af7f8330df7a4a7a483b6b16d9db324b3c",
+    "equivalence.csv": "b902f066a17b3b9929b1ec61fce92a3d6fd4cd4a8b69dcedc174efbc10850511",
+    "performance-tests.csv": "27b5e8ba5aea4206101777152d92df7012ac8bf2efb1000bf74599bf33d1c4b4",
     "property-replicates.csv.gz": "2a67b1b0bd9231b76c80955be6869dce802fc0526e9ad0cd1a0eb15cd0263218",
     "properties.csv": "cad485fe211407be5c95bf1a554c2de268b95a421f40cc60efb4f6f37c7225c5"
   }

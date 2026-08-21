@@ -82,7 +82,7 @@ ALTERNATIVE_EFFECT = 0.5
 MINIMUM_POWER = 0.80
 
 
-def _null_dgp(effect: float = 0.0) -> DGP:
+def null_dgp(effect: float = 0.0) -> DGP:
     """Confounded, with a treatment effect of ``effect``.
 
     The sharp null keeps the confounding: an unadjusted comparison of arms is biased here, so
@@ -173,7 +173,7 @@ def cells() -> tuple[PropertyCell, ...]:
         PropertyCell(
             property="type_i_error",
             cell="sharp_null",
-            dgp=_null_dgp(),
+            dgp=null_dgp(),
             outcome_learner=LinearRegression,
             treatment_learner=lambda: LogisticRegression(max_iter=1000),
             n=1000,
@@ -185,7 +185,7 @@ def cells() -> tuple[PropertyCell, ...]:
         PropertyCell(
             property="power",
             cell="alternative",
-            dgp=_null_dgp(ALTERNATIVE_EFFECT),
+            dgp=null_dgp(ALTERNATIVE_EFFECT),
             outcome_learner=LinearRegression,
             treatment_learner=lambda: LogisticRegression(max_iter=1000),
             n=1000,

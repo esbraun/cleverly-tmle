@@ -297,6 +297,11 @@ class CTMLESelection:
         what stops the search from simply taking every covariate.
     selected:
         Index into ``path`` of the chosen candidate.
+    folds:
+        The realized selection split ``cv_risk`` was scored over.  This is the
+        partition the fit actually used, not a rule for rebuilding one, so a paired
+        study can hand another implementation the same fold assignment instead of
+        recomputing its own and hoping the two agree.
     """
 
     strategy: CTMLEStrategy
@@ -314,6 +319,7 @@ class CTMLESelection:
     cv_risk: FloatArray
     selected: int
     covariates: tuple[str, ...]
+    folds: Folds
 
     @property
     def selected_covariates(self) -> tuple[str, ...]:
@@ -660,7 +666,7 @@ class CTMLE(TMLE):
         selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)
 
         path = selector.build_path(train=None, tag="full")
-        cv_risk = selector.cross_validate(path)
+        cv_risk, selection_folds = selector.cross_validate(path)
         selected = int(np.argmin(cv_risk))
         chosen = path[selected]
 
@@ -695,6 +701,7 @@ class CTMLE(TMLE):
             treatment_risk=np.array([candidate.treatment_risk for candidate in path], dtype=float),
             cv_risk=cv_risk,
             selected=selected,
+            folds=selection_folds,
             covariates=data.covariate_names,
         )
         return nuisance, {"ctmle": selection}
@@ -1248,8 +1255,8 @@ class _Selector:
 
     # -------------------------------------------------------------- selection
 
-    def cross_validate(self, path: Sequence[_Candidate]) -> FloatArray:
-        """Cross-validated risk of each position in the candidate sequence.
+    def cross_validate(self, path: Sequence[_Candidate]) -> tuple[FloatArray, Folds]:
+        """Cross-validated risk of each position in the candidate sequence, and its split.
 
         The sequence is rebuilt inside every training fold -- which covariate lands at
         position ``k`` may differ from fold to fold, and that is the point: what is
@@ -1263,6 +1270,12 @@ class _Selector:
         published criterion, and pooling matters in practice: a variance estimated
         inside a single validation fold is noisy enough to swamp the difference
         between two candidates it is supposed to be telling apart.
+
+        The partition is returned rather than left as a local because it is the one
+        thing about a C-TMLE fit that an outside party has to be able to *reproduce*
+        rather than infer: a paired comparison hands the same rows and the same split
+        to another implementation, and a split recomputed from the same rule is not
+        evidence that it is the split this fit used.
         """
         data = self.data
         folds = make_folds(
@@ -1313,8 +1326,8 @@ class _Selector:
                 )
                 influence[index, test] = curve.reshape(test.size, dimension)
         if not self.est.penalty:
-            return loss
-        return loss + np.array([_penalty_of(row) for row in influence])
+            return loss, folds
+        return loss + np.array([_penalty_of(row) for row in influence]), folds
 
     def _nested_folds(self, train: IntArray) -> tuple[Folds, BoolArray]:
         """Inner cross-fit on ``train`` plus one full-training fit for validation rows."""

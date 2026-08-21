@@ -3,8 +3,8 @@
 This directory freezes a paired repeated-sampling comparison of
 `CTMLE(strategy="oat")` with archived tlverse
 [`ctmle3`](https://github.com/tlverse/ctmle3) at commit `a4ea77b`, using the
-contemporaneous [`tmle3`](https://github.com/tlverse/tmle3) commit `3a61005` and
-[`sl3`](https://github.com/tlverse/sl3) commit `821ca89`. The base R image is pinned by
+contemporaneous [`tmle3`](https://github.com/tlverse/tmle3/tree/3a610058cd89c17bb417c15fc891254388787f33) commit
+`3a61005` and [`sl3`](https://github.com/tlverse/sl3/tree/821ca890cb8701fdb59f823e28c6356e50d092bc) commit `821ca89`. The base R image is pinned by
 digest. `manifest.json` records full package commits, source hashes, configuration, result
 hashes, and observed package versions.
 

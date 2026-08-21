@@ -9,6 +9,7 @@ from typing import Any
 import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly._typing import EstimandName
 from cleverly.estimators import CTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
@@ -17,8 +18,8 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 
 CTMLE3_COMMIT = "a4ea77b07747dfee9b2eecb9cbca88262e0559ea"
-TMLE3_COMMIT = "3a61005"
-SL3_COMMIT = "821ca89"
+TMLE3_COMMIT = "3a610058cd89c17bb417c15fc891254388787f33"
+SL3_COMMIT = "821ca890cb8701fdb59f823e28c6356e50d092bc"
 R_BASE_IMAGE = (
     "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
 )
@@ -28,7 +29,7 @@ PRIMARY_N = 1000
 SEED = 20240823
 G_BOUNDS = (0.025, 0.975)
 
-SCENARIO_ESTIMANDS: Mapping[str, tuple[str, ...]] = {
+SCENARIO_ESTIMANDS: Mapping[str, tuple[EstimandName, ...]] = {
     "binary": ("ey0", "ey1", "ate", "rr", "or"),
 }
 
@@ -40,6 +41,7 @@ PROPERTY_CELLS = {
     "type_i_error": ("sharp_null",),
     "power": ("alternative",),
     "crossfit_overfitting": ("cross_fitted_oat", "in_sample_control"),
+    "generated_design": ("estimated", "oracle_design"),
 }
 
 STUDY = StudyRecord(

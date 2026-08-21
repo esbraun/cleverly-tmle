@@ -95,7 +95,7 @@ results <- parallel::mclapply(groups, fit_group, mc.cores = cores, mc.preschedul
 failed <- vapply(results, inherits, logical(1), what = "try-error")
 if (any(failed)) stop(paste(vapply(results[failed], as.character, character(1)), collapse = "\n"))
 out <- do.call(rbind, results)
-expected <- sum(vapply(groups, function(frame) if (frame$scenario[[1]] == "binary") 5L else 3L, integer(1)))
+expected <- 5L * length(groups)
 if (nrow(out) != expected) stop("an OAT reference replication was silently dropped")
 write.csv(out, output, row.names = FALSE)
 cat("ctmle3 ", as.character(packageVersion("ctmle3")), "\n", sep = "")

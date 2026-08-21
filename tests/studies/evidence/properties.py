@@ -120,6 +120,35 @@ def run_cells(
     return pd.concat(frames, ignore_index=True).loc[:, list(REPLICATE_COLUMNS)]
 
 
+def coverage_gain_interval(
+    positive: pd.DataFrame,
+    control: pd.DataFrame,
+    *,
+    replicates: int,
+    confidence_level: float,
+    seed: int,
+) -> tuple[float, float]:
+    """Resampling interval for the coverage a positive cell buys over its paired control.
+
+    Paired on ``replicate``, because the two cells are run on the same draws precisely so
+    this difference is not two independent rates subtracted.  Shared rather than owned by
+    one study family: two of them now make a claim about a pair of cells, and a statistic
+    written twice is a statistic that can be changed once.
+    """
+    paired = positive[["replicate", "covered"]].merge(
+        control[["replicate", "covered"]], on="replicate", suffixes=("_positive", "_control")
+    )
+    differences = paired["covered_positive"].to_numpy(dtype=float) - paired[
+        "covered_control"
+    ].to_numpy(dtype=float)
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, len(differences), size=(replicates, len(differences)))
+    interval = percentile_interval(
+        differences[picks].mean(axis=1), confidence_level=confidence_level
+    )
+    return interval.low, interval.high
+
+
 def require_complete(rows: pd.DataFrame) -> None:
     """Refuse a property table that lost replications.
 
@@ -232,6 +261,44 @@ def se_ratio_interval(
     draws = values[picks]
     ratios = draws[:, :, 1].mean(axis=1) / draws[:, :, 0].std(axis=1, ddof=1)
     return percentile_interval(ratios, confidence_level=confidence_level)
+
+
+def se_ratio_deficit_interval(
+    subject: pd.DataFrame,
+    reference: pd.DataFrame,
+    *,
+    replicates: int,
+    confidence_level: float,
+    seed: int,
+) -> Interval:
+    """Resampling interval for one cell's SE ratio *minus* a paired cell's.
+
+    Both cells are run on the same draws, so the two ratios are resampled on one shared
+    set of replication indices rather than independently.  That is what makes the interval
+    an interval for the difference: the Monte Carlo error common to both -- the empirical
+    spread of a shared sampling distribution -- cancels instead of being added twice, and a
+    deficit of a few percent is resolvable at replication counts where each ratio on its own
+    is not.
+
+    Negative values mean ``subject`` reports a smaller standard error, relative to its own
+    spread, than ``reference`` does.
+    """
+    merged = subject[["replicate", "estimate", "std_error"]].merge(
+        reference[["replicate", "estimate", "std_error"]],
+        on="replicate",
+        suffixes=("_subject", "_reference"),
+    )
+    if len(merged) != len(subject) or len(merged) != len(reference):
+        raise ValueError("the two cells are not paired on replication")
+    values = merged[
+        ["estimate_subject", "std_error_subject", "estimate_reference", "std_error_reference"]
+    ].to_numpy(dtype=float)
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, len(values), size=(replicates, len(values)))
+    draws = values[picks]
+    subject_ratio = draws[:, :, 1].mean(axis=1) / draws[:, :, 0].std(axis=1, ddof=1)
+    reference_ratio = draws[:, :, 3].mean(axis=1) / draws[:, :, 2].std(axis=1, ddof=1)
+    return percentile_interval(subject_ratio - reference_ratio, confidence_level=confidence_level)
 
 
 @dataclass(frozen=True)

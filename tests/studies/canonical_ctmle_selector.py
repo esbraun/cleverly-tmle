@@ -12,10 +12,10 @@ from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LogisticRegression
 
+from cleverly._typing import EstimandName
 from cleverly.estimators import CTMLE
-from cleverly.learners.crossfit import make_folds
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
@@ -32,7 +32,7 @@ PRIMARY_N = 2000
 SEED = 20240822
 G_BOUNDS = (0.025, 0.975)
 
-SCENARIO_ESTIMANDS: Mapping[str, tuple[str, ...]] = {
+SCENARIO_ESTIMANDS: Mapping[str, tuple[EstimandName, ...]] = {
     "binary_greedy": ("ate",),
     "binary_ordered": ("ate",),
     "binary_discrete": ("ate",),
@@ -88,6 +88,7 @@ REFERENCE_METADATA = {
 
 CONFIGURATION = {
     "cross_fit": False,
+    "simultaneous_intervals": False,
     "selection_folds": 5,
     "selection_inner_folds": 2,
     "penalty": False,
@@ -96,8 +97,10 @@ CONFIGURATION = {
 }
 
 
-def base_scenario(scenario: str) -> str:
-    return "continuous" if scenario.startswith("continuous") else "binary"
+#: All three scenarios are the same binary law.  What differs between them is the selector
+#: strategy, not the process -- the distinct names exist so each strategy draws its own
+#: ``replicate_seed`` stream rather than three verdicts being one draw reported three times.
+LAW = "binary"
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -106,12 +109,10 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
     """Draw directly from a supplied seed for the manifest-seed audit."""
-    from tests.studies.canonical_tmle import sample_continuous, scenario_dgp, truth_for
+    from tests.studies.canonical_tmle import scenario_dgp, truth_for
 
-    base = base_scenario(scenario)
-    dgp = scenario_dgp(base)
-    if base == "continuous":
-        return sample_continuous(dgp, n, seed)
+    del scenario
+    dgp = scenario_dgp(LAW)
     frame, _ = dgp.sample(n, seed=seed, backend="pandas")
     return frame, truth_for(dgp)
 
@@ -126,15 +127,11 @@ def _strategy(scenario: str) -> tuple[str, dict[str, Any]]:
 
 
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
-    binary = base_scenario(scenario) == "binary"
-    outcome = (
-        LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs") if binary else LinearRegression()
-    )
     strategy, options = _strategy(scenario)
     return (
         CTMLE(
             strategy=strategy,
-            outcome_learner=outcome,
+            outcome_learner=LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
             treatment_learner=LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
             cross_fit=False,
             selection_folds=5,
@@ -154,13 +151,13 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
     )
 
 
-def cleverly_rows(
-    frame: pd.DataFrame,
+def _rows_from_result(
+    result: Any,
     truth: Mapping[str, float],
     scenario: str,
     replicate: int,
+    n: int,
 ) -> list[dict[str, Any]]:
-    result = fit_cleverly(frame, scenario)
     estimate = result["ate"]
     reference = float(truth["ate"])
     low, high = estimate.ci
@@ -169,7 +166,7 @@ def cleverly_rows(
             "implementation": STUDY.implementation,
             "scenario": scenario,
             "replicate": replicate,
-            "n": len(frame),
+            "n": n,
             "estimand": "ate",
             "truth": reference,
             "estimate": float(estimate.psi),
@@ -184,17 +181,27 @@ def cleverly_rows(
     ]
 
 
+def cleverly_rows(
+    frame: pd.DataFrame,
+    truth: Mapping[str, float],
+    scenario: str,
+    replicate: int,
+) -> list[dict[str, Any]]:
+    return _rows_from_result(fit_cleverly(frame, scenario), truth, scenario, replicate, len(frame))
+
+
 def _replicate(
     payload: tuple[str, int, int],
 ) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
     scenario, replicate, n = payload
     frame, truth = draw_scenario(scenario, n, replicate)
+    result = fit_cleverly(frame, scenario)
     sample = frame.copy()
-    sample.insert(
-        0,
-        "selection_fold",
-        make_folds(len(frame), 5, stratify=frame["A"].to_numpy(), random_state=0).assignment,
-    )
+    # The split this fit actually scored its candidates over, taken off the fit rather
+    # than rebuilt here from the same rule.  R selects against the same partition, so a
+    # reconstruction that silently stopped matching would move the reference's answer
+    # while every gate in the study kept passing.
+    sample.insert(0, "selection_fold", result.extra["ctmle"].folds.assignment)
     sample.insert(0, "replicate", replicate)
     sample.insert(0, "scenario", scenario)
     truth_row = {
@@ -202,7 +209,7 @@ def _replicate(
         "replicate": replicate,
         **{f"truth_{name}": value for name, value in truth.items()},
     }
-    return sample, truth_row, cleverly_rows(frame, truth, scenario, replicate)
+    return sample, truth_row, _rows_from_result(result, truth, scenario, replicate, len(frame))
 
 
 def draw_and_fit(

@@ -175,9 +175,14 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                 "margin:overfit_coverage_gain": overfit.OVERFIT_COVERAGE_GAIN,
             }
         )
+    if "generated_design" in record.property_cells:
+        declared["margin:generated_design_deficit"] = record.properties().GENERATED_DESIGN_DEFICIT
     if "selector_necessity" in record.property_cells:
-        selector = import_module("tests.studies.ctmle_selector_properties")
-        declared["margin:selector_rmse_ratio"] = selector.SELECTOR_RMSE_RATIO
+        # Through the record, not by name: this constant belongs to the study that declares
+        # the cells, unlike the overfitting margins above, which are shared across families
+        # and genuinely live in one module.  ``test_method_evidence`` reads it the same way,
+        # so the two cannot come to disagree about which module owns it.
+        declared["margin:selector_rmse_ratio"] = record.properties().SELECTOR_RMSE_RATIO
     return declared
 
 
