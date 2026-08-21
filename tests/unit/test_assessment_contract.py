@@ -319,6 +319,38 @@ class TestTheCombinedSensitivityReportRunsToCompletion:
             ]
             assert not required, f"{row.operation} needs {required} but declares none"
 
+    @pytest.mark.parametrize("facade", ["diagnostics", "sensitivity"])
+    @pytest.mark.parametrize("error", [KeyError("arm 'high'"), TypeError("unexpected 'subset'")])
+    def test_a_structural_error_is_raised_rather_than_reported_as_unavailable(  # type: ignore[no-untyped-def]
+        self, point_result, monkeypatch: pytest.MonkeyPatch, facade: str, error: Exception
+    ) -> None:
+        """The merge that produced ``_run_all`` took the union of two caught-exception sets.
+
+        That handed the diagnostics side ``KeyError`` and ``TypeError``, which no routed
+        operation raises as a refusal: every ``raise KeyError`` in the package is a lookup
+        on an already-computed report, and every ``raise TypeError`` is structural.  A bug
+        of either kind then printed as ``unavailable`` -- a status the user guide reserves
+        for a question the fit has no derivation for -- so the report read as a scientific
+        finding about the fit rather than as the defect it was.
+        """
+        surface = getattr(point_result, facade)
+        operation = next(
+            row.operation
+            for row in surface.capabilities
+            if row.available and not row.requires_arguments and row.execution == "summarize"
+        )
+
+        def broken(*_args: object, **_kwargs: object) -> object:
+            raise error
+
+        monkeypatch.setattr(type(surface), operation, broken, raising=True)
+        # ``_run_all`` memoizes on the result, and this fixture is module-scoped, so an
+        # earlier test in the class has already banked a clean report under this key.
+        point_result.assessment_cache.clear()
+        with pytest.raises(type(error)):
+            surface.run_all()
+        point_result.assessment_cache.clear()
+
 
 class TestSupportDiagnosticsSeeAPerInterventionReport:
     """A shift or IPSI fit reports a mapping, which the attribute probes cannot read.

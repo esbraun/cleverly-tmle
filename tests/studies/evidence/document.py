@@ -41,25 +41,59 @@ def render(computed: float) -> str:
     return f"{computed:.4f}"
 
 
+def _section(lines: list[str], anchor: str, document: object) -> tuple[int, int]:
+    """The half-open line range of the level-two section ``anchor`` names."""
+
+    def matches(line: str) -> bool:
+        if not line.startswith("## "):
+            return False
+        heading = line[3:].strip()
+        kept = "".join(
+            character
+            for character in heading.casefold()
+            if character.isalnum() or character in " -_"
+        )
+        return heading.casefold() == anchor.casefold() or kept.strip().replace(" ", "-") == anchor
+
+    start = next((index for index, line in enumerate(lines) if matches(line)), None)
+    if start is None:
+        raise LookupError(f"{document} has no level-two section {anchor!r}")
+    stop = next(
+        (
+            index
+            for index, line in enumerate(lines[start + 1 :], start=start + 1)
+            if line.startswith("## ")
+        ),
+        len(lines),
+    )
+    return start, stop
+
+
 def fill(record: StudyRecord) -> list[str]:
     """Rewrite the measured table's value column in place.  Returns the rows that changed."""
     document = record.document_path
     lines = document.read_text(encoding="utf-8").splitlines(keepends=True)
+    # Only this study's section.  The three studies share one document now, and searching
+    # the whole file finds the first measured table whichever record asked -- so filling the
+    # second study resolved the *first* study's quantity names against the second's
+    # artefacts, which fails outright on a name the second does not report.  This is the
+    # same rule ``tests.documents.pipe_table`` applies for the gate that reads these tables.
+    start, stop = _section(lines, record.anchor, document)
     header = next(
         (
             index
-            for index, line in enumerate(lines)
-            if [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for index in range(start, stop)
+            if [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
             == list(MEASURED_COLUMNS)
         ),
         None,
     )
     if header is None:
-        raise LookupError(f"{document} has no measured-values table")
+        raise LookupError(f"{document} has no measured-values table under {record.anchor!r}")
 
     data = load(record)
     changed: list[str] = []
-    for index in range(header + 2, len(lines)):
+    for index in range(header + 2, stop):
         match = _ROW.match(lines[index].rstrip("\n"))
         if match is None:
             break

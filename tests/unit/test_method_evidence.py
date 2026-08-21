@@ -24,8 +24,15 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies import canonical_tmle
-from tests.studies.evidence.claims import describe, load, matches, quantities, value
+from tests.studies import canonical_properties, canonical_tmle, cvtmle_properties
+from tests.studies.evidence.claims import (
+    describe,
+    load,
+    matches,
+    quantities,
+    thresholds,
+    value,
+)
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.performance import independent_performance_tests, summarize
@@ -211,6 +218,61 @@ class TestPublishedVerdicts:
             atol=1e-9,
         )
         assert published["passed"].all(), published.loc[~published["passed"]].to_string()
+        assert published["property_passed"].all(), published.loc[
+            ~published["property_passed"]
+        ].to_string()
+
+    def test_no_property_row_publishes_another_row_s_verdict(self, study: StudyRecord) -> None:
+        """The gate the performance table had and this one did not.
+
+        ``crossfit_overfitting`` computed one scalar from three statements -- two per-row and
+        one paired -- and broadcast it across the property.  So ``in_sample_control``, a
+        deliberately in-sample fit with 0.65 coverage and an SE ratio of 0.58, published
+        ``passed=True`` beside the *cross-fit* arm's rule.  It was not wrong to pass; its own
+        rule is that it must understate its spread, and it does.  Nothing published said so,
+        which is the defect: a reader could not tell which claim the verdict answered.
+
+        Every row's ``passed`` must therefore follow from that row's own endpoints, and the
+        clause that really is about the pair lives in ``property_passed``.
+        """
+        published = pd.read_csv(study.artifact("properties.csv"))
+        control = published["role"] == "control"
+        robustness = published["property"] == "double_robustness"
+
+        def verdicts(mask: pd.Series, column: str) -> list[bool]:
+            # ``bias_equivalent`` reads back as object, not bool: the rate rows leave it
+            # blank, so the column is mixed and ``Series.equals`` would compare dtypes.
+            return [bool(value) for value in published.loc[mask, column]]
+
+        assert verdicts(robustness & ~control, "passed") == verdicts(
+            robustness & ~control, "bias_equivalent"
+        )
+        assert verdicts(robustness & control, "passed") == verdicts(
+            robustness & control, "bias_discriminated"
+        )
+
+        overfitting = published.loc[published["property"] == "crossfit_overfitting"]
+        if overfitting.empty:
+            pytest.skip("study declares no cross-fit overfitting cells")
+        margins = study.margins
+        for row in overfitting.itertuples():
+            if row.role == "control":
+                expected = row.se_ratio_ci_upper <= cvtmle_properties.OVERFIT_SE_CONTROL_CEILING
+            else:
+                expected = (
+                    row.se_ratio_ci_lower >= cvtmle_properties.OVERFIT_SE_FLOOR
+                    and row.se_ratio_ci_upper <= margins.se_ratio_sanity[1]
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own endpoints"
+            )
+        # The paired clause belongs to neither row, so it is the one thing both share.
+        assert overfitting["property_passed"].nunique() == 1
+        assert bool(overfitting["property_passed"].iloc[0]) is bool(
+            overfitting["passed"].all()
+            and overfitting["coverage_gain_ci_lower"].iloc[0]
+            >= cvtmle_properties.OVERFIT_COVERAGE_GAIN
+        )
 
 
 class TestNegativeControls:
@@ -604,9 +666,18 @@ def _family(name: str) -> str:
 
 
 def _exempt(name: str) -> bool:
-    """Configuration, or a descriptive count of ``summary.csv`` rows rather than a verdict."""
+    """Configuration, a descriptive count of ``summary.csv`` rows, or a declared threshold.
+
+    A ``margin:`` name resolves against the study's *declaration* rather than its artefacts,
+    so it belongs to no artefact family by construction and must not be asked to count
+    towards artefact coverage.  It is still gated: the quoted-value test resolves it like any
+    other name, which is the whole point of naming a threshold instead of retyping it.
+    """
     return (
-        name in _CONFIGURATION_QUANTITIES or name.endswith("summary_cells") or "cells_with_" in name
+        name in _CONFIGURATION_QUANTITIES
+        or name.startswith("margin:")
+        or name.endswith("summary_cells")
+        or "cells_with_" in name
     )
 
 
@@ -624,6 +695,56 @@ class TestTheQuantityVocabulary:
     )
     def test_a_longer_prefix_wins_over_a_shorter_one(self, name: str, expected: str) -> None:
         assert _family(name) == expected
+
+    def test_every_declared_threshold_is_the_constant_the_study_applies(
+        self, study: StudyRecord
+    ) -> None:
+        """The vocabulary must resolve to the declaration, not to a second copy of it.
+
+        Before this, the rules were prose.  Moving ``MINIMUM_POWER`` or ``OVERFIT_SE_FLOOR``
+        left a page asserting a threshold no study had applied, and the only gate over the
+        published rules compared the renderer's literal against the page's -- the same
+        literal on both sides.
+        """
+        declared = thresholds(study)
+        margins = study.margins
+        assert declared["margin:coverage_floor"] == margins.coverage_floor
+        assert declared["margin:se_ratio_sanity_upper"] == margins.se_ratio_sanity[1]
+        assert declared["margin:type_i_ceiling"] == margins.alpha + margins.type_i_margin
+        assert declared["margin:minimum_power"] == canonical_properties.MINIMUM_POWER
+        assert declared["margin:root_n_slope_lower"] == (
+            canonical_properties.ROOT_N_SLOPE - canonical_properties.ROOT_N_SLOPE_MARGIN
+        )
+        if "crossfit_overfitting" in study.property_cells:
+            assert declared["margin:overfit_se_floor"] == cvtmle_properties.OVERFIT_SE_FLOOR
+            assert (
+                declared["margin:overfit_control_ceiling"]
+                == cvtmle_properties.OVERFIT_SE_CONTROL_CEILING
+            )
+        # And every one of them resolves through the same entry point a document quotes.
+        for name, expected in declared.items():
+            assert value(study, name) == expected
+
+    def test_every_declared_threshold_is_published_in_the_study_s_own_table(
+        self, study: StudyRecord
+    ) -> None:
+        """A rule the reader cannot see the number for is a rule they cannot check.
+
+        Quoting the thresholds by name is what puts them under
+        ``test_every_quoted_value_is_the_rounding_of_the_computed_one`` and under
+        ``document.fill``, so moving a constant moves the published page instead of leaving
+        it asserting a rule the study never applied.  Requiring every declared threshold to
+        appear stops a new one from being added and quietly never shown.
+        """
+        quoted = {
+            row["quantity"].strip("`")
+            for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor)
+        }
+        missing = sorted(set(thresholds(study)) - quoted)
+        assert missing == [], (
+            f"{study.slug} declares {missing} but its section quotes none of them, so the "
+            f"page states rules whose numbers nothing checks"
+        )
 
     def test_every_declared_quantity_resolves_to_an_artefact_or_is_exempt(
         self, study: StudyRecord

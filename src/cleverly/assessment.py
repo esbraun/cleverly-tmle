@@ -857,14 +857,25 @@ class _CapabilityFacade:
                     continue
                 try:
                     report = getattr(self, capability.operation)()
-                except (KeyError, TypeError, ValueError) as error:
-                    # ``CapabilityError`` subclasses ``ValueError`` and needs no separate
-                    # entry here.
+                except CapabilityError as error:
+                    # Only the refusal type, deliberately.  Merging the two facades' handlers
+                    # took the *union* of what each caught, which handed the diagnostics side
+                    # ``KeyError`` and ``TypeError`` -- and no routed operation raises either
+                    # as a refusal.  Every ``raise KeyError`` in the package is a lookup on an
+                    # already-computed report and every ``raise TypeError`` is structural, so
+                    # catching them turned a signature or state bug into a scientific-sounding
+                    # ``unavailable``.  ``tests/e2e/test_ltmle.py`` records what that costs: a
+                    # missing keyword inside a loop was reported as "too unstable to
+                    # bootstrap", a statistical diagnosis of an engineering fault.
                     items.append(
                         AssessmentItem(
                             capability.operation,
                             AssessmentStatus.UNAVAILABLE,
-                            str(error),
+                            f"refused on inspection: {error}",
+                            (
+                                f"call result.{self._attribute}.{capability.operation}() "
+                                f"directly for the refusal in full",
+                            ),
                         )
                     )
                 else:
@@ -1052,7 +1063,7 @@ class DiagnosticsFacade(_CapabilityFacade):
         from .sensitivity.positivity import truncation_curve
 
         if self._result.nuisance.incremental is not None and not mechanism:
-            raise ValueError(
+            raise CapabilityError(
                 "the propensity g is *inside* the estimand for an incremental intervention, "
                 "so a propensity-bound curve would compare different parameters; use "
                 "diagnostics.support(), or pass mechanism=True when a separate observation "

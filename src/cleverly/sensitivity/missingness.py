@@ -117,12 +117,12 @@ def missingness_tilt(
     """
     data = result.data
     if not data.has_missing_outcome:
-        raise ValueError(
+        raise CapabilityError(
             "missingness_tilt requires a fit with missing outcomes. Pass delta=<column> to "
             "fit() so the missingness mechanism is estimated."
         )
     if data.is_continuous_treatment:
-        raise ValueError(
+        raise CapabilityError(
             "missingness_tilt is written for the arm-indexed estimands; this fit declared "
             "a continuous dose with shifts= and reports ey_shift/ate_shift. The tilt "
             "re-mixes the targeted Qbar at each arm under a moved missingness mechanism, "
@@ -134,7 +134,7 @@ def missingness_tilt(
             "or diagnostics.support() for the overlap question."
         )
     if result.nuisance.incremental is not None:
-        raise ValueError(
+        raise CapabilityError(
             "missingness_tilt is written for the arm-indexed estimands; this fit declared "
             "incremental interventions and reports ey_ipsi/ate_ipsi. The tilt reweights a "
             "targeted Qbar under a moved missingness mechanism, and on this axis the "
@@ -146,7 +146,7 @@ def missingness_tilt(
             "truncation_curve(mechanism=True) for sensitivity to the missingness bound."
         )
     if result.nuisance.missingness is None:  # pragma: no cover - guarded above
-        raise ValueError("missingness_tilt requires a fitted missingness mechanism")
+        raise CapabilityError("missingness_tilt requires a fitted missingness mechanism")
 
     # Which parameters the tilt can re-mix: the arm-indexed linear ones, named for their
     # arms on a fit with more than two. Ratios are excluded by being absent from that
@@ -167,7 +167,7 @@ def missingness_tilt(
                 raise CapabilityError(conditional)
     parameters = tuple(tiltable[name] for name in requested if name in tiltable)
     if not parameters:
-        raise ValueError(
+        raise CapabilityError(
             "no tiltable estimands requested; the tilt applies to the arm-indexed means "
             f"and their contrasts, which for this fit are {sorted(tiltable)}"
         )

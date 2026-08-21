@@ -45,7 +45,7 @@ from .._typing import FloatArray
 from ..data.weighting import effective_sample_size
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
-from ..exceptions import DataError
+from ..exceptions import CapabilityError, DataError
 from ..inference.influence import average_estimates
 from ..targets import parameter_stem
 from ..utils.bounds import bound, g_bounds_for
@@ -696,7 +696,9 @@ def truncation_curve(
     """
     estimator = result.estimator
     if estimator is None:
-        raise ValueError("truncation_curve needs the fitted estimator that produced the result")
+        raise CapabilityError(
+            "truncation_curve needs the fitted estimator that produced the result"
+        )
 
     # `retarget` takes *target* names, while `result.estimates` is keyed by the parameter
     # names those targets reported -- the same thing for a two-armed fit, and `ey[high]`
@@ -706,7 +708,7 @@ def truncation_curve(
     names = tuple(dict.fromkeys(parameter_stem(name) for name in reported))
     if mechanism:
         if result.nuisance.missingness is None and result.nuisance.intermediate is None:
-            raise ValueError(
+            raise CapabilityError(
                 "mechanism=True needs a fit with missing outcomes or an intermediate "
                 "variable; without one there is no mechanism in the clever covariate to "
                 "truncate. Pass delta=<column> or intermediate=<column> to fit()."

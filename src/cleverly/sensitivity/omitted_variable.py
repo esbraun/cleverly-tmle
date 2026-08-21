@@ -146,7 +146,7 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     that asking for a risk ratio is not reported as a missing estimand.
     """
     if parameter_stem(estimand) not in LINEAR_ESTIMANDS:
-        raise ValueError(
+        raise CapabilityError(
             f"the omitted-variable bound applies to {sorted(LINEAR_ESTIMANDS)}, not "
             f"{estimand!r}. For a risk ratio or odds ratio use sensitivity.evalue()."
         )
@@ -160,14 +160,14 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     if conditional is not None:
         raise CapabilityError(conditional)
     if not available:
-        raise ValueError(
+        raise CapabilityError(
             "the omitted-variable bound applies to the arm-indexed linear estimands, and "
             f"this fit reports none: its parameters are indexed by "
             f"{result.config.parameter_axis!r} and it reported {sorted(result.estimates)}. "
             "The bias is bounded through the Riesz representer of a mean or a contrast of "
             "arms, which a fit whose counterfactuals are not arms does not have."
         )
-    raise ValueError(
+    raise CapabilityError(
         f"estimand {estimand!r} was not requested in this fit. The bound is available for "
         f"{sorted(available)} -- one per contrast, since nu^2 is the second moment of "
         "that contrast's own Riesz representer."
@@ -623,7 +623,7 @@ def benchmark(
     """
     estimator = result.estimator
     if estimator is None:
-        raise ValueError("benchmark needs the fitted estimator that produced the result")
+        raise CapabilityError("benchmark needs the fitted estimator that produced the result")
     names = tuple([covariates] if isinstance(covariates, str) else covariates)
 
     long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)

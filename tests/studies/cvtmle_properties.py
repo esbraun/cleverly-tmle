@@ -17,6 +17,7 @@ from tests.studies import canonical_properties
 from tests.studies.evidence.inference import percentile_interval
 from tests.studies.evidence.properties import PropertyCell, run_cells, se_ratio_interval
 from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.seeds import stream_seed
 
 OVERFIT_REPLICATES = 400
 OVERFIT_N = 500
@@ -48,7 +49,11 @@ def cells(variant: str) -> tuple[PropertyCell, ...]:
             treatment_learner=canonical_properties.LogisticRegression,
             n=OVERFIT_N,
             replicates=OVERFIT_REPLICATES,
+            # The same seed as the cross-fit arm on purpose: the coverage-gain statement is
+            # paired on ``replicate``, so the two arms must see the same samples and differ
+            # only in whether the tree saw the rows it predicts.
             seed=10_100,
+            role="control",
         ),
     )
     return (*inherited, *overfit)
@@ -118,33 +123,42 @@ def summarize(rows: pd.DataFrame, record: StudyRecord, variant: str) -> pd.DataF
         positive_rows,
         replicates=margins.bootstrap_replicates,
         confidence_level=margins.confidence_level,
-        seed=record.seed + 40_000,
+        seed=stream_seed(record, "crossfit_overfitting", positive_name),
     )
     control_se = se_ratio_interval(
         control_rows,
         replicates=margins.bootstrap_replicates,
         confidence_level=margins.confidence_level,
-        seed=record.seed + 40_001,
+        seed=stream_seed(record, "crossfit_overfitting", "in_sample_control"),
     )
     gain = _coverage_gain_interval(
         positive_rows,
         control_rows,
         replicates=margins.bootstrap_replicates,
         confidence_level=margins.confidence_level,
-        seed=record.seed + 40_002,
+        seed=stream_seed(record, "crossfit_overfitting", "coverage_gain"),
     )
+    # Each row's own verdict from its own statement.  The cross-fit arm claims a calibrated
+    # standard error; the control claims the opposite, that fitting in-sample understates it
+    # by a wide margin.  One scalar broadcast across the property published the *positive*
+    # arm's rule beside a control whose SE ratio was 0.58 and whose coverage was 0.65, so a
+    # reader could not tell which statement the "Pass" belonged to.
+    verdicts = {
+        positive_name: bool(
+            positive_se.low >= OVERFIT_SE_FLOOR and positive_se.high <= margins.se_ratio_sanity[1]
+        ),
+        "in_sample_control": bool(control_se.high <= OVERFIT_SE_CONTROL_CEILING),
+    }
+    # The third statement is about the pair and belongs to neither row alone: cross-fitting
+    # has to *buy* coverage the in-sample fit does not have, on the same samples.
+    joint = bool(all(verdicts.values()) and gain[0] >= OVERFIT_COVERAGE_GAIN)
     for cell, interval in ((positive_name, positive_se), ("in_sample_control", control_se)):
         mask = (summary["property"] == "crossfit_overfitting") & (summary["cell"] == cell)
         summary.loc[mask, "se_ratio_ci_lower"] = interval.low
         summary.loc[mask, "se_ratio_ci_upper"] = interval.high
         summary.loc[mask, "coverage_gain_ci_lower"] = gain[0]
         summary.loc[mask, "coverage_gain_ci_upper"] = gain[1]
-    overfit_passed = bool(
-        positive_se.low >= OVERFIT_SE_FLOOR
-        and positive_se.high <= margins.se_ratio_sanity[1]
-        and control_se.high <= OVERFIT_SE_CONTROL_CEILING
-        and gain[0] >= OVERFIT_COVERAGE_GAIN
-    )
-    summary.loc[summary["property"] == "crossfit_overfitting", "passed"] = overfit_passed
+        summary.loc[mask, "passed"] = verdicts[cell]
+        summary.loc[mask, "property_passed"] = joint
 
     return canonical_properties.finish(summary, rates)

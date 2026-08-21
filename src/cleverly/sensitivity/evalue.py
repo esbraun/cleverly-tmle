@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ..exceptions import CapabilityError
 from ..targets import parameter_stem
 from ._parameters import arm_parameters
 
@@ -143,7 +144,7 @@ def _default_estimand(result: TMLEResult) -> str:
         for name in result.estimates:
             if parameter_stem(name) == stem:
                 return name
-    raise ValueError(  # pragma: no cover - guarded by resolve_estimands
+    raise CapabilityError(
         "no estimand suitable for an E-value was estimated; an E-value is a statement "
         f"about a contrast, and this fit reported {sorted(result.estimates)}"
     )
@@ -190,7 +191,7 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
     if estimand is None:
         estimand = _default_estimand(result)
     if estimand not in result.estimates:
-        raise ValueError(f"estimand {estimand!r} was not requested in this fit")
+        raise CapabilityError(f"estimand {estimand!r} was not requested in this fit")
 
     estimate = result[estimand]
     low, high = estimate.ci
@@ -212,7 +213,7 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
             baseline_name = _baseline_mean(result, estimand)
             baseline = None if baseline_name is None else result.estimates[baseline_name]
             if baseline is None or baseline.psi <= 0:
-                raise ValueError(
+                raise CapabilityError(
                     "converting a risk difference to a risk ratio needs the mean under the "
                     f"arm {estimand!r} is contrasted against; add 'ey' (or 'ey0'/'ey1') to "
                     "estimands, or request a risk ratio directly"
@@ -231,7 +232,9 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
             observed = result.data.outcome[result.data.observed]
             sd = float(np.std(observed, ddof=1))
             if sd <= 0:
-                raise ValueError("cannot standardise the effect: the outcome has zero variance")
+                raise CapabilityError(
+                    "cannot standardise the effect: the outcome has zero variance"
+                )
             rr = float(np.exp(_SMD_TO_LOG_RR * estimate.psi / sd))
             ci = (
                 float(np.exp(_SMD_TO_LOG_RR * low / sd)),
@@ -250,7 +253,7 @@ def evalue(result: TMLEResult, estimand: str | None = None) -> EValue:
         # contrasts: a counterfactual mean, an MSM coefficient, a contrast of two
         # regimes. A level has no association to explain away at all; the other axes have
         # one, and converting it would need that axis's own baseline rather than an arm's.
-        raise ValueError(
+        raise CapabilityError(
             f"cannot compute an E-value for estimand {estimand!r}: the conversion is "
             "written for a contrast of two arms (ate/att/atc, rr, or), and this is not "
             "one of those. Request a risk ratio, an odds ratio or a risk difference."

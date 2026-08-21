@@ -29,6 +29,7 @@ from tests.studies.evidence.inference import (
 )
 from tests.studies.evidence.pairing import paired_wide
 from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.seeds import stream_seed
 
 PAIRED_COLUMNS = ("estimate", "covered", "inference_estimate", "std_error")
 
@@ -156,10 +157,10 @@ def equivalence(
                     group,
                     str(key[1]),
                     float(group["truth"].iloc[0]),
-                    record.seed + 20_000 + index,
+                    stream_seed(record, "equivalence", str(key[0]), str(key[1])),
                 ),
             )
-            for index, (key, group) in enumerate(cells)
+            for key, group in cells
         ],
         n_jobs=n_jobs,
     )

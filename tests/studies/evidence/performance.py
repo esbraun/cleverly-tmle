@@ -23,6 +23,7 @@ from tests.studies.evidence.inference import (
 )
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import truth_on_inference_scale
+from tests.studies.evidence.seeds import stream_seed
 
 CELL_KEYS = ["implementation", "scenario", "estimand"]
 
@@ -188,9 +189,9 @@ def independent_performance_tests(
                 record,
                 group,
                 (str(key[0]), str(key[1]), str(key[2])),
-                record.seed + 10_000 + index,
+                stream_seed(record, "performance", str(key[0]), str(key[1]), str(key[2])),
             ),
         )
-        for index, (key, group) in enumerate(cells)
+        for key, group in cells
     ]
     return pd.DataFrame.from_records(map_parallel(_cell, payloads, n_jobs=n_jobs))

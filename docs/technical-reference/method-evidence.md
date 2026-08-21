@@ -90,9 +90,11 @@ mutation must fail the reference's column while leaving cleverly's standing.
 
 ### Measured values
 
-Every figure this section quotes is resolved from the committed results by name and checked at the
-precision it is printed to, so a stale or mistyped number is a test failure rather than a reading
-error.
+Every figure this section quotes is resolved by name and checked at the precision it is printed to,
+so a stale or mistyped number is a test failure rather than a reading error. Names beginning
+`margin:` are the thresholds declared *before* the run; everything else is measured from the
+committed results. Both resolve the same way, so moving a declared threshold in the code changes
+this table rather than leaving it asserting a rule the study never applied.
 
 | quantity | value | source |
 | --- | --- | --- |
@@ -107,13 +109,13 @@ error.
 | `max_standardized_bias` | 0.1254 | largest bias, in empirical standard deviations |
 | `min_coverage` | 0.9344 | lowest measured coverage of a nominal 95% interval |
 | `min_coverage_ci_lower` | 0.9168 | lowest exact 99% coverage endpoint, against a floor of 0.90 |
-| `min_se_ratio_ci_lower` | 0.9041 | lowest bootstrap SE-ratio endpoint, against a band of 0.80--1.20 |
-| `max_se_ratio_ci_upper` | 1.0639 | highest bootstrap SE-ratio endpoint |
-| `max_se_ratio_resolution` | 0.0959 | how far from 1.0 the widest SE-ratio interval still reaches |
+| `min_se_ratio_ci_lower` | 0.9040 | lowest bootstrap SE-ratio endpoint, against a band of 0.80--1.20 |
+| `max_se_ratio_ci_upper` | 1.0649 | highest bootstrap SE-ratio endpoint |
+| `max_se_ratio_resolution` | 0.0960 | how far from 1.0 the widest SE-ratio interval still reaches |
 | `max_margin_utilization` | 0.7445 | largest share of the paired similarity margin used |
-| `max_rmse_ratio_upper` | 1.0087 | largest one-sided RMSE-ratio bound, against a margin of 1.10 |
-| `min_coverage_difference_lower` | -0.0088 | smallest one-sided coverage-difference bound, against -0.025 |
-| `max_calibration_excess_upper` | 0.0128 | largest comparable SE-calibration-excess bound, against 0.05 |
+| `max_rmse_ratio_upper` | 1.0088 | largest one-sided RMSE-ratio bound, against a margin of 1.10 |
+| `min_coverage_difference_lower` | -0.0081 | smallest one-sided coverage-difference bound, against -0.025 |
+| `max_calibration_excess_upper` | 0.0129 | largest comparable SE-calibration-excess bound, against 0.05 |
 | `summary_cells` | 34 | summary cells over both laws and both implementations |
 | `cells_with_se_ratio_below_one` | 13 | of those, reporting a standard error below the empirical spread |
 | `cells_with_coverage_below_nominal` | 17 | of those, covering below 95% |
@@ -132,19 +134,42 @@ error.
 | `properties[double_robustness/both_wrong]:bias` | -0.3332 | bias with both nuisances wrong -- the negative control |
 | `properties[double_robustness/both_wrong]:coverage` | 0.1967 | coverage of the same control |
 | `properties[root_n_rate/empirical_sd]:slope` | -0.5045 | fitted log-log contraction rate of the sampling spread |
-| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5361 | its 99% lower endpoint |
-| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4719 | its 99% upper endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5374 | its 99% lower endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4725 | its 99% upper endpoint |
 | `properties[root_n_rate/reported_se]:slope` | -0.4986 | the same rate for the mean reported standard error |
 | `properties[root_n_and_efficiency/n_500]:se_ratio` | 0.9913 | SE calibration at n = 500 |
 | `properties[root_n_and_efficiency/n_2000]:se_ratio` | 0.9777 | SE calibration at n = 2,000 |
 | `properties[root_n_and_efficiency/n_8000]:se_ratio` | 1.0077 | SE calibration at n = 8,000 |
 | `properties[interval_calibration/correctly_specified]:se_ratio` | 1.0027 | SE calibration where both nuisances are correct |
 | `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9679 | its 99% lower endpoint, against a band of 0.93--1.07 |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0383 | its 99% upper endpoint |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0385 | its 99% upper endpoint |
 | `properties[interval_calibration/correctly_specified]:coverage` | 0.9542 | coverage of the same cell |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0325 | rejection under a confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0627 | its 99% upper endpoint, against 0.05 + 0.05 |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under a real effect -- the positive control |
+| `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval below |
+| `margin:alpha` | 0.0500 | nominal size of the estimator's own intervals |
+| `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
+| `margin:bootstrap_replicates` | 10000 | resamples behind every bootstrap interval |
+| `margin:standardized_bias` | 0.2500 | bias equivalence margin, in empirical standard deviations |
+| `margin:coverage_floor` | 0.9000 | validity floor the exact coverage lower endpoint must clear |
+| `margin:over_coverage_ceiling` | 0.9900 | above this, coverage is conservative rather than invalid |
+| `margin:se_ratio_sanity_lower` | 0.8000 | SE-ratio screen, lower limit |
+| `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration-cell SE-ratio band, upper limit |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit |
+| `margin:type_i_ceiling` | 0.1000 | largest size the one-sided type-I bound may establish |
+| `margin:paired_difference` | 0.1500 | paired similarity margin, in pooled empirical standard deviations |
+| `margin:rmse_noninferiority` | 1.1000 | largest RMSE ratio the one-sided upper bound may reach |
+| `margin:coverage_noninferiority` | -0.0250 | smallest coverage difference the one-sided lower bound may reach |
+| `margin:calibration_noninferiority` | 0.0500 | largest excess SE-calibration error the upper bound may reach |
+| `margin:minimum_power` | 0.8000 | rejection lower bound the power control must clear |
+| `margin:root_n_slope` | -0.5000 | the contraction rate root-n asymptotics predict |
+| `margin:root_n_slope_lower` | -0.6250 | accepted slope band, lower limit |
+| `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
+| `margin:excluded_slope` | -0.2500 | the slower rate the interval must exclude |
 
 ### What the study establishes, and what it does not
 
@@ -284,6 +309,9 @@ any failed fit, changed fold, missing estimand, or silently dropped replication.
 
 ### Measured values
 
+Names beginning `margin:` are the thresholds declared *before* the run; everything else is measured
+from the committed results. Both are resolved by name and checked at the precision printed.
+
 | quantity | value | source |
 | --- | --- | --- |
 | `replicates` | 1600 | replications per law |
@@ -294,35 +322,61 @@ any failed fit, changed fold, missing estimand, or silently dropped replication.
 | `paired_tests_passed` | 17 | of those, passing |
 | `property_cells_total` | 14 | repeated-sampling property cells |
 | `property_cells_passed` | 14 | of those, passing |
-| `max_standardized_bias` | 0.108 | largest absolute bias in empirical standard deviations |
+| `max_standardized_bias` | 0.1082 | largest absolute bias in empirical standard deviations |
 | `min_coverage` | 0.9375 | lowest measured coverage of a nominal 95% interval |
 | `min_coverage_ci_lower` | 0.9203 | lowest exact 99% coverage endpoint, against 0.90 |
-| `min_se_ratio_ci_lower` | 0.9326 | lowest bootstrap SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.0901 | highest bootstrap SE-ratio endpoint |
-| `max_se_ratio_resolution` | 0.0901 | farthest the widest SE-ratio interval reaches from 1.0 |
+| `min_se_ratio_ci_lower` | 0.9329 | lowest bootstrap SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0884 | highest bootstrap SE-ratio endpoint |
+| `max_se_ratio_resolution` | 0.0884 | farthest the widest SE-ratio interval reaches from 1.0 |
 | `max_margin_utilization` | 0.6941 | largest share of a paired similarity margin used |
-| `max_rmse_ratio_upper` | 1.0125 | largest one-sided RMSE-ratio bound, against 1.10 |
+| `max_rmse_ratio_upper` | 1.0128 | largest one-sided RMSE-ratio bound, against 1.10 |
 | `min_coverage_difference_lower` | -0.0081 | smallest one-sided coverage-difference bound, against -0.025 |
 | `max_calibration_excess_upper` | 0.0116 | largest SE-calibration-excess bound, against 0.05 |
 | `properties[double_robustness/outcome_correct]:bias` | 0.000149 | bias with only the outcome nuisance correct |
-| `properties[double_robustness/treatment_correct]:bias` | -0.01956 | bias with only the treatment nuisance correct |
+| `properties[double_robustness/treatment_correct]:bias` | -0.0196 | bias with only the treatment nuisance correct |
 | `properties[double_robustness/both_wrong]:bias` | -0.3348 | both-wrong negative control |
 | `properties[root_n_rate/empirical_sd]:slope` | -0.5053 | fitted log-log sampling-spread rate |
-| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5376 | its 99% lower endpoint |
-| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4731 | its 99% upper endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5384 | its 99% lower endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4737 | its 99% upper endpoint |
 | `properties[root_n_rate/reported_se]:slope` | -0.5067 | fitted reported-SE rate |
 | `properties[interval_calibration/correctly_specified]:se_ratio` | 1.0077 | SE calibration where both nuisances are correct |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9731 | its 99% lower endpoint, against a band of 0.93--1.07 |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0453 | its 99% upper endpoint |
-| `properties[interval_calibration/correctly_specified]:coverage` | 0.955 | coverage of the same cell |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9738 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0450 | its 99% upper endpoint |
+| `properties[interval_calibration/correctly_specified]:coverage` | 0.9550 | coverage of the same cell |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0325 | rejection under the confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0627 | its 99% upper endpoint, against 0.10 |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under the positive control |
-| `properties[crossfit_overfitting/stacked_cvtmle]:coverage` | 0.895 | coverage with cross-fitted tree predictions |
-| `properties[crossfit_overfitting/stacked_cvtmle]:se_ratio` | 0.988 | SE calibration with cross-fitting |
-| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.65 | coverage with the deliberately in-sample tree |
+| `properties[crossfit_overfitting/stacked_cvtmle]:coverage` | 0.8950 | coverage with cross-fitted tree predictions |
+| `properties[crossfit_overfitting/stacked_cvtmle]:se_ratio` | 0.9880 | SE calibration with cross-fitting |
+| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.6500 | coverage with the deliberately in-sample tree |
 | `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.5792 | SE calibration of that control |
-| `properties[crossfit_overfitting/stacked_cvtmle]:coverage_gain_ci_lower` | 0.185 | paired 99% lower bound for coverage gained over the control |
+| `properties[crossfit_overfitting/stacked_cvtmle]:coverage_gain_ci_lower` | 0.1875 | paired 99% lower bound for coverage gained over the control |
+| `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval below |
+| `margin:alpha` | 0.0500 | nominal size of the estimator's own intervals |
+| `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
+| `margin:bootstrap_replicates` | 10000 | resamples behind every bootstrap interval |
+| `margin:standardized_bias` | 0.2500 | bias equivalence margin, in empirical standard deviations |
+| `margin:coverage_floor` | 0.9000 | validity floor the exact coverage lower endpoint must clear |
+| `margin:over_coverage_ceiling` | 0.9900 | above this, coverage is conservative rather than invalid |
+| `margin:se_ratio_sanity_lower` | 0.8000 | SE-ratio screen, lower limit |
+| `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration-cell SE-ratio band, upper limit |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit |
+| `margin:type_i_ceiling` | 0.1000 | largest size the one-sided type-I bound may establish |
+| `margin:paired_difference` | 0.1500 | paired similarity margin, in pooled empirical standard deviations |
+| `margin:rmse_noninferiority` | 1.1000 | largest RMSE ratio the one-sided upper bound may reach |
+| `margin:coverage_noninferiority` | -0.0250 | smallest coverage difference the one-sided lower bound may reach |
+| `margin:calibration_noninferiority` | 0.0500 | largest excess SE-calibration error the upper bound may reach |
+| `margin:minimum_power` | 0.8000 | rejection lower bound the power control must clear |
+| `margin:root_n_slope` | -0.5000 | the contraction rate root-n asymptotics predict |
+| `margin:root_n_slope_lower` | -0.6250 | accepted slope band, lower limit |
+| `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
+| `margin:excluded_slope` | -0.2500 | the slower rate the interval must exclude |
+| `margin:overfit_se_floor` | 0.8500 | SE ratio the cross-fit arm must restore |
+| `margin:overfit_control_ceiling` | 0.7500 | ceiling the in-sample control's upper bound must stay below |
+| `margin:overfit_coverage_gain` | 0.1500 | coverage cross-fitting must buy over the in-sample control |
 
 ### Comparison and property verdicts
 
@@ -390,6 +444,9 @@ comparison.
 
 ### Measured values
 
+Names beginning `margin:` are the thresholds declared *before* the run; everything else is measured
+from the committed results. Both are resolved by name and checked at the precision printed.
+
 | quantity | value | source |
 | --- | --- | --- |
 | `replicates` | 1600 | replications per law |
@@ -403,27 +460,53 @@ comparison.
 | `max_standardized_bias` | 0.0384 | largest absolute bias in empirical standard deviations |
 | `min_coverage` | 0.9375 | lowest measured primary-study coverage |
 | `min_coverage_ci_lower` | 0.9203 | lowest exact 99% coverage endpoint, against 0.90 |
-| `min_se_ratio_ci_lower` | 0.9312 | lowest bootstrap SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.0751 | highest bootstrap SE-ratio endpoint |
+| `min_se_ratio_ci_lower` | 0.9303 | lowest bootstrap SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0737 | highest bootstrap SE-ratio endpoint |
 | `properties[double_robustness/outcome_correct]:bias` | 0.000149 | bias with only the outcome nuisance correct |
-| `properties[double_robustness/treatment_correct]:bias` | -0.01956 | bias with only the treatment nuisance correct |
+| `properties[double_robustness/treatment_correct]:bias` | -0.0196 | bias with only the treatment nuisance correct |
 | `properties[double_robustness/both_wrong]:bias` | -0.3348 | both-wrong negative control |
 | `properties[root_n_rate/empirical_sd]:slope` | -0.5053 | fitted log-log sampling-spread rate |
-| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5375 | its 99% lower endpoint |
-| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4725 | its 99% upper endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5374 | its 99% lower endpoint |
+| `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4732 | its 99% upper endpoint |
 | `properties[root_n_rate/reported_se]:slope` | -0.5071 | fitted reported-SE rate |
-| `properties[interval_calibration/correctly_specified]:se_ratio` | 1.008 | SE calibration where both nuisances are correct |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9739 | its 99% lower endpoint, against a band of 0.93--1.07 |
-| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0446 | its 99% upper endpoint |
-| `properties[interval_calibration/correctly_specified]:coverage` | 0.955 | coverage of the same cell |
+| `properties[interval_calibration/correctly_specified]:se_ratio` | 1.0080 | SE calibration where both nuisances are correct |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_lower` | 0.9730 | its 99% lower endpoint, against a band of 0.93--1.07 |
+| `properties[interval_calibration/correctly_specified]:se_ratio_ci_upper` | 1.0456 | its 99% upper endpoint |
+| `properties[interval_calibration/correctly_specified]:coverage` | 0.9550 | coverage of the same cell |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0325 | rejection under the confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0627 | its 99% upper endpoint, against 0.10 |
 | `properties[power/alternative]:rejection_rate` | 1 | rejection under the positive control |
-| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:coverage` | 0.895 | coverage with cross-fitted tree predictions |
-| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:se_ratio` | 0.991 | SE calibration with cross-fitting |
-| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.65 | coverage with the deliberately in-sample tree |
+| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:coverage` | 0.8950 | coverage with cross-fitted tree predictions |
+| `properties[crossfit_overfitting/fold_evaluated_cvtmle]:se_ratio` | 0.9910 | SE calibration with cross-fitting |
+| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.6500 | coverage with the deliberately in-sample tree |
 | `properties[crossfit_overfitting/in_sample_control]:se_ratio` | 0.5792 | SE calibration of that control |
 | `properties[crossfit_overfitting/fold_evaluated_cvtmle]:coverage_gain_ci_lower` | 0.1875 | paired 99% lower bound for coverage gained over the control |
+| `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval below |
+| `margin:alpha` | 0.0500 | nominal size of the estimator's own intervals |
+| `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
+| `margin:bootstrap_replicates` | 10000 | resamples behind every bootstrap interval |
+| `margin:standardized_bias` | 0.2500 | bias equivalence margin, in empirical standard deviations |
+| `margin:coverage_floor` | 0.9000 | validity floor the exact coverage lower endpoint must clear |
+| `margin:over_coverage_ceiling` | 0.9900 | above this, coverage is conservative rather than invalid |
+| `margin:se_ratio_sanity_lower` | 0.8000 | SE-ratio screen, lower limit |
+| `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration-cell SE-ratio band, upper limit |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit |
+| `margin:type_i_ceiling` | 0.1000 | largest size the one-sided type-I bound may establish |
+| `margin:paired_difference` | 0.1500 | paired similarity margin, in pooled empirical standard deviations |
+| `margin:rmse_noninferiority` | 1.1000 | largest RMSE ratio the one-sided upper bound may reach |
+| `margin:coverage_noninferiority` | -0.0250 | smallest coverage difference the one-sided lower bound may reach |
+| `margin:calibration_noninferiority` | 0.0500 | largest excess SE-calibration error the upper bound may reach |
+| `margin:minimum_power` | 0.8000 | rejection lower bound the power control must clear |
+| `margin:root_n_slope` | -0.5000 | the contraction rate root-n asymptotics predict |
+| `margin:root_n_slope_lower` | -0.6250 | accepted slope band, lower limit |
+| `margin:root_n_slope_upper` | -0.3750 | accepted slope band, upper limit |
+| `margin:excluded_slope` | -0.2500 | the slower rate the interval must exclude |
+| `margin:overfit_se_floor` | 0.8500 | SE ratio the cross-fit arm must restore |
+| `margin:overfit_control_ceiling` | 0.7500 | ceiling the in-sample control's upper bound must stay below |
+| `margin:overfit_coverage_gain` | 0.1500 | coverage cross-fitting must buy over the in-sample control |
 
 ### Statistical claims and controls
 
