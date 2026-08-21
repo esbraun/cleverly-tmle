@@ -60,6 +60,54 @@ def _heading(value: object) -> str:
     return labels.get(text, text.replace("_", " ").title())
 
 
+def _rules(record: StudyRecord) -> list[str]:
+    """The predeclared rules the two comparison tables were read against.
+
+    Generated from :class:`~tests.studies.evidence.registry.Margins` for the same reason the
+    per-row property rules are generated from their study module: a threshold restated in
+    prose is a copy with no gate on it.  ``Margins`` is hashed into the manifest, so moving
+    one forces a regeneration -- but that only ever moved the *numbers*, never the sentence a
+    reader uses to interpret them, and the two could disagree indefinitely.
+
+    The scientific-property rules are not repeated here.  They differ by cell and by role, so
+    each property row carries its own in the results table below.
+    """
+    margins = record.margins
+    percent = f"{margins.confidence_level:.0%}"
+    return [
+        "### Decision rules applied",
+        "",
+        f"Every interval below is a {percent} Monte Carlo interval across simulation",
+        "replications; none of them is the estimator's nominal "
+        f"{1 - margins.alpha:.0%} confidence interval.",
+        "Equivalence margins are scaled by an observed spread, so they are printed per row.",
+        "",
+        "| test | rule |",
+        "| --- | --- |",
+        f"| bias equivalence | the whole {percent} bias interval lies inside ± "
+        f"{number(margins.standardized_bias)} times the empirical SD of the estimates |",
+        f"| coverage validity | the exact {percent} Clopper-Pearson lower endpoint is at "
+        f"least {number(margins.coverage_floor)} |",
+        f"| SE ratio | the whole {percent} interval, from "
+        f"{margins.bootstrap_replicates:,} rowwise bootstrap resamples, lies inside "
+        f"[{number(margins.se_ratio_sanity[0])}, {number(margins.se_ratio_sanity[1])}] |",
+        f"| paired similarity | the whole {percent} paired interval lies inside ± "
+        f"{number(margins.paired_difference)} times the pooled empirical SD |",
+        f"| RMSE non-inferiority | the one-sided {percent} upper bound on the RMSE ratio is "
+        f"at most {number(margins.rmse_noninferiority)} |",
+        f"| coverage non-inferiority | the one-sided {percent} lower bound on the paired "
+        f"coverage difference is at least {number(margins.coverage_noninferiority)} |",
+        f"| calibration non-inferiority | the one-sided {percent} upper bound on the excess "
+        f"absolute SE-ratio deviation is at most "
+        f"{number(margins.calibration_noninferiority)}; `N/A` means the native SE scales "
+        f"differ |",
+        "",
+        "A performance row passes only if its bias, coverage and SE-ratio rules all pass. A",
+        "paired row passes only if similarity and every applicable non-inferiority rule pass.",
+        "",
+    ]
+
+
 def _performance(record: StudyRecord, frame: pd.DataFrame) -> list[str]:
     lines = ["### Performance versus truth", ""]
     for scenario in record.scenarios:
@@ -171,14 +219,17 @@ def _equivalence(record: StudyRecord, frame: pd.DataFrame) -> list[str]:
 
 
 def _property_result(record: StudyRecord, row: pd.Series) -> tuple[str, str, str]:
-    margins = record.margins
+    """What this row measured, with what Monte Carlo uncertainty, against which rule.
+
+    The rule comes from the study's own property module rather than from a literal here.
+    Four of these branches used to re-type a threshold declared elsewhere, and the gate on
+    the published page compares this renderer's output against the page -- so it read the
+    same literal on both sides and a moved constant published a rule nobody had applied.
+    """
     property_name = str(row["property"])
-    cell = str(row["cell"])
     if property_name == "double_robustness":
         result = f"bias {number(row['bias'])}"
         evidence = f"bias CI {interval(row, 'bias_ci_lower', 'bias_ci_upper')}"
-        direction = "outside" if cell == "both_wrong" else "inside"
-        decision = f"99% bias CI {direction} ±{number(row['bias_margin'])}"
     elif property_name == "root_n_and_efficiency":
         result = (
             f"bias {number(row['bias'])}; coverage {number(row['coverage'])}; "
@@ -188,26 +239,14 @@ def _property_result(record: StudyRecord, row: pd.Series) -> tuple[str, str, str
             f"bias CI {interval(row, 'bias_ci_lower', 'bias_ci_upper')}; "
             f"coverage CI {interval(row, 'coverage_ci_lower', 'coverage_ci_upper')}"
         )
-        decision = (
-            f"bias equivalent; coverage lower ≥ {number(margins.coverage_floor)}; "
-            f"SE ratio in [{number(margins.se_ratio_sanity[0])}, "
-            f"{number(margins.se_ratio_sanity[1])}]"
-        )
     elif property_name == "root_n_rate":
         result = f"slope {number(row['slope'])}"
         evidence = f"slope CI {interval(row, 'slope_ci_lower', 'slope_ci_upper')}"
-        decision = "99% slope CI inside [-0.6250, -0.3750] and excluding -0.2500"
     elif property_name == "interval_calibration":
         result = f"coverage {number(row['coverage'])}; SE ratio {number(row['se_ratio'])}"
         evidence = (
             f"coverage CI {interval(row, 'coverage_ci_lower', 'coverage_ci_upper')}; "
             f"SE-ratio CI {interval(row, 'se_ratio_ci_lower', 'se_ratio_ci_upper')}"
-        )
-        decision = (
-            f"coverage CI in [{number(margins.calibration_coverage[0])}, "
-            f"{number(margins.calibration_coverage[1])}]; SE-ratio CI in "
-            f"[{number(margins.calibration_se_ratio[0])}, "
-            f"{number(margins.calibration_se_ratio[1])}]"
         )
     elif property_name == "type_i_error":
         result = f"rejection {number(row['rejection_rate'])}; coverage {number(row['coverage'])}"
@@ -215,14 +254,9 @@ def _property_result(record: StudyRecord, row: pd.Series) -> tuple[str, str, str
             f"rejection upper {number(row['rejection_ci_upper'])}; "
             f"coverage lower {number(row['coverage_ci_lower'])}"
         )
-        decision = (
-            f"rejection upper ≤ {number(margins.alpha + margins.type_i_margin)}; "
-            f"coverage lower ≥ {number(margins.coverage_floor)}"
-        )
     elif property_name == "power":
         result = f"rejection {number(row['rejection_rate'])}"
         evidence = f"rejection CI {interval(row, 'rejection_ci_lower', 'rejection_ci_upper')}"
-        decision = "99% rejection lower ≥ 0.8000"
     elif property_name == "crossfit_overfitting":
         result = f"coverage {number(row['coverage'])}; SE ratio {number(row['se_ratio'])}"
         evidence = (
@@ -230,23 +264,55 @@ def _property_result(record: StudyRecord, row: pd.Series) -> tuple[str, str, str
             f"coverage-gain CI "
             f"{interval(row, 'coverage_gain_ci_lower', 'coverage_gain_ci_upper')}"
         )
-        decision = (
-            "cross-fit SE-ratio CI in [0.8500, 1.2000]; control upper ≤ 0.7500; "
-            "coverage-gain lower ≥ 0.1500"
-        )
     else:  # pragma: no cover - a new property must teach the renderer how it is read
         raise ValueError(f"no reader-facing result format for property {property_name!r}")
-    return result, evidence, decision
+    return result, evidence, record.properties().decision_rule(record, row)
+
+
+def _design(row: pd.Series) -> tuple[str, str]:
+    """The sizes a cell was run at and the replications per size.
+
+    A rate row is fitted across three sample sizes, but it is stored with ``n`` set to the
+    largest and ``replicates`` set to their sum -- so the table printed ``8,000`` and
+    ``2,400`` and read as a single-size analysis with more replications than any cell
+    actually had.  Spell the design out instead.
+    """
+    sizes = row.get("rate_sizes")
+    if not isinstance(sizes, str) or not sizes:
+        return number(row["n"]), number(row["replicates"])
+    per_size = int(row["replicates"]) // len(sizes.split(";"))
+    return sizes.replace(";", " / "), f"{per_size:,} each"
+
+
+def _status(row: pd.Series) -> str:
+    """A control's verdict says it broke as required, which is not what "Pass" alone says.
+
+    Without this a deliberately in-sample fit reporting 0.65 coverage printed the same word
+    as a valid estimator, and the reader had only the cell's name to tell them apart.
+    """
+    outcome = verdict(row["passed"])
+    if str(row.get("role", "positive")) != "control":
+        return outcome
+    return f"{outcome} (control broke as required)" if row["passed"] else outcome
 
 
 def _properties(record: StudyRecord, frame: pd.DataFrame) -> list[str]:
     lines = [
         "### Scientific-property and control tests",
         "",
-        "| test | cell | n | replications | observed result | uncertainty | decision rule | status |",
-        "| --- | --- | ---: | ---: | --- | --- | --- | --- |",
+        "A **control** row states that the estimator fails in the direction its property",
+        "predicts; its rule is the positive cells' rule reversed, and passing one is not a",
+        "claim that the deliberately misspecified or in-sample fit was valid. Where a",
+        "property needs more than one cell to establish, the shared clause is marked",
+        "*joint* in the rule and is reported once in the row beneath the table.",
+        "",
+        "| test | cell | role | n | replications | observed result | uncertainty "
+        "| decision rule | status |",
+        "| --- | --- | --- | ---: | ---: | --- | --- | --- | --- |",
     ]
+    overall: list[str] = []
     for property_name, cells in record.property_cells.items():
+        verdicts = []
         for cell in cells:
             selected = frame.loc[(frame["property"] == property_name) & (frame["cell"] == cell)]
             if len(selected) != 1:
@@ -255,11 +321,23 @@ def _properties(record: StudyRecord, frame: pd.DataFrame) -> list[str]:
                 )
             row = selected.iloc[0]
             result, evidence, decision = _property_result(record, row)
+            sizes, replications = _design(row)
             lines.append(
-                f"| {_heading(property_name)} | `{cell}` | {number(row['n'])} | "
-                f"{number(row['replicates'])} | {result} | {evidence} | {decision} | "
-                f"{verdict(row['passed'])} |"
+                f"| {_heading(property_name)} | `{cell}` | {row.get('role', 'positive')} "
+                f"| {sizes} | {replications} | {result} | {evidence} | {decision} | "
+                f"{_status(row)} |"
             )
+            verdicts.append(bool(row["property_passed"]))
+        # One line per multi-cell property.  A row's ``status`` answers only its own rule;
+        # whether the *property* holds is the conjunction, plus any clause -- like the paired
+        # coverage gain -- that is about the cells together and belongs to no row alone.
+        if len(cells) > 1:
+            overall.append(
+                f"- **{_heading(property_name)}** overall, every cell and joint clause "
+                f"together: {verdict(all(verdicts))}"
+            )
+    if overall:
+        lines.extend(["", *overall])
     lines.append("")
     return lines
 
@@ -268,6 +346,7 @@ def render_results(record: StudyRecord, data: Mapping[str, pd.DataFrame] | None 
     """Render all committed test rows for one study in registered order."""
     loaded = load(record) if data is None else data
     lines = [
+        *_rules(record),
         *_performance(record, loaded["performance"]),
         *_equivalence(record, loaded["equivalence"]),
         *_properties(record, loaded["properties"]),

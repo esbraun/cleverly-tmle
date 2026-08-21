@@ -44,7 +44,17 @@ both implementations returning their initial plug-in estimates.
 
 Every property cell needs a law with an exact truth, a fixed estimator configuration, a replication
 budget justified by the desired confidence interval, and a seed derived independently of the run's
-size and from this study's own record. Predeclare all margins before seeing the full results.
+size. Predeclare all margins before seeing the full results.
+
+Two seed streams, with different rules. The *primary* replications come from the study's own record
+through `replicate_seed`, so no two rows draw the same samples and a short probe redraws the head of
+the published run. Property cells deliberately do *not*: their seeds are fixed constants shared
+across studies, so every method is compared on identical draws, and a paired cell -- the cross-fit
+arm against its in-sample control -- can merge on the replicate index. *Resampling* streams come
+from `stream_seed`, which hashes a label rather than adding an offset. Adding offsets to a study
+seed reads as separate and is not: consecutive study seeds and adjacent offsets hand two published
+rows the same bootstrap index matrix, which makes intervals a reader compares side by side share
+their Monte Carlo error.
 
 Justify the budget against the binding gate rather than the one that reads tightest. A coverage
 floor of 0.90 checked with an exact 99% interval needs 92.75% observed at 800 replications but

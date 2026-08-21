@@ -24,7 +24,7 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies import canonical_tmle
+from tests.studies import canonical_tmle, cvtmle_properties
 from tests.studies.evidence.claims import load, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import RESULTS_START, generated_results, render_results
@@ -212,6 +212,61 @@ class TestPublishedVerdicts:
             atol=1e-9,
         )
         assert published["passed"].all(), published.loc[~published["passed"]].to_string()
+        assert published["property_passed"].all(), published.loc[
+            ~published["property_passed"]
+        ].to_string()
+
+    def test_no_property_row_publishes_another_row_s_verdict(self, study: StudyRecord) -> None:
+        """The gate the performance table had and this one did not.
+
+        ``crossfit_overfitting`` computed one scalar from three statements -- two per-row and
+        one paired -- and broadcast it across the property.  So ``in_sample_control``, a
+        deliberately in-sample fit with 0.65 coverage and an SE ratio of 0.58, published
+        ``passed=True`` beside the *cross-fit* arm's rule.  It was not wrong to pass; its own
+        rule is that it must understate its spread, and it does.  Nothing published said so,
+        which is the defect: a reader could not tell which claim the verdict answered.
+
+        Every row's ``passed`` must therefore follow from that row's own endpoints, and the
+        clause that really is about the pair lives in ``property_passed``.
+        """
+        published = pd.read_csv(study.artifact("properties.csv"))
+        control = published["role"] == "control"
+        robustness = published["property"] == "double_robustness"
+
+        def verdicts(mask: pd.Series, column: str) -> list[bool]:
+            # ``bias_equivalent`` reads back as object, not bool: the rate rows leave it
+            # blank, so the column is mixed and ``Series.equals`` would compare dtypes.
+            return [bool(value) for value in published.loc[mask, column]]
+
+        assert verdicts(robustness & ~control, "passed") == verdicts(
+            robustness & ~control, "bias_equivalent"
+        )
+        assert verdicts(robustness & control, "passed") == verdicts(
+            robustness & control, "bias_discriminated"
+        )
+
+        overfitting = published.loc[published["property"] == "crossfit_overfitting"]
+        if overfitting.empty:
+            pytest.skip("study declares no cross-fit overfitting cells")
+        margins = study.margins
+        for row in overfitting.itertuples():
+            if row.role == "control":
+                expected = row.se_ratio_ci_upper <= cvtmle_properties.OVERFIT_SE_CONTROL_CEILING
+            else:
+                expected = (
+                    row.se_ratio_ci_lower >= cvtmle_properties.OVERFIT_SE_FLOOR
+                    and row.se_ratio_ci_upper <= margins.se_ratio_sanity[1]
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own endpoints"
+            )
+        # The paired clause belongs to neither row, so it is the one thing both share.
+        assert overfitting["property_passed"].nunique() == 1
+        assert bool(overfitting["property_passed"].iloc[0]) is bool(
+            overfitting["passed"].all()
+            and overfitting["coverage_gain_ci_lower"].iloc[0]
+            >= cvtmle_properties.OVERFIT_COVERAGE_GAIN
+        )
 
 
 class TestNegativeControls:

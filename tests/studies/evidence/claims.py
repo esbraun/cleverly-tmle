@@ -60,7 +60,13 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
         "paired_tests_total": lambda data: count(data["equivalence"]),
         "paired_tests_passed": lambda data: float(data["equivalence"]["passed"].sum()),
         "property_cells_total": lambda data: count(data["properties"]),
-        "property_cells_passed": lambda data: float(data["properties"]["passed"].sum()),
+        # Both columns, not just the row's own.  A property whose claim needs more than one
+        # cell -- ``crossfit_overfitting``, whose coverage-gain clause is about the pair --
+        # can have every row pass its own rule while the joint clause fails, and a headline
+        # reading only ``passed`` would publish "14/14 cells pass" over exactly that.
+        "property_cells_passed": lambda data: float(
+            (data["properties"]["passed"] & data["properties"]["property_passed"]).sum()
+        ),
         "min_coverage_ci_lower": lambda data: float(data["performance"]["coverage_ci_lower"].min()),
         "min_coverage": lambda data: float(data["performance"]["coverage"].min()),
         "min_se_ratio_ci_lower": lambda data: float(data["performance"]["se_ratio_ci_lower"].min()),

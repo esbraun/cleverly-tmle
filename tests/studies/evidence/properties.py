@@ -26,6 +26,7 @@ from tests.studies.evidence.inference import (
 REPLICATE_COLUMNS = (
     "property",
     "cell",
+    "role",
     "replicate",
     "n",
     "requested_replicates",
@@ -40,7 +41,14 @@ REPLICATE_COLUMNS = (
 
 @dataclass(frozen=True)
 class PropertyCell:
-    """One repeated-sampling cell: a law, a nuisance configuration, a size, a seed."""
+    """One repeated-sampling cell: a law, a nuisance configuration, a size, a seed.
+
+    ``role`` is what stops a control from being read as a claim.  A cell fit with both
+    nuisances wrong, or with deliberately in-sample predictions, is *supposed* to fail; its
+    verdict records that it failed in the required direction.  Published without the
+    distinction, a ``passed`` column says the same word about a valid estimator and about
+    one that was broken on purpose, and the rule printed beside it is the positive cell's.
+    """
 
     property: str
     cell: str
@@ -50,6 +58,9 @@ class PropertyCell:
     n: int
     replicates: int
     seed: int
+    #: ``"positive"`` for a cell whose rule asserts the estimator behaved, ``"control"`` for
+    #: one whose rule asserts it broke in the direction the property predicts.
+    role: str = "positive"
     estimand: str = "ate"
     fit_kwargs: dict[str, Any] = field(default_factory=lambda: {"outcome": "Y", "treatment": "A"})
 
@@ -93,6 +104,7 @@ def run_cells(
                 {
                     "property": cell.property,
                     "cell": cell.cell,
+                    "role": cell.role,
                     "replicate": [record.replicate for record in records],
                     "n": cell.n,
                     "requested_replicates": cell.replicates,
@@ -173,6 +185,7 @@ def summarize_cells(
             {
                 "property": property_name,
                 "cell": cell,
+                "role": str(group["role"].iloc[0]),
                 "n": int(group["n"].iloc[0]),
                 "replicates": replicates,
                 "failed_replicates": int(group["failed_replicates"].iloc[0]),
@@ -297,10 +310,13 @@ def rate(
     point = _slope(sizes, np.array([observed(values) for values in samples]))
 
     draws = np.empty((bootstrap_replicates, len(sizes)), dtype=float)
+    # A separate stream per size: the sizes are independent runs, and resampling them with
+    # shared indices would pretend they were paired.  Spawned rather than ``seed + index``,
+    # which only *looks* separate: two callers whose base seeds differ by one -- which is
+    # exactly what the two published rate rows had -- then share every stream but the first.
+    children = np.random.SeedSequence(seed).spawn(len(samples))
     for index, values in enumerate(samples):
-        # A separate stream per size: the sizes are independent runs, and resampling them
-        # with shared indices would pretend they were paired.
-        rng = np.random.default_rng(seed + index)
+        rng = np.random.default_rng(children[index])
         picks = rng.integers(0, len(values), size=(bootstrap_replicates, len(values)))
         resampled = values[picks]
         draws[:, index] = (

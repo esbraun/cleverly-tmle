@@ -26,19 +26,21 @@ therefore marked `N/A` in the paired table.
 
 ## How to read the tests
 
-The reported 99% intervals quantify Monte Carlo uncertainty across simulation replications; they
-are not the estimator's nominal 95% confidence intervals. Bias is computed on the inference scale
-shown in the results table. **Pass** records only whether the predeclared decision rule was met.
+Bias is computed on the inference scale shown in the results table. **Pass** records only whether
+the predeclared decision rule was met. The rules themselves are not restated here: the
+comparison rules are generated into [Decision rules applied](#decision-rules-applied) below, and
+each scientific-property row carries its own rule in the results table, so a threshold cannot be
+moved in the code and left standing in this prose.
 
-| test | statistic | Monte Carlo uncertainty | decision rule |
-| --- | --- | --- | --- |
-| bias equivalence | mean error `mean(estimate − truth)`; the margin is 0.25 times the empirical SD of the estimates | two-sided 99% Student-t interval for mean error | the complete interval lies inside the displayed ± margin |
-| coverage validity | mean of the indicators that the nominal 95% interval contains truth | two-sided exact 99% Clopper–Pearson interval | the lower endpoint is at least 0.90 |
-| SE ratio | mean reported SE divided by the empirical SD of the estimates; 1 denotes equal scales | 99% percentile interval from 10,000 rowwise bootstrap resamples | the complete interval lies inside 0.80–1.20 |
-| paired similarity | mean cleverly-minus-reference estimate on identical simulated samples | two-sided 99% paired Student-t interval; the margin is 0.15 times the pooled empirical SD | the complete interval lies inside the displayed ± margin |
-| RMSE non-inferiority | cleverly RMSE divided by reference RMSE, both against known truth | one-sided 99% upper percentile bound from 10,000 paired bootstrap resamples | the upper bound is at most 1.10 |
-| coverage non-inferiority | cleverly coverage minus reference coverage on paired samples | one-sided 99% lower percentile bound from the paired bootstrap | the lower bound is at least −0.025 |
-| calibration non-inferiority | excess absolute deviation of the cleverly SE ratio from 1 relative to the reference | one-sided 99% upper percentile bound from the paired bootstrap | the upper bound is at most 0.05; `N/A` means native SE scales differ |
+| test | statistic | Monte Carlo uncertainty |
+| --- | --- | --- |
+| bias equivalence | mean error `mean(estimate − truth)`, against a margin scaled by the empirical SD of the estimates | two-sided 99% Student-t interval for mean error |
+| coverage validity | mean of the indicators that the nominal 95% interval contains truth | two-sided exact 99% Clopper–Pearson interval |
+| SE ratio | mean reported SE divided by the empirical SD of the estimates; 1 denotes equal scales | 99% percentile interval from 10,000 rowwise bootstrap resamples |
+| paired similarity | mean cleverly-minus-reference estimate on identical simulated samples, against a margin scaled by the pooled empirical SD | two-sided 99% paired Student-t interval |
+| RMSE non-inferiority | cleverly RMSE divided by reference RMSE, both against known truth | one-sided 99% upper percentile bound from 10,000 paired bootstrap resamples |
+| coverage non-inferiority | cleverly coverage minus reference coverage on paired samples | one-sided 99% lower percentile bound from the paired bootstrap |
+| calibration non-inferiority | excess absolute deviation of the cleverly SE ratio from 1 relative to the reference | one-sided 99% upper percentile bound from the paired bootstrap |
 
 A performance row passes only if its bias, coverage, and SE-ratio rules all pass. A paired row
 passes only if similarity and every applicable non-inferiority rule pass. A control marked
@@ -47,14 +49,14 @@ deliberately misspecified fit was valid.
 
 ### Scientific-property test meanings
 
-| test | design and statistic | uncertainty and decision rule |
+| test | design and statistic | Monte Carlo uncertainty |
 | --- | --- | --- |
-| double robustness | ATE bias with both nuisances correct, outcome only correct, treatment only correct, and both wrong | the first three Student-t bias intervals must lie inside ±0.25 empirical SD; the `both_wrong` interval must lie wholly outside its margin |
-| root-n and efficiency | ATE bias, nominal-interval coverage, and mean-SE/empirical-SD ratio at `n` = 500, 2,000, and 8,000 | at each size: bias equivalence, exact coverage lower bound at least 0.90, and the point SE ratio in 0.80–1.20 |
-| root-n rate | OLS slope of log empirical SD on log `n`, and separately of log mean reported SE on log `n` | 99% percentile intervals from 10,000 within-size bootstrap resamples must lie in −0.5 ± 0.125 and exclude −0.25 |
-| interval calibration | coverage and SE ratio where both nuisance models are correctly specified | the exact 99% coverage interval must lie in 0.92–0.98 and the 10,000-resample 99% SE-ratio interval in 0.93–1.07 |
-| type-I error | Wald rejection rate for the ATE under a confounded sharp null, paired with interval coverage | the exact 99% rejection upper bound must be at most 0.10 and the exact coverage lower bound at least 0.90 |
-| power | Wald rejection rate under the registered nonzero ATE alternative | the exact 99% rejection lower bound must be at least 0.80 |
+| double robustness | ATE bias with both nuisances correct, outcome only correct, treatment only correct, and both wrong | two-sided Student-t bias intervals; the positive cells must land inside their margin and the `both_wrong` control wholly outside it, so the same instrument is required to speak in both directions |
+| root-n and efficiency | ATE bias, nominal-interval coverage, and mean-SE/empirical-SD ratio at `n` = 500, 2,000, and 8,000 | per size: a Student-t bias interval, an exact Clopper-Pearson coverage interval, and the point SE ratio |
+| root-n rate | OLS slope of log empirical SD on log `n`, and separately of log mean reported SE on log `n` | within-size bootstrap percentile intervals for the fitted slope. The reported-SE row is the weaker of the two: an influence-curve standard error is sigma-hat over sqrt(n), so it returns the right exponent for any estimator that divides by the right power of `n`, consistent or not. It catches a standard error carrying the wrong power of `n` and nothing else; the empirical-SD row is the one that is evidence about the sampling distribution |
+| interval calibration | coverage and SE ratio where both nuisance models are correctly specified | an exact coverage interval and a bootstrap SE-ratio interval, both two-sided and both required: a standard error inflated by a constant keeps coverage inside its band while failing the ratio, and a curve right on average but wrong replication by replication does the reverse |
+| type-I error | Wald rejection rate for the ATE under a confounded sharp null, paired with interval coverage | exact one-sided bounds on the rejection rate and on coverage. One-sided because a test that over-rejects is invalid while one that under-rejects is merely conservative, which is what the power cell below exists to rule out |
+| power | Wald rejection rate under the registered nonzero ATE alternative | an exact one-sided lower bound on the rejection rate, so a rejection indicator that never fires cannot pass the type-I cell by being inert |
 
 ## Test-by-test results
 

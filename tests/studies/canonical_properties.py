@@ -22,6 +22,7 @@ from cleverly.utils.bounds import expit
 from tests.conftest import OracleOutcomeContinuous, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_tmle import G_BOUNDS, STUDY
+from tests.studies.evidence.document import number
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     PropertyCell,
@@ -31,6 +32,7 @@ from tests.studies.evidence.properties import (
     summarize_cells,
 )
 from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.seeds import stream_seed
 
 #: Sized by what the claim needs, not by habit.  The 99% interval's half-width is about
 #: ``2.6 / sqrt(m)`` empirical standard deviations, so ``m`` decides the largest bias the study
@@ -140,6 +142,7 @@ def cells() -> tuple[PropertyCell, ...]:
                 n=700,
                 replicates=DOUBLE_ROBUST_REPLICATES,
                 seed=7100 + index,
+                role="control" if name == "both_wrong" else "positive",
             )
         )
     for index, size in enumerate(RATE_SIZES):
@@ -217,6 +220,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 #: Columns every study family's property summary carries, whatever else it adds.
 SHARED_COLUMNS = (
+    "rate_sizes",
     "slope",
     "slope_ci_lower",
     "slope_ci_upper",
@@ -254,10 +258,16 @@ def apply_shared_verdicts(
     for column in (*SHARED_COLUMNS, *extra_columns):
         summary[column] = np.nan
     summary["passed"] = False
+    # Object dtype, not the NaN float the numeric columns above get: a property with a
+    # cross-row claim writes booleans into this, and ``.loc`` will not put one into a
+    # float64 column.  ``None`` means "no joint claim beyond this row's own", which
+    # :func:`finish` resolves.
+    summary["property_passed"] = pd.Series([None] * len(summary), dtype=object, index=summary.index)
 
-    positive = (summary["property"] == "double_robustness") & (summary["cell"] != "both_wrong")
+    robustness = summary["property"] == "double_robustness"
+    positive = robustness & (summary["role"] == "positive")
     summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
-    control = (summary["property"] == "double_robustness") & (summary["cell"] == "both_wrong")
+    control = robustness & (summary["role"] == "control")
     summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
 
     efficiency = summary["property"] == "root_n_and_efficiency"
@@ -268,13 +278,13 @@ def apply_shared_verdicts(
     )
 
     calibration = summary["property"] == "interval_calibration"
-    for offset, cell in enumerate(sorted(summary.loc[calibration, "cell"])):
+    for cell in sorted(summary.loc[calibration, "cell"]):
         group = rows.loc[(rows["property"] == "interval_calibration") & (rows["cell"] == cell)]
         ratio = se_ratio_interval(
             group,
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
-            seed=record.seed + 50_000 + offset,
+            seed=stream_seed(record, "interval_calibration", cell),
         )
         mask = calibration & (summary["cell"] == cell)
         summary.loc[mask, "se_ratio_ci_lower"] = ratio.low
@@ -307,15 +317,20 @@ def apply_shared_verdicts(
             statistic=statistic,
             bootstrap_replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
-            seed=record.seed + 30_000 + len(rates),
+            seed=stream_seed(record, "root_n_rate", cell),
         )
         row: dict[str, Any] = dict.fromkeys(summary.columns, np.nan)
         row.update(
             {
                 "property": "root_n_rate",
                 "cell": cell,
+                "role": "positive",
                 "n": max(RATE_SIZES),
                 "replicates": RATE_REPLICATES * len(RATE_SIZES),
+                # The slope is fitted across all three sizes.  ``n`` and ``replicates`` above
+                # are the largest and the sum, which read as one big cell; this is what the
+                # published table shows instead.
+                "rate_sizes": ";".join(f"{size:,}" for size in RATE_SIZES),
                 "failed_replicates": 0,
                 "slope": fitted.slope,
                 "slope_ci_lower": fitted.interval.low,
@@ -330,10 +345,71 @@ def apply_shared_verdicts(
     return summary, rates
 
 
+def decision_rule(record: StudyRecord, row: pd.Series) -> str:
+    """The predeclared rule this row's verdict was read against, in the reader's words.
+
+    Authored here rather than in :mod:`tests.studies.evidence.document` because this is where
+    the thresholds are declared.  The renderer used to re-type them -- ``"99% slope CI inside
+    [-0.6250, -0.3750]"`` and ``"rejection lower >= 0.8000"`` were string literals -- and the
+    gate that checks the published page reads the same literal on both sides, so moving
+    :data:`ROOT_N_SLOPE_MARGIN` or :data:`MINIMUM_POWER` published a rule the study had not
+    applied and nothing failed.  Formatting from the constants makes that impossible instead
+    of merely unlikely, and the module's content is hashed into the study manifest.
+    """
+    margins = record.margins
+    property_name = str(row["property"])
+    if property_name == "double_robustness":
+        # The control's rule is the positive cells' rule reversed: the same instrument has to
+        # say "outside" here, or a study too small to resolve anything would pass both.
+        direction = "outside" if str(row["role"]) == "control" else "inside"
+        return f"99% bias CI {direction} ±{number(row['bias_margin'])}"
+    if property_name == "root_n_and_efficiency":
+        return (
+            f"bias equivalent; coverage lower ≥ {number(margins.coverage_floor)}; "
+            f"SE ratio in [{number(margins.se_ratio_sanity[0])}, "
+            f"{number(margins.se_ratio_sanity[1])}]"
+        )
+    if property_name == "root_n_rate":
+        return (
+            f"99% slope CI inside [{number(ROOT_N_SLOPE - ROOT_N_SLOPE_MARGIN)}, "
+            f"{number(ROOT_N_SLOPE + ROOT_N_SLOPE_MARGIN)}] and excluding "
+            f"{number(EXCLUDED_SLOPE)}"
+        )
+    if property_name == "interval_calibration":
+        return (
+            f"coverage CI in [{number(margins.calibration_coverage[0])}, "
+            f"{number(margins.calibration_coverage[1])}]; SE-ratio CI in "
+            f"[{number(margins.calibration_se_ratio[0])}, "
+            f"{number(margins.calibration_se_ratio[1])}]"
+        )
+    if property_name == "type_i_error":
+        return (
+            f"rejection upper ≤ {number(margins.alpha + margins.type_i_margin)}; "
+            f"coverage lower ≥ {number(margins.coverage_floor)}"
+        )
+    if property_name == "power":
+        return f"99% rejection lower ≥ {number(MINIMUM_POWER)}"
+    raise ValueError(f"no declared decision rule for property {property_name!r}")
+
+
 def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:
-    """Append the rate rows and put the table in its published order."""
+    """Append the rate rows and put the table in its published order.
+
+    ``property_passed`` defaults to the row's own verdict and is overwritten only by a
+    property whose claim needs more than one cell to establish -- currently just
+    ``crossfit_overfitting``, whose coverage-gain statement is about the *pair*.  Publishing
+    both columns is what lets a row state its own rule without losing the joint claim: the
+    alternative, broadcasting one scalar across the property, made a deliberately in-sample
+    control report the cross-fit arm's verdict as though it were its own.
+    """
     summary = pd.concat([summary, pd.DataFrame(rates)], ignore_index=True)
     summary["passed"] = summary["passed"].astype(bool)
+    # ``where`` rather than a whole-column default: the rate rows are built from
+    # ``dict.fromkeys(summary.columns, nan)``, and a property with a cross-row claim wrote
+    # the column only on its own rows.  Everything else is left unset, and ``astype(bool)``
+    # would silently publish both ``NaN`` and ``None`` as ``True``.
+    joint = summary["property_passed"]
+    summary["property_passed"] = joint.where(joint.notna(), summary["passed"]).astype(bool)
     return summary.sort_values(["property", "cell"], ignore_index=True)
 
 

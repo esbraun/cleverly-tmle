@@ -31,7 +31,8 @@ from tests.studies.evidence.inference import (
 )
 from tests.studies.evidence.pairing import paired_wide
 from tests.studies.evidence.properties import Rate, rate, require_complete
-from tests.studies.evidence.registry import Margins
+from tests.studies.evidence.registry import Margins, registered
+from tests.studies.evidence.seeds import stream_seed
 
 CONFIDENCE = 0.99
 
@@ -359,6 +360,51 @@ class TestRateEstimator:
                 confidence_level=CONFIDENCE,
                 seed=0,
             )
+
+
+class TestResamplingStreams:
+    """Two published intervals must not share their bootstrap indices."""
+
+    def test_every_named_stream_of_every_study_is_distinct(self) -> None:
+        labels = [
+            ("root_n_rate", "empirical_sd"),
+            ("root_n_rate", "reported_se"),
+            ("interval_calibration", "correctly_specified"),
+            ("crossfit_overfitting", "in_sample_control"),
+            ("crossfit_overfitting", "coverage_gain"),
+            ("performance", "cleverly", "binary", "ate"),
+            ("equivalence", "binary", "ate"),
+        ]
+        studies = registered()
+        seeds = [stream_seed(study, *label) for study in studies for label in labels]
+        assert len(set(seeds)) == len(seeds), "two analyses would resample on the same stream"
+
+    def test_the_scheme_it_replaced_collides_across_studies(self) -> None:
+        """Why labels rather than offsets, stated as an executable fact.
+
+        The three registered study seeds are consecutive integers, so cell *k* of one study
+        and cell *k-1* of the next landed on the same ``seed + offset + index``.  Rows a
+        reader compares side by side then share their Monte Carlo error, which is exactly
+        what an independent stream per analysis is supposed to prevent.
+        """
+        studies = registered()
+        offsets = [study.seed + 10_000 + index for study in studies for index in range(3)]
+        assert len(set(offsets)) < len(offsets)
+
+    def test_the_two_rate_rows_no_longer_share_a_per_size_stream(self) -> None:
+        """``rate`` spawns its per-size children instead of adding the size index.
+
+        Adding it made ``empirical_sd``'s stream for one size identical to ``reported_se``'s
+        for the next, because the two callers' base seeds were themselves one apart -- so
+        two of the three sizes behind each published slope were resampled identically.
+        """
+        study = registered()[0]
+
+        def children(cell: str) -> set[tuple[int, ...]]:
+            root = np.random.SeedSequence(stream_seed(study, "root_n_rate", cell))
+            return {(*child.spawn_key, child.entropy) for child in root.spawn(3)}
+
+        assert not children("empirical_sd") & children("reported_se")
 
 
 class TestReplicationAccounting:

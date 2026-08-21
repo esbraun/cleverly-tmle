@@ -43,7 +43,7 @@ from tests.studies.evidence.schema import (
     truth_on_inference_scale,
     validate_replicates,
 )
-from tests.studies.evidence.seeds import replicate_seed
+from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 __all__ = [
     "REPLICATE_COLUMNS",
@@ -69,6 +69,7 @@ __all__ = [
     "replicate_seed",
     "se_ratio_for_coverage",
     "standardized_bias_verdict",
+    "stream_seed",
     "student_interval",
     "summarize",
     "truth_on_inference_scale",
