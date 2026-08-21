@@ -22,9 +22,31 @@ from tests.studies.evidence.registry import ROOT, StudyRecord
 
 UNKNOWN = "unknown"
 
+#: The one line ending a published artefact may contain.
+#:
+#: These bytes are hashed below and the hash is committed, so they have to be a property of
+#: the study rather than of the machine that ran it.  ``pandas.to_csv`` and
+#: :meth:`pathlib.Path.write_text` both default to ``os.linesep``, which is CRLF on Windows;
+#: git then stores LF in the blob, so the recorded digest verifies on the machine that wrote
+#: it and nowhere else.  ``.gitattributes`` pins the checkout side of the same agreement.
+#: The uncompressed tables are the ones that can break -- git leaves ``.csv.gz`` alone as
+#: binary -- but the archives are written the same way so regenerating on two platforms
+#: produces one answer rather than two that differ invisibly.
+NEWLINE = "\n"
+
 
 def hashes(paths: Iterable[Path]) -> dict[str, str]:
     return {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+
+
+def write_csv(frame: Any, path: Path, **options: Any) -> None:
+    """Write one published table with the line ending :data:`NEWLINE` fixes."""
+    frame.to_csv(path, index=False, lineterminator=NEWLINE, **options)
+
+
+def write_lines(path: Path, text: str) -> None:
+    """Write one published document with the line ending :data:`NEWLINE` fixes."""
+    path.write_text(text, encoding="utf-8", newline=NEWLINE)
 
 
 def _git(*arguments: str) -> str:
@@ -115,4 +137,4 @@ def write_manifest(
         "reference_sha256": hashes(reference_files),
         "sha256": hashes(artifacts),
     }
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    write_lines(path, json.dumps(payload, indent=2) + "\n")
