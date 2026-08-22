@@ -1,4 +1,4 @@
-# Canonical R `ltmle` witness
+# Canonical R `ltmle` evidence
 
 This directory freezes two end-of-study fits and one survival fit from R `ltmle` 1.3-0.
 It answers two deliberately narrow questions that the independent exact laws cannot:
@@ -28,6 +28,15 @@ The independent parameter and EIF evidence remains in
 test modules. This reference is secondary implementation evidence, not an oracle for the
 estimand.
 
+The directory also holds the registered repeated-sampling study for censored end-of-study
+LTMLE.  `replicates.csv.gz` pairs cleverly with R `ltmle` on 1,600 identical samples and
+three plans (never, always, and a row-specific dynamic rule).  Both receive the generating
+treatment and censoring probabilities and matching quasibinomial sequential regressions, so
+the comparison isolates targeting and inference.  `property-replicates.csv.gz` is independent:
+it samples the exact finite-support law, checks static and dynamic double robustness, root-n
+contraction, the Gateaux-EIF efficiency bound, interval calibration, type-I error and power,
+and retains the resolved n=500 undercoverage as a negative control.
+
 ## Sources and regeneration
 
 - Lendle, Schwab, Petersen & van der Laan (2017), *ltmle: An R Package Implementing
@@ -46,6 +55,13 @@ docker run --rm `
   -v "${PWD}/tests/canonical/ltmle:/fixture" `
   cleverly-ltmle-reference:1.3-0 `
   /fixture/generate_reference.R /fixture
+```
+
+Regenerate the registered study and all of its verdict tables with:
+
+```powershell
+uv run python -m tests.canonical.ltmle.regenerate
+uv run python -m tests.studies.evidence.document --slug canonical-ltmle
 ```
 
 The image pins R 4.5.2 by digest and checks that the installed package reports version

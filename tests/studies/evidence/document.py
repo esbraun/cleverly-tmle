@@ -34,9 +34,18 @@ def render(computed: float) -> str:
 
     Counts are counts.  Everything else gets four decimals, or six where four would round a real
     quantity to nothing -- a bound of 0.0002 printed as ``0.0000`` is a worse claim than a long one.
+
+    The six-decimal rung has a floor of its own, and a study eventually reached it: paired
+    agreement at solver precision put ``4.45e-08`` and ``4.72e-09`` in a table that printed both
+    as ``0.000000``, which a literal zero also satisfies.  A figure that small is quoted in
+    scientific notation instead, so the cell carries the magnitude rather than the absence of
+    one.  ``claims.matches`` reads those to *significant* digits, which is the precision they
+    were actually printed to.
     """
     if computed == int(computed):
         return str(int(computed))
+    if abs(computed) < 1e-6:
+        return f"{computed:.3e}"
     if abs(computed) < 0.001:
         return f"{computed:.6f}"
     return f"{computed:.4f}"

@@ -42,6 +42,23 @@ def _subject(frame: pd.DataFrame, implementation: str) -> pd.DataFrame:
     return frame.loc[frame["implementation"] == implementation]
 
 
+def _displacement(frame: pd.DataFrame, implementation: str) -> pd.Series:
+    r"""How far targeting moved each estimate, in units of its own standard error.
+
+    :math:`|\hat\psi - \hat\psi^{0}| / \widehat{SE}`, the scale-free form, because the
+    absolute one is a number about the estimand's units and says nothing across studies.
+
+    What ``initial_estimate`` means is the study's to state and is **not** uniform: for a
+    sequential estimator it is the earliest node's regression of an *already targeted* later
+    node, so this measures the final fluctuation rather than the whole targeting step.  A
+    study whose plug-in is genuinely untargeted measures the whole of it.  Published so a
+    reader can see which, rather than inferred from a shared pass/fail that cannot tell them
+    apart.
+    """
+    rows = _subject(frame, implementation)
+    return (rows["estimate"] - rows["initial_estimate"]).abs() / rows["std_error"]
+
+
 def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
     """Study-independent headline quantities, derived rather than declared."""
     subject = record.implementation
@@ -50,6 +67,12 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
         return float(len(frame))
 
     return {
+        "max_targeting_displacement": lambda data: float(
+            _displacement(data["replicates"], subject).max()
+        ),
+        "median_targeting_displacement": lambda data: float(
+            _displacement(data["replicates"], subject).median()
+        ),
         "replicates": lambda data: float(record.replicates),
         "n": lambda data: float(record.n),
         "independent_tests_total": lambda data: count(data["performance"]),
@@ -183,6 +206,27 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         # and genuinely live in one module.  ``test_method_evidence`` reads it the same way,
         # so the two cannot come to disagree about which module owns it.
         declared["margin:selector_rmse_ratio"] = record.properties().SELECTOR_RMSE_RATIO
+    # Off the declared cells, like the three blocks above, rather than off ``hasattr`` on the
+    # module.  A duck-typed guard publishes a threshold because a constant happens to be
+    # importable, which is a fact about a file rather than about what the study claims -- and
+    # it goes quiet the day the constant is renamed, taking the published row with it.  A
+    # noise control is the band's own negative arm: it exists to land *outside* the upper
+    # edge, so a study that declares one has declared a band for it to fail.
+    if any(
+        cell.endswith("noise_control")
+        for cell in record.property_cells.get("interval_calibration", ())
+    ):
+        properties = record.properties()
+        low, high = properties.EFFICIENCY_RATIO_BAND
+        declared.update(
+            {
+                "margin:efficiency_ratio_lower": low,
+                "margin:efficiency_ratio_upper": high,
+                "margin:shrunken_se_factor": properties.SHRUNKEN_SE_FACTOR,
+            }
+        )
+    if "targeting_necessity" in record.property_cells:
+        declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
     return declared
 
 
@@ -237,6 +281,18 @@ def value(record: StudyRecord, name: str, data: Mapping[str, pd.DataFrame] | Non
 
 _NUMBER = re.compile(r"^-?[\d,]+(?:\.(?P<decimals>\d+))?$")
 
+#: A figure small enough that decimals cannot carry it.  Rounding a scientific figure is
+#: rounding to *significant* digits rather than to a place, which is why it needs its own
+#: pattern rather than a wider decimal one: 4.45e-08 written to four decimals is ``0.0000``,
+#: and a table full of zeros is not a rounding of anything a reader can check.
+_SCIENTIFIC = re.compile(r"^-?\d(?:\.(?P<mantissa>\d+))?[eE][-+]?\d+$")
+
+
+def _significant(text: str) -> int | None:
+    """Digits after the mantissa's point, or ``None`` if ``text`` is not scientific."""
+    match = _SCIENTIFIC.match(text)
+    return None if match is None else len(match.group("mantissa") or "")
+
 
 def matches(printed: str, computed: float) -> bool:
     """Is ``printed`` what ``computed`` rounds to at the precision it was printed to?
@@ -245,17 +301,23 @@ def matches(printed: str, computed: float) -> bool:
     document may round as far as it likes so long as rounding is what it did.
     """
     text = printed.strip().rstrip("%")
+    scale = 100.0 if printed.strip().endswith("%") else 1.0
+    figures = _significant(text)
+    if figures is not None:
+        return float(f"{computed * scale:.{figures}e}") == float(text)
     match = _NUMBER.match(text)
     if match is None:
         raise ValueError(f"{printed!r} is not a number this gate can check")
     decimals = len(match.group("decimals") or "")
-    scale = 100.0 if printed.strip().endswith("%") else 1.0
     return round(computed * scale, decimals) == float(text.replace(",", ""))
 
 
 def describe(computed: float, printed: str) -> str:
     text = printed.strip().rstrip("%")
+    scale = 100.0 if printed.strip().endswith("%") else 1.0
+    figures = _significant(text)
+    if figures is not None:
+        return f"printed {printed!r}, computed {float(f'{computed * scale:.{figures}e}')!r}"
     match = _NUMBER.match(text)
     decimals = len(match.group("decimals") or "") if match else 6
-    scale = 100.0 if printed.strip().endswith("%") else 1.0
     return f"printed {printed!r}, computed {round(computed * scale, decimals)!r} (raw {computed!r})"

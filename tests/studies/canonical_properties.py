@@ -9,7 +9,7 @@ implementation comparison declares, so the two halves of the study cannot drift 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -26,8 +26,8 @@ from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     PropertyCell,
     rate,
+    ratio_intervals,
     run_cells,
-    se_ratio_interval,
     summarize_cells,
 )
 from tests.studies.evidence.registry import StudyRecord
@@ -227,12 +227,26 @@ SHARED_COLUMNS = (
     "se_ratio_ci_upper",
 )
 
+#: What a calibration cell publishes in addition when the study can supply an exact efficiency
+#: bound.  Added to the summary only for such a study, so a report that claims nothing about
+#: the bound does not carry six empty columns saying it might have.
+EFFICIENCY_COLUMNS = (
+    "efficiency_empirical_ratio",
+    "efficiency_empirical_ci_lower",
+    "efficiency_empirical_ci_upper",
+    "efficiency_reported_ratio",
+    "efficiency_reported_ci_lower",
+    "efficiency_reported_ci_upper",
+)
+
 
 def apply_shared_verdicts(
     rows: pd.DataFrame,
     record: StudyRecord,
     *,
     extra_columns: Sequence[str] = (),
+    rate_labels: Sequence[str] = ("",),
+    efficiency_bounds: Mapping[str, float] | None = None,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
     """Every cell the study families share, plus the two rate rows they both publish.
 
@@ -246,6 +260,20 @@ def apply_shared_verdicts(
     :func:`cells`, so a verdict written twice is a verdict that can be *changed* once.  The
     caller supplies whatever further columns its own cells publish, because the rate rows are
     built from the summary's columns and have to be built after they all exist.
+
+    ``rate_labels`` is for a study that reports the same size ladder for more than one
+    parameter -- the longitudinal report runs one for a static contrast and one for a dynamic
+    rule.  Each label selects the cells named ``f"{label}__..."`` and publishes its own pair
+    of rate rows under the same prefix.  The default single empty label is the one-parameter
+    case and reproduces the unprefixed cell names and seeds exactly.
+
+    ``efficiency_bounds`` maps each of those labels to an independently computed
+    :math:`\\sqrt{E_P[D^*(O)^2]}` -- available on a finite-support law, where it comes off a
+    Gateaux derivative rather than off anything the estimator reports.  Given one, the six
+    :data:`EFFICIENCY_COLUMNS` are filled from the *same* draws as the SE ratio, so the three
+    published intervals agree with the arithmetic relating them.  The verdict stays the
+    caller's: the band a ratio has to sit inside belongs to the study that can compute a bound
+    at all.
     """
     margins = record.margins
     summary = summarize_cells(
@@ -254,7 +282,8 @@ def apply_shared_verdicts(
         confidence_level=margins.confidence_level,
         alpha=margins.alpha,
     )
-    for column in (*SHARED_COLUMNS, *extra_columns):
+    efficiency = () if efficiency_bounds is None else EFFICIENCY_COLUMNS
+    for column in (*SHARED_COLUMNS, *efficiency, *extra_columns):
         summary[column] = np.nan
     summary["passed"] = False
     # Object dtype, not the NaN float the numeric columns above get: a property with a
@@ -270,24 +299,51 @@ def apply_shared_verdicts(
     summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
 
     efficiency = summary["property"] == "root_n_and_efficiency"
-    summary.loc[efficiency, "passed"] = (
-        (summary.loc[efficiency, "coverage_ci_lower"] >= margins.coverage_floor)
-        & summary.loc[efficiency, "se_ratio"].between(*margins.se_ratio_sanity)
-        & summary.loc[efficiency, "bias_equivalent"]
+    sizes = efficiency & (summary["role"] == "positive")
+    summary.loc[sizes, "passed"] = (
+        (summary.loc[sizes, "coverage_ci_lower"] >= margins.coverage_floor)
+        & summary.loc[sizes, "se_ratio"].between(*margins.se_ratio_sanity)
+        & summary.loc[sizes, "bias_equivalent"]
     )
+    # A size retained as a control is one whose inference the study does not claim -- the
+    # smallest rung of a ladder that still has to be fitted for the rate.  What it must do is
+    # *resolve*: land its exact coverage interval clear of nominal on one side or the other.
+    # Below, and the study has established a small-sample limitation and published it rather
+    # than widening a margin until it disappeared.  Above the floor, and the estimator turned
+    # out to be adequate there after all, which is a result and not a failure -- a control
+    # written as "must undercover" fails the day the code improves, which is the one direction
+    # a gate must never point.  An interval straddling nominal is what fails, because it is
+    # the case that says nothing in either direction.
+    small = efficiency & (summary["role"] == "control")
+    summary.loc[small, "passed"] = (
+        summary.loc[small, "coverage_ci_upper"] < 1.0 - margins.alpha
+    ) | (summary.loc[small, "coverage_ci_lower"] >= margins.coverage_floor)
 
     calibration = summary["property"] == "interval_calibration"
     for cell in sorted(summary.loc[calibration, "cell"]):
         group = rows.loc[(rows["property"] == "interval_calibration") & (rows["cell"] == cell)]
-        ratio = se_ratio_interval(
+        bound = None if efficiency_bounds is None else efficiency_bounds[cell.split("__", 1)[0]]
+        intervals = ratio_intervals(
             group,
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
             seed=stream_seed(record, "interval_calibration", cell),
+            bound=bound,
         )
+        ratio = intervals["se_ratio"]
         mask = calibration & (summary["cell"] == cell)
         summary.loc[mask, "se_ratio_ci_lower"] = ratio.low
         summary.loc[mask, "se_ratio_ci_upper"] = ratio.high
+        if bound is not None:
+            scale = float(np.sqrt(int(group["n"].iloc[0]))) / bound
+            for kind, point in (
+                ("empirical", float(group["estimate"].std(ddof=1) * scale)),
+                ("reported", float(group["std_error"].mean() * scale)),
+            ):
+                interval = intervals[f"efficiency_{kind}"]
+                summary.loc[mask, f"efficiency_{kind}_ratio"] = point
+                summary.loc[mask, f"efficiency_{kind}_ci_lower"] = interval.low
+                summary.loc[mask, f"efficiency_{kind}_ci_upper"] = interval.high
         row = summary.loc[mask].iloc[0]
         coverage = Interval(float(row["coverage_ci_lower"]), float(row["coverage_ci_upper"]))
         # Two-sided, and both halves needed.  A reported standard error inflated by a
@@ -309,39 +365,70 @@ def apply_shared_verdicts(
     summary.loc[power, "passed"] = summary.loc[power, "rejection_ci_lower"] >= MINIMUM_POWER
 
     rates: list[dict[str, Any]] = []
-    for statistic, cell in (("spread", "empirical_sd"), ("reported", "reported_se")):
-        fitted = rate(
-            rows,
-            property_name="root_n_and_efficiency",
-            statistic=statistic,
-            bootstrap_replicates=margins.bootstrap_replicates,
-            confidence_level=margins.confidence_level,
-            seed=stream_seed(record, "root_n_rate", cell),
-        )
-        row: dict[str, Any] = dict.fromkeys(summary.columns, np.nan)
-        row.update(
-            {
-                "property": "root_n_rate",
-                "cell": cell,
-                "role": "positive",
-                "n": max(RATE_SIZES),
-                "replicates": RATE_REPLICATES * len(RATE_SIZES),
-                # The slope is fitted across all three sizes.  ``n`` and ``replicates`` above
-                # are the largest and the sum, which read as one big cell; this is what the
-                # published table shows instead.
-                "rate_sizes": ";".join(f"{size:,}" for size in RATE_SIZES),
-                "failed_replicates": 0,
-                "slope": fitted.slope,
-                "slope_ci_lower": fitted.interval.low,
-                "slope_ci_upper": fitted.interval.high,
-                "passed": bool(
-                    fitted.equivalent_to(ROOT_N_SLOPE, ROOT_N_SLOPE_MARGIN)
-                    and fitted.excludes(EXCLUDED_SLOPE)
-                ),
-            }
-        )
-        rates.append(row)
+    ladder = rows.loc[rows["property"] == "root_n_and_efficiency"]
+    for label in rate_labels:
+        prefix = f"{label}__" if label else ""
+        selected = ladder.loc[ladder["cell"].str.startswith(prefix)]
+        for statistic, suffix in (("spread", "empirical_sd"), ("reported", "reported_se")):
+            _rate_row(
+                rates,
+                selected,
+                record,
+                summary.columns,
+                label=label,
+                cell=f"{prefix}{suffix}",
+                statistic=statistic,
+                suffix=suffix,
+            )
     return summary, rates
+
+
+def _rate_row(
+    rates: list[dict[str, Any]],
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    columns: Any,
+    *,
+    label: str,
+    cell: str,
+    statistic: str,
+    suffix: str,
+) -> None:
+    """One fitted contraction rate, appended as a published row."""
+    margins = record.margins
+    fitted = rate(
+        rows,
+        property_name="root_n_and_efficiency",
+        statistic=statistic,
+        bootstrap_replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        # The label joins the stream only when there is one, so a single-parameter study
+        # keeps the seed -- and therefore the published slope -- it already had.
+        seed=stream_seed(record, "root_n_rate", *([label] if label else []), suffix),
+    )
+    row: dict[str, Any] = dict.fromkeys(columns, np.nan)
+    row.update(
+        {
+            "property": "root_n_rate",
+            "cell": cell,
+            "role": "positive",
+            "n": max(RATE_SIZES),
+            "replicates": RATE_REPLICATES * len(RATE_SIZES),
+            # The slope is fitted across all three sizes.  ``n`` and ``replicates`` above
+            # are the largest and the sum, which read as one big cell; this is what the
+            # published table shows instead.
+            "rate_sizes": ";".join(f"{size:,}" for size in RATE_SIZES),
+            "failed_replicates": 0,
+            "slope": fitted.slope,
+            "slope_ci_lower": fitted.interval.low,
+            "slope_ci_upper": fitted.interval.high,
+            "passed": bool(
+                fitted.equivalent_to(ROOT_N_SLOPE, ROOT_N_SLOPE_MARGIN)
+                and fitted.excludes(EXCLUDED_SLOPE)
+            ),
+        }
+    )
+    rates.append(row)
 
 
 def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:

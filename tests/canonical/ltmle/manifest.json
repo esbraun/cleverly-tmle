@@ -1,0 +1,106 @@
+{
+  "schema_version": 2,
+  "study": "end-of-study longitudinal TMLE",
+  "slug": "canonical-ltmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.0",
+      "cleverly_commit": "89951ca1a4ff7776dcfd98a71d971148d1398081",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": {
+      "implementation": "ltmle",
+      "ltmle_version": "1.3-0",
+      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
+      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20260822,
+    "scenarios": {
+      "censored_end_of_study": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[treat then continue if l2 positive]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[treat then continue if l2 positive vs never]"
+      ]
+    },
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "variance_method": "ic",
+    "stratify": true,
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "regimens": [
+      "never",
+      "always",
+      "treat then continue if l2 positive"
+    ],
+    "q_formulas": [
+      "Q.kplus1 ~ W1 + W2",
+      "Q.kplus1 ~ W1 + W2 + L2"
+    ],
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ltmle.py": "431ba49b5e7da8390fc95e4cb0cdce16fdb3ec5a29603b3054df946f971f6b56",
+    "tests/studies/ltmle_properties.py": "839caac0cb0e09b9ea304b300b054bcc8ebc185642664dc91f3134436d07e16e",
+    "tests/studies/canonical_properties.py": "ad2cd9e595f3c38dc2d87c17a823a7e2bbbc338397394e8ceb80eb4219de4cfe",
+    "tests/discrete_law_longitudinal.py": "898c443c13e9fac10fe367e0a6e6e2895d6f883e145315ffefb12f5c6f919409",
+    "tests/studies/evidence/comparison.py": "782a561d62891411e061ea4b176cc631d5719319bbcf512eeda02f933f9a6592",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "9684c6ec9f96341bf8b334e0d5c1024acff779750c621ad9479f45281738fd24",
+    "tests/studies/evidence/properties.py": "022e63b3cf88660bcc2893de6d2de4ed484b5a3e00e975e803ec0e34d3bbb69a",
+    "tests/studies/evidence/schema.py": "e6861f32f890f64e735aa75f19acd6632a80044630a7ff78609f6d11c5234cdd",
+    "tests/studies/evidence/seeds.py": "6e14b455ba4526dff77816eac0b4790229d4b4b2a0b74972383a59ab6e104e67"
+  },
+  "reference_sha256": {
+    "Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "run_study.R": "9f75920e7a64493fa3daa7e23ea0c44eeed250d88409ac43ec5169963a0676da",
+    "generate_reference.R": "e0af7e8bc867c4db5558be65ee452ce0d90e1e123fead6e45fef9562c1f74743"
+  },
+  "sha256": {
+    "replicates.csv.gz": "09baf175614a92a3eee5527b087026b9a936fa1d98b73010b882c55d61f622e7",
+    "summary.csv": "19b06742e0ffaec86370a7ffa1c92fe9ec89394b2cd9ea424795aaf79d7dc363",
+    "equivalence.csv": "6660b42ebdc967b4203c723646bc9e08ae28620183c4c75d58cb5eceb60f3962",
+    "performance-tests.csv": "4feb491faeaa589b1693d329892c0167bfb253d5ea019b9b583592771f46124a",
+    "property-replicates.csv.gz": "ff41c8d9623b5d097d69d2b4dab0306081af6c6a273968bc74aadafd6fdba7f2",
+    "properties.csv": "58908407cc4e8077a89a4ac27e0f410a15a5d698e6bf6f0876a6fb53e8a7ef9b"
+  }
+}
