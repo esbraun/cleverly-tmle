@@ -21,12 +21,8 @@ second implementation of a thing that is hard to get right and silently wrong wh
 not: cgroup v1 and v2 differ, a quota of ``-1`` means unlimited, and a fractional quota has
 to round in the direction that does not oversubscribe.
 
-``benchmarks/numba/resources.logical_cores()`` is the older answer to the same question and
-it is *narrower* than its docstring claimed -- ``os.sched_getaffinity`` is the affinity mask
-and not the quota.  Its docstring now says so.  The two are kept separate because they
-answer different questions rather than because one cannot be imported: the benchmark wants
-the mask, since it pins its own thread plan and records what it asked for, and a test run
-wants the quota, since it is the quota that decides how many workers actually fit.
+This helper intentionally asks for the quota-aware worker count; an affinity mask alone answers a
+narrower question and can still oversubscribe a quota-limited container.
 """
 
 from __future__ import annotations

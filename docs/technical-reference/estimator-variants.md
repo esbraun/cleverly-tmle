@@ -39,7 +39,7 @@ under [Collaborative TMLE](../references.md#collaborative-tmle). The pinned `ctm
 `sl3` source informs nested validation/full-fit semantics.
 
 Implementation: [`estimators/ctmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/ctmle.py).
-Evidence: the [estimator-variant rows](../evidence.md#estimator-variants-over-registered-targets),
+Evidence: the [estimator-variant rows](evidence.md#estimator-variants-over-registered-targets),
 candidate-path identities, selection mutations, multi-arm OAT design tests, and explicit refusal
 tests. The external sources do not implement the same complete selector and are not numeric oracles.
 

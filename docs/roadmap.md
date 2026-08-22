@@ -3,8 +3,8 @@
 This is the single planning contract for `cleverly`. It contains proposed work only: implemented
 capabilities belong in the [user guide](user-guide.md), scientific contracts in the
 [technical appendix](methodology.md) and [DR-TMLE contract](drtmle.md), validation results in
-[`docs/evidence.md`](evidence.md), and performance findings in the
-[benchmark reports](benchmarks/README.md).
+[evidence manifest](technical-reference/evidence.md), and cross-module standing decisions in the
+[architecture invariants](architecture-invariants.md).
 
 The tracks below are independent. Order is binding within a track, but an item in one track does
 not block another track unless its dependency says so.
@@ -56,8 +56,8 @@ The readiness labels rate published-method support, not programming effort:
 An item is complete only when all applicable conditions hold:
 
 - the estimand is registered and covered in both directions by the oracle and evidence gates in
-  `tests/unit/test_registry.py`, with an [`evidence.md`](evidence.md) row naming which instruments
-  check its influence curve and which mistakes none can see;
+  `tests/unit/test_registry.py`, with an [evidence](technical-reference/evidence.md) row naming
+  which instruments check its influence curve and which mistakes none can see;
 - every well-posed composition still refused has a pre-fit test pinning the refusal and message;
 - signs, masks, guards, and counterfactual blocks that can vanish at truth have a nonzero witness
   or deliberate-mutation control in addition to exact-law checks;

@@ -763,7 +763,7 @@ second.
 A closed programme of six pieces — a theoretical audit against the sources, a targeting-and-exit
 study, a controlled coverage demonstration, a reference study for the reduced regressions, a
 construction ablation, and a terminal experiment — is what this page's claims rest on. The
-[evidence index](evidence.md) records the acceptance instruments, and the programme itself — its
+[evidence index](technical-reference/evidence.md) records the acceptance instruments, and the programme itself — its
 study harnesses, replicate records, differential diagnostics, dispatch workflows, and working
 notes — is archived at the `drtmle-validation-archive-2026-08` tag rather than on `main`. In
 summary:

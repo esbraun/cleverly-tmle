@@ -30,7 +30,7 @@ Implementation: [`msm.py`](https://github.com/esbraun/cleverly-tmle/blob/main/sr
 and [`fluctuation/submodel.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/fluctuation/submodel.py).
 The pinned `tmle3` `Param_MSM` source is implementation provenance for parameter indexing.
 
-The [`msm` evidence row](../evidence.md#the-table) includes a Gateaux comparison, a nonzero
+The [`msm` evidence row](evidence.md#the-table) includes a Gateaux comparison, a nonzero
 remainder, a saturated-model reduction to arm means, link-specific submodel tests, and continuous-
 dose density-ratio scores. The saturated identity alone is insufficient because it cannot detect a
 link-specific mistake in a genuinely nonsaturated projection.

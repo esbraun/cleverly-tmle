@@ -95,10 +95,9 @@ The Sphinx/MyST documentation is published on
 | [Examples](https://esbraun.github.io/cleverly-tmle/examples/) | complete point, intervention, longitudinal, and post-fit workflows |
 | [Python API](https://esbraun.github.io/cleverly-tmle/api/) | generated signatures, attributes, methods, and return types |
 
-The
-[development reference](https://esbraun.github.io/cleverly-tmle/development/)
-contains architecture invariants, the test-enforced evidence manifest, migration guide, roadmap,
-benchmarks, and accepted implementation plans.
+The [development reference](https://esbraun.github.io/cleverly-tmle/development/) contains the
+roadmap, architecture invariants, and method-benchmarking strategy. The test-enforced evidence
+manifest lives in the Technical reference.
 
 ## Implemented analysis families
 

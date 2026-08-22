@@ -1,10 +1,10 @@
 # Method evidence studies
 
-Each section here is one row of the [method evidence grid](../evidence.md#method-evidence-grid).
+Each section here is one row of the [method evidence grid](evidence.md#method-evidence-grid).
 A row exists only for a study registered in `tests/studies/evidence/registry.py`; the shared
 machinery in `tests/studies/evidence/` computes every verdict and every number quoted below, and
 `tests/unit/test_method_evidence.py` checks this document against the committed results rather
-than trusting it. See [adding a method row](../evidence.md#adding-a-method-row).
+than trusting it. See [adding a method row](evidence.md#adding-a-method-row).
 
 ## Canonical point-treatment TMLE
 
@@ -247,7 +247,7 @@ calibration cell, a sharp-null experiment and a power control:
 | type-I error | the 99% upper endpoint of the ATE rejection rate under a sharp null clears the nominal size by no more than the declared margin | the null law retains its confounding, so the test is not an unadjusted randomized comparison; and a separate cell under a real effect must reject, so a test that never fires cannot pass by being inert |
 
 These statistical checks complement rather than replace the exact-law, Gateaux, remainder, and
-identity instruments in the [estimand evidence manifest](../evidence.md#the-table).
+identity instruments in the [estimand evidence manifest](evidence.md#the-table).
 
 ### Reproduction and provenance
 

@@ -342,7 +342,7 @@ def test_the_refusal_recommends_what_the_migration_guide_recommends() -> None:
     The refusal names a typed object for the string it was given; ``docs/migration.md`` maps
     the same strings in its argument table. If those drift, one of them is telling somebody to
     write code that does not do what the other says it does. The table is parsed rather than
-    restated here for the same reason ``TestEvidenceManifest`` parses ``docs/evidence.md``:
+    restated here for the same reason ``TestEvidenceManifest`` parses the evidence manifest:
     the artefact a reader opens has to be the thing that is checked.
     """
     rows = re.findall(

@@ -66,11 +66,9 @@ centred`` is a ``dgemm`` whose blocking depends on its operand shape and the sum
 relative 1e-15 -- far below what a Monte Carlo quantile means, and worth stating
 rather than papering over.
 
-The remaining float64 expansion is the one cost that is still there to take: doing it
-at ``float32`` measured 7.2x against the shipped path rather than 1.9x, at a
-disagreement of 1e-6 on a critical value whose own resampling error is 1e-2.  That is
-a change to the arithmetic of a reported quantity and wants its own argument, so it is
-not made here; ``docs/benchmarks/bootstrap_numpy.md`` records the measurement.
+The remaining float64 expansion could be reduced with lower-precision arithmetic, but that would
+change a reported quantity and requires independent numerical and statistical acceptance evidence;
+it is deliberately not done here.
 
 Gaussian multipliers need no resampling at all
 ----------------------------------------------
