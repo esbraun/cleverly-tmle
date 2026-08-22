@@ -262,7 +262,14 @@ class TestPublishedVerdicts:
         root_n = published.loc[published["property"] == "root_n_and_efficiency"]
         for row in root_n.itertuples():
             expected = (
-                row.coverage_ci_upper < 1.0 - study.margins.alpha
+                # Resolved on either side, which is the rule ``apply_shared_verdicts`` applies:
+                # a control size established as sub-nominal is a published limitation and one
+                # established as adequate is an improvement.  Only a straddling interval says
+                # nothing, and only that fails.
+                (
+                    row.coverage_ci_upper < 1.0 - study.margins.alpha
+                    or row.coverage_ci_lower >= study.margins.coverage_floor
+                )
                 if row.role == "control"
                 else (
                     bool(row.bias_equivalent)
@@ -322,6 +329,20 @@ class TestPublishedVerdicts:
                 and necessity["rmse_ratio"].iloc[0] <= study.properties().SELECTOR_RMSE_RATIO
             )
 
+        targeting = published.loc[published["property"] == "targeting_necessity"]
+        if not targeting.empty:
+            # The displacement is a statement about the *pair* -- how far the fluctuation moved
+            # the estimate -- so like the selector's RMSE ratio it belongs to neither row and
+            # is the one thing both carry.  Without it, an estimator whose targeting step did
+            # nothing would pass: the untargeted arm would sit on the truth beside the targeted
+            # one, and both rows' own bias endpoints would be satisfied.
+            assert targeting["property_passed"].nunique() == 1
+            assert bool(targeting["property_passed"].iloc[0]) is bool(
+                targeting["passed"].all()
+                and targeting["targeting_displacement"].iloc[0]
+                >= study.properties().TARGETING_DISPLACEMENT
+            )
+
         design = published.loc[published["property"] == "generated_design"]
         if not design.empty:
             margins = study.margins
@@ -370,7 +391,7 @@ class TestPublishedVerdicts:
 #: Property families whose per-row verdict is the bias claim read in both directions: a
 #: positive row's equivalence interval inside the margin, a control's outside it.
 BIAS_GATED_PROPERTIES = frozenset(
-    {"double_robustness", "robustness_contract", "selector_necessity"}
+    {"double_robustness", "robustness_contract", "selector_necessity", "targeting_necessity"}
 )
 
 #: Families whose rows answer to other endpoints -- coverage, an SE ratio, a rejection rate,
@@ -569,11 +590,25 @@ class TestTheStudyStillMeasuresTheCode:
     def test_the_reference_moved_its_estimates_off_the_plug_in(
         self, study: StudyRecord, rows: pd.DataFrame
     ) -> None:
-        """Agreement cannot be explained by neither implementation targeting anything.
+        """A floor: somewhere in the file, the reference's fluctuation was not a no-op.
 
         ``tmle3`` reports the pre-targeting plug-in beside the targeted estimate, so at least
         one target has to have moved: an exact-agreement check goes blind precisely where the
         fluctuation is zero.
+
+        **What this is not** is a per-replication guarantee, and it cannot be made into one.
+        Targeting is legitimately inert for whole cells of a registered study: a C-TMLE
+        selector that chooses the empty path does not fluctuate at all, and the median
+        ``|estimate - initial| / std_error`` is exactly ``0`` for ``canonical-ctmle-selector``
+        and for ``canonical-tmle``'s least-moved estimand.  Requiring a fixed replication to
+        move, at any absolute or relative threshold, fails those studies for behaving
+        correctly.  It is also blind to *how far*: the longitudinal report's whole file clears
+        this by a factor of two.
+
+        So the strength of each study's witness is published rather than gated here --
+        ``max_targeting_displacement`` and ``median_targeting_displacement`` put it in the
+        measured table, and a study whose comparison cannot separate an untargeted plug-in
+        carries a ``targeting_necessity`` family that can.
         """
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
@@ -764,6 +799,8 @@ _FAMILY = {
     "max_calibration_excess": "equivalence",
     "max_margin_utilization": "equivalence",
     "property_cells": "properties",
+    "max_targeting_displacement": "replicates",
+    "median_targeting_displacement": "replicates",
 }
 
 
@@ -849,6 +886,20 @@ class TestTheQuantityVocabulary:
         if "selector_necessity" in study.property_cells:
             selector = study.properties()
             assert declared["margin:selector_rmse_ratio"] == selector.SELECTOR_RMSE_RATIO
+        if "targeting_necessity" in study.property_cells:
+            assert (
+                declared["margin:targeting_displacement"]
+                == study.properties().TARGETING_DISPLACEMENT
+            )
+        if any(
+            cell.endswith("noise_control")
+            for cell in study.property_cells.get("interval_calibration", ())
+        ):
+            efficiency = study.properties()
+            low, high = efficiency.EFFICIENCY_RATIO_BAND
+            assert declared["margin:efficiency_ratio_lower"] == low
+            assert declared["margin:efficiency_ratio_upper"] == high
+            assert declared["margin:shrunken_se_factor"] == efficiency.SHRUNKEN_SE_FACTOR
         # And every one of them resolves through the same entry point a document quotes.
         for name, expected in declared.items():
             assert value(study, name) == expected

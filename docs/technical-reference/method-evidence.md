@@ -894,12 +894,38 @@ rowwise influence curves, preserving covariance.
 
 The paired mean discrepancies are numerical-solver scale rather than statistical scale: the
 largest share of the declared similarity margin used is `max_margin_utilization`. Each
-implementation is nevertheless tested against quadrature truth before paired agreement can pass.
+implementation is also tested against quadrature truth on its own, and both verdicts are carried
+beside the paired one rather than folded into it; a regeneration fails if either is false. Note
+that the quadrature truth the R rows are scored against comes from this package's own
+`cleverly.datasets.longitudinal`, so the reference's truth column is not independent of this
+codebase. What makes it usable is that the quadrature is checked separately, against Monte Carlo
+and by node refinement, in `tests/unit/test_datasets_longitudinal.py`.
 The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/replicates.csv.gz),
 [paired verdicts](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/equivalence.csv),
 and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/manifest.json)
 carry the samples' results, package checksum, R image digest, source commit, formulas, seeds, and
 artifact hashes.
+
+### What the agreement does and does not witness
+
+Agreement this close is a strong statement about the sequential regressions, the follower and
+censoring masks, the cumulative mechanism product, and the influence curve. It is a weaker
+statement about the targeting step than five passing comparisons suggest, and the section says so
+rather than leaving a reader to infer it.
+
+Two measurements. First, `initial_estimate` is the earlier node's regression of the *already
+targeted* later node — R's `fit$Q[[1]]` regresses the updated `Q.kplus1`, and cleverly's first
+step does the same — so `max_targeting_displacement` and `median_targeting_displacement`, the
+distance from the plug-in in units of the estimate's own standard error, measure the final
+fluctuation only. Second, and this is the substantive one: a plug-in built from the same two
+regressions with *no* fluctuation at either node still clears both acceptance gates on
+`ey_regimen[never]`, `ey_regimen[always]`, and `ate_regimen[always vs never]`. Only the two
+estimands carrying the dynamic rule separate it.
+
+So the targeting evidence in this row is the dynamic plan and the `targeting_necessity` property
+cells below, not the count of paired comparisons.
+`tests/e2e/test_ltmle_targeting_slow.py` builds that untargeted plug-in and asserts exactly which
+estimands survive, so the limitation is measured on every run rather than described once.
 
 ### Independent statistical properties
 
@@ -910,18 +936,47 @@ regressions correctly, all treatment-and-censoring regressions correctly, both, 
 three must place their 99% bias interval inside 0.25 empirical standard deviations; both-wrong must
 place it outside by the same instrument.
 
-Root-n contraction is measured across n=500, 2,000, and 8,000 for both contrasts. The n=500 cells
-are retained as negative controls: their exact 99% coverage upper endpoints establish undercoverage
-below nominal rather than being discarded. At n=2,000 and n=8,000 the positive inference cells clear
-the coverage floor, while the three-size empirical and reported-SE slopes satisfy the root-n margin
-and exclude -1/4. The dedicated n=2,000 calibration cells additionally compare empirical and reported
-spread with the exact EIF bound. Multiplying standard errors by 0.70 and adding one efficiency-bound
-unit of independent noise are registered controls and must fail in their predicted directions.
+The `targeting_necessity` cells hold the outcome model at a constant and the mechanism at the
+saturated fit, which is the configuration where the fluctuation does all the adjusting. Each
+contrast is reported twice off the same draw: as the estimator computes it, and as the identical
+backward recursion computes it with no fluctuation at either node. The targeted arm must place its
+bias inside the equivalence margin and the plug-in must place its outside, and the pair must
+additionally move apart by at least `margin:targeting_displacement` empirical standard deviations
+— without that clause a targeting step that did nothing would satisfy both arms by making them the
+same number.
 
-The confounded sharp-null law leaves treatment and censoring history-dependent but makes the outcome
-depend only on baseline W, so the static contrast is exactly zero. The alternative is the original
-finite law, whose static contrast is exactly 0.15625. Null rejection and power are therefore evidence
-about the adjusted test, not an unconfounded randomized comparison.
+Root-n contraction is measured across n=500, 2,000, and 8,000 for both contrasts. The n=500 cells
+are controls whose inference the row does not claim: each must *resolve*, placing its exact 99%
+coverage interval clear of nominal on one side or the other. Below is a small-sample limitation
+established and published; at or above the floor is the estimator turning out to be adequate there,
+which is a result rather than a failure. Only an interval straddling nominal fails, because it is
+the one outcome that says nothing. At n=2,000 and n=8,000 the positive inference cells clear the
+coverage floor, while the three-size empirical and reported-SE slopes satisfy the root-n margin
+and exclude -1/4. The dedicated n=2,000 calibration cells additionally compare empirical and reported
+spread with the exact EIF bound; all three ratios are resampled on one set of draws, so the
+identity between them holds interval by interval. Multiplying standard errors by 0.70 and adding one
+efficiency-bound unit of independent noise are registered controls and must fail in their predicted
+directions.
+
+The sharp-null law replaces the outcome probabilities on the cells the contrasted plans traverse
+and nothing else, so it shares this law's treatment, censoring, and L2 mechanisms exactly. L2 still
+moves the outcome from 0.25 to 0.75, censoring is still informative through it, and the first arm
+still matters, so the null is one an estimator has to work for: a baseline-only standardisation
+returns -0.0088 rather than the truth. Both contrasts are exactly zero under it; only the static
+one is registered as a cell, because a type-I cell needs a nonzero-effect power control and the
+dynamic contrast's power at n=4,000 is near 0.43 against a floor of 0.80. The alternative is the
+original finite law, whose static contrast is exactly 0.15625. The type-I cell is a calibration
+claim about the adjusted test; discrimination between a correct and an incorrect adjustment lives
+in the double-robustness controls, not here.
+
+Against this harder null the test over-rejects mildly, and the row says so rather than reporting
+only that its gate passed. The rate is 0.0700 at n=4,000 on 800 replications, about 2.6 Monte
+Carlo standard errors above nominal, and coverage in the same cell is 0.9300. The one-sided bound
+of 0.0965 clears the predeclared ceiling of 0.1000, so the cell passes, but it passes with roughly
+three rejections to spare and the point estimate is genuinely above 0.05. This is the same
+finite-sample story the n=500 control tells: the influence-curve standard error is slightly
+optimistic here, and it is being published rather than absorbed. The previous, degenerate null
+reported 0.0575 — lower, and about a law that required no longitudinal adjustment at all.
 
 ### Measured values
 
@@ -936,25 +991,33 @@ artifacts and checked at the precision printed.
 | `independent_tests_passed` | 10 | truth tests passing |
 | `paired_tests_total` | 5 | paired estimand comparisons |
 | `paired_tests_passed` | 5 | paired comparisons passing |
-| `property_cells_total` | 26 | independent property cells |
-| `property_cells_passed` | 26 | property cells passing |
+| `property_cells_total` | 30 | independent property cells |
+| `property_cells_passed` | 30 | property cells passing |
 | `max_standardized_bias` | 0.0180 | largest primary standardized bias |
 | `min_coverage` | 0.9387 | lowest primary coverage |
 | `min_coverage_ci_lower` | 0.9216 | lowest primary coverage lower endpoint |
 | `min_se_ratio_ci_lower` | 0.9290 | lowest primary SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.0641 | highest primary SE-ratio endpoint |
-| `max_margin_utilization` | 0.000000 | largest share of paired similarity margin used |
+| `max_margin_utilization` | 4.449e-08 | largest share of paired similarity margin used |
 | `max_rmse_ratio_upper` | 1.0000 | largest paired RMSE-ratio bound |
 | `min_coverage_difference_lower` | 0 | smallest paired coverage-difference bound |
-| `max_calibration_excess_upper` | 0.000000 | largest paired calibration-excess bound |
+| `max_calibration_excess_upper` | 1.969e-08 | largest paired calibration-excess bound |
 | `properties[double_robustness/static__both_wrong]:standardized_bias` | -0.4195 | static both-wrong control |
 | `properties[double_robustness/dynamic__both_wrong]:standardized_bias` | 0.5944 | dynamic both-wrong control |
 | `properties[root_n_and_efficiency/static__n_500]:coverage` | 0.8988 | static small-sample control coverage |
 | `properties[root_n_and_efficiency/dynamic__n_500]:coverage` | 0.9113 | dynamic small-sample control coverage |
 | `properties[interval_calibration/static__correctly_specified]:efficiency_empirical_ratio` | 0.9948 | static empirical spread over exact EIF bound |
 | `properties[interval_calibration/dynamic__correctly_specified]:efficiency_empirical_ratio` | 1.0093 | dynamic empirical spread over exact EIF bound |
-| `properties[type_i_error/static__sharp_null]:rejection_rate` | 0.0575 | confounded-null rejection rate |
-| `properties[power/static__alternative]:rejection_rate` | 0.9625 | alternative rejection rate |
+| `properties[type_i_error/static__sharp_null]:rejection_rate` | 0.0700 | confounded-null rejection rate |
+| `properties[type_i_error/static__sharp_null]:rejection_ci_upper` | 0.0965 | one-sided bound the type-I ceiling is checked against |
+| `properties[power/static__alternative]:rejection_rate` | 0.9700 | alternative rejection rate |
+| `properties[root_n_and_efficiency/static__n_2000]:coverage_ci_lower` | 0.9020 | tightest primary property coverage endpoint |
+| `properties[targeting_necessity/static__targeted]:standardized_bias` | 0.0435 | static contrast as the estimator computes it |
+| `properties[targeting_necessity/static__untargeted]:standardized_bias` | -0.3447 | the same recursion with no fluctuation |
+| `properties[targeting_necessity/dynamic__untargeted]:standardized_bias` | 0.8970 | dynamic contrast with no fluctuation |
+| `properties[targeting_necessity/static__targeted]:targeting_displacement` | 0.3909 | least-displaced contrast, in targeted standard deviations |
+| `max_targeting_displacement` | 0.0938 | largest final-fluctuation move, in standard errors |
+| `median_targeting_displacement` | 0.0117 | median final-fluctuation move, in standard errors |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | test size |
 | `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
@@ -981,12 +1044,22 @@ artifacts and checked at the precision printed.
 | `margin:efficiency_ratio_lower` | 0.9000 | exact-EIF ratio lower bound |
 | `margin:efficiency_ratio_upper` | 1.1000 | exact-EIF ratio upper bound |
 | `margin:shrunken_se_factor` | 0.7000 | deliberate SE mutation factor |
+| `margin:targeting_displacement` | 0.2500 | least the fluctuation must move the estimate |
 
 ### Claim boundary
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal
 positivity, and conditionally independent censoring. Single-correct-nuisance cells establish
 consistency only; calibrated influence-curve inference is claimed where both nuisance sequences are
-correct. This row excludes survival, competing risks, longitudinal MSMs, observation weights,
+correct.
+
+Two limits are internal to the evidence rather than to the estimator. The targeting step is
+witnessed by the dynamic plan and by the `targeting_necessity` cells, not by the three static
+paired comparisons, which an untargeted plug-in also passes. And positivity is comfortable
+throughout: the smallest cumulative mechanism product on the comparison law sits between 0.006 and
+0.03, and the property law bounds every conditional into [0.25, 0.75], so no cell here speaks to
+near-positivity behaviour or to an active bound.
+
+This row excludes survival, competing risks, longitudinal MSMs, observation weights,
 clustering, simultaneous bands, flexible learning, cross-fitting, active truncation, and R parity
 for learned mechanisms. Those are different estimators or compositions and require their own rows.

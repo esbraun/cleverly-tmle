@@ -26,12 +26,25 @@ assigned <- function(frame, label) {
 }
 
 mechanism <- function(frame, abar) {
+  # L2 is absent for a unit censored at C1.  Those units left before the second node, so
+  # nothing downstream of it reads their probabilities -- but a numeric gform matrix is an
+  # input, and an input with NA in it depends on how ltmle happens to carry one through a
+  # cumulative product.  Filled with a value in range so the matrix is well defined; the
+  # bound check below still runs with na.rm in case a future version produces one anyway.
+  l2 <- ifelse(is.na(frame$L2), 0, frame$L2)
   p_a1 <- plogis(0.3 * frame$W1 - 0.4 * frame$W2)
   p_c1 <- plogis(2.2 + 0.3 * frame$W1 - 0.3 * abar[, 1])
-  p_a2 <- plogis(0.5 * frame$L2 + 0.6 * abar[, 1] - 0.2 * frame$W2)
-  p_c2 <- plogis(2.4 + 0.2 * frame$L2)
+  p_a2 <- plogis(0.5 * l2 + 0.6 * abar[, 1] - 0.2 * frame$W2)
+  p_c2 <- plogis(2.4 + 0.2 * l2)
   # Numeric gform columns carry P(A_t = 1 | history), not the probability of the
   # assigned arm.  ltmle selects p or 1-p from abar internally, as cleverly does.
+  #
+  # The conditioning differs from cleverly's and both are right.  Here the two history terms
+  # are abar[, 1], the arm the *regimen* assigns; cleverly's KnownLongitudinalMechanism reads
+  # the observed A1.  The clever covariate needs g on the intervened history, and on the
+  # followed path the two coincide, so the difference lives entirely among units the follower
+  # mask has already zeroed.  That the two implementations then agree to 2e-7 is incidental
+  # evidence that neither lets an off-path probability reach the estimate.
   cbind(p_a1, p_c1, p_a2, p_c2)
 }
 
@@ -54,7 +67,19 @@ fit_regimen <- function(frame, label) {
     stratify = TRUE,
     variance.method = "ic"
   )
-  targeted <- suppressWarnings(do.call(ltmle, arguments))
+  # Not suppressWarnings(): ltmle warns about a binary censoring column being coerced to a
+  # factor on every one of the 4,800 fits, and blanket suppression made that notice
+  # indistinguishable from a positivity warning about the very quantity this study reports.
+  # Only the known message is muffled; anything else stops the run.
+  targeted <- withCallingHandlers(
+    do.call(ltmle, arguments),
+    warning = function(condition) {
+      if (grepl("Cnodes|censoring", conditionMessage(condition), ignore.case = TRUE)) {
+        invokeRestart("muffleWarning")
+      }
+      stop(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
+    }
+  )
   bounded <- targeted$cum.g
   unbounded <- targeted$cum.g.unbounded
   if (any(abs(bounded - unbounded) > 1e-12, na.rm = TRUE)) {

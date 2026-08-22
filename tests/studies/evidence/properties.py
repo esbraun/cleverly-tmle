@@ -244,23 +244,68 @@ def summarize_cells(
     return pd.DataFrame.from_records(records)
 
 
-def se_ratio_interval(
-    group: pd.DataFrame, *, replicates: int, confidence_level: float, seed: int
-) -> Interval:
-    """Resampling interval for mean reported SE over the empirical spread of the estimates.
+def ratio_intervals(
+    group: pd.DataFrame,
+    *,
+    replicates: int,
+    confidence_level: float,
+    seed: int,
+    bound: float | None = None,
+) -> dict[str, Interval]:
+    """Every spread ratio a calibration cell reports, off **one** set of draws.
 
-    The point ratio is a quotient of two statistics of the same replications, so its Monte
+    Always returns ``se_ratio``: mean reported SE over the empirical spread of the estimates.
+    That point ratio is a quotient of two statistics of the same replications, so its Monte
     Carlo error is dominated by the standard deviation in the denominator and is not available
     in closed form.  Resampling the replications jointly keeps numerator and denominator on the
     same draws, which is what makes the interval an interval for the ratio rather than for two
     unrelated quantities.
+
+    ``bound`` is a study's independently computed efficiency bound -- on a finite-support law,
+    :math:`\\sqrt{E_P[D^*(O)^2]}` taken from a Gateaux derivative rather than from anything the
+    estimator reports.  Given one, two more intervals come back: ``efficiency_empirical`` for
+    :math:`\\sqrt{n}` times the sampling spread over the bound, and ``efficiency_reported`` for
+    the same over the mean reported standard error.
+
+    All three ride the *same* index draws, and deliberately.  Resampled apart they would each
+    be valid alone while disagreeing about their own arithmetic: ``se_ratio`` is
+    ``efficiency_reported / efficiency_empirical`` replication by replication, and three
+    independent seeds leave three intervals that no single resampled world produces.  Sharing
+    the draws also costs a third of the work, which is what a ``(10,000 x 2,400)`` gather makes
+    worth counting.
     """
     values = group[["estimate", "std_error"]].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
     picks = rng.integers(0, len(values), size=(replicates, len(values)))
     draws = values[picks]
-    ratios = draws[:, :, 1].mean(axis=1) / draws[:, :, 0].std(axis=1, ddof=1)
-    return percentile_interval(ratios, confidence_level=confidence_level)
+    spread = draws[:, :, 0].std(axis=1, ddof=1)
+    reported = draws[:, :, 1].mean(axis=1)
+    intervals = {
+        "se_ratio": percentile_interval(reported / spread, confidence_level=confidence_level)
+    }
+    if bound is not None:
+        scale = float(np.sqrt(int(group["n"].iloc[0]))) / bound
+        intervals["efficiency_empirical"] = percentile_interval(
+            spread * scale, confidence_level=confidence_level
+        )
+        intervals["efficiency_reported"] = percentile_interval(
+            reported * scale, confidence_level=confidence_level
+        )
+    return intervals
+
+
+def se_ratio_interval(
+    group: pd.DataFrame, *, replicates: int, confidence_level: float, seed: int
+) -> Interval:
+    """Just the reported-over-empirical ratio of :func:`ratio_intervals`.
+
+    Kept as its own name because most studies claim nothing about an efficiency bound, and a
+    caller that wants one number should not have to know that two more are available or index
+    a dictionary to say so.
+    """
+    return ratio_intervals(
+        group, replicates=replicates, confidence_level=confidence_level, seed=seed
+    )["se_ratio"]
 
 
 def se_ratio_deficit_interval(

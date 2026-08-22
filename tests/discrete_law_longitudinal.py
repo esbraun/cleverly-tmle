@@ -143,9 +143,17 @@ SUPPORT: tuple[tuple[Any, ...], ...] = tuple(
 _NODES = ("w", "a1", "c1", "l2", "a2", "c2", "y")
 
 
-def _mass_of(point: tuple[Any, ...]) -> float:
-    """``P`` of one support point, as a product of the conditionals above."""
+def _mass_of(point: tuple[Any, ...], outcome: Any = None) -> float:
+    """``P`` of one support point, as a product of the conditionals above.
+
+    ``outcome`` replaces :data:`Q` and nothing else, which is what lets a caller state a law
+    that shares this one's treatment, censoring and confounder mechanisms while answering
+    differently at the final node -- a sharp null, for instance.  Everything upstream of ``Y``
+    is deliberately not a parameter: a null that also moved the mechanism would be a different
+    experiment rather than the same one under a different truth.
+    """
     w, a1, c1, l2, a2, c2, y = point
+    q = Q if outcome is None else outcome
     mass = P_W[w] * (G1[w] if a1 == 1 else 1.0 - G1[w])
     if c1 == 0:
         return float(mass * (1.0 - C1[w, a1]))
@@ -155,13 +163,14 @@ def _mass_of(point: tuple[Any, ...]) -> float:
     if c2 == 0:
         return float(mass * (1.0 - C2[w, a1, l2, a2]))
     mass *= C2[w, a1, l2, a2]
-    return float(mass * (Q[w, a1, l2, a2] if y == 1 else 1.0 - Q[w, a1, l2, a2]))
+    return float(mass * (q[w, a1, l2, a2] if y == 1 else 1.0 - q[w, a1, l2, a2]))
 
 
-def _counts() -> np.ndarray:
-    counts = np.array([_mass_of(point) * N for point in SUPPORT])
-    rounded = np.rint(counts)
-    if np.max(np.abs(counts - rounded)) > 1e-6:  # pragma: no cover - guards the constants
+def counts(outcome: Any = None) -> np.ndarray:
+    """Rows per support point in an ``N``-row sample that realises the law exactly."""
+    values = np.array([_mass_of(point, outcome) * N for point in SUPPORT])
+    rounded = np.rint(values)
+    if np.max(np.abs(values - rounded)) > 1e-6:  # pragma: no cover - guards the constants
         raise AssertionError(
             "the cell probabilities are not multiples of 1/N, so no sample of N rows can "
             "realise the law exactly -- keep every conditional a multiple of 1/4"
@@ -169,7 +178,18 @@ def _counts() -> np.ndarray:
     return rounded.astype(int)
 
 
-COUNTS = _counts()
+def probabilities(outcome: Any = None) -> np.ndarray:
+    """Cell probabilities, optionally with :data:`Q` replaced by ``outcome``.
+
+    Taken from the counts rather than from the products, so a law built here is bit-for-bit
+    the empirical law of the sample :func:`frame` would lay out for it -- the property every
+    exactness argument in this module rests on, and one a derived law has to inherit rather
+    than approximately share.
+    """
+    return counts(outcome) / N
+
+
+COUNTS = counts()
 
 #: ``P`` over the support, taken from the counts so it is bit-for-bit the empirical law
 #: of :func:`frame`.

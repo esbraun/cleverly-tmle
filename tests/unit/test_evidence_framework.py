@@ -17,6 +17,7 @@ from scipy.stats import binom, norm
 
 from tests.studies.canonical_properties import ROOT_N_SLOPE_MARGIN
 from tests.studies.evidence.claims import matches
+from tests.studies.evidence.document import render
 from tests.studies.evidence.inference import (
     Interval,
     bootstrap,
@@ -441,6 +442,29 @@ class TestPrintedValues:
     def test_percentages_and_thousands_separators_are_understood(self) -> None:
         assert matches("88.75%", 0.8875)
         assert matches("1,600", 1600.0)
+
+    @pytest.mark.parametrize(
+        ("printed", "expected"),
+        [("4.449e-08", True), ("4.45e-08", True), ("4e-08", True), ("4.448e-08", False)],
+    )
+    def test_a_scientific_figure_is_checked_to_its_significant_digits(
+        self, printed: str, expected: bool
+    ) -> None:
+        assert matches(printed, 4.448596227441203e-08) is expected
+
+    def test_a_figure_too_small_for_decimals_is_not_printed_as_zero(self) -> None:
+        """The rule the six-decimal floor broke.
+
+        ``0.000000`` is what a paired margin utilization of ``4.45e-08`` used to print as, and
+        it is a *correct* rounding at six decimals -- ``matches`` was never wrong.  What was
+        wrong is that a literal zero rounds to the same six decimals, so the published cell
+        could not distinguish a comparison agreeing to solver precision from one never made.
+        ``render`` is what has to tell them apart, and now does.
+        """
+        assert matches("0.000000", 4.448596227441203e-08)
+        assert render(4.448596227441203e-08) == "4.449e-08"
+        assert render(0.0) == "0"
+        assert render(4.448596227441203e-08) != render(0.0)
 
     def test_a_student_interval_needs_more_than_one_value(self) -> None:
         with pytest.raises(ValueError, match="at least two"):

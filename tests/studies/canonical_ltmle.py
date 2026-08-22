@@ -68,6 +68,7 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/canonical_ltmle.py",
         "tests/studies/ltmle_properties.py",
+        "tests/studies/canonical_properties.py",
         "tests/discrete_law_longitudinal.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
@@ -106,6 +107,11 @@ STUDY = StudyRecord(
         ),
         "type_i_error": ("static__sharp_null",),
         "power": ("static__alternative",),
+        "targeting_necessity": tuple(
+            f"{estimand}__{arm}"
+            for estimand in ("static", "dynamic")
+            for arm in ("targeted", "untargeted")
+        ),
     },
 )
 
@@ -239,6 +245,48 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
         time_varying=[[], ["L2"]],
         censoring=["C1", "C2"],
     )
+
+
+def untargeted(frame: pd.DataFrame, label: str) -> float:
+    r"""The sequential-regression plug-in for one plan on the comparison law, unfluctuated.
+
+    The same two follower-stratified quasibinomial regressions both implementations run --
+    ``Q.kplus1 ~ W1 + W2 + L2`` at the outcome node and ``Q.kplus1 ~ W1 + W2`` at the earlier
+    one -- carried back and averaged, with the update in between left out.
+
+    It exists because of what the paired comparison can and cannot see.  ``initial_estimate``
+    is the earlier node's regression of the *already targeted* later node, in R
+    (``fit$Q[[1]]`` regresses the updated ``Q.kplus1``) as much as here, so the published
+    displacement measures the final fluctuation and not the whole targeting step.  This is the
+    whole of it, which is what ``tests/e2e/test_ltmle_targeting_slow.py`` needs to state how
+    much of the agreement between the two implementations the fluctuation is responsible for.
+    """
+    plan = REGIMENS[label]
+    baseline = frame[["W1", "W2"]].to_numpy(dtype=float)
+    l2 = np.nan_to_num(frame["L2"].to_numpy(dtype=float))
+    history = np.column_stack([baseline, l2])
+    if np.ndim(plan) == 0:
+        first = second = np.full(len(frame), float(plan))
+    else:
+        first = np.full(len(frame), float(plan[0]))
+        second = np.asarray(plan[1]({"L2": l2}), dtype=float)
+    followed_one = (frame["C1"].to_numpy() == 1.0) & (frame["A1"].to_numpy() == first)
+    followed_two = (
+        followed_one & (frame["C2"].to_numpy() == 1.0) & (frame["A2"].to_numpy() == second)
+    )
+    later = QuasiBinomialGLM().fit(history[followed_two], frame["Y"].to_numpy()[followed_two])
+    carried = later.predict(history)
+    earlier = QuasiBinomialGLM().fit(baseline[followed_one], carried[followed_one])
+    return float(np.mean(earlier.predict(baseline)))
+
+
+def untargeted_estimands(frame: pd.DataFrame) -> dict[str, float]:
+    """:func:`untargeted` for every reported estimand, contrasts included."""
+    means = {f"ey_regimen[{label}]": untargeted(frame, label) for label in REGIMENS}
+    for name in CONTRAST_NAMES:
+        left, right = name[len("ate_regimen[") : -1].split(" vs ")
+        means[name] = means[f"ey_regimen[{left}]"] - means[f"ey_regimen[{right}]"]
+    return means
 
 
 def _initials(result: Any) -> dict[str, float]:
