@@ -932,12 +932,10 @@ def _projection_state(
 
     ``optimize=True`` on the contractions, because ``np.einsum`` defaults to ``False`` and
     that means numpy's own nested-loop kernel for three or more operands rather than a
-    pairwise contraction through BLAS.  This avoids numpy's slower nested-loop path on the
-    four-operand Jacobian term, which is paid once per Newton step and once per line-search
-    trial.  It is not free -- reassociating
-    moves the last bits -- so the identity-link closed form in
-    :func:`solve_projection` deliberately keeps the unoptimised spelling; see the comment
-    there.
+    pairwise contraction through BLAS.  The four-operand Jacobian term pays that difference
+    once per Newton step *and* once per line-search trial.  It is not free -- reassociating
+    moves the last bits -- so the identity-link closed form in :func:`solve_projection`
+    deliberately keeps the unoptimised spelling; see the comment there.
     """
     m = np.asarray(link.inverse(np.einsum("ijp,p->ij", phi, beta)), dtype=float)
     residual = q - m

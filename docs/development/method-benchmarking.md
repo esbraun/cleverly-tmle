@@ -68,8 +68,10 @@ surrogate reference.
 Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. Run a disposable smoke study first, then the declared study without permitting
-failed replications or tuning margins after seeing the result. Documentation quotes measured
-values through `tests/studies/evidence/claims.py` so tests can check them against the artifacts.
+failed replications or tuning margins after seeing the result. A regeneration expects the whole
+machine: do not run the Python and R full-core phases concurrently, and do not run the fast and
+slow test tiers concurrently. Documentation quotes measured values through
+`tests/studies/evidence/claims.py` so tests can check them against the artifacts.
 
 Every evidence row states what it does not cover, including relevant outcome and treatment types,
 missingness, weights, clusters, fold repeats, learner class, truncation, interval type, and

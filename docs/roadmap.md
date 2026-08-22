@@ -56,8 +56,8 @@ The readiness labels rate published-method support, not programming effort:
 An item is complete only when all applicable conditions hold:
 
 - the estimand is registered and covered in both directions by the oracle and evidence gates in
-  `tests/unit/test_registry.py`, with an [evidence](technical-reference/evidence.md) row naming which instruments
-  check its influence curve and which mistakes none can see;
+  `tests/unit/test_registry.py`, with an [evidence](technical-reference/evidence.md) row naming
+  which instruments check its influence curve and which mistakes none can see;
 - every well-posed composition still refused has a pre-fit test pinning the refusal and message;
 - signs, masks, guards, and counterfactual blocks that can vanish at truth have a nonzero witness
   or deliberate-mutation control in addition to exact-law checks;

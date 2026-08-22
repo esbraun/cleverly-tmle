@@ -564,6 +564,11 @@ class TestTheScalingContract:
 #: repository's documentation rules exist to avoid.
 EVIDENCE = Path(__file__).resolve().parents[2] / "docs" / "technical-reference" / "evidence.md"
 
+#: The same file, repository-relative, for the failures below.  A red gate should name the
+#: artefact to open rather than describe it: the manifest has moved once already, and
+#: "the evidence manifest" does not tell whoever sees the failure where it moved to.
+EVIDENCE_PATH = EVIDENCE.relative_to(Path(__file__).resolve().parents[2]).as_posix()
+
 #: The header the table must have, in order.  Written down so that renaming a column is a
 #: failure here rather than a silent reinterpretation of every row beneath it.
 EVIDENCE_COLUMNS = (
@@ -614,7 +619,7 @@ class TestEvidenceManifest:
     def test_every_target_has_a_row_and_every_row_a_target(self) -> None:
         rows = _evidence_rows()
         assert set(rows) == set(TARGETS), (
-            f"the evidence manifest and registry disagree: rows with no target "
+            f"{EVIDENCE_PATH} and the registry disagree: rows with no target "
             f"{sorted(set(rows) - set(TARGETS))}, targets with no row "
             f"{sorted(set(TARGETS) - set(rows))}. A target reported without a row is one "
             f"whose blind spots nobody wrote down"
@@ -629,7 +634,7 @@ class TestEvidenceManifest:
             for path in re.findall(r"`(tests/[\w/]+\.py)`", row[column])
             if not (root / path).exists()
         ]
-        assert missing == [], f"the evidence manifest names missing modules: {missing}"
+        assert missing == [], f"{EVIDENCE_PATH} names modules that do not exist: {missing}"
 
     def test_every_module_named_anywhere_in_the_document_exists(self) -> None:
         """The same check over the whole file rather than over the registry table alone.
@@ -651,9 +656,9 @@ class TestEvidenceManifest:
         """
         root = Path(__file__).resolve().parents[2]
         named = set(re.findall(r"`(tests/[\w/]+\.py)`", EVIDENCE.read_text(encoding="utf-8")))
-        assert named, "the evidence manifest names no test modules, which cannot be right"
+        assert named, f"{EVIDENCE_PATH} names no test modules at all, which cannot be right"
         missing = sorted(path for path in named if not (root / path).exists())
-        assert missing == [], f"the evidence manifest names missing modules: {missing}"
+        assert missing == [], f"{EVIDENCE_PATH} names modules that do not exist: {missing}"
 
     def test_the_oracle_column_is_the_law_that_really_covers_it(self) -> None:
         """The column against the laws, not against care.
@@ -672,7 +677,7 @@ class TestEvidenceManifest:
                 if path not in claimed:
                     wrong.append((target, reported, path, sorted(claimed)))
         assert wrong == [], (
-            f"the evidence manifest's oracle column disagrees with the law whose functional has "
+            f"{EVIDENCE_PATH}'s oracle column disagrees with the law whose functional has "
             f"the branch: {wrong}"
         )
 

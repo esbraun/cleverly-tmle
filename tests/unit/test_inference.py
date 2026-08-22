@@ -766,10 +766,11 @@ class TestSimultaneousBands:
     def test_the_multiplier_buffer_does_not_grow_with_the_replicate_count(self) -> None:
         """The allocation that used to break first at scale is now bounded by the block.
 
-        The old ``(chunk, n)`` multiplier matrix could exhaust memory before any arithmetic.
-        What replaced it is one buffer of ``block x n`` doubles, reused, so ten times the replicates allocate the same
-        memory rather than ten times as much -- which is the property to pin, since the
-        *speed* of the same change is a measurement on a shared box and this is not.
+        The old ``(chunk, n)`` multiplier matrix could exhaust memory before any arithmetic
+        ran.  What replaced it is one buffer of ``block x n`` doubles, reused, so ten times
+        the replicates allocate the same memory rather than ten times as much -- which is
+        the property to pin, since the *speed* of the same change is a measurement on a
+        shared box and this is not.
         """
         rng = np.random.default_rng(0)
         n = 20_000
