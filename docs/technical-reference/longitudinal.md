@@ -45,7 +45,7 @@ or categorical nodes.
 
 Independent evidence covers exact finite laws, Gateaux derivatives, nonzero remainders, dropped-
 censoring and reversed-stage mutations, history visibility, and multi-value arm selection. See
-[longitudinal estimands outside the target registry](../evidence.md#longitudinal-estimands-outside-the-target-registry).
+[longitudinal estimands outside the target registry](evidence.md#longitudinal-estimands-outside-the-target-registry).
 
 ## Survival and competing risks
 

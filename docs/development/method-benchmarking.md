@@ -1,0 +1,77 @@
+# Method benchmarking strategy
+
+Method benchmarking has two complementary parts: bounded comparisons with an external R
+implementation and independent statistical studies against properties implied by the derivation.
+Neither replaces the package's exact-law, Gateaux, remainder, identity, and deliberate-mutation
+checks. Use this strategy when adding or changing a method-level row in the
+[evidence manifest](../technical-reference/evidence.md#method-evidence-grid).
+
+## Begin with the scientific claim
+
+Record the identified parameter, estimator construction, governing source, supported
+compositions, and inference rule before choosing a comparator. An R package is an implementation
+witness: agreement can localize a discrepancy, but it cannot prove that the parameter, influence
+curve, or theorem is correct.
+
+Give materially different estimators separate evidence rows. Ordinary TMLE, stacked CV-TMLE,
+fold-evaluated CV-TMLE, and fold-specific extensions may share a limit while differing in finite
+samples; one method does not inherit another's parity or coverage claims.
+
+## R implementation comparisons
+
+- Pin the R base image and packages immutably, and record hashes for the Dockerfile, runner, and
+  reference sources in the study manifest.
+- Give both implementations the same realized datasets, covariates, contrasts, nuisance-model
+  families, bounds, targeting controls, and interval scale. Declare any setting that cannot be
+  matched and exclude only the affected comparison.
+- Supply and assert the exact row-to-fold assignment for cross-fitted methods. A common seed or
+  fold count is not enough when splitters or dependency versions differ.
+- Preserve native inference scales, including log-scale risk-ratio and odds-ratio intervals.
+- Fail the run on a dropped or unsuccessful replication. Do not replace samples or summarize a
+  shorter run than the one declared.
+- Retain paired replication-level estimates, standard errors, interval endpoints, truth,
+  coverage, initial estimates where exposed, and pairing keys. Require a nonzero targeting
+  witness so parity cannot be explained by both implementations returning their initial fits.
+
+Test each implementation against known truth before comparing them. Use predeclared equivalence
+and non-inferiority margins for the paired comparison rather than a null test of exact equality.
+
+## Independent statistical evidence
+
+Each property cell declares an exact-truth law, fixed estimator configuration, replication budget,
+margin, and seed rule before the full run. Size the budget against the binding confidence bound,
+not the most favorable point estimate.
+
+Primary replications use the study record's `replicate_seed`; property cells use fixed shared
+seeds so methods see identical draws and paired controls merge by replication index. Resampling
+uses independently labelled `stream_seed` streams rather than adjacent integer offsets.
+
+Use interval-shaped verdicts: bias intervals must fit inside a practical equivalence margin,
+coverage lower bounds must clear a validity floor, and one-sided type-I bounds must rule out
+material over-rejection. Positive claims need a control that makes the same instrument fail:
+
+- double robustness includes a both-wrong nuisance control;
+- type-I error includes a nonzero-effect power control;
+- coverage or standard-error calibration includes deliberately invalid inference; and
+- convergence uses at least three sample sizes and excludes a predeclared slower rate.
+
+Repeated-sampling, large-sample, and flexible-learner claims belong in the named slow study and
+committed artifacts. Documentation examples never count as statistical evidence.
+
+## Registration and acceptance
+
+Register the scenarios, estimands, sample size, replication count, margins, runner and property
+modules, expected cells, artifact directory, document anchor, and every result-determining module.
+A study without an external comparator records a valid empty equivalence artifact rather than a
+surrogate reference.
+
+Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
+`performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
+`manifest.json`. Run a disposable smoke study first, then the declared study without permitting
+failed replications or tuning margins after seeing the result. Documentation quotes measured
+values through `tests/studies/evidence/claims.py` so tests can check them against the artifacts.
+
+Every evidence row states what it does not cover, including relevant outcome and treatment types,
+missingness, weights, clusters, fold repeats, learner class, truncation, interval type, and
+unsupported estimands. Validate changes with the targeted evidence and documentation tests, the
+complete fast tier, and only the named slow study whose path and assertion can observe the change.

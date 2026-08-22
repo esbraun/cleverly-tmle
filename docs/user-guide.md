@@ -462,5 +462,6 @@ The public protocols are `Estimand`, `IdentificationProvider`, `EstimationMethod
 `CausalResult`. A custom provider should produce an `IdentifiedEffect` only when it can name the
 observed-data functional and assumptions. A custom method must declare support and return a result
 with stable parameter keys. Adding a new registered analytic target still requires the independent
-oracle, Gateaux, remainder, and mutation evidence described in [evidence.md](evidence.md); a typed
+oracle, Gateaux, remainder, and mutation evidence described in the
+[evidence manifest](technical-reference/evidence.md); a typed
 wrapper is not scientific certification.

@@ -40,7 +40,7 @@ conditioning population.
 
 The estimators use `att_estimate` and `atc_estimate` in
 [`inference/influence.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/influence.py).
-The [`att` and `atc` evidence rows](../evidence.md#the-table) exercise the extra influence term and
+The [`att` and `atc` evidence rows](evidence.md#the-table) exercise the extra influence term and
 target-aware truncation behavior.
 
 ## Population interventions
@@ -73,7 +73,7 @@ Local implementations are in
 [`estimators/direct_effect.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/direct_effect.py)
 and [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py).
 The missing-outcome and CDE exact laws, Gateaux comparisons, and remainder tests are indexed from
-the [evidence manifest](../evidence.md#the-table). Díaz & van der Laan (2017) supplies the
+the [evidence manifest](evidence.md#the-table). Díaz & van der Laan (2017) supplies the
 randomized-trial missing-outcome construction; broader compositions are claimed only where their
 own local derivation and evidence exist.
 

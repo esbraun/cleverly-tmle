@@ -23,7 +23,7 @@ establish the parameter.
 Implementation: [`interventions/base.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/base.py),
 [`interventions/support.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/support.py),
 and [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py).
-Evidence: [`ey_regime` and `ate_regime`](../evidence.md#the-table), including nonzero dynamic-rule
+Evidence: [`ey_regime` and `ate_regime`](evidence.md#the-table), including nonzero dynamic-rule
 and regime-support witnesses.
 
 ## Modified treatment policies
@@ -55,7 +55,7 @@ Hoffman & Schenck (2023). Implementation:
 [`interventions/shift.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/shift.py),
 [`learners/density.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/density.py),
 and [`fluctuation/submodel.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/fluctuation/submodel.py).
-Evidence: [`ey_shift` and `ate_shift`](../evidence.md#the-table), continuous-density Gateaux tests,
+Evidence: [`ey_shift` and `ate_shift`](evidence.md#the-table), continuous-density Gateaux tests,
 shift submodel tests, and a nonzero remainder for the CDE/missingness composition.
 
 ## Incremental propensity-score interventions
@@ -80,7 +80,7 @@ reference.
 Implementation: [`interventions/incremental.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/incremental.py),
 [`fluctuation/mechanism.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/fluctuation/mechanism.py),
 and [`inference/influence.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/influence.py).
-Evidence: [`ey_ipsi` and `ate_ipsi`](../evidence.md#the-table), mechanism-score identities,
+Evidence: [`ey_ipsi` and `ate_ipsi`](evidence.md#the-table), mechanism-score identities,
 nonzero Gateaux terms, and remainder controls that fail under a falsely two-sided robustness claim.
 
 ## Support reports

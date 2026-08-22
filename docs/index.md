@@ -155,4 +155,6 @@ technical-reference/index
 examples/index
 api/index
 development/index
+README
+migration
 ```

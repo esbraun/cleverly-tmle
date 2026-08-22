@@ -6,7 +6,7 @@ shape solely because this file once described it.
 
 This file contains only repository-specific working agreements. Use `README.md` for setup,
 development commands, and the public overview. `docs/README.md` routes technical documentation;
-`docs/evidence.md` records the test-enforced correctness evidence. Current behavior is determined
+`docs/technical-reference/evidence.md` records the test-enforced correctness evidence. Current behavior is determined
 by code and tests, not historical plans or investigation notes.
 
 Cross-module constraints that are not derivable from one implementation live in
@@ -23,7 +23,7 @@ Cross-module constraints that are not derivable from one implementation live in
   counterfactual block can disappear, add a nonzero witness or a deliberate-mutation control that
   fails when that component is wrong.
 - A registered estimand must remain covered in both directions by the oracle and evidence gates in
-  `tests/unit/test_registry.py` and `docs/evidence.md`.
+  `tests/unit/test_registry.py` and `docs/technical-reference/evidence.md`.
 - Refuse unsupported but well-posed compositions explicitly and explain what is missing. Do not
   silently return a convenient approximation to a different estimand.
 
@@ -44,7 +44,7 @@ Cross-module constraints that are not derivable from one implementation live in
   Nox and CI install that extra instead of restating versions. `dev` resolves to `cleverly[all]`
   plus tooling, so an optional extra kept out of *both* is installed by no session and its tests
   can only skip — and a skipped correctness check reads exactly like a passing one. Put a new
-  extra in `dev`, or give it a dedicated job the way `bench`/`numba` has one. Ruff *formats* the
+  extra in `dev`, or give it a dedicated job that installs and executes its tests. Ruff *formats* the
   Python examples in Markdown, so run it over the whole tree — but its linter does not read
   Markdown at all, and the formatter skips any block it cannot parse, so neither one sees a
   syntax error in an example.

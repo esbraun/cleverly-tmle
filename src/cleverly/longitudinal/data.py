@@ -724,10 +724,8 @@ class LongitudinalData:
         that once per horizon on top.  The masks are *prefix scans of a conjunction*, so
         carrying them down the nodes computes the same arrays in :math:`O(T n)`.
 
-        Invisible at the ``T = 2`` this package's own fixtures use and 2.4x of the
-        recursion at ``T = 20`` (``docs/benchmarks/longitudinal_masks.md``).  The two
-        methods stay, answer the same thing, and are what a caller wanting one node should
-        use; this is what the recursion uses.
+        The two methods stay, answer the same thing, and are what a caller wanting one node
+        should use; this is what the recursion uses.
         """
         matches = self.treatment == assignment_matrix(assignment, self.n, self.n_times)
         return RegimenMasks(

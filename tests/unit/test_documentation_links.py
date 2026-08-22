@@ -46,7 +46,6 @@ SOURCES = sorted(
     {
         *ROOT.glob("src/**/*.py"),
         *ROOT.glob("tests/**/*.py"),
-        *ROOT.glob("benchmarks/**/*.py"),
     }
 )
 

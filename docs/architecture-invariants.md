@@ -5,16 +5,16 @@ boundaries and are not fully recoverable from any one implementation. The curren
 remains provisional, and none of these is permanent: each holds until its stated **reconsider
 when** condition is met, and a change to one must be intentional, documented, and backed by
 evidence. When a condition is met, update the implementation, its independent evidence, and this
-document in the same change. Superseded rationale belongs in Git history or in the underlying
-evidence report.
+document in the same change. Superseded rationale belongs in Git history.
 
 ## Validation and evidence
 
 Validate a derivation independently. Cross-language comparison against a canonical implementation
 is a bounded secondary check and never the acceptance criterion: implementations descended from
 one source share transcription errors, while derivative, exact-law, remainder, mutation, and score
-checks fail against distinct error classes. [`docs/evidence.md`](evidence.md) records which
-instrument covers which estimand, in both directions. The `LTMLE` fixture is the scoped exception,
+checks fail against distinct error classes. The
+[evidence manifest](technical-reference/evidence.md) records which instrument covers which
+estimand, in both directions. The `LTMLE` fixture is the scoped exception,
 because it pins cumulative-bound placement and a nonzero finite-sample targeting path that exact
 laws at `epsilon=0` cannot see. *Reconsider when* another named blind spot is demonstrated, the
 compared implementations target the same estimand, and the comparison has predetermined pass/fail
@@ -230,7 +230,7 @@ Nuisance fits are single-threaded by default so parallelism occurs across folds 
 candidates. Callers can change the process-level limit through the public learner controls. Do not
 add nested native threading without an end-to-end measurement and an oversubscription plan. Nested
 model parallelism oversubscribes small fits, and repeatedly constructing the thread-pool controller
-was itself a major cost — see the [thread-limit profile](benchmarks/thread_limit_profile.md).
+can itself be a material cost.
 *Reconsider when* a measured workload benefits from giving one model the machine; callers can
 already opt out with `set_thread_limit(None)`.
 
@@ -249,7 +249,7 @@ its tier may take half the budget; the fast tier still leaves inner parallelism 
 Documentation examples are not statistical evidence. Behavior shown in a guide must be covered by
 a unit, integration, or end-to-end test in the fast tier, or by a named statistical study in the
 slow tier, and no assertion about an estimate, an interval or a diagnostic verdict may rest on a
-documented example. Evidence manifests such as `docs/evidence.md` remain test-enforced source
+documented example. Evidence manifests such as `docs/technical-reference/evidence.md` remain test-enforced source
 registries.
 
 A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`
@@ -281,16 +281,14 @@ where defaults are set.
 
 Before adding compiled code, compare against a competent NumPy implementation and include the real
 learner workload. Track compile time, memory, core count, numerical equivalence, and the kernel's
-share of a fit. Generated benchmark output is not documentation; preserve environment metadata
-and summarize durable conclusions in `docs/benchmarks/`.
+share of a fit. Machine-specific output is exploratory evidence, not durable documentation; only
+the resulting cross-module decision and the condition that would reopen it belong here.
 
-Production code stays pure Python and `numba` remains benchmark-only; nothing under `src/` imports
-it. Nuisance fitting dominates representative workloads, and competent NumPy implementations
-removed the apparent advantage in the clearest candidate kernels — the [benchmark
-verdict](benchmarks/README.md#current-verdict) carries the evidence. *Reconsider when* a competent
-compiled implementation wins materially in a full supported workload, including compilation,
-memory, data movement, packaging, and maintenance cost. HAL is the clearest known workload likely
-to meet that condition.
+Production code stays pure Python. Prior measurements found nuisance fitting dominant in
+representative workloads and found no material full-workload advantage from compiling the clearest
+package-owned numerical kernels. *Reconsider when* a competent compiled implementation wins
+materially in a full supported workload, including compilation, memory, data movement, packaging,
+and maintenance cost. HAL is the clearest known workload likely to meet that condition.
 
 Choose the algorithm before choosing the compiler. Newton targeting is the default because the
 universal least-favourable one-step walk can dominate a cheap GLM fit, and the Gaussian multiplier

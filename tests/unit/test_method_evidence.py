@@ -551,7 +551,7 @@ class TestTheStudyStillMeasuresTheCode:
             )
 
 
-GRID = ROOT / "docs" / "evidence.md"
+GRID = ROOT / "docs" / "technical-reference" / "evidence.md"
 
 #: The grid's header, in order.  The first study's row split the old single "paper-property
 #: study" column in two: 34 of the tests it was credited with are per-implementation
@@ -586,7 +586,7 @@ def _grid() -> dict[str, dict[str, str]]:
 
 
 class TestTheMethodEvidenceGrid:
-    """``docs/evidence.md``'s method grid against the register and the committed results.
+    """The technical-reference evidence grid against the register and committed results.
 
     The target table above it in the same document says of itself that it is a gate and not a
     note.  The grid arrived as a note: nothing read it, its counts were typed, and one of them
