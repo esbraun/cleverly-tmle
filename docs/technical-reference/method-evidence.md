@@ -871,3 +871,122 @@ not a dropped replication. The row does not establish continuous parity, multi-a
 missing outcomes, weights, clusters, strata, simultaneous or bootstrap intervals, broad learner
 libraries, or severe practical-positivity behavior. Cross-fitted public behavior is supported by
 the property study, not by the archived parity result.
+
+## End-of-study longitudinal TMLE
+
+This row covers the two-time-point intervention-specific mean identified by the sequential
+g-formula, with monotone censoring and both static and dynamic plans. The parameter, longitudinal
+double-robustness claim, and efficient influence curve follow Bang and Robins (2005), van der Laan
+and Gruber (2012), and Petersen et al. (2014). The implementation comparison uses the canonical R
+[`ltmle`](https://www.jstatsoft.org/article/view/v081i01) package at version 1.3-0; agreement with R
+is secondary to the finite-support functional and Gateaux EIF in
+[`tests/discrete_law_longitudinal.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/discrete_law_longitudinal.py).
+
+### Matched implementation comparison
+
+Python draws 1,600 censored samples and hands the same rows to cleverly and R. Each implementation
+reports the means under never treatment, always treatment, and the dynamic plan “treat, then
+continue if L2 is positive,” plus the always-minus-never and dynamic-minus-never contrasts. Both
+receive the generating treatment and censoring probabilities, follower-stratified quasibinomial
+sequential regressions, nonbinding cumulative-g bounds, pointwise 95% intervals, and influence-curve
+variance. R is invoked once per regimen; contrast standard errors use the difference of the two
+rowwise influence curves, preserving covariance.
+
+The paired mean discrepancies are numerical-solver scale rather than statistical scale: the
+largest share of the declared similarity margin used is `max_margin_utilization`. Each
+implementation is nevertheless tested against quadrature truth before paired agreement can pass.
+The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/replicates.csv.gz),
+[paired verdicts](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/equivalence.csv),
+and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/manifest.json)
+carry the samples' results, package checksum, R image digest, source commit, formulas, seeds, and
+artifact hashes.
+
+### Independent statistical properties
+
+The property study samples the exact binary support law rather than the continuous comparison law.
+Its longhand functional supplies exact static and dynamic truths, and its Gateaux derivative supplies
+the efficiency bound without reading either estimator. The double-robust cells fit all sequential Q
+regressions correctly, all treatment-and-censoring regressions correctly, both, or neither. The first
+three must place their 99% bias interval inside 0.25 empirical standard deviations; both-wrong must
+place it outside by the same instrument.
+
+Root-n contraction is measured across n=500, 2,000, and 8,000 for both contrasts. The n=500 cells
+are retained as negative controls: their exact 99% coverage upper endpoints establish undercoverage
+below nominal rather than being discarded. At n=2,000 and n=8,000 the positive inference cells clear
+the coverage floor, while the three-size empirical and reported-SE slopes satisfy the root-n margin
+and exclude -1/4. The dedicated n=2,000 calibration cells additionally compare empirical and reported
+spread with the exact EIF bound. Multiplying standard errors by 0.70 and adding one efficiency-bound
+unit of independent noise are registered controls and must fail in their predicted directions.
+
+The confounded sharp-null law leaves treatment and censoring history-dependent but makes the outcome
+depend only on baseline W, so the static contrast is exactly zero. The alternative is the original
+finite law, whose static contrast is exactly 0.15625. Null rejection and power are therefore evidence
+about the adjusted test, not an unconfounded randomized comparison.
+
+### Measured values
+
+Names beginning `margin:` are predeclared thresholds; all other values are resolved from the committed
+artifacts and checked at the precision printed.
+
+| quantity | value | source |
+| --- | --- | --- |
+| `replicates` | 1600 | paired replications |
+| `n` | 2000 | observations per paired replication |
+| `independent_tests_total` | 10 | implementation-estimand truth tests |
+| `independent_tests_passed` | 10 | truth tests passing |
+| `paired_tests_total` | 5 | paired estimand comparisons |
+| `paired_tests_passed` | 5 | paired comparisons passing |
+| `property_cells_total` | 26 | independent property cells |
+| `property_cells_passed` | 26 | property cells passing |
+| `max_standardized_bias` | 0.0180 | largest primary standardized bias |
+| `min_coverage` | 0.9387 | lowest primary coverage |
+| `min_coverage_ci_lower` | 0.9216 | lowest primary coverage lower endpoint |
+| `min_se_ratio_ci_lower` | 0.9290 | lowest primary SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.0641 | highest primary SE-ratio endpoint |
+| `max_margin_utilization` | 0.000000 | largest share of paired similarity margin used |
+| `max_rmse_ratio_upper` | 1.0000 | largest paired RMSE-ratio bound |
+| `min_coverage_difference_lower` | 0 | smallest paired coverage-difference bound |
+| `max_calibration_excess_upper` | 0.000000 | largest paired calibration-excess bound |
+| `properties[double_robustness/static__both_wrong]:standardized_bias` | -0.4195 | static both-wrong control |
+| `properties[double_robustness/dynamic__both_wrong]:standardized_bias` | 0.5944 | dynamic both-wrong control |
+| `properties[root_n_and_efficiency/static__n_500]:coverage` | 0.8988 | static small-sample control coverage |
+| `properties[root_n_and_efficiency/dynamic__n_500]:coverage` | 0.9113 | dynamic small-sample control coverage |
+| `properties[interval_calibration/static__correctly_specified]:efficiency_empirical_ratio` | 0.9948 | static empirical spread over exact EIF bound |
+| `properties[interval_calibration/dynamic__correctly_specified]:efficiency_empirical_ratio` | 1.0093 | dynamic empirical spread over exact EIF bound |
+| `properties[type_i_error/static__sharp_null]:rejection_rate` | 0.0575 | confounded-null rejection rate |
+| `properties[power/static__alternative]:rejection_rate` | 0.9625 | alternative rejection rate |
+| `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
+| `margin:alpha` | 0.0500 | test size |
+| `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
+| `margin:bootstrap_replicates` | 10000 | bootstrap replications |
+| `margin:standardized_bias` | 0.2500 | standardized-bias margin |
+| `margin:coverage_floor` | 0.9000 | primary coverage floor |
+| `margin:over_coverage_ceiling` | 0.9900 | descriptive overcoverage threshold |
+| `margin:se_ratio_sanity_lower` | 0.8000 | primary SE-ratio lower screen |
+| `margin:se_ratio_sanity_upper` | 1.2000 | primary SE-ratio upper screen |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration SE-ratio lower bound |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration SE-ratio upper bound |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration coverage lower bound |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration coverage upper bound |
+| `margin:type_i_ceiling` | 0.1000 | type-I upper bound |
+| `margin:paired_difference` | 0.1500 | paired similarity margin in pooled SDs |
+| `margin:rmse_noninferiority` | 1.1000 | RMSE-ratio noninferiority bound |
+| `margin:coverage_noninferiority` | -0.0250 | coverage-difference noninferiority bound |
+| `margin:calibration_noninferiority` | 0.0500 | calibration-excess noninferiority bound |
+| `margin:minimum_power` | 0.8000 | power lower bound |
+| `margin:root_n_slope` | -0.5000 | expected root-n slope |
+| `margin:root_n_slope_lower` | -0.6250 | accepted slope lower bound |
+| `margin:root_n_slope_upper` | -0.3750 | accepted slope upper bound |
+| `margin:excluded_slope` | -0.2500 | rate the interval must exclude |
+| `margin:efficiency_ratio_lower` | 0.9000 | exact-EIF ratio lower bound |
+| `margin:efficiency_ratio_upper` | 1.1000 | exact-EIF ratio upper bound |
+| `margin:shrunken_se_factor` | 0.7000 | deliberate SE mutation factor |
+
+### Claim boundary
+
+The causal interpretation requires consistency, sequential exchangeability, longitudinal
+positivity, and conditionally independent censoring. Single-correct-nuisance cells establish
+consistency only; calibrated influence-curve inference is claimed where both nuisance sequences are
+correct. This row excludes survival, competing risks, longitudinal MSMs, observation weights,
+clustering, simultaneous bands, flexible learning, cross-fitting, active truncation, and R parity
+for learned mechanisms. Those are different estimators or compositions and require their own rows.

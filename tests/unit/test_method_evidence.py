@@ -259,6 +259,60 @@ class TestPublishedVerdicts:
                 rows & control, "bias_discriminated"
             ), f"{family}: a control's verdict is not its own discrimination endpoint"
 
+        root_n = published.loc[published["property"] == "root_n_and_efficiency"]
+        for row in root_n.itertuples():
+            expected = (
+                row.coverage_ci_upper < 1.0 - study.margins.alpha
+                if row.role == "control"
+                else (
+                    bool(row.bias_equivalent)
+                    and row.coverage_ci_lower >= study.margins.coverage_floor
+                    and study.margins.se_ratio_sanity[0]
+                    <= row.se_ratio
+                    <= study.margins.se_ratio_sanity[1]
+                )
+            )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own root-n endpoint"
+            )
+
+        calibration = published.loc[published["property"] == "interval_calibration"]
+        if (
+            "efficiency_empirical_ci_lower" in calibration.columns
+            and calibration["efficiency_empirical_ci_lower"].notna().any()
+        ):
+            properties = study.properties()
+            for row in calibration.itertuples():
+                kind = row.cell.split("__", 1)[1]
+                if kind == "correctly_specified":
+                    expected = (
+                        study.margins.calibration_se_ratio[0]
+                        <= row.se_ratio_ci_lower
+                        <= row.se_ratio_ci_upper
+                        <= study.margins.calibration_se_ratio[1]
+                        and study.margins.calibration_coverage[0]
+                        <= row.coverage_ci_lower
+                        <= row.coverage_ci_upper
+                        <= study.margins.calibration_coverage[1]
+                        and properties.EFFICIENCY_RATIO_BAND[0]
+                        <= row.efficiency_empirical_ci_lower
+                        <= row.efficiency_empirical_ci_upper
+                        <= properties.EFFICIENCY_RATIO_BAND[1]
+                        and properties.EFFICIENCY_RATIO_BAND[0]
+                        <= row.efficiency_reported_ci_lower
+                        <= row.efficiency_reported_ci_upper
+                        <= properties.EFFICIENCY_RATIO_BAND[1]
+                    )
+                elif kind == "shrunken_se_control":
+                    expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
+                else:
+                    expected = (
+                        row.efficiency_empirical_ci_lower > properties.EFFICIENCY_RATIO_BAND[1]
+                    )
+                assert bool(row.passed) is bool(expected), (
+                    f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
+                )
+
         necessity = published.loc[published["property"] == "selector_necessity"]
         if not necessity.empty:
             # The RMSE comparison belongs to neither row, so it is the one thing both share.
@@ -393,14 +447,21 @@ class TestNegativeControls:
         cell is load bearing rather than decorative.
         """
         rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
+        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
+        calibration = published.loc[published.index.get_level_values(0) == "interval_calibration"]
+        positive_cells = set(
+            calibration.loc[calibration["role"] == "positive"].index.get_level_values(1)
+        )
         mutated = rows.copy()
-        mask = mutated["property"] == "interval_calibration"
+        mask = (mutated["property"] == "interval_calibration") & mutated["cell"].isin(
+            positive_cells
+        )
         assert mask.any(), "the study declares no calibration cell to corrupt"
         mutated.loc[mask, "std_error"] *= 0.90
         summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
-        published = study.properties().summarize_properties(rows).set_index(["property", "cell"])
-        assert not bool(summary.loc[("interval_calibration", "correctly_specified"), "passed"])
-        untouched = summary.index.drop(("interval_calibration", "correctly_specified"))
+        changed = [("interval_calibration", cell) for cell in positive_cells]
+        assert not summary.loc[changed, "passed"].any()
+        untouched = summary.index.drop(changed)
         assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
             "corrupting the calibration cell moved a verdict somewhere else"
         )
@@ -516,7 +577,7 @@ class TestTheStudyStillMeasuresTheCode:
         """
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
-        reference = rows.loc[(rows["implementation"] == study.reference) & (rows["replicate"] == 0)]
+        reference = rows.loc[rows["implementation"] == study.reference]
         moved = (reference["estimate"] - reference["initial_estimate"]).abs()
         assert moved.max() > 1e-3, moved.describe()
 

@@ -183,6 +183,16 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         # and genuinely live in one module.  ``test_method_evidence`` reads it the same way,
         # so the two cannot come to disagree about which module owns it.
         declared["margin:selector_rmse_ratio"] = record.properties().SELECTOR_RMSE_RATIO
+    properties = record.properties()
+    if hasattr(properties, "EFFICIENCY_RATIO_BAND"):
+        low, high = properties.EFFICIENCY_RATIO_BAND
+        declared.update(
+            {
+                "margin:efficiency_ratio_lower": low,
+                "margin:efficiency_ratio_upper": high,
+                "margin:shrunken_se_factor": properties.SHRUNKEN_SE_FACTOR,
+            }
+        )
     return declared
 
 
