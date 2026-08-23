@@ -262,7 +262,7 @@ class TestAFitWithOracleReductionsRecoversTheTruth:
     r"""The headline, and it is a stronger claim than the module was written expecting.
 
     **Both primary nuisances are wrong on purpose**, so a plain TMLE has no guarantee here at
-    all -- its remainder is a product of two errors and neither factor is zero.  With the
+    all -- its remainder carries both errors and neither is zero.  With the
     reductions exactly right the doubly-robust fit lands on the law's own truth: ``0.66``,
     ``0.38`` and ``0.28``, to ``3.6e-08``.
 

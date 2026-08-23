@@ -174,14 +174,14 @@ def _expansion(
     return out
 
 
-def _product_form(
+def _exact_remainder(
     g_hat: np.ndarray,
     qz_hat: np.ndarray,
     pi_hat: np.ndarray,
     q_hat: np.ndarray,
     level: int,
 ) -> dict[str, float]:
-    """The remainder as theory says it must be: a product of two nuisance errors.
+    """The remainder as theory says it must be: an exact signed sum carrying both errors.
 
     The mechanism factor is the error in the three-way product.  Because ``q_z`` sits
     exactly where ``pi`` sits in every submodel, folding the two into one effective
@@ -234,13 +234,13 @@ def _product_form(
 CASES = [(name, level) for level in law.LEVELS for name in ESTIMANDS]
 
 
-class TestTheRemainderIsAProductOfNuisanceErrors:
+class TestTheRemainderCarriesBothNuisanceErrors:
     @pytest.mark.parametrize(("name", "level"), CASES)
     def test_matches_the_closed_form(self, name: str, level: int) -> None:
         # All four nuisances wrong, so every factor is active and nothing is zero by
         # accident.
         actual = _expansion(WRONG_G, WRONG_QZ, WRONG_PI, WRONG_QBAR, level)[name]
-        expected = _product_form(WRONG_G, WRONG_QZ, WRONG_PI, WRONG_QBAR, level)[name]
+        expected = _exact_remainder(WRONG_G, WRONG_QZ, WRONG_PI, WRONG_QBAR, level)[name]
         assert actual == pytest.approx(expected, abs=1e-12)
         assert abs(actual) > 1e-3, "the misspecification is too mild to test anything"
 
@@ -344,10 +344,10 @@ class TestTruncationRegularisesRatherThanRetargets:
     def test_what_moves_is_the_second_order_remainder(self, name: str, level: int) -> None:
         # And it moves to exactly the closed form at the truncated value: the cost of
         # truncating is a remainder computed at a mechanism that is now wrong on purpose,
-        # priced by the same product formula as any other misspecification.
+        # priced by the same remainder formula as any other misspecification.
         bounded = self._truncated(level)
         actual = _expansion(law.G, bounded, law.PI, WRONG_QBAR, level)[name]
-        expected = _product_form(law.G, bounded, law.PI, WRONG_QBAR, level)[name]
+        expected = _exact_remainder(law.G, bounded, law.PI, WRONG_QBAR, level)[name]
         assert actual == pytest.approx(expected, abs=1e-12)
         assert abs(actual) > 1e-3, "the bound is not binding hard enough to test anything"
 

@@ -27,7 +27,7 @@ That the equation is the right one is established elsewhere, and separately:
   Gateaux derivative of the target parameter on a finite-support law -- the definition of
   the efficient influence function, computed without any of the library's machinery;
 * ``tests/unit/test_remainder.py`` checks that the resulting estimating equation has the
-  second-order product remainder that double robustness consists of;
+  second-order remainder that double robustness consists of;
 * ``tests/e2e/test_oracle.py`` cross-checks the point estimate against an independently
   written AIPW estimator, and ``tests/e2e/test_double_robustness.py`` runs the full
   misspecification grid end to end.

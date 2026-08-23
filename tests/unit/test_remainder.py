@@ -117,8 +117,8 @@ def _plug_in(g_hat: np.ndarray, q_hat: np.ndarray) -> tuple[float, float]:
     return psi_one, psi_zero
 
 
-def _product_form(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
-    """The remainder as theory says it must be: a product of the two nuisance errors."""
+def _exact_remainder(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
+    """The remainder as theory says it must be: an exact signed sum carrying both errors."""
     g_error = g_hat - law.G
     one = float(np.sum(law.P_W * g_error / g_hat * (q_hat[:, 1] - law.Q[:, 1])))
     zero = float(-np.sum(law.P_W * g_error / (1.0 - g_hat) * (q_hat[:, 0] - law.Q[:, 0])))
@@ -128,12 +128,12 @@ def _product_form(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
 ESTIMANDS = ("ey1", "ey0", "ate")
 
 
-class TestTheRemainderIsAProductOfNuisanceErrors:
+class TestTheRemainderCarriesBothNuisanceErrors:
     @pytest.mark.parametrize("name", ESTIMANDS)
     def test_matches_the_closed_form(self, name: str) -> None:
         # Both nuisances wrong, so every factor is active and nothing is zero by accident.
         actual = _expansion(WRONG_G, WRONG_Q)[name]
-        assert actual == pytest.approx(_product_form(WRONG_G, WRONG_Q)[name], abs=1e-12)
+        assert actual == pytest.approx(_exact_remainder(WRONG_G, WRONG_Q)[name], abs=1e-12)
         assert abs(actual) > 1e-3, "the misspecification is too mild to test anything"
 
     @pytest.mark.parametrize("name", ESTIMANDS)
@@ -160,7 +160,7 @@ class TestTruncationRegularisesRatherThanRetargets:
     plug-in :math:`\int \bar Q(a, w)\, dP_n(w)` contains no propensity at all, and
     :math:`\Psi(P_0)` is a functional of the law, not of the estimator's settings.  Nor is
     it free: what it moves is :math:`R_2`, by exactly the closed form above evaluated at the
-    bounded value, so the cost is priced by the same product formula as any other
+    bounded value, so the cost is priced by the same remainder formula as any other
     misspecification.  Truncation buys variance and pays in second-order bias.
 
     The subtler point, and the one this class exists for, is *which* estimating equation
@@ -197,7 +197,7 @@ class TestTruncationRegularisesRatherThanRetargets:
     def test_what_moves_is_the_second_order_remainder(self, name: str) -> None:
         bounded = self._truncated()
         actual = _expansion(bounded, WRONG_Q)[name]
-        assert actual == pytest.approx(_product_form(bounded, WRONG_Q)[name], abs=1e-12)
+        assert actual == pytest.approx(_exact_remainder(bounded, WRONG_Q)[name], abs=1e-12)
         assert abs(actual) > 1e-3, "the bound is not binding hard enough to test anything"
 
     @pytest.mark.parametrize("name", ESTIMANDS)

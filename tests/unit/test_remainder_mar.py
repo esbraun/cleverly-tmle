@@ -134,8 +134,8 @@ def _expansion(g_hat: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> dict
     return out
 
 
-def _product_form(g_hat: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
-    """The remainder as theory says it must be: a product of two nuisance errors.
+def _exact_remainder(g_hat: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
+    """The remainder as theory says it must be: an exact signed sum carrying both errors.
 
     The left factor of each product is an error in a *combined* denominator -- ``g * pi``
     for the counterfactual means, and for the conditional effects a term that mixes the
@@ -181,13 +181,15 @@ def _product_form(g_hat: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> d
 ESTIMANDS = ("ey1", "ey0", "ate", "att", "atc")
 
 
-class TestTheRemainderIsAProductOfNuisanceErrors:
+class TestTheRemainderCarriesBothNuisanceErrors:
     @pytest.mark.parametrize("name", ESTIMANDS)
     def test_matches_the_closed_form(self, name: str) -> None:
         # All three nuisances wrong, so every factor is active and nothing is zero by
         # accident.
         actual = _expansion(WRONG_G, WRONG_PI, WRONG_Q)[name]
-        assert actual == pytest.approx(_product_form(WRONG_G, WRONG_PI, WRONG_Q)[name], abs=1e-12)
+        assert actual == pytest.approx(
+            _exact_remainder(WRONG_G, WRONG_PI, WRONG_Q)[name], abs=1e-12
+        )
         assert abs(actual) > 1e-3, "the misspecification is too mild to test anything"
 
     @pytest.mark.parametrize("name", ESTIMANDS)
@@ -266,10 +268,10 @@ class TestTruncationRegularisesRatherThanRetargets:
     def test_what_moves_is_the_second_order_remainder(self, name: str) -> None:
         # And it moves to exactly the closed form at the truncated value: the cost of
         # truncating is a remainder computed at a mechanism that is now wrong on purpose,
-        # priced by the same product formula as any other misspecification.
+        # priced by the same remainder formula as any other misspecification.
         bounded = self._truncated()
         actual = _expansion(law.G, bounded, WRONG_Q)[name]
-        assert actual == pytest.approx(_product_form(law.G, bounded, WRONG_Q)[name], abs=1e-12)
+        assert actual == pytest.approx(_exact_remainder(law.G, bounded, WRONG_Q)[name], abs=1e-12)
         assert abs(actual) > 1e-3, "the bound is not binding hard enough to test anything"
 
     @pytest.mark.parametrize("name", ESTIMANDS)

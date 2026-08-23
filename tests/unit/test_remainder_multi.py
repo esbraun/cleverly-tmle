@@ -2,7 +2,7 @@ r"""Finite-support remainder identities for multi-arm TMLE, OAT and DR-TMLE.
 
 The exact multi-arm fit makes every collaborative correction vanish.  This module instead
 evaluates the estimating equations at nuisance functions that are wrong on purpose, where
-the armwise product remainder and both DR-TMLE projections are observable.
+the armwise remainder and both DR-TMLE projections are observable.
 
 The corrections are taken from the shipped
 :func:`~cleverly.inference.influence.reduced_correction_parts` rather than rebuilt here, so
@@ -66,7 +66,7 @@ def _plain(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[float, tuple[float, np.
     return {arm: (mean.psi, np.asarray(mean.influence_curve)) for arm, mean in means.items()}
 
 
-def _product(g_hat: np.ndarray, q_hat: np.ndarray, arm: float) -> float:
+def _arm_remainder(g_hat: np.ndarray, q_hat: np.ndarray, arm: float) -> float:
     column = int(arm)
     return float(
         np.sum(
@@ -167,10 +167,10 @@ def test_the_library_corrections_are_the_longhand_ones(arm: float) -> None:
 
 
 @pytest.mark.parametrize("arm", ARMS)
-class TestTheMultiArmProductRemainder:
+class TestTheMultiArmRemainder:
     def test_matches_the_closed_form(self, arm: float) -> None:
         actual = _expansion(WRONG_G, WRONG_Q, arm)
-        assert actual == pytest.approx(_product(WRONG_G, WRONG_Q, arm), abs=1e-12)
+        assert actual == pytest.approx(_arm_remainder(WRONG_G, WRONG_Q, arm), abs=1e-12)
         assert abs(actual) > 1e-3
 
     def test_either_correct_nuisance_kills_it(self, arm: float) -> None:
@@ -216,7 +216,7 @@ def test_oat_generated_regressor_can_leave_a_first_order_remainder() -> None:
     remainders = np.array([_expansion(mechanism, coarse, arm) for arm in ARMS])
     assert np.max(np.abs(remainders)) > 1e-3
     for arm, actual in zip(ARMS, remainders, strict=True):
-        assert actual == pytest.approx(_product(mechanism, coarse, arm), abs=1e-12)
+        assert actual == pytest.approx(_arm_remainder(mechanism, coarse, arm), abs=1e-12)
 
 
 def test_halving_both_multi_arm_errors_quarters_the_remainder() -> None:
@@ -268,8 +268,8 @@ def test_transformed_contrast_remainder_has_product_and_curvature_blocks(
     actual += derivative(arm_hat) * float(np.mean(arm_curve))
     actual -= derivative(ref_hat) * float(np.mean(ref_curve))
 
-    product = derivative(arm_hat) * _product(WRONG_G, WRONG_Q, arm)
-    product -= derivative(ref_hat) * _product(WRONG_G, WRONG_Q, 0.0)
+    product = derivative(arm_hat) * _arm_remainder(WRONG_G, WRONG_Q, arm)
+    product -= derivative(ref_hat) * _arm_remainder(WRONG_G, WRONG_Q, 0.0)
     curvature = float(transform(arm_hat) - transform(arm_true))
     curvature -= derivative(arm_hat) * (arm_hat - arm_true)
     curvature -= float(transform(ref_hat) - transform(ref_true))

@@ -117,7 +117,7 @@ class TestOnlyTheGuardedEquationsCorrectionIsInTheCurve:
     curve.
 
     ``tests/unit/test_remainder_drtmle.py`` states the same rule twice, on the curve side
-    (``_expansion``) and on the theory side (``_product_form``), and its
+    (``_expansion``) and on the theory side (``_exact_remainder``), and its
     ``TestOneGuardRemovesTheFirstOrderRemainder`` is what says the rule is the right one.
     What is checked here is that the *library* obeys it, which is the claim nothing made.
     """

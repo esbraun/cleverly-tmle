@@ -504,7 +504,7 @@ class TestDoublyRobustInference:
     """``DRTMLE``: an interval that stays valid when only one nuisance is consistent.
 
     ``TMLE`` is doubly robust for *consistency* and singly robust for *inference*: the
-    remainder is a product of the two nuisance errors, so one consistent nuisance keeps
+    remainder carries both nuisance errors, so one consistent nuisance keeps
     ``psi-hat`` consistent while the interval needs the strictly stronger
     ``sqrt(n) R_2 -> 0``.  Solving two further score equations against reduced-dimension
     regressions is supposed to close that gap.

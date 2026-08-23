@@ -21,10 +21,10 @@ Solving that equation is what the guarantees are *built on*, but it does not by 
 supply them, and it is worth separating the two conditions that get conflated:
 
 * **Double robustness** -- consistency if *either* ``g`` or ``Qbar`` is consistent --
-  comes from the second-order remainder of the von Mises expansion being a *product* of
-  the two nuisance errors, so that either factor being zero kills it.  It needs
-  identification and positivity, and it needs no rate on either nuisance.
-  ``tests/unit/test_remainder.py`` checks the product form exactly.
+  comes from the second-order remainder of the von Mises expansion carrying *both*
+  nuisance errors, so that either one being zero kills it.  It needs identification and
+  positivity, and it needs no rate on either nuisance.
+  ``tests/unit/test_remainder.py`` checks that remainder against its closed form.
 * **Asymptotic linearity, valid Wald intervals and efficiency** need more: both
   nuisances consistent at rates whose *product* is ``o(n^{-1/2})``, the score solved to
   ``o_P(n^{-1/2})``, the estimated influence curve converging in ``L_2(P_0)``, and

@@ -93,8 +93,8 @@ def _expansion(g_hat: np.ndarray, q_hat: np.ndarray, link: str = "identity") -> 
     }
 
 
-def _product_form(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
-    """The remainder as theory says it must be: a product of the two nuisance errors."""
+def _exact_remainder(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
+    """The remainder as theory says it must be: an exact signed sum carrying both errors."""
     mechanism = np.column_stack([1.0 - g_hat, g_hat])
     truth = np.column_stack([1.0 - law.G, law.G])
     factor = (mechanism - truth) / mechanism
@@ -106,11 +106,11 @@ def _product_form(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
     return dict(zip(TERMS, (float(v) for v in values), strict=True))
 
 
-class TestTheRemainderIsAProductOfNuisanceErrors:
+class TestTheRemainderCarriesBothNuisanceErrors:
     @pytest.mark.parametrize("term", TERMS)
     def test_matches_the_closed_form(self, term: str) -> None:
         actual = _expansion(WRONG_G, WRONG_Q)[term]
-        assert actual == pytest.approx(_product_form(WRONG_G, WRONG_Q)[term], abs=1e-12)
+        assert actual == pytest.approx(_exact_remainder(WRONG_G, WRONG_Q)[term], abs=1e-12)
         assert abs(actual) > 1e-3, "the misspecification is too mild to test anything"
 
     @pytest.mark.parametrize("term", TERMS)
@@ -163,7 +163,7 @@ class TestUnderALinkTheRemainderIsSecondOrderRatherThanZero:
     cancelled by the definition of :math:`\hat\beta`.  With the identity link :math:`U` is
     linear in :math:`\beta`, so :math:`\hat\beta - \beta_0` is *exactly*
     :math:`M^{-1}E[\sum_a h\varphi(\bar Q - \bar Q_0)]` and the two terms collapse into the
-    product form above -- which is why the assertions there can be equalities.
+    remainder form above -- which is why the assertions there can be equalities.
 
     Under a link they collapse only to first order, and what is left is quadratic in
     :math:`\hat\beta - \beta_0`, hence second order in the outcome error.  So a *correct
