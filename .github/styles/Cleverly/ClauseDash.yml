@@ -1,0 +1,7 @@
+extends: existence
+message: "Use a full stop, comma, parentheses, or a table instead of '%s'."
+level: error
+scope: text
+tokens:
+  - '—'
+  - ' -- '

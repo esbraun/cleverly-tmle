@@ -42,7 +42,8 @@ Current behavior is determined by code and tests, not by historical plans or inv
 
 ## Documentation writing
 
-Reader-facing Markdown under `docs/` follows ASD-STE100 Simplified Technical English.
+The root `README.md` and reader-facing documents under `docs/` align with Issue 9 of
+ASD-STE100 Simplified Technical English. This project does not claim certified compliance.
 
 - Write one idea per sentence. Keep sentences to 20 words in procedures and 25 in descriptions.
 - Keep paragraphs to six sentences. Prefer three.
@@ -55,6 +56,11 @@ Reader-facing Markdown under `docs/` follows ASD-STE100 Simplified Technical Eng
   communication device and the prose exists to define its terms.
 - Statistical terms of art are exempt from the vocabulary restriction: influence curve, nuisance,
   targeting, remainder, estimand names, and any API identifier.
+- Give evidence for each material claim. Cite the source, name the test or artifact, or state the
+  applicable condition. Remove adjectives and transitions that add no verifiable information.
+- Use `vale README.md docs` for the mechanical prose checks. Vale does not certify STE compliance
+  or verify scientific claims. Review those claims against the code, tests, artifacts, and sources.
 
-Scope is every `docs/**/*.md`. Rewrite the text a change touches. Do not sweep unrelated pages.
-No test enforces this.
+Scope is `README.md` and every reader-facing Markdown or RST source under `docs/`. Generated API
+pages and `docs/_build/` are not source. Rewrite the text a change touches. Do not sweep unrelated
+pages unless the user requests a broad documentation review.

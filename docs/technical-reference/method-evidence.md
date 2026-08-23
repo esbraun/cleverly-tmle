@@ -241,7 +241,7 @@ table rather than leaving it asserting a rule the study never applied.
 | `properties[double_robustness/both_correct]:bias` | -0.0034 | bias with both nuisances correct |
 | `properties[double_robustness/outcome_correct]:bias` | 0.000306 | bias with only the outcome regression correct |
 | `properties[double_robustness/treatment_correct]:bias` | -0.0182 | bias with only the treatment mechanism correct |
-| `properties[double_robustness/both_wrong]:bias` | -0.3332 | bias with both nuisances wrong -- the negative control |
+| `properties[double_robustness/both_wrong]:bias` | -0.3332 | bias with both nuisances wrong; this is the negative control |
 | `properties[double_robustness/both_wrong]:coverage` | 0.1967 | coverage of the same control |
 | `properties[root_n_rate/empirical_sd]:slope` | -0.5045 | fitted log-log contraction rate of the sampling spread |
 | `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5374 | its 99% lower endpoint |
@@ -256,7 +256,7 @@ table rather than leaving it asserting a rule the study never applied.
 | `properties[interval_calibration/correctly_specified]:coverage` | 0.9542 | coverage of the same cell |
 | `properties[type_i_error/sharp_null]:rejection_rate` | 0.0325 | rejection under a confounded sharp null |
 | `properties[type_i_error/sharp_null]:rejection_ci_upper` | 0.0627 | its 99% upper endpoint, against 0.05 + 0.05 |
-| `properties[power/alternative]:rejection_rate` | 1 | rejection under a real effect -- the positive control |
+| `properties[power/alternative]:rejection_rate` | 1 | rejection under a real effect; this is the positive control |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval below |
 | `margin:alpha` | 0.0500 | nominal size of the estimator's own intervals |
 | `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
@@ -761,7 +761,7 @@ the committed results and checked at the precision printed.
 | `properties[double_robustness/treatment_correct]:n` | 2000 | observations that leg needs to resolve its remainder |
 | `properties[double_robustness/both_wrong]:standardized_bias` | 0.8464 | both-wrong negative control |
 | `properties[selector_necessity/collaborative]:rmse_ratio` | 0.1077 | collaborative RMSE divided by the empty-path control RMSE |
-| `properties[selector_necessity/collaborative]:se_ratio` | 1.2539 | reported SE over empirical spread in that cell -- see below |
+| `properties[selector_necessity/collaborative]:se_ratio` | 1.2539 | reported SE over empirical spread in that cell; see below |
 | `properties[root_n_rate/empirical_sd]:slope` | -0.4954 | fitted empirical-spread rate |
 | `properties[root_n_rate/empirical_sd]:slope_ci_lower` | -0.5270 | its 99% lower endpoint, against a band of -0.625 to -0.375 |
 | `properties[root_n_rate/empirical_sd]:slope_ci_upper` | -0.4640 | its 99% upper endpoint, which must also exclude -0.25 |

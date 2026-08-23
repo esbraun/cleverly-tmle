@@ -50,7 +50,7 @@ sized by *that node's* level count rather than by a panel-wide one. One ordinal 
 acceptable simplification: it constrains any learner linear in its design to an ordered response in
 the arm, which is a restriction on `Q` or on `g` that the estimand does not ask for. *Reconsider
 when* an estimand is added whose treatment is genuinely ordered and whose derivation uses that
-ordering — an ordinal coding would then be a modelling choice to declare, not a default to inherit.
+ordering. An ordinal coding would then be a modelling choice to declare, not a default to inherit.
 Note that no exact-law test can see this choice, since a saturated learner partitions by distinct
 design row and the two encodings are a bijection; the witness is
 `tests/unit/test_sequential_design.py::TestAThreeLevelArmEntersAsIndicators`, a `glm` mechanism on a
@@ -74,7 +74,7 @@ alternative still converges to the same structured identification and result rec
 An estimation method is named, never selected from the data. `estimate(method=...)` carries a
 fixed default preset, which is a declaration rather than a choice; what is excluded is picking an
 estimator by scanning `available_methods()` or by comparing fits on the rows being estimated. The
-temptation grows with the catalog -- `riesz_tmle` and `ep` already appear there as
+temptation grows with the catalog. `riesz_tmle` and `ep` already appear there as
 unavailable-with-reason, so a "use the best available method" convenience is one short function
 away, and it would report an interval whose selection step nothing certified and whose influence
 curve does not account for it. *Reconsider when* a published selector supplies its own influence
@@ -150,8 +150,8 @@ the persistent cache silently.
 Both assessment facades route through one base: lookup, refusal, and the combined report are
 written once, so a refusal always carries the reason its own capability row declares and a
 combined report reads the same declaration the same way on both. `run_all` names the two
-expensive classes separately -- `include_refits` for operations that refit nuisances,
-`include_retargets` for those that retarget cached ones -- because they are disjoint, and one
+expensive classes separately: `include_refits` for operations that refit nuisances and
+`include_retargets` for those that retarget cached ones. They are disjoint, and one
 flag made whichever class it did not name run under the other's permission. Sensitivity
 implementations are reached through `SENSITIVITY_ROUTES`, which also declares whether the target
 takes an estimand; that table and the declared capabilities are checked against each other in
@@ -240,7 +240,7 @@ xdist balances it and inner `n_jobs` remains one.
 
 A standalone regeneration script is not a test tier and does not inherit that split. It owns the
 machine, so it sizes its inner pool from `tests.parallel.available_cores()` rather than from the
-measured `STUDY_JOBS` floor -- but it must keep its phases *sequential*. `tests/canonical/tmle3/`
+measured `STUDY_JOBS` floor, but it must keep its phases *sequential*. `tests/canonical/tmle3/`
 generates every sample and fits the Python side to completion before handing the same samples to
 the R container, because the two are the same work on the same cores and overlapping them would
 leave both contending for a machine neither can have. A slow-tier test that is the critical path of
@@ -255,17 +255,17 @@ test-enforced source registries.
 A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`
 executes the registered documents' fences and asserts only that nothing raises; it asserts nothing
 about any number, which is what keeps the rule above intact. *Reconsider when* the check stops
-paying for its runtime — it exists because compiling a fence cannot see a name the package does not
+paying for its runtime. Compiling a fence cannot see a name the package does not
 have, and five shipped examples were broken that way at once: two on an attribute that had been
 renamed, two calling `.summary()` on reports that expose `to_frame()`, and one passing a float
 where an assignment density is required. Every one of them rendered as ordinary, copyable code.
 
 What is otherwise checked about the documentation is static, and belongs in the ordinary fast tier
-rather than behind a dispatch: links resolve — including links naming a path in this repository —
-and every `python` fence parses. There is deliberately no manual documentation job. These
+rather than behind a dispatch. Links resolve, including links that name a repository path.
+Every `python` fence also parses. There is deliberately no manual documentation job. These
 properties are cheap enough to run on every change, and a dispatch that re-ran them would read as a
-gate while adding no coverage — the failure mode the removed job had, whose
-`ruff check README.md docs` validated nothing at all because the linter does not read Markdown.
+gate while adding no coverage. The removed job had this failure mode. Its
+`ruff check README.md docs` command validated nothing because the linter does not read Markdown.
 Note the division: the ruff *formatter* does reach inside `python` fences and is covered by the
 whole-tree `ruff format --check .`, but it skips any block it cannot parse, so syntax is a test's
 job and not the formatter's.

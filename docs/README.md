@@ -32,7 +32,7 @@ architecture invariants, testing strategy, and method-benchmarking strategy.
 | [Scope and refusals](technical-reference/scope-and-refusals.md) | how to read a refusal, and where a multi-valued treatment is supported |
 | [Roadmap](roadmap.md) | all proposed work in parallel priority tracks, with governing sources, planned interfaces, implementation contracts, refusals, and evidence gates |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
-| [Evidence](technical-reference/evidence.md) | per registered estimand: which oracle, Gateaux, remainder, identity, and variant instruments exist — and which mistakes none of them would see |
+| [Evidence](technical-reference/evidence.md) | per registered estimand: which oracle, Gateaux, remainder, identity, and variant instruments exist, plus their blind spots |
 | [Implementation validation grid](technical-reference/index.md#implementation-validation-grid) | every registered study in one table: the method, the canonical implementation compared, the counts, and the declared limits |
 | [Implementation validation studies](technical-reference/method-evidence.md) | one row per committed test: what it checked, what its own endpoints required, and the verdict |
 | [Method benchmarking strategy](development/method-benchmarking.md) | how R comparisons and independent statistical-property studies are designed, registered, and accepted |

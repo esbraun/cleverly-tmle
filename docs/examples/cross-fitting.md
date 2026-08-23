@@ -240,7 +240,7 @@ influence values inside a team first, then takes the variance across teams. With
 collapses back to the ordinary formula, so nothing is lost by declaring a structure that turns out
 not to matter.
 
-Folds change too, and this is the part that is easy to get wrong.
+Folds must also keep each cluster in one partition.
 
 | what happens | why it matters |
 | --- | --- |
