@@ -43,8 +43,8 @@ score equation is weighted, and the reported curve is :math:`(w/E[w])\,D^*(P_w)`
 :mod:`cleverly.longitudinal.sequential` for what a weight is *not* -- a factor in the
 clever covariate.
 
-What is refused rather than approximated is listed in ``docs/methodology.md``, under
-*Treatment given over time: the sequential regression*; the short version is
+What is refused rather than approximated is listed in
+``docs/technical-reference/longitudinal-tmle.md``, under *Variations*; the short version is
 that this estimator answers for a regimen -- static or dynamic -- over a binary treatment
 at every node, for one end-of-study outcome or one absorbing event per cause, with
 monotone censoring.  Every point-treatment keyword it does not take is accepted and
@@ -106,7 +106,8 @@ _TRUNCATION_WARN_FRACTION = 0.05
 
 
 #: What each point-treatment keyword would need before this estimator could take it.
-#: The module docstring and ``docs/methodology.md`` both say these are refused *by name*;
+#: The module docstring and ``docs/technical-reference/longitudinal-tmle.md`` both say these
+#: are refused *by name*;
 #: without
 #: this table they were refused by absence, which is a ``TypeError`` naming no reason.
 _REFUSED: dict[str, str] = {

@@ -14,13 +14,14 @@ Build the warning-as-error site locally with `nox -s docs`.
 
 The documents below form the scientific, user, and engineering record. The
 [development reference](development/index.md) is deliberately limited to the roadmap,
-architecture invariants, and method-benchmarking strategy.
+architecture invariants, testing strategy, and method-benchmarking strategy.
 
 | document | what is in it |
 | --- | --- |
 | [Recipe compendium](user-guide.md) | one worked recipe per capability retained alongside the task-oriented user guide |
 | [Migration guide](migration.md) | runnable old-to-new workflows, complete constructor-argument maps, changed defaults, the static audit tool, and the final-old-API tag |
-| [Technical appendix](methodology.md) | per algorithm: the estimand, efficient influence curve, second-order remainder, and failure witness |
+| [Sensitivity and validation methods](technical-reference/validation-methods.md) | every instrument for reviewing an implemented method: why you use it, what it tells you, and how it tells you |
+| [Scope and refusals](technical-reference/scope-and-refusals.md) | how to read a refusal, and where a multi-valued treatment is supported |
 | [Roadmap](roadmap.md) | all proposed work in parallel priority tracks, with governing sources, planned interfaces, implementation contracts, refusals, and evidence gates |
 | [Architecture invariants](architecture-invariants.md) | cross-module constraints and standing decisions, each with the condition that would reopen it |
 | [Evidence](technical-reference/evidence.md) | per registered estimand: which oracle, Gateaux, remainder, identity, and variant instruments exist — and which mistakes none of them would see |

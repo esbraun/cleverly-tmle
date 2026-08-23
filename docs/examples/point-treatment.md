@@ -64,5 +64,5 @@ print(result.diagnostics.score_equations().summary())
 result.save("nonlinear-ate.joblib")
 ```
 
-See [Point-treatment TMLE](../technical-reference/point-treatment.md) for the parameter and
+See [Point-treatment TMLE](../technical-reference/point-treatment-tmle.md) for the parameter and
 influence function.

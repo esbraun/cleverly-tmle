@@ -61,6 +61,6 @@ print(result.diagnostics.nuisance_models().to_frame())
 
 The combined report summarizes as text. The three stage reports are tabular rather than
 printed prose: each carries one row per regimen and node, so `to_frame()` returns them in the
-backend the study was built from. The reports retain node-level details. See [Longitudinal TMLE](../technical-reference/longitudinal.md)
+backend the study was built from. The reports retain node-level details. See [Longitudinal TMLE](../technical-reference/longitudinal-tmle.md)
 for the sequential regression, cumulative clever covariate, event-process extensions, external
 provenance, and evidence.

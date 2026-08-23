@@ -312,7 +312,7 @@ This study validates `cleverly`'s default cross-validated point-treatment constr
 by Levy (2018). Nuisance predictions are out of fold, one targeting regression is fitted over the
 stacked validation rows, and the updated regression is evaluated over the whole sample. Zheng and
 van der Laan (2011) supply the wider CV-TMLE framework. The source boundary is mapped in
-[Ordinary TMLE and CV-TMLE](estimator-variants.md#ordinary-tmle-and-cv-tmle).
+[CV-TMLE and cross-fitting](cv-tmle.md#the-algorithm-as-implemented).
 
 ### What was compared
 
@@ -513,7 +513,7 @@ nuisance fitting, one pooled targeting update, equal-fold plug-in evaluation, an
 cross-validated influence-curve variance. It is separate from the stacked row above because
 averaging fold reports, rather than evaluating the updated regression over the whole sample, is a
 genuine finite-sample method choice. The construction and its source boundary are mapped in
-[Ordinary TMLE and CV-TMLE](estimator-variants.md#ordinary-tmle-and-cv-tmle).
+[CV-TMLE and cross-fitting](cv-tmle.md#the-algorithm-as-implemented).
 
 **No canonical implementation is compared.** No maintained package ships this construction, so the
 study rests on the accuracy and theory-property questions alone. A zero-row equivalence artifact

@@ -61,4 +61,4 @@ assert restored.parameter_keys == result.parameter_keys
 
 The whole result, including its nuisance estimator templates, is restored. Load only trusted
 joblib artifacts and use compatible dependency versions. See
-[Inference, diagnostics, and sensitivity](../technical-reference/inference-assessment.md).
+[sensitivity and validation methods](../technical-reference/validation-methods.md).

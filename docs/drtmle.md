@@ -13,7 +13,7 @@ This document is the reference for what is supported, what the theorem covers, w
 implementation chooses where the theorem is silent, and what a caller has to check. The runnable
 recipe is in [the user guide](user-guide.md#doubly-robust-inference); the derivation of what the
 extra equations remove is in
-[the methodology page](methodology.md#doubly-robust-inference-what-the-extra-equations-remove).
+[the DR-TMLE reference entry](technical-reference/dr-tmle.md#what-this-solves).
 
 ## The release claim, in one paragraph
 
