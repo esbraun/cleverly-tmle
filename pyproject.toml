@@ -48,6 +48,7 @@ plot = ["matplotlib>=3.7"]
 all = ["cleverly[pandas,polars,plot]"]
 docs = [
     "cleverly[all]",
+    "numpydoc>=1.10,<2",
     "sphinx>=8.1,<9",
     "myst-parser>=4.0,<5",
     "myst-nb>=1.2,<2",
@@ -57,6 +58,7 @@ docs = [
 ]
 dev = [
     "cleverly[all]",
+    "numpydoc>=1.10,<2",
     "pyarrow>=15",
     "pytest>=7.4",
     "pytest-xdist>=3.5",

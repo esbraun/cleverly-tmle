@@ -301,14 +301,17 @@ class IPSISet:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return int(self.values.shape[0])
 
     @property
     def n_arms(self) -> int:
+        """Return the number of treatment arms."""
         return int(self.values.shape[1])
 
     @property
     def n_tilts(self) -> int:
+        """Return the number of incremental interventions."""
         return len(self.names)
 
     @property
@@ -322,6 +325,7 @@ class IPSISet:
         return {float(index): name for index, name in enumerate(self.names)}
 
     def label(self, code: float) -> str:
+        """Return the label for one indexed policy."""
         return self.labels[float(code)]
 
     def observed(self, treatment: FloatArray) -> FloatArray:
@@ -412,6 +416,7 @@ class IncrementalSupport:
     ess_ratio: float
 
     def summary(self) -> str:
+        """Return a printable summary."""
         low, high = self.guaranteed
         return (
             f"{self.name}: min g(1|W)={self.min_propensity:.3g}, "

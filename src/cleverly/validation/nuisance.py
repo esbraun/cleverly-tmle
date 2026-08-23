@@ -69,6 +69,7 @@ class NuisanceModelReport:
     learner_risks: dict[str, float]
 
     def row(self) -> list[str]:
+        """Return the report row with the requested name."""
         order = ("auc", "brier", "log_loss", "r2", "mse", "calibration_slope")
         return [self.name] + [
             f"{self.metrics[key]:.4f}" if key in self.metrics else "-" for key in order
@@ -99,6 +100,7 @@ class NuisanceDiagnostics:
         raise KeyError(f"no nuisance model named {name!r}; have {[m.name for m in self.models]}")
 
     def to_frame(self, data: Any = None) -> Any:
+        """Return tabular output in the input dataframe backend."""
         keys: list[str] = []
         for model in self.models:
             for key in model.metrics:
@@ -118,6 +120,7 @@ class NuisanceDiagnostics:
         return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
+        """Return a printable summary."""
         lines = [
             "Nuisance model diagnostics (out of fold)",
             "-" * 40,

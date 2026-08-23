@@ -1,7 +1,9 @@
 # Exceptions and warnings
 
+Catch `CleverlyError` subclasses when an application can recover from invalid data, configuration,
+or lifecycle use. Treat warnings as requests to inspect convergence, overlap, or weighting.
+
 ```{autosummary}
-:toctree: generated
 :nosignatures:
 
 cleverly.CleverlyError

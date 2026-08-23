@@ -472,11 +472,43 @@ def make_linear_ate(
     effect: float = 1.5,
     backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
-    """A homogeneous treatment effect with linear nuisance functions.
+    """Generate point-treatment data with a constant additive effect.
 
-    The baseline case: a correctly specified GLM should be unbiased here, so any bias
-    a test detects points at the estimator rather than at model misspecification.
-    Because the effect is constant, ``ate == att == atc == effect`` exactly.
+    Parameters
+    ----------
+    n
+        Number of observations.
+    seed
+        Seed or NumPy random generator.
+    effect
+        Additive treatment effect used by the data-generating process.
+    backend
+        Dataframe backend. The configured default is used when omitted.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with outcome, treatment, and adjustment columns.
+    truth
+        Exact causal parameters for the data-generating process.
+
+    Notes
+    -----
+    A correctly specified generalized linear model can represent both nuisance
+    functions in this data-generating process. Because the effect is constant,
+    ``ate``, ``att``, ``atc``, and ``effect`` have the same value.
+
+    This generator provides a basic estimator check. It is not statistical
+    evidence for repeated-sampling performance.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import make_linear_ate
+    >>> data, truth = make_linear_ate(n=20, seed=1, effect=2.0)
+    >>> data.shape
+    (20, 6)
+    >>> truth["ate"]
+    2.0
     """
     return _make(linear_dgp(effect), n, seed, backend)
 

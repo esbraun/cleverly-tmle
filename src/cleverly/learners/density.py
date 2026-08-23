@@ -189,10 +189,12 @@ class ConditionalDensity:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return int(self.bin_probabilities.shape[0])
 
     @property
     def n_bins(self) -> int:
+        """Return the public value produced by this operation."""
         return int(self.bin_probabilities.shape[1])
 
     @property

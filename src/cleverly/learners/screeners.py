@@ -127,6 +127,7 @@ class CorrelationScreener(BaseEstimator, SelectorMixin):
         y: FloatArray,
         sample_weight: FloatArray | None = None,
     ) -> CorrelationScreener:
+        """Fit this object to training data."""
         matrix = np.asarray(X, dtype=float)
         if matrix.ndim == 1:
             matrix = matrix.reshape(-1, 1)

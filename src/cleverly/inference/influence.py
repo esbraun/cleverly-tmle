@@ -160,9 +160,11 @@ class ParameterEstimate:
         return float(np.mean(self.influence_curve))
 
     def with_bootstrap(self, summary: BootstrapSummary) -> ParameterEstimate:
+        """Return a copy with bootstrap inference attached."""
         return replace(self, bootstrap=summary)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible representation."""
         low, high = self.ci
         row: dict[str, Any] = {
             "estimand": self.name,

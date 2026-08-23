@@ -93,6 +93,7 @@ class EValue:
     note: str = ""
 
     def summary(self) -> str:
+        """Return a printable summary."""
         lines = [
             f"E-value for {self.estimand!r} ({self.scale} scale)",
             "-" * 40,
@@ -116,6 +117,7 @@ class EValue:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, float | str | bool]:
+        """Return a JSON-compatible representation."""
         return {
             "estimand": self.estimand,
             "scale": self.scale,

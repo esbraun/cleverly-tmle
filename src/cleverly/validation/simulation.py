@@ -235,12 +235,14 @@ class StudyResult:
 
     @property
     def n_failed(self) -> int:
+        """Return the number of failed replications."""
         return len(self.failures)
 
     def __getitem__(self, estimand: str) -> EstimandSummary:
         return self.summaries[estimand]
 
     def to_frame(self, backend: str | None = None) -> Any:
+        """Return tabular output in the input dataframe backend."""
         from ..utils.frames import frame_from_dict
 
         rows = [summary.to_dict() for summary in self.summaries.values()]
@@ -248,6 +250,7 @@ class StudyResult:
         return frame_from_dict(payload, backend=backend)
 
     def summary(self) -> str:
+        """Return a printable summary."""
         level = 1.0 - self.alpha
         lines = [
             f"Simulation study: {self.label}",
@@ -352,8 +355,8 @@ class CoverageStudy:
         at the same level, so the two cannot silently disagree.  See
         :mod:`cleverly.estimators.direct_effect`.
 
-    Example
-    -------
+    Examples
+    --------
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
     >>> from cleverly.estimators import TMLE
     >>> from cleverly.datasets import nonlinear_dgp

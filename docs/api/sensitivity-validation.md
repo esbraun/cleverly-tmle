@@ -1,9 +1,11 @@
 # Sensitivity and validation
 
+Use these objects after estimation. Diagnostics inspect fitted artifacts, sensitivity methods vary
+assumptions, and inference primitives construct derived uncertainty summaries.
+
 ## Sensitivity
 
 ```{autosummary}
-:toctree: generated
 :nosignatures:
 
 cleverly.assessment.SensitivityFacade
@@ -25,7 +27,6 @@ cleverly.sensitivity.tipping_gamma
 ## Validation
 
 ```{autosummary}
-:toctree: generated
 :nosignatures:
 
 cleverly.assessment.DiagnosticsFacade
@@ -47,10 +48,8 @@ cleverly.validation.refute
 ## Inference primitives
 
 ```{autosummary}
-:toctree: generated
 :nosignatures:
 
-cleverly.ParameterEstimate
 cleverly.inference.BootstrapResult
 cleverly.inference.SimultaneousBands
 cleverly.inference.delta_method

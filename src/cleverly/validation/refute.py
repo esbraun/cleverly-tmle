@@ -71,11 +71,13 @@ class RefutationTest:
 
     @property
     def mean(self) -> float:
+        """Return the mean refutation estimate."""
         finite = np.asarray([v for v in self.values if np.isfinite(v)])
         return float(finite.mean()) if finite.size else float("nan")
 
     @property
     def spread(self) -> float:
+        """Return the refutation estimate spread."""
         finite = np.asarray([v for v in self.values if np.isfinite(v)])
         return float(finite.std(ddof=1)) if finite.size > 1 else float("nan")
 
@@ -93,6 +95,7 @@ class RefutationResult:
 
     @property
     def passed(self) -> bool:
+        """Return whether every required check passed."""
         return all(test.passed for test in self.tests)
 
     def __bool__(self) -> bool:
@@ -105,6 +108,7 @@ class RefutationResult:
         raise KeyError(f"no test named {name!r}; have {[t.name for t in self.tests]}")
 
     def to_frame(self, data: Any = None) -> Any:
+        """Return tabular output in the input dataframe backend."""
         payload = {
             "test": [test.name for test in self.tests],
             "estimand": [test.estimand for test in self.tests],
@@ -117,6 +121,7 @@ class RefutationResult:
         return emit_frame(payload, data, backend=self.backend)
 
     def summary(self) -> str:
+        """Return a printable summary."""
         lines = [
             f"Refutation tests for {self.estimand!r}",
             "-" * 34,

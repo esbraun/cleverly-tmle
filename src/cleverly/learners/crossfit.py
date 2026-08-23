@@ -115,6 +115,7 @@ class Folds:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return int(self.assignment.shape[0])
 
     def __len__(self) -> int:
@@ -134,6 +135,7 @@ class Folds:
             yield train, test
 
     def test_index(self, fold: int) -> IntArray:
+        """Return held-out row indices for one fold."""
         return np.flatnonzero(self.assignment == fold)
 
     @classmethod
@@ -148,6 +150,7 @@ class Folds:
 
     @property
     def is_single(self) -> bool:
+        """Return whether this object contains one fold."""
         return self.n_folds == 1
 
 
@@ -378,6 +381,7 @@ class CrossFitPlan:
         return self.repeats > 1
 
     def describe(self) -> str:
+        """Return a readable description."""
         by = f" stratified on {', '.join(self.stratify_by)}" if self.stratify_by else ""
         if not self.cross_fit:
             return "declared: no cross-fitting (cross_fit=False)"

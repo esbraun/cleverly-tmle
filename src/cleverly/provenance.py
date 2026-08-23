@@ -103,10 +103,12 @@ class Provenance:
     package_versions: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible representation."""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> Provenance:
+        """Construct an instance from a serialized mapping."""
         return cls(**payload)
 
     def describe(self) -> list[str]:

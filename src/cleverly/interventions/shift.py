@@ -271,10 +271,12 @@ class ShiftSet:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return int(self.shifted.shape[0])
 
     @property
     def n_shifts(self) -> int:
+        """Return the number of shift policies."""
         return len(self.names)
 
     @property
@@ -288,6 +290,7 @@ class ShiftSet:
         return {float(index): name for index, name in enumerate(self.names)}
 
     def label(self, code: float) -> str:
+        """Return the label for one indexed policy."""
         return self.labels[float(code)]
 
     @property
@@ -383,6 +386,7 @@ class ShiftSupport:
     min_mechanism: float | None = None
 
     def summary(self) -> str:
+        """Return a printable summary."""
         quantiles = ", ".join(f"{q:.0%}: {v:.3g}" for q, v in sorted(self.ratio_quantiles.items()))
         mechanism = (
             "" if self.min_mechanism is None else f", min mechanism={self.min_mechanism:.3g}"

@@ -1,7 +1,9 @@
 # Interventions
 
+Use interventions to define static, dynamic, stochastic, incremental, or shifted treatment
+assignments. Run the matching support check before you interpret an estimate.
+
 ```{autosummary}
-:toctree: generated
 :nosignatures:
 
 cleverly.interventions.Intervention

@@ -75,6 +75,7 @@ class SuperLearnerDiagnostics:
     failed: tuple[str, ...] = field(default=())
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible representation."""
         return {
             "learner": list(self.names),
             "cv_risk": self.cv_risk.tolist(),
@@ -411,6 +412,7 @@ class SuperLearner(BaseEstimator):
 
     @property
     def classes_(self) -> FloatArray:
+        """Return fitted outcome classes."""
         self._check_fitted()
         if self.is_multiclass:
             return np.asarray(self.classes_by_fit_, dtype=float)

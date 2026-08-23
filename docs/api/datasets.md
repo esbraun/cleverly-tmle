@@ -3,8 +3,10 @@
 Generators return data together with known population quantities and are intended for examples,
 tests, and method studies.
 
+Each generator accepts a sample size, random seed, and dataframe backend. Its return value contains
+the generated frame and a mapping of known population quantities.
+
 ```{autosummary}
-:toctree: generated
 :nosignatures:
 
 cleverly.datasets.available

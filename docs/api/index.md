@@ -1,9 +1,12 @@
 # Python API
 
-The API reference is generated from the installed package so signatures and docstrings match the
-documented checkout. Objects re-exported from `cleverly` are the supported beginner-facing surface;
-specialized intervention, sensitivity, validation, inference, and dataset objects live in their
-named submodules.
+Use this reference to look up a class, method, function, parameter, or return value. Start with
+[Study design and identification](study-design.md) for the main workflow. Each category says when
+its objects enter that workflow.
+
+The reference is generated from the installed package. Its signatures and docstrings therefore
+match the documented checkout. Objects in the [object index](object-index.rst) form the supported
+public API. Specialized objects remain in their named submodules.
 
 ```{toctree}
 :maxdepth: 2

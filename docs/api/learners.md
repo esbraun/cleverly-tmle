@@ -1,7 +1,9 @@
 # Learners
 
+Use these objects to configure nuisance models, cross-fitting folds, conditional densities, and
+thread limits. Learners follow the relevant scikit-learn fit and predict contracts.
+
 ```{autosummary}
-:toctree: generated
 :nosignatures:
 
 cleverly.SuperLearner

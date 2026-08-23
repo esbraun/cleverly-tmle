@@ -191,9 +191,11 @@ class ScoreCheck:
 
     @property
     def failures(self) -> tuple[ScoreCheckRow, ...]:
+        """Return rows that failed their check."""
         return tuple(row for row in self.rows if not row.passed)
 
     def to_frame(self, data: Any = None) -> Any:
+        """Return tabular output in the input dataframe backend."""
         payload = {
             "name": [row.name for row in self.rows],
             "kind": [row.kind for row in self.rows],
@@ -277,6 +279,7 @@ class ScoreCheck:
         return "D = D*" + "".join(f" - {term}" for term in ("D*_Q", "D*_g") if term in subtracted)
 
     def summary(self) -> str:
+        """Return a printable summary."""
         if not self.passed:
             verdict = (
                 "FAIL: the score equation was not solved -- the influence-curve standard "

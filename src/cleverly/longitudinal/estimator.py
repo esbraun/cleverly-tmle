@@ -353,11 +353,44 @@ class LongitudinalConfig:
 
 @dataclass(frozen=True)
 class LongitudinalResult(Mapping[str, ParameterEstimate]):
-    """Estimates under each regimen, with everything needed to do inference on them.
+    """Store estimates and fitted artifacts for longitudinal regimens.
 
     Behaves as a mapping from parameter name to
     :class:`~cleverly.inference.ParameterEstimate`, so ``result["ey_regimen[always]"]``
     and ``for name in result`` both work.
+
+    Parameters
+    ----------
+    estimates : dict of str to ParameterEstimate
+        Estimates keyed by stable parameter alias.
+    fits : dict of str to RegimenFit
+        Sequential fits by regimen, cause, and horizon.
+    data : LongitudinalData
+        Validated time-ordered study data.
+    config : LongitudinalConfig
+        Normalized sequential-estimator configuration.
+    scaler : OutcomeScaler
+        Transformation between observed and targeting scales.
+    mechanism : Mechanism
+        Fitted treatment and observation mechanisms.
+    provenance : Provenance
+        Runtime, dependency, and data fingerprints.
+    simultaneous : SimultaneousBands or None
+        Joint confidence bands.
+    parameter_index : dict or None
+        Structured regimen, cause, and horizon index.
+    msm : RegimenMSM or None
+        Working marginal structural model.
+    msm_fits : tuple of MSMRegimenFit
+        Projection fits by cause.
+    identified_effect : IdentifiedEffect or None
+        Causal question and identifying assumptions.
+    method : EstimationMethod or None
+        Typed public method configuration.
+    parameter_keys : dict of str to ParameterKey
+        Structured identities for reported aliases.
+    assessment_cache : dict
+        Saved diagnostic and sensitivity outputs.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -409,17 +442,31 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return self.data.n
 
     def psi(self, name: str | None = None) -> float:
+        """Return a point estimate by parameter alias."""
         return self.estimate.psi if name is None else self[name].psi
 
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
+        """Return influence curves by parameter alias."""
         return estimate_curves(self.estimates)
 
     def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
-        """Joint covariance of the requested estimates, at the right independent unit."""
+        """Return joint covariance for selected estimates.
+
+        Parameters
+        ----------
+        names : sequence of str or None
+            Aliases in output order. ``None`` selects all estimates.
+
+        Returns
+        -------
+        ndarray
+            Covariance matrix at the independent observation or cluster level.
+        """
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
     def contrast(
@@ -431,7 +478,26 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         scale: Scale = "difference",
         gradient: Callable[[FloatArray], FloatArray] | None = None,
     ) -> ParameterEstimate:
-        """A smooth function of several regimens, with the delta method on the joint curve."""
+        """Return a smooth contrast with joint delta-method inference.
+
+        Parameters
+        ----------
+        function : callable
+            Smooth scalar function of the selected estimates.
+        names : sequence of str
+            Aliases passed to ``function`` in order.
+        name : str or None
+            Alias for the derived estimate.
+        scale : str
+            Reported scale of the derived estimate.
+        gradient : callable or None
+            Analytic gradient. ``None`` uses central differences.
+
+        Returns
+        -------
+        ParameterEstimate
+            Derived estimate with influence-curve inference.
+        """
         return smooth_contrast(
             self.estimates,
             function,
@@ -531,12 +597,24 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def sensitivity(self) -> Any:
+        """Return the sensitivity-analysis facade."""
         from ..assessment import SensitivityFacade
 
         return SensitivityFacade(self)
 
     def save(self, path: Any) -> Any:
-        """Persist the complete fitted result to a trusted joblib artifact."""
+        """Persist the complete fitted result to a trusted joblib artifact.
+
+        Parameters
+        ----------
+        path : path-like
+            Destination file.
+
+        Returns
+        -------
+        Path
+            Resolved output path.
+        """
         from ..estimators.serialize import save as _save
 
         return _save(self, path)
@@ -562,6 +640,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
         The ``time`` column lives here rather than on :meth:`to_frame`, which keeps the
         column names a point-treatment fit reports.
+
+        Parameters
+        ----------
+        scale : {"risk", "survival"}
+            Outcome scale for levels and contrasts.
+
+        Returns
+        -------
+        dataframe
+            One row per regimen, cause, and horizon in the input backend.
         """
         if scale not in ("risk", "survival"):
             raise ValueError(f"scale must be 'risk' or 'survival'; got {scale!r}")
@@ -635,6 +723,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
         Refused on an identity-link fit, where :math:`e^\\beta` of a risk difference is
         not a quantity, and on a fit with no working model.  Nothing is re-estimated.
+
+        Parameters
+        ----------
+        scale : {"link", "ratio"}
+            Coefficient scale to report.
+
+        Returns
+        -------
+        dataframe
+            One row per working-model coefficient in the input backend.
         """
         if scale not in ("link", "ratio"):
             raise ValueError(f"scale must be 'link' or 'ratio'; got {scale!r}")

@@ -18,16 +18,17 @@ release = __version__
 
 extensions = [
     "myst_nb",
+    "numpydoc",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.intersphinx",
-    "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_copybutton",
     "sphinx_design",
 ]
 
 root_doc = "index"
+templates_path = ["_templates"]
 source_suffix = {".rst": "restructuredtext", ".md": "myst-nb", ".ipynb": "myst-nb"}
 exclude_patterns = ["_build", "api/generated/*.md", "Thumbs.db", ".DS_Store"]
 
@@ -51,8 +52,18 @@ autodoc_typehints = "description"
 autodoc_typehints_format = "short"
 autodoc_member_order = "bysource"
 autoclass_content = "both"
-napoleon_google_docstring = True
-napoleon_numpy_docstring = True
+
+# Public class pages expose the methods and attributes that the class defines.  Inherited
+# container helpers stay on their defining class so result pages do not fill with Mapping methods.
+numpydoc_show_class_members = False
+numpydoc_show_inherited_class_members = False
+numpydoc_class_members_toctree = False
+numpydoc_attributes_as_param_list = True
+numpydoc_xref_param_type = True
+numpydoc_validation_checks = {
+    "GL06",  # known section names
+    "GL07",  # standard section order
+}
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),

@@ -1,7 +1,9 @@
 # Results and assessment
 
+Use result objects to read estimates, uncertainty, influence curves, diagnostics, and provenance.
+Reports provide stable summaries and dataframe output for downstream analysis.
+
 ```{autosummary}
-:toctree: generated
 :nosignatures:
 
 cleverly.CausalResult

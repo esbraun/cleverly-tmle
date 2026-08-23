@@ -176,6 +176,7 @@ class Static:
             object.__setattr__(self, "name", f"always {self.level}")
 
     def density(self, data: CausalData) -> FloatArray:
+        """Evaluate the intervention density on validated data."""
         code = _code_for(data, self.level)
         return _one_hot(np.full(data.n, code), data.n_arms).astype(float)
 
@@ -201,6 +202,7 @@ class Rule:
     name: str
 
     def density(self, data: CausalData) -> FloatArray:
+        """Evaluate the intervention density on validated data."""
         assigned = _as_array(self.rule(_covariate_frame(data)))
         if assigned.shape[0] != data.n or assigned.ndim > 1:
             raise DataError(
@@ -229,6 +231,7 @@ class Stochastic:
     name: str
 
     def density(self, data: CausalData) -> FloatArray:
+        """Evaluate the intervention density on validated data."""
         values = np.asarray(_as_array(self.density_fn(_covariate_frame(data))), dtype=float)
         if values.shape != (data.n, data.n_arms):
             raise DataError(
@@ -359,14 +362,17 @@ class RegimeSet:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return int(self.values.shape[0])
 
     @property
     def n_arms(self) -> int:
+        """Return the number of treatment arms."""
         return int(self.values.shape[1])
 
     @property
     def n_regimes(self) -> int:
+        """Return the number of regimens."""
         return len(self.names)
 
     @property
@@ -380,6 +386,7 @@ class RegimeSet:
         return {float(r): name for r, name in enumerate(self.names)}
 
     def label(self, code: float) -> str:
+        """Return the label for one indexed policy."""
         return self.labels[float(code)]
 
     def column(self, code: float) -> FloatArray:

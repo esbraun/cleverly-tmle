@@ -389,15 +389,46 @@ class CVTargeting:
 
 @dataclass(frozen=True)
 class TMLEResult:
-    """The result of a TMLE fit.
+    """Store a fitted point-treatment TMLE result.
 
     Behaves like a mapping from estimand name to
     :class:`~cleverly.inference.ParameterEstimate`, and carries the nuisance fits so
     that sensitivity and validation analyses can be run without refitting.
 
+    Parameters
+    ----------
+    estimates : dict of str to ParameterEstimate
+        Estimates keyed by stable parameter alias.
+    repeats : tuple of RepeatFit
+        Nuisance and targeting artifacts for each cross-fitting repeat.
+    data : CausalData
+        Validated study data and dataframe backend.
+    config : TMLEConfig
+        Normalized implementation configuration.
+    estimator : Any or None
+        Fitted estimator that produced this result.
+    provenance : Provenance or None
+        Runtime, dependency, and data fingerprints.
+    simultaneous : SimultaneousBands or None
+        Joint confidence bands for multi-parameter fits.
+    bootstrap : BootstrapResult or None
+        Optional refit-bootstrap draws and failure counts.
+    intermediate_value : float or None
+        Fixed intermediate level for a controlled direct effect.
+    extra : dict
+        Method-specific fitted artifacts.
+    identified_effect : IdentifiedEffect or None
+        Causal question and identifying assumptions.
+    method : EstimationMethod or None
+        Typed public method configuration.
+    parameter_keys : dict of str to ParameterKey
+        Structured identities for reported aliases.
+    assessment_cache : dict
+        Saved diagnostic and sensitivity outputs.
+
     Attributes
     ----------
-    repeats:
+    repeats : tuple of RepeatFit
         One :class:`~cleverly.estimators._nuisance.RepeatFit` per draw of the
         cross-fitting split -- a one-element tuple for an ordinary fit, ``R`` of them
         under ``repeats=R``.  This is where the nuisances and the fluctuations actually
@@ -405,7 +436,7 @@ class TMLEResult:
         which is what keeps every analysis written against a single fit working unchanged.
         Anything that must account for *all* the draws -- and every analysis that produces
         a number, as against one that describes a mechanism, must -- iterates this.
-    intermediate_value:
+    intermediate_value : float or None
         The level of the intermediate variable this fit targets, or ``None`` for an
         ordinary point-treatment fit.  It is part of the *estimand*, not a setting: every
         estimate here is a controlled direct effect holding ``Z`` at this level, and the
@@ -522,7 +553,18 @@ class TMLEResult:
         return sole_estimate(self.estimates)
 
     def psi(self, name: str | None = None) -> float:
-        """Point estimate for ``name``, or for the sole parameter when omitted."""
+        """Return one point estimate.
+
+        Parameters
+        ----------
+        name : str or None
+            Parameter alias. ``None`` requires a single-parameter result.
+
+        Returns
+        -------
+        float
+            Point estimate on its reported scale.
+        """
         return self.estimate.psi if name is None else self[name].psi
 
     @property
@@ -532,10 +574,12 @@ class TMLEResult:
 
     @property
     def n(self) -> int:
+        """Return the number of observations."""
         return self.data.n
 
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
+        """Return influence curves by parameter alias."""
         return estimate_curves(self.estimates)
 
     @property
@@ -552,13 +596,23 @@ class TMLEResult:
     # ------------------------------------------------------------- contrasts
 
     def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
-        """Joint covariance matrix of the requested estimates.
+        """Return joint covariance for selected estimates.
 
         The estimands are *not* independent -- they are functionals of one targeted
         distribution and share most of their influence curve -- so a contrast built
         from two of them needs this rather than the two variances.  Computed from the
         influence curves at the right independent unit, so a clustered fit gets the
         cluster-level covariance.
+
+        Parameters
+        ----------
+        names : sequence of str or None
+            Aliases in output order. ``None`` selects all estimates.
+
+        Returns
+        -------
+        ndarray
+            Covariance matrix in the requested order.
         """
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
@@ -585,6 +639,24 @@ class TMLEResult:
 
         The result is an ordinary :class:`~cleverly.inference.ParameterEstimate`, so it
         carries its own influence curve and can itself be fed back into a contrast.
+
+        Parameters
+        ----------
+        function : callable
+            Smooth scalar function of the selected estimates.
+        names : sequence of str
+            Aliases passed to ``function`` in order.
+        name : str or None
+            Alias for the derived estimate.
+        scale : str
+            Reported scale of the derived estimate.
+        gradient : callable or None
+            Analytic gradient. ``None`` uses central differences.
+
+        Returns
+        -------
+        ParameterEstimate
+            Derived estimate with influence-curve inference.
         """
         return smooth_contrast(
             self.estimates,
@@ -655,6 +727,16 @@ class TMLEResult:
 
         Loading joblib data can execute arbitrary Python code. Only load files from a
         trusted source in a compatible Python and dependency environment.
+
+        Parameters
+        ----------
+        path : path-like
+            Destination file.
+
+        Returns
+        -------
+        Path
+            Resolved output path.
         """
         from .serialize import save as _save
 
@@ -709,6 +791,16 @@ class TMLEResult:
         Nothing is re-estimated: the interval and the p-value come from the influence
         curve the fit already reported, read on the scale ``scale`` names.  This is a
         *view*, in the sense :meth:`cleverly.longitudinal.LTMLEResult.curve` is one.
+
+        Parameters
+        ----------
+        scale : {"link", "ratio"}
+            Coefficient scale to report.
+
+        Returns
+        -------
+        dataframe
+            One row per working-model coefficient in the input backend.
         """
         if scale not in ("link", "ratio"):
             raise ValueError(f"scale must be 'link' or 'ratio'; got {scale!r}")

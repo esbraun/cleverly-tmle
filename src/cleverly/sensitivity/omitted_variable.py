@@ -393,6 +393,7 @@ class SensitivityBounds:
         return self.confounding_strength * self.max_bias
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible representation."""
         return {
             "estimand": self.estimand,
             "psi": self.psi,
@@ -410,6 +411,7 @@ class SensitivityBounds:
         }
 
     def summary(self) -> str:
+        """Return a printable summary."""
         conclusion = (
             "the sign of the effect survives"
             if (self.lower - self.null_hypothesis) * (self.upper - self.null_hypothesis) > 0
@@ -571,6 +573,7 @@ class BenchmarkResult:
     nu2_short: float
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible representation."""
         return {
             "estimand": self.estimand,
             "covariates": ", ".join(self.covariates),
@@ -583,6 +586,7 @@ class BenchmarkResult:
         }
 
     def summary(self) -> str:
+        """Return a printable summary."""
         return "\n".join(
             [
                 f"Benchmark for {self.estimand!r} against {list(self.covariates)}",
