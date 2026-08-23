@@ -164,12 +164,14 @@ sphinx-build -W --keep-going -b html docs docs/_build/html
 `nox -s docs` runs the warning-as-error build in an isolated environment. CI uses this command.
 The direct call is faster, so the installation command above includes the `docs` extra.
 
-The prose check requires [Vale 3.17.0](https://github.com/vale-cli/vale/releases/tag/v3.17.0).
-Vale checks measurable style rules. It does not verify scientific claims or certify ASD-STE100
-compliance.
+`vale` is a separate binary, not a Python package: install
+[Vale 3.17.0](https://github.com/vale-cli/vale/releases/tag/v3.17.0), the version CI pins. It
+checks measurable style rules over Markdown. It does not verify scientific claims and it does not
+certify ASD-STE100 compliance.
 
-The fast tier compiles every Python fence and executes the registered reader-facing guides.
-It also resolves relative links and checks that generated API source represents the root API.
+The fast tier compiles every Python fence and executes the registered reader-facing guides. It
+also resolves relative links, checks that generated API source represents the root API, and
+checks the prose rule Vale cannot reach in the notebook and the `.rst` sources.
 Scientific behavior belongs in ordinary fast tests or named slow statistical studies. Run the
 relevant checks locally before handoff; a green GitHub Actions CI run is the final merge signal.
 

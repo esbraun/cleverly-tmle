@@ -21,9 +21,10 @@ to trust a number should be able to see which they are looking at without openin
 modules. That is the whole of what this table is.
 
 **It is a gate, not a note.** `tests/unit/test_registry.py::TestEvidenceManifest` checks it
-in both directions against `TARGETS` and checks that every module named here exists. It also checks that the *oracle law* column agrees
-with the law whose `functional` really has the branch, read through the same `oracle_for`
-the coverage gate uses. A row cannot claim an oracle the laws do not provide.
+in both directions against `TARGETS`, and checks that every module named here exists. The part
+that makes it more than a document is the third check: the *oracle law* column must agree with
+the law whose `functional` really has the branch, read through the same `oracle_for` the coverage
+gate uses. A row cannot claim an oracle the laws do not provide.
 
 ## The instruments
 
@@ -38,7 +39,7 @@ the coverage gate uses. A row cannot claim an oracle the laws do not provide.
 
 ## The table
 
-One row exists for each registered target. `none` in a cell means that no such instrument exists for this
+One row per registered target. `none` in a cell means there is no such instrument for this
 target, which is a statement rather than an omission; the **not covered** column says what
 follows from it.
 
@@ -58,8 +59,8 @@ follows from it.
 | `ey_regime` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_regime.py` | `tests/unit/test_remainder_regime.py` | a degenerate regime equals the static arm it puts all its mass on (`tests/unit/test_regimes.py`) | a rule that is not deterministic; the density is evaluated once at fit time and the fit answers for that evaluation |
 | `ate_regime` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_regime.py` | `tests/unit/test_remainder_regime.py` | the contrast is the difference of the means (`tests/unit/test_regimes.py`) | a rule that is not deterministic, as for `ey_regime`; and the contrast's identity is a relation between two reported numbers, so a defect common to both means survives it |
 | `ey_ipsi` | `tests/discrete_law.py`, `tests/discrete_law_mar.py` | `tests/unit/test_influence_gateaux_ipsi.py`, `tests/unit/test_influence_gateaux_ipsi_mar.py` | `tests/unit/test_remainder_ipsi.py`, `tests/unit/test_remainder_ipsi_mar.py` | `psi(delta=1)` equals `mean(Y)` row by row whatever the nuisances are (`tests/unit/test_ipsi_fit.py`); this detects an alternation that exits with one equation open | this is the one estimand that is **not** doubly robust: every remainder term carries `(ghat - g0)`, so a consistent `Qbar` cannot substitute for a consistent mechanism. The alternation's linear rate is measured, not bounded |
-| `ate_ipsi` | `tests/discrete_law.py`, `tests/discrete_law_mar.py` | `tests/unit/test_influence_gateaux_ipsi.py`, `tests/unit/test_influence_gateaux_ipsi_mar.py` | `tests/unit/test_remainder_ipsi.py`, `tests/unit/test_remainder_ipsi_mar.py` | `psi(delta=1)` equals `mean(Y)`, and the contrast of two tilts at `delta=1` is zero (`tests/unit/test_ipsi_fit.py`) | not doubly robust, as for `ey_ipsi`; with `delta=` present, the `psi(1)` check changes meaning. It is then the MAR-identified `E[Y]`, and the complete-case mean is wrong |
-| `ey_shift` | `tests/discrete_law_shift.py` | `tests/unit/test_influence_gateaux_shift.py`, `tests/unit/test_influence_gateaux_shift_cde.py` | `tests/unit/test_remainder_shift_cde.py` | the negative control: a shift's mean equals the induced stochastic regime's, and its **curve does not** (`tests/unit/test_influence_gateaux_shift.py`) | there is no plain-shift remainder module. The rate is measured only with a third nuisance (`_shift_cde`). A Gateaux check on an exact law cannot see a counterfactual block, so `tests/unit/test_shift_submodel.py` and `tests/unit/test_shift_fit.py` use structural and nonzero checks |
+| `ate_ipsi` | `tests/discrete_law.py`, `tests/discrete_law_mar.py` | `tests/unit/test_influence_gateaux_ipsi.py`, `tests/unit/test_influence_gateaux_ipsi_mar.py` | `tests/unit/test_remainder_ipsi.py`, `tests/unit/test_remainder_ipsi_mar.py` | `psi(delta=1)` equals `mean(Y)`, and the contrast of two tilts at `delta=1` is zero (`tests/unit/test_ipsi_fit.py`) | not doubly robust, as for `ey_ipsi`; with `delta=` present the `psi(1)` check changes meaning. It is then the MAR-identified `E[Y]` and the complete-case mean is the wrong answer, so the check must not be read across that case |
+| `ey_shift` | `tests/discrete_law_shift.py` | `tests/unit/test_influence_gateaux_shift.py`, `tests/unit/test_influence_gateaux_shift_cde.py` | `tests/unit/test_remainder_shift_cde.py` | the negative control: a shift's mean equals the induced stochastic regime's, and its **curve does not** (`tests/unit/test_influence_gateaux_shift.py`) | there is no plain-shift remainder module. The rate is measured only with a third nuisance (`_shift_cde`). A Gateaux check on an exact law cannot see a counterfactual block, so `tests/unit/test_shift_submodel.py` and `tests/unit/test_shift_fit.py` pin those structurally and at `epsilon != 0` instead |
 | `ate_shift` | `tests/discrete_law_shift.py` | `tests/unit/test_influence_gateaux_shift.py`, `tests/unit/test_influence_gateaux_shift_cde.py` | `tests/unit/test_remainder_shift_cde.py` | the same negative control as `ey_shift`, taken on the contrast (`tests/unit/test_influence_gateaux_shift.py`) | no plain-shift remainder module, as for `ey_shift`; and the MNAR tilt is refused on this axis by name, so nothing here measures sensitivity to it |
 | `msm` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_msm.py` | `tests/unit/test_remainder_msm.py` | a **saturated** working model reproduces the per-arm report exactly, at the covariate and at the estimate (`tests/unit/test_msm_submodel.py`, `tests/e2e/test_msm.py`); continuous-dose quadrature and its nonzero density-ratio score are pinned in `tests/unit/test_msm.py` and `tests/unit/test_continuous_msm.py` | the saturated identity is blind to the curvature term, the alternation's restart, and the loss of exact double robustness. A saturated model *fits*, which a projection does not promise. The continuous test uses a linear truth; a nonlinear continuous-dose Gateaux oracle remains absent |
 
@@ -145,9 +146,9 @@ supplied array reaches the fit rather than the refusal merely being gone.
 measured its truncation witnesses on the treatment mechanism alone, which is blind in exactly
 the regime this construction is for: a randomized trial's `g` is flat by design and cannot clip,
 so a fit whose `P(Delta=1|A,W)` was pinned on a fifth of its rows was certified `"theorem"`.
-`TestTheContractSeesTheObservationTruncations` contains two fits. One is well-behaved. The other fit's
-observation mechanism is pinched while its treatment mechanism demonstrably is not. The
-second is asserted to leave every pre-existing column inactive, so a bound-active verdict there
+`TestTheContractSeesTheObservationTruncations` is a pair of fits. One is well-behaved. The
+second has its observation mechanism pinched while its treatment mechanism demonstrably is not,
+and is asserted to leave every pre-existing column inactive, so a bound-active verdict there
 cannot come from anything but the two new witnesses. The same fixture carries the positivity
 report's derived `P(A=a,Delta=1|W)` row, which counted its truncation against a product of floors
 the estimator never applies: 1.1% reported against 20.1% actual, with the old rule kept beside it
@@ -165,11 +166,11 @@ nonzero instrument:
 
 | construction | instrument | what fails without it |
 | --- | --- | --- |
-| armwise equation (9) | `test_armwise_mechanism_matches_an_independent_glm_solve`; `brentq` solves `drtmle`'s `fluctuateG` score equation independently for each arm | any change to the response, offset, covariate or arm alignment; agreement is to `1e-13` |
+| armwise equation (9) | `test_armwise_mechanism_matches_an_independent_glm_solve`; `brentq` solves `drtmle`'s own `fluctuateG` score equation, arm by arm, sharing no code with the solver | any change to the response, offset, covariate or arm alignment; agreement is to `1e-13` |
 | the reported corrections | `test_drtmle_corrections_are_nonzero_and_solved_under_misspecification`; glm nuisances give `max|Qr| ≈ 4e-2`, and the mechanism leaves the simplex | a targeted mechanism that does not move, or an identity that holds only because both sides are zero |
 | arm alignment of the exit state | `test_multi_arm_exit_state_solves_each_arms_equation`; it recomputes equation (9) and asserts that a column permutation does **not** solve it | a per-arm quantity read at the wrong arm, which is invisible to any symmetric check |
 | `reduced_mechanism_covariate` at `K` arms | `test_multi_arm_reduced_mechanism_covariate_has_the_r_formula` on a nonzero `Qr` | the binary sign convention carried over, which the exact law cannot see |
-| the `oat` design | `test_oat_fits_the_treatment_model_on_the_arm_specific_qbar_matrix` and `test_oat_recovers_a_mechanism_generated_by_qbar`; a saturated learner uses a law where `Qbar(·, W)` is a bijection of `W` | zeroing, permuting or substituting the design, none of which any exact-law or field-name assertion detects |
+| the `oat` design | `test_oat_fits_the_treatment_model_on_the_arm_specific_qbar_matrix` and `test_oat_recovers_a_mechanism_generated_by_qbar`; a saturated learner on a law where `Qbar(·, W)` is a bijection of `W`, so the fitted `g` must equal `g_0` exactly | zeroing, permuting or substituting the design, none of which any exact-law or field-name assertion detects |
 | selector joint target | `tests/unit/test_ctmle_multi_arm_selector.py`; categorical paths for every selector, explicit component names, and the trace-plus-vector-bias identity | scoring only the first contrast: the nonzero mutation changes the penalty by more than 100 |
 
 The selector uses one shared categorical path. `ey` contributes all `K` arm curves; `ate`,
@@ -225,11 +226,11 @@ evidence structure explicit.
 A coverage study is only evidence if the number it calls the truth is the number an adjusted
 fit is estimating. Two of the generators shipped for clustered inference failed that: the
 per-cluster latent drove the treatment mechanism as well as the outcome and was not emitted
-as a covariate, so the declared ATE of `1.0` was not identified. The identified ATE was `1.83`, and every
-interval missed by six to ten standard errors while the docstring claimed the counterfactual
-means were unchanged. The longitudinal generator failed it twice, since its shared effect
-also tilted the outcome on the logit scale, where `E_S[expit(eta + gamma S)] != expit(eta)`
-moves the means whatever the mechanism does.
+as a covariate, so the declared ATE of `1.0` was not identified. The identified value was
+`1.83`, and every interval missed by six to ten standard errors while the docstring claimed the
+counterfactual means were unchanged. The longitudinal generator failed it twice, since its
+shared effect also tilted the outcome on the logit scale, where
+`E_S[expit(eta + gamma S)] != expit(eta)` moves the means whatever the mechanism does.
 
 Both now put the sharing where it does not confound and assert it: `clustered_dgp` makes the
 latent an **effect modifier** independent of treatment, and the longitudinal generators share
@@ -254,7 +255,7 @@ correct nuisances, so the exact-law instruments were blind exactly where it matt
 The arm, regime, shift, tilt and MSM axes are not in that position: their influence curves
 do **not** vanish at the truth, so the Gateaux comparison is anchored where the quantity
 lives rather than where it disappears. That is the argument for the empty column, and it is
-an argument rather than a measurement. Thus, it is written here, where the next
+an argument rather than a measurement. That is why it is written here, where the next
 person to add an estimand will read it, instead of being left to be re-derived.
 
 **The condition that would fill the column** is a target whose curve contains a block that

@@ -21,14 +21,14 @@ extra equations remove is in
 
 **Conditional validity.** The default univariate algorithm computes what Benkeser, Carone, van der
 Laan & Gilbert's Theorem 1 derives; `reduction="bivariate"` computes van der Laan (2014), Theorem
-3's earlier binary construction. Checks compare both methods with their remainder derivations and
-the parameter's Gateaux derivative. Exact finite-support laws and remainder identities cover two
-and three arms. The union-model cells retain exactly one correction. The reported interval is valid
-**conditional on** the practitioner obtaining adequate primary
-and reduced-regression fits. Those are rate conditions on estimated functions. They are not
-verifiable from a fit's own output, and in particular **numerical score convergence does not
-verify them**; see [section 6](#6-solved-scores-do-not-establish-nuisance-consistency), which is
-the single most important thing on this page.
+3's earlier binary construction. Checks compare both constructions with their remainder
+derivations and with the parameter's Gateaux derivative. The exact finite-support laws and the
+remainder identities run at three arms as well as two, in the union-model cells where exactly one
+correction survives. The reported interval is valid **conditional on** the practitioner obtaining
+adequate primary and reduced-regression fits. Those are rate conditions on estimated functions.
+They are not verifiable from a fit's own output, and in particular **numerical score convergence
+does not verify them**; see [section 6](#6-solved-scores-do-not-establish-nuisance-consistency),
+which is the single most important thing on this page.
 
 What this is *not*: a better point estimate. The three empirical means are all driven to zero, so
 the extra terms cannot move `Ψ̂` and only move its variance. Read a `DRTMLE` fit as the same
@@ -55,20 +55,20 @@ independently fluctuates each one-vs-rest mechanism margin with response `1(A = 
 The targeted margins are **not renormalised**, and the reason is that what this estimator
 owes is a set of solved score equations rather than a likelihood: projecting the `K` tilted
 margins back onto the simplex would move every one of them off the root just found. They
-are not inert. The estimate uses them because the next
-round's equation (8) divides by `g_a*`, so the targeted `Qbar*` and hence `psi` do depend on
-margins that sum to something other than one (measured: `0.9975` on the three-armed
-fixture). That is what `drtmle` does too, and it is licensed by the score equations rather
-than by the mechanism still being a conditional distribution. The initial categorical
-mechanism *is* compatible and sums to one, using cleverly's existing multiclass learner
-path; `diagnostics.support()` reports how far the targeted rows depart from it.
+are not inert, and the estimate does see them: the next round's equation (8) divides by `g_a*`,
+so the targeted `Qbar*` and hence `psi` do depend on margins that sum to something other than
+one (measured: `0.9975` on the three-armed fixture). That is what `drtmle` does too, and it is
+licensed by the score equations rather than by the mechanism still being a conditional
+distribution. The initial categorical mechanism *is* compatible and sums to one, using
+cleverly's existing multiclass learner path; `diagnostics.support()` reports how far the
+targeted rows depart from it.
 
 **Two arms keep their own route, which is not the armwise one.** `drtmle` fluctuates both
 margins independently even at `K = 2`; cleverly instead tilts `g_1` alone along a
 two-column covariate, so `g_0* = 1 - g_1*` holds exactly. Both solve the *same two* score
-equations. Column 0's equation is `P_n[Qr_0/g_0* {1(A=a_0) - g_0*}] = 0` after applying the sign convention
-in `reduced_mechanism_covariate`. They differ only in the submodel, hence at
-second order. So the estimator is not continuous in `K`, and a reader comparing a two-arm
+equations. Column 0's is `P_n[Qr_0/g_0* {1(A=a_0) - g_0*}] = 0` once the sign convention in
+`reduced_mechanism_covariate` is unwound. They differ only in the submodel, hence at second
+order. So the estimator is not continuous in `K`, and a reader comparing a two-arm
 cleverly fit against a two-arm `drtmle` fit should expect agreement in the equations solved
 rather than in the iterates.
 
@@ -96,17 +96,17 @@ res = study.estimate(
 ```
 
 `guard=` says which extra equations to solve, in `drtmle`'s vocabulary and crossed the way that
-package crosses it. Both apply by default. It also names the corrections that the reported curve subtracts:
-one per equation solved, so `guard=("g",)` reports `D = D* − D*_Q` and the score check's verdict
-names *that* curve. The other equation's correction is still recomputed and reported, held to no
-threshold, because it is what says what the guard did not buy. An empty guard is a plain `TMLE`,
-bit for bit.
+package crosses it. Both apply by default. It also names the corrections the reported curve
+subtracts: one per equation solved, so `guard=("g",)` reports `D = D* − D*_Q` and the score
+check's verdict names *that* curve. The other equation's correction is still recomputed and
+reported, held to no threshold, because it is what says what the guard did not buy. An empty
+guard is a plain `TMLE`, bit for bit.
 
 ### Supported, with conditions
 
 | keyword | status |
 | --- | --- |
-| `delta=` | **randomized binary trials only**, using Díaz & van der Laan (2017)'s missing-outcome construction. Set `randomized=True` to estimate the treatment probabilities. Alternatively, pass row-aligned known probabilities as `treatment_probabilities=` to `fit`. Use a mapping keyed by treatment level, `(n, 2)` in encoded arm order, or `(n,)` for the probability of arm code `1`. This surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no analysis weights or evaluation companion. With `guard=()`, the same array configures a **plain TMLE** at the design mechanism. The result is bit-for-bit equal to the ordinary estimator. The restrictions do not apply because no extra equation or theorem applies. |
+| `delta=` | **randomized binary trials only**, using Díaz & van der Laan (2017)'s missing-outcome construction. Set `randomized=True` to estimate the treatment probabilities. Alternatively, pass row-aligned known probabilities as `treatment_probabilities=` to `fit`. Use a mapping keyed by treatment level, `{"placebo": p0, "active": p1}`, or `(n, 2)` in encoded arm order, or `(n,)` read as the probability of the arm whose code is `1`. This surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no analysis weights or evaluation companion. With `guard=()`, the same array configures a **plain TMLE** at the design mechanism. The result is the ordinary estimator bit for bit, which is what a pure randomization-probability analysis wants. None of those conditions then holds, because no extra equation is being solved and no theorem is claimed. |
 | `weights=` | **fixed analysis weights only.** The estimand is the parameter of the tilted law `dP_w = w dP / E[w]`. The derivation was read at an unweighted law; transporting it needs the reduced regressions to be `P_w`-conditional expectations, which weighted loss gives, *and* the mechanism they condition on and divide by to be the `P_w` mechanism, which holds because they are built from `nuisance.propensity`. `tests/unit/test_remainder_drtmle.py` runs the whole expansion at two tilted laws and keeps the wrong transport as a control that fails. |
 | `repeats=` | supported; varies exactly one thing, the **primary split**. Each draw fits its own reductions and runs its own alternation; the report is the mean of the draws with the curves averaged elementwise. `result.extra["drtmle"]` describes **draw 0 only**. |
 | `reduction="bivariate"` | supported for complete outcomes and discrete treatment. It fits one reduced probability on the two-column `(Qbar-hat(a,W), g-hat(a|W))` design and uses van der Laan's distinct `D_Y`, once per arm as the pinned R implementation does; univariate remains the default because its reduced regressions can converge faster. The cited theorem is binary, so the multi-arm case is an implementation-backed armwise extension rather than a claim about that theorem's literal scope. |
@@ -131,8 +131,8 @@ raise at construction or at `fit`, with a message naming what a derivation would
 | `intermediate=` | the reduced equations carry no controlled-intermediate factor |
 | `targeting_scheme="fold"` | each fold would need its own reduced regressions and alternation |
 | `cv_evaluation=True` | the common-update construction would need the corrected parameter and influence curve derived under fold-wise evaluation |
-| composition with `CTMLE` | a reduced regression conditions on `ĝ` *as a covariate*, but C-TMLE's `ĝ` is not an estimate of `g_0`. C-TMLE scores its path by the loss of the targeted `Q̄`, so its criterion presupposes that `Q̄` is informative. This variant addresses the case where that condition fails. |
-| estimated weights (`weights_estimated=`) | the ordinary interval conditions on the weights. This argument concerns `D*`, not `Q_r`, `g_{r,1}`, or `g_{r,2}` |
+| composition with `CTMLE` | a reduced regression conditions on `ĝ` *as a covariate*, and C-TMLE's `ĝ` is deliberately not an estimate of `g_0`. C-TMLE also scores its path by the loss of the targeted `Q̄`, so the criterion choosing `ĝ` presupposes that `Q̄` is informative. That is precisely the case this variant insures against. |
+| estimated weights (`weights_estimated=`) | the ordinary answer is that the interval conditions on the weights, and that answer is an argument about `D*` rather than about `Q_r`, `g_{r,1}` and `g_{r,2}` |
 | `evaluation=` with `repeats>1`, `targeting="one_step"`, or `target_weights=True` | each by name; the middle one on cost, up to 20,000 adaptive steps |
 | `reduced_crossfit="nested"` with `cross_fit=False` or `n_folds < 3` | there is no complement to leave a fold out of; nested leaves two folds out at a time |
 
@@ -236,7 +236,7 @@ Three things to read off it:
   ambition is stricter than the theorem, and its numerical stopping rule is not obviously either;
 - the conditions are on the **targeted** collection, including the starred *reduced* nuisances,
   which is why `retarget` on a `DRTMLE` result costs a fit rather than arithmetic on cached
-  arrays. This cost follows from the source;
+  arrays. That cost follows the source, and is not a design slip;
 - the variance is `P_n[·]²` of the **rowwise** corrected curve, so nothing that summarises the
   curve before squaring is computing this. The ATE curve is the **rowwise difference** of the two
   arm curves, which is what makes an ATE-only diagnostic insufficient: arm-specific errors cancel
@@ -316,26 +316,26 @@ Theorem 1 reports `D^{*,#} = D* − D_A − D_Y`. Read off those two, the theore
 contribution is `+u` where the code's is `−u`.
 
 *What settles it.* First, the same paper prints the object twice with two signs: §3.2 redefines
-`D_Y` for the default univariate construction with **no** leading minus,
-twelve lines after printing the bivariate one with one. Two displays of one object with opposite
-signs is already a reason not to settle the question from a display.
+`D_Y` for the univariate construction, the default here, with **no** leading minus, twelve lines
+after printing the bivariate one with one. Two displays of one object with opposite signs is
+already a reason not to settle the question from a display.
 
 Second, and decisively, **appendices A and B derive both terms, and each derivation fixes the
 orientation.** Each reads `P_0[term] = −(P_n − P_0)·D + B_n + (second order)` with `B_n := P_n·D`,
-and `P_0[u] = P_n[u] − (P_n − P_0)[u]` is an identity for any `u`. Thus, the decomposition
-is satisfiable **only** with `D` equal to the positive term. Appendix A's opening step says which
-quantity is being decomposed, and is checkable rather than interpretable:
+and `P_0[u] = P_n[u] − (P_n − P_0)[u]` is an identity for any `u` whatever. The decomposition is
+therefore satisfiable **only** with `D` equal to the positive term. Appendix A's opening step
+says which quantity is being decomposed, and is checkable rather than interpretable:
 
 ```text
 −P_0{ (Q_r/g_0)·(g_n − g_0) } = P_0{ (Q_r/g_0)·(A − g_n) }      since E_0[A | W] = g_0
 ```
 
 The right-hand side is positive. `tests/unit/test_theorem_drtmle.py` checks that identity on the
-exact law and checks that the correction's mean is materially nonzero **there**. Without this value, both
-readings agree and the question is unanswerable. The test also checks the consequence: the
-asymptotic-linearity representation closes to `1e-12` with the corrections **subtracted** and fails
-by **exactly twice the correction** when they are added. Watched to fail against three mutations,
-one of them the flipped sign in the library itself.
+exact law, and checks that the correction's mean is materially nonzero **there**. Were that mean
+zero, both readings would agree and the question would be unanswerable. The test then checks the
+consequence: the asymptotic-linearity representation closes to `1e-12` with the corrections
+**subtracted**, and fails by **exactly twice the correction** when they are added. Watched to fail
+against three mutations, one of them the flipped sign in the library itself.
 
 So the leading minus in the §3.1 display is not a rival convention to be matched. It is
 inconsistent with the derivation in the same document, with Theorem 1's own variance formula, and
@@ -345,10 +345,10 @@ not a display in either edition.
 
 Two further sign slips in the same document, recorded so a later reader does not re-derive them.
 Equation (2) is printed with `+(P_n − P_0)D − B_n` while its appendices derive
-`−(P_n − P_0)D + B_n`. This is the same error under `D → −D`. Equation (2) **crosses its second-order
-labels**: appendix A's block, the `D_A` one, is collected into `R_{Q,n}`, while (2) pairs `D_A`
-with `R_{g,n}`. Harmless for the implementation, which reads neither label, and worth knowing
-before quoting (2).
+`−(P_n − P_0)D + B_n`, which is the same slip under `D → −D`. Equation (2) also **crosses its
+second-order labels**: appendix A's block, the `D_A` one, is collected into `R_{Q,n}`, while (2)
+pairs `D_A` with `R_{g,n}`. Harmless for the implementation, which reads neither label, and worth
+knowing before quoting (2).
 
 ### Appendix C: a correction that is not needed costs nothing
 
@@ -422,7 +422,7 @@ not an operation on `ĝ`. So the theorem supports neither this package's origina
 denominator, raw residual) nor R's post-fit clip.
 
 The package instead uses a **constrained estimating equation**. It puts `clip` inside `F` and
-solves for a root. Thus, the final score *is* the declared estimator's score
+solves that for a root, so the final score *is* the declared estimator's score
 (`fluctuation/mechanism.py::solve_bounded_mechanism`). Where nothing clips, that solver returns
 the unconstrained solve untouched, so such a fit **is** the estimator Theorem 1 is stated for, not
 an approximation to it.
@@ -449,8 +449,8 @@ corresponding theorem assumption:
 **The two observation rows are not implied by the treatment ones**, which is why they are
 separate columns rather than a wider reading of the existing ones. A randomized trial's
 treatment mechanism is flat by design and cannot clip, while its observation mechanism is a
-fitted probability that can sit at its floor on a large share of rows. Thus, a check that reads only
-the treatment witnesses reports `contract = "theorem"` on a fit that is squarely bound-active.
+fitted probability that can sit at its floor on a large share of rows. A check reading only the
+treatment witnesses therefore reports `contract = "theorem"` on a fit that is squarely bound-active.
 `tests/unit/test_drtmle_missing.py::TestTheContractSeesTheObservationTruncations` is the pair of
 fits that says so: a well-behaved trial reading `"theorem"`, and one whose `π̂` is pinned on a
 fifth of its rows reading `"bound-active"` with **only** the two `π` entries named.
@@ -462,7 +462,7 @@ not supply at all; and `ĝ` consistent in **sup** norm, which is stronger than t
 the theorem assumes and is **unverified**.
 
 `CorrectionCheck.contract` reports `"theorem"`, `"bound-active"` or `"none"`. **It is a scope
-label and not a verdict**. `CorrectionCheck.passed` does not read it because
+label and not a verdict**. `CorrectionCheck.passed` deliberately does not read it, because
 folding it in would report a perfectly well-solved fit as broken.
 
 ---
@@ -594,9 +594,9 @@ The structural fact that makes (E) available is that **the reductions have fixed
 one scalar for the default construction and two for the bivariate reduced probability, however
 many covariates the fit adjusted for. Composition with a fixed map transports brackets exactly,
 so the entropy requirement falls entirely on a class of functions of at most two variables and
-not at all on the primary nuisances' complexity. The measure-free
-phrasing is necessary. The pushforward is a *random* measure, so a bound holding at `P_0` says
-nothing. A fixed-basis linear or logistic model is a bounded fixed-dimensional sieve; histogram
+not at all on the primary nuisances' complexity. The measure-free phrasing is load-bearing, since
+the pushforward is a *random* measure and a bound holding at `P_0` says nothing about it. A
+fixed-basis linear or logistic model is a bounded fixed-dimensional sieve; histogram
 boosting is a fixed bounded-variation ball when its iteration and leaf limits are fixed. A
 CV-selected round count would take boosting out of the class. A random forest is outside.
 
@@ -604,35 +604,35 @@ CV-selected round count would take boosting out of the class. A random forest is
 > columns it is handed.
 
 **(S) is the open condition.** It is free for a fixed-basis linear smoother and not free for
-anything that *selects* structure from the data. Examples include a split point, a bandwidth, or a CV-chosen
-candidate. An arbitrarily small design perturbation can move such a selection discretely.
-Boosting is entropy-safe and design-continuity-unsafe. `reduced_crossfit="nested"` is what
-computes `Δ_k`; a
-measured dispatch put its consequence on `ψ` at or below what a redrawn fold split moves in every
-cell, which is **supported, not shown**, since a consequence can hold by cancellation.
+anything that *selects* structure from the data: a split point, a bandwidth, a CV-chosen
+candidate. An arbitrarily small design perturbation can move any of those selections discretely.
+Boosting is entropy-safe and design-continuity-unsafe. `reduced_crossfit="nested"` is what computes
+`Δ_k`; a measured dispatch put its consequence on `ψ` at or below what a redrawn fold split moves
+in every cell, which is **supported, not shown**, since a consequence can hold by cancellation.
 
 Two things not to read into "nested". It costs `K` times the primary nuisance fitting, and was
 measured at **1.3x to 17x** a pooled fit's wall clock over four draws, reaching the outer cap on
-two. Nested reductions dominate the cost because they are noisier, so equation (10)'s near-singular solve
-takes more rounds. And **neither construction makes the targeted collection fold-independent**:
-`epsilon` is solved on all `n` rows, since `targeting_scheme="fold"` is refused, so a nested fit is
-*nested in the nuisance models and pooled in the tilt*.
+two. What dominates that cost is not the extra fitting: nested reductions are noisier, so equation
+(10)'s near-singular solve takes more rounds. And **neither construction makes the targeted
+collection fold-independent**: `epsilon` is solved on all `n` rows, since
+`targeting_scheme="fold"` is refused, so a nested fit is *nested in the nuisance models and pooled
+in the tilt*.
 
 ### Where the truncations are
 
-On the univariate construction, `g_{r,2}`'s bound is fixed at **fit** time. It is the only bound in
-the package chosen at fit time
-rather than at targeting time because the array *is* a regression of a quotient by the mechanism.
-Two consequences a reader will otherwise trip on. `DiagnosticsFacade.truncation_curve` moves the
-clever covariate's denominator and does **not** move these arrays, so that part of the curve is
-flat *by construction*; `ReducedSet.g_bounds` is on record so a reader of such a curve can find out
-the sweep never reached them. And `gr1` is stored **untruncated** and bounded at read time through
-`ReducedSet.bounded_gr1`, column by column and not complemented across arms.
+On the univariate construction, `g_{r,2}`'s bound is fixed at **fit** time, because the array *is*
+a regression of a quotient by the mechanism. It is the only bound in the package chosen at fit
+time rather than at targeting time. Two consequences a reader will otherwise trip on.
+`DiagnosticsFacade.truncation_curve` moves the clever covariate's denominator and does **not** move
+these arrays, so that part of the curve is flat *by construction*; `ReducedSet.g_bounds` is on
+record so a reader of such a curve can find out the sweep never reached them. And `gr1` is stored
+**untruncated** and bounded at read time through `ReducedSet.bounded_gr1`, column by column and
+not complemented across arms.
 
 One further condition sits beside (E) and is a rate rather than an entropy bound. `g_{r,2}`'s
 target is `(1_a − ĝ)/ĝ` at the bounded mechanism, so its envelope is `1/lo − 1`, and equation
 (10)'s covariate divides by `g_{r,1}` truncated at the same bound, so that envelope is `O(1/lo²)`.
-Under `g_bounds="auto"`, `lo → 0` and the envelope **grows with `n`**. This behavior pulls against the
+Under `g_bounds="auto"`, `lo → 0` and the envelope **grows with `n`**. That pulls against the
 bound-sequence row of [the scope section](#the-bound-inactive-scope), where exactly that shrinkage
 is what makes the truncation asymptotically inactive. Both are open.
 
@@ -658,7 +658,7 @@ The reduced regressions are the part it is easy to forget, and they are where th
 bought. Their consistency is **estimated, unmeasured**: a saturated learner recovers them exactly
 on the exact law, which is consistency at one learner on one law and not a rate. A study over
 6,000 fits found the interval demonstrably better than a plain TMLE's where one nuisance is badly
-estimated. The values were `0.844`/`0.848` against `0.532`/`0.472` in the designated cell. However, **nominal
+estimated: `0.844`/`0.848` against `0.532`/`0.472` in the cell built for it. It was **nominal
 nowhere**, the best reading being `0.880`, with the three reductions fitted by `glm`. That is a
 measurement of a configuration, not of the theorem's condition.
 
@@ -693,21 +693,23 @@ In cost order. The first two are free.
 
 `correction_check()` recomputes each arm's `P_n[w D*_g]` and `P_n[w D*_Q]` **from the exact
 returned state** and reports the residual against the score the targeting step recorded. Five
-conditions on how it does so, each ruling out a way of passing for the wrong reason: per arm and
-never only on the ATE, since arm-specific errors cancel in a difference; **before** the contrast is
-constructed; with the row weights included; on **one outcome scale**. Everything is reported on
-the outcome's own scale, so that a correction score and `se/√n` are comparable numbers rather than
-two quantities a factor of `range` apart; and, in the tests, on a fixture where the truncation
-binds.
+conditions govern how it does so, each ruling out a way of passing for the wrong reason: per arm
+and never only on the ATE, since arm-specific errors cancel in a difference; **before** the
+contrast is constructed; with the row weights included; on **one outcome scale**; and, in the
+tests, on a fixture where the truncation binds. That one scale is the outcome's own, so that a
+correction score and `se/√n` are comparable numbers rather than two quantities a factor of
+`range` apart.
 
 **Two failures, and they are not the same failure.**
 
-- *An identity residual* means `Δ_g` or `Δ_Q` is above `IDENTITY_TOLERANCE = 1e-12`. It is a **software
-  defect**. The fit solved one expression and reported another, and no amount of further iteration
-  would fix it, because the loop is not posing the equation the curve needs. The tolerance sits
-  seven orders above the arithmetic and four below the smallest observed real failure.
+- *An identity residual*, meaning `Δ_g` or `Δ_Q` above `IDENTITY_TOLERANCE = 1e-12`, is a
+  **software defect**. The fit solved one expression and reported another, and no amount of
+  further iteration would fix it, because the loop is not posing the equation the curve needs.
+  The tolerance sits seven orders above the arithmetic and four below the smallest observed real
+  failure.
 - *A correction score* above the inferential tolerance is a **fit that did not solve its
-  equations**. The report gives it per arm and per equation.
+  equations**. That is the ordinary failure, reported per arm and per equation so a reader can
+  see which.
 
 *And a row that is neither.* A fit guarding one nuisance solves one of the two extra equations, so
 its curve subtracts one correction; the other term is still reported, marked `solved=False`, as the
@@ -732,7 +734,7 @@ exactly like a good one, with every score green.
 
 **The evidence is `tests/unit/test_oracle_reductions.py`**, and it is worth stating as a result
 rather than a caveat. On an exact law, with **exact** reduced regressions handed to a real
-alternation, the estimator recovers the truth *despite misspecified primary nuisances*. This result is
+alternation, the estimator recovers the truth *despite misspecified primary nuisances*, which is
 the whole point of the variant. With **wrong** reductions, the estimate moves, and **every score
 equation still passes**. Nothing on the face of such a fit distinguishes it from the good one.
 
@@ -761,27 +763,29 @@ second.
 
 ## What the validation programme established
 
-A closed program contains six parts: a theoretical audit against the sources, a targeting-and-exit
-study, a controlled coverage demonstration, a reference study for the reduced regressions, a
-construction ablation, and a terminal experiment. These parts support this page's claims. The
-[evidence index](technical-reference/evidence.md) records the acceptance instruments. The program itself, including its
-study harnesses, replicate records, differential diagnostics, dispatch workflows, and working
-notes, is archived at the `drtmle-validation-archive-2026-08` tag rather than on `main`. In
-summary:
+This page's claims rest on a closed programme of six pieces: a theoretical audit against the
+sources, a targeting-and-exit study, a controlled coverage demonstration, a reference study for
+the reduced regressions, a construction ablation, and a terminal experiment. The
+[evidence index](technical-reference/evidence.md) records the acceptance instruments. The
+programme itself, including its study harnesses, replicate records, differential diagnostics,
+dispatch workflows, and working notes, is archived at the `drtmle-validation-archive-2026-08` tag
+rather than on `main`. In summary:
 
 **Established.** The implementation is faithful to Theorem 1: the corrected curve is the Gateaux
 derivative of the parameter, the sign of the mechanism correction is the appendices' orientation,
 the reported variance is Theorem 1's, the three score equations are solved at the state returned,
 and the interval is materially better than a plain TMLE's where one nuisance is badly estimated.
 
-**Not established, and recorded as such.** Nominal coverage anywhere in the study, the best reading
-being `0.880`. A six-contrast construction ablation over
-2,496 fits returned a **null** on its primary column, and a terminal experiment over both a
-selection and an independent audit cohort nominated **nothing**; and any `src/` change justified
-against the theorem. Two measured quantities account for the shortfall and are one premise measured
-twice: the second-order remainder Theorem 1 assumes negligible does not vanish at these sizes, and
-the reported `se` runs about 10% short of the spread it covers in one drift cell and about 16%
-*long* in the other. Thus, the second result is not a separate defect in the variance estimator. `σ̂²_n` is
+**Not established, and recorded as such.** Three things. Nominal coverage anywhere in the study,
+the best reading being `0.880`. A localized cause for that shortfall: a six-contrast construction
+ablation over 2,496 fits returned a **null** on its primary column, and a terminal experiment over
+both a selection and an independent audit cohort nominated **nothing**. And any `src/` change
+justified against the theorem.
+
+Two measured quantities account for the shortfall, and they are one premise measured twice: the
+second-order remainder Theorem 1 assumes negligible does not vanish at these sizes, and the
+reported `se` runs about 10% short of the spread it covers in one drift cell and about 16% *long*
+in the other. The second is therefore not a separate defect in the variance estimator. `σ̂²_n` is
 Theorem 1's own quantity, valid to first order exactly when the condition the first quantity fails
 holds.
 

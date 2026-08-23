@@ -89,9 +89,10 @@ artifacts, or provenance conventions for each comparison.
 1. **Declare it.** Add a `StudyRecord` to `tests/studies/evidence/registry.py`'s register: the
    name the validation grid's first cell must carry, the artefact directory, the document and
    section anchor, the scenarios and their estimands, the replication count and sample size, and a
-   `Margins` contains every acceptance margin. Declare each margin before the run.
-2. **Write only the method-specific half.** A law to sample from with an exact parameter oracle, a
-   fit function and a reference implementation pinned by digest, when one exists. Seeds
+   `Margins`. The `Margins` carries every acceptance margin, declared before the run rather
+   than chosen after it.
+2. **Write only the method-specific half.** A law to sample from with an exact parameter oracle,
+   a fit function, and a reference implementation pinned by digest where one exists. Seeds
    come from `replicate_seed` *applied to this study's own record*, so a replication is a fixed
    sample whatever the study's size and a short probe redraws the published one. Reusing another
    study's ready-made sampler inherits its seed silently while publishing your own, which a test
@@ -108,8 +109,8 @@ artifacts, or provenance conventions for each comparison.
    cell to `tests/studies/evidence/descriptions.py`. A key the module does not describe fails
    the gate, so a study cannot publish a row whose meaning a reader cannot recover.
 6. **Declare the blind spots.** The limitations cell is the column the grid exists for. A
-   composition the study does not reach. Cross-fitting, weights, clustering, missing outcomes,
-   and a flexible learner each require a separate row.
+   composition the study does not reach is a separate row, not an implied one. Cross-fitting,
+   weights, clustering, missing outcomes, and a flexible learner are each such a composition.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
 row rests on the other two columns; a study with no property cells is not a validation row at

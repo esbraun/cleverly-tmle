@@ -18,9 +18,14 @@ jobs:
       - uses: ./.github/actions/setup-env
         with:
           python-version: "3.12"
-          extra: dev,docs
+          extra: dev
       - run: ruff check .
       - run: ruff format --check .
+      # Vale is a Go binary this action installs; nothing in the Python environment
+      # supplies it. `.vale.ini` deliberately scopes it to Markdown: the one tracked
+      # `.rst` is `docs/api/object-index.rst`, two lines of prose around an autosummary
+      # directive, and reaching it costs the whole `docs` extra for docutils' `rst2html`.
+      # The version below is pinned a second time in `README.md`'s release link.
       - name: Check reader-facing prose
         uses: vale-cli/vale-action@v3.0.0
         with:

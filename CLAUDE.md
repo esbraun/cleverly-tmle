@@ -58,8 +58,8 @@ ASD-STE100 Simplified Technical English. This project does not claim certified c
   targeting, remainder, estimand names, and any API identifier.
 - Give evidence for each material claim. Cite the source, name the test or artifact, or state the
   applicable condition. Remove adjectives and transitions that add no verifiable information.
-- Use `vale README.md docs` for the mechanical prose checks. Vale does not certify STE compliance
-  or verify scientific claims. Review those claims against the code, tests, artifacts, and sources.
+- Vale does not certify STE compliance and does not verify scientific claims. Review those claims
+  against the code, tests, artifacts, and sources.
 
 Scope is `README.md` and every reader-facing Markdown or RST source under `docs/`. Generated API
 pages and `docs/_build/` are not source. Rewrite the text a change touches. Do not sweep unrelated

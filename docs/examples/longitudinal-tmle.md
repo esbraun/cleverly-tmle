@@ -372,8 +372,8 @@ the two horizons.
 
 ## Two ways to leave, and one of them the program cannot touch
 
-A member leaves through one of two events. The event type determines what the
-program can claim.
+A member leaves through one of two events, and the event type decides what the program can
+claim.
 
 | cause | what it is | can the program move it? |
 | --- | --- | --- |

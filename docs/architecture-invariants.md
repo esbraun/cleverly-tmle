@@ -255,17 +255,19 @@ test-enforced source registries.
 A reader-facing example must nonetheless *run*. `tests/unit/test_documentation_runtime.py`
 executes the registered documents' fences and asserts only that nothing raises; it asserts nothing
 about any number, which is what keeps the rule above intact. *Reconsider when* the check stops
-paying for its runtime. Compiling a fence cannot see a name the package does not
-have, and five shipped examples were broken that way at once: two on an attribute that had been
+paying for its runtime. It exists because compiling a fence cannot see a name the package does
+not have, and five shipped examples were broken that way at once: two on an attribute that had been
 renamed, two calling `.summary()` on reports that expose `to_frame()`, and one passing a float
 where an assignment density is required. Every one of them rendered as ordinary, copyable code.
 
 What is otherwise checked about the documentation is static, and belongs in the ordinary fast tier
-rather than behind a dispatch. Links resolve, including links that name a repository path.
-Every `python` fence also parses. There is deliberately no manual documentation job. These
-properties are cheap enough to run on every change, and a dispatch that re-ran them would read as a
-gate while adding no coverage. The removed job had this failure mode. Its
-`ruff check README.md docs` command validated nothing because the linter does not read Markdown.
+rather than behind a dispatch. Links resolve, including links that name a repository path. Every
+`python` fence parses. No reader-facing source joins two clauses with a dash, which Vale checks
+for Markdown and `tests/unit/test_documentation_prose.py` checks for the notebook and the `.rst`
+sources Vale cannot read. There is deliberately no manual documentation job. These
+properties are cheap enough to run on every change, and a dispatch that re-ran them would read as
+a gate while adding no coverage. That was the removed job's failure mode: its
+`ruff check README.md docs` validated nothing at all, because the linter does not read Markdown.
 Note the division: the ruff *formatter* does reach inside `python` fences and is covered by the
 whole-tree `ruff format --check .`, but it skips any block it cannot parse, so syntax is a test's
 job and not the formatter's.
