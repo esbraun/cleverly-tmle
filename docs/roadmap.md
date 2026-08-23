@@ -2,7 +2,7 @@
 
 This is the single planning contract for `cleverly`. It contains proposed work only: implemented
 capabilities belong in the [user guide](user-guide.md), scientific contracts in the
-[technical appendix](methodology.md) and [DR-TMLE contract](drtmle.md), validation results in
+[technical reference](technical-reference/index.md) and [DR-TMLE contract](drtmle.md), validation results in
 [evidence manifest](technical-reference/evidence.md), and cross-module standing decisions in the
 [architecture invariants](architecture-invariants.md).
 
@@ -366,6 +366,6 @@ end-to-end time.
 ## Reading a gap correctly
 
 Not every absence is missing package functionality. The refusal taxonomy in
-[How to read a refusal](methodology.md#how-to-read-a-refusal) distinguishes an unimplemented
+[How to read a refusal](technical-reference/scope-and-refusals.md#how-to-read-a-refusal) distinguishes an unimplemented
 well-posed feature from a different causal question and a method that would be wrong by
 construction. Only the first belongs on this roadmap.

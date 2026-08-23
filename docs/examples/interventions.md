@@ -95,4 +95,4 @@ print(incremental_result.summary())
 ```
 
 Because the incremental target is defined through the observed treatment mechanism, its inference
-is conditional on estimating that mechanism consistently. See [stochastic interventions](../technical-reference/interventions.md).
+is conditional on estimating that mechanism consistently. See [known regimes](../technical-reference/point-treatment-tmle.md#known-regimes).

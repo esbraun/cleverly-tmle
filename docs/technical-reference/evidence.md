@@ -7,8 +7,8 @@ is not what this page is for.
 
 **This page is the other half: which instruments a target actually has, and which it does
 not.** The distinction matters because the instruments go blind in different places, and
-`docs/methodology.md`'s [*How to read a
-refusal*](../methodology.md#how-to-read-a-refusal) is not the only thing worth writing down —
+[*How to read a
+refusal*](scope-and-refusals.md#how-to-read-a-refusal) is not the only thing worth writing down —
 so is how to read a *pass*. The trap that survives a green suite is:
 
 > an exact-law instrument goes blind wherever a quantity vanishes at the truth, which is
