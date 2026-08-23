@@ -3,16 +3,16 @@
 Every paper the package's derivations are read off, in one place, with enough of a locator to
 find the passage a docstring or a document is pointing at.
 
-**How to read a citation in this repository.** Prose cites author and year — "the sequential
-regression of Bang & Robins (2005)", "van der Laan (2014) Theorem 3" — and resolves here. Where a
-document argues *against* a source, or transcribes a display from it, it carries a section or page
-number as well; those are the citations worth checking, and they are the ones that have them.
+**How to read a citation in this repository.** Prose cites an author and a year, and the citation
+resolves here. Two examples are "the sequential regression of Bang & Robins (2005)" and "van der
+Laan (2014) Theorem 3". Where a document argues *against* a source, or transcribes a display from
+it, it carries a section or page number as well; those are the citations worth checking, and they
+are the ones that have them.
 
 **Nothing here is stored in the repository.** Two PDFs were, and were deleted once everything they
-were cited for had been transcribed into
-[the DR-TMLE contract](drtmle.md) — which is why the two `DRTMLE` sources
-below carry page numbers where the rest carry none. A path to a file only a previous reader had is
-not a citation; a page number is.
+were cited for had been transcribed into [the DR-TMLE contract](drtmle.md). That is why the two
+`DRTMLE` sources below carry page numbers where the rest carry none. A path to a file only a
+previous reader had is not a citation; a page number is.
 
 ## Targeted learning, in general
 
@@ -56,7 +56,7 @@ not a citation; a page number is.
   Stochastic Interventions*](https://doi.org/10.1515/ijb-2013-0014), *International Journal of
   Biostatistics* 9(2):161–174, DOI 10.1515/ijb-2013-0014. The companion to the 2012 paper above,
   cited for the stochastic-regime parameter rather than the population-intervention one. The
-  byline differs between the two — *Díaz Muñoz* in 2012, *Díaz* in 2013 — and the prose follows
+  byline differs between them: *Díaz Muñoz* in 2012 and *Díaz* in 2013. The prose follows
   each as published.
 - Haneuse & Rotnitzky (2013), *Estimation of the effect of interventions that modify the received
   treatment*, *Statistics in Medicine* 32(30):5260–5277, DOI
@@ -191,8 +191,8 @@ not a citation; a page number is.
 
 ## Doubly-robust inference (`DRTMLE`)
 
-The three the variant rests on — the first two for the estimating equations, the third's
-implementation for the influence curve. What each supplies, and where in it, is
+The variant rests on three sources. The first two give the estimating equations. The third gives
+the implementation for the influence curve. What each supplies, and where in it, is
 [the contract's source table](drtmle.md#the-sources).
 
 - van der Laan (2014), *Targeted estimation of nuisance parameters to obtain valid statistical
@@ -227,8 +227,8 @@ implementation for the influence curve. What each supplies, and where in it, is
   future work.
 
 The `benkeser/drtmle` R package's source and reference documentation are cited in a few places as
-**provenance** — where a formula was transcribed from, and what it is named there. Running it is
-[not acceptance evidence](architecture-invariants.md#validation-and-evidence): two checks that
+**provenance**: they say where a formula was transcribed from, and what it is named there. Running
+it is [not acceptance evidence](architecture-invariants.md#validation-and-evidence): two checks that
 cannot fail against the same class of error are one check. The inspected source is pinned at
 [`538a3a2`](https://github.com/benkeser/drtmle/tree/538a3a264c1ca984b6d88978ca7f96165f43152c):
 `R/estimate.R` loops the reductions over treatment levels and constructs a compatible initial

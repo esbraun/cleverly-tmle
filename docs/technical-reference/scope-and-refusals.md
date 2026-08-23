@@ -51,7 +51,7 @@ must establish whether the tilted parameter is still the shift parameter.
 
 ### A different question
 
-These are well-posed parameters. They are simply not the one being estimated, and no setting turns
+These are well-posed parameters, but the selected estimator does not target them. No setting turns
 one into the other.
 
 | refused | the question it would answer instead |

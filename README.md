@@ -9,7 +9,7 @@
 `cleverly` is the Python toolbox for causal studies built on targeted maximum likelihood
 estimation (TMLE), organized around the causal question before the estimation method.
 
-*It is named for TMLE's clever covariate—proof that even the jokes in this toolbox are targeted.*
+*It is named for TMLE's clever covariate. Even the jokes in this toolbox are targeted.*
 
 ```text
 study design -> typed estimand -> identified effect -> estimation method -> causal result
@@ -155,16 +155,23 @@ uv venv
 uv pip install -e ".[dev,docs]"
 ruff check .
 ruff format --check .
+python -m tests.prose
 mypy src/cleverly
 pytest -m "not slow" -q
 sphinx-build -W --keep-going -b html docs docs/_build/html
 ```
 
-`nox -s docs` runs that same warning-as-error build in an isolated environment, which is what CI
-does; the direct call is the faster loop and is why the install above includes the `docs` extra.
+`nox -s docs` runs the warning-as-error build in an isolated environment. CI uses this command.
+The direct call is faster, so the installation command above includes the `docs` extra.
 
-The fast tier compiles every Python fence, executes the registered reader-facing guides, resolves
-every relative link, and checks that the complete root API is represented in generated API source.
+`python -m tests.prose` reports on the reader-facing prose. It does not rewrite anything and it
+does not fail on what it finds. Read each finding, then either change the sentence or record
+`accepted: <reason>` against it in `tests/prose-report.md`. The fast tier fails only on a finding
+with no recorded judgment, which keeps the decision with the writer. Sentence length is advisory
+output and carries no row at all. `tests/prose.py` says which rules were rejected and why.
+
+The fast tier compiles every Python fence and executes the registered reader-facing guides. It
+also resolves relative links and checks that generated API source represents the root API.
 Scientific behavior belongs in ordinary fast tests or named slow statistical studies. Run the
 relevant checks locally before handoff; a green GitHub Actions CI run is the final merge signal.
 

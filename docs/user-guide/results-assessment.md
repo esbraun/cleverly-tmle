@@ -47,14 +47,14 @@ means the question is meaningful but the fit lacks a derivation or saved artifac
 
 An `unavailable` row reached that state one of two ways, and its `detail` says which. A row whose
 capability declaration already refuses it carries that declaration’s own reason. A row that had to
-inspect the fit before it could refuse — an E-value on a fit that reported no contrast, a
-missingness tilt on a fit with no missing outcomes — is prefixed `refused on inspection:` and names
-the operation to call directly for the refusal in full. Nothing else is caught: an error a
-capability did not declare propagates, because a report that renders a bug as “unavailable” states
-a scientific conclusion about the fit that nobody established.
+inspect the fit before it could refuse is prefixed `refused on inspection:`, and it names the
+operation to call directly for the refusal in full. Two such rows are an E-value on a fit that
+reported no contrast, and a missingness tilt on a fit with no missing outcomes. Nothing else is
+caught: an error a capability did not declare propagates, because a report that renders a bug as
+“unavailable” states a scientific conclusion about the fit that nobody established.
 
 A combined report runs only the operations that summarise stored artifacts. The two costlier
-classes are named separately, because they are disjoint — `refute()` and `benchmark()` refit
+classes are named separately because they are disjoint. `refute()` and `benchmark()` refit
 nuisance models, while `truncation_curve()`, `missingness()` and `tipping_gamma()` retarget cached
 ones:
 

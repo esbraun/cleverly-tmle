@@ -12,6 +12,12 @@ executable tier in the sense ``docs/architecture-invariants.md`` rules out: the 
 asserts that nothing raises and asserts nothing about any number, so an example is still
 explanatory material and still not statistical evidence.
 
+:data:`READER_FACING` is a *second* set and not a widening of the first.  The three modules
+above ask "where is the Python", so they want markdown and nothing else;
+:mod:`tests.unit.test_documentation_prose` asks "what does a reader read", which reaches a
+notebook and an ``.rst`` file and stops short of the contributor instructions.  Collapsing the
+two would make each answer wrong for the other.
+
 This deliberately carries no section metadata, no dependency graph and no change selector.
 The only thing wanted here is the text of each block and where it starts; which documents are
 executable, and what each needs defined first, is that module's own registry.
@@ -22,7 +28,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__all__ = ["DOCUMENTS", "ROOT", "pipe_table", "python_blocks"]
+__all__ = ["DOCUMENTS", "READER_FACING", "ROOT", "pipe_table", "python_blocks"]
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,6 +39,31 @@ DOCUMENTS = sorted(
     {
         *ROOT.glob("*.md"),
         *ROOT.glob("docs/**/*.md"),
+    }
+)
+
+#: The prose scope ``CLAUDE.md`` declares: the root ``README.md`` and every reader-facing
+#: source under ``docs/``.  Three ways this differs from :data:`DOCUMENTS`, each deliberate.
+#:
+#: It **excludes** ``CLAUDE.md`` and ``AGENTS.md``, which :data:`DOCUMENTS` picks up from the
+#: root glob.  Those are instructions to a contributor rather than documentation, and
+#: ``CLAUDE.md`` states the dash rule by quoting the characters it bans.
+#:
+#: It **adds** ``.rst`` and ``.ipynb``.  The notebook is the one that matters: it is in the
+#: ``docs/examples`` toctree and reader-facing by every other measure, and an em dash survived a
+#: whole sweep inside it because the checker of the day could not read a notebook at all.
+#:
+#: It **excludes** ``docs/api/generated/`` and ``docs/_build/``.  Both are build output, both
+#: are gitignored, and ``CLAUDE.md`` says in as many words that they are not source.
+READER_FACING = sorted(
+    {
+        ROOT / "README.md",
+        *(
+            path
+            for suffix in ("md", "rst", "ipynb")
+            for path in ROOT.glob(f"docs/**/*.{suffix}")
+            if "_build" not in path.parts and "generated" not in path.parts
+        ),
     }
 )
 

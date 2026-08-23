@@ -21,6 +21,10 @@ jobs:
           extra: dev
       - run: ruff check .
       - run: ruff format --check .
+      # Prose is not linted here. `tests/prose.py` reports on it and the fast tier gates the
+      # *report*: a finding with no recorded judgment fails, the prose itself never does. The
+      # reason is on record -- when the dash rule was a build error, the sweep that followed
+      # optimized for green and broke six sentences to satisfy it.
 
   typecheck:
     runs-on: ubuntu-latest
@@ -31,7 +35,7 @@ jobs:
       # length why it is not the `3.11` of `requires-python`: numpy's stubs use PEP 695 `type`
       # statements, which a 3.11 target refuses to parse. Running the job on the interpreter it
       # targets keeps the two from drifting apart silently. **3.11 is still supported and still
-      # tested** -- the `tests` matrix below runs the fast tier on it.
+      # tested**. The `tests` matrix below runs the fast tier on it.
       - uses: ./.github/actions/setup-env
         with:
           python-version: "3.12"

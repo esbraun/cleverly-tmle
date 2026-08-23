@@ -70,7 +70,7 @@ mechanism is a different parameter.
 
 `Stochastic` takes the assignment *density*, not a scalar probability: a function of the covariate
 frame returning one column per arm in `data.treatment_levels` order, with rows summing to one. It
-must be a fixed function of the covariates — the influence curve reported for a regime carries no
+must be a fixed function of the covariates. The influence curve reported for a regime carries no
 term for a $g^\star$ that depends on $P$.
 
 ## Modified treatment policies

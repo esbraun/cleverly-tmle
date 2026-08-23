@@ -330,4 +330,4 @@ gate.
 The old engines remain internal adapters under `cleverly.estimators` and `cleverly.longitudinal`
 so the package can preserve its tested arithmetic. They are not a supported alternative public
 workflow. Importing them directly is appropriate only for package development, scientific oracle
-tests, and migration comparison—not for new applied analyses.
+tests, and migration comparison. Do not import them for a new applied analysis.

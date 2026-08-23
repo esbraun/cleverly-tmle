@@ -10,7 +10,7 @@
 </div>
 ```
 
-*It is named for TMLE's clever covariate—proof that even the jokes in this toolbox are targeted.*
+*It is named for TMLE's clever covariate. Even the jokes in this toolbox are targeted.*
 
 ::::{grid} 1 2 2 2
 :gutter: 2

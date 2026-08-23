@@ -42,13 +42,13 @@ published derivation governs and the discrepancy becomes a nonzero regression or
 
 The readiness labels rate published-method support, not programming effort:
 
-- **published support** — a paper derives the method and inference claim;
-- **source audit** — theory or canonical code appears to cover it, but the exact construction must
+- **published support**: a paper derives the method and inference claim;
+- **source audit**: theory or canonical code appears to cover it, but the exact construction must
   be matched and discrepancies resolved before implementation;
-- **theory-neutral** — engineering that preserves an already-derived estimator;
-- **waiting on published theory** — related methods exist, but not the requested composition or
+- **theory-neutral**: engineering that preserves an already-derived estimator;
+- **waiting on published theory**: related methods exist, but not the requested composition or
   inference claim; this is not an active research assignment for the project; and
-- **pending source read** — the governing result is identified but has not been read first-hand
+- **pending source read**: the governing result is identified but has not been read first-hand
   into this package's contract.
 
 ## Definition of done
@@ -93,7 +93,7 @@ stored order:      inner 0, ..., outer J-1
 ```
 
 And `longitudinal/sequential.py` reverses its steps before returning them, so the stored
-`SequentialStep` tuple is time-ascending — `steps[0]` is the outermost stage whose targeted
+`SequentialStep` tuple is time-ascending. `steps[0]` is the outermost stage whose targeted
 prediction is averaged into the estimate. Do not mirror it. Every public description, serialized
 manifest, fixture, and diagnostic names the storage direction.
 
@@ -142,7 +142,7 @@ training fold, and pass each plug-in output outward as the next target.
 
 A direct strategy solves an explicit empirical Riesz moment problem. A generic supervised
 regression of an estimated inverse propensity score is not a direct-Riesz implementation and is
-not labelled one — it is the nearest wrong construction, and it fits and predicts without
+not labelled one. It is the nearest wrong construction, and it fits and predicts without
 complaint.
 
 Target innermost first. Solve the fluctuation with `omega_observed[j]`, update observed predictions
@@ -194,7 +194,7 @@ pre-fit refusal.
 
 Analytic Riesz is the existing evidenced mechanism-derived estimator expressed through the new
 contract. Its gate is identity with the normalized existing engine for targeted predictions,
-influence curve, standard error, and interval—not point estimate parity alone.
+influence curve, standard error, and interval. Point estimate parity alone is insufficient.
 
 #### Diagnostics and persistence
 
