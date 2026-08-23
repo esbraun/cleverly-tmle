@@ -58,9 +58,15 @@ ASD-STE100 Simplified Technical English. This project does not claim certified c
   targeting, remainder, estimand names, and any API identifier.
 - Give evidence for each material claim. Cite the source, name the test or artifact, or state the
   applicable condition. Remove adjectives and transitions that add no verifiable information.
-- Vale does not certify STE compliance and does not verify scientific claims. Review those claims
-  against the code, tests, artifacts, and sources.
 
-Scope is `README.md` and every reader-facing Markdown or RST source under `docs/`. Generated API
-pages and `docs/_build/` are not source. Rewrite the text a change touches. Do not sweep unrelated
-pages unless the user requests a broad documentation review.
+When you change a reader-facing document, run `python -m tests.prose`, review every finding it
+reports, and plan a fix that keeps the sentence whole. Where the standard should not apply, record
+`accepted: <reason>` against that finding in `tests/prose-report.md`; that is a passing outcome and
+the reason is the point. The fast tier fails on a finding nobody has judged, never on the prose
+itself, because a mechanical edit that satisfies a rule and breaks a sentence is the failure this
+report exists to prevent. No tool here certifies STE compliance or verifies a scientific claim.
+Check those against the code, tests, artifacts, and sources.
+
+Scope is `README.md` and every reader-facing Markdown, RST, or notebook source under `docs/`.
+Generated API pages and `docs/_build/` are not source. Rewrite the text a change touches. Do not
+sweep unrelated pages unless the user requests a broad documentation review.

@@ -1,30 +1,24 @@
-r"""No reader-facing source joins two clauses with an em dash or a double hyphen.
+r"""Every prose finding carries a recorded judgment.  Not: every finding is gone.
 
-``CLAUDE.md`` states the rule and ``.vale.ini`` is meant to enforce it.  This module exists
-because Vale enforced nothing, and because a green Vale run and a broken one are the same
-output.
+**Read the distinction before changing anything here.**  Nothing in this module asserts that the
+documentation is clean.  It asserts that somebody looked.  A finding with
+``accepted: <reason>`` beside it in ``tests/prose-report.md`` passes; the same finding with an
+empty disposition fails; and the failure is cleared either by changing the sentence or by writing
+down why it stays.
 
-**The failure this module was written after.**  ``Cleverly.ClauseDash`` extends Vale's
-``existence`` rule, which wraps every token in a word boundary.  An em dash is not a word
-character, so ``\b—\b`` can never be satisfied: the rule matched ``' -- '`` -- whose spaces sit
-next to word characters -- and silently matched no em dash anywhere.  The sweep that added the
-rule reported ``0 errors`` over the whole tree on a config that could not have failed.  That is
-the shape ``CLAUDE.md`` warns about: a check that cannot fire reads exactly like a check that
-passed.
+**Why it is built this way**, because the obvious version was tried and did damage.  A Vale rule
+failed the build on an em dash, and the sweep that followed optimized for the only thing a build
+error rewards.  It stripped dashes mechanically and shipped six sentences with no predicate, the
+"Five conditions" enumeration split after its fourth member, a dropped item from the
+not-established list, five altered technical claims and four deleted evidence clauses.  Every one
+of those was introduced *by* satisfying the rule.  A report cannot be gamed the same way, because
+there is nothing to make green: the only way to clear a row is to make a decision and sign it.
 
-**Two things Vale still cannot do, which is the other half of why this is a test.**  It has no
-notebook reader, and ``docs/examples/twins-causal-inference.ipynb`` is in the ``docs/examples``
-toctree -- an em dash survived the whole sweep in one of its headings.  And it needs docutils'
-``rst2html`` for a single ``.rst`` file, which is a whole optional extra in CI for two lines of
-prose.  :data:`tests.documents.READER_FACING` reaches all three formats with no external
-binary, so the two checks overlap on markdown and neither is the only cover for anything.
+So the invariant this module protects is narrow and worth stating plainly: **a rule may never
+make a sentence worse.**  If a finding is wrong, the reason column says so and the sentence stays.
 
-**What is deliberately not checked.**  Code is exempt, in all three of its forms: a fenced
-block, an inline span, and a notebook's code cells and their outputs.  Each is a real source of
-the characters -- ``git diff origin/main -- docs`` is a command, ``--`` is how ``CLAUDE.md``
-names the thing it bans, and a rendered dataframe draws its rules with runs of hyphens.  This
-mirrors Vale's ``scope: text``.  Sentence and paragraph length stay with Vale, which measures
-them properly; this module checks the one rule that is exact.
+:mod:`tests.prose` carries the rules, the rules that were rejected and why, and the reason
+sentence length reports without gating.
 """
 
 from __future__ import annotations
@@ -35,114 +29,146 @@ from pathlib import Path
 
 import pytest
 
+from tests import prose
 from tests.documents import READER_FACING, ROOT
 
-#: The two forms ``CLAUDE.md`` bans, and the same two tokens ``Cleverly.ClauseDash`` carries.
-#: The double hyphen is spaced because a bare ``--`` is also a command-line flag, a YAML
-#: document marker and a markdown table rule.
-DASHES = ("—", " -- ")
-
-#: A fence open or close, matched the way :mod:`tests.unit.test_documentation_links` matches
-#: one so the two modules agree on what "inside a block" means.
-FENCE = re.compile(r"^\s*(```|~~~)")
-
-#: An inline code span, non-greedy so ``a `b` and `c` d`` is two spans rather than one.
-#: Doubled backticks first, since ```` ``a`b`` ```` is one span and not three.
-CODE_SPAN = re.compile(r"``[^`]+``|`[^`]+`")
-
-
-def prose_lines(text: str) -> list[tuple[int, str]]:
-    """``(line number, text)`` for each line of prose, with code removed.
-
-    Fenced blocks are dropped whole and inline spans are blanked in place rather than deleted,
-    so a reported column still means something on the line the reader sees.
-    """
-    out: list[tuple[int, str]] = []
-    fenced = False
-    for number, line in enumerate(text.splitlines(), start=1):
-        if FENCE.match(line):
-            fenced = not fenced
-            continue
-        if fenced:
-            continue
-        out.append((number, CODE_SPAN.sub(lambda match: " " * len(match.group()), line)))
-    return out
-
-
-def markdown_cells(notebook: Path) -> str:
-    """Every markdown cell of ``notebook``, joined.
-
-    Code cells and their outputs are skipped, and that is not tidiness.  A rendered table in a
-    stored output draws its rules with hyphens -- ``----------  ------  --  ---`` appears in the
-    TWINS notebook -- and every run of them contains the spaced double hyphen this module bans.
-    """
-    cells = json.loads(notebook.read_text(encoding="utf-8"))["cells"]
-    return "\n".join(
-        "".join(cell["source"]) for cell in cells if cell.get("cell_type") == "markdown"
-    )
-
-
-def offences(document: Path) -> list[str]:
-    """Every banned dash in ``document``'s prose, as ``path:line: text``."""
-    if document.suffix == ".ipynb":
-        text = markdown_cells(document)
-    else:
-        text = document.read_text(encoding="utf-8")
-    return [
-        f"{document.relative_to(ROOT)}:{number}: {line.strip()}"
-        for number, line in prose_lines(text)
-        if any(dash in line for dash in DASHES)
-    ]
-
-
-#: A floor on the set, so a glob that stopped matching cannot report success over nothing.
-#: Well under the count at the time of writing, because this is a guard and not a census.
+#: A floor on the set, so a glob that stopped matching cannot report success over nothing.  Well
+#: under the count at the time of writing, because this is a guard and not a census.
 _EXPECTED_DOCUMENTS = 40
 
 
-def test_the_sweep_reaches_something() -> None:
-    """The check below is only as good as the set it runs over."""
+def test_the_scan_reaches_something() -> None:
+    """Every assertion below passes on an empty set, so the set is checked first."""
     assert len(READER_FACING) >= _EXPECTED_DOCUMENTS, (
         f"only {len(READER_FACING)} reader-facing sources found; check documents.READER_FACING"
     )
     suffixes = {path.suffix for path in READER_FACING}
     assert suffixes == {".md", ".rst", ".ipynb"}, (
-        f"the sweep reaches {sorted(suffixes)}; Vale covers markdown alone, so a format "
-        "dropped here is a format nothing checks"
+        f"the scan reaches {sorted(suffixes)}; a format dropped here is a format nothing reads"
     )
 
 
-def test_the_scanner_sees_a_planted_dash() -> None:
-    """A deliberate mutation, because every assertion below passes on an empty result.
+def test_the_scanner_sees_what_it_should_and_ignores_what_it_should_not() -> None:
+    """A deliberate mutation, because a scanner that matches nothing reports a clean tree.
 
-    This is the control the Vale rule did not have.  Each case fails a different way: an em
-    dash that stopped matching, a spaced double hyphen that stopped matching, a fence or span
-    exclusion that grew to swallow prose, and a notebook reader that returned nothing.
+    This is the control the Vale rule never had: its em-dash token could not match, so it
+    reported ``0 errors`` over the whole repository on a configuration that could not fail.
     """
-    caught = prose_lines("An em dash — here.\nA flag -- here.\n")
-    assert [number for number, line in caught if any(d in line for d in DASHES)] == [1, 2]
+    caught = prose.prose_lines("An em dash — here.\nA flag -- here.\n")
+    assert [n for n, line in caught if any(d in line for d in prose.DASHES)] == [1, 2]
 
-    exempt = prose_lines("```\ngit diff main -- docs\n```\nAn inline `--` span.\n")
-    assert not [line for _, line in exempt if any(dash in line for dash in DASHES)]
+    exempt = prose.prose_lines("```bash\ngit diff main -- docs\n```\nA span `--` and ``a -- b``.\n")
+    assert not [line for _, line in exempt if any(d in line for d in prose.DASHES)]
+
+    assert prose.TRANSITION_RE.search("The identity holds. Thus, the sign is fixed.")
+    assert not prose.TRANSITION_RE.search("The estimator is robust, efficient and consistent.")
+    assert not prose.INTENSIFIER_RE.search(
+        "row leverage, a robust and efficient estimator, a significant power gain"
+    ), "the intensifier list must never reach a statistical term of art"
 
 
-def test_the_notebook_reader_skips_output() -> None:
-    """Markdown cells in, code cells and stored outputs out."""
+def test_the_notebook_reader_skips_code_and_output() -> None:
+    """Markdown cells in, code cells and stored outputs out.
+
+    A rendered dataframe draws its rules with hyphens, and ``----------  --  ---`` in the TWINS
+    notebook contains the spaced double hyphen this scanner looks for.
+    """
     notebooks = [path for path in READER_FACING if path.suffix == ".ipynb"]
     assert notebooks, "no notebook in the reader-facing set; check documents.READER_FACING"
     for notebook in notebooks:
         cells = json.loads(notebook.read_text(encoding="utf-8"))["cells"]
-        assert any(cell.get("cell_type") == "markdown" for cell in cells), notebook
         assert any(cell.get("cell_type") == "code" for cell in cells), notebook
-        assert "import" not in markdown_cells(notebook).split("```")[0]
+        assert any(cell.get("outputs") for cell in cells), notebook
+        text = prose.markdown_cells(notebook)
+        assert "import " not in text, "a code cell reached the markdown-only text"
 
 
-@pytest.mark.parametrize(
-    "document", READER_FACING, ids=lambda path: str(path.relative_to(ROOT).as_posix())
-)
-def test_no_clause_is_joined_by_a_dash(document: Path) -> None:
-    """One idea per sentence, and a full stop or a table where a dash was standing."""
-    found = offences(document)
-    assert not found, "\n".join(
-        ["join these clauses with a full stop, a comma, parentheses or a table:", *found]
+def test_every_finding_carries_a_judgment() -> None:
+    """The gate.  It fails on an unread finding, never on the prose itself."""
+    recorded = prose.dispositions()
+    unjudged = [
+        item
+        for item in prose.scan()
+        if not recorded.get(item.id, "").strip().startswith("accepted:")
+    ]
+    assert not unjudged, "\n".join(
+        [
+            f"{len(unjudged)} finding(s) with no recorded judgment. Read each one, then either",
+            "change the sentence or run `python -m tests.prose --update` and write",
+            "`accepted: <reason>` beside it. Do not reword a sentence merely to clear a row.",
+            *(f"  {item.file}:{item.line}  {item.rule}  {item.excerpt}" for item in unjudged),
+        ]
     )
+
+
+def test_the_report_holds_no_stale_rows() -> None:
+    """A row whose finding is gone must go too.
+
+    Removing a row is not a prose edit, so this adds no pressure to reword anything.  Left
+    alone, the accumulated rows would read as review that happened when it did not.
+    """
+    live = {item.id for item in prose.scan()}
+    stale = sorted(set(prose.dispositions()) - live)
+    assert not stale, (
+        f"{len(stale)} row(s) in {prose.LEDGER.relative_to(ROOT).as_posix()} no longer match a "
+        f"finding: {stale}. Run `python -m tests.prose --update`."
+    )
+
+
+def test_a_disposition_survives_a_rewrite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ledger's one promise: a recorded judgment is never silently lost.
+
+    A first version looked the rendered id up with its backticks still attached, so every
+    disposition vanished on the next ``--update``.  Nothing failed, which is what made it worth
+    a test of its own.
+    """
+    ledger = tmp_path / "prose-report.md"
+    monkeypatch.setattr(prose, "LEDGER", ledger)
+    found = prose.scan()
+    assert found, "this test needs at least one finding to carry"
+
+    ledger.write_text(prose.render(found, {found[0].id: "accepted: a reason"}), encoding="utf-8")
+    assert prose.dispositions()[found[0].id] == "accepted: a reason"
+
+    ledger.write_text(prose.render(found, prose.dispositions()), encoding="utf-8")
+    assert prose.dispositions()[found[0].id] == "accepted: a reason"
+
+
+def test_no_assertion_here_demands_clean_prose() -> None:
+    """The rule this module exists to keep, checked against this module.
+
+    A future edit asserting the scan is empty would restore exactly the gate that broke six
+    sentences.  Cheap to state, and the failure it prevents is on record.
+
+    The pattern is assembled at runtime rather than written as a literal, because a literal
+    would match this module's own source and fail on the first run.
+    """
+    source = (ROOT / "tests" / "unit" / "test_documentation_prose.py").read_text(encoding="utf-8")
+    banned = re.findall("assert" + r"\s+not\s+" + r"(?:prose\.)?scan\(\)", source)
+    assert not banned, (
+        "this module must never assert the documentation is free of findings; gate the "
+        "recorded judgment instead"
+    )
+
+
+@pytest.mark.parametrize("rule", prose.GATING_RULES)
+def test_each_gating_rule_is_reachable(rule: str) -> None:
+    """A rule nothing can trigger is a rule that reports a clean tree forever."""
+    samples = {
+        "clause-dash": "A clause — and another.",
+        "empty-transition": "The identity holds. Thus, the sign is fixed.",
+        "empty-intensifier": "This is a crucial step.",
+        "paragraph-length": " ".join(f"Sentence number {n} here." for n in range(1, 9)),
+    }
+    lines = prose.prose_lines(samples[rule])
+    if rule == "paragraph-length":
+        found = [len(prose.sentences(text)) for _, text in prose.paragraphs(lines)]
+        assert found and max(found) > prose.PARAGRAPH_SENTENCES
+    else:
+        matched = any(
+            (any(d in line for d in prose.DASHES) if rule == "clause-dash" else False)
+            or (prose.TRANSITION_RE.search(line) if rule == "empty-transition" else False)
+            or (prose.INTENSIFIER_RE.search(line) if rule == "empty-intensifier" else False)
+            for _, line in lines
+        )
+        assert matched, f"{rule} matched nothing in its own sample"

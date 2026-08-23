@@ -21,20 +21,10 @@ jobs:
           extra: dev
       - run: ruff check .
       - run: ruff format --check .
-      # Vale is a Go binary this action installs; nothing in the Python environment
-      # supplies it. `.vale.ini` deliberately scopes it to Markdown: the one tracked
-      # `.rst` is `docs/api/object-index.rst`, two lines of prose around an autosummary
-      # directive, and reaching it costs the whole `docs` extra for docutils' `rst2html`.
-      # The version below is pinned a second time in `README.md`'s release link.
-      - name: Check reader-facing prose
-        uses: vale-cli/vale-action@v3.0.0
-        with:
-          version: 3.17.0
-          files: '["README.md", "docs"]'
-          sync: false
-          fail_on_error: true
-          filter_mode: nofilter
-          min_alert_level: error
+      # Prose is not linted here. `tests/prose.py` reports on it and the fast tier gates the
+      # *report*: a finding with no recorded judgment fails, the prose itself never does. The
+      # reason is on record -- when the dash rule was a build error, the sweep that followed
+      # optimized for green and broke six sentences to satisfy it.
 
   typecheck:
     runs-on: ubuntu-latest

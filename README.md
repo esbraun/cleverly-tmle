@@ -155,7 +155,7 @@ uv venv
 uv pip install -e ".[dev,docs]"
 ruff check .
 ruff format --check .
-vale README.md docs
+python -m tests.prose
 mypy src/cleverly
 pytest -m "not slow" -q
 sphinx-build -W --keep-going -b html docs docs/_build/html
@@ -164,14 +164,14 @@ sphinx-build -W --keep-going -b html docs docs/_build/html
 `nox -s docs` runs the warning-as-error build in an isolated environment. CI uses this command.
 The direct call is faster, so the installation command above includes the `docs` extra.
 
-`vale` is a separate binary, not a Python package: install
-[Vale 3.17.0](https://github.com/vale-cli/vale/releases/tag/v3.17.0), the version CI pins. It
-checks measurable style rules over Markdown. It does not verify scientific claims and it does not
-certify ASD-STE100 compliance.
+`python -m tests.prose` reports on the reader-facing prose. It does not rewrite anything and it
+does not fail on what it finds. Read each finding, then either change the sentence or record
+`accepted: <reason>` against it in `tests/prose-report.md`. The fast tier fails only on a finding
+with no recorded judgment, which keeps the decision with the writer. Sentence length is advisory
+output and carries no row at all. `tests/prose.py` says which rules were rejected and why.
 
 The fast tier compiles every Python fence and executes the registered reader-facing guides. It
-also resolves relative links, checks that generated API source represents the root API, and
-checks the prose rule Vale cannot reach in the notebook and the `.rst` sources.
+also resolves relative links and checks that generated API source represents the root API.
 Scientific behavior belongs in ordinary fast tests or named slow statistical studies. Run the
 relevant checks locally before handoff; a green GitHub Actions CI run is the final merge signal.
 

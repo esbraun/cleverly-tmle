@@ -262,15 +262,25 @@ where an assignment density is required. Every one of them rendered as ordinary,
 
 What is otherwise checked about the documentation is static, and belongs in the ordinary fast tier
 rather than behind a dispatch. Links resolve, including links that name a repository path. Every
-`python` fence parses. No reader-facing source joins two clauses with a dash, which Vale checks
-for Markdown and `tests/unit/test_documentation_prose.py` checks for the notebook and the `.rst`
-sources Vale cannot read. There is deliberately no manual documentation job. These
-properties are cheap enough to run on every change, and a dispatch that re-ran them would read as
-a gate while adding no coverage. That was the removed job's failure mode: its
+`python` fence parses.
+
+There is deliberately no manual documentation job. These properties are cheap enough to run on
+every change, and a dispatch that re-ran them would read as a gate while adding no coverage. That
+was the removed job's failure mode: its
 `ruff check README.md docs` validated nothing at all, because the linter does not read Markdown.
 Note the division: the ruff *formatter* does reach inside `python` fences and is covered by the
 whole-tree `ruff format --check .`, but it skips any block it cannot parse, so syntax is a test's
 job and not the formatter's.
+
+**Prose is reported, never gated.** `tests/prose.py` reports on reader-facing writing and
+`tests/unit/test_documentation_prose.py` fails on a finding carrying no recorded judgment, not on
+the writing. Recording `accepted: <reason>` in `tests/prose-report.md` is a passing outcome, so
+the decision stays with the writer. *Reconsider when* a rule is found that is exact enough to
+have no defensible exception. The reason this is a standing decision rather than a preference is
+measured: a Vale rule that failed the build on an em dash produced a sweep that stripped dashes
+mechanically, leaving six sentences without a predicate, two enumerations broken mid-list, five
+altered technical claims and four deleted evidence clauses. The rule was correct and the
+enforcement mode did the damage.
 
 Development-tool versions have one declaration: exact Ruff and mypy pins in the `dev` extra,
 resolved by `uv.lock`. Nox and CI install that extra; they do not restate versions in session or
