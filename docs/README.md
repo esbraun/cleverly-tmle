@@ -15,8 +15,8 @@ method entries in the technical reference. The other two cover the intervention 
 non-response, both of which are sections inside the point-treatment entry. A new method entry needs
 a new tutorial, and the two are cross-linked in both directions.
 
-All eight share one narrative: a health plan's hospital network running tests of change on nurse
-rounding practice. A new tutorial joins that program rather than inventing a scenario.
+All eight share one narrative: a health plan's hospital network evaluating care-transition
+navigation. A new tutorial joins that program rather than inventing a scenario.
 
 Build the warning-as-error site locally with `nox -s docs`.
 

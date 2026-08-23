@@ -1,7 +1,7 @@
-# Collaborative TMLE: which ward characteristics belong in the adoption model?
+# Collaborative TMLE: which baseline variables belong in the assignment model?
 
-The network holds a lot of data about its wards. Only some of it belongs in the model of who adopted
-rounding. This test of change shows what happens when a variable that predicts adoption very well
+The network holds many baseline variables. Only some help the model of who receives navigation.
+This test of change shows what happens when a variable that predicts assignment very well
 goes into that model, and how a collaborative selector keeps it out.
 
 Read [Collaborative TMLE](../technical-reference/collaborative-tmle.md) for the candidate paths, the
@@ -9,39 +9,41 @@ selection loss, and the fold structure.
 
 ## The applied question
 
-The program office wants to evaluate hourly rounding using everything it has. Three ward-level
-variables reach the analyst's desk, one from the quality system, one from the training office, and
-one from finance. Nobody has drawn a causal diagram.
+The program office wants to evaluate transition navigation. Before fitting, clinical and operations
+staff classify three baseline variables with a causal diagram and a protocol review. They exclude
+all descendants of assignment and all colliders.
 
-The temptation is to adjust for all three. A model of adoption that uses all three predicts adoption
+The three approved variables can all enter the outcome regression. A model of assignment that uses
+all three predicts assignment
 best, and predictive accuracy feels like the right criterion. It is not.
 
-This page analyses one hospital's patients, so patients are treated as independent. The
-[cross-fitting tutorial](cross-fitting.md) adds the ward layer.
+The selector chooses a nuisance model inside this approved baseline set. It does not discover a
+causal adjustment set from the data. The [cross-fitting tutorial](cross-fitting.md) adds shared
+navigator teams.
 
 ## Why this method
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| a large adjustment set with unknown structure | an adoption model selected by cross-validated loss on the targeted estimate, so an instrument is left out | one nuisance fit per candidate along the selection path |
-| near-positivity failure driven by strong adoption predictors | a less adaptive model, when the data says a less adaptive one estimates better | selection is data-dependent, and the reported interval does not account for it |
-| the outcome regression is already good | the empty adoption model is a legitimate choice, and the selector will make it | that is not evidence the search discriminates |
+| a large approved baseline set | an assignment model selected by cross-validated loss on the targeted estimate, so an instrument can be left out | one nuisance fit per candidate along the selection path |
+| near-positivity failure driven by strong assignment predictors | a less adaptive model, when the data says a less adaptive one estimates better | selection is data-dependent, and the reported interval does not account for it |
+| the outcome regression is already good | the empty assignment model is a legitimate choice, and the selector will make it | that is not evidence the search discriminates |
 
-Three variable roles matter, and only one of them belongs in the adoption model for free.
+Three variable roles matter, and only one belongs in the assignment model for free.
 
-| role | predicts adoption? | affects the score? | belongs in the adoption model? |
+| role | predicts assignment? | affects the score? | belongs in the assignment model? |
 | --- | --- | --- | --- |
 | confounder | yes | yes | yes. Omitting it biases the estimate |
 | instrument | yes, strongly | no | **no**. Including it inflates variance and removes no bias |
-| outcome predictor | no | yes | it helps the outcome regression, not the adoption model |
+| outcome predictor | no | yes | it helps the outcome regression, not the assignment model |
 
 An instrument is the dangerous one. It does not confound, so including it leaves the bias exactly
-where it was. It does predict adoption, so including it pushes propensity scores toward zero and
+where it was. It does predict assignment, so including it pushes propensity scores toward zero and
 one. The clever covariate divides by those propensities. A small denominator makes a large clever
 covariate, and the variance of the estimate follows.
 
 A model chosen by predictive loss will take the instrument, because an instrument is precisely what
-predicts adoption best. Collaborative TMLE scores its candidates against the targeted estimate
+predicts assignment best. Collaborative TMLE scores its candidates against the targeted estimate
 instead.
 
 ## The data
@@ -55,34 +57,39 @@ from cleverly.datasets import make_instrument
 frame, truth = make_instrument(n=2_000, seed=44)
 frame = frame.rename(
     columns={
-        "Y": "experience_score",
-        "A": "hourly_rounding",
-        "W1": "baseline_experience",
-        "W2": "training_cohort_slot",
-        "W3": "case_mix",
+        "Y": "transition_score",
+        "A": "transition_navigation",
+        "W1": "baseline_readiness",
+        "W2": "queue_lottery_position",
+        "W3": "social_support",
     }
 )
 print(frame.head())
 print("population ATE:", truth["ate"])
 ```
 
-| column | role in the law | what it is on the ward |
+| column | role in the law | what it is in the program |
 | --- | --- | --- |
-| `baseline_experience` | confounder | wards scoring poorly last year were pushed hardest to adopt, and last year's score also predicts this year's |
-| `training_cohort_slot` | instrument | which wave the ward's manager was scheduled into. Scheduling was driven by room availability, and it strongly predicts adoption |
-| `case_mix` | outcome predictor | it moves the experience score and it does not move adoption |
+| `baseline_readiness` | confounder | lower readiness increases the chance of an offer and predicts the transition score |
+| `queue_lottery_position` | instrument | an encounter-ID hash sets queue position, which strongly predicts an offer and has no path to the outcome except through the offer |
+| `social_support` | outcome predictor | it moves the transition score and does not move assignment |
 
-The training cohort is the instrument, and it is a realistic one. Program offices schedule training
-by convenience, then use attendance as a variable because it is recorded and it predicts adoption
-almost perfectly. That is exactly the wrong reason to include it.
+The queue lottery is an instrument only because the program fixes the hash before assignment,
+prevents staff overrides, and verifies that queue position changes no other service. If any of those
+conditions fails, the variable loses that role. The data cannot establish the exclusion restriction.
+
+This variance argument assumes exchangeability already holds. If an unmeasured common cause
+remains, adding a strong instrument can amplify residual bias. C-TMLE does not turn the queue
+variable into a design-based instrument estimator.
 
 The effect is constant in this law, so the population `ate`, `att`, and `atc` all equal one. The
 analyst does not know any of this.
 
 ## Design and identification
 
-The adjustment set holds all three columns. That is the honest starting point, because the analyst
-cannot tell them apart. The design is a statement about what was measured, not a claim about roles.
+The design holds all three approved baseline columns. The causal review established that
+`baseline_readiness` is sufficient for the common-cause path in this synthetic scenario. C-TMLE
+then selects terms for the assignment nuisance; it does not revise that identification decision.
 
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
@@ -90,9 +97,9 @@ from cleverly import ATE, CausalStudy, PointTreatment
 study = CausalStudy(
     frame,
     design=PointTreatment(
-        outcome="experience_score",
-        treatment="hourly_rounding",
-        adjustment=("baseline_experience", "training_cohort_slot", "case_mix"),
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=("baseline_readiness", "queue_lottery_position", "social_support"),
     ),
 )
 effect = study.identify(ATE(reference=0))
@@ -110,7 +117,7 @@ for method in effect.available_methods():
 ## Estimate
 
 Both fits below share their learners and their cross-fitting, so the only difference between them is
-how the adoption model was chosen.
+how the assignment model was chosen.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -147,7 +154,7 @@ print("candidate path:", selection.path)
 print("selected covariates:", selection.path[selection.selected])
 ```
 
-## The failure mode: an instrument in the adoption model
+## The failure mode: an instrument in the assignment model
 
 First look at what including everything does to the propensity scores.
 
@@ -157,8 +164,8 @@ print(plain.diagnostics.support().summary())
 ```
 
 The support report shows the propensity distribution reaching far into both tails. That is the
-training cohort at work. Wards in an early slot have propensities near one, and wards in a late slot
-have propensities near zero. No confounding was removed in exchange.
+queue lottery at work. Early queue positions have propensities near one, and late positions have
+propensities near zero. No confounding was removed in exchange.
 
 Now compare the two estimators.
 
@@ -179,12 +186,12 @@ print("population ATE:", truth["ate"])
 ### Why this comparison is not yet evidence
 
 Look again at the selected covariate set printed above. With a correctly specified outcome model,
-the selector chose the **empty** adoption model.
+the selector chose the **empty** assignment model.
 
 That is the right choice rather than a defect. When the outcome regression already captures the
-conditional mean, an empty adoption model minimises the cross-validated loss, and the collaborative
+conditional mean, an empty assignment model minimizes the cross-validated loss, and the collaborative
 criterion says so. It also means the comparison above proves nothing about whether the search can
-tell a confounder from an instrument. A selector that always selects nothing would win it too.
+demonstrate useful selection. A selector that always selects nothing would win it too.
 
 The technical entry makes this point about its own validation, and the same caution belongs in an
 applied reading.
@@ -192,7 +199,7 @@ applied reading.
 ### The comparison that does discriminate
 
 Test the search where selecting nothing is wrong. Reduce the outcome model to a constant. The
-adoption model now has to carry the whole adjustment, so omitting the confounder is no longer
+assignment model now has to carry the whole adjustment, so omitting the confounder is no longer
 harmless.
 
 ```python
@@ -223,13 +230,13 @@ print("selected covariates:", weak_selection.path[weak_selection.selected])
 print("population ATE:", truth["ate"])
 ```
 
-At the documented sample size the selector now includes `baseline_experience`, the confounder, and
-leaves `training_cohort_slot`, the instrument, out. The standard error falls by a large factor
+At the documented sample size the selector now includes `baseline_readiness`, the confounder, and
+leaves `queue_lottery_position`, the instrument, out. The standard error falls by a large factor
 against the plain fit that used all three.
 
-That is the claim the method makes. The search distinguishes a variable that removes bias from a
-variable that only predicts adoption, because it scores candidates against the targeted estimate
-rather than against adoption prediction.
+In this known synthetic law, the search retains the variable needed by the deliberately reduced
+outcome model and drops the pure assignment predictor. A real analysis still needs the causal review
+above. The selection result does not prove that either variable has its declared causal role.
 
 ## How far to trust this
 
@@ -266,6 +273,6 @@ adjustment set is small and you would include all of it, the plain
 [point-treatment TMLE](point-treatment-tmle.md) is the right entry.
 
 Two compositions are refused rather than approximated. Collaborative TMLE has no longitudinal
-derivation, so it cannot evaluate rounding across two admissions. It is also wrong by construction
-on an incremental fit, because each candidate adoption model would define a different estimand, and
+derivation, so it cannot evaluate navigation across two decision times. It is also wrong by construction
+on an incremental fit, because each candidate assignment model would define a different estimand, and
 the search would then select between estimands rather than between estimators.

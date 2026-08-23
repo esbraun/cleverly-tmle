@@ -35,7 +35,8 @@ not an unweighted fit with weights applied at the end.
 Two consequences follow immediately, and both are worth being explicit about:
 
 * :math:`\Psi(P_w)` has a causal interpretation only if the identification assumptions
-  (consistency, no unmeasured confounding, positivity) hold **under** :math:`P_w`.
+  (consistency, no interference, no unmeasured confounding, positivity) hold **under**
+  :math:`P_w`.
   Weighting does not create identification; it moves the population in which
   identification is being claimed.
 * A learner that ignores ``sample_weight`` is fitting the wrong conditional -- not merely

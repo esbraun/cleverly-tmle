@@ -45,7 +45,8 @@ from cleverly.methods import (
     SHORTCUTS,
 )
 from cleverly.msm import MSM
-from cleverly.study import _STRING_ESTIMANDS
+from cleverly.study import _LONGITUDINAL_IDENTIFICATION, _STRING_ESTIMANDS
+from cleverly.targets.builtin import BUILTIN_TARGETS
 from tests.conftest import FAST_KWARGS
 
 
@@ -236,6 +237,38 @@ def test_identification_is_inspectable_before_estimation() -> None:
     summary = effect.summary()
     assert "E_W[E(Y | A=a, W)" in summary
     assert "no unmeasured confounding" in summary
+
+
+def test_point_treatment_targets_state_no_interference_separately() -> None:
+    """Every potential-outcome target exposes the SUTVA component the API omitted."""
+    by_name = {target.name: target for target in BUILTIN_TARGETS}
+    checked = 0
+    for target in BUILTIN_TARGETS:
+        assumptions = target.identification.assumptions
+        if not any(item.startswith("consistency:") for item in assumptions):
+            continue
+        checked += 1
+        assert sum("no interference" in item for item in assumptions) == 1, target.name
+    assert checked >= 10
+    assert sum("no interference" in item for item in _LONGITUDINAL_IDENTIFICATION.assumptions) == 1
+    assert (
+        sum(item.startswith("consistency:") for item in _LONGITUDINAL_IDENTIFICATION.assumptions)
+        == 1
+    )
+    for name in ("ey_ipsi", "ate_ipsi"):
+        assert any(
+            "no positivity assumption" in item for item in by_name[name].identification.assumptions
+        )
+    for name in ("ey_regime", "ate_regime"):
+        assert any(
+            "positivity *for the regime*" in item
+            for item in by_name[name].identification.assumptions
+        )
+    for name in ("ey_shift", "ate_shift"):
+        assert any(
+            "positivity *for the shifted dose*" in item
+            for item in by_name[name].identification.assumptions
+        )
 
 
 def test_an_unknown_reference_is_refused_during_identification() -> None:

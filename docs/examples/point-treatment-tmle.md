@@ -1,4 +1,4 @@
-# Point-treatment TMLE: did hourly rounding raise the experience score?
+# Point-treatment TMLE: did transition navigation improve the experience score?
 
 This is the first test of change in the network's patient-experience program. It estimates one
 average treatment effect from observational data, and it demonstrates the property the method is
@@ -10,24 +10,24 @@ influence curve, and the algorithm.
 
 ## The applied question
 
-A regional health plan contracts a network of hospitals. Its patient-experience program asked
-medical-surgical wards to adopt **scripted hourly rounding**. A nurse visits each patient every
-hour and works through a fixed checklist: pain, position, personal needs, and possessions.
+A regional health plan offers adults a **standard transition-navigation protocol** before they
+leave a hospital for home. Assignment means an offer of a bedside plan and two scheduled contacts
+within 30 days. It does not mean that the patient completed every contact.
 
-Nobody randomized the rollout. Ward managers decided. Some adopted at once, some never did, and the
-ones who adopted were not a random sample of wards. The plan recorded four things about each
-patient before discharge: acuity, prior admissions, length of stay, and age.
+Nobody randomized the rollout. Discharge teams used a recorded risk process, and patients who got
+an offer were not a random sample. The plan measured discharge risk, prior utilization, medication
+burden, and age before assignment.
 
-The program wants one number. If every patient on these wards had been cared for under hourly
-rounding, how much higher would the average experience score be than if nobody had?
+The program wants one number. How much would the average 30-day transition score change if every
+eligible discharge received the navigation offer, compared with usual discharge support?
 
 That question names an estimand before any model exists. It is the average treatment effect. It
 contrasts two counterfactual means over the same population. It is not the coefficient on a
-rounding indicator. It is not a comparison of rounding wards against non-rounding wards.
+navigation indicator. It is not a comparison of offered patients with patients who got usual care.
 
-The outcome is the HCAHPS nurse-communication composite, standardized. This page analyses one
-hospital's patients, so patients are treated as independent. The
-[cross-fitting tutorial](cross-fitting.md) adds the hospital layer.
+The outcome is a standardized 30-day patient-reported transition score. This first synthetic law
+treats discharges as independent. The [cross-fitting tutorial](cross-fitting.md) adds shared
+navigator teams.
 
 ## Why this method
 
@@ -39,7 +39,7 @@ hospital's patients, so patients are treated as independent. The
 
 Two familiar alternatives fail here, for different reasons.
 
-A regression of the experience score on rounding and the four covariates reports a coefficient. That
+A regression of the transition score on navigation and the four covariates reports a coefficient. That
 coefficient equals the average treatment effect only if the outcome model is correct and the effect
 is constant. Neither holds here. The number changes when you add an interaction term, and nothing in
 the output tells you which version answers the question.
@@ -63,11 +63,11 @@ from cleverly.datasets import make_nonlinear_ate
 frame, truth = make_nonlinear_ate(n=3_000, seed=21)
 frame = frame.rename(
     columns={
-        "Y": "experience_score",
-        "A": "hourly_rounding",
-        "W1": "acuity",
-        "W2": "prior_admissions",
-        "W3": "length_of_stay",
+        "Y": "transition_score",
+        "A": "transition_navigation",
+        "W1": "discharge_risk",
+        "W2": "prior_utilization",
+        "W3": "medication_burden",
         "W4": "age",
     }
 )
@@ -77,9 +77,9 @@ print("population ATE:", truth["ate"])
 
 The renaming is cosmetic. It keeps the prose about patients rather than about `W1`.
 
-| feature of the law | what it means on this ward |
+| feature of the law | what it means in this program |
 | --- | --- |
-| the four covariates drive both the exposure and the outcome | sicker, longer-stay patients land on different wards, and they also score differently. All four are confounders |
+| the four baseline covariates drive assignment and the outcome | higher-risk patients receive different offers and report different outcomes. All four are confounders in the synthetic law |
 | both nuisance functions are nonlinear | a GLM is misspecified for each one, which is the condition this page exploits |
 | the effect varies with the covariates | `ate`, `att`, and `atc` differ, so the estimand must be named rather than inferred |
 
@@ -97,9 +97,9 @@ from cleverly import ATE, CausalStudy, PointTreatment
 study = CausalStudy(
     frame,
     design=PointTreatment(
-        outcome="experience_score",
-        treatment="hourly_rounding",
-        adjustment=("acuity", "prior_admissions", "length_of_stay", "age"),
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=("discharge_risk", "prior_utilization", "medication_burden", "age"),
     ),
 )
 effect = study.identify(ATE(reference=0))
@@ -109,20 +109,26 @@ for assumption in effect.identification.assumptions:
     print("-", assumption)
 ```
 
-`identify` returns the assumptions that carry the causal reading. Three of them apply here.
+`identify` returns the assumptions that carry the causal reading. Four apply here.
 
 | assumption | what it means for this program | can the data check it? |
 | --- | --- | --- |
-| consistency | a patient's recorded score is the score under the rounding practice their ward actually used | no |
-| no unmeasured confounding | the four recorded variables block every path from rounding to the score | no |
-| positivity | every kind of patient could have landed on a rounding ward, and on a non-rounding ward | partly, through the support report |
+| consistency | an offer always means the declared bedside plan and two scheduled contacts | no |
+| no interference | one patient's assignment does not change another patient's offer or outcome | no |
+| no unmeasured confounding | the recorded baseline variables block every common cause of assignment and the score | no |
+| positivity | each baseline profile has some chance of an offer and of usual support | partly, through the support report |
 
-Only the third leaves a trace in the data. This is the honest order of the workflow. You argue for
-the first two from what you know about the rollout. You check the third after fitting.
+Only positivity leaves a direct trace in the observed treatment support. The program supports
+consistency with one protocol and version log. It reserves navigator capacity and records
+contamination to support no interference.
 
-The second one deserves a program-specific warning. Wards that adopted early were often the wards
-with an engaged manager, and an engaged manager changes more than rounding. If that is true here, no
-estimator on this page repairs it.
+Exchangeability needs a causal argument. For example, an unrecorded discharge-team judgement that
+affects both assignment and recovery would violate it. No estimator on this page repairs that
+failure. Restrict eligibility or redesign assignment when the argument is not credible.
+
+The synthetic law needs only four covariates. A real protocol should also evaluate pre-assignment
+site, navigator-team, calendar, language-access, and discharge-destination causes. Add them when the
+causal review places them on a common-cause path.
 
 ## Estimate
 
@@ -167,12 +173,12 @@ something narrower, and the difference is not cosmetic.
 
 | estimand | the question it answers | who asks it |
 | --- | --- | --- |
-| ATT | what did the wards that adopted actually get? | the wards defending the pilot |
-| ATE | what would the whole network get if every ward rounded? | the program sponsor |
-| ATC | what would the wards that have **not** adopted get if they did? | whoever is deciding on spread |
+| ATT | what did patients who received an offer gain from assignment? | the teams reviewing the pilot |
+| ATE | what would the eligible population gain if everyone received an offer? | the program sponsor |
+| ATC | what would patients who received usual support gain from an offer? | whoever is deciding on spread |
 
 These are three parameters, not three estimates of one. A second law makes the gap visible, because
-its effect modification is aligned with the propensity: the wards most likely to adopt are the wards
+its effect modification is aligned with the propensity: patients most likely to receive an offer are
 that benefit most.
 
 ```python
@@ -184,18 +190,18 @@ from cleverly.datasets import make_heterogeneous
 spread_frame, spread_truth = make_heterogeneous(n=3_000, seed=23)
 spread_frame = spread_frame.rename(
     columns={
-        "Y": "experience_score",
-        "A": "hourly_rounding",
-        "W1": "acuity",
-        "W2": "length_of_stay",
+        "Y": "transition_score",
+        "A": "transition_navigation",
+        "W1": "discharge_risk",
+        "W2": "medication_burden",
     }
 )
 spread_study = CausalStudy(
     spread_frame,
     design=PointTreatment(
-        outcome="experience_score",
-        treatment="hourly_rounding",
-        adjustment=("acuity", "length_of_stay"),
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=("discharge_risk", "medication_burden"),
     ),
 )
 simple = TMLEMethod(
@@ -222,7 +228,7 @@ At the documented sample size the three sit in a strict order, and their interva
 The ATT is the largest and the ATC is the smallest.
 
 Read that as a warning about spread. The pilot's own result is the ATT, and it is the number a
-successful pilot reports. The wards that have not adopted would get the ATC, which here is a small
+successful pilot reports. Patients who received usual support would get the ATC, which here is a small
 fraction of it. A program that budgets the network rollout against the pilot's number will
 overpromise.
 
@@ -291,14 +297,14 @@ print(result.validate().summary())
 The support report is where positivity becomes visible. It gives the propensity quantiles, the
 effective sample size per arm, and the share of rows the truncation touched.
 
-**Read its verdict on this fit.** The gradient-boosted model separates rounding wards from
-non-rounding wards well, and the price is a set of extreme propensity scores. The effective sample
-size in the rounding arm falls to about a fifth of those patients, and the largest clever covariate
+**Read its verdict on this fit.** The gradient-boosted model separates offered patients from the
+usual-support group well. The price is a set of extreme propensity scores. The effective sample
+size in the navigation arm falls to about a fifth of those patients, and the largest clever covariate
 is in the tens. The report calls that a serious positivity problem, and it is right to.
 
 Two lessons follow, and both are general.
 
-The first is that a better-predicting adoption model is not automatically a better adoption model
+The first is that a better-predicting assignment model is not automatically a better assignment model
 for this purpose. Prediction accuracy and estimand-relevant behaviour are different criteria, and
 [collaborative TMLE](collaborative-tmle.md) is the entry that chooses between models on the second
 one.
@@ -321,7 +327,7 @@ Here it does not move much, and the interval narrows as the bound tightens. Read
 of a limited kind. The positivity strain is showing up in the variance rather than in the location
 of the estimate. It would still be wrong to report the number without the report.
 
-The nuisance report adds one more finding. The boosted adoption model is poorly calibrated, at a
+The nuisance report adds one more finding. The boosted assignment model is poorly calibrated, at a
 calibration slope well below one, while the outcome regression fits well. That combination is the
 one this page has been describing from the other side. The estimate survives it because the outcome
 regression is good, and double robustness is what makes that survival possible.
@@ -334,8 +340,8 @@ print(result.sensitivity.run_all().summary())
 
 Unmeasured confounding is invisible to every diagnostic, because the data holds no record of it.
 Sensitivity analysis asks a different question. How strong would an unmeasured confounder have to be
-to explain the result away? The engaged-manager worry from the identification section is exactly
-what to hold against the answer.
+to explain the result away? An unrecorded discharge-team judgement is the concrete threat to hold
+against the answer.
 
 Then refutation, which perturbs the analysis and checks that it responds as it should.
 
@@ -390,8 +396,8 @@ in
 | refutation | the estimate responds correctly to perturbations with a known answer | that the estimate is correct |
 | the registered study | the implementation recovers known truths and behaves as its theory predicts | that your identification assumptions hold on your data |
 
-Nothing in this list validates the causal reading. That rests on consistency and on no unmeasured
-confounding. Both are arguments about the rollout rather than about the fit.
+Nothing in this list validates the causal reading. That rests on consistency, no interference, and
+no unmeasured confounding. All three are arguments about the program rather than about the fit.
 
 ## Keeping the result
 
@@ -403,13 +409,13 @@ that.
 for capability in result.diagnostics.capabilities:
     print(capability.operation, capability.cost, capability.execution)
 
-result.save("hourly-rounding-ate.joblib")
+result.save("transition-navigation-ate.joblib")
 ```
 
 ```python
 from cleverly import load
 
-restored = load("hourly-rounding-ate.joblib")
+restored = load("transition-navigation-ate.joblib")
 print(restored.replayability)
 print(restored.diagnostics.run_all().summary())
 ```
@@ -422,10 +428,10 @@ dependency versions compatible.
 
 | the next question | read |
 | --- | --- |
-| flexible learners, and patients nested in hospitals | [CV-TMLE and cross-fitting](cross-fitting.md) |
-| which ward characteristics belong in the adoption model | [collaborative TMLE](collaborative-tmle.md) |
-| an interval when the adoption model is known to be crude | [DR-TMLE](dr-tmle.md) |
-| a rule, a dose change, or a nudge instead of "round on everyone" | [intervention axes](interventions.md) |
+| flexible learners, and patients nested in navigator teams | [CV-TMLE and cross-fitting](cross-fitting.md) |
+| which baseline variables belong in the assignment model | [collaborative TMLE](collaborative-tmle.md) |
+| an interval when the assignment model is known to be crude | [DR-TMLE](dr-tmle.md) |
+| a rule, a dose change, or an odds tilt instead of "offer to everyone" | [intervention axes](interventions.md) |
 | most patients never returned the survey | [survey non-response](survey-nonresponse.md) |
-| rounding at more than one admission | [longitudinal TMLE](longitudinal-tmle.md) |
-| three rounding cadences summarised as a trend | [MSM projections](msm-projections.md) |
+| navigation at more than one decision time | [longitudinal TMLE](longitudinal-tmle.md) |
+| three navigation cadences summarized as a trend | [MSM projections](msm-projections.md) |

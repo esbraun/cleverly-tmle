@@ -1,8 +1,7 @@
-# Intervention axes: three rounding policies, three estimands
+# Intervention axes: three navigation policies, three estimands
 
-"Round on everyone" is not a policy any ward would adopt. Wards target their scarce nursing time.
-Prescribed rounding intensity changes by a step rather than switching on. And a program office
-usually cannot mandate anything, so it nudges uptake instead.
+"Offer navigation to everyone" is not the only policy a program can use. Programs target limited
+navigator time, change assigned support intensity, or alter a documented assignment probability.
 
 `cleverly` runs all three through the point-treatment engine. They are not the same parameter, and
 their result tables look almost identical. This test of change estimates all three and shows what
@@ -14,18 +13,20 @@ covariates each axis produces.
 
 ## The applied question
 
-The program office is planning next year's rounding standard. Three proposals are on the table.
+The program office is planning next year's navigation standard. Three proposals are on the table.
 
 | proposal | what it changes | which axis |
 | --- | --- | --- |
-| round hourly only on patients the acuity screen flags | who gets hourly rounding, as a function of a recorded variable | a known regime |
-| raise every nurse's rounds per shift, but never past what staffing allows | how much of a continuous exposure each patient receives | a modified treatment policy |
-| make the checklist easier to complete, so the odds a patient is rounded on double | the adoption mechanism itself, not any individual assignment | an incremental propensity-score intervention |
+| offer navigation only when a baseline discharge-risk screen flags | who gets the standard offer, as a function of recorded baseline information | a known regime |
+| add assigned navigation hours, but never exceed a declared capacity per patient | how much of a continuous exposure each patient receives | a modified treatment policy |
+| change the scheduling lottery so the conditional odds of an offer double | the assignment mechanism itself, not one fixed assignment | an incremental propensity-score intervention |
 
 Each proposal is a different question about the world. None of them is the average treatment effect,
-and a fourth number answering "round on all versus round on none" would not decide any of them.
+and a fourth number answering "offer to all versus offer to none" would not decide any of them.
 
-This page analyses one hospital's patients, so patients are treated as independent.
+Each policy keeps the shared eligibility, time zero, outcome window, and no-interference controls.
+The risk rule uses baseline information only. The duration cap and scheduling odds are fixed before
+fitting, so each intervention is well defined and reproducible.
 
 ## Why these are three estimands
 
@@ -33,12 +34,12 @@ This page analyses one hospital's patients, so patients are treated as independe
 | --- | --- | --- |
 | the policy is a rule on recorded variables | a mean under a plan fixed before fitting, needing support only for the arm the rule assigns | the rule is part of the estimand. Two rules are two parameters |
 | the exposure is continuous | the mean under a shift of the observed intensity, with the achievable maximum declared | positivity becomes a statement about the conditional density, and each shift has its own support |
-| you can move uptake but not assign it | a tilt of the observed mechanism, which is what a real program can do | the target is defined through the observed mechanism, so its inference leans on estimating that mechanism well |
+| you can implement a stochastic assignment rule | a tilt of the observed mechanism | the target is defined through that mechanism, so its inference leans on estimating the mechanism well |
 
 The common mistake is to read the three result tables as three estimates of one quantity. They
 differ because the counterfactual worlds differ, not because the estimators disagree.
 
-## A known regime: screen, then round
+## A known regime: screen, then offer
 
 ```python
 from cleverly.datasets import make_nonlinear_ate
@@ -46,11 +47,11 @@ from cleverly.datasets import make_nonlinear_ate
 frame, truth = make_nonlinear_ate(n=3_000, seed=31)
 frame = frame.rename(
     columns={
-        "Y": "experience_score",
-        "A": "hourly_rounding",
-        "W1": "acuity",
-        "W2": "prior_admissions",
-        "W3": "length_of_stay",
+        "Y": "transition_score",
+        "A": "transition_navigation",
+        "W1": "discharge_risk",
+        "W2": "prior_utilization",
+        "W3": "medication_burden",
         "W4": "age",
     }
 )
@@ -67,17 +68,17 @@ from cleverly.interventions import Rule, Static
 study = CausalStudy(
     frame,
     design=PointTreatment(
-        outcome="experience_score",
-        treatment="hourly_rounding",
-        adjustment=("acuity", "prior_admissions", "length_of_stay", "age"),
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=("discharge_risk", "prior_utilization", "medication_burden", "age"),
     ),
 )
 plans = (
-    Static(0, name="round on none"),
-    Static(1, name="round on all"),
-    Rule(lambda data: (data["acuity"] > 0).astype(float), name="screen on acuity"),
+    Static(0, name="offer to none"),
+    Static(1, name="offer to all"),
+    Rule(lambda data: (data["discharge_risk"] > 0).astype(float), name="screen on risk"),
 )
-regimes = study.identify(RegimeContrast(plans, reference="round on none"))
+regimes = study.identify(RegimeContrast(plans, reference="offer to none"))
 print(regimes.summary())
 ```
 
@@ -98,22 +99,22 @@ regime_result = regimes.estimate(method=method)
 print(regime_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
-The screening contrast is smaller than the round-on-all contrast, because the rule reaches only part
-of the ward. That is the number the office needs when it is budgeting nursing hours, and no
+The screening contrast is smaller than the offer-to-all contrast, because the rule reaches only part
+of the eligible population. That is the number the office needs when it budgets navigator hours. No
 rescaling of the average treatment effect produces it.
 
-A rule needs positivity only where it assigns. Low-acuity patients are never assigned hourly
-rounding under this plan, so the fit never divides by their probability of being rounded on. A rule
-can therefore be estimable on a ward where "round on all" is not.
+A rule needs positivity only where it assigns. Lower-risk patients are never assigned navigation
+under this plan, so the fit never divides by their probability of receiving an offer. A rule can
+therefore be estimable where "offer to all" is not.
 
 ```python
 print(regime_result.diagnostics.support().summary())
 ```
 
-## A modified treatment policy: add rounds per shift
+## A modified treatment policy: add navigation hours
 
-Rounds per shift is a count, not a switch. The design says the exposure is continuous, and a
-continuous exposure needs a conditional density rather than a propensity. `density_bins` controls
+Assigned navigation time over 30 days is continuous, not a switch. A continuous exposure needs a
+conditional density rather than a propensity. `density_bins` controls
 it.
 
 ```python
@@ -131,11 +132,11 @@ dose_frame, dose_truth = make_shift_dose(
 )
 dose_frame = dose_frame.rename(
     columns={
-        "Y": "experience_score",
-        "A": "rounds_per_shift",
-        "W1": "acuity",
-        "W2": "unit_census",
-        "W3": "nurse_experience_years",
+        "Y": "transition_score",
+        "A": "navigation_hours_30d",
+        "W1": "discharge_risk",
+        "W2": "navigator_caseload",
+        "W3": "baseline_support_need",
     }
 )
 for name, value in dose_truth.items():
@@ -153,9 +154,9 @@ from cleverly.interventions import Shift
 dose_study = CausalStudy(
     dose_frame,
     design=PointTreatment(
-        outcome="experience_score",
-        treatment="rounds_per_shift",
-        adjustment=("acuity", "unit_census", "nurse_experience_years"),
+        outcome="transition_score",
+        treatment="navigation_hours_30d",
+        adjustment=("discharge_risk", "navigator_caseload", "baseline_support_need"),
         treatment_kind="continuous",
     ),
 )
@@ -180,18 +181,18 @@ print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ## The failure mode: the cap is part of the question
 
 Compare the two `+0.5` rows against the printed truths. They apply the same increase and they have
-different population values, because `cap=5.0` holds back the nurses whose new count would exceed
-what the ward can staff. Those patients keep their current intensity under one policy and not under
+different population values, because `cap=5.0` holds back assignments whose new duration would
+exceed five hours. Those patients keep their current intensity under one policy and not under
 the other.
 
 The two estimates sit close together here, because only a few per cent of rows are capped. That does
-not make the cap a detail. It makes the two policies nearly the same policy on this ward, which is a
+not make the cap a detail. It makes the two policies nearly the same in this program, which is a
 fact about the data rather than about the estimand. A staffing ceiling inside the bulk of the
 distribution would separate them.
 
 `cap` has no default, and that is deliberate. Estimating the achievable maximum from the data would
 make the parameter data-dependent. The reported standard error would then condition on a fitted
-ceiling, and every bootstrap replicate would target a slightly different policy. The staffing office
+ceiling, and every bootstrap replicate would target a slightly different policy. The navigation office
 states what is achievable, because that is a question about the world.
 
 Now read the support report, which is published per policy rather than once for the fit.
@@ -218,13 +219,13 @@ extrapolates for those rows and identification needs the shifted intensity to be
 The last row of the table is the important one. The fit returns a number for `+1.0 uncapped`, and at
 the documented sample size that number sits further from its population value than the others do.
 The support report says why before you look at the estimate. A policy that pushes most of the mass
-toward the edge of what the ward has ever staffed is not made estimable by an estimator.
+toward the edge of what the program has staffed is not made estimable by an estimator.
 
-## An incremental intervention: make the checklist easier
+## An incremental intervention: change the scheduling lottery
 
-The third proposal cannot be written as an assignment at all. The program office cannot decide which
-patients get rounded on. It can simplify the checklist and put it in the workflow, which raises the
-odds of rounding for everyone.
+The third proposal is not one fixed assignment. The program changes its documented scheduling
+lottery so each patient's conditional odds of an offer double. This stochastic policy is the
+intervention. No separate workflow change provides another path to the outcome.
 
 ```python
 from cleverly import IncrementalEffect
@@ -241,13 +242,17 @@ incremental_result = study.estimate(
 print(incremental_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
-This is the axis that matches what a quality program actually controls, and it carries a warning
+This axis matches a program that controls assignment probabilities, and it carries a warning
 that the other two do not.
 
-An incremental target is defined *through* the observed adoption mechanism. Doubling the odds of
-rounding means doubling odds the data has to supply. This axis therefore has a one-sided robustness
+An incremental target is defined *through* the observed assignment mechanism. Doubling the odds of
+an offer means doubling odds the data has to supply. This axis therefore has a one-sided robustness
 property rather than the usual two-sided one. Its inference leans on estimating the mechanism
 consistently, and a good outcome regression does not rescue it.
+
+The incremental target does not require ordinary treatment positivity. Its weights remain bounded
+when the observed probability approaches zero or one. That protection does not make the assignment
+mechanism optional, because the mechanism defines the estimand itself.
 
 That is the opposite of the point-treatment situation, where the outcome regression is the safer of
 the two nuisances to lean on. It is also the opposite of the [DR-TMLE](dr-tmle.md) situation, where
@@ -258,13 +263,13 @@ before reporting one.
 ## The three numbers side by side
 
 ```python
-print("screen on acuity vs round on none:")
+print("screen on risk vs offer to none:")
 print(regime_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 print()
-print("more rounds per shift vs current practice:")
+print("more navigation hours vs current practice:")
 print(shift_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 print()
-print("easier checklist:")
+print("doubled assignment odds:")
 print(incremental_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
@@ -286,7 +291,7 @@ print(incremental_result.validate().summary())
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the per-policy support reports | which declared policies the ward's own data can carry | that a well-supported policy is the one worth adopting |
+| the per-policy support reports | which declared policies the program data can carry | that a well-supported policy is worth adopting |
 | the score-equation checks | each axis solved its own score equation | that the axis you chose matches the decision the office faces |
 | the evidence manifest | each axis has its own exact-law, Gateaux, and remainder checks, with nonzero witnesses | a repeated-sampling study. The intervention axes have no row in the validation grid |
 

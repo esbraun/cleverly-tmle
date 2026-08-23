@@ -1,6 +1,6 @@
-# DR-TMLE: an interval when nobody recorded why a ward adopted
+# DR-TMLE: an interval when the recorded assignment rule is hard to model
 
-This test of change is about inference rather than about the estimate. An ordinary TMLE is doubly
+This test of change is about inference rather than the estimate. An ordinary TMLE is doubly
 robust for *consistency* and singly robust for *inference*. This page shows what that distinction
 means for a program that cannot model its own rollout, and what the DR-TMLE variant does about it.
 
@@ -11,22 +11,23 @@ The contract is authoritative. Read
 
 ## The applied question
 
-The rounding evaluation is being repeated, and this time the analyst has a specific worry about
-which half of the analysis can be trusted.
+The navigation evaluation is being repeated. This time the analyst has a specific worry about
+which nuisance function can be estimated well.
 
-The outcome side is in good shape. Experience scores depend on acuity, prior admissions, length of
-stay, and age in ways a flexible model can learn from thousands of discharges.
+The outcome side is in good shape. Transition scores depend on discharge risk, prior utilization,
+medication burden, and age in ways a flexible model can learn from thousands of discharges.
 
-The adoption side is not. Wards adopted because a manager decided to. Managers weighed ward culture,
-how stretched the staffing felt that quarter, and their own conviction. None of that was written
-down. Any model of adoption built from the recorded variables is a crude approximation of a decision
-process the data does not contain.
+The assignment side is difficult. The program logged every common cause of assignment and outcome,
+but its operational rule contains thresholds, interactions, and rotating capacity constraints. A
+simple logistic model of assignment is therefore misspecified even though the causal adjustment set
+is measured.
 
-The analyst can live with a crude adoption model. Double robustness says the estimate stays
+The analyst can live with a crude assignment model. Double robustness says the estimate stays
 consistent as long as the outcome regression is good. The question is whether the *interval* stays
 valid too.
 
-This page analyses one hospital's patients, so patients are treated as independent.
+This distinction is essential. If an unrecorded discharge-team judgement affects both assignment
+and recovery, exchangeability fails. DR-TMLE does not repair that design failure.
 
 ## Why this method
 
@@ -57,7 +58,7 @@ inference can survive one inconsistent primary nuisance.
 ## The data
 
 The law is `make_nonlinear_ate` again. A gradient-boosted learner is approximately right for the
-outcome regression on this law. A logistic regression is wrong for the adoption mechanism, by
+outcome regression on this law. A logistic regression is wrong for the assignment mechanism, by
 construction. That pairing is the analyst's situation.
 
 ```python
@@ -66,11 +67,11 @@ from cleverly.datasets import make_nonlinear_ate
 frame, truth = make_nonlinear_ate(n=2_000, seed=55)
 frame = frame.rename(
     columns={
-        "Y": "experience_score",
-        "A": "hourly_rounding",
-        "W1": "acuity",
-        "W2": "prior_admissions",
-        "W3": "length_of_stay",
+        "Y": "transition_score",
+        "A": "transition_navigation",
+        "W1": "discharge_risk",
+        "W2": "prior_utilization",
+        "W3": "medication_burden",
         "W4": "age",
     }
 )
@@ -81,15 +82,20 @@ print("population ATE:", truth["ate"])
 
 Nothing changes in the question. DR-TMLE targets the same parameter under the same assumptions.
 
+The study therefore keeps the shared eligibility, time zero, protocol version, and reserved
+capacity. It also keeps every common cause in the adjustment set. The deliberate failure on this
+page is statistical misspecification of the recorded assignment mechanism. It is not an omitted
+common cause.
+
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
 
 study = CausalStudy(
     frame,
     design=PointTreatment(
-        outcome="experience_score",
-        treatment="hourly_rounding",
-        adjustment=("acuity", "prior_admissions", "length_of_stay", "age"),
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=("discharge_risk", "prior_utilization", "medication_burden", "age"),
     ),
 )
 effect = study.identify(ATE(reference=0))
@@ -104,7 +110,7 @@ what a derivation would need. The list is in [the contract](../drtmle.md#refused
 
 ## Estimate
 
-The primary nuisances are the analyst's: a flexible outcome regression and a crude adoption model.
+The primary nuisances are the analyst's: a flexible outcome regression and a crude assignment model.
 The reduced regressions are the extra machinery the variant needs.
 
 ```python
@@ -216,7 +222,7 @@ The most important limitation on this page is not a diagnostic result. It is wha
 cannot do.
 
 **Solved scores do not establish nuisance consistency.** Every score above converged to
-approximately zero, on this fit, with an adoption model the analyst already believes is wrong.
+approximately zero, on this fit, with an assignment model the analyst already believes is wrong.
 Convergence is a property of the targeting step. It is not evidence that the reduced regressions or
 the primary nuisances converge at the rates the theorem needs. Those are rate conditions on
 estimated functions, and a fit's own output cannot verify them. The contract devotes
@@ -238,8 +244,8 @@ because no registered repeated-sampling study covers it. Read that absence as pa
 
 ## Where to go next
 
-If your worry is which ward characteristics belong in the adoption model rather than how well any of
+If your worry is which baseline variables belong in the assignment model rather than how well any of
 them can be fitted, the entry for that is [collaborative TMLE](collaborative-tmle.md). The two do
 not compose, and the refusal is by construction rather than a gap. A reduced regression conditions
-on the fitted adoption probability as a covariate, and a collaborative one is deliberately not an
+on the fitted assignment probability as a covariate, and a collaborative one is deliberately not an
 estimate of the true probability.

@@ -643,7 +643,9 @@ class ParameterKey:
 
 _LONGITUDINAL_IDENTIFICATION = Identification(
     assumptions=(
-        "consistency and no interference",
+        "consistency: each observed history equals the potential history under its "
+        "realized regimen",
+        "no interference: one unit's potential history does not depend on other units' regimens",
         "sequential exchangeability given the recorded history at every node",
         "sequential positivity for treatment and remaining under observation",
     ),

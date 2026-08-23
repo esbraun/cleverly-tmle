@@ -1,8 +1,8 @@
-# MSM projections: three rounding cadences read as one trend
+# MSM projections: three navigation cadences read as one trend
 
-The network did not run one test of change. It ran three cadences side by side. Reporting a separate
-counterfactual mean for each is honest and unreadable. A marginal structural model gives one
-coefficient instead.
+The network did not run one test of change. It assigned three cadences side by side. Reporting a
+separate counterfactual mean for each is honest and unreadable. A marginal structural model gives
+one coefficient instead.
 
 This page fits one, and shows what the coefficient means when the working model does not fit.
 
@@ -11,24 +11,25 @@ projection, its clever covariate, and the longitudinal version.
 
 ## The applied question
 
-Wards in the network settled into three rounding cadences.
+Eligible patients received one of three standardized navigation cadences.
 
-| tier | what the ward does | rounds in a twelve-hour shift |
+| tier | assigned protocol | contacts in 30 days |
 | --- | --- | --- |
-| `low` | rounds when a patient calls | about 2 |
-| `medium` | rounds every two hours | about 6 |
-| `high` | scripted hourly rounding | about 12 |
+| `low` | one transition-planning contact | 1 |
+| `medium` | planning plus two follow-up contacts | 3 |
+| `high` | planning plus five follow-up contacts | 6 |
 
-Nobody randomized which ward did what. Wards chose, and their case mix went with the choice.
+Nobody randomized cadence. Recorded baseline support need influenced assignment and outcome.
 
 The program board does not want three numbers. It wants to know whether experience improves with
-rounding intensity, and by how much per extra round. That is a slope.
+navigation intensity, and by how much per assigned contact. That is a slope.
 
 A slope is a summary, and it must be defined before it is estimated. The question the board is
-really asking is this. Among all straight lines in rounds per shift, which one comes closest to the
+really asking is this. Among all straight lines in assigned contacts, which one comes closest to the
 true counterfactual response surface? That line is the estimand.
 
-This page analyses one hospital's patients, so patients are treated as independent.
+Each cadence uses the same script, contact window, and access rules. Only the number of assigned
+contacts changes. This restriction supports consistency. Reserved capacity supports no interference.
 
 ## Why this method
 
@@ -39,11 +40,11 @@ causal response surface, and the estimand is well defined whether or not the wor
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
 | many arms, or many regimens | one coefficient vector instead of one mean per level | the coefficients mean what the working model says they mean |
-| a cadence you want to summarise as a trend | a slope, with an influence curve and an interval | a model linear in the arm reads the arm as a dose, so non-numeric labels are refused |
+| a cadence you want to summarize as a trend | a slope, with an influence curve and an interval | a model linear in the arm reads the arm as a dose, so non-numeric labels are refused |
 | effect modification by a baseline variable | an interaction term in the working design | the design must be full rank on the realized cells |
 
 The alternative that fails here is the familiar one. Fitting a linear regression of the experience
-score on rounds per shift and the covariates gives a slope whose meaning depends on that regression
+score on assigned contacts and the covariates gives a slope whose meaning depends on that regression
 being correct. If it is wrong, the coefficient is not the projection of anything, and it changes
 when you add a term.
 
@@ -62,11 +63,11 @@ from cleverly.datasets import make_multi_arm
 frame, truth = make_multi_arm(n=3_000, seed=61)
 frame = frame.rename(
     columns={
-        "Y": "experience_score",
+        "Y": "transition_score",
         "A": "cadence",
-        "W1": "acuity",
+        "W1": "discharge_risk",
         "W2": "age",
-        "W3": "comorbidity",
+        "W3": "baseline_support_need",
     }
 )
 print(sorted(frame["cadence"].unique()))
@@ -76,7 +77,7 @@ for name, value in truth.items():
 
 The three counterfactual means are not on a straight line. They rise with cadence, and the step from
 `medium` to `high` is larger than the step from `low` to `medium`. That is what makes this a useful
-law for the page. A working model linear in rounds per shift is misspecified here, on purpose.
+law for the page. A working model linear in assigned contacts is misspecified here, on purpose.
 
 The arm labels stay as the generator writes them, because the published truths are keyed by those
 labels. The table at the top of this page is what maps a label to a cadence.
@@ -92,9 +93,9 @@ from cleverly import CausalStudy, CounterfactualMean, PointTreatment
 study = CausalStudy(
     frame,
     design=PointTreatment(
-        outcome="experience_score",
+        outcome="transition_score",
         treatment="cadence",
-        adjustment=("acuity", "age", "comorbidity"),
+        adjustment=("discharge_risk", "age", "baseline_support_need"),
     ),
 )
 arms = study.identify(CounterfactualMean())
@@ -133,19 +134,19 @@ import numpy as np
 from cleverly import MSMProjection
 from cleverly.msm import MSM
 
-ROUNDS_PER_SHIFT = {"low": 2.0, "medium": 6.0, "high": 12.0}
+CONTACTS_30D = {"low": 1.0, "medium": 3.0, "high": 6.0}
 trend = MSM(
     design=lambda arm, data: np.column_stack(
-        [np.ones(len(data)), np.full(len(data), ROUNDS_PER_SHIFT[arm])]
+        [np.ones(len(data)), np.full(len(data), CONTACTS_30D[arm])]
     ),
-    terms=("(intercept)", "rounds per shift"),
+    terms=("(intercept)", "assigned contacts"),
 )
 trend_result = study.identify(MSMProjection(trend)).estimate(method=method)
 print(trend_result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper"]])
 ```
 
-The slope is in experience-score points per additional round in a shift, which is a unit the board
-can act on. It exists only because someone said what the three tiers mean in rounds.
+The slope is in transition-score points per additional assigned contact. It exists only because the
+program declared what the three tiers mean in contacts.
 
 That mapping is the program's decision, not the estimator's. `low`, `medium`, and `high` are labels.
 `cleverly` refuses to guess a number for them.
@@ -166,13 +167,13 @@ coding the tiers `0, 1, 2` would also have been wrong here, because the real spa
 
 ## The failure mode: a projection is not a fitted curve
 
-The working model above is wrong. The true response surface is not linear in rounds per shift. Read
+The working model above is wrong. The true response surface is not linear in assigned contacts. Read
 what the coefficient still means.
 
 ```python
-rounds = np.array([ROUNDS_PER_SHIFT[arm] for arm in ("low", "medium", "high")])
+contacts = np.array([CONTACTS_30D[arm] for arm in ("low", "medium", "high")])
 population = np.array([truth[f"ey[{arm}]"] for arm in ("low", "medium", "high")])
-design = np.column_stack([np.ones(3), rounds])
+design = np.column_stack([np.ones(3), contacts])
 projection, *_ = np.linalg.lstsq(design, population, rcond=None)
 print("population arm means:", population)
 print("population projection (intercept, slope):", projection)
@@ -186,7 +187,7 @@ passes through all three points.
 
 That is the whole idea. The estimand is the projection, and the estimator recovers it. Read the
 slope as "the best linear summary of the cadence response under a uniform weight", not as "the
-causal effect of one more round per shift".
+causal effect of one more contact".
 
 Three consequences follow, and they are what a board should be told.
 
@@ -194,10 +195,10 @@ Three consequences follow, and they are what a board should be told.
 | --- | --- |
 | the coefficient depends on the working model | change the terms and you change the estimand, not just the estimate |
 | the coefficient depends on the weight | the projection minimises a weighted squared error, and the weight is part of the declaration |
-| misspecification is not a bug in the fit | the parameter is well defined either way, and the interval is valid for it |
+| misspecification is not a bug in the fit | the parameter is well defined either way. Interval validity still needs the causal and nuisance conditions |
 
-The applied warning follows from the first row. A board that reads the slope as "each extra round
-buys this much" will extrapolate it to fifteen rounds per shift, which no ward in the network runs.
+The applied warning follows from the first row. A board that reads the slope as "each extra contact
+buys this much" will extrapolate it to ten contacts, which no patient in the study was assigned.
 The projection says nothing about a cadence nobody used.
 
 ## The control: a saturated working model
@@ -266,6 +267,6 @@ of them under one heading.
 
 The same projection works over regimens and horizons in a longitudinal fit, where the design callable
 receives the horizon as well as the label. `MSM.linear` is refused there too, and for a stronger
-reason: a regimen is a sequence of decisions, and no arithmetic on its name summarises it. Read
-[longitudinal TMLE](longitudinal-tmle.md) first, because the projection summarises the parameters
+reason: a regimen is a sequence of decisions, and no arithmetic on its name summarizes it. Read
+[longitudinal TMLE](longitudinal-tmle.md) first, because the projection summarizes the parameters
 that page estimates one at a time.

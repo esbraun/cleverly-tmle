@@ -54,8 +54,8 @@ $$
 \psi_a(P) = E_P\{Q_P(a,W)\}, \qquad Q_P(a,w)=E_P(Y\mid A=a,W=w).
 $$
 
-Under consistency, conditional exchangeability, and treatment positivity, this observed-data
-functional identifies $E(Y^a)$. Its efficient influence function is
+Under consistency, no interference, conditional exchangeability, and treatment positivity, this
+observed-data functional identifies $E(Y^a)$. Its efficient influence function is
 
 $$
 D_a(P)(O)=\frac{\mathbb{1}(A=a)}{g_P(a\mid W)}\{Y-Q_P(A,W)\}

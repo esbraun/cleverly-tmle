@@ -1,8 +1,8 @@
-# CV-TMLE: an honest interval across the hospital network
+# CV-TMLE: an honest interval across navigator teams
 
-This is the same rounding question as the [first test of change](point-treatment-tmle.md), asked at
+This is the same navigation question as the [first test of change](point-treatment-tmle.md), asked at
 network scale. Two things change. The plan now has rich electronic-record features, so the analyst
-wants a flexible learner. And the patients come from many hospitals, so they are not independent.
+wants a flexible learner. Patients also share navigator teams, so their outcomes are not independent.
 
 Each change breaks the interval in its own way, and folds are the answer to both.
 
@@ -11,14 +11,14 @@ their fold arithmetic.
 
 ## The applied question
 
-The program is preparing a network-wide report on scripted hourly rounding. An analyst objects to
-the single-hospital analysis on two grounds.
+The program is preparing a network-wide report on transition navigation. An analyst objects to the
+independent-row analysis on two grounds.
 
 The first objection is about the models. The nuisance functions are not linear, and a GLM cannot fit
 them. Use a gradient-boosted model for both, the analyst says, and the estimate will be better.
 
-The second objection is about the rows. Patients on the same ward share a charge nurse, a staffing
-ratio, and a local culture. Treating three thousand patients from two hundred wards as three
+The second objection is about the rows. Patients assigned through the same navigator team share
+staff, workflow, and local practice. Treating three thousand patients from two hundred teams as three
 thousand independent observations claims more information than the network holds.
 
 The analyst is right about the point estimate and wrong about the interval, twice over.
@@ -29,7 +29,7 @@ The analyst is right about the point estimate and wrong about the interval, twic
 | --- | --- | --- |
 | a flexible learner for either nuisance | the empirical-process term is controlled without a Donsker condition on the nuisance estimators | one nuisance fit per fold, times the learner library |
 | you want the package default | cross-fitting is on by default, at ten outer folds and five learner folds | the two fold layers multiply |
-| patients nested in hospitals | hospitals stay intact in every split, and the variance is computed on hospital totals | fewer effective folds than the row count suggests |
+| patients nested in navigator teams | teams stay intact in every split, and the variance is computed on team totals | fewer effective folds than the row count suggests |
 
 The reason for the first row is not overfitting in the ordinary sense. A boosted model that predicts
 held-out patients well can still break the interval.
@@ -65,11 +65,11 @@ from cleverly.datasets import make_nonlinear_ate
 frame, truth = make_nonlinear_ate(n=3_000, seed=34)
 frame = frame.rename(
     columns={
-        "Y": "experience_score",
-        "A": "hourly_rounding",
-        "W1": "acuity",
-        "W2": "prior_admissions",
-        "W3": "length_of_stay",
+        "Y": "transition_score",
+        "A": "transition_navigation",
+        "W1": "discharge_risk",
+        "W2": "prior_utilization",
+        "W3": "medication_burden",
         "W4": "age",
     }
 )
@@ -81,15 +81,20 @@ print("population ATE:", truth["ate"])
 The design and the estimand do not change. Cross-fitting is an estimation choice, and it must not
 touch the question.
 
+Clustering is not an interference adjustment. The program still needs reserved per-patient capacity
+and access controls so one offer does not change another patient's protocol. If patients compete for
+slots, potential outcomes can depend on other assignments. A cluster-robust standard error cannot
+repair that causal-design failure.
+
 ```python
 from cleverly import ATE, CausalStudy, PointTreatment
 
 study = CausalStudy(
     frame,
     design=PointTreatment(
-        outcome="experience_score",
-        treatment="hourly_rounding",
-        adjustment=("acuity", "prior_admissions", "length_of_stay", "age"),
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=("discharge_risk", "prior_utilization", "medication_burden", "age"),
     ),
 )
 effect = study.identify(ATE(reference=0))
@@ -172,12 +177,12 @@ the influence curve rather than in the prediction.
 
 ## The second failure mode: patients are not independent
 
-Two hundred wards, fifteen patients each. Wards differ in ways the recorded covariates do not
-capture: the charge nurse, the shift pattern, the local culture around the checklist. A ward-level
-difference that changes how much rounding helps makes the influence values of patients on that ward
+Two hundred navigator teams, fifteen patients each. Teams differ in ways the recorded covariates do
+not capture: supervisor practice, workflow, and local follow-up quality. A shared difference that
+changes how much navigation helps makes the influence values of patients on that team
 move together.
 
-The `cluster=` role says so. A second law carries a genuine shared ward effect, and it enters
+The `cluster=` role says so. A second law carries a genuine shared team effect, and it enters
 interacted with the exposure, which is what correlates the influence curves rather than merely
 shifting them.
 
@@ -186,14 +191,14 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_clustered
 
-ward_frame, ward_truth = make_clustered(n=3_000, seed=34, cluster_size=15)
-ward_frame = ward_frame.rename(
+team_frame, team_truth = make_clustered(n=3_000, seed=34, cluster_size=15)
+team_frame = team_frame.rename(
     columns={
-        "Y": "experience_score",
-        "A": "hourly_rounding",
-        "W1": "acuity",
-        "W2": "length_of_stay",
-        "cluster": "ward",
+        "Y": "transition_score",
+        "A": "transition_navigation",
+        "W1": "discharge_risk",
+        "W2": "medication_burden",
+        "cluster": "navigator_team",
     }
 )
 simple = TMLEMethod(
@@ -206,32 +211,32 @@ simple = TMLEMethod(
 )
 
 
-def ward_fit(cluster, label):
+def team_fit(cluster, label):
     design = PointTreatment(
-        outcome="experience_score",
-        treatment="hourly_rounding",
-        adjustment=("acuity", "length_of_stay"),
+        outcome="transition_score",
+        treatment="transition_navigation",
+        adjustment=("discharge_risk", "medication_burden"),
         cluster=cluster,
     )
     fitted = (
-        CausalStudy(ward_frame, design=design).identify(ATE(reference=0)).estimate(method=simple)
+        CausalStudy(team_frame, design=design).identify(ATE(reference=0)).estimate(method=simple)
     )
-    show(label, fitted, ward_truth["ate"])
+    show(label, fitted, team_truth["ate"])
     return fitted
 
 
-ignoring = ward_fit(None, "patients as units")
-clustered = ward_fit("ward", "wards as units")
-print("wards:", clustered.data.n_clusters)
-print("population ATE:", ward_truth["ate"])
+ignoring = team_fit(None, "patients as units")
+clustered = team_fit("navigator_team", "teams as units")
+print("navigator teams:", clustered.data.n_clusters)
+print("population ATE:", team_truth["ate"])
 ```
 
 At the documented sample size the two point estimates are nearly identical and the standard errors
-are not. Declaring the ward widens the interval substantially.
+are not. Declaring the navigator team widens the interval substantially.
 
 Neither interval is wrong about the estimand. The unclustered one is wrong about how much
-information three thousand patients from two hundred wards carry. Cluster-robust inference sums the
-influence values inside a ward first, then takes the variance across wards. With singleton wards it
+information three thousand patients from two hundred teams carry. Cluster-robust inference sums the
+influence values inside a team first, then takes the variance across teams. With singleton teams it
 collapses back to the ordinary formula, so nothing is lost by declaring a structure that turns out
 not to matter.
 
@@ -239,9 +244,9 @@ Folds change too, and this is the part that is easy to get wrong.
 
 | what happens | why it matters |
 | --- | --- |
-| a ward lands entirely in one fold | otherwise a patient's nuisance prediction comes from a model trained on their own ward, which is leakage through the ward effect |
-| an externally supplied fold assignment that splits a ward is refused | buying more folds that way shrinks the standard error in exactly the direction the cluster role was declared to prevent |
-| with fewer wards than folds, the fold count is reduced and warns | the number of wards, not the number of patients, is what bounds the split |
+| a team lands entirely in one fold | otherwise a patient's nuisance prediction comes from a model trained on their own team, which is leakage through the team effect |
+| an externally supplied fold assignment that splits a team is refused | buying more folds that way shrinks the standard error in exactly the direction the cluster role was declared to prevent |
+| with fewer teams than folds, the fold count is reduced and warns | the number of teams, not the number of patients, is what bounds the split |
 
 ## A second construction over the same folds
 
@@ -308,7 +313,7 @@ Three things constrain what this page establishes.
 
 | layer | establishes | does not establish |
 | --- | --- | --- |
-| the two comparisons above | that in-sample nuisances and undeclared wards each gave a narrower interval on this draw | the coverage rate of any of these estimators |
+| the two comparisons above | that in-sample nuisances and undeclared teams each gave a narrower interval on this draw | the coverage rate of any of these estimators |
 | the out-of-fold nuisance report | how the learners performed on unseen patients | that the learners converge fast enough for the remainder condition |
 | the registered studies | stacked CV-TMLE matches R `tmle3` on identical realized folds, and both constructions recover known truths | that folds fix a product-rate failure. They do not |
 
@@ -327,5 +332,5 @@ a surrogate.
 
 Cross-fitting controls one of the four conditions. If you doubt one nuisance and still want an
 interval, the condition you are worried about is the product rate, and the variant for it is
-[DR-TMLE](dr-tmle.md). If your worry is instead which ward characteristics belong in the adoption
+[DR-TMLE](dr-tmle.md). If your worry is instead which baseline variables belong in the assignment
 model, read [collaborative TMLE](collaborative-tmle.md).

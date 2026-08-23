@@ -2,7 +2,7 @@ r"""Classic point-treatment TMLE.
 
 Estimates the effect of a binary treatment ``A`` on an outcome ``Y``, adjusting for
 baseline covariates ``W``, under the usual identification assumptions
-(consistency, no unmeasured confounding given ``W``, positivity).
+(consistency, no interference, no unmeasured confounding given ``W``, positivity).
 
 The procedure:
 

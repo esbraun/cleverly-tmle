@@ -29,6 +29,9 @@ A worked applied analysis is in the
 [collaborative TMLE tutorial](../examples/collaborative-tmle.md). It shows both the
 comparison that discriminates and the one that does not.
 
+The selector does not identify a causal adjustment set. Establish the eligible baseline set from
+the study design before the selector chooses an assignment nuisance model.
+
 ## The algorithm as implemented
 
 The implementation follows the published pooled construction step by step.
