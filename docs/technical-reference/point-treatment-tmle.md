@@ -24,6 +24,12 @@ Reach for a different entry when the exposure repeats over time
 ([collaborative TMLE](collaborative-tmle.md)), or when you expect one nuisance to be inconsistent
 and still want an interval ([DR-TMLE](dr-tmle.md)).
 
+Three worked applied analyses cover this entry. The
+[point-treatment tutorial](../examples/point-treatment-tmle.md) is the main one, and it also
+demonstrates the conditional-population effects below. The intervention axes have their own
+tutorial in [intervention axes](../examples/interventions.md). Missing outcomes have theirs in
+[survey non-response](../examples/survey-nonresponse.md).
+
 ## The algorithm as implemented
 
 The ordinary fit does five things in order. It fits the outcome regression $Q$ and the treatment
@@ -48,8 +54,8 @@ $$
 \psi_a(P) = E_P\{Q_P(a,W)\}, \qquad Q_P(a,w)=E_P(Y\mid A=a,W=w).
 $$
 
-Under consistency, conditional exchangeability, and treatment positivity, this observed-data
-functional identifies $E(Y^a)$. Its efficient influence function is
+Under consistency, no interference, conditional exchangeability, and treatment positivity, this
+observed-data functional identifies $E(Y^a)$. Its efficient influence function is
 
 $$
 D_a(P)(O)=\frac{\mathbb{1}(A=a)}{g_P(a\mid W)}\{Y-Q_P(A,W)\}

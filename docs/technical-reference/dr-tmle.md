@@ -36,6 +36,12 @@ inference can survive one inconsistent primary nuisance.
 `DRTMLE` ships under **conditional validity**. Read
 [the release claim](../drtmle.md#the-release-claim-in-one-paragraph) before you rely on it.
 
+A worked applied analysis is in the [DR-TMLE tutorial](../examples/dr-tmle.md). It shows why
+one fit cannot display what this variant buys.
+
+An inconsistent nuisance model is not unmeasured confounding. This variant still requires the
+recorded history to satisfy exchangeability.
+
 ## The algorithm as implemented
 
 Writing $1_a$ for $\mathbb{1}\{A=a\}$, the three reduced regressions are

@@ -24,6 +24,10 @@ Reach for [point-treatment TMLE](point-treatment-tmle.md) when the exposure is m
 Collaborative TMLE and DR-TMLE have no longitudinal derivation, and `available_methods()` says so
 before any model is fitted.
 
+A worked applied analysis is in the
+[longitudinal tutorial](../examples/longitudinal-tmle.md). It runs a point-treatment analysis
+of the same data as a control, and that analysis fails in both available directions.
+
 ## The algorithm as implemented
 
 ### End-of-study regimen means

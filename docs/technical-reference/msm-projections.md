@@ -22,6 +22,10 @@ The projection is a fourth parameter axis. `msm=` cannot be combined with `inter
 `shifts=`, because one fluctuation solves one set of score equations, and a fit reporting
 parameters from two axes would put two of them under one heading.
 
+A worked applied analysis is in the
+[MSM projections tutorial](../examples/msm-projections.md). It checks the saturated case
+against the per-arm report.
+
 ## The algorithm as implemented
 
 For design vector $\phi(a,V)$, nonnegative projection weight $h(a,V)$, and the identity link,

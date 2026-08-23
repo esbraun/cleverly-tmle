@@ -25,8 +25,13 @@ _POSITIVITY = (
     "positivity: 0 < P(A = 1 | W) < 1 almost surely, so both counterfactual "
     "means are supported by data at every covariate value",
 )
+_NO_INTERFERENCE = (
+    "no interference: one unit's potential outcome does not depend on other units' "
+    "treatment assignments",
+)
 _POINT_TREATMENT = (
     "consistency: Y = Y^a when A = a",
+    *_NO_INTERFERENCE,
     "no unmeasured confounding: Y^a is independent of A given W",
     *_POSITIVITY,
 )
@@ -64,6 +69,7 @@ _CONDITIONAL_ID = Identification(
 _REGIME_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
+        *_NO_INTERFERENCE,
         "no unmeasured confounding: Y^a is independent of A given W",
         "positivity *for the regime*: g(a | W) > 0 wherever the regime assigns arm a "
         "with positive probability -- a weaker requirement than positivity for every "
@@ -86,6 +92,7 @@ _REGIME_ID = Identification(
 _IPSI_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
+        *_NO_INTERFERENCE,
         "no unmeasured confounding: Y^a is independent of A given W",
         "*no positivity assumption*: the clever covariate is delta/D at A=1 and 1/D at "
         "A=0 with D = delta*g + 1 - g, so it lies between min(delta, 1/delta) and "
@@ -114,6 +121,7 @@ _IPSI_ID = Identification(
 _SHIFT_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
+        *_NO_INTERFERENCE,
         "no unmeasured confounding: Y^a is independent of A given W",
         "positivity *for the shifted dose*: g(d(a, w) | w) > 0 wherever g(a | w) > 0, so "
         "the dose the policy assigns is one the data have seen at that covariate value. "
