@@ -27,7 +27,7 @@ That the equation is the right one is established elsewhere, and separately:
   Gateaux derivative of the target parameter on a finite-support law -- the definition of
   the efficient influence function, computed without any of the library's machinery;
 * ``tests/unit/test_remainder.py`` checks that the resulting estimating equation has the
-  second-order product remainder that double robustness consists of;
+  second-order remainder that double robustness consists of;
 * ``tests/e2e/test_oracle.py`` cross-checks the point estimate against an independently
   written AIPW estimator, and ``tests/e2e/test_double_robustness.py`` runs the full
   misspecification grid end to end.
@@ -45,8 +45,9 @@ equation: the curve their solution leaves is
 :math:`D = D^* - D^*_Q - D^*_g`, one correction per equation the guard asked for and so
 one term shorter under a single guard, the **estimator's** asymptotic influence function at the
 nuisance limits, and it is generally not the canonical gradient at :math:`P_0`.  When both
-nuisances are consistent the corrections vanish row by row and the two coincide -- which is
-precisely the case the variant is not for.  So the verdict here branches on
+nuisances are consistent, the corrections converge to zero and the curve approaches the
+canonical gradient.  At the true nuisance functions, they vanish row by row.  So the verdict
+here branches on
 :attr:`ScoreCheck.corrected` and does not sign such a fit off as having solved "the
 estimated efficient score equation"; see
 :func:`~cleverly.inference.influence.reduced_corrections` and

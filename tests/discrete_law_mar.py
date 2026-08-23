@@ -1,8 +1,8 @@
 r"""The finite-support law of :mod:`tests.discrete_law`, with outcomes missing at random.
 
 :mod:`tests.discrete_law` carries the library's only non-circular proofs that the
-influence curve is *the* efficient influence function and that its remainder is a product
-of nuisance errors.  Neither proof reaches the ``delta=`` path, because that law has no
+influence curve is *the* efficient influence function and that its remainder carries both
+nuisance errors.  Neither proof reaches the ``delta=`` path, because that law has no
 :math:`\Delta` dimension: its support is ``(w, a, y)`` and its identification formula has
 no missingness anywhere.  This module supplies the missing-at-random counterpart, so the
 same two arguments can be made about the same estimator run with ``delta="Delta"``.

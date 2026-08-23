@@ -192,8 +192,9 @@ $$
   + \operatorname{Var}\{Q(d(A,W),W) - E[Q(d(A,W),W) \mid W]\},
 $$
 
-so a modified treatment policy is strictly *harder* to estimate than the regime inducing the same
-mean. Delegating one to the other reports a standard error that is too small.
+so a modified treatment policy has variance at least as large as the regime inducing the same mean.
+The added term is a conditional variance, and it is positive wherever the shift moves the dose.
+Delegating one to the other omits that term and reports a standard error that is too small.
 
 Theory: Diaz Munoz and van der Laan (2012), Haneuse and Rotnitzky (2013), and Diaz, Williams,
 Hoffman and Schenck (2023). Implementation:

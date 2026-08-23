@@ -32,7 +32,7 @@ the coverage gate uses. A row cannot claim an oracle the laws do not provide.
 | --- | --- | --- |
 | **oracle law** | the parameter written down longhand on an exactly representable discrete law, sharing no code with `src/` | nothing about a term that is zero at the truth |
 | **Gateaux** | the reported influence curve against a complex-step derivative of that functional, to ~1e-14 absolute with `rtol=0` | a sign on any block that vanishes at correct nuisances; a counterfactual block, at `epsilon = 0` |
-| **remainder** | the von Mises expansion's second-order term, measured as a rate under one wrong nuisance | a first-order error that cancels in the product |
+| **remainder** | the von Mises expansion's second-order term, measured as a rate under one wrong nuisance | a first-order error that cancels inside the remainder |
 | **exact identity** | an algebraic relation that holds by definition and so must hold bit-for-bit | anything symmetric in whatever the identity is symmetric in |
 | **theorem** | a check against the source's own theorem, *at values where the quantity does not vanish* | — this is the anchor the others need |
 | **bounded implementation witness** | a frozen comparison with an independently maintained implementation, scoped to a named finite-sample choice that the scientific oracles cannot exercise | the estimand's derivation; any behavior outside the deliberately matched nuisance, bound, and targeting settings |
@@ -176,7 +176,7 @@ nonzero instrument:
 The selector uses one shared categorical path. `ey` contributes all `K` arm curves; `ate`,
 `rr`, and `or` contribute all `K - 1` reference contrasts. Its pooled cross-validation array
 therefore has shape `(candidate, row, component)`, and the penalty sums every component's
-variance and squared mean. The finite-support armwise product identities in
+variance and squared mean. The finite-support armwise remainder identities in
 `test_remainder_multi.py` cover the underlying mean vector and its reference-contrast map;
 the ratio targets use the same independently tested delta-method curves as the final report.
 
@@ -184,7 +184,7 @@ The nonzero scientific instruments are now completed by
 `tests/unit/test_remainder_multi.py` and
 `tests/unit/test_influence_gateaux_multi_collaborative.py`.
 
-The former evaluates every arm's product remainder at nuisances that are wrong on purpose,
+The former evaluates every arm's remainder at nuisances that are wrong on purpose,
 and takes both DR-TMLE projections from the shipped `reduced_correction_parts` rather than
 rebuilding them, against an exactly saturated `ReducedSet` this finite law admits. Its
 longhand derivation is kept beside them as an independent oracle, and

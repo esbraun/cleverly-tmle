@@ -21,8 +21,9 @@ refitting a nuisance model.
 
 ### Positivity and overlap
 
-**Why.** Every TMLE divides by an estimated treatment probability. A small probability makes one
-row dominate the estimate, and no amount of targeting repairs it.
+**Why.** Every clever covariate for an intervention on treatment divides by an estimated density.
+The observed-mean estimand is the exception, and it intervenes on nothing. A small denominator makes
+one row dominate the estimate, and targeting does not restore missing support.
 
 **What it tells you.** How much of the estimate rests on how few rows, and how much of the
 mechanism the truncation bound replaced.
@@ -35,7 +36,7 @@ It reports five separate quantities, because they fail in different places.
 | --- | --- | --- |
 | effective sample size | Kish's $(\sum \omega)^2 / \sum \omega^2$ over the clever-covariate weights, folded with the observation weights | the interval is that of a much smaller study |
 | weight concentration | the share of the estimating equation carried by the top 1% of rows | a handful of rows decide the answer |
-| truncation load | the count of clipped propensities, and how far each one moved | the reported estimand is partly the bound rather than the data |
+| truncation load | the count of clipped propensities, and how far each one moved | the estimate is partly the bound rather than the data |
 | per-arm overlap | the mechanism's predicted probability distribution, arm by arm | one arm has a region the other never enters |
 | maximum clever covariate | the largest absolute covariate value | the leverage of the single worst row |
 
@@ -57,8 +58,8 @@ the earlier regressions were fitted to, and the whole pass has to run again.
 
 ### Nuisance model quality
 
-**Why.** A nuisance model that predicts well can still be miscalibrated, and calibration is what
-the clever covariate needs.
+**Why.** A nuisance model can predict well and remain miscalibrated. The clever covariate divides by
+the predicted probability itself, so a miscalibrated fit moves every weight.
 
 **What it tells you.** Whether each nuisance fit is calibrated out of fold, and which library
 candidates the Super Learner actually used.
@@ -235,16 +236,22 @@ These fit new models. They cost what a fit costs, multiplied by the number of dr
 checks that the workflow returns it.
 
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
-ships four, and only one of them tests an identification assumption.
+ships four. Three test the implementation. The fourth tests a design, and the paragraph below it
+says what that buys and what it does not.
 
 | refuter | what it does | what must happen | what it tests |
 | --- | --- | --- | --- |
 | `placebo` | permutes the treatment column and refits | the estimate goes to zero | the pipeline, not the data |
 | `random_common_cause` | adds an irrelevant covariate and refits | the estimate does not move | the adjustment set is not sensitive to noise |
 | `subset` | refits on random subsamples | the scatter is about one standard error | the reported standard error is the right size |
-| `negative_control_outcome` | refits on an outcome the treatment cannot affect | the estimate goes to zero | **no unmeasured confounding**, which the other three do not touch |
+| `negative_control_outcome` | refits on an outcome the treatment cannot affect | the estimate goes to zero | the design, under the control assumptions the paragraph below states |
 
 A refuter is non-deterministic and expensive. `run_all(include_refits=True)` is what runs it.
+
+A negative-control outcome must have no causal path from treatment. It must also share the relevant
+confounding structure with the primary outcome. A non-null result flags residual bias or a bad
+control, and the refuter cannot tell you which. A null result does not establish that unmeasured
+confounding is absent. See [negative controls](../references.md#negative-controls).
 
 ### Coverage studies
 
@@ -256,8 +263,8 @@ contains no information about any of them.
 
 | number | how it is computed | how to read it |
 | --- | --- | --- |
-| coverage | the share of replications whose interval contains the truth | below nominal means the interval is invalid |
-| root-n bias | $\sqrt{n}$ times the mean error | bounded means efficient. Growing means a residual bias term survives |
+| coverage | the share of replications whose interval contains the truth | sustained undercoverage beyond Monte Carlo uncertainty indicates invalid intervals on that law |
+| root-n bias | $\sqrt{n}$ times the mean error | bounded values support a negligible first-order bias claim. They do not establish efficiency |
 | SE ratio | mean reported standard error over the empirical standard deviation of the estimates | one means the reported uncertainty matches the real spread |
 
 **How.** `CoverageStudy` draws from a generator with a known truth, runs the complete estimator on
@@ -296,7 +303,7 @@ directions, and it is a test rather than a note.
 | --- | --- | --- | --- | --- |
 | **exact oracle law** | an estimator has to recover a parameter that was computed rather than estimated | the reported number is the parameter, exactly | a finite-support law whose every cell probability is a multiple of $1/N$, so an $N$-row frame **is** the law. Handed oracle nuisances, the fit is exactly right and $\epsilon$ is zero | nothing about a term that is zero at the truth |
 | **Gateaux comparison** | the influence curve is what every interval is built from | the reported curve is the pathwise derivative of the parameter | complex-step differentiation of an independently written functional, compared at about `1e-14` absolute with `rtol=0` | a sign on any block that vanishes at correct nuisances, and any counterfactual block, because $\epsilon$ is zero there |
-| **second-order remainder** | double robustness *is* the remainder being a product | one wrong nuisance still leaves the remainder second order | the von Mises expansion evaluated at nuisances that are wrong on purpose, against a longhand product form | a first-order error that cancels inside the product |
+| **second-order remainder** | double robustness *is* the remainder carrying both nuisance errors | one wrong nuisance still leaves the remainder second order | the von Mises expansion evaluated at nuisances that are wrong on purpose, against a longhand form of the exact remainder | a first-order error that cancels inside the remainder |
 | **exact identity** | some mistakes are algebraic and cheap to catch | a relation that holds by definition holds bit for bit | relabelling the arms, a null outcome model giving zero, weights scaling out, the one-step and iterative solvers agreeing | anything symmetric in whatever the identity is symmetric in |
 | **theorem check** | the anchor the others need | the implementation agrees with the source's own theorem | evaluation at values where the quantity does **not** vanish | nothing the theorem does not state |
 | **deliberate mutation** | a passing test proves nothing unless a wrong version fails it | each plausible way of building the thing wrong is shown to fail | the component is broken on purpose and the suite is required to go red | a mistake nobody thought to make |

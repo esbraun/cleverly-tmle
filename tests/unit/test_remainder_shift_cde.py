@@ -186,7 +186,7 @@ def _remainder(density: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> fl
     return psi - law.TRUTH[None][f"ey_shift[{POLICY}]"] + float(np.mean(curve))
 
 
-def _product_form(density: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> float:
+def _exact_remainder(density: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> float:
     """``R_2`` as theory says it must be, written out from the constants alone."""
     marginal = law.PROBS.sum(axis=(1, 2, 3))
     ratio_hat = _induced(density, law.CAP) / density
@@ -209,10 +209,10 @@ class TestThePremisesHold:
         assert np.all(np.abs(pi_hat - law.PI_EXACT) > 1e-3), "wrong at every dose, not merely most"
 
 
-class TestTheRemainderIsAProductOfTwoErrors:
+class TestTheRemainderCarriesBothErrors:
     def test_it_matches_the_closed_form(self) -> None:
         observed = _remainder(WRONG_G, WRONG_PI, WRONG_Q)
-        assert observed == pytest.approx(_product_form(WRONG_G, WRONG_PI, WRONG_Q), abs=1e-12)
+        assert observed == pytest.approx(_exact_remainder(WRONG_G, WRONG_PI, WRONG_Q), abs=1e-12)
         assert abs(observed) > 1e-3, "the guesses must leave a remainder worth measuring"
 
     def test_a_right_outcome_regression_kills_it_whatever_the_mechanisms_are(self) -> None:
@@ -232,7 +232,9 @@ class TestWhatTheThirdNuisanceCosts:
         # It does not, because the mechanism half here is the product with pi.
         remainder = _remainder(law.G_EXACT, WRONG_PI, WRONG_Q)
         assert abs(remainder) > 1e-3
-        assert remainder == pytest.approx(_product_form(law.G_EXACT, WRONG_PI, WRONG_Q), abs=1e-12)
+        assert remainder == pytest.approx(
+            _exact_remainder(law.G_EXACT, WRONG_PI, WRONG_Q), abs=1e-12
+        )
 
     def test_a_right_missingness_model_alone_buys_nothing_either(self) -> None:
         remainder = _remainder(WRONG_G, law.PI_EXACT, WRONG_Q)
@@ -263,4 +265,6 @@ class TestTruncationMovesTheRemainderAndNotTheTarget:
         truncated = np.clip(law.PI_EXACT, 0.6, 1.0)
         remainder = _remainder(law.G_EXACT, truncated, WRONG_Q)
         assert abs(remainder) > 1e-3
-        assert remainder == pytest.approx(_product_form(law.G_EXACT, truncated, WRONG_Q), abs=1e-12)
+        assert remainder == pytest.approx(
+            _exact_remainder(law.G_EXACT, truncated, WRONG_Q), abs=1e-12
+        )

@@ -90,8 +90,8 @@ PROPERTIES: dict[str, str] = {
         "than known"
     ),
     "interval_calibration": (
-        "where theory promises the efficient variance, the reported standard error is that "
-        "variance and the interval covers at its nominal rate"
+        "the reported standard error and the exact coverage both sit inside their declared "
+        "two-sided calibration bands"
     ),
     "power": "the test detects a real effect, so a passing null result cannot come from an inert test",
     "robustness_contract": (
@@ -154,8 +154,8 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the SE-ratio deficit must reach the declared shortfall",
     ),
     ("interval_calibration", "correctly_specified"): (
-        "both nuisances are correct, so theory promises the efficient variance",
-        "SE ratio, coverage and efficiency ratios all inside their calibration bands",
+        "both nuisances are correctly specified",
+        "SE ratio and coverage intervals both inside their calibration bands",
     ),
     ("interval_calibration", "shrunken_se_control"): (
         "the reported standard errors are multiplied by a declared factor below one",
@@ -179,8 +179,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("root_n_and_efficiency", "n_500"): (
         "bias, coverage and SE calibration at n = 500",
-        "positive: bias inside the margin, coverage clears the floor, SE ratio inside the band. "
-        "the coverage interval need only resolve clear of nominal on one side",
+        "",  # the smallest rung's rule depends on its role; :func:`cell` sets it or raises
     ),
     ("root_n_and_efficiency", "n_2000"): (
         "bias, coverage and SE calibration at n = 2,000",
@@ -277,7 +276,9 @@ def claim(family: str) -> str:
         raise Undescribed(f"no description for property family {family!r}") from None
 
 
-def cell(family: str, key: str) -> tuple[str, str]:
+def cell(
+    family: str, key: str, *, exact_efficiency: bool = False, role: str | None = None
+) -> tuple[str, str]:
     """What a property cell configures, and what its verdict requires.
 
     The arm prefix a longitudinal study puts on a cell name selects the plan rather than the
@@ -289,6 +290,23 @@ def cell(family: str, key: str) -> tuple[str, str]:
         tested, required = CELLS[family, base]
     except KeyError:
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
-    if arm is None:
-        return tested, required
-    return f"{ARMS[arm.group('arm')]}: {tested}", required
+    if family == "interval_calibration" and base == "correctly_specified" and exact_efficiency:
+        tested += " with an independently computed efficiency bound"
+        required += ", with both efficiency-ratio intervals inside their bands"
+    if family == "root_n_and_efficiency" and base == "n_500":
+        # The smallest rung is a positive cell in some studies and a retained small-sample
+        # control in others, and the two are held to opposite rules.  Publishing one rule
+        # beside the other role's verdict is the failure this branch exists to prevent, so an
+        # unrecognised role raises rather than printing something true of neither.
+        if role == "positive":
+            required = "bias inside the margin, coverage clears the floor, SE ratio inside the band"
+        elif role == "control":
+            required = "coverage interval lies below nominal or clears the declared floor"
+        else:
+            raise Undescribed(
+                f"cell {key!r} of {family!r} needs role='positive' or role='control'; "
+                f"{role!r} selects neither, and the two rules are not interchangeable"
+            )
+    if arm is not None:
+        tested = f"{ARMS[arm.group('arm')]}: {tested}"
+    return tested, required

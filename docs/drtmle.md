@@ -1,13 +1,15 @@
 # DR-TMLE: doubly-robust inference
 
-`DRTMLE` is a TMLE whose *interval* stays valid when only one of the two primary nuisances is
-consistently estimated. Every interval this package reports is valid when the second-order
-remainder is negligible, and for a plain TMLE that remainder is the product
-`‖ĝ − g_0‖ · ‖Q̄̂ − Q̄_0‖`. A product goes to zero when one factor does, which is why the *point
-estimate* is doubly robust; the interval needs `√n R_2 → 0`, and with one factor not shrinking
-`R_2` is first order in the other. So **`TMLE` is doubly robust for consistency and singly robust
-for inference**, and this estimator closes the second gap by solving two further score equations
-built from reduced-dimension regressions of each nuisance's residual on the other.
+`DRTMLE` is a TMLE whose *interval* stays valid when only one primary nuisance is consistently
+estimated. Each guarantee needs the rate conditions in
+[the remainder terms](#the-remainder-terms-and-the-rate-conditions). A plain TMLE's exact remainder
+is a signed integral. Under positivity its absolute value is bounded by a product of the two
+nuisance errors.
+
+That bound is why the *point estimate* is doubly robust for consistency. The interval needs the
+stronger condition `√n R_2 → 0`, and with one error not shrinking the remainder is first order in
+the other. So **`TMLE` is doubly robust for consistency and singly robust for inference**, and
+`DRTMLE` closes that second gap by solving two additional reduced-regression score equations.
 
 This document is the reference for what is supported, what the theorem covers, what the
 implementation chooses where the theorem is silent, and what a caller has to check. The runnable
@@ -36,8 +38,8 @@ estimate with an interval entitled to be believed under weaker conditions.
 And it is *not* the efficient estimator. Under misspecification the canonical gradient at `P_0` is
 still `D*`. What the three equations leave is `D = D* − D*_Q − D*_g`, the estimator's asymptotic
 influence function at the nuisance limits, and it is generally not efficient there. When both
-nuisances are consistent the corrections vanish row by row and this is the ordinary efficient
-estimator — which is exactly the case the variant is not for.
+nuisances are consistent, the corrections converge to zero and the curve approaches the ordinary
+efficient curve. At the true nuisance functions, the corrections vanish row by row.
 
 ---
 
@@ -200,8 +202,8 @@ and the limiting influence function
 D^{*,#}(Q, g) = D*(Q, g) − I(g = g_0)·D_A − I(Q̄ = Q̄_0)·D_Y
 ```
 
-The indicators are the doubly-robust content in one line: when **both** primary nuisances are
-correct, both corrections vanish and the ordinary efficient influence function is recovered.
+The indicators contain the doubly-robust claim. At the true primary nuisance functions, both
+corrections vanish and the ordinary efficient influence function is recovered.
 
 The two extra score equations, as the software article states them:
 

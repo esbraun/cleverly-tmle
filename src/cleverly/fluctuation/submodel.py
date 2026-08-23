@@ -8,11 +8,11 @@ estimated efficient score equation :math:`P_n D^* = 0`.
 
 That is what the double-robustness and efficiency arguments are *built on*, not a
 guarantee they hold: those follow from the second-order remainder of the von Mises
-expansion, which is a product of the two nuisance errors and so vanishes when either
-one does.  Solving the score equation is the step that makes the remainder the only
-thing left over -- see :mod:`cleverly.estimators.tmle` for the conditions each
-guarantee needs, and ``tests/unit/test_remainder.py`` for the product form checked
-exactly.
+expansion, which carries both nuisance errors and so vanishes when either one does.
+Solving the score equation is the step that makes the remainder the only thing left
+over -- see :mod:`cleverly.estimators.tmle` for the conditions each guarantee needs,
+and ``tests/unit/test_remainder.py`` for the exact remainder identity checked
+longhand.
 
 For a logistic fluctuation the submodel is
 

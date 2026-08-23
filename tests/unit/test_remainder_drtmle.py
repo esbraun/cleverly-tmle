@@ -309,12 +309,12 @@ def _expansion(
     return remainders
 
 
-def _product_form(
+def _exact_remainder(
     g_hat: np.ndarray, q_hat: np.ndarray, *, guard: tuple[str, ...] = BOTH, at: Law = UNWEIGHTED
 ) -> dict[str, float]:
     r"""``R_2^{dr}`` as theory says it must be, as an exact finite sum over the cells.
 
-    The TMLE product form minus, for each guard that is on, the projection that guard's
+    The TMLE remainder minus, for each guard that is on, the projection that guard's
     equation removes: equation (9) subtracts :math:`\int u\,E[v \mid \hat g]`, the other
     subtracts :math:`\int v\,g_0\,E[u \mid \hat{\bar Q}]/E[g_0 \mid \hat{\bar Q}]`.  Where
     the conditioning :math:`\sigma`-algebra is all of :math:`\sigma(W)` a projection is the
@@ -345,12 +345,12 @@ class TestTheClosedFormIsTheOneTheLibraryProduces:
     @pytest.mark.parametrize("name", ESTIMANDS)
     def test_matches_the_closed_form(self, guard: tuple[str, ...], name: str) -> None:
         actual = _expansion(WRONG_G, WRONG_Q, guard=guard)[name]
-        expected = _product_form(WRONG_G, WRONG_Q, guard=guard)[name]
+        expected = _exact_remainder(WRONG_G, WRONG_Q, guard=guard)[name]
         assert actual == pytest.approx(expected, abs=1e-12)
 
     @pytest.mark.parametrize("name", ESTIMANDS)
     def test_an_empty_guard_is_a_plain_tmle(self, name: str) -> None:
-        """``guard=()`` must reproduce the product form ``test_remainder`` already pins."""
+        """``guard=()`` must reproduce the remainder ``test_remainder`` already pins."""
         g_error = WRONG_G - law.G
         one = float(np.sum(law.P_W * g_error / WRONG_G * (WRONG_Q[:, 1] - law.Q[:, 1])))
         zero = float(-np.sum(law.P_W * g_error / (1.0 - WRONG_G) * (WRONG_Q[:, 0] - law.Q[:, 0])))
@@ -546,7 +546,7 @@ class TestTheReducedOutcomeRegressionConditionsOnTheArm:
         assert gr1[0] == pytest.approx(expected, abs=1e-15)
 
 
-class TestTheRemainderIsAProductOfAReducedErrorAndAPrimaryOne:
+class TestTheRemainderCarriesAReducedErrorAndAPrimaryOne:
     """What is left is second order in the *reduced* regressions' error, not in the nuisances'.
 
     This is the theorem's actual mechanism, and it is why the reduced regressions may be
@@ -790,9 +790,9 @@ class TestAWeightedFitTransportsToTheTiltedLaw:
     def test_the_closed_form_still_matches_at_the_tilted_law(
         self, label: str, guard: tuple[str, ...], name: str
     ) -> None:
-        """The library's ``D*`` and the longhand product form agree at ``P_w`` as at ``P_0``."""
+        """The library's ``D*`` and the longhand remainder agree at ``P_w`` as at ``P_0``."""
         at = _tilted(label)
-        expected = _product_form(WRONG_G, WRONG_Q, guard=guard, at=at)[name]
+        expected = _exact_remainder(WRONG_G, WRONG_Q, guard=guard, at=at)[name]
         assert _expansion(WRONG_G, WRONG_Q, guard=guard, at=at)[name] == pytest.approx(
             expected, abs=1e-12
         )

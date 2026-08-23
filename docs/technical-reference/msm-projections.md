@@ -31,10 +31,10 @@ against the per-arm report.
 For design vector $\phi(a,V)$, nonnegative projection weight $h(a,V)$, and the identity link,
 
 $$
-\beta(P)=\arg\min_b E_P\left[\sum_a h(a,V)\{\psi_P(a,W)-\phi(a,V)^\top b\}^2\right].
+\beta(P)=\arg\min_b E_P\left[\sum_a h(a,V)\{\bar Q_P(a,W)-\phi(a,V)^\top b\}^2\right].
 $$
 
-With $M=E\sum_a h\phi\phi^\top$ and $r=E\sum_a h\phi\,\psi_P(a,W)$, the coefficient is
+With $M=E\sum_a h\phi\phi^\top$ and $r=E\sum_a h\phi\,\bar Q_P(a,W)$, the coefficient is
 $\beta=M^{-1}r$. The working design and the weights are known functions, and $M$ must be full rank.
 
 With the identity link the clever covariate is $h(a,V)\,\phi(a,V)/g(a\mid W)$, one column per term,
@@ -65,7 +65,7 @@ the per-round trace.
 **The matrix the influence curve is premultiplied by is no longer the Gram matrix.** It is
 
 $$
-M = E\left[\sum_a h\left\{(dm/d\eta)^2 - (Q-m)\,d^2m/d\eta^2\right\}\phi\phi^\top\right],
+M = E\left[\sum_a h\left\{(dm/d\eta)^2 - (\bar Q_P-m)\,d^2m/d\eta^2\right\}\phi\phi^\top\right],
 $$
 
 and the second term vanishes only where the working model *fits*, which is exactly what a

@@ -11,12 +11,11 @@ truth.  A nominal 95% interval that covers 80% of the time is not conservative o
 approximate -- it is wrong, and every p-value derived from it is wrong too.  This is
 the single most informative check available, and it is the one most often skipped.
 
-**Bias, scaled by root-n.** Absolute bias shrinks with :math:`n` for almost any
-estimator, so it says little on its own.  What distinguishes an efficient estimator
-is that :math:`\sqrt{n}\,\mathrm{bias}` stays bounded as :math:`n` grows, and that is
-what :attr:`StudyResult.root_n_bias` reports.  A value that grows with sample size is
-the signature of a bias term that does not vanish fast enough -- exactly what the
-targeting step is supposed to remove.
+**Bias, scaled by root-n.** Absolute bias can shrink while remaining large relative to
+the standard-error scale.  :attr:`StudyResult.root_n_bias` therefore reports
+:math:`\sqrt{n}\,\mathrm{bias}`.  Bounded values support a negligible first-order bias
+claim; they do not establish efficiency.  Growth suggests that a residual bias term is
+not vanishing fast enough.
 
 **Standard-error accuracy.** The ratio of the mean estimated standard error to the
 actual standard deviation of the estimates across replications.  Near 1 means the

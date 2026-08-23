@@ -461,9 +461,9 @@ def reduced_corrections(
     asymptotic influence function at the nuisance limits, and the estimator is generally not
     efficient there.  So a doubly-robust interval is one entitled to be believed under weaker
     conditions -- not a narrower one, and not an efficient one.  When both nuisances are
-    consistent :math:`Q_r` and the outcome-correction numerator vanish row by row, the two
-    curves coincide, and the fit is the ordinary efficient estimator; that is the case the
-    variant is *not* for.
+    consistent, :math:`Q_r` and the outcome-correction numerator converge to zero and the
+    curve approaches the efficient curve.  At the true nuisance functions, both corrections
+    vanish row by row.
     Worth saying explicitly because the numbers invite the opposite reading -- in the guide's
     own worked example the corrected standard error is the smaller of the two.
 
@@ -839,9 +839,10 @@ def shift_means(
           = \operatorname{Var}(D^*_{\text{regime}})
           + \operatorname{Var}\bigl(\bar Q(d(A,W),W) - E[\bar Q(d(A,W),W) \mid W]\bigr).
 
-    An MTP is strictly *harder* to estimate than the known stochastic regime with the same
-    mean, by exactly that amount -- the price of an intervention that reads the natural
-    value of treatment.  So this must not delegate to :func:`regime_means`, and
+    An MTP has variance at least as large as the known stochastic regime with the same mean.
+    The added term is a conditional variance, and it is positive wherever the shift moves the
+    dose -- the price of an intervention that reads the natural value of treatment.  So this
+    must not delegate to :func:`regime_means`, and
     ``tests/unit/test_influence_gateaux_shift.py`` keeps a negative control that fails if
     someone later makes it.
 

@@ -249,7 +249,7 @@ now carries the same class of proof the average treatment effect and its missing
 variant do: a finite-support law a sample realises exactly (``tests/discrete_law_cde.py``,
 support :math:`(w, a, z, k)`), a complex-step Gateaux derivative of the identification
 formula compared against the reported influence curve at ``1e-12``
-(``tests/unit/test_influence_gateaux_cde.py``), and the product form of :math:`R_2` checked
+(``tests/unit/test_influence_gateaux_cde.py``), and :math:`R_2` checked
 against its closed form (``tests/unit/test_remainder_cde.py``).  Every estimand a
 binary-treatment fit reports is covered, at both levels of :math:`Z`.
 

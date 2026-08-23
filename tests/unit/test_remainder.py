@@ -9,8 +9,8 @@ some pair of nuisance guesses :math:`(\hat g, \bar Q)`,
     \Psi(\bar Q) - \Psi(P_0) + P_0 D^*(\hat g, \bar Q) = R_2(\hat g, \bar Q),
 
 the estimator is consistent whenever :math:`R_2` vanishes.  What makes TMLE doubly robust
-is that this remainder is a *product* of the two nuisance errors, so it is zero when either
-factor is -- neither nuisance has to be right on its own.  For the counterfactual means and
+is that this remainder carries *both* nuisance errors, so it vanishes when either one does
+-- neither nuisance has to be right on its own.  For the counterfactual means and
 their difference,
 
 .. math::
@@ -18,13 +18,15 @@ their difference,
     R_2 = \int \frac{\hat g - g_0}{\hat g}\,(\bar Q_1 - \bar Q_{0,1})\, dP_0
         + \int \frac{\hat g - g_0}{1 - \hat g}\,(\bar Q_0 - \bar Q_{0,0})\, dP_0 ,
 
-and that identity is the whole content of the claim.
+and that identity is the whole content of the claim.  The remainder is a signed integral
+rather than a literal product; under positivity its absolute value is bounded by a product
+of the two errors, and that bound is where the "product remainder" name comes from.
 
 On the finite-support law of :mod:`tests.discrete_law` all three terms of the expansion are
 exact finite sums, so this can be checked deterministically to machine precision rather
 than inferred from a simulation.  :math:`\Psi` and :math:`R_2`'s closed form are written
 out longhand here; :math:`D^*` is the library's -- which is the point, since the claim
-under test is that the library's influence curve has the product remainder.
+under test is that the library's influence curve has that remainder.
 
 Two things this deliberately does *not* rest on.  The remainder assertions do not run the
 targeting step, so they cannot be satisfied by a fluctuation that merely converged: the
@@ -115,8 +117,8 @@ def _plug_in(g_hat: np.ndarray, q_hat: np.ndarray) -> tuple[float, float]:
     return psi_one, psi_zero
 
 
-def _product_form(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
-    """The remainder as theory says it must be: a product of the two nuisance errors."""
+def _exact_remainder(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
+    """The remainder as theory says it must be: an exact signed sum carrying both errors."""
     g_error = g_hat - law.G
     one = float(np.sum(law.P_W * g_error / g_hat * (q_hat[:, 1] - law.Q[:, 1])))
     zero = float(-np.sum(law.P_W * g_error / (1.0 - g_hat) * (q_hat[:, 0] - law.Q[:, 0])))
@@ -126,12 +128,12 @@ def _product_form(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
 ESTIMANDS = ("ey1", "ey0", "ate")
 
 
-class TestTheRemainderIsAProductOfNuisanceErrors:
+class TestTheRemainderCarriesBothNuisanceErrors:
     @pytest.mark.parametrize("name", ESTIMANDS)
     def test_matches_the_closed_form(self, name: str) -> None:
         # Both nuisances wrong, so every factor is active and nothing is zero by accident.
         actual = _expansion(WRONG_G, WRONG_Q)[name]
-        assert actual == pytest.approx(_product_form(WRONG_G, WRONG_Q)[name], abs=1e-12)
+        assert actual == pytest.approx(_exact_remainder(WRONG_G, WRONG_Q)[name], abs=1e-12)
         assert abs(actual) > 1e-3, "the misspecification is too mild to test anything"
 
     @pytest.mark.parametrize("name", ESTIMANDS)
@@ -158,7 +160,7 @@ class TestTruncationRegularisesRatherThanRetargets:
     plug-in :math:`\int \bar Q(a, w)\, dP_n(w)` contains no propensity at all, and
     :math:`\Psi(P_0)` is a functional of the law, not of the estimator's settings.  Nor is
     it free: what it moves is :math:`R_2`, by exactly the closed form above evaluated at the
-    bounded value, so the cost is priced by the same product formula as any other
+    bounded value, so the cost is priced by the same remainder formula as any other
     misspecification.  Truncation buys variance and pays in second-order bias.
 
     The subtler point, and the one this class exists for, is *which* estimating equation
@@ -195,7 +197,7 @@ class TestTruncationRegularisesRatherThanRetargets:
     def test_what_moves_is_the_second_order_remainder(self, name: str) -> None:
         bounded = self._truncated()
         actual = _expansion(bounded, WRONG_Q)[name]
-        assert actual == pytest.approx(_product_form(bounded, WRONG_Q)[name], abs=1e-12)
+        assert actual == pytest.approx(_exact_remainder(bounded, WRONG_Q)[name], abs=1e-12)
         assert abs(actual) > 1e-3, "the bound is not binding hard enough to test anything"
 
     @pytest.mark.parametrize("name", ESTIMANDS)

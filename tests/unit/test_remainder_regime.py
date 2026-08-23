@@ -72,8 +72,8 @@ def _expansion(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
     }
 
 
-def _product_form(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
-    """The remainder as theory says it must be: a product of the two nuisance errors."""
+def _exact_remainder(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
+    """The remainder as theory says it must be: an exact signed sum carrying both errors."""
     mechanism = np.column_stack([1.0 - g_hat, g_hat])
     truth = np.column_stack([1.0 - law.G, law.G])
     factor = (mechanism - truth) / mechanism
@@ -83,11 +83,11 @@ def _product_form(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
     }
 
 
-class TestTheRemainderIsAProductOfNuisanceErrors:
+class TestTheRemainderCarriesBothNuisanceErrors:
     @pytest.mark.parametrize("name", NAMES)
     def test_matches_the_closed_form(self, name: str) -> None:
         actual = _expansion(WRONG_G, WRONG_Q)[name]
-        assert actual == pytest.approx(_product_form(WRONG_G, WRONG_Q)[name], abs=1e-12)
+        assert actual == pytest.approx(_exact_remainder(WRONG_G, WRONG_Q)[name], abs=1e-12)
         assert abs(actual) > 1e-3, "the misspecification is too mild to test anything"
 
     @pytest.mark.parametrize("name", NAMES)
@@ -120,7 +120,7 @@ class TestTheRegimeWeightsTheRemainderRatherThanChangingIt:
         """
         remainders = _expansion(WRONG_G, WRONG_Q)
         contributions = {
-            name: abs(value) for name, value in _product_form(WRONG_G, WRONG_Q).items()
+            name: abs(value) for name, value in _exact_remainder(WRONG_G, WRONG_Q).items()
         }
         assert contributions == pytest.approx({k: abs(v) for k, v in remainders.items()}, abs=1e-12)
         # The tilt spreads its mass over both arms, so its remainder sits between the two

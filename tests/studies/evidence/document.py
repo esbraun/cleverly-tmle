@@ -154,7 +154,12 @@ def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
     frame = data["properties"].sort_values(["property", "cell"])
     rows = []
     for row in frame.itertuples():
-        tested, required = descriptions.cell(str(row.property), str(row.cell))
+        tested, required = descriptions.cell(
+            str(row.property),
+            str(row.cell),
+            exact_efficiency=_has_exact_efficiency(row),
+            role=str(row.role),
+        )
         rows.append(
             (
                 f"`{row.property}`",
@@ -186,7 +191,33 @@ def _measured(row: Any) -> str:
             f"bias {render(float(row.bias))}, coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == "interval_calibration":
+        measured = (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+        if _has_exact_efficiency(row):
+            measured += (
+                ", empirical efficiency ratio "
+                f"{_interval(row.efficiency_empirical_ci_lower, row.efficiency_empirical_ci_upper)}, "
+                "reported efficiency ratio "
+                f"{_interval(row.efficiency_reported_ci_lower, row.efficiency_reported_ci_upper)}"
+            )
+        return measured
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+
+
+def _has_exact_efficiency(row: Any) -> bool:
+    """Whether this result compares against an independently computed efficiency bound.
+
+    Read per row, while the gate in ``tests/unit/test_method_evidence.py`` is per study.  A
+    study whose bound covered some calibration cells and not others would render mixed
+    language and still pass that gate; ``efficiency_bounds`` is keyed by plan and so covers
+    every cell of a plan or none of them, which is what keeps the two consistent.
+    """
+    return hasattr(row, "efficiency_empirical_ci_lower") and pd.notna(
+        row.efficiency_empirical_ci_lower
+    )
 
 
 #: Families whose per-cell verdict is the bias claim.  Mirrors the classification the gate in
