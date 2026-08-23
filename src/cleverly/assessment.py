@@ -339,6 +339,22 @@ class DiagnosticReport:
     backend
         Dataframe backend used by :meth:`to_frame` when ``data`` is omitted.
 
+    Examples
+    --------
+    >>> from cleverly import DiagnosticReport
+    >>> report = DiagnosticReport(items=())
+    >>> report.items
+    ()
+
+    In practice a fitted result builds one.  See
+    :meth:`cleverly.assessment.DiagnosticsFacade.run_all` for the example that fits.
+
+    See Also
+    --------
+    ValidationReport : The battery that reads stored artifacts only.
+    cleverly.assessment.DiagnosticsFacade : What produces this report.
+    cleverly.AssessmentCapability : The declaration behind one item.
+
     Notes
     -----
     An unavailable item remains in the report. This makes a skipped or refused
@@ -420,6 +436,40 @@ class ValidationReport:
         Validation checks and their statuses.
     backend
         Dataframe backend used by :meth:`to_frame` when ``data`` is omitted.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import (
+    ...     ATE, CausalStudy, CrossFitting, ModelSpec, PointTreatment, Runtime, TMLEMethod
+    ... )
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=200, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     method=TMLEMethod(
+    ...         models=ModelSpec(
+    ...             outcome_learner=LinearRegression(),
+    ...             treatment_learner=LogisticRegression(max_iter=1000),
+    ...         ),
+    ...         cross_fitting=CrossFitting(n_folds=5),
+    ...         runtime=Runtime(random_state=0),
+    ...     )
+    ... )
+    >>> report = result.validate()
+    >>> report.passed
+    True
+
+    See Also
+    --------
+    DiagnosticReport : The combined run, which may retarget or refit.
+    cleverly.estimators.TMLEResult : Carries the artifacts this battery reads.
+    cleverly.validation.score_check : One of the checks the battery runs.
 
     Notes
     -----
@@ -1070,6 +1120,46 @@ class DiagnosticsFacade(_CapabilityFacade):
     result
         Fitted point-treatment or longitudinal result.
 
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import (
+    ...     ATE, CausalStudy, CrossFitting, ModelSpec, PointTreatment, Runtime, TMLEMethod
+    ... )
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=200, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     method=TMLEMethod(
+    ...         models=ModelSpec(
+    ...             outcome_learner=LinearRegression(),
+    ...             treatment_learner=LogisticRegression(max_iter=1000),
+    ...         ),
+    ...         cross_fitting=CrossFitting(n_folds=5),
+    ...         runtime=Runtime(random_state=0),
+    ...     )
+    ... )
+    >>> [capability.operation for capability in result.diagnostics.capabilities][:3]
+    ['support', 'nuisance_models', 'score_equations']
+
+    Read the declaration before calling, because it says what the operation costs and
+    whether this result supports it at all:
+
+    >>> support = result.diagnostics.capability("support")
+    >>> support.available, support.execution
+    (True, 'summarize')
+
+    See Also
+    --------
+    SensitivityFacade : The analyses that ask what would overturn the estimate.
+    cleverly.AssessmentCapability : One row of :attr:`capabilities`.
+    cleverly.DiagnosticReport : What :meth:`run_all` returns.
+
     Notes
     -----
     Access this facade through ``result.diagnostics``. Inspect
@@ -1522,6 +1612,46 @@ class SensitivityFacade(_CapabilityFacade):
     ----------
     result
         Fitted point-treatment or longitudinal result.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import (
+    ...     ATE, CausalStudy, CrossFitting, ModelSpec, PointTreatment, Runtime, TMLEMethod
+    ... )
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=200, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     method=TMLEMethod(
+    ...         models=ModelSpec(
+    ...             outcome_learner=LinearRegression(),
+    ...             treatment_learner=LogisticRegression(max_iter=1000),
+    ...         ),
+    ...         cross_fitting=CrossFitting(n_folds=5),
+    ...         runtime=Runtime(random_state=0),
+    ...     )
+    ... )
+    >>> [capability.operation for capability in result.sensitivity.capabilities][:3]
+    ['omitted_confounding', 'robustness_value', 'elements']
+
+    A fit without missing outcomes has no missingness mechanism to tilt, and the
+    declaration says so before the analysis is attempted:
+
+    >>> missingness = result.sensitivity.capability("missingness")
+    >>> missingness.available
+    False
+
+    See Also
+    --------
+    DiagnosticsFacade : The checks that ask whether the fit itself is sound.
+    cleverly.AssessmentCapability : One row of :attr:`capabilities`.
+    cleverly.sensitivity.evalue.evalue : The same analysis as a free function.
 
     Notes
     -----

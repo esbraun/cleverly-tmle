@@ -330,6 +330,21 @@ def make_longitudinal(
     the law :func:`longitudinal_truth` integrates over.  See
     :func:`_shared_within_clusters`, which also says why the hidden-variable construction
     this replaced did not.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import make_longitudinal
+    >>> frame, truth = make_longitudinal(n=200, seed=0)
+    >>> list(frame.columns)
+    ['W1', 'W2', 'A1', 'C1', 'L2', 'A2', 'C2', 'Y']
+    >>> round(truth["ate_regimen[always vs never]"], 3)
+    0.362
+
+    See Also
+    --------
+    cleverly.LongitudinalTreatment : The design declaration for the nodes above.
+    cleverly.longitudinal.LongitudinalResult : What a fit on this frame returns.
+    cleverly.datasets.make_longitudinal_survival : The same shape with an event outcome.
     """
     rng = np.random.default_rng(seed)
     w1 = rng.standard_normal(n)

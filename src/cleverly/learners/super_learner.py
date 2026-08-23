@@ -119,6 +119,34 @@ class SuperLearner(BaseEstimator):
     cv_predictions_ : ndarray
         ``(n, n_candidates)`` matrix of out-of-fold predictions.  The validation
         module reuses it to assess calibration without refitting.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sklearn.linear_model import LinearRegression, Ridge
+    >>> from cleverly import SuperLearner
+    >>> rng = np.random.default_rng(0)
+    >>> X = rng.normal(size=(200, 3))
+    >>> y = X[:, 0] + rng.normal(size=200)
+    >>> ensemble = SuperLearner(
+    ...     library=[LinearRegression(), Ridge(alpha=1.0)], n_folds=3, random_state=0
+    ... )
+    >>> ensemble.fit(X, y).learner_names_
+    ('LinearRegression', 'Ridge')
+
+    The weights are convex and cross-validated, so a candidate that does not earn its
+    place gets none of the ensemble:
+
+    >>> float(round(ensemble.coef_.sum(), 6))
+    1.0
+    >>> ensemble.predict(X).shape
+    (200,)
+
+    See Also
+    --------
+    cleverly.ModelSpec : Where an ensemble is passed as a nuisance learner.
+    cleverly.learners.default_library : The candidates used when none are given.
+    cleverly.learners.SuperLearnerDiagnostics : Per-candidate risk and weight.
     """
 
     def __init__(

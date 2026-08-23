@@ -492,6 +492,28 @@ def make_linear_ate(
     truth
         Exact causal parameters for the data-generating process.
 
+    Examples
+    --------
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, truth = make_linear_ate(n=40, seed=1)
+    >>> list(frame.columns)
+    ['Y', 'A', 'W1', 'W2', 'W3', 'W4']
+    >>> truth["ate"]
+    1.5
+
+    ``truth`` also holds each replication's realised sample estimand under a
+    ``sample_`` prefix, which is what a coverage study compares against when it asks
+    about the sample rather than the population parameter:
+
+    >>> sorted(key for key in truth if key.startswith("sample_"))
+    ['sample_atc', 'sample_ate', 'sample_att', 'sample_ey0', 'sample_ey1']
+
+    See Also
+    --------
+    cleverly.datasets.make_nonlinear_ate : The same estimand, with nuisances a GLM misses.
+    cleverly.datasets.make_weak_overlap : The same estimand, under a positivity strain.
+    cleverly.PointTreatment : The design declaration for the columns above.
+
     Notes
     -----
     A correctly specified generalized linear model can represent both nuisance

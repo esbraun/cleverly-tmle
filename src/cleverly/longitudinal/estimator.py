@@ -391,6 +391,43 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Structured identities for reported aliases.
     assessment_cache : dict
         Saved diagnostic and sensitivity outputs.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly.datasets import make_longitudinal
+    >>> from cleverly.longitudinal import LTMLE
+    >>> frame, truth = make_longitudinal(n=300, seed=0)
+    >>> result = LTMLE(
+    ...     {"always": 1, "never": 0},
+    ...     n_folds=3,
+    ...     random_state=0,
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     censoring_learner=LogisticRegression(max_iter=1000),
+    ... ).fit(
+    ...     frame,
+    ...     outcome="Y",
+    ...     treatment=["A1", "A2"],
+    ...     baseline=["W1", "W2"],
+    ...     time_varying=[[], ["L2"]],
+    ...     censoring=["C1", "C2"],
+    ... )
+
+    The regimen means and their contrast are keyed by the labels the regimens were
+    declared under:
+
+    >>> sorted(result.estimates)
+    ['ate_regimen[never vs always]', 'ey_regimen[always]', 'ey_regimen[never]']
+    >>> low, high = result["ey_regimen[always]"].ci
+    >>> low < truth["ey_regimen[always]"] < high
+    True
+
+    See Also
+    --------
+    cleverly.estimators.TMLEResult : The same contract for a point-treatment fit.
+    cleverly.RegimeContrast : The estimand a study declares to get this contrast.
+    cleverly.LongitudinalTreatment : The design that names these nodes.
     """
 
     estimates: dict[str, ParameterEstimate]

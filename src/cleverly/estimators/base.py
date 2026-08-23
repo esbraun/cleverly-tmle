@@ -435,6 +435,53 @@ class TMLEResult:
         Structured identities for reported aliases.
     assessment_cache : dict
         Saved diagnostic and sensitivity outputs.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly import (
+    ...     ATE, CausalStudy, CrossFitting, ModelSpec, PointTreatment, Runtime, TMLEMethod
+    ... )
+    >>> from cleverly.datasets import make_linear_ate
+    >>> frame, _ = make_linear_ate(n=200, seed=0)
+    >>> study = CausalStudy(
+    ...     frame,
+    ...     design=PointTreatment(
+    ...         outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")
+    ...     ),
+    ... )
+    >>> result = study.identify(ATE()).estimate(
+    ...     method=TMLEMethod(
+    ...         models=ModelSpec(
+    ...             outcome_learner=LinearRegression(),
+    ...             treatment_learner=LogisticRegression(max_iter=1000),
+    ...         ),
+    ...         cross_fitting=CrossFitting(n_folds=5),
+    ...         runtime=Runtime(random_state=0),
+    ...     )
+    ... )
+
+    The result is a mapping from estimand alias to
+    :class:`~cleverly.inference.ParameterEstimate`:
+
+    >>> sorted(result.estimates)
+    ['ate']
+    >>> low, high = result["ate"].ci
+    >>> low < 1.5 < high
+    True
+
+    The process this frame comes from has an ATE of 1.5, so the interval covers it.  The
+    nuisance fits travel with the result, so every assessment runs without refitting:
+
+    >>> result.validate().passed
+    True
+
+    See Also
+    --------
+    cleverly.ParameterEstimate : One entry of :attr:`estimates`.
+    cleverly.assessment.DiagnosticsFacade : Reached as ``result.diagnostics``.
+    cleverly.assessment.SensitivityFacade : Reached as ``result.sensitivity``.
+    cleverly.longitudinal.LongitudinalResult : The same contract for a sequential fit.
     """
 
     estimates: dict[str, ParameterEstimate]

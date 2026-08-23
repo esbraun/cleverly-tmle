@@ -109,6 +109,49 @@ class ParameterEstimate:
         Present for ratios only: the estimate on the log scale.
     bootstrap:
         Bootstrap summary, when ``n_bootstrap > 0`` was requested.
+
+    Examples
+    --------
+    A fit produces these.  Building one directly shows what the interval is made of:
+
+    >>> import numpy as np
+    >>> from cleverly.inference import ParameterEstimate
+    >>> rng = np.random.default_rng(0)
+    >>> influence_curve = rng.normal(size=400)
+    >>> estimate = ParameterEstimate(
+    ...     name="ate",
+    ...     psi=1.5,
+    ...     influence_curve=influence_curve,
+    ...     variance=float(influence_curve.var(ddof=1) / 400),
+    ...     n=400,
+    ...     n_clusters=400,
+    ... )
+    >>> round(estimate.std_error, 3)
+    0.05
+    >>> tuple(round(bound, 2) for bound in estimate.ci)
+    (1.4, 1.6)
+
+    A ratio carries its log-scale estimate, and the interval is built there and
+    exponentiated, so it cannot come back negative:
+
+    >>> ratio = ParameterEstimate(
+    ...     name="rr",
+    ...     psi=2.0,
+    ...     influence_curve=influence_curve,
+    ...     variance=float(influence_curve.var(ddof=1) / 400),
+    ...     n=400,
+    ...     n_clusters=400,
+    ...     scale="ratio",
+    ...     log_psi=float(np.log(2.0)),
+    ... )
+    >>> tuple(round(bound, 2) for bound in ratio.ci)
+    (1.81, 2.21)
+
+    See Also
+    --------
+    cleverly.estimators.TMLEResult : The mapping these are read out of.
+    cleverly.inference.influence_variance : The variance an estimate is given.
+    cleverly.inference.simultaneous_bands : Joint bands over several of these.
     """
 
     name: str

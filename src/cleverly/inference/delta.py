@@ -115,8 +115,21 @@ def delta_method(
     gradient is obtained by central differences, which is accurate enough here
     because the functions of interest are smooth and low-dimensional.
 
-    >>> # A ratio of two estimands, with correct correlation handling:
+    Examples
+    --------
+    A ratio of two estimands, with the correlation between their influence curves
+    carried through:
+
+    >>> import numpy as np
+    >>> from cleverly.inference import delta_method
+    >>> rng = np.random.default_rng(0)
+    >>> ic_a = rng.normal(size=4)
+    >>> ic_b = rng.normal(size=4)
     >>> value, ic = delta_method(lambda p: p[0] / p[1], [2.0, 4.0], [ic_a, ic_b])
+    >>> round(value, 6)
+    0.5
+    >>> ic.shape
+    (4,)
     """
     psi = np.asarray(estimates, dtype=float)
     curves = np.column_stack([np.asarray(ic, dtype=float).reshape(-1) for ic in influence_curves])

@@ -206,8 +206,8 @@ References
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019),
   *Scalable collaborative targeted learning for high-dimensional data*.
 
-Example
--------
+Examples
+--------
 >>> from cleverly.estimators import CTMLE
 >>> from cleverly.datasets import make_instrument
 >>> from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -215,17 +215,21 @@ Example
 >>> res = CTMLE(
 ...     outcome_learner=LinearRegression(),
 ...     treatment_learner=LogisticRegression(max_iter=1000),
+...     estimands=["ate"],
 ... ).fit(
 ...     frame, outcome="Y", treatment="A"
 ... ).single()
->>> res.extra["ctmle"].selected_covariates            # doctest: +SKIP
-()
+>>> selected = res.extra["ctmle"].selected_covariates
+>>> "W2" in selected
+False
 
-On this process that empty result is the right answer rather than a failure to select:
-``Qbar`` is correctly specified, so ``g`` has nothing left to adjust for.  Inspect
-``res.extra["ctmle"].cv_risk`` alongside ``.path`` to see what each candidate was worth,
-and read the section above before concluding anything from a comparison against a plain
-fit.
+``W2`` is the instrument this process is built around, and leaving it out of ``g`` is the
+selection the method exists to make.  What the search *does* take says little here:
+``LinearRegression`` is correctly specified for ``Qbar`` on this process, so no
+confounding is left in the residual for ``g`` to adjust for and the remaining candidates
+are close to worthless.  Inspect ``res.extra["ctmle"].cv_risk`` alongside ``.path`` to see
+what each one was worth, and read the section above before concluding anything from a
+comparison against a plain fit.
 """
 
 from __future__ import annotations

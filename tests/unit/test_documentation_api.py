@@ -5,12 +5,15 @@ from __future__ import annotations
 import doctest
 import importlib
 import inspect
+import pkgutil
 import re
 import tomllib
 from collections import Counter
-from functools import cached_property
+from functools import cache, cached_property
 from types import ModuleType
 from typing import Any
+
+import pytest
 
 import cleverly
 import cleverly.datasets
@@ -23,14 +26,73 @@ SPHINX_CONFIG = ROOT / "docs" / "conf.py"
 PAGES_WORKFLOW = ROOT / ".github" / "workflows" / "pages.yml"
 PUBLIC_DOCS_URL = "https://esbraun.github.io/cleverly-tmle/"
 OBJECT_PATTERN = re.compile(r"^\s*(cleverly\.[A-Za-z0-9_.]+)\s*$", re.MULTILINE)
-TASK_EXAMPLES = (
+SECTION = "^{name}\n-{{4,}}$"
+
+#: The objects a reader calls to get from a question to a checked answer.  Examples and See
+#: Also are required *here* and nowhere else, enforced by the two tests at the end of this
+#: module rather than by ``numpydoc_validation_checks``, which can only require a check of
+#: every object or of none.  A pro-forma example on all 140 curated objects would be noise,
+#: and noise is what a reader learns to skip.
+SPINE = (
+    # Entry points and design.
     "cleverly.CausalStudy",
     "cleverly.PointTreatment",
+    "cleverly.LongitudinalTreatment",
+    "cleverly.IdentifiedEffect",
+    # Estimands.
     "cleverly.ATE",
-    "cleverly.ModelSpec",
+    "cleverly.ATT",
+    "cleverly.ATC",
+    "cleverly.CounterfactualMean",
+    "cleverly.RiskRatio",
+    "cleverly.RegimeContrast",
+    "cleverly.ModifiedTreatmentPolicy",
+    "cleverly.IncrementalEffect",
+    "cleverly.ControlledDirectEffect",
+    # Methods and configuration.
+    "cleverly.EstimationMethod",
     "cleverly.TMLEMethod",
+    "cleverly.CollaborativeTMLEMethod",
+    "cleverly.DRTMLEMethod",
+    "cleverly.ModelSpec",
+    "cleverly.CrossFitting",
+    "cleverly.Targeting",
+    "cleverly.Inference",
+    "cleverly.Runtime",
+    # Results and assessment.
+    "cleverly.estimators.TMLEResult",
+    "cleverly.longitudinal.LongitudinalResult",
+    "cleverly.ParameterEstimate",
+    "cleverly.DiagnosticReport",
+    "cleverly.ValidationReport",
+    "cleverly.assessment.DiagnosticsFacade",
+    "cleverly.assessment.SensitivityFacade",
+    # Learners and data.
+    "cleverly.SuperLearner",
     "cleverly.datasets.make_linear_ate",
+    "cleverly.datasets.make_longitudinal",
 )
+
+#: Doctests that fit with the *default* learner library, which is a cross-fitted
+#: :class:`~cleverly.learners.SuperLearner` over three candidates.  Each costs 30 to 120
+#: seconds and the cost is the library rather than the sample size: shrinking ``n`` from
+#: 1000 to 200 saves half a minute of a minute and a half, because the price is the number
+#: of candidate fits.  They stay in the sweep and run under ``-m slow``.  Showing the
+#: defaults is the whole point of these three, so making them cheap would mean documenting
+#: a configuration no reader is told to use.
+EXPENSIVE_DOCTESTS = frozenset(
+    {
+        "cleverly",
+        "cleverly.estimators.tmle",
+        "cleverly.longitudinal",
+    }
+)
+
+#: A floor on what discovery is expected to find.  Well under the count at the time of
+#: writing, because this is the one way a check over a discovered set fails open: a finder
+#: that stopped matching would report success over an empty set, which reads exactly like
+#: every example being fine.
+_EXPECTED_DOCTESTS = 12
 
 
 def _object_names() -> tuple[str, ...]:
@@ -60,6 +122,45 @@ def _resolve(name: str) -> Any:
             value = getattr(value, part)
         return value
     raise AssertionError(f"cannot import public API object {name}")
+
+
+@cache
+def _package_doctests() -> dict[str, doctest.DocTest]:
+    """Return every docstring in ``cleverly`` that has at least one ``>>>``, keyed by object.
+
+    Private modules are walked too.  A broken example is a broken example wherever it
+    lives, and a module a reader is not routed to is one nobody has been reading.
+    """
+    finder = doctest.DocTestFinder()
+    found: dict[str, doctest.DocTest] = {}
+    modules = [cleverly, *_walk_submodules(cleverly)]
+    for module in modules:
+        for test in finder.find(module, module.__name__):
+            if test.examples:
+                found[test.name] = test
+    return found
+
+
+def _walk_submodules(package: ModuleType) -> list[ModuleType]:
+    """Import every submodule so that discovery does not depend on what package import loads."""
+    modules: list[ModuleType] = []
+    for info in pkgutil.walk_packages(package.__path__, prefix=f"{package.__name__}."):
+        modules.append(importlib.import_module(info.name))
+    return modules
+
+
+def _see_also_entries(docstring: str) -> list[tuple[str, str]]:
+    """Return ``(reference, description)`` for each See Also entry, description possibly empty."""
+    match = re.search(r"^See Also\n-{4,}\n(.*?)(?=\n\S|\Z)", docstring, re.MULTILINE | re.DOTALL)
+    if match is None:
+        return []
+    entries: list[tuple[str, str]] = []
+    for line in match.group(1).splitlines():
+        if not line.strip() or line.startswith((" ", "\t")):
+            continue
+        reference, _, description = line.partition(":")
+        entries.append((reference.strip(), description.strip()))
+    return entries
 
 
 def _documented_callable(member: Any) -> Any | None:
@@ -217,20 +318,64 @@ def test_public_classes_document_each_direct_public_member() -> None:
     assert not missing, f"public class members without direct docstrings: {missing}"
 
 
-def test_task_level_api_examples_are_present_and_runnable() -> None:
-    """Core workflow examples execute without fitting a slow statistical study."""
+def test_discovery_reaches_the_shipped_examples() -> None:
+    """The sweep below is only as good as the set it runs over."""
+    found = _package_doctests()
+    assert found, "no doctests found under src/cleverly; check the walk in _package_doctests"
+    assert len(found) >= _EXPECTED_DOCTESTS, (
+        f"discovery found only {len(found)} doctests; check the walk in _package_doctests"
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param(
+            name,
+            marks=pytest.mark.slow if name in EXPENSIVE_DOCTESTS else (),
+            id=name,
+        )
+        for name in sorted(_package_doctests())
+    ],
+)
+def test_every_shipped_example_runs(name: str) -> None:
+    """Every ``>>>`` in the package executes and prints what it says it prints.
+
+    Discovered rather than listed.  An example is documentation a reader is invited to
+    paste, so one that has drifted from the API is worse than no example: it fails in the
+    reader's session and not in ours.  ``pytest --doctest-modules src/cleverly`` is the
+    same sweep from outside, and the two are kept in step by running with the module
+    globals the way that flag does.
+    """
+    test = _package_doctests()[name]
     runner = doctest.DocTestRunner(optionflags=doctest.ELLIPSIS)
-    missing_sections: list[str] = []
+    runner.run(test, out=lambda text: None)
+    result = runner.summarize(verbose=False)
+    assert result.failed == 0, f"{name}: {result.failed} of {result.attempted} examples failed"
 
-    for name in TASK_EXAMPLES:
-        value = _resolve(name)
-        docstring = inspect.getdoc(value) or ""
-        if not re.search(r"^Examples\n-{8,}$", docstring, re.MULTILINE):
-            missing_sections.append(name)
-            continue
-        test = doctest.DocTestParser().get_doctest(docstring, {}, name, name, 0)
-        runner.run(test)
 
-    assert not missing_sections, f"core API objects without Examples sections: {missing_sections}"
-    failures, _ = runner.summarize(verbose=False)
-    assert failures == 0
+@pytest.mark.parametrize("name", SPINE)
+def test_every_spine_object_shows_the_reader_how_to_use_it(name: str) -> None:
+    """A task-spine object carries a runnable example and a route to its neighbours.
+
+    ``Examples`` answers "how do I call this", and ``See Also`` answers "what do I reach
+    for instead".  Both entries of a See Also pair need a description, because a bare
+    name tells a reader where to click and not why they would.
+    """
+    docstring = inspect.getdoc(_resolve(name)) or ""
+    assert re.search(SECTION.format(name="Examples"), docstring, re.MULTILINE), (
+        f"{name} is on the task spine and has no Examples section"
+    )
+    assert re.search(SECTION.format(name="See Also"), docstring, re.MULTILINE), (
+        f"{name} is on the task spine and has no See Also section"
+    )
+    undescribed = [entry for entry in _see_also_entries(docstring) if not entry[1]]
+    assert not undescribed, (
+        f"{name}: See Also entries without a description: {[entry[0] for entry in undescribed]}"
+    )
+
+
+def test_the_task_spine_names_only_objects_the_index_publishes() -> None:
+    """A spine entry that is not curated is a promise made about a retired object."""
+    unknown = sorted(set(SPINE) - set(_object_names()))
+    assert not unknown, f"SPINE names objects that docs/api/object-index.rst does not: {unknown}"
