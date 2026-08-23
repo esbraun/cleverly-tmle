@@ -11,28 +11,31 @@ validating it.
 Ordinary TMLE is **doubly robust for consistency and singly robust for inference**, and that
 distinction is the whole of what this variant is for.
 
-Without outcome missingness, a binary treatment-specific mean has the exact signed remainder
+Without outcome missingness, the treatment-specific mean under a binary treatment has the exact
+signed remainder
 
 $$
 R_{2,a}=\int \frac{\hat g_a-g_{0,a}}{\hat g_a}
 (\hat Q_a-Q_{0,a})\,dP_0.
 $$
 
-Here, $g_a(W)=P(A=a\mid W)$. An ATE remainder is the difference between its two arm remainders.
-With outcome missingness, the complete treatment-and-observation mechanism replaces $g_a$.
-If $\hat g_a\geq\epsilon>0$, Cauchy-Schwarz gives the separate bound
+Here $g_a(W)=P(A=a\mid W)$, and the norms below are $L^2(P_0)$. The ATE remainder is the difference
+between the two arm remainders. With outcome missingness, the complete treatment-and-observation
+mechanism replaces $g_a$. If $\hat g_a\geq\epsilon>0$, Cauchy-Schwarz gives the separate bound
 
 $$
 |R_{2,a}|\leq\epsilon^{-1}
 \lVert\hat g_a-g_{0,a}\rVert_2\lVert\hat Q_a-Q_{0,a}\rVert_2.
 $$
 
-This bound explains double robustness. One error can converge while the other remains bounded.
+That bound is what double robustness rests on. One error converges, the other stays bounded, and
+the product goes to zero.
 
 The point estimate needs $R_2 \to 0$. Influence-curve inference needs the stronger condition
-$\sqrt{n}R_2 \to 0$. Two $n^{-1/4}$ nuisance rates can satisfy that condition. If one error does not
-shrink, the remainder can be first order in the other error. Its bias can then dominate the
-$n^{-1/2}$ standard-error scale, and coverage can worsen as the sample grows.
+$\sqrt{n}R_2 \to 0$. Nuisance errors of order $o(n^{-1/4})$ satisfy it, and errors of exactly
+$n^{-1/4}$ leave $\sqrt{n}R_2$ bounded away from zero. If one error does not shrink, the remainder
+is first order in the other. The estimator's bias then dominates the $n^{-1/2}$ standard-error
+scale, and coverage decays as the sample grows.
 
 DR-TMLE solves two further score equations, built from reduced-dimension regressions, so that valid
 inference can survive one inconsistent primary nuisance.
@@ -40,7 +43,7 @@ inference can survive one inconsistent primary nuisance.
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
 | you doubt one nuisance and still want an interval | an interval entitled to be believed under weaker conditions | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
-| both nuisances are consistent | asymptotically, the corrections approach zero and the curve approaches the efficient curve | extra computation for a setting where ordinary TMLE already has its usual guarantees |
+| both nuisances are consistent | nothing you need. The corrections converge to zero and the curve converges to the efficient curve | the extra cost, for no gain. This is the case the variant is not for |
 | you want a narrower interval | this is not that. The union model it stays valid over is larger than the model it is efficient in | the corrected curve is the estimator's own influence function and not the efficient one |
 | you want `retarget` to be cheap | it is not. A truncation curve on a `DRTMLE` fit costs about a fit per point | a plain `TMLE` handed these nuisances refuses rather than re-solving against arrays it cannot refresh |
 

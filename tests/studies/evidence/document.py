@@ -208,7 +208,13 @@ def _measured(row: Any) -> str:
 
 
 def _has_exact_efficiency(row: Any) -> bool:
-    """Whether this result compares against an independently computed efficiency bound."""
+    """Whether this result compares against an independently computed efficiency bound.
+
+    Read per row, while the gate in ``tests/unit/test_method_evidence.py`` is per study.  A
+    study whose bound covered some calibration cells and not others would render mixed
+    language and still pass that gate; ``efficiency_bounds`` is keyed by plan and so covers
+    every cell of a plan or none of them, which is what keeps the two consistent.
+    """
     return hasattr(row, "efficiency_empirical_ci_lower") and pd.notna(
         row.efficiency_empirical_ci_lower
     )

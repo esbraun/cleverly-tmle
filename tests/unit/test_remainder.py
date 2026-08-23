@@ -9,8 +9,8 @@ some pair of nuisance guesses :math:`(\hat g, \bar Q)`,
     \Psi(\bar Q) - \Psi(P_0) + P_0 D^*(\hat g, \bar Q) = R_2(\hat g, \bar Q),
 
 the estimator is consistent whenever :math:`R_2` vanishes.  What makes TMLE doubly robust
-is that this remainder is a *product* of the two nuisance errors, so it is zero when either
-factor is -- neither nuisance has to be right on its own.  For the counterfactual means and
+is that this remainder carries *both* nuisance errors, so it vanishes when either one does
+-- neither nuisance has to be right on its own.  For the counterfactual means and
 their difference,
 
 .. math::
@@ -18,13 +18,15 @@ their difference,
     R_2 = \int \frac{\hat g - g_0}{\hat g}\,(\bar Q_1 - \bar Q_{0,1})\, dP_0
         + \int \frac{\hat g - g_0}{1 - \hat g}\,(\bar Q_0 - \bar Q_{0,0})\, dP_0 ,
 
-and that identity is the whole content of the claim.
+and that identity is the whole content of the claim.  The remainder is a signed integral
+rather than a literal product; under positivity its absolute value is bounded by a product
+of the two errors, and that bound is where the "product remainder" name comes from.
 
 On the finite-support law of :mod:`tests.discrete_law` all three terms of the expansion are
 exact finite sums, so this can be checked deterministically to machine precision rather
 than inferred from a simulation.  :math:`\Psi` and :math:`R_2`'s closed form are written
 out longhand here; :math:`D^*` is the library's -- which is the point, since the claim
-under test is that the library's influence curve has the product remainder.
+under test is that the library's influence curve has that remainder.
 
 Two things this deliberately does *not* rest on.  The remainder assertions do not run the
 targeting step, so they cannot be satisfied by a fluctuation that merely converged: the

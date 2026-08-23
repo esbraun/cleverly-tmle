@@ -840,8 +840,9 @@ def shift_means(
           + \operatorname{Var}\bigl(\bar Q(d(A,W),W) - E[\bar Q(d(A,W),W) \mid W]\bigr).
 
     An MTP has variance at least as large as the known stochastic regime with the same mean.
-    The inequality is strict when the added conditional variance is positive.  This method
-    must therefore not delegate to :func:`regime_means`, and
+    The added term is a conditional variance, and it is positive wherever the shift moves the
+    dose -- the price of an intervention that reads the natural value of treatment.  So this
+    must not delegate to :func:`regime_means`, and
     ``tests/unit/test_influence_gateaux_shift.py`` keeps a negative control that fails if
     someone later makes it.
 

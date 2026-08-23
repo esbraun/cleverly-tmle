@@ -90,8 +90,8 @@ PROPERTIES: dict[str, str] = {
         "than known"
     ),
     "interval_calibration": (
-        "the reported standard error matches the sampling spread and the interval covers near "
-        "its nominal rate"
+        "the reported standard error and the exact coverage both sit inside their declared "
+        "two-sided calibration bands"
     ),
     "power": "the test detects a real effect, so a passing null result cannot come from an inert test",
     "robustness_contract": (
@@ -179,7 +179,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("root_n_and_efficiency", "n_500"): (
         "bias, coverage and SE calibration at n = 500",
-        "the requirements depend on whether this rung is a positive or small-sample control",
+        "",  # the smallest rung's rule depends on its role; :func:`cell` sets it or raises
     ),
     ("root_n_and_efficiency", "n_2000"): (
         "bias, coverage and SE calibration at n = 2,000",
@@ -294,10 +294,19 @@ def cell(
         tested += " with an independently computed efficiency bound"
         required += ", with both efficiency-ratio intervals inside their bands"
     if family == "root_n_and_efficiency" and base == "n_500":
+        # The smallest rung is a positive cell in some studies and a retained small-sample
+        # control in others, and the two are held to opposite rules.  Publishing one rule
+        # beside the other role's verdict is the failure this branch exists to prevent, so an
+        # unrecognised role raises rather than printing something true of neither.
         if role == "positive":
             required = "bias inside the margin, coverage clears the floor, SE ratio inside the band"
         elif role == "control":
             required = "coverage interval lies below nominal or clears the declared floor"
+        else:
+            raise Undescribed(
+                f"cell {key!r} of {family!r} needs role='positive' or role='control'; "
+                f"{role!r} selects neither, and the two rules are not interchangeable"
+            )
     if arm is not None:
         tested = f"{ARMS[arm.group('arm')]}: {tested}"
     return tested, required

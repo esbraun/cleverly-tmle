@@ -90,8 +90,8 @@ number is wrong.
 
 Three of these share one mechanism, and it generalises past this package. **If an intervention's
 density is a functional of `P`, the influence function carries a term for the pathwise derivative
-through the estimated mechanism.** Omitting that term discards a nonnegative variance component.
-The omission makes the standard error too small when that component is positive.
+through the estimated mechanism.** Omit that term and the standard error is too small. Under
+positivity the missing variance is positive, and the table above writes it down exactly.
 
 Two more share another. **A nuisance that sits inside the estimand is not a knob.** Truncating `g`
 on an incremental fit, or fitting a shift's `cap` from the data, moves the target rather than

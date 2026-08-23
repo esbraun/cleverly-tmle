@@ -1,14 +1,15 @@
 # DR-TMLE: doubly-robust inference
 
-`DRTMLE` is a TMLE whose *interval* can remain valid when only one primary nuisance is consistently
-estimated. Each guarantee requires the method-specific conditions below. A plain TMLE's exact
-remainder is a signed integral. Under positivity, its absolute value has a product bound on the
+`DRTMLE` is a TMLE whose *interval* stays valid when only one primary nuisance is consistently
+estimated. Each guarantee needs the rate conditions in
+[the remainder terms](#the-remainder-terms-and-the-rate-conditions). A plain TMLE's exact remainder
+is a signed integral. Under positivity its absolute value is bounded by a product of the two
 nuisance errors.
 
-That bound explains why a point estimate can be doubly robust for consistency. Its interval needs
-the stronger condition `√n R_2 → 0`. With one error not shrinking, the remainder can be first order
-in the other error. Thus, ordinary TMLE is singly robust for inference under these conditions.
-`DRTMLE` closes that gap by solving two additional reduced-regression score equations.
+That bound is why the *point estimate* is doubly robust for consistency. The interval needs the
+stronger condition `√n R_2 → 0`, and with one error not shrinking the remainder is first order in
+the other. So **`TMLE` is doubly robust for consistency and singly robust for inference**, and
+`DRTMLE` closes that second gap by solving two additional reduced-regression score equations.
 
 This document is the reference for what is supported, what the theorem covers, what the
 implementation chooses where the theorem is silent, and what a caller has to check. The runnable

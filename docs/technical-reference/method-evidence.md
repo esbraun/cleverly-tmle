@@ -49,7 +49,7 @@ one moves.
 | **coverage validity** | the lower endpoint of the exact Clopper-Pearson interval clears `margin:coverage_floor` | whether a nominal 95% interval is valid is the question. Whether it is 95% to the third decimal is a question no finite study answers | one-sided by design. Over-coverage is conservative, not invalid |
 | **SE sanity band** | the bootstrap interval for mean reported SE over empirical SD lies inside `margin:se_ratio_sanity_lower` to `margin:se_ratio_sanity_upper` | this is a screen for a standard error wrong by an order of magnitude. The coverage floor binds first | a ratio of 0.80 corresponds to about 88% coverage, so the band cannot be tightened past what the floor implies |
 | **SE calibration** | where both nuisances are correct, the SE ratio interval lies inside the calibration band and the exact coverage interval inside its own | this is the only two-sided calibration claim, and the only gate a uniform tenth-scale understatement fails | a `shrunken_se_control` cell multiplies the standard errors by a declared factor and must fail |
-| **efficiency** | both empirical and reported standard deviations agree with an independently computed efficient-influence-function bound | an estimator can have root-n bias and calibrated intervals without attaining the bound | a `noise_control` cell adds one bound-unit of independent noise and must fail |
+| **efficiency** | the empirical standard deviation of the estimates and the mean reported standard error both sit inside `margin:efficiency_ratio_lower` to `margin:efficiency_ratio_upper` of an independently computed efficient-influence-function bound | Monte Carlo error in the empirical spread, which a point test against the bound would reject at enough replications. Calibration and validity are asked separately, because an estimator can have root-n bias and calibrated intervals without attaining the bound | a `noise_control` cell adds one bound-unit of independent noise and must fail |
 | **paired similarity** | the 99% interval for the mean paired difference lies within `margin:paired_difference` pooled empirical standard deviations | symmetric, because a large difference in either direction means the two implementations are not computing the same thing | a paired mutation makes `cleverly` materially worse and must fail |
 | **RMSE non-inferiority** | the bootstrap upper bound for `cleverly`'s RMSE ratio is at most `margin:rmse_noninferiority` | one-sided, because `cleverly` performing better than the reference is a result rather than a failure | a reference-only mutation must fail the reference's own column and leave `cleverly` standing |
 | **coverage non-inferiority** | the lower bound for the coverage difference is at least `margin:coverage_noninferiority` | one-sided, for the same reason | as above |
@@ -57,6 +57,12 @@ one moves.
 | **type-I error** | the one-sided upper endpoint of the rejection rate under a confounded sharp null stays under `margin:type_i_ceiling` | the null law keeps its confounding, so the test is not an unadjusted comparison | a power cell under a real effect must reject. An inert test cannot pass by never firing |
 | **power** | the rejection lower bound clears `margin:minimum_power` | this is the positive control the type-I cell needs | none. It is itself a control |
 | **root-n rate** | the log-log slope interval lies within `margin:root_n_slope_lower` to `margin:root_n_slope_upper` | a band rather than containment of -1/2, which is a point test the reported-SE rate already fails at these replication counts | the interval must also exclude `margin:excluded_slope`, so a merely decreasing spread fails |
+
+The **efficiency** rule needs a bound this package did not compute from the estimator it judges. A
+study without one runs no efficiency cell, and its tables say so. The property family named
+`root_n_and_efficiency` is the exception in name only. The name is historical, it tests bias,
+coverage, and SE calibration across sample sizes, and the efficiency comparison lives in
+`interval_calibration`.
 
 Each implementation is judged on its own terms as well as on the pairing. A reference that degrades
 is reported against the reference. It does not turn `cleverly`'s row red.

@@ -19,9 +19,8 @@ The three count columns are three different questions and are not interchangeabl
 known truth* tests each implementation against the law on its own, which is what stops two
 implementations agreeing with each other from counting as evidence; where a canonical
 implementation exists, half of those tests measure it rather than `cleverly`. *`cleverly` vs
-canonical* is the paired comparison. *Theory properties* is the repeated-sampling behaviour the
-source paper claims, which a matching implementation would not establish even if the match were
-exact.
+canonical* is the paired comparison. *Theory properties* is the declared repeated-sampling
+behaviour, which a matching implementation would not establish even if the match were exact.
 
 **This is a gate, not a note.** `tests/unit/test_method_evidence.py` requires one row per registered
 study and one study per row, requires every link in a row to reach that study's own registered

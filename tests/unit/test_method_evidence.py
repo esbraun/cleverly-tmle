@@ -1064,15 +1064,18 @@ class TestThePublishedTestTables:
                         resolve(str(key))
                     except descriptions.Undescribed as absent:
                         undescribed.append(str(absent))
-        for family, cell in sorted(
-            {(str(row.property), str(row.cell)) for row in data["properties"].itertuples()}
+        for family, cell, role in sorted(
+            {
+                (str(row.property), str(row.cell), str(row.role))
+                for row in data["properties"].itertuples()
+            }
         ):
             try:
                 descriptions.claim(family)
             except descriptions.Undescribed as absent:
                 undescribed.append(str(absent))
             try:
-                descriptions.cell(family, cell)
+                descriptions.cell(family, cell, role=role)
             except descriptions.Undescribed as absent:
                 undescribed.append(str(absent))
         assert undescribed == [], (

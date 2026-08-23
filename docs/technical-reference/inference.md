@@ -1,10 +1,11 @@
 # How every method reports uncertainty
 
-Each estimator reports a point estimate and an influence curve. The intervals on this page use that
-curve. Asymptotic linearity follows only under the conditions in the relevant method entry.
+Each estimator reports a point estimate and an influence curve, and every interval on this page is
+built from that curve. The intervals are valid where the estimator is asymptotically linear with
+the curve it reports. Each method entry defines its curve and states the conditions the curve
+requires.
 
-Each method entry defines its curve and its required nuisance rates. This page describes the shared
-inference calculations that use the reported curve.
+This page describes what happens to the curve after that, once for all of them.
 
 ## Influence-curve variance
 

@@ -65,7 +65,7 @@ the per-round trace.
 **The matrix the influence curve is premultiplied by is no longer the Gram matrix.** It is
 
 $$
-M = E\left[\sum_a h\left\{(dm/d\eta)^2 - (Q-m)\,d^2m/d\eta^2\right\}\phi\phi^\top\right],
+M = E\left[\sum_a h\left\{(dm/d\eta)^2 - (\bar Q_P-m)\,d^2m/d\eta^2\right\}\phi\phi^\top\right],
 $$
 
 and the second term vanishes only where the working model *fits*, which is exactly what a
