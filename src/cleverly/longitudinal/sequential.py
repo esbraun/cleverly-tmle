@@ -17,8 +17,9 @@ units that followed :math:`\bar a` and stayed under observation through :math:`t
 predicts for the units that did so through :math:`t - 1` -- which are exactly the units
 the *previous* step is fitted on, and is what makes the recursion close.
 
-That is the substitution estimator; it is not efficient and has no influence curve of its
-own.  Targeting supplies both.  At each step the initial regression is fluctuated along
+That is the untargeted substitution estimator.  It does not generally solve the efficient
+influence-curve equation.  Targeting solves that equation.  At each step the initial regression
+is fluctuated along
 
 .. math::
 

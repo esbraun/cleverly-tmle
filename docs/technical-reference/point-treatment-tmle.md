@@ -192,8 +192,9 @@ $$
   + \operatorname{Var}\{Q(d(A,W),W) - E[Q(d(A,W),W) \mid W]\},
 $$
 
-so a modified treatment policy is strictly *harder* to estimate than the regime inducing the same
-mean. Delegating one to the other reports a standard error that is too small.
+Thus, a modified treatment policy has variance at least as large as the corresponding regime. The
+inequality is strict when the added conditional variance is positive. Delegation omits this
+nonnegative term and can report a standard error that is too small.
 
 Theory: Diaz Munoz and van der Laan (2012), Haneuse and Rotnitzky (2013), and Diaz, Williams,
 Hoffman and Schenck (2023). Implementation:

@@ -21,8 +21,8 @@ refitting a nuisance model.
 
 ### Positivity and overlap
 
-**Why.** Every TMLE divides by an estimated treatment probability. A small probability makes one
-row dominate the estimate, and no amount of targeting repairs it.
+**Why.** Most intervention clever covariates contain an estimated density ratio. A small denominator
+can make one row dominate the estimate. Targeting does not restore missing support.
 
 **What it tells you.** How much of the estimate rests on how few rows, and how much of the
 mechanism the truncation bound replaced.
@@ -35,7 +35,7 @@ It reports five separate quantities, because they fail in different places.
 | --- | --- | --- |
 | effective sample size | Kish's $(\sum \omega)^2 / \sum \omega^2$ over the clever-covariate weights, folded with the observation weights | the interval is that of a much smaller study |
 | weight concentration | the share of the estimating equation carried by the top 1% of rows | a handful of rows decide the answer |
-| truncation load | the count of clipped propensities, and how far each one moved | the reported estimand is partly the bound rather than the data |
+| truncation load | the count of clipped propensities, and how far each one moved | the finite-sample estimate depends on the chosen bound |
 | per-arm overlap | the mechanism's predicted probability distribution, arm by arm | one arm has a region the other never enters |
 | maximum clever covariate | the largest absolute covariate value | the leverage of the single worst row |
 
@@ -57,8 +57,8 @@ the earlier regressions were fitted to, and the whole pass has to run again.
 
 ### Nuisance model quality
 
-**Why.** A nuisance model that predicts well can still be miscalibrated, and calibration is what
-the clever covariate needs.
+**Why.** A nuisance model can predict well and remain miscalibrated. Calibration can reveal errors
+that change the clever covariate.
 
 **What it tells you.** Whether each nuisance fit is calibrated out of fold, and which library
 candidates the Super Learner actually used.
@@ -235,16 +235,22 @@ These fit new models. They cost what a fit costs, multiplied by the number of dr
 checks that the workflow returns it.
 
 **What each tells you.** [`validation/refute.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/validation/refute.py)
-ships four, and only one of them tests an identification assumption.
+ships four. A negative-control outcome can detect bias under additional design assumptions.
 
 | refuter | what it does | what must happen | what it tests |
 | --- | --- | --- | --- |
 | `placebo` | permutes the treatment column and refits | the estimate goes to zero | the pipeline, not the data |
 | `random_common_cause` | adds an irrelevant covariate and refits | the estimate does not move | the adjustment set is not sensitive to noise |
 | `subset` | refits on random subsamples | the scatter is about one standard error | the reported standard error is the right size |
-| `negative_control_outcome` | refits on an outcome the treatment cannot affect | the estimate goes to zero | **no unmeasured confounding**, which the other three do not touch |
+| `negative_control_outcome` | refits on an outcome the treatment cannot affect | the estimate goes to zero | bias that also affects a valid, comparable control outcome |
 
 A refuter is non-deterministic and expensive. `run_all(include_refits=True)` is what runs it.
+
+A negative-control outcome must have no causal path from treatment. It must also share the relevant
+confounding structure with the primary outcome. A non-null result can flag residual bias or a bad
+control. A null result cannot prove that unmeasured confounding is absent. Penning de Vries and
+Groenwold (2023) explain these sensitivity and specificity limits. See
+[negative controls](../references.md#negative-controls).
 
 ### Coverage studies
 
@@ -256,8 +262,8 @@ contains no information about any of them.
 
 | number | how it is computed | how to read it |
 | --- | --- | --- |
-| coverage | the share of replications whose interval contains the truth | below nominal means the interval is invalid |
-| root-n bias | $\sqrt{n}$ times the mean error | bounded means efficient. Growing means a residual bias term survives |
+| coverage | the share of replications whose interval contains the truth | sustained undercoverage beyond Monte Carlo uncertainty indicates invalid intervals on that law |
+| root-n bias | $\sqrt{n}$ times the mean error | bounded values support a negligible first-order bias claim. They do not establish efficiency |
 | SE ratio | mean reported standard error over the empirical standard deviation of the estimates | one means the reported uncertainty matches the real spread |
 
 **How.** `CoverageStudy` draws from a generator with a known truth, runs the complete estimator on

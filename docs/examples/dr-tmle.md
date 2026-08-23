@@ -31,25 +31,32 @@ and recovery, exchangeability fails. DR-TMLE does not repair that design failure
 
 ## Why this method
 
-The second-order remainder of an ordinary TMLE is a product of two errors:
+Without outcome missingness, a binary treatment-specific mean has the exact signed remainder:
 
 $$
-R_2 = \lVert \hat g - g_0 \rVert \cdot \lVert \hat Q - Q_0 \rVert .
+R_{2,a}=\int \frac{\hat g_a-g_{0,a}}{\hat g_a}
+(\hat Q_a-Q_{0,a})\,dP_0.
 $$
 
-One inconsistent nuisance still leaves the product shrinking, so the estimate stays consistent. The
-interval needs the strictly stronger condition that $\sqrt{n} R_2 \to 0$. With both nuisances
-converging at $n^{-1/4}$ the product delivers it. With only one, the bad factor stops shrinking,
-the remainder becomes first order in the good one's error, and no nonparametric estimator drives
-that below $n^{-1/2}$.
+Here, $g_a(W)=P(A=a\mid W)$. The ATE remainder is the difference between its two arm remainders.
+With outcome missingness, the complete treatment-and-observation mechanism replaces $g_a$.
+If $\hat g_a\geq\epsilon>0$, Cauchy-Schwarz gives the separate bound
 
-The estimator then stops being asymptotically linear. Its bias does not grow. Its coverage decays as
-the sample grows, which is the opposite of what a program expects from more data.
+$$
+|R_{2,a}|\leq\epsilon^{-1}
+\lVert\hat g_a-g_{0,a}\rVert_2\lVert\hat Q_a-Q_{0,a}\rVert_2.
+$$
+
+This bound explains why one consistent nuisance can be sufficient for consistency.
+
+The interval needs the stronger condition $\sqrt{n}R_2 \to 0$. Two $n^{-1/4}$ nuisance rates can
+satisfy it. If one error does not shrink, the remainder can be first order in the other error. The
+bias can then dominate the standard-error scale, and coverage can worsen as the sample grows.
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
 | you doubt one nuisance and still want an interval | an interval entitled to be believed under weaker conditions | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
-| both nuisances are in fact consistent | nothing. The corrections vanish row by row, and the fit **is** the ordinary efficient estimator | the extra cost, for no gain. This is the case the variant is not for |
+| both nuisances are consistent | asymptotically, the corrections approach zero and the curve approaches the efficient curve | extra computation for a setting where ordinary TMLE already has its usual guarantees |
 | you want a narrower interval | this is not that | the corrected curve is the estimator's own influence function, and it is not the efficient one |
 
 DR-TMLE solves two further score equations, built from reduced-dimension regressions, so that valid

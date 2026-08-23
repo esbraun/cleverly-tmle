@@ -64,10 +64,10 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
    residual against the score the targeting step recorded, per arm and per equation, on every
    doubly-robust fit.  No threshold in it was loosened to make those rows pass.
 
-Every interval this package reports is valid when the second-order remainder is negligible,
-and for a plain TMLE that remainder is the product
-:math:`\|\hat g - g_0\| \cdot \|\hat{\bar Q} - \bar Q_0\|`.  A product goes to zero when one
-factor does, which is why the *point estimate* is doubly robust; but the interval needs
+Subject to the method's remaining regularity conditions, an interval is valid when the
+second-order remainder is negligible.  For a plain TMLE, the absolute remainder has a
+constant-times-product bound on the nuisance errors under positivity.  That bound explains
+why the *point estimate* is doubly robust; but the interval needs
 :math:`\sqrt n R_2 \to 0`, and with one factor not shrinking :math:`R_2` is first order in
 the other.  So **`TMLE` is doubly robust for consistency and singly robust for inference**,
 and this class closes that second gap.
@@ -99,9 +99,9 @@ better estimate.
 :math:`D = D^* - D^*_Q - D^*_g`, the *estimator's* asymptotic influence function at the
 nuisance limits, and the estimator is generally **not efficient** there -- so the interval is
 one that stays valid where a plain TMLE's stops being valid, and nothing more than that.
-When both nuisances are consistent the corrections vanish row by row, the two curves
-coincide, and this is the ordinary efficient estimator; that is exactly the case the variant
-is not for.  The distinction is easy to lose because the numbers point the other way: in the
+When both nuisances are consistent, the corrections converge to zero and the curve approaches
+the ordinary efficient curve.  At the true nuisance functions, they vanish row by row.  The
+distinction is easy to lose because the numbers point the other way: in the
 guide's worked example the corrected standard error is the **smaller** of the two, 0.06828
 against 0.06850, which is a fact about one draw and not a general narrowing.  A doubly-robust
 fit's ``score_check`` says so in its own verdict rather than signing the fit off as having

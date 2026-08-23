@@ -49,8 +49,8 @@ class Margins:
     #: instruments rather than the same one declared twice.  ``se_ratio_sanity`` is a screen
     #: standing behind a one-sided validity gate, applied to every estimand of every law
     #: including the ones whose influence-curve standard error is only conservative; here the
-    #: theory does promise the reported standard error is the efficient one, so a departure is
-    #: a defect rather than a regime.  Both remain equivalence-shaped, so both still become
+    #: study separately tests calibration against the sampling spread, so a departure is a
+    #: defect rather than a regime.  Both remain equivalence-shaped, so both still become
     #: easier to satisfy as replications are added.
     calibration_se_ratio: tuple[float, float] = (0.93, 1.07)
     #: The same claim on the coverage scale, also two-sided.  Asking whether the exact

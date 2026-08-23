@@ -27,9 +27,10 @@ The tests, and what a failure means:
     diagnostics flag.
 
 ``negative_control_outcome``
-    Refit with an outcome that the treatment cannot plausibly affect.  A non-null
-    estimate is direct evidence of residual confounding, and unlike the other three
-    it tests an *identification* assumption rather than the implementation.
+    Refit with an outcome that the treatment cannot plausibly affect.  Under a valid,
+    comparable negative-control design, a non-null estimate can reveal residual bias.
+    It can also reflect a bad control or a bias that does not affect the primary outcome.
+    A null estimate does not prove that unmeasured confounding is absent.
 
 Each test refits the model, so a full run costs several times a single fit.
 """
@@ -296,9 +297,9 @@ def refute(
                     passed=passed,
                     detail=(
                         f"the negative-control outcome shows an effect of {value:+.5g} "
-                        f"({abs(value) / control_se:.1f} standard errors). Unlike the other "
-                        "tests this is evidence about identification: residual confounding is "
-                        "the most likely explanation"
+                        f"({abs(value) / control_se:.1f} standard errors). Under a valid, "
+                        "comparable control design, this flags residual bias. It can also "
+                        "indicate that the negative-control assumptions fail"
                     ),
                 )
             )

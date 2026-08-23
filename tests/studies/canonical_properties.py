@@ -1,7 +1,7 @@
 """Independent repeated-sampling properties for ordinary canonical TMLE.
 
-The claims are van der Laan and Rubin's: double robustness, root-n behaviour with local
-efficiency, and calibrated inference.  Each cell here is a law and a nuisance configuration
+The claims are van der Laan and Rubin's: double robustness, root-n behaviour, and calibrated
+inference.  An optional independent bound adds an efficiency comparison.  Each cell is a law and nuisance configuration
 chosen so that a claim can *fail*; the verdicts come from
 :mod:`tests.studies.evidence.properties` and are bounded by the same margins the
 implementation comparison declares, so the two halves of the study cannot drift apart.

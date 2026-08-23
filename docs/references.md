@@ -175,6 +175,14 @@ not a citation; a page number is.
 - Scharfstein, Rotnitzky & Robins (1999), *Adjusting for nonignorable drop-out using semiparametric
   nonresponse models*.
 
+## Negative controls
+
+- Penning de Vries & Groenwold (2023),
+  [*Negative controls: Concepts and caveats*](https://doi.org/10.1177/09622802231181230),
+  *Statistical Methods in Medical Research* 32(8):1576-1587. The review explains why a negative
+  control can lack sensitivity and specificity for unmeasured confounding. It also explains why a
+  null association cannot prove the null hypothesis.
+
 ## Multiple testing
 
 - Benjamini & Hochberg (1995), [*Controlling the False Discovery Rate: A Practical and
@@ -196,11 +204,10 @@ implementation for the influence curve. What each supplies, and where in it, is
   Average Treatment Effect*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper
   356. Read first-hand. §3.1 and equation (2) are p. 9; §3.2, Theorem 1 and the recursive algorithm
   are pp. 10–11; appendix A is pp. 19–20, appendix B p. 21, appendix C pp. 21–22.
-- Benkeser, Carone, van der Laan & Gilbert (2017), *Doubly robust nonparametric inference on the
-  average treatment effect*, Biometrika 104(4):863–880 (PMC5793673). The **published** version of
-  the above, and authoritative wherever the two differ. Not read here — which matters in exactly
-  one place, the sign of the mechanism correction, and the working paper's own appendices settle
-  that without it.
+- Benkeser, Carone, van der Laan & Gilbert (2017),
+  [*Doubly robust nonparametric inference on the average treatment effect*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5793673/),
+  *Biometrika* 104(4):863-880. Theorem 1 requires nuisance-limit, score, convergence, and remainder
+  conditions for asymptotic linearity. The result does not give an unconditional guarantee.
 - Benkeser & Hejazi (2023), *Doubly-Robust Inference in R using `drtmle`*, Observational Studies
   9(2):43–78. Read first-hand. Multi-level treatments are §4.6, pp. 66–67; cross-validated nuisance
   regression is §4.7, p. 69. The package vignette describes both reduced-regression choices for

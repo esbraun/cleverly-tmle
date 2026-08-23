@@ -53,8 +53,8 @@ $t$. It predicts for those that did so through $t-1$, which are *exactly* the un
 step is fitted on. That is what makes the recursion close, and a test asserts the two masks are the
 same set rather than leaving it to be read off a paragraph.
 
-The substitution estimator alone is not efficient and has no influence curve. Each node therefore
-gets a loss-weighted logistic intercept submodel,
+The untargeted substitution estimator does not generally solve the efficient influence-curve
+equation. `LTMLE` therefore gives each node a loss-weighted logistic intercept submodel,
 
 $$
 \operatorname{logit} Q_t(\epsilon) = \operatorname{logit} Q_t + \epsilon ,

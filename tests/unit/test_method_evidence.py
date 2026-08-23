@@ -762,6 +762,26 @@ class TestTheMethodEvidenceGrid:
             f"{int(value(study, passed_name, data))}"
         )
 
+    def test_confidence_level_is_described_as_a_bound_not_a_pass_rate(
+        self, study: StudyRecord
+    ) -> None:
+        for column in ("accuracy vs known truth", "`cleverly` vs canonical"):
+            cell = _grid()[study.name][column]
+            if "0/0" in cell:
+                continue
+            assert "using 99% confidence bounds" in cell
+            assert "pass at 99%" not in cell
+
+    def test_efficiency_claim_requires_an_independent_bound(self, study: StudyRecord) -> None:
+        properties = load(study)["properties"]
+        columns = [name for name in properties if name.startswith("efficiency_")]
+        has_bound = bool(columns) and bool(properties[columns].notna().any().any())
+        claim = "efficien" in _grid()[study.name]["theory properties"].casefold()
+        assert claim == has_bound, (
+            f"{study.slug}'s grid efficiency claim is {claim}, but its committed properties "
+            f"carry an independent efficiency comparison={has_bound}"
+        )
+
     def test_the_canonical_implementation_cell_names_the_registered_reference(
         self, study: StudyRecord
     ) -> None:
@@ -948,6 +968,20 @@ class TestThePublishedTestTables:
             f"{study.slug}'s {name} table is not what its artefacts render. Run "
             f"`python -m tests.studies.evidence.document` rather than editing it by hand"
         )
+
+    def test_generated_efficiency_language_requires_an_independent_bound(
+        self, study: StudyRecord
+    ) -> None:
+        properties = load(study)["properties"]
+        columns = [name for name in properties if name.startswith("efficiency_")]
+        has_bound = bool(columns) and bool(properties[columns].notna().any().any())
+        rows = pipe_table(study.document_path, PROPERTY_COLUMNS, section=study.anchor)
+        published = "\n".join(
+            row[column]
+            for row in rows
+            for column in ("what was tested", "what must hold", "measured")
+        ).casefold()
+        assert ("efficien" in published) == has_bound
 
     def test_a_study_without_a_comparator_publishes_no_agreement_table(
         self, study: StudyRecord

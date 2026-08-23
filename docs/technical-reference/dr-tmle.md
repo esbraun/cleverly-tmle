@@ -11,17 +11,28 @@ validating it.
 Ordinary TMLE is **doubly robust for consistency and singly robust for inference**, and that
 distinction is the whole of what this variant is for.
 
-The second-order remainder is a product,
+Without outcome missingness, a binary treatment-specific mean has the exact signed remainder
 
 $$
-R_2 = \lVert \hat g - g_0 \rVert \cdot \lVert \hat Q - Q_0 \rVert ,
+R_{2,a}=\int \frac{\hat g_a-g_{0,a}}{\hat g_a}
+(\hat Q_a-Q_{0,a})\,dP_0.
 $$
 
-so one inconsistent nuisance still leaves $R_2 \to 0$ and the estimate consistent. The *interval*
-needs the strictly stronger $\sqrt{n} R_2 \to 0$. With both nuisances converging at $n^{-1/4}$ the
-product delivers it. With only one, the bad factor stops shrinking, $R_2$ becomes first order in
-the good one's error, and no nonparametric estimator drives that below $n^{-1/2}$. The estimator
-stops being asymptotically linear. Its bias does not grow, and its coverage decays as $n$ does.
+Here, $g_a(W)=P(A=a\mid W)$. An ATE remainder is the difference between its two arm remainders.
+With outcome missingness, the complete treatment-and-observation mechanism replaces $g_a$.
+If $\hat g_a\geq\epsilon>0$, Cauchy-Schwarz gives the separate bound
+
+$$
+|R_{2,a}|\leq\epsilon^{-1}
+\lVert\hat g_a-g_{0,a}\rVert_2\lVert\hat Q_a-Q_{0,a}\rVert_2.
+$$
+
+This bound explains double robustness. One error can converge while the other remains bounded.
+
+The point estimate needs $R_2 \to 0$. Influence-curve inference needs the stronger condition
+$\sqrt{n}R_2 \to 0$. Two $n^{-1/4}$ nuisance rates can satisfy that condition. If one error does not
+shrink, the remainder can be first order in the other error. Its bias can then dominate the
+$n^{-1/2}$ standard-error scale, and coverage can worsen as the sample grows.
 
 DR-TMLE solves two further score equations, built from reduced-dimension regressions, so that valid
 inference can survive one inconsistent primary nuisance.
@@ -29,7 +40,7 @@ inference can survive one inconsistent primary nuisance.
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
 | you doubt one nuisance and still want an interval | an interval entitled to be believed under weaker conditions | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
-| both nuisances are in fact consistent | nothing. The corrections vanish row by row and the fit **is** the ordinary efficient estimator | the extra cost, for no gain. This is the case the variant is not for |
+| both nuisances are consistent | asymptotically, the corrections approach zero and the curve approaches the efficient curve | extra computation for a setting where ordinary TMLE already has its usual guarantees |
 | you want a narrower interval | this is not that. The union model it stays valid over is larger than the model it is efficient in | the corrected curve is the estimator's own influence function and not the efficient one |
 | you want `retarget` to be cheap | it is not. A truncation curve on a `DRTMLE` fit costs about a fit per point | a plain `TMLE` handed these nuisances refuses rather than re-solving against arrays it cannot refresh |
 

@@ -1,9 +1,10 @@
 # How every method reports uncertainty
 
-Every estimator in `cleverly` is asymptotically linear. It reports a point estimate and an
-influence curve, and every interval on this page is built from that curve. The method entries
-therefore describe what each estimator's curve *is*. This page describes what happens to the curve
-after that, once for all of them.
+Each estimator reports a point estimate and an influence curve. The intervals on this page use that
+curve. Asymptotic linearity follows only under the conditions in the relevant method entry.
+
+Each method entry defines its curve and its required nuisance rates. This page describes the shared
+inference calculations that use the reported curve.
 
 ## Influence-curve variance
 
