@@ -169,10 +169,14 @@ data = frame.rename(
 #: Document -> the code its fences assume was already run.  An empty string means the document
 #: builds everything it uses, which is the standard the examples section is held to.
 PRELUDES: dict[str, str] = {
-    "docs/examples/point-treatment.md": "",
+    "docs/examples/point-treatment-tmle.md": "",
+    "docs/examples/cross-fitting.md": "",
+    "docs/examples/collaborative-tmle.md": "",
+    "docs/examples/dr-tmle.md": "",
     "docs/examples/interventions.md": "",
-    "docs/examples/longitudinal.md": "",
-    "docs/examples/assessment.md": "",
+    "docs/examples/survey-nonresponse.md": "",
+    "docs/examples/longitudinal-tmle.md": "",
+    "docs/examples/msm-projections.md": "",
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
     "docs/user-guide/longitudinal.md": "",

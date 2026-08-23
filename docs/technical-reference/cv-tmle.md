@@ -31,6 +31,9 @@ interval, and folds address one of them.
 The last condition is the one a *variant* of the estimator can weaken. That variant is
 [DR-TMLE](dr-tmle.md).
 
+A worked applied analysis is in the [CV-TMLE tutorial](../examples/cross-fitting.md). It
+measures what an in-sample interval costs under a flexible learner.
+
 ## The algorithm as implemented
 
 Outer folds isolate nuisance training from prediction. Learner folds tune a model inside its outer

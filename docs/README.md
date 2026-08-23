@@ -10,6 +10,14 @@ built on targeted maximum likelihood estimation (TMLE).
 from docstrings during the build; the narrative source remains ordinary Markdown that is readable
 on GitHub.
 
+[Examples](examples/index.md) carries eight tutorials and the TWINS notebook. Six mirror the six
+method entries in the technical reference. The other two cover the intervention axes and survey
+non-response, both of which are sections inside the point-treatment entry. A new method entry needs
+a new tutorial, and the two are cross-linked in both directions.
+
+All eight share one narrative: a health plan's hospital network running tests of change on nurse
+rounding practice. A new tutorial joins that program rather than inventing a scenario.
+
 Build the warning-as-error site locally with `nox -s docs`.
 
 The documents below form the scientific, user, and engineering record. The

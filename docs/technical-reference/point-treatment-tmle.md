@@ -24,6 +24,12 @@ Reach for a different entry when the exposure repeats over time
 ([collaborative TMLE](collaborative-tmle.md)), or when you expect one nuisance to be inconsistent
 and still want an interval ([DR-TMLE](dr-tmle.md)).
 
+Three worked applied analyses cover this entry. The
+[point-treatment tutorial](../examples/point-treatment-tmle.md) is the main one, and it also
+demonstrates the conditional-population effects below. The intervention axes have their own
+tutorial in [intervention axes](../examples/interventions.md). Missing outcomes have theirs in
+[survey non-response](../examples/survey-nonresponse.md).
+
 ## The algorithm as implemented
 
 The ordinary fit does five things in order. It fits the outcome regression $Q$ and the treatment
