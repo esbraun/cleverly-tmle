@@ -25,6 +25,7 @@ import pytest
 
 from tests.documents import pipe_table
 from tests.studies import canonical_properties, cvtmle_properties
+from tests.studies.evidence import descriptions
 from tests.studies.evidence.claims import (
     describe,
     load,
@@ -34,6 +35,16 @@ from tests.studies.evidence.claims import (
     value,
 )
 from tests.studies.evidence.comparison import equivalence
+from tests.studies.evidence.document import (
+    _CLOSE,
+    _OPEN,
+    ACCURACY_COLUMNS,
+    AGREEMENT_COLUMNS,
+    GENERATED,
+    PROPERTY_COLUMNS,
+    _section,
+    render,
+)
 from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -647,26 +658,36 @@ class TestTheStudyStillMeasuresTheCode:
             )
 
 
-GRID = ROOT / "docs" / "technical-reference" / "evidence.md"
+GRID = ROOT / "docs" / "technical-reference" / "index.md"
 
-#: The grid's header, in order.  The first study's row split the old single "paper-property
-#: study" column in two: 34 of the tests it was credited with are per-implementation
-#: performance tests, half of them measuring the R reference, and none of them is a property
-#: from the TMLE paper.
+#: The grid's header, in order.  The first study's row split a single "paper-property study"
+#: column in two: 34 of the tests it was credited with are per-implementation performance
+#: tests, half of them measuring the R reference, and none of them is a property from the TMLE
+#: paper.  Every column name says whose implementation its cell is about, because the grid's
+#: subject is ``cleverly`` and a reader has to be able to see that without opening a study.
 GRID_COLUMNS = (
-    "method",
-    "estimands and intervals",
-    "independent performance vs truth",
-    "cross-implementation study",
-    "paper-property study",
+    "method in `cleverly`",
+    "canonical implementation compared",
+    "estimands validated",
+    "accuracy vs known truth",
+    "`cleverly` vs canonical",
+    "theory properties",
+    "study design and headline results",
     "limitations",
 )
 
 #: Which cell carries which pair of counts, and which quantities they must equal.
 COUNTED = {
-    "independent performance vs truth": ("independent_tests_passed", "independent_tests_total"),
-    "cross-implementation study": ("paired_tests_passed", "paired_tests_total"),
-    "paper-property study": ("property_cells_passed", "property_cells_total"),
+    "accuracy vs known truth": ("independent_tests_passed", "independent_tests_total"),
+    "`cleverly` vs canonical": ("paired_tests_passed", "paired_tests_total"),
+    "theory properties": ("property_cells_passed", "property_cells_total"),
+}
+
+#: Quantities the headline cell must publish, and the label each is written behind.  Checked
+#: by containment of the rendered value, so an edited number fails rather than drifting.
+HEADLINE = {
+    "worst standardized bias": "max_standardized_bias",
+    "lowest coverage": "min_coverage",
 }
 
 MEASURED_COLUMNS = ("quantity", "value", "source")
@@ -676,7 +697,7 @@ COUNT = re.compile(r"(\d+)/(\d+)")
 
 
 def _grid() -> dict[str, dict[str, str]]:
-    rows = {row["method"]: row for row in pipe_table(GRID, GRID_COLUMNS)}
+    rows = {row["method in `cleverly`"]: row for row in pipe_table(GRID, GRID_COLUMNS)}
     assert len(rows) == len(pipe_table(GRID, GRID_COLUMNS)), "the grid has a duplicate method"
     return rows
 
@@ -739,6 +760,60 @@ class TestTheMethodEvidenceGrid:
         assert passed == int(value(study, passed_name, data)), (
             f"{column!r} claims {passed} passed; {passed_name} is "
             f"{int(value(study, passed_name, data))}"
+        )
+
+    def test_the_canonical_implementation_cell_names_the_registered_reference(
+        self, study: StudyRecord
+    ) -> None:
+        """The cell has to identify the comparator by its pin, not by its name.
+
+        A package name alone dates: ``tmle3`` has meant several different implementations.  What
+        makes the row reproducible is the commit the container actually built, so every pin the
+        manifest recorded must appear in the cell -- and a study with no comparator has to say so
+        rather than leaving the column to be read as an oversight.
+        """
+        cell = _grid()[study.name]["canonical implementation compared"]
+        reference = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))[
+            "generated_with"
+        ].get("reference")
+        if study.reference is None:
+            assert reference is None, "the record claims no comparator but the manifest names one"
+            assert "none claimed" in cell.casefold(), (
+                f"{study.slug} has no comparator; its cell must say so rather than being vague"
+            )
+            return
+        assert reference is not None, "the record names a comparator the manifest does not"
+        pins = {
+            key: str(recorded)
+            for key, recorded in reference.items()
+            if key.endswith("_commit") or key.endswith("_version")
+        }
+        assert pins, f"{study.slug}'s manifest records no comparator pin to check the cell against"
+        missing = [
+            f"{key}={recorded}"
+            for key, recorded in pins.items()
+            if (recorded[:7] if key.endswith("_commit") else recorded) not in cell
+        ]
+        assert missing == [], (
+            f"{study.slug}'s cell does not name {missing}. A reader cannot rebuild the comparison "
+            f"from a package name alone"
+        )
+
+    def test_the_headline_results_are_the_committed_ones(self, study: StudyRecord) -> None:
+        """The one grid column carrying measured numbers rather than verdicts."""
+        cell = _grid()[study.name]["study design and headline results"]
+        data = load(study)
+        missing = [
+            f"{label} {render(value(study, quantity, data))}"
+            for label, quantity in HEADLINE.items()
+            if f"{label} {render(value(study, quantity, data))}" not in cell
+        ]
+        for shown in (f"{study.replicates:,}", f"{study.n:,}"):
+            if shown not in cell:
+                missing.append(shown)
+        assert missing == [], (
+            f"{study.slug}'s headline cell does not publish {missing}. Every number here is "
+            f"derived, so an edited one is a failure rather than a stale reading"
         )
 
     def test_no_cell_is_left_to_the_reader(self, study: StudyRecord) -> None:
@@ -836,6 +911,141 @@ def _exempt(name: str) -> bool:
         or name.endswith("summary_cells")
         or "cells_with_" in name
     )
+
+
+def _published_block(study: StudyRecord, name: str) -> list[str]:
+    """The lines a study section publishes between one pair of generated sentinels."""
+    document = study.document_path
+    lines = document.read_text(encoding="utf-8").splitlines()
+    start, stop = _section(lines, study.anchor, document)
+    opening = _OPEN.format(name=name)
+    head = next((index for index in range(start, stop) if lines[index].strip() == opening), None)
+    assert head is not None, f"{study.slug}'s section carries no {opening}"
+    tail = next((index for index in range(head + 1, stop) if lines[index].strip() == _CLOSE), None)
+    assert tail is not None, f"{opening} is never closed"
+    return lines[head + 1 : tail]
+
+
+class TestThePublishedTestTables:
+    """One documentation row per committed test, against the results it was rendered from.
+
+    The measured-values table gates the numbers a study's prose quotes.  These gate the tables
+    themselves.  Before them, a reader who wanted to know *which* tests a 34/34 counted had to
+    open a CSV on GitHub; the count was published and the tests were not, so a row could pass its
+    own arithmetic while saying nothing about what was actually run.
+    """
+
+    @pytest.mark.parametrize("name", sorted(GENERATED))
+    def test_the_published_table_is_the_one_its_results_render(
+        self, study: StudyRecord, name: str
+    ) -> None:
+        """Nothing between the sentinels is typed, so nothing between them can go stale."""
+        if name == "agreement" and study.reference is None:
+            pytest.skip("study declares no comparator")
+        published = _published_block(study, name)
+        rendered = GENERATED[name](study, load(study))
+        assert published == rendered, (
+            f"{study.slug}'s {name} table is not what its artefacts render. Run "
+            f"`python -m tests.studies.evidence.document` rather than editing it by hand"
+        )
+
+    def test_a_study_without_a_comparator_publishes_no_agreement_table(
+        self, study: StudyRecord
+    ) -> None:
+        """The absence has to be stated, because an empty table reads like a missing one."""
+        if study.reference is not None:
+            pytest.skip("study declares a comparator")
+        assert study.artifact("equivalence.csv").exists()
+        lines = study.document_path.read_text(encoding="utf-8").splitlines()
+        start, stop = _section(lines, study.anchor, study.document_path)
+        section = "\n".join(lines[start:stop])
+        assert _OPEN.format(name="agreement") not in section, (
+            f"{study.slug} has no comparator but its section carries an agreement block"
+        )
+        assert "no canonical implementation is compared" in section.casefold(), (
+            f"{study.slug} must say in its own section that no comparator is claimed"
+        )
+
+    @pytest.mark.parametrize(
+        ("name", "columns", "artifact", "keys"),
+        [
+            (
+                "accuracy",
+                ACCURACY_COLUMNS,
+                "performance",
+                ("scenario", "estimand", "implementation"),
+            ),
+            ("agreement", AGREEMENT_COLUMNS, "equivalence", ("scenario", "estimand")),
+            ("properties", PROPERTY_COLUMNS, "properties", ("property", "cell")),
+        ],
+    )
+    def test_every_published_result_is_the_committed_verdict(
+        self,
+        study: StudyRecord,
+        name: str,
+        columns: tuple[str, ...],
+        artifact: str,
+        keys: tuple[str, ...],
+    ) -> None:
+        """Read out of the document and compared with the CSV, not with the renderer.
+
+        The test above would pass a renderer that printed every verdict as a pass, because it
+        compares the document with that same renderer's output.  This one goes to the committed
+        column instead, so the two checks fail for different reasons.
+        """
+        if name == "agreement" and study.reference is None:
+            pytest.skip("study declares no comparator")
+        rows = pipe_table(study.document_path, columns, section=study.anchor)
+        frame = load(study)[artifact]
+        assert len(rows) == len(frame), (
+            f"{study.slug}'s {name} table publishes {len(rows)} rows against {len(frame)} "
+            f"committed tests"
+        )
+        published = [row["result"] for row in rows]
+        assert sorted(published) == sorted(
+            "pass" if bool(passed) else "**fail**" for passed in frame["passed"]
+        ), f"{study.slug}'s {name} results are not the committed ones"
+
+    def test_every_key_a_result_file_uses_has_a_description(self, study: StudyRecord) -> None:
+        """The one hand-written column, required to cover every key that can reach a table."""
+        data = load(study)
+        undescribed: list[str] = []
+        for frame, resolvers in (
+            (
+                data["performance"],
+                (
+                    ("implementation", descriptions.implementation),
+                    ("scenario", descriptions.scenario),
+                    ("estimand", descriptions.estimand),
+                ),
+            ),
+            (
+                data["equivalence"],
+                (("scenario", descriptions.scenario), ("estimand", descriptions.estimand)),
+            ),
+        ):
+            for column, resolve in resolvers:
+                for key in sorted(set(frame[column])):
+                    try:
+                        resolve(str(key))
+                    except descriptions.Undescribed as absent:
+                        undescribed.append(str(absent))
+        for family, cell in sorted(
+            {(str(row.property), str(row.cell)) for row in data["properties"].itertuples()}
+        ):
+            try:
+                descriptions.claim(family)
+            except descriptions.Undescribed as absent:
+                undescribed.append(str(absent))
+            try:
+                descriptions.cell(family, cell)
+            except descriptions.Undescribed as absent:
+                undescribed.append(str(absent))
+        assert undescribed == [], (
+            f"{study.slug} publishes rows whose meaning is undeclared:\n  "
+            + "\n  ".join(sorted(set(undescribed)))
+            + "\nAdd them to tests/studies/evidence/descriptions.py"
+        )
 
 
 class TestTheQuantityVocabulary:

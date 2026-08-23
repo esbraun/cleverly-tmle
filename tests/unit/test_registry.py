@@ -584,10 +584,10 @@ EVIDENCE_COLUMNS = (
 def _evidence_rows() -> dict[str, dict[str, str]]:
     """The manifest's table, keyed by target, as ``{column: cell}``.
 
-    Reads the *first* pipe table whose header is :data:`EVIDENCE_COLUMNS`, so neither the
-    instruments table above it nor the method evidence grid below it -- both a different
-    shape, and about different things -- has to be skipped by counting lines.  The parser is
-    :func:`tests.documents.pipe_table`, shared with the grid's own gate in
+    Reads the *first* pipe table whose header is :data:`EVIDENCE_COLUMNS`, so the instruments
+    table above it -- a different shape, and about a different thing -- does not have to be
+    skipped by counting lines.  The parser is :func:`tests.documents.pipe_table`, shared with
+    the implementation validation grid's own gate in
     :mod:`tests.unit.test_method_evidence`.
     """
     rows: dict[str, dict[str, str]] = {}

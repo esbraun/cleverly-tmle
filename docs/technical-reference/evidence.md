@@ -64,71 +64,16 @@ follows from it.
 | `ate_shift` | `tests/discrete_law_shift.py` | `tests/unit/test_influence_gateaux_shift.py`, `tests/unit/test_influence_gateaux_shift_cde.py` | `tests/unit/test_remainder_shift_cde.py` | the same negative control as `ey_shift`, taken on the contrast (`tests/unit/test_influence_gateaux_shift.py`) | no plain-shift remainder module, as for `ey_shift`; and the MNAR tilt is refused on this axis by name, so nothing here measures sensitivity to it |
 | `msm` | `tests/discrete_law.py` | `tests/unit/test_influence_gateaux_msm.py` | `tests/unit/test_remainder_msm.py` | a **saturated** working model reproduces the per-arm report exactly, at the covariate and at the estimate (`tests/unit/test_msm_submodel.py`, `tests/e2e/test_msm.py`); continuous-dose quadrature and its nonzero density-ratio score are pinned in `tests/unit/test_msm.py` and `tests/unit/test_continuous_msm.py` | the saturated identity is blind to every link-specific mistake — the curvature term, the alternation's restart, the loss of exact double robustness — because a saturated model *fits*, which is what a projection does not promise. The continuous test uses a linear truth; a nonlinear continuous-dose Gateaux oracle remains absent |
 
-## Method evidence grid
+## Where the repeated-sampling evidence lives
 
-The target table above asks whether each parameter is implemented correctly. The method grid asks
-the complementary repeated-sampling question: when a complete estimator is applied to samples
-from a known law, does its bias and uncertainty behave as its source theory predicts? Each row
-links to committed results rather than asking the prose to stand in for a run -- and, like the
-table above, **it is a gate, not a note**. `tests/unit/test_method_evidence.py` requires one row
-per registered study and one study per row, requires every link in a row to reach that study's own
-registered section, and derives every count below from the committed result files instead of
-reading it.
+The table above asks whether each parameter is implemented correctly. The registered studies ask
+the complementary question. Apply a complete estimator to samples from a known law, and does its
+bias and uncertainty behave as its source theory predicts?
 
-| method | estimands and intervals | independent performance vs truth | cross-implementation study | paper-property study | limitations |
-| --- | --- | --- | --- | --- | --- |
-| ordinary point-treatment TMLE | arm means, ATE, ATT, ATC, observed mean, PAR, PAF, RR, and OR; pointwise 95% Wald intervals, with RR/OR on the log scale | [34/34 implementation-estimand tests against known truth pass at 99%](method-evidence.md#how-a-verdict-is-reached), half of them measuring the R reference | [17/17 paired similarity and `cleverly` non-inferiority tests pass at 99%](method-evidence.md#measured-values) against pinned R `tmle3` 0.2.0 | [12/12 cells pass: double robustness with its both-wrong control, two fitted root-n rates, efficiency at three sizes, two-sided interval calibration where both nuisances are correct, type-I error under a confounded null, and a power control](method-evidence.md#properties-checked-independently) | [full study, margins, what the standard-error band can and cannot resolve, the two continuous-law cells both implementations cover lowest, and the updater and PAF qualifications](method-evidence.md#canonical-point-treatment-tmle) |
-| stacked point-treatment CV-TMLE | [arm means, ATE, ATT, ATC, observed mean, PAR, PAF, RR, and OR; ten-fold nuisance fitting, a stacked update, whole-sample plug-in evaluation, and pointwise 95% Wald intervals](method-evidence.md#stacked-point-treatment-cv-tmle) | [34/34 implementation-estimand tests against known truth pass at 99%](method-evidence.md#stacked-point-treatment-cv-tmle), half measuring the R reference | [17/17 paired similarity and `cleverly` non-inferiority tests pass at 99%](method-evidence.md#stacked-point-treatment-cv-tmle) against pinned R `tmle3`/`sl3` with identical realized folds | [14/14 cells pass: double robustness and its control, two root-n rates, efficiency at three sizes, two-sided interval calibration where both nuisances are correct, null and power controls, and flexible-learner cross-fit versus in-sample controls](method-evidence.md#stacked-point-treatment-cv-tmle) | [bounded to the declared point-treatment laws, GLM parity configuration, one ten-fold split, complete outcomes, and pointwise intervals; PAF inference scales differ](method-evidence.md#stacked-point-treatment-cv-tmle) |
-| fold-evaluated point-treatment CV-TMLE | [arm means, ATE, ATT, and ATC; ten-fold nuisance fitting, a pooled update, equal-fold plug-in evaluation, cross-validated variance, and pointwise 95% Wald intervals](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) | [10/10 implementation-estimand tests against known truth pass at 99%](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) | [0/0 external comparisons; no comparator is claimed for the fold-evaluated report](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) | [14/14 cells pass: double robustness and its control, two root-n rates, efficiency at three sizes, two-sided interval calibration where both nuisances are correct, null and power controls, and flexible-learner cross-fit versus in-sample controls](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) | [not parity evidence for stacked R CV-TMLE; bounded to five estimands, two complete-outcome laws, one ten-fold split, and pointwise intervals](method-evidence.md#fold-evaluated-point-treatment-cv-tmle) |
-| selector-based point-treatment C-TMLE | [greedy, ordered, and discrete binary-treatment ATE selectors with pointwise 95% Wald intervals](method-evidence.md#selector-based-point-treatment-c-tmle) | [6/6 implementation-strategy tests against known truth pass at 99%](method-evidence.md#selector-based-point-treatment-c-tmle) | [3/3 paired similarity and non-inferiority tests pass against pinned R `ctmle`](method-evidence.md#selector-based-point-treatment-c-tmle) | [14/14 cells pass: double robustness and its both-wrong control, forced selection versus an empty-path control, two root-n rates, efficiency, calibration, null, and power](method-evidence.md#selector-based-point-treatment-c-tmle) | [R parity is unpenalized, non-cross-fitted, binary ATE only; the public penalty and nested cross-fitting rely on independent properties, and continuous outcomes and broader compositions remain outside parity](method-evidence.md#selector-based-point-treatment-c-tmle) |
-| outcome-adaptive point-treatment C-TMLE | [binary treatment-specific means, ATE, marginal RR, and marginal OR with identity- or log-scale pointwise 95% Wald intervals](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) | [10/10 implementation-estimand tests against known truth pass at 99%](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) | [5/5 paired similarity and non-inferiority tests pass against archived tlverse `ctmle3`](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) | [14/14 cells pass: the outcome-correct robustness contract and outcome-wrong control, two root-n rates, efficiency, calibration, null, power, cross-fit overfitting controls, and a pinned-versus-estimated design pair that measures what the reported interval omits](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) | [parity is binary, two-arm, GLM, and non-cross-fitted; archived continuous support errors, and OAT does not claim treatment-correct-only double robustness](method-evidence.md#outcome-adaptive-point-treatment-c-tmle) |
-| end-of-study longitudinal TMLE | [three censored two-time-point regimen means and two correlated contrasts, including a dynamic rule; pointwise identity-scale 95% Wald intervals](method-evidence.md#end-of-study-longitudinal-tmle) | [10/10 implementation-estimand tests against known truth pass at 99%](method-evidence.md#end-of-study-longitudinal-tmle) | [5/5 paired similarity and non-inferiority tests pass against pinned R `ltmle` 1.3-0](method-evidence.md#end-of-study-longitudinal-tmle) | [30/30 cells pass: longitudinal double robustness and controls, a targeted-versus-unfluctuated pair that measures what the paired comparison cannot, static/dynamic root-n rates, exact-EIF efficiency and calibration controls, two-sided small-sample resolution, confounded-null type-I error, and power](method-evidence.md#end-of-study-longitudinal-tmle) | [non-cross-fitted end-of-study outcomes only; the static paired comparisons do not witness targeting, positivity is comfortable throughout, and there is no survival, competing risks, MSM, weights, clustering, simultaneous bands, flexible learners, or learned-mechanism R parity](method-evidence.md#end-of-study-longitudinal-tmle) |
-
-The three study columns are three different questions and the counts are not interchangeable.
-*Independent performance vs truth* tests each implementation against the law on its own, which is
-what stops two implementations agreeing with each other from counting as evidence; half of those
-tests are measurements of the R reference and say nothing about `cleverly`. *Cross-implementation*
-is the paired comparison. *Paper-property* is the repeated-sampling behaviour claimed by the
-method's source paper, which a matching implementation would not establish even if the match were
-exact.
-
-The row is deliberately named **ordinary** TMLE. The public default cross-fits its nuisances;
-the R comparison disables cross-fitting in cleverly because R `tmle3`'s ordinary specs are not
-CV-TMLE. Cross-fitted and CV-TMLE constructions remain separate method variants and do not inherit
-this parity claim.
-
-## Adding a method row
-
-A row is not written, it is earned by registering a study. The machinery in
-`tests/studies/evidence/` is method-agnostic, so a new method supplies only what is genuinely its
-own and inherits every gate, every negative control and the checks over this grid.
-The reusable procedure is the development guide to
-[method benchmarking strategy](../development/method-benchmarking.md); follow
-it rather than designing new margins, fold-matching rules, artifacts, or provenance conventions
-for each comparison.
-
-1. **Declare it.** Add a `StudyRecord` to `tests/studies/evidence/registry.py`'s register: the
-   name this grid's first cell must carry, the artefact directory, the document and section
-   anchor, the scenarios and their estimands, the replication count and sample size, and a
-   `Margins` -- every acceptance margin, declared before the run rather than chosen after it.
-2. **Write only the method-specific half.** A law to sample from with an exact parameter oracle, a
-   fit function, and -- where one exists -- a reference implementation pinned by digest. Seeds
-   come from `replicate_seed` *applied to this study's own record*, so a replication is a fixed
-   sample whatever the study's size and a short probe redraws the published one. Reusing another
-   study's ready-made sampler inherits its seed silently while publishing your own, which a test
-   now refuses: two registered studies may share a law but not a set of datasets.
-3. **Say what a failure would look like.** Property cells are only evidence if a claim can fail:
-   pair each positive cell with a control that must fail the same instrument in the opposite
-   direction, and pair any rejection-rate cell with a power cell so an inert test cannot pass.
-4. **Quote nothing by hand.** Numbers in the section go in its measured-values table by quantity
-   name; the gate resolves each against the artefacts and checks it at the precision printed.
-5. **Declare the blind spots.** The limitations cell is the column the grid exists for. A
-   composition the study does not reach -- cross-fitting, weights, clustering, missing outcomes,
-   a flexible learner -- is a separate row, not an implied one.
-
-If a registered study has no canonical comparator, its cross-implementation cell says so and its
-row rests on the other two columns; a study with no property cells is not a method evidence row at
-all, because matching another implementation is not evidence that either one is right.
+Those studies are summarised in the
+[implementation validation grid](index.md#implementation-validation-grid). Their test-by-test
+results are the [implementation validation studies](method-evidence.md). The two halves are
+different instruments and neither one substitutes for the other.
 
 ## Estimator variants over registered targets
 

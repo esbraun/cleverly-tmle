@@ -4,7 +4,7 @@ Method benchmarking has two complementary parts: bounded comparisons with an ext
 implementation and independent statistical studies against properties implied by the derivation.
 Neither replaces the package's exact-law, Gateaux, remainder, identity, and deliberate-mutation
 checks. Use this strategy when adding or changing a method-level row in the
-[evidence manifest](../technical-reference/evidence.md#method-evidence-grid).
+[implementation validation grid](../technical-reference/index.md#implementation-validation-grid).
 
 ## Begin with the scientific claim
 
@@ -77,3 +77,40 @@ Every evidence row states what it does not cover, including relevant outcome and
 missingness, weights, clusters, fold repeats, learner class, truncation, interval type, and
 unsupported estimands. Validate changes with the targeted evidence and documentation tests, the
 complete fast tier, and only the named slow study whose path and assertion can observe the change.
+
+## Adding a method row
+
+A row is not written, it is earned by registering a study. The machinery in
+`tests/studies/evidence/` is method-agnostic, so a new method supplies only what is genuinely its
+own and inherits every gate, every negative control and the checks over the validation grid.
+Follow the rest of this guide rather than designing new margins, fold-matching rules,
+artifacts, or provenance conventions for each comparison.
+
+1. **Declare it.** Add a `StudyRecord` to `tests/studies/evidence/registry.py`'s register: the
+   name the validation grid's first cell must carry, the artefact directory, the document and
+   section anchor, the scenarios and their estimands, the replication count and sample size, and a
+   `Margins` -- every acceptance margin, declared before the run rather than chosen after it.
+2. **Write only the method-specific half.** A law to sample from with an exact parameter oracle, a
+   fit function, and -- where one exists -- a reference implementation pinned by digest. Seeds
+   come from `replicate_seed` *applied to this study's own record*, so a replication is a fixed
+   sample whatever the study's size and a short probe redraws the published one. Reusing another
+   study's ready-made sampler inherits its seed silently while publishing your own, which a test
+   now refuses: two registered studies may share a law but not a set of datasets.
+3. **Say what a failure would look like.** Property cells are only evidence if a claim can fail:
+   pair each positive cell with a control that must fail the same instrument in the opposite
+   direction, and pair any rejection-rate cell with a power cell so an inert test cannot pass.
+4. **Quote nothing by hand.** Numbers in the section go in its measured-values table by quantity
+   name; the gate resolves each against the artefacts and checks it at the precision printed.
+   The per-test tables are generated between sentinel comments by
+   `python -m tests.studies.evidence.document`, so the section carries three empty
+   `<!-- generated: ... -->` blocks and nothing typed into them.
+5. **Name every key in plain English.** Add each new scenario, estimand, property family and
+   cell to `tests/studies/evidence/descriptions.py`. A key the module does not describe fails
+   the gate, so a study cannot publish a row whose meaning a reader cannot recover.
+6. **Declare the blind spots.** The limitations cell is the column the grid exists for. A
+   composition the study does not reach -- cross-fitting, weights, clustering, missing outcomes,
+   a flexible learner -- is a separate row, not an implied one.
+
+If a registered study has no canonical comparator, its cross-implementation cell says so and its
+row rests on the other two columns; a study with no property cells is not a validation row at
+all, because matching another implementation is not evidence that either one is right.

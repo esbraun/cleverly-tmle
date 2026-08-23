@@ -123,7 +123,7 @@ class Margins:
 
 @dataclass(frozen=True)
 class StudyRecord:
-    """One row of the method evidence grid, and everything the machinery needs to check it."""
+    """One row of the implementation validation grid, and all the machinery needs to check it."""
 
     #: The name the documentation grid's first cell must carry, verbatim.
     name: str
