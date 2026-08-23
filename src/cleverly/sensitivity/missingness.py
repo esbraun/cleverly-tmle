@@ -100,13 +100,13 @@ def missingness_tilt(
 
     Parameters
     ----------
-    gamma:
+    gamma : sequence of float or None
         Tilt values on the logit scale.  ``None`` uses :data:`DEFAULT_GAMMA_GRID`.
-    estimands:
+    estimands : sequence of str or None
         Restrict to a subset.  Ratios are excluded automatically: tilting changes the
         counterfactual means, and re-deriving a ratio's log-scale influence curve under
         the tilt would misrepresent the uncertainty.
-    arm_gamma:
+    arm_gamma : mapping of level to float, or None
         One multiplier per arm, keyed by the treatment level as the caller wrote it, so
         that the tilt at arm ``a`` is ``arm_gamma[a] * gamma``.  ``None`` -- the default,
         and what a two-armed fit has always done -- tilts every arm by the same

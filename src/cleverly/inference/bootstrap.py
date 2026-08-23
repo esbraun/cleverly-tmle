@@ -137,12 +137,12 @@ def run_bootstrap(
 
     Parameters
     ----------
-    refit:
+    refit : callable
         Maps a resampled :class:`~cleverly.data.CausalData` to a mapping of estimand
         name to point estimate.  Replicates that raise are dropped and counted
         rather than aborting the run: with weak overlap a resample can easily end
         up with an empty treatment arm in some stratum.
-    resampling:
+    resampling : {"auto", "cluster", "row"}
         ``"auto"`` resamples clusters when the data has them, rows otherwise.
     """
     if n_replicates < 2:

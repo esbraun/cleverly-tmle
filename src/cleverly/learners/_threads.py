@@ -157,7 +157,7 @@ def set_thread_limit(limit: int | None) -> None:
 
     Parameters
     ----------
-    limit:
+    limit : int or None
         Threads per fit.  ``1`` (the default) keeps each fit single-threaded so the
         parallelism happens across folds and candidates instead.  ``None`` disables the
         limiting entirely and leaves each library's own defaults in place.
@@ -287,10 +287,20 @@ def _release(controller: Any, entry: _Entry) -> None:
 def thread_limit(limit: int | None = -1) -> Iterator[None]:
     """Limit native thread pools for the duration of the block.
 
-    ``limit=-1`` means "use the configured default"; pass an explicit value to override
-    it for one call.
+    Parameters
+    ----------
+    limit : int or None
+        Threads per fit inside the block.  ``-1`` (the default) means "use the configured
+        default"; pass an explicit value to override it for one call.
 
-    The controller doing the limiting is process-wide and built once; see the module
+    Yields
+    ------
+    None
+        The block runs with the limit applied, and the previous limit is restored on exit.
+
+    Notes
+    -----
+    The controller doing the limiting is process-wide and built once.  See the module
     docstring for why, for what refcounting the blocks buys when two of them overlap, and
     :func:`refresh_thread_pools` for when the cache has to be discarded.
     """

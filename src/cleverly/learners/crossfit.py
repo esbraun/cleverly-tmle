@@ -247,11 +247,11 @@ def make_folds(
 
     Parameters
     ----------
-    stratify:
-        Labels to balance across folds -- pass the treatment indicator.
-    cluster:
+    stratify : ndarray or None
+        Labels to balance across folds.  Pass the treatment indicator.
+    cluster : ndarray or None
         Cluster codes; every row of a cluster lands in the same fold.
-    random_state:
+    random_state : int, Generator, or None
         Seed or generator.  With ``cluster`` and ``stratify`` both given the
         split is deterministic given the seed, so a fit is reproducible.
     """

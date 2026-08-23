@@ -400,7 +400,13 @@ class TMLEResult:
     estimates : dict of str to ParameterEstimate
         Estimates keyed by stable parameter alias.
     repeats : tuple of RepeatFit
-        Nuisance and targeting artifacts for each cross-fitting repeat.
+        One :class:`~cleverly.estimators._nuisance.RepeatFit` per draw of the
+        cross-fitting split -- a one-element tuple for an ordinary fit, ``R`` of them
+        under ``repeats=R``.  This is where the nuisances and the fluctuations actually
+        live; :attr:`nuisance` and :attr:`fluctuations` read through to the first entry,
+        which is what keeps every analysis written against a single fit working unchanged.
+        Anything that must account for *all* the draws -- and every analysis that produces
+        a number, as against one that describes a mechanism, must -- iterates this.
     data : CausalData
         Validated study data and dataframe backend.
     config : TMLEConfig
@@ -414,7 +420,11 @@ class TMLEResult:
     bootstrap : BootstrapResult or None
         Optional refit-bootstrap draws and failure counts.
     intermediate_value : float or None
-        Fixed intermediate level for a controlled direct effect.
+        The level of the intermediate variable this fit targets, or ``None`` for an
+        ordinary point-treatment fit.  It is part of the *estimand*, not a setting: every
+        estimate here is a controlled direct effect holding ``Z`` at this level, and the
+        same data yields a different parameter at the other one.  See
+        :mod:`cleverly.estimators.direct_effect`.
     extra : dict
         Method-specific fitted artifacts.
     identified_effect : IdentifiedEffect or None
@@ -425,23 +435,6 @@ class TMLEResult:
         Structured identities for reported aliases.
     assessment_cache : dict
         Saved diagnostic and sensitivity outputs.
-
-    Attributes
-    ----------
-    repeats : tuple of RepeatFit
-        One :class:`~cleverly.estimators._nuisance.RepeatFit` per draw of the
-        cross-fitting split -- a one-element tuple for an ordinary fit, ``R`` of them
-        under ``repeats=R``.  This is where the nuisances and the fluctuations actually
-        live; :attr:`nuisance` and :attr:`fluctuations` read through to the first entry,
-        which is what keeps every analysis written against a single fit working unchanged.
-        Anything that must account for *all* the draws -- and every analysis that produces
-        a number, as against one that describes a mechanism, must -- iterates this.
-    intermediate_value : float or None
-        The level of the intermediate variable this fit targets, or ``None`` for an
-        ordinary point-treatment fit.  It is part of the *estimand*, not a setting: every
-        estimate here is a controlled direct effect holding ``Z`` at this level, and the
-        same data yields a different parameter at the other one.  See
-        :mod:`cleverly.estimators.direct_effect`.
     """
 
     estimates: dict[str, ParameterEstimate]

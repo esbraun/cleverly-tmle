@@ -677,12 +677,12 @@ def truncation_curve(
 
     Parameters
     ----------
-    bounds:
+    bounds : sequence of float or None
         Lower truncation values to try.  ``None`` uses a grid from 0.001 to 0.2 that
         includes the bound the fit actually used.
-    estimands:
+    estimands : sequence of str or None
         Restrict to a subset; defaults to everything the fit reported.
-    mechanism:
+    mechanism : bool
         Sweep the bound on ``P(Delta = 1 | A, W)`` (and the intermediate density)
         instead of the one on ``g(W)``.  That probability divides the clever covariate
         exactly as the propensity does, so it has a truncation curve for exactly the

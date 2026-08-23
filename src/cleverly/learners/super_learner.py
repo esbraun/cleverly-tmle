@@ -88,35 +88,37 @@ class SuperLearner(BaseEstimator):
 
     Parameters
     ----------
-    library:
+    library : sequence of estimators or None
         A sequence of scikit-learn estimators or ``(name, estimator)`` pairs. When
         omitted, the concrete default library is histogram gradient boosting, a
         random forest, and a task-appropriate lasso model.
-    task:
+    task : {"classification", "regression"} or None
         ``"classification"`` for a 0/1 target, ``"regression"`` otherwise;
         ``None`` infers it from ``y`` at fit time.
-    meta_learner:
-        How to combine candidates -- see the module docstring.  ``"auto"`` picks
+    meta_learner : {"auto", "nnls", "nnloglik", "discrete"}
+        How to combine candidates.  See the module docstring.  ``"auto"`` picks
         ``"nnloglik"`` for a classification task and ``"nnls"`` otherwise.
-    n_folds:
+    n_folds : int
         Inner cross-validation folds used to score candidates.
-    clip:
+    clip : tuple of float or None
         Optional ``(low, high)`` bounds applied to predictions.  Nuisance models
         for probabilities pass ``(0, 1)``, since a regression candidate can
         otherwise predict outside the unit interval.
-    random_state, n_jobs:
-        Reproducibility and parallelism.  Candidate fits across folds are
-        independent and are dispatched through joblib.
+    random_state : int or None
+        Seed for the inner fold split, for reproducibility.
+    n_jobs : int
+        Number of joblib workers.  Candidate fits across folds are independent
+        and are dispatched in parallel.
 
     Attributes
     ----------
-    coef_:
+    coef_ : ndarray
         Convex ensemble weights, aligned with ``learner_names_``.
-    cv_risk_:
+    cv_risk_ : ndarray
         Cross-validated risk per candidate.
-    cv_predictions_:
-        ``(n, n_candidates)`` matrix of out-of-fold predictions -- reused by the
-        validation module to assess calibration without refitting.
+    cv_predictions_ : ndarray
+        ``(n, n_candidates)`` matrix of out-of-fold predictions.  The validation
+        module reuses it to assess calibration without refitting.
     """
 
     def __init__(

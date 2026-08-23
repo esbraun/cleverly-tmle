@@ -329,25 +329,27 @@ class CoverageStudy:
 
     Parameters
     ----------
-    dgp:
+    dgp : DGP or callable
         A :class:`~cleverly.datasets.DGP`, or a callable
         ``(n, seed) -> (frame, truth)`` following the convention of the generators in
         :mod:`cleverly.datasets`.
-    estimator:
+    estimator : callable
         A zero-argument factory returning a fresh estimator per replication.  A factory
         rather than an instance, so replications cannot share fitted state.
-    n, n_replicates:
-        Sample size per replication, and how many replications.
-    estimands:
+    n : int
+        Sample size per replication.
+    n_replicates : int
+        How many replications to run.
+    estimands : sequence of str or None
         Which estimands to summarise; defaults to whatever the first fit reports.
-    fit_kwargs:
-        Passed to ``fit`` -- column names, ``delta=``, ``id=`` and so on.
-    truth_key:
+    fit_kwargs : mapping or None
+        Passed to ``fit``.  Column names, ``delta=``, ``id=`` and so on.
+    truth_key : {"population", "sample"}
         ``"population"`` (default) compares against the population estimand, fixed
         across replications; ``"sample"`` compares against each replication's realised
         sample estimand, which removes one source of variability but changes what
         coverage means.
-    intermediate_value:
+    intermediate_value : object or None
         The level of the intermediate variable to study, for a controlled direct effect.
         Required when ``fit_kwargs`` contains ``intermediate=``, because such a fit
         returns one result per level and each level is a *different parameter*: the

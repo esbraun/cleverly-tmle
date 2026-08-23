@@ -3,17 +3,18 @@
 Use these objects to declare the observed data, identify a causal quantity, and start estimation.
 `CausalStudy` is the main entry point. The protocols support advanced identification extensions.
 
-```{autosummary}
-:nosignatures:
+```{eval-rst}
+.. autosummary::
+   :nosignatures:
 
-cleverly.CausalStudy
-cleverly.PointTreatment
-cleverly.LongitudinalTreatment
-cleverly.Estimand
-cleverly.IdentificationProvider
-cleverly.ExplicitAdjustmentProvider
-cleverly.IdentifiedEffect
-cleverly.Provenance
+   cleverly.CausalStudy
+   cleverly.PointTreatment
+   cleverly.LongitudinalTreatment
+   cleverly.Estimand
+   cleverly.IdentificationProvider
+   cleverly.ExplicitAdjustmentProvider
+   cleverly.IdentifiedEffect
+   cleverly.Provenance
 ```
 
 Call `CausalStudy(data, design=...)`, then call `identify()` or `estimate()`. An identification

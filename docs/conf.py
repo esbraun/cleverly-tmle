@@ -48,7 +48,10 @@ myst_enable_extensions = [
 myst_heading_anchors = 3
 
 autosummary_generate = True
-autodoc_typehints = "description"
+# Types belong in the signature, not the description.  numpydoc renders a docstring as one
+# ``:Parameters:`` field rather than one ``:param x:`` field per parameter, so autodoc finds
+# nothing to merge its annotations into and appends a second, description-less Parameters block.
+autodoc_typehints = "signature"
 autodoc_typehints_format = "short"
 autodoc_member_order = "bysource"
 autoclass_content = "both"

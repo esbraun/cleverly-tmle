@@ -149,11 +149,13 @@ def test_every_dataset_generator_is_in_the_python_api() -> None:
 def test_the_categorised_pages_and_the_object_index_agree() -> None:
     """The two lists that have to be the same list, kept the same by a test.
 
-    **This is load-bearing and not tidiness.**  ``sphinx.ext.autosummary`` generates its stub pages
-    by scanning sources for the reStructuredText ``.. autosummary::`` form, and it does not read
-    MyST's ``{autosummary}`` fence: pointed at the nine categorised ``.md`` pages it finds *zero*
-    entries, and at ``object-index.rst`` it finds all of them.  So the ``.rst`` is what actually
-    generates every object page, and the ``.md`` pages only render tables that link to them.
+    **This is load-bearing and not tidiness.**  ``object-index.rst`` is what generates every
+    object page.  It is the only file whose ``.. autosummary::`` carries ``:toctree:``, and
+    ``sphinx.ext.autosummary`` writes a stub only for an entry that has one.  The nine
+    categorised ``.md`` pages carry the same 140 names without a toctree, so they render tables
+    and generate nothing.  They wrap the directive in an ``eval-rst`` block because MyST parses a
+    ``{autosummary}`` fence body as Markdown, which leaves the ``:py:obj:`` name cell unresolved
+    and the first column of every table empty.
 
     An object added to a ``.md`` page alone therefore links to a stub that was never written, and
     the warning-as-error build fails somewhere unrelated-looking.  One added to the ``.rst`` alone

@@ -69,7 +69,6 @@ class Estimand(Protocol):
     name : str
         Stable name used in parameter aliases and method dispatch.
     definition : str
-        Human-readable definition shown in study summaries.
     """
 
     name: str
@@ -222,7 +221,6 @@ class IdentificationProvider(Protocol):
     Attributes
     ----------
     name : str
-        Stable provider name shown in summaries.
     """
 
     @property
@@ -1265,9 +1263,7 @@ class CausalStudy:
     Attributes
     ----------
     data : CausalData or LongitudinalData
-        Validated internal data representation.
     design : PointTreatment or LongitudinalTreatment
-        Design supplied at construction.
 
     Examples
     --------
